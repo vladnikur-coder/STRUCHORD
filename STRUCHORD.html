@@ -9,9 +9,13 @@
     <!-- ===== Установка на «Экран Домой» (iPhone/iPad) =====
          Safari на iOS НЕ открывает локальные html-файлы, а встроенный
          просмотрщик в «Файлах» с 2019 года не выполняет JavaScript —
-         Apple отключила его из соображений безопасности. Поэтому
-         приложение раздаётся по сети с компьютера, а на планшет
-         ставится ярлыком: «Поделиться» → «На экран Домой».
+         Apple отключила его из соображений безопасности. Поэтому файл
+         выкладывается на хостинг (у нас — GitHub Pages, см. ЧИТАЙ_МЕНЯ.md
+         рядом с файлом) и оттуда ставится ярлыком: «Поделиться» →
+         «На экран Домой»; manifest.json + sw.js делают его полноценным
+         PWA-приложением с офлайном после первого визита. (Исторический
+         способ — раздача по локальной сети с компьютера — зафиксирован
+         в README, с PWA он больше не нужен.)
          Иконка и метатеги ниже нужны именно для этого. Всё встроено
          в файл (data:), внешних запросов не появляется. -->
     <meta name="apple-mobile-web-app-capable" content="yes" />
@@ -16875,10 +16879,12 @@ function onGlobalTimeSigChange() {
 //  * лента по границе не «жуётся»: окно ячейки — ровно кусок ленты над
 //    её долей; кэш ev.strumPattern хранит этот кусок дословно
 //    («хранимый байт = окно»), так что звук и показ разойтись не могут;
-//  * сама лента при нарезке не переписывается; единственная запись в
-//    рулон — кратное утончение его сетки (k: 2, 4, 8; потолок 24), когда
-//    граница окна сошла с шага, да хирургическая правка из редактора в
-//    свою полосу;
+//  * сама лента при нарезке не переписывается; записи в рулон три, и все
+//    сохраняют звук побитово: кратное утончение сетки (k: 2, 4, 8; потолок
+//    24), когда граница окна сошла с шага; обратная канонизация сетки
+//    (волна-6, coarsenRhythmRoll) — укрупнение до самой грубой сетки без
+//    потерь, когда контент и геометрия снова это позволяют; да
+//    хирургическая правка из редактора в свою полосу;
 //  * метка rhythmGroup теперь производная витрина («rgr-<rollId>» у
 //    общего рулона); мигратор читает любые метки из старых сейвов.
 // Старая меточная механика (mintRhythmGroupId, soundingRhythmForEvent и
@@ -16910,17 +16916,19 @@ function plainHitRhythm(span, subdivision, mode) {
   for (let k = 1; k < n; k++) steps.push(mode === 'pick' ? [] : '_');
   return { mode: mode || 'strum', subdivision: sub, steps };
 }
-// Перенарезка окон после смены долей (волны-2/3/5). Вызывается из растяжки
+// Перенарезка окон после смены долей (волны-2/3/5/6). Вызывается из растяжки
 // (writeSpans и onUp у .resize-handle) на каждом движении, поэтому обязана
 // быть идемпотентной: повторный прогон по тем же долям даёт те же окна.
-// Волна-5 встала ПЕРВЫМ шагом: пара на границе жеста сшивается в общую
-// ленту по долям ДО жеста (сквозная лента соседей — ритм при растяжке не
-// меняется, см. sewRhythmPairAtBoundary), и дальше приватная докрутка её
-// уже не трогает — у сшитого рулона два окна, а syncPrivateRhythmAnchors
-// работает только с приватными. Пара в общей сетки не имеет (триоли
-// против двоичных) — не сшивается и едет по старым правилам волн-2/3:
-// свой рисунок докручивается циклом/режется, наследственный срез течёт
-// за долями фасадом. startSpans по-прежнему задаёт доли ДО жеста.
+// Сквозная лента встала ПЕРВЫМ шагом: цепочка затронутых жестом ячеек
+// сшивается в общий временный рулон по долям ДО жеста (ритм при растяжке
+// не меняется, см. sewRhythmChainAtBoundary), и дальше приватная докрутка
+// её не трогает — у сшитого рулона окон несколько, а
+// syncPrivateRhythmAnchors работает только с приватными. Общей сетки для
+// всех нет: сетка под пару у ручки, а выбивающиеся ячейки играют тишину с
+// уведомлением (решение волны-6); сетки нет даже для пары — цепочка не
+// сшивается и едет по старым правилам волн-2/3: свой рисунок
+// докручивается циклом/режется, наследственный срез течёт за долями
+// фасадом. startSpans по-прежнему задаёт доли ДО жеста.
 function resliceSharedRhythmsInSquare(sq, parentTs, sec, dragIdx, startSpans) {
   if (!sq || !Array.isArray(sq.events)) return;
   // Пул строится лениво. Если его ещё нет, а ленивая постройка случится
@@ -16950,7 +16958,7 @@ function resliceSharedRhythmsInSquare(sq, parentTs, sec, dragIdx, startSpans) {
   }
   const st = ensureSquareRhythmRefs(sec, sq, startSpans || null);
   if (!st) return;
-  sewRhythmPairAtBoundary(st, sec, sq, dragIdx, startSpans);
+  sewRhythmChainAtBoundary(st, sec, sq, dragIdx, startSpans);
   syncPrivateRhythmAnchors(st, sec, sq);
   regridSquareRollsToFit(sec, sq);
   gcRhythmRolls(st);
@@ -17149,127 +17157,196 @@ function frozenTapeForEvent(st, sec, sq, i, spansOverride) {
   return facadeSlicePattern(sec, sq, sq.events[i], i, spansOverride || null);
 }
 
-// ---------- СКВОЗНАЯ ЛЕНТА СОСЕДЕЙ (волна-5, 2026-08) ----------
-// Спека: при ресайзе ручкой границы двух рядом стоящих ячеек ритм внутри
-// них меняться не должен — движется только граница, звук стоит на месте
-// (пример: D_DU_UDU|D_XU_UXU -> D_DU_U|DUD_XU_UXU -> D_DU_UDUD_X|U_UXU —
-// 16 шагов позиционно сохранны при любом ходе). Реализация: на первом же
+// ---------- СКВОЗНАЯ ЛЕНТА (волна-5: пара; волна-6: цепочка) ----------
+// Спека волны-5: при ресайзе ручкой границы двух рядом стоящих ячеек ритм
+// внутри них меняться не должен — движется только граница, звук стоит на
+// месте (пример: D_DU_UDU|D_XU_UXU -> D_DU_U|DUD_XU_UXU -> D_DU_UDUD_X|U_UXU
+// — 16 шагов позиционно сохранны при любом ходе). Реализация: на первом же
 // движении пара сшивается в ОДИН временный рулон по долям ДО жеста, оба
 // окна читают его позиционно (как честная связка, волна-2), а на
-// отпускании мыши растворяется обратно в два приватных рулона
-// (link_transient). Перешивать из текущих окон при каждом ходе не нужно:
-// куски после каждого среза стыкуются в ту же ось — один раз сшил, дальше
-// лента живёт сама побитово так же, как замороженная лента жеста.
+// отпускании мыши растворяется обратно в приватные рулоны (link_transient).
+// Перешивать из текущих окон при каждом ходе не нужно: куски после каждого
+// среза стыкуются в ту же ось — один раз сшил, дальше лента живёт сама
+// побитово так же, как замороженная лента жеста.
+//
+// Волна-6 (решение deep_bad): ГЛУБОКАЯ протяжка — правая ячейка упёрлась
+// в минимум, начала резаться следующая — сшивает в одну ленту ВСЮ цепочку
+// затронутых ячеек, а не пару у ручки. Охват определяется сравнением долей
+// с долями до жеста: каждая съехавшая ячейка в ленте. Ход назад охват
+// съёживает — пересшивать не надо: вернувшиеся ячейки (если остались
+// лишними на ленте) стоят на старой геометрии, их окна читают исходные
+// куски, на mouseup все растворятся в приватные рулоны. Пересшивается
+// только РОСТ: в охват вошла ячейка, которой на ленте ещё нет.
 //  * пустая ячейка (рисунка нет вообще) — лента тишины;
 //  * наследник — текущий срез фасада, застывает при касании;
 //  * разные дробления — общая подсетка из ряда до 24 (как у связок);
-//    общей сетки нет (триоли против двоичных) — не сшиваем, старые правила;
+//    «выбивающаяся» ячейка (контент или геометрия не легли на общую
+//    сетку) — играет ТИШИНУ на сетке большинства: её ритм очищен навсегда
+//    на этот жест, сетка сброшена до подавляющей, пользователю вылетает
+//    уведомление (решение пользователя волны-6); общей сетки нет даже для
+//    пары у ручки — жест целиком по старым правилам;
 //  * разные режимы (бой против перебора) — не препятствие: рулону ставится
 //    режим 'mixed', режим читается по шагу (массив/число — перебор,
-//    D/U/X/«_» — бой).
-function sewRhythmPairAtBoundary(st, sec, sq, dragIdx, startSpans) {
+//    D/U/X/«_» — бой). Тишина выбившихся режима не несёт.
+function sewRhythmChainAtBoundary(st, sec, sq, dragIdx, startSpans) {
   if (!st || !sq || !Array.isArray(sq.events)) return;
-  const L = dragIdx, R = dragIdx + 1;
-  if (!Number.isInteger(L) || L < 0 || R >= sq.events.length) return;
-  const kL = rhythmRefKey(sec.id, sq.id, L);
-  const kR = rhythmRefKey(sec.id, sq.id, R);
-  const rL = st.refs.get(kL);
-  const rR = st.refs.get(kR);
-  // Уже одна лента: повторный ход того же жеста либо честная связка —
-  // позиционный срез волн-2/3 делает ровно то, что просит спека.
-  if (rL && rR && rL.roll === rR.roll) return;
+  if (!Number.isInteger(dragIdx) || dragIdx < 0 || dragIdx + 1 >= sq.events.length) return;
   const spanAt = (i) => {
     const v = startSpans && startSpans[i] != null ? startSpans[i] : (sq.events[i] && sq.events[i].span);
     return v || 1;
   };
+  const curSpan = (i) => (sq.events[i] && sq.events[i].span) || 1;
+  const isInt = (x) => Math.abs(x - Math.round(x)) < 1e-9;
+  // Охват ленты: все ячейки, чьи доли уехали от долей ДО жеста. Без
+  // замороженных долей (startSpans) сшивать нечего — писатели-перепроверки
+  // и клики без протяжки сюда не доходят за счёт пустого охвата
+  // (гвард «граница не сдвинулась» волны-5).
+  let iMin = -1, iMax = -1;
+  if (startSpans) {
+    for (let i = 0; i < sq.events.length; i++) {
+      if (Math.abs(curSpan(i) - spanAt(i)) > 1e-9) { if (iMin < 0) iMin = i; iMax = i; }
+    }
+  }
+  if (iMin < 0 || iMax <= iMin) return;
+  if (!(iMin <= dragIdx && dragIdx < iMax)) return; // ручка обязана быть внутри цепочки
+  const keys = [];
+  for (let i = iMin; i <= iMax; i++) keys.push(rhythmRefKey(sec.id, sq.id, i));
+  const refs = keys.map((k) => st.refs.get(k));
+  // Уже одна лента ровно этого охвата: честная связка (волна-2, срез и так
+  // позиционный) либо собранная на этом жесте временная цепочка. Хвост
+  // временной ленты может быть ШИРЕ нынешнего охвата (ход назад) — это не
+  // повод пересшивать: наружные ячейки звучат исходными кусками (см.
+  // комментарий выше). Пересшивка — только рост охвата.
+  if (refs.every((r) => r && r.roll === refs[0].roll)) return;
   const offs0 = [];
   let acc0 = 0;
   sq.events.forEach((e0, i) => { offs0.push(acc0); acc0 += spanAt(i); });
-  // Граница с места не сдвинулась (клик по ручке без протяжки, финальная
-  // сверка в onUp после возврата курсора, писатели-перепроверки) —
-  // сшивать нечего: иначе наследник застывал бы от случайного касания,
-  // а пустая соседка получала бы явную тишину без причины.
-  const curL = (sq.events[L] && sq.events[L].span) || 1;
-  const curR = (sq.events[R] && sq.events[R].span) || 1;
-  if (Math.abs(curL - spanAt(L)) < 1e-9 && Math.abs(curR - spanAt(R)) < 1e-9) return;
-  const tapeL = frozenTapeForEvent(st, sec, sq, L, startSpans || null);
-  const tapeR = frozenTapeForEvent(st, sec, sq, R, startSpans || null);
-  const subL = tapeL ? Math.max(1, tapeL.subdivision || 1) : 0;
-  const subR = tapeR ? Math.max(1, tapeR.subdivision || 1) : 0;
-  const isInt = (x) => Math.abs(x - Math.round(x)) < 1e-9;
-  let g = 0;
-  for (const cand of [1, 2, 3, 4, 6, 8, 12, 16, 24]) {
-    if (subL && cand % subL !== 0) continue;
-    if (subR && cand % subR !== 0) continue;
-    if (!isInt(spanAt(L) * cand) || !isInt(spanAt(R) * cand)) continue;
-    if (!isInt(offs0[L] * cand) || !isInt(offs0[R] * cand)) continue;
-    g = cand;
-    break;
+  const tapes = [], subs = [];
+  for (let i = iMin; i <= iMax; i++) {
+    tapes.push(frozenTapeForEvent(st, sec, sq, i, startSpans || null));
+    subs.push(tapes[tapes.length - 1] ? Math.max(1, tapes[tapes.length - 1].subdivision || 1) : 0);
   }
-  if (!g) return; // общей сетки не нашлось — пара едет по старым правилам
-  const modeL = tapeL ? (tapeL.mode || 'strum') : null;
-  const modeR = tapeR ? (tapeR.mode || 'strum') : null;
-  const pairMode = modeL && modeR && modeL !== modeR ? 'mixed' : (modeL || modeR || 'strum');
-  const restStep = () => (pairMode === 'pick' ? [] : '_');
-  // Лента пары = замороженные куски подряд, якорь — начало левой ячейки
-  // старых долей. Сумма долей пары за жест не меняется, значит оба окна
-  // всегда укладываются в ленту без заворота.
-  const totalL = Math.round(spanAt(L) * g);
-  const totalR = Math.round(spanAt(R) * g);
-  const steps = Array.from({ length: Math.max(1, totalL + totalR) }, restStep);
-  const place = (tape, base, spanUnits, sub) => {
-    if (!tape || !Array.isArray(tape.steps) || !tape.steps.length) return;
-    const need = Math.max(1, Math.round(spanUnits * sub));
-    for (let k = 0; k < need; k++) {
-      const pos = base + Math.round((k * g) / sub);
-      if (pos < base || pos >= steps.length) continue;
-      const sym = tape.steps[k % tape.steps.length];
-      if (sym == null) continue; // битый слот: остаётся заглушка ленты
-      // Щипковая пауза остаётся щипковой (режим шага, решение mode_step):
-      // иначе рывок перебора рисовался бы боевой паузой «_».
-      if (Array.isArray(sym) && !sym.length) { steps[pos] = []; continue; }
-      steps[pos] = Array.isArray(sym) ? sym.slice() : sym;
+  const fitsCell = (i, cand) =>
+    (!subs[i - iMin] || cand % subs[i - iMin] === 0) &&
+    isInt(spanAt(i) * cand) && isInt(offs0[i] * cand);
+  const ROW = [1, 2, 3, 4, 6, 8, 12, 16, 24];
+  let g = 0;
+  for (const cand of ROW) {
+    let allOk = true;
+    for (let i = iMin; i <= iMax; i++) if (!fitsCell(i, cand)) { allOk = false; break; }
+    if (allOk) { g = cand; break; }
+  }
+  const outliers = new Set();
+  if (!g) {
+    // Общей сетки для всех нет — сетка под пару у ручки (критерий
+    // волны-5), а кому она не легла — выбивающиеся в тишину (см. док).
+    for (const cand of ROW) {
+      if (fitsCell(dragIdx, cand) && fitsCell(dragIdx + 1, cand)) { g = cand; break; }
     }
-  };
-  place(tapeL, 0, spanAt(L), subL || g);
-  place(tapeR, totalL, spanAt(R), subR || g);
+    if (!g) return; // даже пара без сетки — жест целиком по старым правилам
+    for (let i = iMin; i <= iMax; i++) if (!fitsCell(i, g)) outliers.add(i);
+  }
+  const modes = new Set();
+  for (let i = iMin; i <= iMax; i++) {
+    if (outliers.has(i)) continue;
+    const t = tapes[i - iMin];
+    if (t) modes.add(t.mode || 'strum');
+  }
+  const chainMode = modes.size > 1 ? 'mixed' : (modes.size ? [...modes][0] : 'strum');
+  const restStep = () => (chainMode === 'pick' ? [] : '_');
+  // Лента цепочки = замороженные куски подряд, якорь — начало левой
+  // ячейки охвата на старых долях. Сумма долей квадрата за жест не
+  // меняется: сумма долей цепочки постоянна, все окна всегда укладываются
+  // в ленту без заворота.
+  const lens = [];
+  let total = 0;
+  for (let i = iMin; i <= iMax; i++) {
+    const n = Math.max(1, Math.round(spanAt(i) * g));
+    lens.push(n);
+    total += n;
+  }
+  const steps = Array.from({ length: total }, restStep);
+  let base = 0;
+  for (let i = iMin; i <= iMax; i++) {
+    const n = lens[i - iMin];
+    if (!outliers.has(i)) {
+      const tape = tapes[i - iMin];
+      const sub = subs[i - iMin] || g;
+      if (tape && Array.isArray(tape.steps) && tape.steps.length) {
+        const need = Math.max(1, Math.round(spanAt(i) * sub));
+        for (let k = 0; k < need; k++) {
+          const pos = base + Math.round((k * g) / sub);
+          if (pos < base || pos >= base + n || pos >= steps.length) continue;
+          const sym = tape.steps[k % tape.steps.length];
+          if (sym == null) continue; // битый слот: остаётся заглушка ленты
+          // Щипковая пауза остаётся щипковой (режим шага, mode_step).
+          if (Array.isArray(sym) && !sym.length) { steps[pos] = []; continue; }
+          steps[pos] = Array.isArray(sym) ? sym.slice() : sym;
+        }
+      }
+    }
+    base += n;
+  }
+  // Уведомления об очищенных выбивающихся — один раз на ячейку за жест:
+  // пересшивка при росте цепочки наследует журнал показанных (иначе на
+  // каждом движении глубокой протяжки тост спамился бы заново).
   const oldRolls = new Set();
-  if (rL) oldRolls.add(rL.roll);
-  if (rR) oldRolls.add(rR.roll);
+  refs.forEach((r) => { if (r) oldRolls.add(r.roll); });
+  const seen = new Set();
+  oldRolls.forEach((rid) => {
+    const rl = st.pool[rid];
+    if (rl && rl.transient && Array.isArray(rl._clearedKeys)) rl._clearedKeys.forEach((k) => seen.add(k));
+  });
+  outliers.forEach((i) => {
+    const k = keys[i - iMin];
+    if (!seen.has(k)) {
+      if (typeof showToast === 'function')
+        showToast(`Ритм ячейки ${i + 1} очищен: не легла общая сетка ленты`);
+      seen.add(k);
+    }
+  });
   const id = mintRhythmRollId(st);
-  st.pool[id] = { mode: pairMode, subdivision: g, steps, transient: true };
-  st.refs.set(kL, { roll: id, anchor: offs0[L] });
-  st.refs.set(kR, { roll: id, anchor: offs0[L] });
+  st.pool[id] = { mode: chainMode, subdivision: g, steps, transient: true, _clearedKeys: [...seen] };
+  for (let i = iMin; i <= iMax; i++)
+    st.refs.set(keys[i - iMin], { roll: id, anchor: offs0[iMin] });
   // Покинутые рулоны: уцелев в одном окне, сводятся к звучащей полосе —
   // как при форке из редактора.
   oldRolls.forEach((rid) => { if (rid !== id) collapseOrphanRhythmRoll(st, sec, sq, rid); });
 }
 
-// Отпускание ручки: временная сшивка растворяется — каждая ячейка пары
-// получает приватный рулон ровно со своим звучащим куском, якорь на её
-// начало по итоговым долям. Честную связку (рулон без метки transient,
-// собранную «+» или старым сейвом) жест не разрушает.
+// Отпускание ручки: временная сшивка растворяется — каждая ячейка
+// ЦЕПОЧКИ (волна-6; в волне-5 растворялась только пара у ручки, имя
+// функции историческое) получает приватный рулон ровно со своим звучащим
+// куском, якорь на её начало по итоговым долям. Лишние хвосты ленты
+// (вернувшиеся ячейки при ходе назад) растворяются так же — их окна на
+// старой геометрии дают ровно исходные куски. Честную связку (рулон без
+// метки transient, собранную «+» или старым сейвом) жест не разрушает.
 function dissolveSewnRhythmPair(st, sec, sq, dragIdx) {
   if (!st || !sq || !Array.isArray(sq.events)) return;
-  const L = dragIdx, R = dragIdx + 1;
-  if (!Number.isInteger(L) || L < 0 || R >= sq.events.length) return;
-  const rL = st.refs.get(rhythmRefKey(sec.id, sq.id, L));
-  const rR = st.refs.get(rhythmRefKey(sec.id, sq.id, R));
-  if (!rL || !rR || rL.roll !== rR.roll) return;
-  const roll = st.pool[rL.roll];
+  if (!Number.isInteger(dragIdx) || dragIdx < 0 || dragIdx >= sq.events.length) return;
+  const r0 = st.refs.get(rhythmRefKey(sec.id, sq.id, dragIdx));
+  if (!r0) return;
+  const roll = st.pool[r0.roll];
   if (!roll || !roll.transient) return;
   let users = 0;
-  for (const r of st.refs.values()) if (r.roll === rL.roll) users++;
-  if (users !== 2) return;
+  for (const r of st.refs.values()) if (r.roll === r0.roll) users++;
+  if (users < 2) return;
   const offs = squareEventOffsets(sq);
-  [L, R].forEach((i) => {
+  for (let i = 0; i < sq.events.length; i++) {
+    const key = rhythmRefKey(sec.id, sq.id, i);
+    const ref = st.refs.get(key);
+    if (!ref || ref.roll !== r0.roll) continue;
     const win = rhythmRollWindowFor(sec.id, sq, i, st);
-    if (!win || !Array.isArray(win.steps) || !win.steps.length) return;
+    if (!win || !Array.isArray(win.steps) || !win.steps.length) continue;
     const nid = mintRhythmRollId(st);
     st.pool[nid] = { mode: win.mode, subdivision: win.subdivision, steps: cloneRhythmSteps(win.steps) };
-    st.refs.set(rhythmRefKey(sec.id, sq.id, i), { roll: nid, anchor: offs[i] });
-  });
+    st.refs.set(key, { roll: nid, anchor: offs[i] });
+  }
   gcRhythmRolls(st);
+  // Волна-6: свежие приватные рулоны сразу канонизируются — лента
+  // цепочки жила на общей подсетке (обычно мельче нужного отдельной
+  // ячейке), и без уплотнения каждая наследовала бы её перегруженной.
+  regridSquareRollsToFit(sec, sq);
 }
 
 // Самопроверка: для каждой покрытой пулом ячейки окно обязано поударно
@@ -17627,6 +17704,45 @@ function collapseOrphanRhythmRoll(st, sec, sq, rollId) {
   }
 }
 
+// Канонизация сетки рулона (волна-6): укрупнение до самой грубой сетки,
+// на которую БЕЗ ПОТЕРЬ ложатся контент (каждый непустой шаг стоит на
+// позиции, кратной коэффициенту укрупнения, между ними — только пустые)
+// и геометрия окон (доли и расстояния от якоря — целые на кандидатной
+// сетке), причём длина ленты делится нацело, чтобы не сместить фазу
+// заворота. Звук не меняется НИКОГДА: окна читают ту же
+// последовательность ударов. Зачем: ресайз умеет сетку только утончать
+// (x2/x4/x8 до 24), и без обратного хода один шестнадцаточный сдвиг
+// навсегда помечал ритм шестнадцатыми, хотя следующий такой же сдвиг
+// снова укладывался в восьмые (замечание пользователя 2026-08:
+// «перегружено и нелогично»). Выбранное руками дробление в редакторе
+// сюда не попадает: функцию зовёт только механика ресайза/растворения.
+function coarsenRhythmRoll(roll, fits) {
+  if (!roll || !Array.isArray(roll.steps) || !roll.steps.length) return;
+  const sub = Math.max(1, roll.subdivision || 1);
+  if (sub <= 1) return;
+  const restLike = (v) => v == null || v === '_' || (Array.isArray(v) && v.length === 0);
+  for (let cand = 1; cand < sub; cand++) {
+    if (sub % cand !== 0) continue;
+    const k = sub / cand;
+    if (roll.steps.length % k !== 0) continue;
+    let contentOk = true;
+    for (let i = 0; i < roll.steps.length; i++) {
+      if (i % k === 0) continue;
+      if (!restLike(roll.steps[i])) { contentOk = false; break; }
+    }
+    if (!contentOk) continue;
+    if (fits && !fits(cand)) continue;
+    const out = [];
+    for (let i = 0; i < roll.steps.length; i += k) {
+      const v = roll.steps[i];
+      out.push(Array.isArray(v) ? v.slice() : v);
+    }
+    roll.steps = out;
+    roll.subdivision = cand;
+    return;
+  }
+}
+
 // Кратное утончение сетки рулона, когда граница хотя бы одного окна этого
 // квадрата сошла с его шага (k: 2, 4, 8; потолок 24). Рулон один —
 // утончаем его ВЕСЬ: удар превращается в удар + k-1 пустых шагов, окна
@@ -17652,6 +17768,10 @@ function regridSquareRollsToFit(sec, sq) {
       const span = (sq.events[u.i] && sq.events[u.i].span) || 1;
       return isInt(span * s) && isInt((offs[u.i] - u.ref.anchor) * s);
     });
+    // Волна-6: сначала пробуем укрупнить (обратный ход утончения —
+    // сетка не застревает на мелком шаге после возврата границ).
+    coarsenRhythmRoll(roll, fits);
+    sub = Math.max(1, roll.subdivision || 1);
     for (const k of [2, 4, 8]) {
       if (fits(sub)) break;
       if (sub * k > 24) break;
@@ -29061,5 +29181,5 @@ toggleTimeAndBeats();
 
 })();
     </script>
-</body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a309c38aaa88f136',t:'MTc4NzY1MjE3NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
