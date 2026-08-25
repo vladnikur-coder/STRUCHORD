@@ -17835,6 +17835,102 @@ function rhythmSoundingForEvent(sec, sq, ev, eventIndex) {
   return getSlicedPatternForEvent(sec, sq, ev, eventIndex);
 }
 
+// ---------- АВТОНАСЛЕДОВАНИЕ (волна-7, 2026-08) ----------
+// Спека пользователя: «если ритм ячейки полностью совпадает с ритмом
+// секции, то он не должен считаться кастомным... кастомный ритм внутри
+// этой ячейки должен удаляться, а ячейка наследовать общий ритм секции».
+// Решения ask_user: проверка на всех четырёх событиях (сейв из редактора,
+// отпускание ручки протяжки, установка боя секции, загрузка файла);
+// критерий совпадения — по ЗВУКУ (позиции и типы ударов побитово,
+// плотность записи безразлична); без явного боя у фасада правило спит
+// («один удар» при пустой секции — не совпадение); область — только пины
+// ячеек (уровень «рисунок квадрата» отменён; его поле живёт ради старых
+// сейвов и участвует в фасаде само по себе).
+// Тишина волны-5 не пострадает: заводской фасад пустой секции (один удар)
+// ей не равен, а секция из одних пауз — совпадение честное.
+
+// Разбор окна в карту ударов «позиция -> символ» без привязки к плотности
+// записи: позиция — дробью (шаг/сетка), символ перебора — отсортированным
+// набором струн (порядок внутри щипка косметический, на звук не влияет).
+function soundingHitsMap(win) {
+  const map = new Map();
+  if (!win || !Array.isArray(win.steps)) return map;
+  const sub = Math.max(1, win.subdivision || 1);
+  win.steps.forEach((sym, k) => {
+    let key = null;
+    if (typeof sym === 'number' && sym >= 1 && sym <= 6) key = String(sym);
+    else if (Array.isArray(sym)) {
+      if (!sym.length) return;
+      key = sym.map(Number).filter((n) => n >= 1 && n <= 6).sort((a, b) => a - b).join('+');
+      if (!key) return;
+    } else if (sym === 'D' || sym === 'U' || sym === 'X') key = sym;
+    else return; // '_'/null/битый слот — пауза
+    map.set(k + '/' + sub, key);
+  });
+  return map;
+}
+
+// Звучание двух окон совпадает побитово: одинаковая длина полосы в долях
+// (это одна и та же ячейка — доли общие) и те же удары на тех же
+// позициях. Позиции сравниваем перекрёстным умножением знаменателей —
+// без плавающей точки.
+function soundingWindowsEqual(a, b) {
+  if (!a || !b) return false;
+  const sa = Math.max(1, a.subdivision || 1), sb = Math.max(1, b.subdivision || 1);
+  if (Math.abs(a.steps.length / sa - b.steps.length / sb) > 1e-9) return false;
+  const ha = soundingHitsMap(a), hb = soundingHitsMap(b);
+  if (ha.size !== hb.size) return false;
+  for (const [pos, sym] of ha) {
+    const [pn, pd] = pos.split('/').map(Number);
+    let found = false;
+    for (const [pos2, sym2] of hb) {
+      const [qn, qd] = pos2.split('/').map(Number);
+      if (pn * qd === qn * pd && sym === sym2) { found = true; break; }
+    }
+    if (!found) return false;
+  }
+  return true;
+}
+
+// Снятие пинов, совпавших со звучанием фасада, в одном квадрате.
+// Возвращает число снятых. Фасада нет (секция без боя, и квадрата из
+// старого сейва тоже) — правило спит, ничего не трогаем (facade_no).
+function demoteMatchingCellRhythms(sec, sq) {
+  const st = songRhythmRolls;
+  if (!st || !sec || !sq || !Array.isArray(sq.events)) return 0;
+  if (!getEffectiveStrumPattern(null, sq, sec)) return 0;
+  let dropped = 0;
+  for (let i = 0; i < sq.events.length; i++) {
+    const key = rhythmRefKey(sec.id, sq.id, i);
+    const ref = st.refs.get(key);
+    if (!ref) continue;
+    const own = rhythmRollWindowFor(sec.id, sq, i, st);
+    const facade = facadeSlicePattern(sec, sq, sq.events[i], i);
+    if (!own || !facade) continue;
+    if (!soundingWindowsEqual(own, facade)) continue;
+    // Пин снимаем — окно уже звучит ровно как фасад: ячейка переходит на
+    // наследование без изменения звука, и дальше следует за боем секции.
+    st.refs.delete(key);
+    collapseOrphanRhythmRoll(st, sec, sq, ref.roll);
+    dropped++;
+  }
+  if (dropped) gcRhythmRolls(st);
+  return dropped;
+}
+
+// То же по всей секции (правка её боя) и по всей песне (загрузка файла).
+function demoteMatchingCellRhythmsInSection(sec) {
+  if (!sec) return 0;
+  let n = 0;
+  for (const sq of sec.squares || []) n += demoteMatchingCellRhythms(sec, sq);
+  return n;
+}
+function demoteMatchingCellRhythmsInSong() {
+  let n = 0;
+  for (const sec of sections) n += demoteMatchingCellRhythmsInSection(sec);
+  return n;
+}
+
 // Точечная правка секционного рулона (волна-4): секционный бой меняет
 // sec.strumPattern (его фасадом наследуют все ячейки), а в пуле живёт
 // его зеркало — для целостности сейва и защиты от gc. Волны-2/3 здесь
@@ -21144,9 +21240,11 @@ function restartPlaybackFromCurrentPosition() {
 //     тонкая струна, 6 — самая толстая); null/[] — пусто. Для обратной
 //     совместимости со старыми паттернами также допускается голое число.
 //
-// Приоритет: своя ячейка > секция по умолчанию. (Уровень "свой бой
-// квадрата" убран как избыточный — sq здесь оставлен только ради
-// сигнатуры вызовов, но не используется.)
+// Приоритет: своя ячейка > рисунок квадрата > секция по умолчанию.
+// Уровень «рисунок квадрата» из UI убран давно (редакторская ветка
+// scope='square' недостижима — ни один вызов её не открывает), но поле
+// sq.strumPattern читаем: оно приезжает в старых сейвах, и его фасад
+// продолжает работать, пока такой файл живёт в песне.
 
 function getEffectiveStrumPattern(event, sq, sec) {
   if (event && event.strumPattern) return event.strumPattern;
@@ -23373,12 +23471,18 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
       // Волна-4: только секционный рулон — пула ячеек эта правка не
       // касается (волны-2/3 дропали пул целиком, спасал кэш ячеек).
       setSectionRhythmRoll(sec, saved);
+      // Волна-7: пины, совпавшие с НОВЫМ боем секции, сдаются — ячейки
+      // снова наследуют секцию (звук не меняется на месте).
+      demoteMatchingCellRhythmsInSection(sec);
     } else if (scope === 'square') {
       sq.strumPattern = saved;
     } else {
       // Ячейка: хирургия по своей полосе общего рулона или форк в
       // приватный (см. saveEventPatternToRhythmRoll).
       saveEventPatternToRhythmRoll(sec, sq, evt, sectionId, squareId, eventIndex, saved, subSave);
+      // Волна-7: окна, совпавшие с боем секции, пинов не носят — сверяем
+      // весь квадрат (правка общего рулона могла совпасть и у соседей).
+      demoteMatchingCellRhythms(sec, sq);
     }
     closeEditor();
     requestRender();
@@ -27711,6 +27815,9 @@ function attachResizeHandlers() {
         // Волна-5 (link_transient): жест окончен — временная сшивка пары
         // растворяется в два приватных рулона, ячейки снова независимы.
         dissolveSewnRhythmPair(songRhythmRolls, s, sq, ei);
+        // Волна-7: итоговые окна, совпавшие с боем секции, распускаются
+        // в наследование — пинов больше нет, ячейки следуют за секцией.
+        demoteMatchingCellRhythms(s, sq);
         requestRender();
         isResizing = true;
         setTimeout(() => {
@@ -28783,6 +28890,10 @@ toggleTimeAndBeats();
     const rhythmAdopted = adoptRhythmPoolFromSong(song.rhythmPool);
     if (!rhythmAdopted) migrateRhythmStorageToPool();
     stripEventRhythmCache();
+    // Волна-7: совпавшие с боем секции пины из файла распускаем при
+    // загрузке — ячейка наследует секцию; звуковое содержимое песни
+    // не меняется (окна и так совпадали посимвольно).
+    demoteMatchingCellRhythmsInSong();
     updateCachedMeasuresForTimeSig(globalTimeSig);
     requestRender();
     updateCellsDegrees();
@@ -29181,5 +29292,5 @@ toggleTimeAndBeats();
 
 })();
     </script>
-<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a309c38aaa88f136',t:'MTc4NzY1MjE3NA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
+<script>(function(){function c(){var b=a.contentDocument||(a.contentWindow&&a.contentWindow.document);if(b){var d=b.createElement('script');d.innerHTML="window.__CF$cv$params={r:'a30a17ab894bf136',t:'MTc4NzY1NTYyMA=='};var a=document.createElement('script');a.src='/cdn-cgi/challenge-platform/scripts/jsd/main.js';document.getElementsByTagName('head')[0].appendChild(a);";b.getElementsByTagName('head')[0].appendChild(d)}}if(document.body){var a=document.createElement('iframe');a.height=1;a.width=1;a.style.position='absolute';a.style.top=0;a.style.left=0;a.style.border='none';a.style.visibility='hidden';document.body.appendChild(a);if('loading'!==document.readyState)c();else if(window.addEventListener)document.addEventListener('DOMContentLoaded',c);else{var e=document.onreadystatechange||function(){};document.onreadystatechange=function(b){e(b);'loading'!==document.readyState&&(document.onreadystatechange=e,c())}}}})();</script></body>
 </html>
