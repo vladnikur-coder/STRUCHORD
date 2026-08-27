@@ -21,23 +21,42 @@
 STRUCHORD.html          приложение (HTML + CSS + JavaScript)
 preset-lab.html         лаборатория ритмов
 fingering-lab.html      лаборатория аппликатур
+manifest.json, sw.js    PWA-обвязка (офлайн-кэш, иконки)
+uploads/                исходники песен, присланные пользователем (.struchord-*.json)
 dev/
   run-tests.sh          прогон всех тестов одной командой
-  tests/                15 тестов на jsdom (JavaScript)
+  tests/                35 jsdom-тестов (JavaScript)
+  fixtures/             золотые слепки для тестов (rhythm-golden, wind-of-change, praskovya)
+  bench/                Chrome-стенды с живыми кадрами (требуют puppeteer + Chrome)
   tools/                вспомогательные скрипты (Python, в приложение не входят)
     build-preset-lab.py    пересобирает ОБЕ лаборатории
     preset-lab.template.html      исходник интерфейса лаборатории ритмов
     fingering-lab.template.html   исходник интерфейса лаборатории аппликатур
     subset-icons.py        урезает шрифт иконок до используемых
     tabler-full.woff2      полный шрифт Tabler — источник глифов
-uploads/                исходный файл, присланный пользователем
+    probe-*.js, shot-*     рабочие зонды/съёмки (запускаются вручную)
+  probe/                зонды модели ритма (roll-model.js, golden-fixtures.js)
+  patch/                скрипты-«заплатки» STRUCHORD.html (применяются вручную)
+  tmp/                  резервные копии и отладочные файлы
+package.json            зависимости для тестов (jsdom; puppeteer — для Chrome-стендов)
 ```
+
+> **Что НЕ входит в этот снимок:**
+> - `dev/palette-warm-graphite.css` — вариант «Тёплый графит», упомянутый в
+>   changelog, отсутствует (в коде на него нет активных ссылок — только в
+>   комментариях резервных копий);
+> - `dev/bench/results/` — выходная папка зондов (туда кладутся снимки
+>   `fingering-rank-*.json`, `*.png`); она генерируется при прогоне
+>   `dev/tools/probe-fingering-rank.js` и как входная зависимость не нужна.
 
 ## Тесты
 
 ```bash
 bash dev/run-tests.sh
 ```
+
+После `npm install` (для jsdom) команда гоняет все 35 тестов и возвращает
+0 при полном успехе.
 
 UI-тесты поднимают приложение в jsdom и кликают по интерфейсу как
 пользователь: ритмы и пресеты, живой бас в переборах, пересчёт при смене
