@@ -1,0 +1,821 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Лаборатория аппликатур — STRUCHORD</title>
+<style>
+  :root {
+    --bg: #eae7e0; --surface: #fff; --ink: #1e2f41; --text: #1e1e2f;
+    --text-2: #4a4a5a; --text-3: #8e8e9e; --border: rgba(0,0,0,.15);
+    --border-light: rgba(0,0,0,.08); --accent: #2c3e66; --tint: rgba(0,0,0,.06);
+    --active: #eddea8; --danger: #aa5a44; --danger-bg: #fef1ea; --success: #2c6e2c;
+    --shadow: 0 1px 2px rgba(0,0,0,.03), 0 4px 8px rgba(0,0,0,.05);
+    /* Имена ниже обязаны совпадать с STRUCHORD.html: renderFingeringSVG
+       подставляет их прямо в атрибуты fill/stroke. Нет переменной —
+       браузер красит чёрным по умолчанию. */
+    --color-surface: #fff;
+    --color-ink: #1e2f41;
+    --color-danger: #aa5a44;
+    --fingering-nut-line: #555; --fingering-fret-line: #555;
+    --fingering-string-line: #aaa; --fingering-fret-number: #888;
+    --fingering-open-marker: #555;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; padding: 20px 18px 60px;
+         font: 15px/1.5 'Inter', system-ui, -apple-system, sans-serif;
+         background: var(--bg); color: var(--text); }
+  .wrap { max-width: 1320px; margin: 0 auto; }
+  h1 { font-size: 21px; margin: 0 0 4px; }
+  .sub { color: var(--text-3); font-size: 13px; margin-bottom: 18px; }
+  .card { background: var(--surface); border-radius: 16px; padding: 16px 18px;
+          box-shadow: var(--shadow); margin-bottom: 14px; }
+  .card h2 { font-size: 15px; margin: 0 0 12px; display: flex; align-items: center; gap: 8px; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  label.f { display: flex; flex-direction: column; gap: 4px; font-size: 11px;
+            color: var(--text-3); font-weight: 600; }
+  input[type=text], select, textarea {
+    font: inherit; padding: 6px 10px; border: 1px solid var(--border);
+    border-radius: 8px; background: var(--surface); color: var(--text); }
+  textarea { width: 100%; font: 12px/1.5 ui-monospace, Menlo, monospace; }
+  button { font: inherit; padding: 6px 14px; border-radius: 20px; cursor: pointer;
+           border: 1px solid var(--border); background: var(--surface); color: var(--text);
+           transition: transform .1s, background .15s, border-color .15s; }
+  button:hover { transform: translateY(-1px); }
+  button.primary { background: var(--ink); color: #fff; border-color: var(--ink); font-weight: 600; }
+  button.danger { background: var(--danger-bg); color: var(--danger); border-color: var(--danger); }
+  button.tab { border-radius: 14px; }
+  button.tab.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+  button.mini { padding: 2px 9px; font-size: 11px; border-radius: 10px; }
+
+  /* Рабочая зона: список форм | гриф | разбор нот — в одну строку.
+     Раньше всё это было втиснуто в колонку 430px, а справа пустовало
+     место. Теперь ширина расходуется равномерно, а превью аккордов
+     занимает всю ширину под ней — там оно и нужно широким. */
+  .work { display: grid; grid-template-columns: 260px minmax(230px, 300px) 1fr;
+          gap: 14px; align-items: start; margin-bottom: 14px; }
+  @media (max-width: 1200px) { .work { grid-template-columns: 240px 1fr; } }
+  @media (max-width: 820px)  { .work { grid-template-columns: 1fr; } }
+
+  /* Рабочая зона липнет к верху: правишь форму — результат листается
+     под ней, не теряя гриф из виду. */
+  .work.sticky { position: sticky; top: 10px; z-index: 5; background: var(--bg);
+                 padding-bottom: 4px; }
+  @media (max-height: 780px) { .work.sticky { position: static; } }
+
+  /* ---- список форм в таблице ---- */
+  .tlist { display: flex; flex-direction: column; gap: 6px; max-height: 280px; overflow-y: auto; padding-right: 4px; }
+  .titem { display: flex; align-items: center; gap: 10px; padding: 6px 8px;
+           border: 1px solid transparent; border-radius: 10px; cursor: pointer; }
+  .titem:hover { background: var(--tint); }
+  .titem.sel { background: var(--active); border-color: var(--ink); }
+  .titem.edited { border-left: 3px solid var(--accent); }
+  .titem .nm { font-weight: 600; font-size: 13px; min-width: 62px; }
+  .titem .sh { font: 11px ui-monospace, Menlo, monospace; color: var(--text-3); flex: 1; }
+  .titem .mini-svg { flex: 0 0 auto; }
+  .titem .mini-svg svg { width: 54px; height: auto; }
+  .titem .sh { display: none; }  /* цифры формы не влезают рядом с картинкой */
+  .edited-dot { color: var(--accent); font-weight: 700; }
+
+  /* ---- превью результата ---- */
+  .preview { display: flex; flex-wrap: wrap; gap: 10px; }
+  .pcard { border: 1px solid var(--border); border-radius: 12px; padding: 6px 8px 8px;
+           display: flex; flex-direction: column; align-items: center; gap: 3px;
+           background: var(--surface); }
+  .pcard.changed { border-color: var(--accent); box-shadow: 0 0 0 2px rgba(44,62,102,.13); }
+  .phead { font-size: 10px; display: flex; gap: 6px; align-items: center; width: 100%;
+           justify-content: space-between; }
+  .pnum { font-weight: 700; color: var(--text-2); }
+  .psrc { font-size: 9px; padding: 1px 6px; border-radius: 10px; background: var(--tint); color: var(--accent); }
+  .pshape { font: 10px ui-monospace, Menlo, monospace; color: var(--text-3); }
+  .chgmark { font-size: 9px; color: var(--accent); font-weight: 700; }
+
+  .hint { font-size: 11px; color: var(--text-3); }
+  .warn { font-size: 12px; color: var(--danger); font-weight: 600; }
+  .ok { font-size: 12px; color: var(--success); font-weight: 600; }
+  .badge { font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 20px;
+           background: var(--tint); color: var(--accent); }
+  code.k { background: var(--tint); padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+  table.chk { border-collapse: collapse; font-size: 12px; }
+  table.chk td { padding: 2px 10px 2px 0; }
+  table.chk td:last-child { color: var(--text-3); }
+  #fretboard svg { display: block; }
+  /* Разбор нот: что звучит на каждой струне и всё ли на месте */
+  .notes-grid { display: flex; gap: 3px; margin: 8px 0 4px; }
+  .ncell { flex: 1; text-align: center; border: 1px solid var(--border-light);
+           border-radius: 6px; padding: 3px 1px; font-size: 11px; background: var(--surface); }
+  .ncell .nstr { font-size: 8px; color: var(--text-3); display: block; }
+  .ncell .nnote { font-weight: 700; }
+  .ncell.muted { opacity: .4; }
+  .ncell.muted .nnote { color: var(--danger); }
+  .ncell.is-root { background: var(--active); border-color: var(--ink); }
+  .ncell.is-bass { box-shadow: 0 0 0 2px var(--accent) inset; }
+  .ncell.wrong { background: var(--danger-bg); border-color: var(--danger); }
+  .ncell .ndeg { font-size: 8px; color: var(--text-3); display: block; }
+  .issues { display: flex; flex-direction: column; gap: 3px; margin-top: 6px; }
+  .issue { font-size: 11px; padding: 3px 8px; border-radius: 8px; }
+  .issue.err { background: var(--danger-bg); color: var(--danger); font-weight: 600; }
+  .issue.warn2 { background: #fff6e0; color: #8a6d1f; }
+  .issue.good { background: #eaf5ea; color: var(--success); }
+  .diff-line { font: 11px ui-monospace, Menlo, monospace; padding: 1px 0; }
+  .diff-old { color: var(--danger); }
+  .diff-new { color: var(--success); }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Лаборатория аппликатур</h1>
+  <div class="sub">
+    Правка базовых таблиц <code class="k">OPEN_CHORDS</code> и <code class="k">CAGED_SHAPES</code> —
+    справа сразу видно, что от этого изменится у реальных аккордов.
+  </div>
+
+  <div class="work sticky">
+    <!-- 1. Что правим -->
+    <div class="card" style="margin:0">
+      <h2>Что правим</h2>
+      <div class="row" style="margin-bottom:8px">
+        <button class="tab active" id="tab-open" data-tab="open">OPEN</button>
+        <button class="tab" id="tab-caged" data-tab="caged">CAGED</button>
+      </div>
+      <div class="row" id="caged-type-row" style="display:none;margin-bottom:8px">
+        <label class="f" style="flex:1">Тип аккорда
+          <select id="f-cagedtype" style="width:100%"></select>
+        </label>
+      </div>
+      <div class="row" style="margin-bottom:8px">
+        <input type="text" id="f-filter" placeholder="фильтр…" style="flex:1;min-width:90px" />
+        <span class="badge" id="tcount"></span>
+      </div>
+      <div class="tlist" id="tlist"></div>
+      <div class="row" style="margin-top:8px">
+        <button id="btn-addform" class="mini">+ форма</button>
+        <button id="btn-reset" class="mini danger">сброс</button>
+      </div>
+    </div>
+
+    <!-- 2. Гриф -->
+    <div class="card" style="margin:0">
+      <h2>Форма <span class="hint" id="edit-what"></span></h2>
+      <div id="fretboard"></div>
+      <div class="row" id="caged-root-row" style="display:none;margin-top:8px">
+        <label class="f">Струна корня
+          <select id="f-rootstr"></select>
+        </label>
+        <label class="f">Лад
+          <select id="f-rootfret"></select>
+        </label>
+      </div>
+      <div class="row" style="margin-top:10px">
+        <button id="btn-apply" class="primary">Применить</button>
+        <button id="btn-revert" class="mini">вернуть</button>
+      </div>
+      <div class="row" style="margin-top:6px">
+        <button id="btn-play" class="mini">♪ бой</button>
+        <button id="btn-arp" class="mini">♪ перебор</button>
+      </div>
+      <div class="hint" style="margin-top:8px">
+        Клик по ладу — палец, над порожком — ○ / ✕.
+      </div>
+    </div>
+
+    <!-- 3. Разбор -->
+    <div class="card" style="margin:0">
+      <h2>Что звучит</h2>
+      <div class="notes-grid" id="notes-grid"></div>
+      <table class="chk" id="report"></table>
+      <div class="issues" id="issues"></div>
+    </div>
+  </div>
+
+  <!-- Результат: во всю ширину, здесь она нужна -->
+  <div class="card">
+    <h2>Как это выглядит у аккордов <span class="badge" id="affected"></span></h2>
+    <div class="row" style="margin-bottom:10px">
+      <label class="f">Проверить на аккордах
+        <input type="text" id="f-testchords" style="min-width:300px" />
+      </label>
+      <label class="f">Тональность
+        <select id="f-key"></select>
+      </label>
+      <label class="f">Показывать
+        <select id="f-limit">
+          <option value="6">по 6 вариантов</option>
+          <option value="12">по 12</option>
+          <option value="3">по 3</option>
+        </select>
+      </label>
+      <button id="btn-refresh">Обновить</button>
+    </div>
+    <div id="results"></div>
+  </div>
+
+  <details class="card">
+    <summary style="cursor:pointer;font-size:15px;font-weight:600">
+      Код для STRUCHORD.html
+    </summary>
+    <div class="hint" style="margin:10px 0 8px">
+      Замените соответствующие таблицы в файле на текст ниже.
+    </div>
+    <textarea id="out" rows="14" readonly></textarea>
+    <div class="row" style="margin-top:10px">
+      <button id="btn-copy" class="primary">Скопировать</button>
+      <button id="btn-download">Скачать .js</button>
+      <span class="hint" id="copy-note"></span>
+    </div>
+  </details>
+</div>
+</div>
+
+<script>
+/* ===================================================================
+   ДВИЖОК, ИЗВЛЕЧЁННЫЙ ИЗ STRUCHORD.html
+   (не редактировать вручную — пересобирается build-preset-lab.py)
+   =================================================================== */
+let audioCtx = null;
+const activeOscillators = new Set();
+let globalKey = 'C';
+let activeSectionKey = null;
+const preferredFingeringByChord = new Map();
+const CONFIG = { MAX_SQUARES_PER_SECTION: 32 };
+// Песни в лаборатории нет — но generateFingeringVariants обходит
+// sections, чтобы не схлопнуть формы, выбранные пользователем.
+// Пустой список означает «защищать нечего», это верно для лаборатории.
+const sections = [];
+// Основной тултип аппликатуры — часть приложения, в лаборатории его нет.
+// setPreferredFingering читает tooltip.dataset при переходе между
+// ячейками; здесь ячеек не бывает, поэтому достаточно заглушки.
+const tooltip = null;
+// Резолв выбранной формы — часть приложения, здесь не нужен: в
+// лаборатории всегда показывается весь список вариантов.
+function resolveFingeringShape(chordName, key) {
+  const r = window.getFingeringVariants ? window.getFingeringVariants(chordName, key) : null;
+  return r && r.shapes.length ? r.shapes[0] : null;
+}
+// Дрожание струн привязано к ленте воспроизведения (#tlNowFing,
+// playbackState) — в лаборатории ленты нет, а strumChordDirectional
+// вызов делает. Заглушка вместо переноса всей цепочки таймеров.
+function vibrateFingeringStrings() {}
+
+/*__ENGINE__*/
+
+function getAudioContext() {
+  if (!audioCtx) {
+    try { audioCtx = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch (e) { return null; }
+  }
+  return audioCtx;
+}
+window.getFingeringVariants = generateFingeringVariants;
+
+/* ===================================================================
+   ЛАБОРАТОРИЯ: правка базовых таблиц
+   =================================================================== */
+const KEYS = ['C','G','D','A','E','B','F#','F','Bb','Eb','Ab','Db','Am','Em','Bm','F#m','Dm','Gm','Cm'];
+
+// Исходные таблицы запоминаем ДО правок — по ним считаем «что изменилось»
+// и кнопку «вернуть исходную».
+const ORIG_OPEN = JSON.parse(JSON.stringify(OPEN_CHORDS));
+const ORIG_CAGED = JSON.parse(JSON.stringify(CAGED_SHAPES));
+
+let tab = 'open';            // open | caged
+let cagedType = 'maj';
+let selName = null;          // выбранный аккорд (open) или индекс шаблона (caged)
+let selIdx = 0;
+let editShape = ['x','x','x','x','x','x'];
+let fretboard = null;
+let lastResults = null;      // снимок «до» для подсветки изменений
+
+const $ = (id) => document.getElementById(id);
+const eq = (a, b) => JSON.stringify(a) === JSON.stringify(b);
+
+// ---------- какие аккорды показывать в превью ----------
+// Для OPEN_CHORDS достаточно самого аккорда. Для CAGED-шаблона берём
+// несколько корней: шаблон один, а аппликатур из него получается много.
+function defaultTestChords() {
+  if (tab === 'open') return selName ? [selName] : [];
+  const suffixMap = { maj: '', m: 'm', 7: '7', m7: 'm7', maj7: 'maj7', sus4: 'sus4',
+                      sus2: 'sus2', 5: '5', 6: '6', m6: 'm6', dim: 'dim', aug: 'aug', 9: '9' };
+  const sfx = suffixMap[cagedType] !== undefined ? suffixMap[cagedType] : cagedType;
+  return ['C', 'F', 'G', 'A', 'D'].map((r) => r + sfx);
+}
+
+// ---------- левый список ----------
+function renderList() {
+  const box = $('tlist');
+  box.innerHTML = '';
+  const filter = $('f-filter').value.trim().toLowerCase();
+  let items = [];
+
+  if (tab === 'open') {
+    items = Object.keys(OPEN_CHORDS)
+      .filter((n) => !filter || n.toLowerCase().includes(filter))
+      .map((name) => ({
+        label: name,
+        shape: OPEN_CHORDS[name],
+        edited: !eq(OPEN_CHORDS[name], ORIG_OPEN[name]),
+        id: name,
+      }));
+  } else {
+    const list = CAGED_SHAPES[cagedType] || [];
+    items = list.map((t, i) => ({
+      label: '#' + (i + 1),
+      shape: t.shape,
+      extra: `корень: струна ${6 - t.rootStr}, лад ${t.rootFret}`,
+      edited: !ORIG_CAGED[cagedType] || !ORIG_CAGED[cagedType][i] ||
+              !eq(t, ORIG_CAGED[cagedType][i]),
+      id: i,
+    }));
+  }
+
+  $('tcount').textContent = items.length + ' шт.';
+  items.forEach((it) => {
+    const el = document.createElement('div');
+    el.className = 'titem' + (String(it.id) === String(selName) ? ' sel' : '') + (it.edited ? ' edited' : '');
+    const nm = document.createElement('span');
+    nm.className = 'nm';
+    nm.innerHTML = it.label + (it.edited ? ' <span class="edited-dot">•</span>' : '');
+    const svg = document.createElement('span');
+    svg.className = 'mini-svg';
+    svg.innerHTML = renderFingeringSVG(it.shape);
+    const sh = document.createElement('span');
+    sh.className = 'sh';
+    sh.textContent = it.shape.join(',') + (it.extra ? '\n' + it.extra : '');
+    el.append(nm, svg, sh);
+    el.onclick = () => selectItem(it.id);
+    box.appendChild(el);
+  });
+}
+
+function selectItem(id) {
+  selName = id;
+  const shape = tab === 'open' ? OPEN_CHORDS[id] : CAGED_SHAPES[cagedType][id].shape;
+  editShape = shape.slice();
+  if (tab === 'caged') {
+    const t = CAGED_SHAPES[cagedType][id];
+    $('f-rootstr').value = String(t.rootStr);
+    $('f-rootfret').value = String(t.rootFret);
+  }
+  $('edit-what').textContent = tab === 'open' ? `— ${id}` : `— ${cagedType} #${Number(id) + 1}`;
+  rebuildFretboard();
+  renderList();
+  renderReport();
+}
+
+// ---------- гриф ----------
+function rebuildFretboard() {
+  const box = $('fretboard');
+  fretboard = createInteractiveFretboard(editShape.slice(), (shape) => {
+    editShape = shape.slice();
+    renderReport();
+  });
+  box.innerHTML = '';
+  box.appendChild(fretboard.container);
+}
+
+// ---------- проверка формы ----------
+// Считаем, какие ноты реально звучат, и сверяем с составом аккорда.
+// Для CAGED-шаблона проверять «в лоб» нельзя: шаблон — это не готовый
+// аккорд, а заготовка, которую генератор сдвинет по грифу. Поэтому для
+// него берём тот аккорд, в который шаблон превращается при текущих
+// rootStr/rootFret, — иначе предупреждения были бы бессмысленными.
+const STRING_NOTES = ['E', 'A', 'D', 'G', 'B', 'E'];
+const DEGREE_NAMES = { 0: '1', 1: 'b9', 2: '9', 3: 'b3', 4: '3', 5: '11', 6: 'b5',
+                       7: '5', 8: 'b13', 9: '13', 10: 'b7', 11: '7' };
+
+// Нота, звучащая на струне i при ладе fret.
+function noteAt(i, fret) {
+  const open = CHROMATIC.indexOf(toSharpNote(STRING_NOTES[i]));
+  return CHROMATIC[(open + Number(fret)) % 12];
+}
+
+// Какой аккорд представляет текущая форма.
+function currentChordName() {
+  if (tab === 'open') return selName;
+  // CAGED: шаблон стоит корнем на струне rootStr, ладу rootFret.
+  const rs = parseInt($('f-rootstr').value, 10);
+  const rf = parseInt($('f-rootfret').value, 10);
+  if (Number.isNaN(rs) || Number.isNaN(rf)) return null;
+  const root = noteAt(rs, rf);
+  const suffixMap = { maj: '', m: 'm', 7: '7', m7: 'm7', maj7: 'maj7', sus4: 'sus4',
+                      sus2: 'sus2', 5: '5', 6: '6', m6: 'm6', dim: 'dim', aug: 'aug', 9: '9' };
+  const sfx = suffixMap[cagedType] !== undefined ? suffixMap[cagedType] : cagedType;
+  return root + sfx;
+}
+
+function renderReport() {
+  const t = $('report');
+  t.innerHTML = '';
+  const grid = $('notes-grid');
+  grid.innerHTML = '';
+  const issues = $('issues');
+  issues.innerHTML = '';
+
+  const chord = currentChordName();
+  const key = $('f-key').value;
+  const ks = getKeyStyle(key);
+  const wanted = chord ? (getChordNotes(chord, ks) || []).map((n) => toSharpNote(n.replace(/\d+$/, ''))) : [];
+  const root = wanted[0] || null;
+  const rootIdx = root ? CHROMATIC.indexOf(root) : -1;
+
+  // ---- ноты по струнам ----
+  const sounding = [];
+  editShape.forEach((v, i) => {
+    const cell = document.createElement('div');
+    cell.className = 'ncell';
+    const strName = document.createElement('span');
+    strName.className = 'nstr';
+    strName.textContent = (6 - i) + ' ' + STRING_NOTES[i];
+    const note = document.createElement('span');
+    note.className = 'nnote';
+    if (v === 'x') {
+      cell.classList.add('muted');
+      note.textContent = '✕';
+      cell.append(strName, note);
+      grid.appendChild(cell);
+      return;
+    }
+    const n = noteAt(i, v);
+    sounding.push({ str: i, note: n, fret: Number(v) });
+    note.textContent = n;
+    const deg = document.createElement('span');
+    deg.className = 'ndeg';
+    if (rootIdx >= 0) {
+      const semis = (CHROMATIC.indexOf(n) - rootIdx + 12) % 12;
+      deg.textContent = DEGREE_NAMES[semis] || '';
+      if (wanted.length && !wanted.includes(n)) cell.classList.add('wrong');
+      if (n === root) cell.classList.add('is-root');
+    }
+    cell.append(strName, note, deg);
+    grid.appendChild(cell);
+  });
+
+  // первая незаглушённая струна — она и есть бас
+  const bassEntry = sounding[0];
+  if (bassEntry) {
+    grid.children[bassEntry.str].classList.add('is-bass');
+  }
+
+  // ---- сводка ----
+  const frets = editShape.filter((v) => v !== 'x' && v !== 0).map(Number);
+  const span = frets.length ? Math.max(...frets) - Math.min(...frets) + 1 : 0;
+  const rows = [
+    ['Аккорд', chord || '—'],
+    ['Форма', editShape.join(',')],
+    ['Звучит струн', String(sounding.length)],
+    ['Растяжка', span ? span + ' лада' : 'открытая'],
+    ['Ноты аккорда', wanted.join(', ') || '—'],
+  ];
+  rows.forEach(([a, b]) => {
+    const tr = t.insertRow();
+    tr.insertCell().textContent = a;
+    tr.insertCell().textContent = b;
+  });
+
+  // ---- предупреждения ----
+  const add = (cls, text) => {
+    const d2 = document.createElement('div');
+    d2.className = 'issue ' + cls;
+    d2.textContent = text;
+    issues.appendChild(d2);
+  };
+
+  const played = new Set(sounding.map((x) => x.note));
+  const missing = wanted.filter((n) => !played.has(n));
+  const extra = [...played].filter((n) => wanted.length && !wanted.includes(n));
+
+  if (!sounding.length) { add('err', '✕ все струны заглушены'); return; }
+
+  if (wanted.length) {
+    if (missing.length) {
+      const isThird = root && missing.some((n) => {
+        const s2 = (CHROMATIC.indexOf(n) - rootIdx + 12) % 12;
+        return s2 === 3 || s2 === 4;
+      });
+      add('err', '✕ не хватает нот: ' + missing.join(', ') +
+        (isThird ? ' — нет терции, аккорд потеряет наклонение' : ''));
+    } else {
+      add('good', '✓ все ноты аккорда на месте');
+    }
+    if (extra.length) add('err', '✕ лишние ноты: ' + extra.join(', ') + ' — не входят в аккорд');
+  }
+
+  // бас
+  if (bassEntry && root) {
+    if (bassEntry.note === root) {
+      add('good', '✓ бас — основной тон (' + root + ', струна ' + (6 - bassEntry.str) + ')');
+    } else {
+      const semis = (CHROMATIC.indexOf(bassEntry.note) - rootIdx + 12) % 12;
+      const deg = DEGREE_NAMES[semis] || '?';
+      const isChordTone = wanted.includes(bassEntry.note);
+      add(isChordTone ? 'warn2' : 'err',
+        (isChordTone ? '⚠' : '✕') + ' бас — ' + bassEntry.note + ' (ступень ' + deg + '), ' +
+        (isChordTone ? 'это обращение: аккорд прозвучит как ' + chord + '/' + bassEntry.note
+                     : 'нота вне аккорда'));
+    }
+  }
+
+  // играбельность
+  if (span > 4) add('err', '✕ растяжка ' + span + ' лада — вряд ли берётся рукой');
+  else if (span === 4) add('warn2', '⚠ растяжка 4 лада — трудно, но возможно');
+
+  // дырки внутри формы: заглушённая струна между звучащими
+  const first = sounding[0].str;
+  const last = sounding[sounding.length - 1].str;
+  const holes = [];
+  for (let i = first + 1; i < last; i++) if (editShape[i] === 'x') holes.push(6 - i);
+  if (holes.length) add('warn2', '⚠ заглушены струны внутри формы: ' + holes.join(', ') +
+    ' — нужно точное глушение');
+
+  if (tab === 'caged') {
+    add('warn2', 'ℹ шаблон CAGED: проверка идёт по ' + chord +
+      ' — аккорду, в который он превращается при текущем корне');
+  }
+}
+
+// ---------- применение правки ----------
+function applyEdit() {
+  if (selName === null) return;
+  if (tab === 'open') {
+    OPEN_CHORDS[selName] = editShape.slice();
+  } else {
+    CAGED_SHAPES[cagedType][selName] = {
+      shape: editShape.slice(),
+      rootStr: parseInt($('f-rootstr').value, 10),
+      rootFret: parseInt($('f-rootfret').value, 10),
+    };
+  }
+  // Кэш вариантов держит старые результаты — иначе правка «не видна».
+  fingeringCache.clear();
+  renderList();
+  runPreview();
+  renderCode();
+}
+
+function revertEdit() {
+  if (selName === null) return;
+  if (tab === 'open') {
+    if (ORIG_OPEN[selName]) OPEN_CHORDS[selName] = ORIG_OPEN[selName].slice();
+    else delete OPEN_CHORDS[selName];
+  } else {
+    const orig = ORIG_CAGED[cagedType] && ORIG_CAGED[cagedType][selName];
+    if (orig) CAGED_SHAPES[cagedType][selName] = JSON.parse(JSON.stringify(orig));
+  }
+  fingeringCache.clear();
+  if (selName !== null && (tab === 'open' ? OPEN_CHORDS[selName] : CAGED_SHAPES[cagedType][selName])) {
+    selectItem(selName);
+  }
+  renderList(); runPreview(); renderCode();
+}
+
+// ---------- превью: что стало у реальных аккордов ----------
+function runPreview() {
+  const box = $('results');
+  box.innerHTML = '';
+  const chords = $('f-testchords').value.split(/[,\s]+/).map((c) => c.trim()).filter(Boolean);
+  const key = $('f-key').value;
+  const limit = parseInt($('f-limit').value, 10) || 6;
+  let changedTotal = 0;
+
+  chords.forEach((chord) => {
+    const res = window.getFingeringVariants(chord, key);
+    const shapes = (res ? res.shapes : []).slice(0, limit);
+    const methods = res ? res.methods : [];
+
+    const wrap = document.createElement('div');
+    wrap.style.marginBottom = '14px';
+    const h = document.createElement('div');
+    h.style.cssText = 'font-weight:600;font-size:13px;margin-bottom:6px';
+
+    // сравниваем с прошлым снимком — что сдвинулось после правки
+    const prev = lastResults && lastResults[chord + '|' + key];
+    const now = shapes.map((s) => s.join(','));
+    const changed = prev ? now.filter((s, i) => prev[i] !== s).length : 0;
+    changedTotal += changed;
+
+    h.textContent = chord + (changed ? '  ' : '');
+    if (changed) {
+      const m = document.createElement('span');
+      m.className = 'chgmark';
+      m.textContent = `изменилось позиций: ${changed}`;
+      h.appendChild(m);
+    }
+    wrap.appendChild(h);
+
+    const row = document.createElement('div');
+    row.className = 'preview';
+    shapes.forEach((shape, i) => {
+      const c = document.createElement('div');
+      const isNew = prev && prev[i] !== shape.join(',');
+      c.className = 'pcard' + (isNew ? ' changed' : '');
+      const head = document.createElement('div');
+      head.className = 'phead';
+      const num = document.createElement('span');
+      num.className = 'pnum';
+      num.textContent = '#' + (i + 1);
+      const src = document.createElement('span');
+      src.className = 'psrc';
+      src.textContent = methods[i] || '?';
+      head.append(num, src);
+      const svg = document.createElement('div');
+      svg.innerHTML = renderFingeringSVG(shape);
+      const sh = document.createElement('span');
+      sh.className = 'pshape';
+      sh.textContent = shape.join(',');
+      c.append(head, svg, sh);
+      c.onclick = () => playShape(shape, chord, false);
+      row.appendChild(c);
+    });
+    if (!shapes.length) {
+      const e = document.createElement('span');
+      e.className = 'hint';
+      e.textContent = 'вариантов нет — проверьте имя аккорда';
+      row.appendChild(e);
+    }
+    wrap.appendChild(row);
+    box.appendChild(wrap);
+  });
+
+  // запоминаем снимок для следующего сравнения
+  const snap = {};
+  chords.forEach((chord) => {
+    const res = window.getFingeringVariants(chord, key);
+    snap[chord + '|' + key] = (res ? res.shapes : []).slice(0, limit).map((s) => s.join(','));
+  });
+  lastResults = snap;
+  $('affected').textContent = changedTotal ? `изменений: ${changedTotal}` : 'без изменений';
+}
+
+// ---------- звук ----------
+function playShape(shape, chord, arp) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  if (ctx.state === 'suspended') ctx.resume();
+  const key = $('f-key').value;
+  const t0 = ctx.currentTime + 0.05;
+  if (arp) {
+    let n = 0;
+    for (let s = 5; s >= 0; s--) {
+      if (shape[5 - s] === 'x') continue;
+      pluckSingleGuitarString(ctx, shape, chord || 'C', key, s + 1, t0 + n * 0.28, 1.7, 0.42);
+      n++;
+    }
+  } else {
+    strumChordDirectional(ctx, shape, chord || 'C', key, t0, 1.6, 0.36, 'down');
+  }
+}
+
+// ---------- генерация кода ----------
+function fmtShape(s) {
+  return '[' + s.map((x) => (x === 'x' ? "'x'" : x)).join(', ') + ']';
+}
+
+function renderCode() {
+  const out = [];
+  const openChanged = Object.keys(OPEN_CHORDS).filter((k) => !eq(OPEN_CHORDS[k], ORIG_OPEN[k]));
+  const cagedChanged = Object.keys(CAGED_SHAPES).filter((t) => !eq(CAGED_SHAPES[t], ORIG_CAGED[t]));
+
+  if (!openChanged.length && !cagedChanged.length) {
+    $('out').value = '// Правок пока нет.\n' +
+      '// Выберите форму слева, поправьте на грифе и нажмите «Применить».';
+    return;
+  }
+
+  if (openChanged.length) {
+    out.push('// --- OPEN_CHORDS: изменено ' + openChanged.length + ' (' + openChanged.join(', ') + ') ---');
+    out.push('const OPEN_CHORDS = {');
+    Object.keys(OPEN_CHORDS).forEach((k) => {
+      const mark = openChanged.includes(k) ? '   // изменено' : '';
+      out.push(`  ${/^[A-Za-z][A-Za-z0-9]*$/.test(k) ? k : "'" + k + "'"}: ${fmtShape(OPEN_CHORDS[k])},${mark}`);
+    });
+    out.push('};');
+    out.push('');
+  }
+
+  if (cagedChanged.length) {
+    out.push('// --- CAGED_SHAPES: изменено типов ' + cagedChanged.length + ' (' + cagedChanged.join(', ') + ') ---');
+    out.push('const CAGED_SHAPES = {');
+    Object.keys(CAGED_SHAPES).forEach((type) => {
+      const key = /^[A-Za-z][A-Za-z0-9]*$/.test(type) ? type : "'" + type + "'";
+      out.push(`  ${key}: [`);
+      CAGED_SHAPES[type].forEach((t) => {
+        out.push(`    { shape: ${fmtShape(t.shape)}, rootStr: ${t.rootStr}, rootFret: ${t.rootFret} },`);
+      });
+      out.push('  ],');
+    });
+    out.push('};');
+  }
+  $('out').value = out.join('\n');
+}
+
+// ---------- события ----------
+document.querySelectorAll('[data-tab]').forEach((b) => {
+  b.onclick = () => {
+    document.querySelectorAll('[data-tab]').forEach((x) => x.classList.remove('active'));
+    b.classList.add('active');
+    tab = b.dataset.tab;
+    $('caged-type-row').style.display = tab === 'caged' ? '' : 'none';
+    $('caged-root-row').style.display = tab === 'caged' ? '' : 'none';
+    selName = tab === 'open' ? Object.keys(OPEN_CHORDS)[0] : 0;
+    $('f-testchords').value = defaultTestChords().join(', ');
+    selectItem(selName);
+    lastResults = null;
+    runPreview();
+    renderCode();
+  };
+});
+
+$('f-cagedtype').onchange = () => {
+  cagedType = $('f-cagedtype').value;
+  selName = 0;
+  $('f-testchords').value = defaultTestChords().join(', ');
+  selectItem(0);
+  lastResults = null;
+  runPreview();
+};
+$('f-filter').oninput = renderList;
+$('btn-apply').onclick = applyEdit;
+$('btn-revert').onclick = revertEdit;
+$('btn-refresh').onclick = () => { lastResults = null; runPreview(); };
+$('f-key').onchange = () => { lastResults = null; runPreview(); };
+$('f-limit').onchange = () => { lastResults = null; runPreview(); };
+$('btn-play').onclick = () => playShape(editShape, tab === 'open' ? selName : null, false);
+$('btn-arp').onclick = () => playShape(editShape, tab === 'open' ? selName : null, true);
+
+$('btn-addform').onclick = () => {
+  if (tab === 'open') {
+    const name = prompt('Имя аккорда (например, Fmaj7):');
+    if (!name || !name.trim()) return;
+    OPEN_CHORDS[name.trim()] = editShape.slice();
+    selName = name.trim();
+  } else {
+    CAGED_SHAPES[cagedType].push({
+      shape: editShape.slice(),
+      rootStr: parseInt($('f-rootstr').value, 10),
+      rootFret: parseInt($('f-rootfret').value, 10),
+    });
+    selName = CAGED_SHAPES[cagedType].length - 1;
+  }
+  fingeringCache.clear();
+  selectItem(selName);
+  renderList(); runPreview(); renderCode();
+};
+
+$('btn-reset').onclick = () => {
+  if (!confirm('Сбросить все правки таблиц?')) return;
+  Object.keys(OPEN_CHORDS).forEach((k) => delete OPEN_CHORDS[k]);
+  Object.assign(OPEN_CHORDS, JSON.parse(JSON.stringify(ORIG_OPEN)));
+  Object.keys(CAGED_SHAPES).forEach((k) => delete CAGED_SHAPES[k]);
+  Object.assign(CAGED_SHAPES, JSON.parse(JSON.stringify(ORIG_CAGED)));
+  fingeringCache.clear();
+  selName = tab === 'open' ? Object.keys(OPEN_CHORDS)[0] : 0;
+  selectItem(selName);
+  lastResults = null;
+  renderList(); runPreview(); renderCode();
+};
+
+$('btn-copy').onclick = async () => {
+  try { await navigator.clipboard.writeText($('out').value); $('copy-note').textContent = 'скопировано ✓'; }
+  catch (e) { $('out').select(); $('copy-note').textContent = 'выделено — Ctrl+C'; }
+  setTimeout(() => ($('copy-note').textContent = ''), 2500);
+};
+$('btn-download').onclick = () => {
+  const blob = new Blob([$('out').value], { type: 'text/javascript' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'fingering-tables.js';
+  a.click();
+  URL.revokeObjectURL(a.href);
+};
+
+// ---------- инициализация ----------
+KEYS.forEach((k) => {
+  const o = document.createElement('option');
+  o.value = k; o.textContent = k;
+  $('f-key').appendChild(o);
+});
+Object.keys(CAGED_SHAPES).forEach((t) => {
+  const o = document.createElement('option');
+  o.value = t; o.textContent = t;
+  $('f-cagedtype').appendChild(o);
+});
+// струна корня: в шаблоне 0 = низкая E (6-я струна)
+['6 (низкая E)','5 (A)','4 (D)','3 (G)','2 (B)','1 (высокая e)'].forEach((label, i) => {
+  const o = document.createElement('option');
+  o.value = String(i); o.textContent = label;
+  $('f-rootstr').appendChild(o);
+});
+for (let f = 0; f <= 5; f++) {
+  const o = document.createElement('option');
+  o.value = String(f); o.textContent = String(f);
+  $('f-rootfret').appendChild(o);
+}
+
+selName = Object.keys(OPEN_CHORDS)[0];
+$('f-testchords').value = defaultTestChords().join(', ');
+selectItem(selName);
+runPreview();
+renderCode();
+</script>
+</body>
+</html>
