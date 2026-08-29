@@ -427,6 +427,9 @@ w.addEventListener('load', async () => {
   ok('dy выхода — вверх к компактному превью',
     exactExit && exactExit.every((x) => x.dy === -44),
     exactExit && exactExit.map((x) => x.dy).join(','));
+  ok('scale выхода подгоняет подсказку к компактному preview (10px -> 8px)',
+    exactExit && exactExit.every((x) => Math.abs(x.scale - 0.8) < 1e-9),
+    exactExit && exactExit.map((x) => x.scale).join(','));
   const removedExit = evl(`
     const hint = document.createElement('div');
     const h = document.createElement('div');
@@ -462,6 +465,8 @@ w.addEventListener('load', async () => {
     /\.event-strum-preview\.is-rhythm-removing/.test(cssText));
   ok('.rhythm-hint-hit: плывут сами удары (transition transform)',
     /\.rhythm-hint-hit\s*\{[^}]*transition:\s*transform/.test(cssText));
+  ok('.rhythm-hint-hit: scale тоже анимируется для бесшовного handoff',
+    /\.rhythm-hint-hit\s*\{[^}]*transition:[^}]*scale\s+0\.22s/.test(cssText));
   ok('реальный браузер запускает обратный полёт через Web Animations API (без случайного CSS-jump)',
     /function runRhythmHintHitFlight/.test(cssText)
       && /hitEl\.animate\(/.test(cssText)

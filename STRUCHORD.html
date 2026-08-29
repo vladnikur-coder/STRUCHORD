@@ -3895,15 +3895,20 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   position: absolute;
   bottom: 20px;
   transform: translateX(-50%);
+  scale: 1;
   font-size: 14px;
   font-weight: 700;
   line-height: 1;
   white-space: nowrap;
   color: var(--color-text-secondary);
   /* Поударный FLIP: вход — от места глифа в мини-превью до узла сетки,
-     выход — обратно; лесенку задаёт transition-delay из JS. */
-  transition: transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
-  will-change: transform;
+     выход — обратно; лесенку задаёт transition-delay из JS. На выходе
+     дополнительно подгоняем scale к компактному mini-preview, чтобы
+     handoff в конце не давал скачок размера. */
+  transition:
+    transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
+    scale 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: transform, scale;
 }
 /* Первый шаг первой ячейки встаёт на левой кромке квадрата — там
    центрирование обрезало бы половину глифа об overflow:hidden квадрата.
@@ -28609,33 +28614,42 @@ function rhythmHintExitDeltas(entry, ei, bi) {
   if (!wrapperEl || !stepEls.length || !hitEls.length) return null;
   const src = stepEls.map((el) => {
     const r = el.getBoundingClientRect();
-    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2, w: r.width, h: r.height };
   });
   return hitEls.map((h, j) => {
     const r = h.getBoundingClientRect();
     const sourceIndex = j % src.length;
+    const s = src[sourceIndex];
+    const scaleByHeight = r.height > 0 && s.h > 0 ? s.h / r.height : 1;
+    const scaleByWidth = r.width > 0 && s.w > 0 ? s.w / r.width : scaleByHeight;
+    const scale = Math.max(0.72, Math.min(1.15, Math.min(scaleByHeight, scaleByWidth) || 1));
     return {
-      dx: src[sourceIndex].x - (r.left + r.width / 2),
-      dy: src[sourceIndex].y - (r.top + r.height / 2),
+      dx: s.x - (r.left + r.width / 2),
+      dy: s.y - (r.top + r.height / 2),
+      scale,
       sourceIndex,
     };
   });
 }
 
-function runRhythmHintHitFlight(hitEl, transform, delay) {
+function runRhythmHintHitFlight(hitEl, transform, delay, targetScale) {
+  const scale = Number.isFinite(targetScale) ? targetScale : 1;
   hitEl.style.transitionDelay = delay + 'ms';
   hitEl.dataset.rhythmTargetTransform = transform;
+  hitEl.dataset.rhythmTargetScale = String(Math.round(scale * 1000) / 1000);
   // В реальном браузере используем Web Animations API: так обратный полёт
   // не зависит от того, решит ли CSS transition стартовать после
   // setTimeout/fade-фазы. В jsdom animate() нет — там остаётся CSS-fallback
   // через inline transform, который проверяют стенды.
   if (typeof hitEl.animate === 'function') {
-    const current = getComputedStyle(hitEl).transform;
+    const cs = getComputedStyle(hitEl);
+    const current = cs.transform;
     const from = current && current !== 'none'
       ? current
       : (hitEl.classList.contains('is-edge') ? 'none' : 'translateX(-50%)');
+    const fromScale = cs.scale && cs.scale !== 'none' ? cs.scale : '1';
     const anim = hitEl.animate(
-      [{ transform: from }, { transform }],
+      [{ transform: from, scale: fromScale }, { transform, scale: String(scale) }],
       {
         duration: RHYTHM_HINT_MOVE_MS,
         delay,
@@ -28646,10 +28660,12 @@ function runRhythmHintHitFlight(hitEl, transform, delay) {
     hitEl._rhythmHintExitAnimation = anim;
     anim.onfinish = () => {
       hitEl.style.transform = transform;
+      hitEl.style.scale = String(scale);
     };
     return anim;
   }
   hitEl.style.transform = transform;
+  hitEl.style.scale = String(scale);
   return null;
 }
 
@@ -28767,7 +28783,7 @@ function finishRhythmHints(opts) {
         // та же кривая. Меняется только вектор — обратно к мини-превью.
         h.style.transitionDelay = delay + 'ms';
         h.dataset.rhythmSourceIndex = String(ex[j].sourceIndex);
-        return { h, transform: `${base}translate(${ex[j].dx}px, ${ex[j].dy}px)` };
+        return { h, transform: `${base}translate(${ex[j].dx}px, ${ex[j].dy}px)`, scale: ex[j].scale || 1 };
       });
       delayedMoves.push({ entry, moves });
     } else {
@@ -28788,8 +28804,8 @@ function finishRhythmHints(opts) {
       // иначе Chrome иногда не стартует transform-transition, если у
       // кастомной полосы нет параллельного opacity-transition.
       void entry.el.offsetHeight;
-      if (moves) moves.forEach(({ h, transform }) => {
-        runRhythmHintHitFlight(h, transform, parseFloat(h.style.transitionDelay) || 0);
+      if (moves) moves.forEach(({ h, transform, scale }) => {
+        runRhythmHintHitFlight(h, transform, parseFloat(h.style.transitionDelay) || 0, scale);
       });
       else entry.el.style.transform = 'translateY(-34px)';
     });
