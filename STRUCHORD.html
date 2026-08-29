@@ -16785,7 +16785,9 @@ function setSectionRepeat(sectionId, count) {
   count = Math.max(1, Math.min(99, count));
   if (count === old) return;
   sec.repeat = count;
-  requestRender();
+  // B-25: повтор секции меняет только repeat-row в списке квадратов этой
+  // секции и таймлайн; весь документ не пересобираем.
+  if (!rerenderSectionSquaresDom(sec)) requestRender();
   if (count === 1) showToast('Повтор секции убран');
   else showToast(`Секция повторяется ×${count}`);
 }
@@ -16799,7 +16801,8 @@ function setSquareRepeat(sectionId, squareId, count) {
   count = Math.max(1, Math.min(99, count));
   if (count === old) return;
   sq.repeat = count;
-  requestRender();
+  // B-25: повтор квадрата — прямое обновление его бейджа, без render.
+  if (!syncSquareRepeatDom(sec, sq)) requestRender();
   if (count === 1) showToast('Повтор квадрата убран');
   else showToast(`Квадрат повторяется ×${count}`);
 }
@@ -16810,7 +16813,8 @@ function setSectionBpm(sectionId, bpm) {
     bpm = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, parseInt(bpm) || CONFIG.DEFAULT_BPM));
   }
   sec.bpm = bpm || null;
-  requestRender();
+  // B-25: BPM секции — это только бейдж в шапке секции и таймлайн.
+  if (!syncSectionBpmBadge(sec)) requestRender();
   if (bpm) showToast(`BPM секции: ${bpm}`);
   else showToast('Секция использует глобальный BPM');
 }
@@ -28081,7 +28085,7 @@ function render() {
     }
     if (sec.bpm && sec.bpm !== globalBpm) {
       const bpmBadge = document.createElement('span');
-      bpmBadge.className = 'section-badge';
+      bpmBadge.className = 'section-badge section-badge--bpm';
       bpmBadge.textContent = `${sec.bpm} BPM`;
       bpmBadge.title = `BPM секции: ${sec.bpm}`;
       bpmBadge.onclick = (e) => {
@@ -29046,6 +29050,58 @@ function rerenderSectionSquaresDom(sec) {
   }
   if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
   window.__b25IncrementalSectionSquaresRenderCount = (window.__b25IncrementalSectionSquaresRenderCount || 0) + 1;
+  return true;
+}
+
+function syncSquareRepeatDom(sec, sq) {
+  if (!sec || !sq) return false;
+  const badge = document.querySelector(
+    `.section-card[data-id="${sec.id}"] .square[data-square="${sq.id}"] .repeat-badge`
+  );
+  if (!badge) return false;
+  const repeat = sq.repeat || 1;
+  badge.textContent = `×${repeat}`;
+  badge.title = `Повторять квадрат ×${repeat}`;
+  badge.classList.toggle('repeat-badge--visible', repeat > 1);
+  if (timelineMode) {
+    renderTimeline();
+    syncTimelineSongBar();
+  }
+  if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
+  window.__b25IncrementalRepeatSyncCount = (window.__b25IncrementalRepeatSyncCount || 0) + 1;
+  return true;
+}
+
+function syncSectionBpmBadge(sec) {
+  if (!sec) return false;
+  const badgesDiv = document.querySelector(`.section-card[data-id="${sec.id}"] .section-mod-badges`);
+  if (!badgesDiv) return false;
+  badgesDiv.querySelectorAll('.section-badge--bpm, .section-badge[title^="BPM секции"]')
+    .forEach((el) => el.remove());
+  const globalBpm = parseInt(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
+  if (sec.bpm && sec.bpm !== globalBpm) {
+    const bpmBadge = document.createElement('span');
+    bpmBadge.className = 'section-badge section-badge--bpm';
+    bpmBadge.textContent = `${sec.bpm} BPM`;
+    bpmBadge.title = `BPM секции: ${sec.bpm}`;
+    bpmBadge.onclick = (e) => {
+      e.stopPropagation();
+      const newBpm = prompt('BPM секции (0 или пусто – глобальный):', sec.bpm);
+      if (newBpm !== null) {
+        const val = parseInt(newBpm);
+        if (isNaN(val) || val <= 0) setSectionBpm(sec.id, null);
+        else setSectionBpm(sec.id, val);
+      }
+    };
+    const rhythmBadge = badgesDiv.querySelector('.strum-badge-wrap');
+    badgesDiv.insertBefore(bpmBadge, rhythmBadge || null);
+  }
+  if (timelineMode) {
+    renderTimeline();
+    syncTimelineSongBar();
+  }
+  if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
+  window.__b25IncrementalSectionBadgeSyncCount = (window.__b25IncrementalSectionBadgeSyncCount || 0) + 1;
   return true;
 }
 

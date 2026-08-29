@@ -48,6 +48,8 @@ function resetRenderCounter() {
     window.__b25IncrementalSquareSyncCount = 0;
     window.__b25IncrementalSquareRenderCount = 0;
     window.__b25IncrementalSectionSquaresRenderCount = 0;
+    window.__b25IncrementalRepeatSyncCount = 0;
+    window.__b25IncrementalSectionBadgeSyncCount = 0;
     requestRender = function () {
       window.__b25RequestRenderCount++;
       return window.__b25OldRequestRender.apply(this, arguments);
@@ -62,6 +64,8 @@ function restoreRenderCounter() {
     delete window.__b25IncrementalSquareSyncCount;
     delete window.__b25IncrementalSquareRenderCount;
     delete window.__b25IncrementalSectionSquaresRenderCount;
+    delete window.__b25IncrementalRepeatSyncCount;
+    delete window.__b25IncrementalSectionBadgeSyncCount;
     return 0`);
 }
 
@@ -328,6 +332,45 @@ w.addEventListener('load', async () => {
     evl('return window.__b25IncrementalSectionSquaresRenderCount'));
   ok('section rhythm badge удалён после reset',
     !w.document.querySelector('.section-card[data-id="1"] .strum-badge-wrap'));
+  restoreRenderCounter();
+
+  console.log('=== B-25.5 repeat/BPM: простые свойства без полного render ===');
+  scene();
+  resetRenderCounter();
+  evl(`setSquareRepeat(1, 2, 3); return 0`);
+  ok('setSquareRepeat не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('setSquareRepeat обновляет бейдж квадрата напрямую',
+    evl('return window.__b25IncrementalRepeatSyncCount') >= 1
+      && evl(`return document.querySelector('.square[data-square="2"] .repeat-badge').textContent`) === '×3'
+      && evl(`return document.querySelector('.square[data-square="2"] .repeat-badge').classList.contains('repeat-badge--visible')`));
+  restoreRenderCounter();
+
+  resetRenderCounter();
+  evl(`setSectionRepeat(1, 2); return 0`);
+  ok('setSectionRepeat не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('setSectionRepeat пересобирает только squares-list секции',
+    evl('return window.__b25IncrementalSectionSquaresRenderCount') >= 1,
+    evl('return window.__b25IncrementalSectionSquaresRenderCount'));
+  ok('section repeat row обновлён локально',
+    evl(`return !!document.querySelector('.section-card[data-id="1"] .section-repeat-badge-absolute')
+      && document.querySelector('.section-card[data-id="1"] .section-repeat-badge-absolute').textContent === '×2'`));
+  restoreRenderCounter();
+
+  resetRenderCounter();
+  evl(`setSectionBpm(1, 96); return 0`);
+  ok('setSectionBpm не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('setSectionBpm обновляет BPM-бейдж секции локально',
+    evl('return window.__b25IncrementalSectionBadgeSyncCount') >= 1
+      && evl(`return document.querySelector('.section-card[data-id="1"] .section-badge--bpm').textContent`) === '96 BPM');
+  evl(`setSectionBpm(1, null); return 0`);
+  ok('сброс BPM секции удаляет BPM-бейдж локально',
+    !w.document.querySelector('.section-card[data-id="1"] .section-badge--bpm'));
   restoreRenderCounter();
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');
