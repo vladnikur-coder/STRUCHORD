@@ -28199,6 +28199,7 @@ function render() {
 let rhythmHintSession = null; // { sqEl, bi, overlay, entries: [{el, custom, startCustom, patternKey}] }
 let rhythmHintRefreshRAF = null;
 let rhythmHintRefreshPending = null;
+let rhythmHintFinalRenderTimer = null;
 const RHYTHM_HINT_FADE_MS = 180;
 const RHYTHM_HINT_MOVE_MS = 220;
 const RHYTHM_HINT_STEP_DELAY_MS = 10;
@@ -28495,6 +28496,21 @@ function flushRhythmHintsRefresh() {
   if (pending) refreshRhythmHints(pending.s, pending.sq, pending.distribution);
 }
 
+function scheduleRhythmHintFinalRender(delay) {
+  if (rhythmHintFinalRenderTimer) clearTimeout(rhythmHintFinalRenderTimer);
+  rhythmHintFinalRenderTimer = setTimeout(() => {
+    rhythmHintFinalRenderTimer = null;
+    // Если пользователь успел начать новый resize до конца старого ghost,
+    // полный render нельзя пускать прямо в новую transform-анимацию — это
+    // и даёт случайные рывки/срывы. Ждём, пока активной подсказки нет.
+    if (rhythmHintSession) {
+      scheduleRhythmHintFinalRender(80);
+      return;
+    }
+    requestRender();
+  }, Math.max(0, delay || 0));
+}
+
 // Выходные сдвиги: каждый видимый удар подсказки летит обратно в тот
 // глиф компактного превью, из которого он был развёрнут. Превью может
 // показывать минимальный повтор («DU ×2»), поэтому полный рисунок DUDU
@@ -28614,8 +28630,9 @@ function finishRhythmHints() {
       });
       delayedMoves.push({ entry, moves });
     } else {
+      const inheritedWasVisible = entry.el.firstChild && !entry.custom && entry.el.classList.contains('is-in');
       entry.el.classList.remove('is-in');
-      if (entry.el.firstChild && !entry.custom) hasInheritedFade = true;
+      if (inheritedWasVisible) hasInheritedFade = true;
       if (entry.custom) {
         // Fallback кастома без source-глифов тоже запускаем после fade-фазы.
         delayedMoves.push({ entry, moves: null });
@@ -28624,6 +28641,7 @@ function finishRhythmHints() {
   });
   const flyDelay = hasInheritedFade ? RHYTHM_HINT_FADE_MS : 0;
   const startCustomFly = () => {
+    if (!ghost.isConnected) return;
     delayedMoves.forEach(({ entry, moves }) => {
       // Задержки и стартовая поза должны попасть в отдельный style pass,
       // иначе Chrome иногда не стартует transform-transition, если у
@@ -28954,11 +28972,7 @@ function attachResizeHandlers() {
         // анимацией, поэтому откладываем его до конца «уплывания». Текущий
         // DOM уже обновлялся по ходу drag и визуально соответствует финалу.
         const hintExitMs = finishRhythmHints();
-        if (hintExitMs > 0) {
-          setTimeout(() => requestRender(), hintExitMs);
-        } else {
-          requestRender();
-        }
+        scheduleRhythmHintFinalRender(hintExitMs);
         isResizing = true;
         setTimeout(() => {
           isResizing = false;

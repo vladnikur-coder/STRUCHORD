@@ -166,6 +166,23 @@ w.addEventListener('load', async () => {
   ok('после уплывания body-класс скрытия превью снят',
     !d.body.classList.contains('is-rhythm-hint-returning'));
 
+  console.log('=== 3b. Быстрое отпускание: невидимое наследование не задерживает кастом ===');
+  scene(
+    [D(strum(2, 'DUDU'), 2), D(null, 2)],
+    strum(2, 'DUDUDUDU')
+  );
+  firePointerDown(handle(), 100);
+  const fastHints = overlayIn() ? [...overlayIn().querySelectorAll('.rhythm-hint')] : [];
+  ok('перед быстрым отпусканием наследуемая полоса ещё не проявлена',
+    !!(fastHints[1] && !fastHints[1].classList.contains('is-in')));
+  firePointerUp();
+  const fastGhost = ghostIn();
+  const fastHits = fastGhost ? [...fastGhost.querySelectorAll('.rhythm-hint')[0].querySelectorAll('.rhythm-hint-hit')] : [];
+  ok('если fade-out наследуемого не начался, кастом улетает сразу без лишней паузы',
+    !!(fastHits.length && fastHits.every((h) => h.style.transform.includes('translate('))),
+    fastHits.map((h) => h.style.transform || 'none').join(' | '));
+  await sleep(460);
+
   // --- 4. Перебор: столбики цифр струн -----------------------------------
   console.log('=== 4. Перебор: столбики цифр ===');
   scene(
@@ -200,6 +217,7 @@ w.addEventListener('load', async () => {
   console.log('=== 6. Геометрия выхода: fixed-ghost повторяет квадрат ===');
   scene([D(strum(2, 'DUDU'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
   firePointerDown(handle(), 100);
+  await sleep(280); // наследуемая полоса уже проявлена, значит выход должен начаться с fade-out
   const biEl = d.querySelector('.square-inner');
   biEl.getBoundingClientRect = () =>
     ({ left: 10, top: 50, width: 400, height: 76, right: 410, bottom: 126, x: 10, y: 50 });
