@@ -94,6 +94,8 @@ B-25, третий срез 2026-08-29: структурные операции 
 
 B-25, четвёртый срез 2026-08-29: операции со списком квадратов секции (`addSquare`, `removeSquare`, `cloneLastSquare`) переведены на локальный rerender `.squares-list` одной секции (`buildSectionSquaresListHtml` + `rerenderSectionSquaresDom`), с сохранением scroll-фракции, edge-классов, repeat-рядов и переинициализацией handlers/previews. `setSquareCustomBeats` также закрывается локальным rerender текущего square-inner; `setSquareBeats` больше не дублирует полный render.
 
+B-25, пятый срез 2026-08-29 (60fps guardrail): живой drag границы ячейки больше не выполняет тяжёлый `writeSpans()` на каждый `pointermove`; события схлопываются через `requestAnimationFrame`, последний `clientX` flush'ится на `pointerup`, а одинаковые snap-позиции вообще не пишутся. В тестах зафиксировано: пачка pointermove до rAF не делает DOM/model-записей и даёт не больше одной записи за кадр.
+
 ### Отменённые (R4 — не стираем, причина прилагается)
 
 | ID | Зона | Что было | Статус |

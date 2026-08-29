@@ -29282,8 +29282,13 @@ function attachResizeHandlers() {
   scheduleRhythmHintsRefresh(s, sq, liveDist);
 }
 
-      function onMove(ev) {
-        const delta = ev.clientX - sX;
+      const resizeKey = (sp) => sp.map((v) => Math.round(v * 1e6) / 1e6).join('|');
+      let lastResizeWriteKey = resizeKey(sSp);
+      let resizeMoveRAF = 0;
+      let pendingResizeClientX = sX;
+
+      function applyResizeAt(clientX) {
+        const delta = clientX - sX;
         // Шаг тянем не по целым колонкам, а по текущему шагу зума:
         // при ×1.5 доступны восьмые, при ×2.5 — шестнадцатые.
         // visStep — сколько ВИЗУАЛЬНЫХ колонок приходится на один шаг.
@@ -29309,13 +29314,35 @@ function attachResizeHandlers() {
             if (nsp[ei] > maxSp) nsp[ei] = maxSp;
           }
         }
+        const key = resizeKey(nsp);
+        if (key === lastResizeWriteKey) return;
+        lastResizeWriteKey = key;
+        window.__b25ResizeWriteCount = (window.__b25ResizeWriteCount || 0) + 1;
         writeSpans(nsp);
+      }
+
+      function onMove(ev) {
+        pendingResizeClientX = ev.clientX;
+        // B-25 / 60fps: pointermove может приходить чаще частоты экрана.
+        // Вся тяжёлая работа resize (пересчёт DOM, счёта, превью, ритма)
+        // допускается максимум один раз за animation frame; последний x
+        // всегда сохраняем и на pointerup принудительно flush'им.
+        if (resizeMoveRAF) return;
+        resizeMoveRAF = requestAnimationFrame(() => {
+          resizeMoveRAF = 0;
+          applyResizeAt(pendingResizeClientX);
+        });
       }
 
       function onUp() {
         document.removeEventListener('pointermove', onMove);
         document.removeEventListener('pointerup', onUp);
         document.removeEventListener('pointercancel', onUp);
+        if (resizeMoveRAF) {
+          cancelAnimationFrame(resizeMoveRAF);
+          resizeMoveRAF = 0;
+          applyResizeAt(pendingResizeClientX);
+        }
         document.body.classList.remove('is-resizing');
         // Финальная сверка длины квадрата. Обе величины — в ДОЛЯХ:
         // раньше сумма долей сравнивалась с числом колонок tc, и на

@@ -30,6 +30,16 @@ const ok = (name, cond, extra) => {
   if (!cond) bad++;
 };
 const evl = (code) => w.eval(`(()=>{ ${code} })()`);
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const firePointerDown = (el, x) => {
+  const e = new w.MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: x });
+  if (typeof el.onpointerdown === 'function') el.onpointerdown(e);
+  else el.dispatchEvent(e);
+};
+const firePointerMove = (x) =>
+  w.document.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: x }));
+const firePointerUp = (x) =>
+  w.document.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true, cancelable: true, clientX: x }));
 
 function resetRenderCounter() {
   evl(`
@@ -118,6 +128,26 @@ w.addEventListener('load', async () => {
   const btnText = evl(`return document.querySelector('.chord-wrapper[data-ei="0"] .chord-span-btn').textContent`);
   ok('DOM-кнопка показывает новый размер', btnText === '2/4', btnText);
   restoreRenderCounter();
+
+  console.log('=== B-25.1 resize drag: pointermove схлопывается до 1 записи на кадр ===');
+  scene();
+  evl('window.__b25ResizeWriteCount = 0; return 0');
+  const resizeHandle = w.document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="0"] .resize-handle');
+  ok('ручка границы есть для проверки throttle', !!resizeHandle);
+  firePointerDown(resizeHandle, 100);
+  firePointerMove(130);
+  firePointerMove(160);
+  firePointerMove(190);
+  ok('до rAF тяжёлая запись resize ещё не выполнялась',
+    evl('return window.__b25ResizeWriteCount || 0') === 0,
+    evl('return window.__b25ResizeWriteCount || 0'));
+  await sleep(35);
+  ok('несколько pointermove в одном кадре дали не больше одной записи DOM/model',
+    evl('return window.__b25ResizeWriteCount || 0') <= 1,
+    evl('return window.__b25ResizeWriteCount || 0'));
+  firePointerUp(190);
+  await sleep(520);
+  evl('delete window.__b25ResizeWriteCount; return 0');
 
   console.log('=== B-25.2 addChordAfter: локальный rerender square-inner ===');
   scene();
