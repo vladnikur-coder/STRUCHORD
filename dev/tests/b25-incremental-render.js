@@ -51,6 +51,7 @@ function resetRenderCounter() {
     window.__b25IncrementalRepeatSyncCount = 0;
     window.__b25IncrementalSectionBadgeSyncCount = 0;
     window.__b25IncrementalSectionHeaderSyncCount = 0;
+    window.__b25IncrementalChordSyncCount = 0;
     requestRender = function () {
       window.__b25RequestRenderCount++;
       return window.__b25OldRequestRender.apply(this, arguments);
@@ -68,6 +69,7 @@ function restoreRenderCounter() {
     delete window.__b25IncrementalRepeatSyncCount;
     delete window.__b25IncrementalSectionBadgeSyncCount;
     delete window.__b25IncrementalSectionHeaderSyncCount;
+    delete window.__b25IncrementalChordSyncCount;
     return 0`);
 }
 
@@ -423,6 +425,44 @@ w.addEventListener('load', async () => {
   ok('setSectionTimeSig показывает бейдж размера секции',
     evl(`return !!document.querySelector('.section-card[data-id="1"] .section-badge--timesig')
       && document.querySelector('.section-card[data-id="1"] .section-badge--timesig').textContent === '3/4'`));
+  restoreRenderCounter();
+
+  console.log('=== B-25.7 chord edits: локальная синхронизация ячейки ===');
+  scene();
+  resetRenderCounter();
+  evl(`
+    const inp = document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="0"] .chord-input');
+    activeChordInput = inp;
+    inp.removeAttribute('readonly');
+    inp.value = 'Dm';
+    saveCurrentChord();
+    return 0`);
+  ok('saveCurrentChord не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('saveCurrentChord синхронизирует одну ячейку локально',
+    evl('return window.__b25IncrementalChordSyncCount') >= 1,
+    evl('return window.__b25IncrementalChordSyncCount'));
+  ok('ручной ввод обновил модель и display ячейки',
+    evl(`return sections[0].squares[0].events[0].chord`) === 'Dm'
+      && evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="0"] .chord-display').textContent.includes('Dm')`));
+  restoreRenderCounter();
+
+  scene();
+  resetRenderCounter();
+  evl(`
+    activeChordInput = document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="1"] .chord-input');
+    selectChord('Em');
+    return 0`);
+  ok('selectChord не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('selectChord синхронизирует выбранную ячейку локально',
+    evl('return window.__b25IncrementalChordSyncCount') >= 1,
+    evl('return window.__b25IncrementalChordSyncCount'));
+  ok('выбор с колеса обновил модель и input',
+    evl(`return sections[0].squares[0].events[1].chord`) === 'Em'
+      && evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="1"] .chord-input').value`) === 'Em');
   restoreRenderCounter();
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');

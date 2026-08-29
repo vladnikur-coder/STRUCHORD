@@ -102,6 +102,8 @@ B-25, седьмой срез 2026-08-29: простые свойства без
 
 B-25, восьмой срез 2026-08-29: секционный header обновляется локально через `syncSectionHeaderDom`: `renameSection`, `changeSectionType`, `setSectionKey` больше не требуют полного render; `setSectionTimeSig` мигрирует квадраты и затем локально обновляет header + `squares-list` секции. Убраны лишние `requestRender()` из popover модуляции после `setSectionKey`.
 
+B-25, девятый срез 2026-08-29: правки аккорда из ручного ввода (`saveCurrentChord`), колеса (`selectChord`) и переименования из редактора аппликатуры синхронизируют только затронутую ячейку через `syncEventChordDom`; ступень вынесена в `syncDegreeHintForWrapper`. При смене auto-key обновляются headers/degrees без полного rebuild. В тестах зафиксировано отсутствие полного `requestRender()` для manual/wheel chord edit.
+
 ### Отменённые (R4 — не стираем, причина прилагается)
 
 | ID | Зона | Что было | Статус |

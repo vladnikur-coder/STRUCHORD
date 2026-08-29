@@ -15408,11 +15408,25 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     // ev.fingering. Единственный такой путь среди всех: именно через
     // него форма D5 осталась лежать на ячейке, переименованной в
     // Aadd9, и дальше была залегализована pin'ом (см. setEventChord).
-    if (sq && sq.events[ei]) setEventChord(sq.events[ei], displayChord, { secId: sid, sqId: sqid, ei });
+    const changed = sq && sq.events[ei]
+      ? setEventChord(sq.events[ei], displayChord, { secId: sid, sqId: sqid, ei })
+      : false;
     input.value = displayChord;
     syncChordDisplay(input);
-    if (keyMode === 'auto') refreshAutoDetectedKey();
-    updateCellsDegrees();
+    let keyChanged = false;
+    if (keyMode === 'auto') {
+      const oldKey = globalKey;
+      refreshAutoDetectedKey();
+      keyChanged = oldKey !== globalKey;
+    }
+    if (keyChanged) {
+      syncAllSectionHeadersDom();
+      updateCellsDegrees();
+    } else if (changed && sec && sq) {
+      syncEventChordDom(sec, sq, ei);
+    } else {
+      syncDegreeHintForWrapper(wrapper);
+    }
 
     // Ячейка теперь называется по-другому — аппликатуру при сохранении
     // нужно положить под НОВЫМ именем, а не под тем, с которым редактор
@@ -16317,42 +16331,44 @@ function getScaleDegree(cn, k) {
   }
 }
 let cachedChordWrappers = [];
+function syncDegreeHintForWrapper(w) {
+  if (!w || !document.getElementById('showDegrees')?.checked) return;
+  const inp = w.querySelector('.chord-input');
+  if (!inp) return;
+  const secId = +w.dataset.sec;
+  const sec = sections.find((s) => s.id === secId);
+  const key = sec && sec.key ? sec.key : getEffectiveKey();
+  const chord = inp.value.trim();
+  const deg = chord ? getScaleDegree(chord, key) : '';
+  // Ступень живёт ВНУТРИ .chord-display, первым ребёнком. Так она
+  // попадает в тот же центрируемый столбик, что и имя аккорда, и пара
+  // держится вместе (как .tl-degree внутри .tl-cell-name в ленте).
+  // Раньше span лежал рядом с input и позиционировался absolute от
+  // верхней кромки — цифра жалась к краю, оторванная от имени.
+  const disp = w.querySelector('.chord-display');
+  if (!disp) return;
+  let span = w.querySelector('.degree-hint');
+  if (!span) {
+    span = document.createElement('span');
+    span.className = 'degree-hint';
+  }
+  if (span.parentNode !== disp || disp.firstChild !== span) {
+    disp.insertBefore(span, disp.firstChild);
+  }
+  span.textContent = deg;
+  span.style.display = deg ? '' : 'none';
+  // Прячем ступень, только когда сама цифра не влезает по ширине
+  // ячейки. Ритм больше не мешает: он опустился под строку ступени
+  // (см. .is-degrees-on .event-strum-preview), поэтому ширина
+  // рисунка боя роли не играет.
+  // Порог по фактической ширине текста, а не по числу символов:
+  // «VII» вдвое шире «I».
+  const needed = span.scrollWidth + 8;
+  w.classList.toggle('is-degree-tight', deg && needed > w.offsetWidth);
+}
 function renderDegreesInCells() {
   if (!document.getElementById('showDegrees')?.checked) return;
-  for (const w of cachedChordWrappers) {
-    const inp = w.querySelector('.chord-input');
-    if (!inp) continue;
-    const secId = +w.dataset.sec;
-    const sec = sections.find((s) => s.id === secId);
-    const key = sec && sec.key ? sec.key : getEffectiveKey();
-    const chord = inp.value.trim();
-    const deg = chord ? getScaleDegree(chord, key) : '';
-    // Ступень живёт ВНУТРИ .chord-display, первым ребёнком. Так она
-    // попадает в тот же центрируемый столбик, что и имя аккорда, и пара
-    // держится вместе (как .tl-degree внутри .tl-cell-name в ленте).
-    // Раньше span лежал рядом с input и позиционировался absolute от
-    // верхней кромки — цифра жалась к краю, оторванная от имени.
-    const disp = w.querySelector('.chord-display');
-    if (!disp) continue;
-    let span = w.querySelector('.degree-hint');
-    if (!span) {
-      span = document.createElement('span');
-      span.className = 'degree-hint';
-    }
-    if (span.parentNode !== disp || disp.firstChild !== span) {
-      disp.insertBefore(span, disp.firstChild);
-    }
-    span.textContent = deg;
-    span.style.display = deg ? '' : 'none';
-    // Прячем ступень, только когда сама цифра не влезает по ширине
-    // ячейки. Ритм больше не мешает: он опустился под строку ступени
-    // (см. .is-degrees-on .event-strum-preview), поэтому ширина
-    // рисунка боя роли не играет.
-    // Порог по фактической ширине текста, а не по числу символов:
-    // «VII» вдвое шире «I».
-    const needed = span.scrollWidth + 8;
-    w.classList.toggle('is-degree-tight', deg && needed > w.offsetWidth);
-  }
+  for (const w of cachedChordWrappers) syncDegreeHintForWrapper(w);
 }
 function updateCellsDegrees() {
   const show = document.getElementById('showDegrees')?.checked;
@@ -24762,10 +24778,22 @@ function selectChord(c) {
   }
   activeChordInput.value = normalizeChordCase(fullChord);
   syncChordDisplay(activeChordInput);
-  if (keyMode === 'auto') refreshAutoDetectedKey();
+  let keyChanged = false;
+  if (keyMode === 'auto') {
+    const oldKey = globalKey;
+    refreshAutoDetectedKey();
+    keyChanged = oldKey !== globalKey;
+  }
+  if (keyChanged) {
+    syncAllSectionHeadersDom();
+    updateCellsDegrees();
+  } else if (s && sq) {
+    syncEventChordDom(s, sq, ei);
+  } else {
+    updateCellsDegrees();
+  }
   previewChordNow(activeChordInput.value, activeChordInput.closest('.chord-wrapper'));
   closeChordWheel();
-  updateCellsDegrees();
 }
 
 // ---------- прочие вспомогательные функции ----------
@@ -25797,6 +25825,8 @@ function saveCurrentChord() {
     ei = +activeChordInput.dataset.ei;
   const s = sections.find((s) => s.id === secId);
   const sq = s?.squares.find((sq) => sq.id === sqId);
+  let changed = false;
+  let keyChanged = false;
   if (sq && sq.events[ei] && sq.events[ei].chord !== chord) {
     // В ячейке теперь ДРУГОЙ аккорд — снимаем выбранную аппликатуру.
     //
@@ -25805,9 +25835,25 @@ function saveCurrentChord() {
     // выбрана вторая позиция x,5,4,2,3,2, после переименования в G
     // продолжал показывать её же. Сброс — только через setEventChord:
     // он же чистит позиционные ключи карты под любым старым именем.
-    setEventChord(sq.events[ei], chord, { secId, sqId, ei });
-    if (keyMode === 'auto') refreshAutoDetectedKey();
-    updateCellsDegrees();
+    changed = setEventChord(sq.events[ei], chord, { secId, sqId, ei });
+    if (keyMode === 'auto') {
+      const oldKey = globalKey;
+      refreshAutoDetectedKey();
+      keyChanged = oldKey !== globalKey;
+    }
+  }
+  // B-25: ручной ввод аккорда — локальная синхронизация ячейки вместо
+  // полного render. Если авто-тональность поменялась, ступени зависят уже
+  // от новой тональности всей песни — обновляем все degree/header, но всё
+  // равно без rebuild sectionsContainer.
+  if (changed) {
+    if (keyChanged) {
+      syncAllSectionHeadersDom();
+      updateCellsDegrees();
+      if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
+    } else if (s && sq) {
+      syncEventChordDom(s, sq, ei);
+    }
   }
   if (chord) {
     // Ручной ввод учит кнопки колеса расширениям вроде add9; то же
@@ -29231,6 +29277,40 @@ function syncSectionRhythmDom(sec) {
     requestRender();
     return false;
   }
+  return true;
+}
+
+function syncAllSectionHeadersDom() {
+  let ok = true;
+  for (const sec of sections) ok = syncSectionHeaderDom(sec) && ok;
+  return ok;
+}
+
+function syncEventChordDom(sec, sq, ei) {
+  const ev = sq && sq.events && sq.events[ei];
+  if (!sec || !sq || !ev) return false;
+  const wrappers = Array.from(document.querySelectorAll(
+    `.chord-wrapper[data-sec="${sec.id}"][data-square="${sq.id}"][data-ei="${ei}"]`
+  ));
+  if (!wrappers.length) return false;
+  wrappers.forEach((cw) => {
+    const inp = cw.querySelector('.chord-input');
+    if (inp) {
+      inp.value = ev.chord || '';
+      syncChordDisplay(inp);
+    }
+    if (document.getElementById('showDegrees')?.checked) syncDegreeHintForWrapper(cw);
+    else {
+      const hint = cw.querySelector('.degree-hint');
+      if (hint) hint.remove();
+    }
+  });
+  if (timelineMode) {
+    renderTimeline();
+    syncTimelineSongBar();
+  }
+  if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
+  window.__b25IncrementalChordSyncCount = (window.__b25IncrementalChordSyncCount || 0) + 1;
   return true;
 }
 
