@@ -17237,8 +17237,18 @@ function resliceSharedRhythmsInSquare(sq, parentTs, sec, dragIdx, startSpans) {
 // звук и показ читаются проекцией окна на ленту.
 let songRhythmRolls = null; // null — самопроверка упала / пул дропнут: песня на старом пути
 
+function createEmptyRhythmStorage() {
+  return { pool: {}, sectionRolls: new Map(), refs: new Map(), seq: 0 };
+}
+
+function resetRhythmStorage() {
+  songRhythmRolls = createEmptyRhythmStorage();
+  if (typeof strumPreviewStepEls !== 'undefined') strumPreviewStepEls.clear();
+  if (typeof eventStrumPreviewStepEls !== 'undefined') eventStrumPreviewStepEls.clear();
+}
+
 function migrateSectionsToRhythmPool(songSections) {
-  const storage = { pool: {}, sectionRolls: new Map(), refs: new Map(), seq: 0 };
+  const storage = createEmptyRhythmStorage();
   for (const sec of songSections || []) {
     if (sec.strumPattern && Array.isArray(sec.strumPattern.steps) && sec.strumPattern.steps.length) {
       const id = mintRhythmRollId(storage);
@@ -25070,8 +25080,13 @@ function showToast(msg) {
 }
 function clearAll() {
   if (confirm('Удалить всё?')) {
+    cancelRhythmHints();
     sections = [];
     nextId = 1;
+    // B-29: при сбросе обязательно чистим пул рулонов. Иначе nextId
+    // снова выдаёт 1/2, старые refs вида "1:2:0" попадают в новую пустую
+    // песню и ячейка внезапно получает старый кастомный ритм.
+    resetRhythmStorage();
     DOM.songTitle.value = '';
     DOM.notesArea.value = '';
     DOM.bpmInput.value = CONFIG.DEFAULT_BPM;
