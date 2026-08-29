@@ -18268,6 +18268,9 @@ function demoteMatchingCellRhythms(sec, sq, droppedOut) {
 function settleSquareRhythmWithFacade(sec, sq, opts) {
   const droppedIdx = [];
   const n = demoteMatchingCellRhythms(sec, sq, droppedIdx);
+  if (opts && Array.isArray(opts.droppedOut)) {
+    opts.droppedOut.push(...droppedIdx);
+  }
   if (n && (!opts || opts.toast !== false) && typeof showToast === 'function') {
     droppedIdx.sort((a, b) => a - b).forEach((i) =>
       showToast(`Ритм ячейки ${i + 1} снят с пина: совпал с боем секции`));
@@ -28576,7 +28579,7 @@ function runRhythmHintHitFlight(hitEl, transform, delay) {
 // Отпускание: оверлей пересаживается на body (свежий render() его не
 // убьёт), доигрывает выход и самоубирается. Кастомные удары уплывают
 // КАЖДЫЙ в свой глиф превью, наследуемые полосы просто тают.
-function finishRhythmHints() {
+function finishRhythmHints(opts) {
   const session = rhythmHintSession;
   if (!session) return 0;
   // На отпускании НЕ применяем ожидающий refresh: пользователь должен
@@ -28606,8 +28609,13 @@ function finishRhythmHints() {
   // некуда «уплывать» — компактного превью в финальном DOM не будет.
   // Такой ряд должен исчезнуть тем же fade-out, что и наследуемый.
   const currentData = session.s && session.sq ? collectRhythmHintData(session.s, session.sq) : [];
+  const droppedOut = new Set(opts && Array.isArray(opts.droppedOut) ? opts.droppedOut : []);
   session.entries.forEach((entry, ei) => {
-    entry.exitCustom = !!(entry.startCustom && currentData[ei] && currentData[ei].custom);
+    // droppedOut — точная информация от settleSquareRhythmWithFacade:
+    // если пин снят прямо на этом отпускании, обратного flight быть не
+    // может, даже если в модели ещё торчит легаси ev.strumPattern.
+    entry.exitCustom = !!(entry.startCustom && !droppedOut.has(ei)
+      && currentData[ei] && currentData[ei].custom);
     if (entry.startCustom && !entry.exitCustom) {
       const prevEl = session.bi.querySelector(`.chord-wrapper[data-ei="${ei}"] .event-strum-preview`);
       if (prevEl) prevEl.classList.add('is-rhythm-removing');
@@ -29008,12 +29016,15 @@ function attachResizeHandlers() {
         // Волна-7: итоговые окна, совпавшие с боем секции, распускаются
         // в наследование — пинов больше нет, ячейки следуют за секцией.
         // B-20: общий settle-проход — то же снятие, но с тостом.
-        settleSquareRhythmWithFacade(s, sq);
+        const droppedRhythmHintCells = [];
+        settleSquareRhythmWithFacade(s, sq, { droppedOut: droppedRhythmHintCells });
         // B-15: подсказку отпускаем ДО финального render(). Полный render()
         // пересобирает DOM и даёт заметную просадку рядом с transform-
         // анимацией, поэтому откладываем его до конца «уплывания». Текущий
         // DOM уже обновлялся по ходу drag и визуально соответствует финалу.
-        const hintExitMs = finishRhythmHints();
+        // droppedOut передаём явно: снятый на этом отпускании ритм не должен
+        // улетать вообще, только fade-out.
+        const hintExitMs = finishRhythmHints({ droppedOut: droppedRhythmHintCells });
         scheduleRhythmHintFinalRender(hintExitMs);
         isResizing = true;
         setTimeout(() => {
