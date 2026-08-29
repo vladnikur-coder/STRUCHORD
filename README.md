@@ -7442,3 +7442,22 @@ opacity` — они висят в DOM всегда, а показываются 
   ручной зум удерживает место под меткой, движение без замираний.
 
 Ориентир на сегодня: 60 fps (медиана 16.7 мс) вплоть до 384 ячеек.
+
+## B-25/B-29: инкрементальные обновления редактора и честный сброс ритма (2026-08-29)
+
+B-25 закрыт MVP-срезом без подключения внешних библиотек: вместо полного `render()` добавлены локальные sync/rerender пути для горячих редакторских операций — resize границы ячейки, смена длительности/размера ячейки, `+`/`−`, операции со списком квадратов, `setSquareCustomBeats`, ритм-модалка, повторы/BPM, header/key/timeSig секции и правки аккорда. Live resize получил rAF-throttle: тяжёлый `writeSpans()` выполняется максимум один раз за кадр и не срабатывает повторно для той же snap-позиции.
+
+B-29 закрыт по дороге: глобальный «Сброс» теперь очищает `songRhythmRolls` через `resetRhythmStorage()`, поэтому старые refs кастомного ритма не простреливают в новую песню после переиспользования id `1:2:0`.
+
+Проверки:
+
+- `node dev/tests/b25-incremental-render.js` — ok.
+- `node dev/tests/b29-clear-custom-rhythm.js` — ok.
+- `bash dev/run-tests.sh` — 38 ok / 0 FAIL.
+- `node dev/tools/shot-b15-resize-hint.js` — Chromium-зонд B-15: enter/exit/final без pageerror.
+
+Контрольный снимок:
+
+- STRUCHORD.html: sha256 `41f29be0e1f4e9897aa794f7576db04b7edec2d42d57ebc1df4a6358ecdc7987`, 1 558 354 байта.
+- sw.js: `struchord-v49`, sha256 `f8a585a1de2c65f3afa0e7f7e6c691c3e0af422a363241b2e1baea1ae401905b`.
+- Последний push: `982d247` (`Clear rhythm storage on reset`) поверх B-25-коммитов до `3d5a2a7`.
