@@ -3964,10 +3964,10 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
    которым оно исчезало на входе. animation надёжнее, чем transition на
    свежем render()-DOM: новый .event-strum-preview может появиться уже
    после pointerup, но пока body-класс жив, он всё равно стартует с 0. */
-body.is-rhythm-hint-returning .event-strum-preview.has-pattern {
+.square.is-rhythm-hint-returning .event-strum-preview.has-pattern {
   animation: rhythm-hint-preview-return 0.18s ease both;
 }
-body.is-rhythm-hint-returning .event-strum-preview.is-rhythm-removing {
+.square.is-rhythm-hint-returning .event-strum-preview.is-rhythm-removing {
   animation: none;
   opacity: 0;
 }
@@ -28599,7 +28599,10 @@ function finishRhythmHints(opts) {
   // «готовый ритм уже на месте + поверх него что-то улетает», то есть
   // не ту же самую анимацию наоборот.
   document.body.classList.add('is-rhythm-hint-returning');
-  session.sqEl && session.sqEl.classList.remove('is-hinting');
+  if (session.sqEl) {
+    session.sqEl.classList.add('is-rhythm-hint-returning');
+    session.sqEl.classList.remove('is-hinting');
+  }
   // body-класс держим до конца ghost-анимации: текущий DOM уже показывает
   // мини-превью, а отложенный render() может пересоздать его после прилёта.
   // CSS-анимация rhythm-hint-preview-return даёт обратный fade-in без
@@ -28614,11 +28617,16 @@ function finishRhythmHints(opts) {
     // droppedOut — точная информация от settleSquareRhythmWithFacade:
     // если пин снят прямо на этом отпускании, обратного flight быть не
     // может, даже если в модели ещё торчит легаси ev.strumPattern.
-    entry.exitCustom = !!(entry.startCustom && !droppedOut.has(ei)
-      && currentData[ei] && currentData[ei].custom);
-    if (entry.startCustom && !entry.exitCustom) {
-      const prevEl = session.bi.querySelector(`.chord-wrapper[data-ei="${ei}"] .event-strum-preview`);
-      if (prevEl) prevEl.classList.add('is-rhythm-removing');
+    const finalCustom = !!(!droppedOut.has(ei) && currentData[ei] && currentData[ei].custom);
+    entry.exitCustom = !!(entry.startCustom && finalCustom);
+    const prevEl = session.bi.querySelector(`.chord-wrapper[data-ei="${ei}"] .event-strum-preview`);
+    if (prevEl) {
+      // Важно: mini-preview в DOM обновлялся по ходу drag и может быть
+      // has-pattern даже у ячейки, которая к финалу снова наследует/снята.
+      // Если дать ему обычный return fade-in, пользователь видит старый
+      // ритм в ячейке ещё сотни мс, а потом он исчезает на render(). Такие
+      // превью держим скрытыми до финального render.
+      prevEl.classList.toggle('is-rhythm-removing', prevEl.classList.contains('has-pattern') && !finalCustom);
     }
   });
   // Выходные сдвиги меряем СЕЙЧАС, пока жив текущий DOM после drag:
@@ -28711,6 +28719,7 @@ function finishRhythmHints(opts) {
   setTimeout(() => {
     ghost.remove();
     document.body.classList.remove('is-rhythm-hint-returning');
+    session.sqEl && session.sqEl.classList.remove('is-rhythm-hint-returning');
   }, exitMs);
   return exitMs;
 }
@@ -28732,6 +28741,8 @@ function cancelRhythmHints() {
   // Выходные ghost-оверлеи живут на body — добираем и их.
   document.querySelectorAll('body > .rhythm-hints').forEach((el) => el.remove());
   document.body.classList.remove('is-rhythm-hint-returning');
+  document.querySelectorAll('.square.is-rhythm-hint-returning')
+    .forEach((el) => el.classList.remove('is-rhythm-hint-returning'));
 }
 
 function attachResizeHandlers() {

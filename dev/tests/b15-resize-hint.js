@@ -193,7 +193,20 @@ w.addEventListener('load', async () => {
     fastHits.map((h) => h.style.transform || 'none').join(' | '));
   await sleep(460);
 
-  console.log('=== 3c. Снятый ритм не телепортируется в фасад перед fade-out ===');
+  console.log('=== 3c. Устаревшее превью в ячейке без финального кастома не возвращается ===');
+  scene([D(strum(2, 'DUDX'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  firePointerDown(handle(), 100);
+  evl(`
+    const stale = document.querySelector('.chord-wrapper[data-ei="1"] .event-strum-preview');
+    stale.classList.add('has-pattern');
+    stale.appendChild(document.createElement('span'));
+    return 0`);
+  firePointerUp();
+  ok('stale mini-preview ячейки без финального кастома помечен на скрытие',
+    !!d.querySelector('.chord-wrapper[data-ei="1"] .event-strum-preview.is-rhythm-removing'));
+  await sleep(460);
+
+  console.log('=== 3d. Снятый ритм не телепортируется в фасад перед fade-out ===');
   scene(
     [D({ mode: 'strum', subdivision: 2, steps: ['D', '_', 'D', '_'] }, 2), D(null, 2)],
     { mode: 'strum', subdivision: 4, steps: ['D','_','_','_','D','_','_','_','D','_','_','_','D','_','_','_'] }
@@ -397,9 +410,9 @@ w.addEventListener('load', async () => {
       && /setTimeout\(\(\) => \{[\s\S]*ghost\.remove\(\);[\s\S]*is-rhythm-hint-returning[\s\S]*\}, exitMs\)/.test(cssText));
   ok('обратная фаза анимирует fade-in свежего мини-превью',
     /@keyframes\s+rhythm-hint-preview-return/.test(cssText)
-      && /body\.is-rhythm-hint-returning \.event-strum-preview\.has-pattern\s*\{[^}]*animation:\s*rhythm-hint-preview-return 0\.18s ease both/.test(cssText));
+      && /\.square\.is-rhythm-hint-returning \.event-strum-preview\.has-pattern\s*\{[^}]*animation:\s*rhythm-hint-preview-return 0\.18s ease both/.test(cssText));
   ok('мини-превью снятого ритма не проявляется обратно перед render',
-    /\.event-strum-preview\.is-rhythm-removing\s*\{[^}]*animation:\s*none;[^}]*opacity:\s*0/.test(cssText));
+    /\.square\.is-rhythm-hint-returning \.event-strum-preview\.is-rhythm-removing\s*\{[^}]*animation:\s*none;[^}]*opacity:\s*0/.test(cssText));
   ok('.rhythm-hint-hit: плывут сами удары (transition transform)',
     /\.rhythm-hint-hit\s*\{[^}]*transition:\s*transform/.test(cssText));
   ok('реальный браузер запускает обратный полёт через Web Animations API (без случайного CSS-jump)',
