@@ -88,6 +88,8 @@
 
 B-25, первый срез 2026-08-29: финал cell-boundary resize больше не вызывает полный `requestRender()`; вместо этого после ghost-анимации B-15 выполняется `syncResizedSquareDom(sec, sq, bi)` — локально обновляет grid/counts/ticks, mini-preview, кнопку `ритм`, cache rects, degrees и timeline. Цель: убрать гонку полного DOM rebuild с reverse-анимацией и stale preview.
 
+B-25, второй срез 2026-08-29: операции без изменения числа ячеек (`changeChordSpanDirect`, `setEventTimeSig`) переведены на локальную синхронизацию квадрата через `syncSquareDomNow()`: обновляются ширины квадратов секции, grid/counts/ticks, бейдж тактов, title/text кнопки размера и кнопка `ритм`; полный `requestRender()` не вызывается, если DOM текущего квадрата найден.
+
 ### Отменённые (R4 — не стираем, причина прилагается)
 
 | ID | Зона | Что было | Статус |

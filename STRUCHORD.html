@@ -18828,7 +18828,9 @@ function changeChordSpanDirect(sectionId, squareId, eventIndex, newSpan) {
 
   // B-20: окно при новых долях могло совпасть с боем секции.
   settleSquareRhythmWithFacade(sec, sq);
-  requestRender();
+  // B-25: это не структурная операция — DOM текущего квадрата можно
+  // синхронизировать локально, без полного render() всей песни.
+  syncSquareDomNow(sec, sq);
   showToast(`Размер ячейки изменён на ${newSpan} доли (всего в квадрате: ${total})`);
 }
 function setEventTimeSig(sectionId, squareId, eventIndex, newTimeSig) {
@@ -18859,7 +18861,9 @@ function setEventTimeSig(sectionId, squareId, eventIndex, newTimeSig) {
   }
   // B-20: окно в новых единицах размера могло совпасть с боем секции.
   settleSquareRhythmWithFacade(sec, sq);
-  requestRender();
+  // B-25: смена размера события не добавляет/удаляет ячейки, поэтому
+  // обновляем только текущий квадрат.
+  syncSquareDomNow(sec, sq);
   showToast(`Размер ячейки: ${ev.timeSig || 'глобальный'}`);
 }
 function getEventDurationForTimeSig(span, bpm, ts) {
@@ -28759,8 +28763,32 @@ function updateChordRhythmButtonState(cw, sec, sq, ei) {
   });
 }
 
+function syncSectionSquaresGeometry(sec) {
+  if (!sec || !Array.isArray(sec.squares)) return false;
+  const card = document.querySelector(`.section-card[data-id="${sec.id}"]`);
+  if (!card) return false;
+  const parentTs = sec.timeSig || globalTimeSig;
+  const sectionMaxBeats = getSectionMaxVisualBeats(sec);
+  let lastSquareWidthPercent = 100;
+  sec.squares.forEach((sq) => {
+    const sqEl = card.querySelector(`.square[data-square="${sq.id}"]`);
+    if (!sqEl) return;
+    const widthPercent = Math.min(100, (getSquareVisualBeats(sq, parentTs) / sectionMaxBeats) * 100);
+    lastSquareWidthPercent = widthPercent;
+    const bi = sqEl.querySelector('.square-inner');
+    if (bi) bi.style.width = widthPercent + '%';
+    const controls = bi && bi.nextElementSibling;
+    if (controls) controls.style.right = `calc((100% - ${widthPercent}%) - 49px)`;
+  });
+  card.querySelectorAll('.section-repeat-row').forEach((row) => {
+    row.style.width = lastSquareWidthPercent.toFixed(4) + '%';
+  });
+  return true;
+}
+
 function syncResizedSquareDom(sec, sq, bi) {
   if (!sec || !sq || !bi || !Array.isArray(sq.events)) return false;
+  syncSectionSquaresGeometry(sec);
   const parentTs = sec.timeSig || globalTimeSig;
   const liveDist = distributeVisualSpans(sq.events, parentTs);
   bi.style.gridTemplateColumns = `repeat(${liveDist.totalCols}, minmax(0, 1fr))`;
@@ -28818,6 +28846,12 @@ function syncResizedSquareDom(sec, sq, bi) {
     epochOwnOffset += (ev && ev.span) || 1;
   }
 
+  const beatsPerBar = getGridUnitsPerBar(parentTs);
+  const sqBeats = getSquareBeats(sq, parentTs);
+  const bars = Math.round((sqBeats / beatsPerBar) * 1e10) / 1e10;
+  const badge = bi.closest('.square')?.querySelector('.square-beats-badge');
+  if (badge) badge.textContent = `${bars} такт${bars !== 1 ? 'а' : ''}`;
+
   refreshChordWrapperRects();
   updateCellsDegrees();
   if (timelineMode) {
@@ -28838,6 +28872,21 @@ function scheduleResizedSquareDomSync(sec, sq, bi, delay) {
     }
     if (!syncResizedSquareDom(sec, sq, bi)) requestRender();
   }, wait);
+}
+
+function syncSquareDomNow(sec, sq) {
+  const bi = document.querySelector(
+    `.section-card[data-id="${sec.id}"] .square[data-square="${sq.id}"] .square-inner`
+  );
+  if (!bi) {
+    requestRender();
+    return false;
+  }
+  if (!syncResizedSquareDom(sec, sq, bi)) {
+    requestRender();
+    return false;
+  }
+  return true;
 }
 
 function attachResizeHandlers() {
