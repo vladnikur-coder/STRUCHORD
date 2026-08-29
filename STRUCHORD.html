@@ -28187,7 +28187,8 @@ function render() {
 // мгновенно пересобирает дерево ячеек (innerHTML), и внутри-ячеечные
 // элементы умерли бы без «уплыть обратно». Оверлей на отпускании
 // пересаживается на body с position:fixed в тех же пикселях — и доигрывает
-// выходную анимацию поверх уже нового рендера.
+// выходную анимацию отдельно от финального render() (его можно отложить,
+// чтобы не дёргать transform-полёт полной перестройкой DOM).
 //
 // Порядок замеров небритвенно важен (урок живой съёмки shot-b15,
 // 2026-08-28): ВСЕ чтения раскладки — ДО рождения оверлея либо одним
@@ -28195,7 +28196,23 @@ function render() {
 // стартовых трансформов форсит reflow и «запечатывает» промежуточное
 // состояние, и браузер схлопывает переход в 0→0 — «переплывание»
 // превращается в чистый fade. Именно так поймали первую версию.
-let rhythmHintSession = null; // { sqEl, bi, overlay, entries: [{el, custom, startCustom}] }
+let rhythmHintSession = null; // { sqEl, bi, overlay, entries: [{el, custom, startCustom, patternKey}] }
+let rhythmHintRefreshRAF = null;
+let rhythmHintRefreshPending = null;
+const RHYTHM_HINT_EXIT_MS = 420;
+
+function rhythmHintPatternKey(pattern) {
+  if (!pattern || !Array.isArray(pattern.steps)) return '';
+  try {
+    return JSON.stringify({
+      mode: pattern.mode || '',
+      subdivision: pattern.subdivision || 1,
+      steps: pattern.steps,
+    });
+  } catch (e) {
+    return `${pattern.mode || ''}:${pattern.subdivision || 1}:${pattern.steps.length}`;
+  }
+}
 
 // Звучащий рисунок и «кастомность» каждой ячейки квадрата.
 // Призрачную тишину (B-06) не подсказываем — как и мини-превью, пустое
@@ -28364,10 +28381,11 @@ function startRhythmHints(s, sq, bi, distribution) {
     const el = document.createElement('div');
     el.className = 'rhythm-hint';
     const d = data[ei];
-    const entry = { el, custom: false, startCustom: false };
+    const entry = { el, custom: false, startCustom: false, patternKey: '' };
     if (d) {
       entry.startCustom = d.custom;
       entry.custom = d.custom;
+      entry.patternKey = rhythmHintPatternKey(d.pattern);
       buildRhythmHintContent(el, d.pattern, deltasByCell[ei]);
       // Наследуемому смещения нет вообще: ему неоткуда плыть, он просто
       // проявляется (fade in через .is-in). У кастомного либо поударный
@@ -28409,12 +28427,44 @@ function refreshRhythmHints(s, sq, distribution) {
       // reslice и внезапно «улететь» назад, хотя на входе она только
       // проявлялась fade-in.
       entry.custom = !!entry.startCustom;
-      buildRhythmHintContent(entry.el, d.pattern);
+      const nextKey = rhythmHintPatternKey(d.pattern);
+      // Не пересоздаём ударные DOM-узлы на каждом pointermove: при живом
+      // ресайзе геометрия меняется постоянно, но сам рисунок чаще всего
+      // тот же. Пересборка сбрасывала transition-состояние и давала
+      // микродёргание. Если рисунок реально сменился после reslice —
+      // перестраиваем, иначе только двигаем/ширим полосы.
+      if (entry.patternKey !== nextKey || !entry.el.firstChild) {
+        entry.patternKey = nextKey;
+        buildRhythmHintContent(entry.el, d.pattern);
+      }
     } else if (entry.el.firstChild) {
+      entry.patternKey = '';
       entry.el.textContent = '';
     }
   });
   layoutRhythmHints(session, distribution);
+}
+
+function scheduleRhythmHintsRefresh(s, sq, distribution) {
+  if (!rhythmHintSession) return;
+  rhythmHintRefreshPending = { s, sq, distribution };
+  if (rhythmHintRefreshRAF) return;
+  rhythmHintRefreshRAF = requestAnimationFrame(() => {
+    rhythmHintRefreshRAF = null;
+    const pending = rhythmHintRefreshPending;
+    rhythmHintRefreshPending = null;
+    if (pending) refreshRhythmHints(pending.s, pending.sq, pending.distribution);
+  });
+}
+
+function flushRhythmHintsRefresh() {
+  const pending = rhythmHintRefreshPending;
+  if (rhythmHintRefreshRAF) {
+    cancelAnimationFrame(rhythmHintRefreshRAF);
+    rhythmHintRefreshRAF = null;
+  }
+  rhythmHintRefreshPending = null;
+  if (pending) refreshRhythmHints(pending.s, pending.sq, pending.distribution);
 }
 
 // Выходные сдвиги: каждый видимый удар подсказки летит обратно в тот
@@ -28448,20 +28498,22 @@ function rhythmHintExitDeltas(entry, ei, bi) {
 // КАЖДЫЙ в свой глиф превью, наследуемые полосы просто тают.
 function finishRhythmHints() {
   const session = rhythmHintSession;
-  if (!session) return;
+  if (!session) return 0;
+  flushRhythmHintsRefresh();
   rhythmHintSession = null;
-  // На выходе делаем обратную фазу входа: мини-превью НЕ появляется
-  // мгновенно под летящими ударами, а остаётся скрытым до свежего render()
-  // и затем проявляется тем же opacity-transition, которым на входе
-  // исчезало. Иначе глаз видит «готовый ритм уже на месте + поверх него
-  // что-то улетает», то есть не ту же самую анимацию наоборот.
+  // На выходе делаем обратную фазу входа: кастомные удары НЕ гаснут
+  // opacity'ю, а летят transform'ом обратно; мини-превью проявляется тем
+  // же opacity-timing, которым на входе исчезало. Иначе глаз видит
+  // «готовый ритм уже на месте + поверх него что-то улетает», то есть
+  // не ту же самую анимацию наоборот.
   document.body.classList.add('is-rhythm-hint-returning');
   session.sqEl && session.sqEl.classList.remove('is-hinting');
-  // body-класс держим до конца ghost-анимации: свежий render() может
-  // пересоздать мини-превью в любой ближайший кадр, и CSS-анимация
-  // rhythm-hint-preview-return должна поймать этот новый DOM с opacity 0.
-  // Выходные сдвиги меряем СЕЙЧАС, пока старый DOM жив (render() уйдёт
-  // следующим кадром): от текущего rect удара к центру глифа превью.
+  // body-класс держим до конца ghost-анимации: текущий DOM уже показывает
+  // мини-превью, а отложенный render() может пересоздать его после прилёта.
+  // CSS-анимация rhythm-hint-preview-return даёт обратный fade-in без
+  // скачка в первые кадры отпускания.
+  // Выходные сдвиги меряем СЕЙЧАС, пока жив текущий DOM после drag:
+  // от текущего rect удара к центру глифа превью.
   // rect уже учитывает самоцентровку — считаем центр-в-центр. Один
   // читающий проход до любых записей (всё тот же урок shot-b15).
   const exitDeltas = session.entries.map((entry, ei) =>
@@ -28513,12 +28565,18 @@ function finishRhythmHints() {
   setTimeout(() => {
     ghost.remove();
     document.body.classList.remove('is-rhythm-hint-returning');
-  }, 420);
+  }, RHYTHM_HINT_EXIT_MS);
+  return RHYTHM_HINT_EXIT_MS;
 }
 
 // Новый grab до окончания выхода прошлого (или прерванный жест): прибить
 // следы, чтобы не тянуть за собой полупрозрачные призраки.
 function cancelRhythmHints() {
+  if (rhythmHintRefreshRAF) {
+    cancelAnimationFrame(rhythmHintRefreshRAF);
+    rhythmHintRefreshRAF = null;
+  }
+  rhythmHintRefreshPending = null;
   const session = rhythmHintSession;
   if (session) {
     rhythmHintSession = null;
@@ -28751,7 +28809,7 @@ function attachResizeHandlers() {
   // B-15: подсказка ритма переезжает вместе с границами и перечитывает
   // окна после перерезки — показывает ровно то, что прозвучит после
   // отпускания.
-  refreshRhythmHints(s, sq, liveDist);
+  scheduleRhythmHintsRefresh(s, sq, liveDist);
 }
 
       function onMove(ev) {
@@ -28813,10 +28871,16 @@ function attachResizeHandlers() {
         // в наследование — пинов больше нет, ячейки следуют за секцией.
         // B-20: общий settle-проход — то же снятие, но с тостом.
         settleSquareRhythmWithFacade(s, sq);
-        // B-15: подсказку отпускаем ДО requestRender — она пересадится
-        // на body и доиграет «уплыть обратно» поверх свежего рендера.
-        finishRhythmHints();
-        requestRender();
+        // B-15: подсказку отпускаем ДО финального render(). Полный render()
+        // пересобирает DOM и даёт заметную просадку рядом с transform-
+        // анимацией, поэтому откладываем его до конца «уплывания». Текущий
+        // DOM уже обновлялся по ходу drag и визуально соответствует финалу.
+        const hintExitMs = finishRhythmHints();
+        if (hintExitMs > 0) {
+          setTimeout(() => requestRender(), hintExitMs);
+        } else {
+          requestRender();
+        }
         isResizing = true;
         setTimeout(() => {
           isResizing = false;

@@ -114,6 +114,12 @@ w.addEventListener('load', async () => {
     cell0Hits.map((el) => el.style.left).join(','));
   ok('символика как в ленте: ↓ и ↑', cell0Hits.some((el) => el.textContent === '↓')
     && cell0Hits.some((el) => el.textContent === '↑'));
+  const stableHitNode = evl(`
+    const before = document.querySelector('.rhythm-hint .rhythm-hint-hit');
+    refreshRhythmHints(sections[0], sections[0].squares[0],
+      distributeVisualSpans(sections[0].squares[0].events, '4/4'));
+    return before === document.querySelector('.rhythm-hint .rhythm-hint-hit')`);
+  ok('refresh без смены рисунка не пересоздаёт hit-узлы (меньше дёрганья)', stableHitNode);
   console.log('=== 2. Наследующая ячейка: свой срез боя секции ===');
   const cell1Hits = hints[1] ? [...hints[1].querySelectorAll('.rhythm-hint-hit')] : [];
   ok('у наследующей ячейки 4 удара (вторая половина DUDUDUDU)', cell1Hits.length === 4, cell1Hits.length);
@@ -127,16 +133,31 @@ w.addEventListener('load', async () => {
   ok('ячейка, стартовавшая наследуемой, остаётся fade-only даже после временного reslice в custom',
     inheritedKeepsFadeAfterRefresh);
   console.log('=== 3. Отпускание: оверлей уезжает на body и тает ===');
+  evl(`
+    window.__b15OldRequestRender = requestRender;
+    window.__b15RequestRenderCount = 0;
+    requestRender = function () {
+      window.__b15RequestRenderCount++;
+      return window.__b15OldRequestRender.apply(this, arguments);
+    };
+    return 0`);
   firePointerUp();
   ok('оверлея в квадрате больше нет', !overlayIn());
   ok('ghost пересажен на body (переживает свежий render)', !!ghostIn());
   ok('is-hinting снят', !d.querySelector('.square.is-hinting'));
   ok('на старте уплывания мини-превью ещё скрыто body-классом',
     d.body.classList.contains('is-rhythm-hint-returning'));
-  await sleep(100); // render() по rAF — ячейки уже пересобраны
-  ok('ghost живёт поверх нового рендера', !!ghostIn() && !overlayIn());
-  await sleep(400); // добиваем таймер самоуборки (420мс от pointerup)
+  await sleep(100); // середина обратной анимации: render ещё отложен
+  ok('финальный requestRender отложен до конца уплывания (не дёргает анимацию)',
+    evl('return window.__b15RequestRenderCount') === 0,
+    evl('return window.__b15RequestRenderCount'));
+  ok('ghost живёт до отложенного render', !!ghostIn() && !overlayIn());
+  await sleep(400); // добиваем таймер самоуборки/render (420мс от pointerup)
   ok('ghost самоубрался по таймеру', !ghostIn());
+  ok('отложенный requestRender всё же вызвался после уплывания',
+    evl('return window.__b15RequestRenderCount') >= 1,
+    evl('return window.__b15RequestRenderCount'));
+  evl('requestRender = window.__b15OldRequestRender; delete window.__b15OldRequestRender; delete window.__b15RequestRenderCount; return 0');
   ok('после уплывания body-класс скрытия превью снят',
     !d.body.classList.contains('is-rhythm-hint-returning'));
 
@@ -290,7 +311,8 @@ w.addEventListener('load', async () => {
   ok('мягкая кривая cubic-bezier (не линейная)',
     /cubic-bezier\(0\.2,\s*0\.7,\s*0\.2,\s*1\)/.test(cssText));
   ok('уборка ghost позже конца transition с лесенкой (420ms > 60+220ms)',
-    /setTimeout\(\(\) => \{[\s\S]*ghost\.remove\(\);[\s\S]*is-rhythm-hint-returning[\s\S]*\}, 420\)/.test(cssText));
+    /const RHYTHM_HINT_EXIT_MS\s*=\s*420/.test(cssText)
+      && /setTimeout\(\(\) => \{[\s\S]*ghost\.remove\(\);[\s\S]*is-rhythm-hint-returning[\s\S]*\}, RHYTHM_HINT_EXIT_MS\)/.test(cssText));
   ok('обратная фаза анимирует fade-in свежего мини-превью',
     /@keyframes\s+rhythm-hint-preview-return/.test(cssText)
       && /body\.is-rhythm-hint-returning \.event-strum-preview\.has-pattern\s*\{[^}]*animation:\s*rhythm-hint-preview-return 0\.18s ease both/.test(cssText));
