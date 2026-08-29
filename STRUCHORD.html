@@ -28507,7 +28507,7 @@ function flushRhythmHintsRefresh() {
 // показывать минимальный повтор («DU ×2»), поэтому полный рисунок DUDU
 // сворачивается по модулю числа показанных глифов: j → j % sourceCount.
 function rhythmHintExitDeltas(entry, ei, bi) {
-  const shouldFly = !!(entry && entry.custom && entry.exitCustom !== false);
+  const shouldFly = !!(entry && entry.exitCustom);
   if (!shouldFly) return null;
   const wrapperEl = bi.querySelector(`.chord-wrapper[data-ei="${ei}"]`);
   const prevEl = wrapperEl && wrapperEl.querySelector('.event-strum-preview');
@@ -28602,7 +28602,11 @@ function finishRhythmHints(opts) {
     // если пин снят прямо на этом отпускании, обратного flight быть не
     // может, даже если в модели ещё торчит легаси ev.strumPattern.
     const finalCustom = !!(!droppedOut.has(ei) && currentData[ei] && currentData[ei].custom);
-    entry.exitCustom = !!(entry.startCustom && finalCustom);
+    // На выходе летит любой ритм, который К ФИНАЛУ действительно стал
+    // кастомным. Это важно для ячеек, которые были наследуемыми на старте
+    // drag, но получили свой срез/пин в результате ресайза: им уже есть
+    // куда возвращаться — в новое mini-preview.
+    entry.exitCustom = finalCustom;
     const prevEl = session.bi.querySelector(`.chord-wrapper[data-ei="${ei}"] .event-strum-preview`);
     if (prevEl) {
       // Важно: mini-preview в DOM обновлялся по ходу drag и может быть
@@ -28648,7 +28652,7 @@ function finishRhythmHints(opts) {
   let hasInheritedFade = false;
   session.entries.forEach((entry, ei) => {
     const ex = exitDeltas[ei];
-    const shouldFly = !!(entry.custom && entry.exitCustom !== false);
+    const shouldFly = !!entry.exitCustom;
     if (ex) {
       // Кастом на выходе НЕ гасим opacity'ю: иначе движение скрывается,
       // и пользователь видит fade-out вместо того же «переплывания», что

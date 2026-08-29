@@ -248,6 +248,31 @@ w.addEventListener('load', async () => {
     demoteHits.map((h) => h.dataset.rhythmTargetTransform || h.style.transform || 'none').join(' | '));
   await sleep(460);
 
+  console.log('=== 3e. Новая кастомная ячейка после ресайза тоже уплывает ===');
+  scene([D(strum(2, 'DUDU'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  firePointerDown(handle(), 100);
+  await sleep(280);
+  evl(`
+    const sec = sections[0];
+    const sq = sec.squares[0];
+    sq.events[1].strumPattern = { mode: 'strum', subdivision: 2, steps: ['D','U','X','D'] };
+    restoreEventStrumPreview('1:2:1');
+    refreshRhythmHints(sec, sq, distributeVisualSpans(sq.events, '4/4'));
+    return 0`);
+  firePointerUp();
+  await sleep(220);
+  const newCustomGhost = ghostIn();
+  const newCustomHits = newCustomGhost
+    ? [...newCustomGhost.querySelectorAll('.rhythm-hint')[1].querySelectorAll('.rhythm-hint-hit')]
+    : [];
+  ok('ячейка, ставшая кастомной во время ресайза, получает обратный flight',
+    !!(newCustomHits.length && newCustomHits.every((h) => h.style.transform.includes('translate('))),
+    newCustomHits.map((h) => h.style.transform || 'none').join(' | '));
+  ok('новый кастом улетает в свои глифы preview, а не fade-only',
+    newCustomHits.map((h) => h.dataset.rhythmSourceIndex).join(',') === '0,1,2,3',
+    newCustomHits.map((h) => h.dataset.rhythmSourceIndex).join(','));
+  await sleep(460);
+
   // --- 4. Перебор: столбики цифр струн -----------------------------------
   console.log('=== 4. Перебор: столбики цифр ===');
   scene(
@@ -385,7 +410,7 @@ w.addEventListener('load', async () => {
       h.getBoundingClientRect = () => ({ left, width: 10, top: 150, height: 10 });
       hint.appendChild(h);
     });
-    return JSON.stringify(rhythmHintExitDeltas({ custom: true, el: hint }, 0, bi))`));
+    return JSON.stringify(rhythmHintExitDeltas({ custom: true, exitCustom: true, el: hint }, 0, bi))`));
   ok('выход использует тот же источник j % unitLen: 0,1,0,1',
     exactExit && exactExit.map((x) => x.sourceIndex).join(',') === '0,1,0,1',
     exactExit && exactExit.map((x) => x.sourceIndex).join(','));
