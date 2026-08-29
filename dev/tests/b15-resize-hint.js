@@ -143,6 +143,7 @@ w.addEventListener('load', async () => {
   evl(`
     window.__b15OldRequestRender = requestRender;
     window.__b15RequestRenderCount = 0;
+    window.__b25IncrementalSquareSyncCount = 0;
     requestRender = function () {
       window.__b15RequestRenderCount++;
       return window.__b15OldRequestRender.apply(this, arguments);
@@ -162,17 +163,30 @@ w.addEventListener('load', async () => {
     !!(demotedHits0.length && demotedHits0.every((h) => !h.style.transform.includes('translate(')
       && !h.dataset.rhythmTargetTransform)),
     demotedHits0.map((h) => h.style.transform || h.dataset.rhythmTargetTransform || 'none').join(' | '));
-  await sleep(100); // середина обратной анимации: render ещё отложен
-  ok('финальный requestRender отложен до конца уплывания (не дёргает анимацию)',
+  await sleep(100); // середина обратной анимации: полного render нет
+  ok('финальный requestRender не вызывается: resize закрывается инкрементальной синхронизацией',
     evl('return window.__b15RequestRenderCount') === 0,
     evl('return window.__b15RequestRenderCount'));
-  ok('ghost живёт до отложенного render', !!ghostIn() && !overlayIn());
-  await sleep(600); // добиваем staged fade→flight→render (~570мс от pointerup)
+  ok('ghost живёт до инкрементальной синхронизации', !!ghostIn() && !overlayIn());
+  await sleep(600); // добиваем staged fade→flight→incremental sync (~570мс от pointerup)
   ok('ghost самоубрался по таймеру', !ghostIn());
-  ok('отложенный requestRender всё же вызвался после уплывания',
-    evl('return window.__b15RequestRenderCount') >= 1,
+  ok('после уплывания сработала инкрементальная синхронизация квадрата',
+    evl('return window.__b25IncrementalSquareSyncCount') >= 1,
+    evl('return window.__b25IncrementalSquareSyncCount'));
+  ok('полный requestRender так и не понадобился',
+    evl('return window.__b15RequestRenderCount') === 0,
     evl('return window.__b15RequestRenderCount'));
-  evl('requestRender = window.__b15OldRequestRender; delete window.__b15OldRequestRender; delete window.__b15RequestRenderCount; return 0');
+  ok('инкрементальная синхронизация сняла плашку/preview у демотированного ритма',
+    !d.querySelector('.chord-wrapper[data-ei="0"] .chord-btn-strum--own')
+      && !d.querySelector('.chord-wrapper[data-ei="0"] .event-strum-preview.has-pattern'),
+    evl(`
+      const btn = document.querySelector('.chord-wrapper[data-ei="0"] .chord-btn-strum');
+      const prev = document.querySelector('.chord-wrapper[data-ei="0"] .event-strum-preview');
+      return JSON.stringify({ btn: btn && btn.className, prev: prev && prev.className,
+        prevHtml: prev && prev.innerHTML.length,
+        ev0: sections[0].squares[0].events[0],
+        refs: [...songRhythmRolls.refs.keys()] })`));
+  evl('requestRender = window.__b15OldRequestRender; delete window.__b15OldRequestRender; delete window.__b15RequestRenderCount; delete window.__b25IncrementalSquareSyncCount; return 0');
   ok('после уплывания body-класс скрытия превью снят',
     !d.body.classList.contains('is-rhythm-hint-returning'));
 

@@ -28206,7 +28206,6 @@ function render() {
 let rhythmHintSession = null; // { sqEl, bi, overlay, entries: [{el, custom, startCustom, patternKey}] }
 let rhythmHintRefreshRAF = null;
 let rhythmHintRefreshPending = null;
-let rhythmHintFinalRenderTimer = null;
 const RHYTHM_HINT_FADE_MS = 180;
 const RHYTHM_HINT_MOVE_MS = 220;
 const RHYTHM_HINT_STEP_DELAY_MS = 10;
@@ -28503,21 +28502,6 @@ function flushRhythmHintsRefresh() {
   if (pending) refreshRhythmHints(pending.s, pending.sq, pending.distribution);
 }
 
-function scheduleRhythmHintFinalRender(delay) {
-  if (rhythmHintFinalRenderTimer) clearTimeout(rhythmHintFinalRenderTimer);
-  rhythmHintFinalRenderTimer = setTimeout(() => {
-    rhythmHintFinalRenderTimer = null;
-    // Если пользователь успел начать новый resize до конца старого ghost,
-    // полный render нельзя пускать прямо в новую transform-анимацию — это
-    // и даёт случайные рывки/срывы. Ждём, пока активной подсказки нет.
-    if (rhythmHintSession) {
-      scheduleRhythmHintFinalRender(80);
-      return;
-    }
-    requestRender();
-  }, Math.max(0, delay || 0));
-}
-
 // Выходные сдвиги: каждый видимый удар подсказки летит обратно в тот
 // глиф компактного превью, из которого он был развёрнут. Превью может
 // показывать минимальный повтор («DU ×2»), поэтому полный рисунок DUDU
@@ -28743,6 +28727,113 @@ function cancelRhythmHints() {
   document.body.classList.remove('is-rhythm-hint-returning');
   document.querySelectorAll('.square.is-rhythm-hint-returning')
     .forEach((el) => el.classList.remove('is-rhythm-hint-returning'));
+}
+
+// ---------- B-25 (2026-08-29): первый инкрементальный рендер для resize ----------
+// После протяжки границы весь DOM приложения пересобирать не нужно: по
+// ходу drag мы уже обновили сетку, подписи счёта, засечки и превью внутри
+// текущего квадрата. Полный render() в конце жеста как раз и создавал
+// гонки с B-15 (ghost-анимация, stale mini-preview, service классы).
+// Поэтому финал cell-resize добивает только затронутый square-inner.
+function updateChordRhythmButtonState(cw, sec, sq, ei) {
+  const ev = sq && sq.events && sq.events[ei];
+  if (!ev) return;
+  const hasOwnRhythm = !!(ev.strumPattern
+    || (songRhythmRolls && songRhythmRolls.refs.has(`${sec.id}:${sq.id}:${ei}`)))
+    && !isGhostSilenceCell(sec, sq, ei);
+  const btns = new Set();
+  const localBtn = cw && cw.querySelector('.chord-btn-strum');
+  if (localBtn) btns.add(localBtn);
+  document.querySelectorAll(
+    `.chord-wrapper[data-sec="${sec.id}"][data-square="${sq.id}"][data-ei="${ei}"] .chord-btn-strum`
+  ).forEach((btn) => btns.add(btn));
+  btns.forEach((btn) => {
+    btn.classList.toggle('chord-btn-strum--own', hasOwnRhythm);
+    btn.title = hasOwnRhythm
+      ? 'Свой бой/перебор для этой ячейки — нажмите, чтобы изменить'
+      : 'Задать свой бой/перебор именно для этой ячейки';
+  });
+}
+
+function syncResizedSquareDom(sec, sq, bi) {
+  if (!sec || !sq || !bi || !Array.isArray(sq.events)) return false;
+  const parentTs = sec.timeSig || globalTimeSig;
+  const liveDist = distributeVisualSpans(sq.events, parentTs);
+  bi.style.gridTemplateColumns = `repeat(${liveDist.totalCols}, minmax(0, 1fr))`;
+
+  const subdiv = Math.round(1 / getResizeStep());
+  let epochTs = null;
+  let epochOwnOffset = 0;
+  let epochBeatsPerBar = getGridUnitsPerBar(parentTs);
+  let epochUnitScale = 1;
+
+  for (let i = 0; i < sq.events.length; i++) {
+    const cw = bi.querySelector(`.chord-wrapper[data-ei="${i}"]`);
+    const ev = sq.events[i];
+    const evTsEff = (ev && ev.timeSig) || parentTs;
+    if (evTsEff !== epochTs) {
+      epochTs = evTsEff;
+      epochOwnOffset = 0;
+      epochBeatsPerBar = getGridUnitsPerBar(evTsEff);
+      epochUnitScale = parseTimeSig(evTsEff).denominator
+        / (parseTimeSig(parentTs).denominator || 1);
+    }
+    if (cw && ev) {
+      cw.style.gridColumn = `span ${Math.max(1, liveDist.spans[i])}`;
+      const beats = getEventVisualSpanInParentUnits(ev, parentTs);
+      const tickEl = cw.querySelector('.chord-ticks');
+      if (tickEl) {
+        tickEl.setAttribute('style',
+          buildInnerTicks(beats, epochOwnOffset, '--color-tick-line', 1, liveDist.spans[i],
+            { ownOffset: epochOwnOffset, unitScale: epochUnitScale }));
+      }
+      const stepEl = cw.querySelector('.chord-ticks-step');
+      if (stepEl) {
+        stepEl.setAttribute('style',
+          buildInnerTicks(beats, epochOwnOffset, '--color-tick-substep', subdiv, liveDist.spans[i],
+            { ownOffset: epochOwnOffset, unitScale: epochUnitScale }));
+      }
+      const countsEl = cw.querySelector('.chord-counts');
+      if (countsEl) {
+        countsEl.innerHTML = buildInnerCounts(
+          beats, epochOwnOffset, subdiv, liveDist.spans[i], epochBeatsPerBar,
+          { ownOffset: epochOwnOffset, unitScale: epochUnitScale });
+      }
+      const spanBtn = cw.querySelector('.chord-span-btn');
+      if (spanBtn) {
+        spanBtn.textContent = ev.timeSig || parentTs;
+        spanBtn.title = `Изменить размер ячейки (долей: ${ev.span})`;
+      }
+      const preview = cw.querySelector('.event-strum-preview');
+      if (preview) preview.classList.remove('is-rhythm-removing');
+      if (typeof playbackState === 'undefined' || !playbackState.isPlaying) {
+        restoreEventStrumPreview(`${sec.id}:${sq.id}:${i}`);
+      }
+      updateChordRhythmButtonState(cw, sec, sq, i);
+    }
+    epochOwnOffset += (ev && ev.span) || 1;
+  }
+
+  refreshChordWrapperRects();
+  updateCellsDegrees();
+  if (timelineMode) {
+    renderTimeline();
+    syncTimelineSongBar();
+  }
+  if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
+  window.__b25IncrementalSquareSyncCount = (window.__b25IncrementalSquareSyncCount || 0) + 1;
+  return true;
+}
+
+function scheduleResizedSquareDomSync(sec, sq, bi, delay) {
+  const wait = Math.max(0, delay || 0);
+  setTimeout(() => {
+    if (rhythmHintSession) {
+      scheduleResizedSquareDomSync(sec, sq, bi, 80);
+      return;
+    }
+    if (!syncResizedSquareDom(sec, sq, bi)) requestRender();
+  }, wait);
 }
 
 function attachResizeHandlers() {
@@ -29029,14 +29120,13 @@ function attachResizeHandlers() {
         // B-20: общий settle-проход — то же снятие, но с тостом.
         const droppedRhythmHintCells = [];
         settleSquareRhythmWithFacade(s, sq, { droppedOut: droppedRhythmHintCells });
-        // B-15: подсказку отпускаем ДО финального render(). Полный render()
-        // пересобирает DOM и даёт заметную просадку рядом с transform-
-        // анимацией, поэтому откладываем его до конца «уплывания». Текущий
-        // DOM уже обновлялся по ходу drag и визуально соответствует финалу.
-        // droppedOut передаём явно: снятый на этом отпускании ритм не должен
-        // улетать вообще, только fade-out.
+        // B-15/B-25: подсказку отпускаем, а финальную синхронизацию делаем
+        // инкрементально по текущему квадрату. Полный render() здесь как
+        // раз создавал гонку: пересобирал всю страницу рядом с reverse-
+        // анимацией и возвращал stale mini-preview. droppedOut передаём
+        // явно: снятый на этом отпускании ритм не должен улетать вообще.
         const hintExitMs = finishRhythmHints({ droppedOut: droppedRhythmHintCells });
-        scheduleRhythmHintFinalRender(hintExitMs);
+        scheduleResizedSquareDomSync(s, sq, bi, hintExitMs);
         isResizing = true;
         setTimeout(() => {
           isResizing = false;
