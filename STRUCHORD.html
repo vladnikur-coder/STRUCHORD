@@ -3447,6 +3447,9 @@ body {
   white-space: nowrap;
   pointer-events: none;
   z-index: 2;
+  /* B-15: на время протяжки превью уступает своё место подсказке над
+     счётом — гасим плавно, а не скачком (.square.is-hinting). */
+  transition: opacity 0.18s ease;
 }
 .event-strum-preview.has-pattern {
   display: flex;
@@ -3852,6 +3855,117 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
    визуально все цифры выглядели одинаково (10px/800 через .is-beat выше). */
 .chord-wrapper .chord-count.is-downbeat {
   font-size: 12px;
+}
+
+/* ---- B-15 (2026-08-28): подсказка ритма над счётом при ресайзе ----
+   Спека (дословно в ROADMAP): по умолчанию вид как раньше; на старте
+   протяжки кастомный ритм «переплывает» в полосу над подписями счёта
+   (удар стоит на своём узле, как в режиме ленты), наследуемый —
+   проявляется там же через fade in; на отпускании — fade out и
+   уплывает обратно. Уточнение 2026-08-28: плывут САМИ УДАРЫ — каждый
+   со своего места в мини-превью до своего узла сетки.
+   Оверлей кладётся поверх ячеек квадрата (pointer-events: none),
+   геометрия детей в процентах от колонок грида: при протяжке JS пишет
+   те же distributeVisualSpans, что меняет сетку, — подсказка едет
+   вместе с границами ячеек. */
+.rhythm-hints {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Над рисунком ячейки (z-index 2) и подписью счёта (1), под кнопками
+     ячейки (10): подсказке клики не нужны вовсе. */
+  z-index: 6;
+}
+.rhythm-hint {
+  position: absolute;
+  top: 4px;
+  bottom: 0;
+  opacity: 0;
+  /* transform у полосы — только запасной ход (когда поударный FLIP
+     недоступен); штатно плывут сами удары (.rhythm-hint-hit ниже). */
+  transition: opacity 0.18s ease, transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: opacity, transform;
+}
+.rhythm-hint.is-in {
+  opacity: 1;
+}
+/* Базовая линия ударов — над подписями счёта: те занимают 4..16px от
+   низа ячейки (bottom:4 + height:12), подсказка встаёт этажом выше. */
+.rhythm-hint-hit {
+  position: absolute;
+  bottom: 20px;
+  transform: translateX(-50%);
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+  color: var(--color-text-secondary);
+  /* Поударный FLIP: вход — от места глифа в мини-превью до узла сетки,
+     выход — обратно; лесенку задаёт transition-delay из JS. */
+  transition: transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
+  will-change: transform;
+}
+/* Первый шаг первой ячейки встаёт на левой кромке квадрата — там
+   центрирование обрезало бы половину глифа об overflow:hidden квадрата.
+   Тот же приём, что у подписей счёта (.chord-count.is-edge). */
+.rhythm-hint-hit.is-edge {
+  transform: none;
+  margin-left: 2px;
+}
+/* Цвета — те же, что у дорожки ленты и превью боя: вниз тёмный, вверх
+   зелёный, глушение красное. Чужая палитра здесь читалась бы как
+   другая сущность. */
+.rhythm-hint-hit.down { color: var(--color-ink); }
+.rhythm-hint-hit.up { color: var(--color-success); }
+.rhythm-hint-hit.mute { color: var(--color-danger); }
+/* Пауза — чёрточка геометрией (как в ленте: «_» проваливается под
+   базовую линию), по центру высоты стрелок. */
+.rhythm-hint-hit.rest {
+  color: transparent;
+  font-size: 0;
+  width: 9px;
+  height: 2px;
+  bottom: 26px;
+  border-radius: 1px;
+  background: var(--color-text-tertiary);
+  opacity: 0.5;
+}
+/* Перебор — столбик цифр струн от той же базовой линии, растёт вверх
+   (бас сверху, как в превью и в ленте). */
+.rhythm-hint-hit.pick {
+  display: flex;
+  flex-direction: column-reverse;
+  align-items: center;
+  font-size: 10px;
+}
+.rhythm-hint-hit.pick .strum-pick-num {
+  line-height: 0.95;
+  color: var(--color-ink);
+}
+.rhythm-hint-hit.pick.is-stack3 .strum-pick-num {
+  font-size: 8px;
+}
+.rhythm-hint-hit .strum-pick-num.is-bass {
+  color: var(--color-accent);
+}
+/* Пока идёт протяжка с подсказкой, мини-превью в верхнем слоте этой
+   секции... нет — этого КВАДРАТА — скрыто: его содержимое «уехало»
+   вниз к счёту, две копии одного рисунка не нужны. Соседние квадраты
+   не трогаем — протяжка меняет только этот квадрат. */
+.square.is-hinting .event-strum-preview {
+  opacity: 0;
+}
+@keyframes rhythm-hint-preview-return {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+/* Обратная фаза — тот же обмен слоями наоборот: подсказка улетает и
+   тает, а мини-превью в верхнем слоте проявляется с тем же timing, с
+   которым оно исчезало на входе. animation надёжнее, чем transition на
+   свежем render()-DOM: новый .event-strum-preview может появиться уже
+   после pointerup, но пока body-класс жив, он всё равно стартует с 0. */
+body.is-rhythm-hint-returning .event-strum-preview.has-pattern {
+  animation: rhythm-hint-preview-return 0.18s ease both;
 }
 
 .chord-content {
@@ -28051,6 +28165,358 @@ function render() {
     syncTimelineSongBar();
   }
 }
+// ---------- B-15 (2026-08-28): подсказка ритма над счётом при ресайзе ----------
+// Спека (дословно в ROADMAP): по умолчанию вид как раньше; на старте
+// протяжки КАСТОМНЫЙ ритм «переплывает» в полосу над подписями «1 та и та»
+// (каждый удар/струна на своём узле, как в режиме ленты); ячейка,
+// НАСЛЕДУЮЩАЯ бой секции, получает рисунок над счётом через fade in.
+// На отпускании мыши — fade out и «уплыть на своё место».
+// Уточнение спеки 2026-08-28: переплывают САМИ УДАРЫ — каждая стрелка/цифра
+// кастомного боя стартует со своего места в компактном мини-превью и
+// доплывает до своего узла сетки (поударный FLIP), с лесенкой задержек
+// по индексу, чтобы «распределение» читалось глазом.
+//
+// Контент — тот же, что у дорожки ленты: rhythmSoundingForEvent даёт
+// ЗВУЧАЩИЙ рисунок ячейки (своё окно рулона либо срез наследуемого),
+// позиция удара = начало шага (j / steps.length) — как у .tl-hit.
+// Сопоставление «удар полосы ↔ глиф превью»: превью рисует минимальный
+// повтор (findRepeatUnit + «×N»), поэтому источник удара j — глиф превью
+// j % длинаКуска (по содержанию это тот же удар).
+//
+// Почему оверлей, а не жизнь внутри разметки ячеек: на отпускании render()
+// мгновенно пересобирает дерево ячеек (innerHTML), и внутри-ячеечные
+// элементы умерли бы без «уплыть обратно». Оверлей на отпускании
+// пересаживается на body с position:fixed в тех же пикселях — и доигрывает
+// выходную анимацию поверх уже нового рендера.
+//
+// Порядок замеров небритвенно важен (урок живой съёмки shot-b15,
+// 2026-08-28): ВСЕ чтения раскладки — ДО рождения оверлея либо одним
+// читающим проходом. Read между вставкой полуготового оверлея и постановкой
+// стартовых трансформов форсит reflow и «запечатывает» промежуточное
+// состояние, и браузер схлопывает переход в 0→0 — «переплывание»
+// превращается в чистый fade. Именно так поймали первую версию.
+let rhythmHintSession = null; // { sqEl, bi, overlay, entries: [{el, custom, startCustom}] }
+
+// Звучащий рисунок и «кастомность» каждой ячейки квадрата.
+// Призрачную тишину (B-06) не подсказываем — как и мини-превью, пустое
+// звучащее окно не рисуем ни по дороге, ни в финале.
+function collectRhythmHintData(s, sq) {
+  return sq.events.map((ev, ei) => {
+    if (isGhostSilenceCell(s, sq, ei)) return null;
+    const pattern = rhythmSoundingForEvent(s, sq, ev, ei);
+    if (!pattern || !Array.isArray(pattern.steps) || !pattern.steps.length) return null;
+    // Тот же критерий «своего» ритма, что у мини-превью в render()
+    // (волна-4: ссылка на рулон либо легаси-вкрапление strumPattern).
+    const custom = !!(ev.strumPattern
+      || (songRhythmRolls && songRhythmRolls.refs.has(`${s.id}:${sq.id}:${ei}`)));
+    return { pattern, custom };
+  });
+}
+
+// Содержимое одной полосы: удары расставлены точками на сетке, символика —
+// как в дорожке ленты (↓ тёмная, ↑ зелёная, × красная, пауза — чёрточка,
+// перебор — столбик цифр струн с басом сверху).
+// deltas[j] (опционально, только на входе) — стартовый FLIP-сдвиг удара
+// «от его места в мини-превью до узла сетки» и лесенка задержки.
+function buildRhythmHintContent(hintEl, pattern, deltas) {
+  hintEl.textContent = '';
+  const steps = pattern.steps;
+  const n = steps.length;
+  if (!n) return;
+  const frag = document.createDocumentFragment();
+  for (let j = 0; j < n; j++) {
+    const symbol = steps[j];
+    const el = document.createElement('div');
+    el.className = 'rhythm-hint-hit';
+    if (pattern.mode === 'pick'
+        || (pattern.mode === 'mixed' && (Array.isArray(symbol) || typeof symbol === 'number'))) {
+      const nums = normalizePickStep(symbol);
+      if (nums.length) {
+        el.classList.add('pick');
+        if (nums.length >= 3) el.classList.add('is-stack3');
+        nums
+          .slice()
+          .sort((a, b) => pickStepSortValue(a) - pickStepSortValue(b))
+          .forEach((num) => {
+            const numEl = document.createElement('span');
+            numEl.className = 'strum-pick-num';
+            if (isPickBassToken(num)) numEl.classList.add('is-bass');
+            numEl.textContent = pickTokenLabel(num);
+            el.appendChild(numEl);
+          });
+      } else {
+        el.classList.add('rest');
+      }
+    } else if (symbol === 'D') {
+      el.classList.add('down');
+      el.textContent = '↓';
+    } else if (symbol === 'U') {
+      el.classList.add('up');
+      el.textContent = '↑';
+    } else if (symbol === 'X') {
+      el.classList.add('mute');
+      el.textContent = '×';
+    } else {
+      el.classList.add('rest');
+    }
+    el.style.left = (j / n * 100) + '%';
+    if (j === 0) el.classList.add('is-edge');
+    const dlt = deltas && deltas[j];
+    if (dlt) {
+      // Базовый translateX(-50%) из CSS стоит И в конечном состоянии, поэтому
+      // удерживаем его в составе инлайна — иначе глиф на входе прыгнет
+      // вбок. (.is-edge центрирование не использует — там финальное none.)
+      const base = j === 0 ? '' : 'translateX(-50%) ';
+      el.style.transform = `${base}translate(${dlt.dx}px, ${dlt.dy}px)`;
+      if (dlt.delay) el.style.transitionDelay = dlt.delay + 'ms';
+    }
+    frag.appendChild(el);
+  }
+  hintEl.appendChild(frag);
+}
+
+// Геометрия полос — из того же distributeVisualSpans, что правит сетку
+// на каждом движении мыши: полосы едут ровно вместе с границами ячеек.
+function layoutRhythmHints(session, distribution) {
+  const tc = distribution.totalCols;
+  let cum = 0;
+  session.entries.forEach((entry, i) => {
+    const cols = Math.max(1, distribution.spans[i] || 1);
+    entry.el.style.left = (cum / tc * 100) + '%';
+    entry.el.style.width = (cols / tc * 100) + '%';
+    cum += cols;
+  });
+}
+
+// Вход: поударные FLIP-сдвиги «от места в превью до узла сетки» для одной
+// кастомной ячейки. Возвращает массив по шагам рисунка либо null
+// (источники недоступны — сработает пополосный fallback).
+// Координаты — в системе .square-inner (оверлей лежит в нём с inset:0).
+function rhythmHintEnterDeltas(bi, ei, pattern, distribution, cumCols, biRect) {
+  const wrapperEl = bi.querySelector(`.chord-wrapper[data-ei="${ei}"]`);
+  const prevEl = wrapperEl && wrapperEl.querySelector('.event-strum-preview');
+  const stepRects = prevEl
+    ? [...prevEl.querySelectorAll('.strum-step')].map((el) => el.getBoundingClientRect())
+    : [];
+  if (!wrapperEl || !stepRects.length || !biRect.width) return null;
+  const wrapRect = wrapperEl.getBoundingClientRect();
+  const n = pattern.steps.length;
+  if (!n) return null;
+  const tc = distribution.totalCols;
+  const cols = Math.max(1, distribution.spans[ei] || 1);
+  // Финальная геометрия — аналитически из тех же колонок, что пишет
+  // layoutRhythmHints (DOM-overlay на этом шаге ещё не существует).
+  const stripLeft = (cumCols / tc) * biRect.width;
+  const stripWidth = (cols / tc) * biRect.width;
+  // Базовая линия ударов подсказки: 20px от низа ячейки + половина глифа.
+  const baselineY = wrapRect.bottom - biRect.top - 20 - 7;
+  const deltas = [];
+  for (let j = 0; j < n; j++) {
+    const src = stepRects[j % stepRects.length];
+    // Старт — ЦЕНТР глифа превью; финиш — узел сетки. translateX(-50%) в
+    // составе инлайна (см. билder) ставит центр глифа ровно на узел, так
+    // что dx от центра к якорю — и есть «центр в центр».
+    const dx = (src.left + src.width / 2 - biRect.left) - (stripLeft + (j / n) * stripWidth);
+    const dy = (src.top + src.height / 2 - biRect.top) - baselineY;
+    // Лесенка 10мс/удар (потолок 60мс): «распределение» читается волной.
+    deltas.push({ dx, dy, delay: Math.min(j * 10, 60) });
+  }
+  return deltas;
+}
+
+// Запасной полёт полосой целиком (источники недоступны): сколько вниз —
+// от центра превью до базовой линии подсказки.
+function rhythmHintStripDy(wrapperEl) {
+  const prevEl = wrapperEl && wrapperEl.querySelector('.event-strum-preview');
+  if (!prevEl) return -30;
+  const prevRect = prevEl.getBoundingClientRect();
+  const wrapRect = wrapperEl.getBoundingClientRect();
+  if (!wrapRect.height || !prevRect.height) return -30;
+  return (prevRect.top + prevRect.height / 2) - (wrapRect.bottom - 20 - 7);
+}
+
+function startRhythmHints(s, sq, bi, distribution) {
+  cancelRhythmHints();
+  // Во время воспроизведения мини-превью живые (бегает .is-live) — вторым
+  // огнём не светим; протяжка во время игры — редкий путь, подсказка там
+  // незачем.
+  if (typeof playbackState !== 'undefined' && playbackState.isPlaying) return;
+  const sqEl = bi.closest('.square');
+  const data = collectRhythmHintData(s, sq);
+  if (!data.some(Boolean)) return; // звучащего рисунка нет ни у одной ячейки
+  // Все чтения — здесь, до рождения оверлея (см. урок в шапке блока).
+  const biRect = bi.getBoundingClientRect();
+  const deltasByCell = [];
+  const stripDyByCell = [];
+  let cum = 0;
+  sq.events.forEach((ev, ei) => {
+    deltasByCell[ei] = (data[ei] && data[ei].custom)
+      ? rhythmHintEnterDeltas(bi, ei, data[ei].pattern, distribution, cum, biRect)
+      : null;
+    stripDyByCell[ei] = (data[ei] && data[ei].custom && !deltasByCell[ei])
+      ? rhythmHintStripDy(bi.querySelector(`.chord-wrapper[data-ei="${ei}"]`))
+      : 0;
+    cum += Math.max(1, distribution.spans[ei] || 1);
+  });
+  const overlay = document.createElement('div');
+  overlay.className = 'rhythm-hints';
+  const entries = sq.events.map((ev, ei) => {
+    const el = document.createElement('div');
+    el.className = 'rhythm-hint';
+    const d = data[ei];
+    const entry = { el, custom: false, startCustom: false };
+    if (d) {
+      entry.startCustom = d.custom;
+      entry.custom = d.custom;
+      buildRhythmHintContent(el, d.pattern, deltasByCell[ei]);
+      // Наследуемому смещения нет вообще: ему неоткуда плыть, он просто
+      // проявляется (fade in через .is-in). У кастомного либо поударный
+      // FLIP (уже стоит), либо полёт полосой (fallback).
+      if (d.custom && !deltasByCell[ei]) {
+        el.style.transform = `translateY(${stripDyByCell[ei]}px)`;
+      }
+    }
+    overlay.appendChild(el);
+    return entry;
+  });
+  bi.appendChild(overlay);
+  const session = { sqEl, bi, overlay, entries };
+  rhythmHintSession = session;
+  layoutRhythmHints(session, distribution);
+  sqEl && sqEl.classList.add('is-hinting');
+  // Форсируем reflow ДО добавления is-in: запечатывается СТАРТОВОЕ
+  // состояние, следующая правка играет transition из него в конечное.
+  void overlay.offsetHeight;
+  entries.forEach((entry) => {
+    entry.el.classList.add('is-in');
+    entry.el.style.transform = '';
+    entry.el.querySelectorAll('.rhythm-hint-hit').forEach((h) => { h.style.transform = ''; });
+  });
+}
+
+// На каждом движении: границы переехали (геометрия) и reslice переписал
+// окна рулонов (контент). Перечитываем то и другое — подсказка всегда
+// показывает ровно то, что прозвучит после отпускания.
+function refreshRhythmHints(s, sq, distribution) {
+  const session = rhythmHintSession;
+  if (!session) return;
+  const data = collectRhythmHintData(s, sq);
+  session.entries.forEach((entry, i) => {
+    const d = data[i];
+    if (d) {
+      // Тип обратной анимации фиксируется на старте жеста. Иначе соседняя
+      // наследуемая ячейка может временно стать приватным окном после
+      // reslice и внезапно «улететь» назад, хотя на входе она только
+      // проявлялась fade-in.
+      entry.custom = !!entry.startCustom;
+      buildRhythmHintContent(entry.el, d.pattern);
+    } else if (entry.el.firstChild) {
+      entry.el.textContent = '';
+    }
+  });
+  layoutRhythmHints(session, distribution);
+}
+
+// Выходные сдвиги: каждый видимый удар подсказки летит обратно в тот
+// глиф компактного превью, из которого он был развёрнут. Превью может
+// показывать минимальный повтор («DU ×2»), поэтому полный рисунок DUDU
+// сворачивается по модулю числа показанных глифов: j → j % sourceCount.
+function rhythmHintExitDeltas(entry, ei, bi) {
+  if (!entry || !entry.custom) return null;
+  const wrapperEl = bi.querySelector(`.chord-wrapper[data-ei="${ei}"]`);
+  const prevEl = wrapperEl && wrapperEl.querySelector('.event-strum-preview');
+  const stepEls = prevEl ? [...prevEl.querySelectorAll('.strum-step')] : [];
+  const hitEls = [...entry.el.querySelectorAll('.rhythm-hint-hit')];
+  if (!wrapperEl || !stepEls.length || !hitEls.length) return null;
+  const src = stepEls.map((el) => {
+    const r = el.getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  return hitEls.map((h, j) => {
+    const r = h.getBoundingClientRect();
+    const sourceIndex = j % src.length;
+    return {
+      dx: src[sourceIndex].x - (r.left + r.width / 2),
+      dy: src[sourceIndex].y - (r.top + r.height / 2),
+      sourceIndex,
+    };
+  });
+}
+
+// Отпускание: оверлей пересаживается на body (свежий render() его не
+// убьёт), доигрывает выход и самоубирается. Кастомные удары уплывают
+// КАЖДЫЙ в свой глиф превью, наследуемые полосы просто тают.
+function finishRhythmHints() {
+  const session = rhythmHintSession;
+  if (!session) return;
+  rhythmHintSession = null;
+  // На выходе делаем обратную фазу входа: мини-превью НЕ появляется
+  // мгновенно под летящими ударами, а остаётся скрытым до свежего render()
+  // и затем проявляется тем же opacity-transition, которым на входе
+  // исчезало. Иначе глаз видит «готовый ритм уже на месте + поверх него
+  // что-то улетает», то есть не ту же самую анимацию наоборот.
+  document.body.classList.add('is-rhythm-hint-returning');
+  session.sqEl && session.sqEl.classList.remove('is-hinting');
+  // body-класс держим до конца ghost-анимации: свежий render() может
+  // пересоздать мини-превью в любой ближайший кадр, и CSS-анимация
+  // rhythm-hint-preview-return должна поймать этот новый DOM с opacity 0.
+  // Выходные сдвиги меряем СЕЙЧАС, пока старый DOM жив (render() уйдёт
+  // следующим кадром): от текущего rect удара к центру глифа превью.
+  // rect уже учитывает самоцентровку — считаем центр-в-центр. Один
+  // читающий проход до любых записей (всё тот же урок shot-b15).
+  const exitDeltas = session.entries.map((entry, ei) =>
+    rhythmHintExitDeltas(entry, ei, session.bi));
+  const biRect = session.bi.getBoundingClientRect();
+  const ghost = session.overlay;
+  ghost.remove();
+  ghost.style.position = 'fixed';
+  ghost.style.left = biRect.left + 'px';
+  ghost.style.top = biRect.top + 'px';
+  ghost.style.width = biRect.width + 'px';
+  ghost.style.height = biRect.height + 'px';
+  document.body.appendChild(ghost);
+  // Reflow в новом контексте — иначе выходное состояние склеится с входным.
+  void ghost.offsetHeight;
+  session.entries.forEach((entry, ei) => {
+    entry.el.classList.remove('is-in');
+    const ex = exitDeltas[ei];
+    if (ex) {
+      const hitEls = [...entry.el.querySelectorAll('.rhythm-hint-hit')];
+      hitEls.forEach((h, j) => {
+        const base = j === 0 ? '' : 'translateX(-50%) ';
+        // Уплывание должно выглядеть тем же жестом, что и приплывание:
+        // та же лесенка 0,10,20… слева направо, та же длительность и
+        // та же кривая. Меняется только вектор — обратно к мини-превью.
+        h.style.transitionDelay = Math.min(j * 10, 60) + 'ms';
+        h.dataset.rhythmSourceIndex = String(ex[j].sourceIndex);
+        h.style.transform = `${base}translate(${ex[j].dx}px, ${ex[j].dy}px)`;
+      });
+    } else if (entry.custom) {
+      entry.el.style.transform = 'translateY(-34px)';
+    }
+  });
+  // Самоуборка — после самого долгого transition: лесенка задержек (≤60мс)
+  // + длительность (220мс) + запас. Живёт поверх мгновенного render().
+  setTimeout(() => {
+    ghost.remove();
+    document.body.classList.remove('is-rhythm-hint-returning');
+  }, 420);
+}
+
+// Новый grab до окончания выхода прошлого (или прерванный жест): прибить
+// следы, чтобы не тянуть за собой полупрозрачные призраки.
+function cancelRhythmHints() {
+  const session = rhythmHintSession;
+  if (session) {
+    rhythmHintSession = null;
+    session.sqEl && session.sqEl.classList.remove('is-hinting');
+    session.overlay.remove();
+  }
+  // Выходные ghost-оверлеи живут на body — добираем и их.
+  document.querySelectorAll('body > .rhythm-hints').forEach((el) => el.remove());
+  document.body.classList.remove('is-rhythm-hint-returning');
+}
+
 function attachResizeHandlers() {
   document.querySelectorAll('.resize-handle').forEach((h) => {
     if (h._resizeController) h._resizeController.abort();
@@ -28100,6 +28566,10 @@ function attachResizeHandlers() {
       const bi = w.closest('.square-inner');
       const tw = bi.getBoundingClientRect().width;
       const gs = tw / tc; // ширина одной визуальной колонки
+
+      // B-15: на старте протяжки ритм уезжает в подсказку над счётом
+      // (кастом — переплывает из верхнего слота, наследуемый — fade in).
+      startRhythmHints(s, sq, bi, distribution);
 
       function dist(sp, fi, ch) {
         let rem = ch;
@@ -28264,6 +28734,11 @@ function attachResizeHandlers() {
       restoreEventStrumPreview(`${s.id}:${sq.id}:${i}`);
     }
   }
+
+  // B-15: подсказка ритма переезжает вместе с границами и перечитывает
+  // окна после перерезки — показывает ровно то, что прозвучит после
+  // отпускания.
+  refreshRhythmHints(s, sq, liveDist);
 }
 
       function onMove(ev) {
@@ -28325,6 +28800,9 @@ function attachResizeHandlers() {
         // в наследование — пинов больше нет, ячейки следуют за секцией.
         // B-20: общий settle-проход — то же снятие, но с тостом.
         settleSquareRhythmWithFacade(s, sq);
+        // B-15: подсказку отпускаем ДО requestRender — она пересадится
+        // на body и доиграет «уплыть обратно» поверх свежего рендера.
+        finishRhythmHints();
         requestRender();
         isResizing = true;
         setTimeout(() => {
