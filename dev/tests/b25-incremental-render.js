@@ -37,6 +37,7 @@ function resetRenderCounter() {
     window.__b25RequestRenderCount = 0;
     window.__b25IncrementalSquareSyncCount = 0;
     window.__b25IncrementalSquareRenderCount = 0;
+    window.__b25IncrementalSectionSquaresRenderCount = 0;
     requestRender = function () {
       window.__b25RequestRenderCount++;
       return window.__b25OldRequestRender.apply(this, arguments);
@@ -50,6 +51,7 @@ function restoreRenderCounter() {
     delete window.__b25RequestRenderCount;
     delete window.__b25IncrementalSquareSyncCount;
     delete window.__b25IncrementalSquareRenderCount;
+    delete window.__b25IncrementalSectionSquaresRenderCount;
     return 0`);
 }
 
@@ -175,6 +177,72 @@ w.addEventListener('load', async () => {
   ok('после − осталась одна ручка границы',
     evl(`return document.querySelectorAll('.square[data-square="2"] .resize-handle').length`) === 1,
     evl(`return document.querySelectorAll('.square[data-square="2"] .resize-handle').length`));
+  restoreRenderCounter();
+
+  console.log('=== B-25.3 add/remove/clone square: локальный rerender squares-list ===');
+  scene();
+  resetRenderCounter();
+  evl(`addSquare(1); return 0`);
+  ok('addSquare не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('addSquare пересобрал squares-list одной секции',
+    evl('return window.__b25IncrementalSectionSquaresRenderCount') >= 1,
+    evl('return window.__b25IncrementalSectionSquaresRenderCount'));
+  ok('после addSquare в модели три квадрата',
+    evl('return sections[0].squares.length') === 3,
+    evl('return sections[0].squares.length'));
+  ok('после addSquare в DOM три .square',
+    evl(`return document.querySelectorAll('.section-card[data-id="1"] .squares-list > .square').length`) === 3,
+    evl(`return document.querySelectorAll('.section-card[data-id="1"] .squares-list > .square').length`));
+  ok('edge-классы квадратов актуальны после addSquare',
+    evl(`return !!document.querySelector('.square[data-square="2"].square--first')
+      && !!document.querySelector('.square[data-square="' + sections[0].squares[2].id + '"].square--last')`));
+  restoreRenderCounter();
+
+  scene();
+  resetRenderCounter();
+  evl(`cloneLastSquare(1); return 0`);
+  ok('cloneLastSquare не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('cloneLastSquare пересобрал squares-list одной секции',
+    evl('return window.__b25IncrementalSectionSquaresRenderCount') >= 1,
+    evl('return window.__b25IncrementalSectionSquaresRenderCount'));
+  ok('клон появился в модели и DOM',
+    evl('return sections[0].squares.length') === 3
+      && evl(`return document.querySelectorAll('.section-card[data-id="1"] .squares-list > .square').length`) === 3);
+  restoreRenderCounter();
+
+  scene();
+  resetRenderCounter();
+  evl(`removeSquare(1, 2); return 0`);
+  ok('removeSquare не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('removeSquare пересобрал squares-list одной секции',
+    evl('return window.__b25IncrementalSectionSquaresRenderCount') >= 1,
+    evl('return window.__b25IncrementalSectionSquaresRenderCount'));
+  ok('после removeSquare остался один квадрат и edge-классы пересчитаны',
+    evl('return sections[0].squares.length') === 1
+      && evl(`return document.querySelectorAll('.section-card[data-id="1"] .squares-list > .square').length`) === 1
+      && evl(`return !!document.querySelector('.section-card[data-id="1"] .squares-list > .square.square--first.square--last')`));
+  restoreRenderCounter();
+
+  console.log('=== B-25.3 setSquareCustomBeats: локальный rerender одного square-inner ===');
+  scene();
+  resetRenderCounter();
+  evl(`setSquareCustomBeats(1, 2, 12); return 0`);
+  ok('setSquareCustomBeats не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('setSquareCustomBeats пересобрал один square-inner',
+    evl('return window.__b25IncrementalSquareRenderCount') >= 1,
+    evl('return window.__b25IncrementalSquareRenderCount'));
+  ok('длина квадрата увеличилась до 12 долей и DOM получил новые ячейки',
+    evl('return getSquareBeats(sections[0].squares[0], sections[0].timeSig || globalTimeSig)') === 12
+      && evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`) === 4,
+    evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`));
   restoreRenderCounter();
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');

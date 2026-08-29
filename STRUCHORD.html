@@ -16597,6 +16597,12 @@ function removeSection(id) {
   sections = sections.filter((s) => s.id !== id);
   requestRender();
 }
+function clonePlainData(value) {
+  if (value == null) return value;
+  return typeof structuredClone === 'function'
+    ? structuredClone(value)
+    : JSON.parse(JSON.stringify(value));
+}
 function cloneSection(id) {
   const orig = sections.find((s) => s.id === id);
   if (!orig) return;
@@ -16608,16 +16614,16 @@ function cloneSection(id) {
     bpm: orig.bpm,
     timeSig: orig.timeSig,
     repeat: orig.repeat || 1,
-    strumPattern: structuredClone(orig.strumPattern || null),
+    strumPattern: clonePlainData(orig.strumPattern || null),
     squares: orig.squares.map((sq) => ({
       id: nextId++,
       repeat: sq.repeat || 1,
-      strumPattern: structuredClone(sq.strumPattern || null),
+      strumPattern: clonePlainData(sq.strumPattern || null),
       events: sq.events.map((e) => ({
         chord: e.chord,
         span: e.span,
         timeSig: e.timeSig || null,
-        strumPattern: structuredClone(e.strumPattern || null),
+        strumPattern: clonePlainData(e.strumPattern || null),
         // Клон должен унести и выбранную аппликатуру, иначе копия
         // секции показывала бы форму по умолчанию.
         //
@@ -16737,13 +16743,14 @@ function addSquare(sid) {
     ],
     customBeats: refBeats * 4,
   });
-  requestRender();
+  if (!rerenderSectionSquaresDom(s)) requestRender();
 }
 function removeSquare(sid, sqid) {
   const s = sections.find((s) => s.id === sid);
   if (!s) return;
   s.squares = s.squares.filter((sq) => sq.id !== sqid);
-  requestRender();
+  if (keyMode === 'auto') refreshAutoDetectedKey();
+  if (!rerenderSectionSquaresDom(s)) requestRender();
 }
 function cloneLastSquare(sid) {
   const s = sections.find((s) => s.id === sid);
@@ -16752,12 +16759,12 @@ function cloneLastSquare(sid) {
   const ns = {
     id: nextId++,
     repeat: ls.repeat || 1,
-    strumPattern: structuredClone(ls.strumPattern || null),
+    strumPattern: clonePlainData(ls.strumPattern || null),
     events: ls.events.map((e) => ({
       chord: e.chord,
       span: e.span,
       timeSig: e.timeSig || null,
-      strumPattern: structuredClone(e.strumPattern || null),
+      strumPattern: clonePlainData(e.strumPattern || null),
       // Как и в cloneSection: форма плюс подпись строя, при котором
       // она выбрана.
       fingering: e.fingering || null,
@@ -16768,7 +16775,8 @@ function cloneLastSquare(sid) {
   s.squares.push(ns);
   // Волна-4: ссылки и рулоны последнего квадрата — копиями на новый id.
   if (songRhythmRolls) cloneSquareRhythmRolls(songRhythmRolls, sid, ls.id, sid, ns.id);
-  requestRender();
+  if (keyMode === 'auto') refreshAutoDetectedKey();
+  if (!rerenderSectionSquaresDom(s)) requestRender();
 }
 function setSectionRepeat(sectionId, count) {
   const sec = sections.find((s) => s.id === sectionId);
@@ -16860,7 +16868,9 @@ function setSquareCustomBeats(sid, sqid, beats) {
     if (e.span < 1) e.span = 1;
   });
   if (keyMode === 'auto') refreshAutoDetectedKey();
-  requestRender();
+  // B-25: изменение длины квадрата меняет только его содержимое/ширину
+  // внутри текущей секции; полный render не нужен.
+  if (!rerenderSquareInnerDom(s, sq)) requestRender();
 }
 function setSquareBeats(sectionId, squareId) {
   const sec = sections.find(s => s.id === sectionId);
@@ -16880,7 +16890,6 @@ function setSquareBeats(sectionId, squareId) {
   }
   const totalBeats = beats * beatsPerBar;
   setSquareCustomBeats(sectionId, squareId, totalBeats);
-  requestRender();
 }
 // ---------- МИГРАЦИЯ СОБЫТИЙ ПРИ СМЕНЕ РАЗМЕРА ----------
 // Раньше при смене глобального/секционного размера все events квадрата
@@ -28955,6 +28964,82 @@ function rerenderSquareInnerDom(sec, sq) {
   syncSectionSquaresGeometry(sec);
   syncResizedSquareDom(sec, sq, bi);
   window.__b25IncrementalSquareRenderCount = (window.__b25IncrementalSquareRenderCount || 0) + 1;
+  return true;
+}
+
+function buildSectionSquaresListHtml(sec) {
+  const parentTs = sec.timeSig || globalTimeSig;
+  const beatsPerBar = getGridUnitsPerBar(parentTs);
+  const sectionDistributions = sec.squares.map((sq) => distributeVisualSpans(sq.events, parentTs));
+  const sectionMaxBeats = getSectionMaxVisualBeats(sec);
+  let squaresHtml = '';
+  let lastSquareWidthPercent = 100;
+
+  sec.squares.forEach((sq, sqIdx) => {
+    const distribution = sectionDistributions[sqIdx];
+    const totalCols = distribution.totalCols;
+    const sqBeats = getSquareBeats(sq, parentTs);
+    const widthPercent = Math.min(100, (getSquareVisualBeats(sq, parentTs) / sectionMaxBeats) * 100);
+    lastSquareWidthPercent = widthPercent;
+    const sqRepeat = sq.repeat || 1;
+    const sqRepeatHtml = `<span class="repeat-badge${sqRepeat > 1 ? ' repeat-badge--visible' : ''}" onclick="event.stopPropagation(); var c=prompt('Сколько раз повторить этот квадрат?','${sqRepeat}'); if(c&&parseInt(c)>=1) setSquareRepeat(${sec.id},${sq.id},parseInt(c))" title="Повторять квадрат ×${sqRepeat}">×${sqRepeat}</span>`;
+    const edgeClass =
+      (sqIdx === 0 ? ' square--first' : '') +
+      (sqIdx === sec.squares.length - 1 ? ' square--last' : '');
+    squaresHtml += `<div class="square${edgeClass}" data-sec="${sec.id}" data-square="${sq.id}">
+      <div class="square-inner" style="grid-template-columns:repeat(${totalCols},minmax(0,1fr));width:${widthPercent}%;">
+        ${buildSquareInnerEventsHtml(sec, sq, distribution)}
+      </div>
+      <div style="position:absolute; right:calc((100% - ${widthPercent}%) - 49px); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; align-items:center; gap:2px;">
+        <button class="del-square-btn" onclick="event.stopPropagation();removeSquare(${sec.id},${sq.id})" aria-label="Удалить квадрат"><i class="ti ti-x"></i></button>
+        ${sqRepeatHtml}
+        <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${sqBeats / beatsPerBar} такт${sqBeats / beatsPerBar !== 1 ? 'а' : ''}</span>
+      </div>
+    </div>`;
+  });
+
+  const secRepeat = sec.repeat || 1;
+  if (secRepeat > 1) {
+    squaresHtml += `<div class="section-repeat-row" style="width:${lastSquareWidthPercent.toFixed(4)}%"><span class="section-repeat-badge-absolute" onclick="event.stopPropagation(); var c=prompt('Сколько раз повторить эту секцию?','${secRepeat}'); if(c&&parseInt(c)>=1) setSectionRepeat(${sec.id},parseInt(c))" title="Повторять секцию ×${secRepeat}">×${secRepeat}</span></div>`;
+  } else {
+    squaresHtml += `<div class="section-repeat-row section-repeat-row--hover" style="width:${lastSquareWidthPercent.toFixed(4)}%"><span class="section-repeat-badge-hover" onclick="event.stopPropagation(); var c=prompt('Сколько раз повторить эту секцию?','${secRepeat}'); if(c&&parseInt(c)>=1) setSectionRepeat(${sec.id},parseInt(c))" title="Нажмите, чтобы изменить повтор">×${secRepeat}</span></div>`;
+  }
+  return squaresHtml;
+}
+
+function rerenderSectionSquaresDom(sec) {
+  if (!sec || !Array.isArray(sec.squares)) return false;
+  const card = document.querySelector(`.section-card[data-id="${sec.id}"]`);
+  const list = card && card.querySelector('.squares-list');
+  const viewport = card && card.querySelector('.squares-viewport');
+  if (!card || !list || !viewport) return false;
+  const oldWidth = list.getBoundingClientRect().width;
+  const scrollFrac = oldWidth > 0 ? viewport.scrollLeft / oldWidth : 0;
+
+  const prefix = `${sec.id}:`;
+  for (const key of Array.from(eventStrumPreviewStepEls.keys())) {
+    if (key.startsWith(prefix)) eventStrumPreviewStepEls.delete(key);
+  }
+  list.innerHTML = buildSectionSquaresListHtml(sec);
+  renderEventStrumPreviews(list);
+  observeChordDisplays(list);
+  attachChordWheelEvents();
+  attachResizeHandlers();
+  attachSquareResizeHandlers();
+  refreshChordWrapperRects();
+  updateCellsDegrees();
+  if (timelineMode) {
+    renderTimeline();
+    syncTimelineSongBar();
+  }
+  const newWidth = list.getBoundingClientRect().width;
+  if (newWidth > 0 && scrollFrac > 0) {
+    const max = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+    scrollEchoExpected.add(viewport);
+    viewport.scrollLeft = Math.max(0, Math.min(max, scrollFrac * newWidth));
+  }
+  if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
+  window.__b25IncrementalSectionSquaresRenderCount = (window.__b25IncrementalSectionSquaresRenderCount || 0) + 1;
   return true;
 }
 

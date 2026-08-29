@@ -92,6 +92,8 @@ B-25, второй срез 2026-08-29: операции без изменени
 
 B-25, третий срез 2026-08-29: структурные операции внутри квадрата (`addChordAfter` / `removeChordAt`) больше не пересобирают всю песню. Введён локальный rerender одного `.square-inner` (`buildSquareInnerEventsHtml` + `rerenderSquareInnerDom`), после которого переинициализируются previews, chord click, resize handles и square resize handle; проверяется актуальность `data-ei` и числа ручек.
 
+B-25, четвёртый срез 2026-08-29: операции со списком квадратов секции (`addSquare`, `removeSquare`, `cloneLastSquare`) переведены на локальный rerender `.squares-list` одной секции (`buildSectionSquaresListHtml` + `rerenderSectionSquaresDom`), с сохранением scroll-фракции, edge-классов, repeat-рядов и переинициализацией handlers/previews. `setSquareCustomBeats` также закрывается локальным rerender текущего square-inner; `setSquareBeats` больше не дублирует полный render.
+
 ### Отменённые (R4 — не стираем, причина прилагается)
 
 | ID | Зона | Что было | Статус |
