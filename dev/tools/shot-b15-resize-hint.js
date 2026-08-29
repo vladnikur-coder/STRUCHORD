@@ -73,8 +73,6 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
                    delay: hh.style.transitionDelay || '',
                    sourceIndex: hh.dataset.rhythmSourceIndex || '',
                    target: hh.dataset.rhythmTargetTransform || '',
-                   targetScale: hh.dataset.rhythmTargetScale || '',
-                   scale: hh.style.scale || getComputedStyle(hh).scale || '',
                  })),
                  host: h.parentElement.parentElement === document.body ? 'body' : 'square' };
       }),
