@@ -62,6 +62,8 @@ const firePointerDown = (el, x) => {
 // его dispatch слышит штатно.
 const firePointerUp = () =>
   w.document.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true, cancelable: true }));
+const firePointerMove = (x) =>
+  w.document.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: x }));
 
 // Сцена: секция 4/4, квадрат с заданными ячейками, опционный бой секции.
 const scene = (events, secPattern) => evl(`
@@ -189,6 +191,34 @@ w.addEventListener('load', async () => {
   ok('если fade-out наследуемого не начался, кастом улетает сразу без лишней паузы',
     !!(fastHits.length && fastHits.every((h) => h.style.transform.includes('translate('))),
     fastHits.map((h) => h.style.transform || 'none').join(' | '));
+  await sleep(460);
+
+  console.log('=== 3c. Снятый ритм не телепортируется в фасад перед fade-out ===');
+  scene(
+    [D({ mode: 'strum', subdivision: 2, steps: ['D', '_', 'D', '_'] }, 2), D(null, 2)],
+    { mode: 'strum', subdivision: 4, steps: ['D','_','_','_','D','_','_','_','D','_','_','_','D','_','_','_'] }
+  );
+  firePointerDown(handle(), 100);
+  const compactCountBefore = overlayIn().querySelectorAll('.rhythm-hint')[0].querySelectorAll('.rhythm-hint-hit').length;
+  ok('до отпускания снятый кандидат ещё в своей компактной плотности (4 шага)',
+    compactCountBefore === 4, compactCountBefore);
+  // Создаём pending-refresh как от pointermove. Старый баг проявлялся тем,
+  // что этот refresh выполнялся уже ПОСЛЕ settle и перестраивал 4 шага
+  // кастома в 8 шагов наследуемого фасада — визуальный телепорт перед fade.
+  evl(`
+    scheduleRhythmHintsRefresh(sections[0], sections[0].squares[0],
+      distributeVisualSpans(sections[0].squares[0].events, '4/4'));
+    return 0`);
+  firePointerUp();
+  const demoteGhost = ghostIn();
+  const demoteHits = demoteGhost
+    ? [...demoteGhost.querySelectorAll('.rhythm-hint')[0].querySelectorAll('.rhythm-hint-hit')]
+    : [];
+  ok('после снятия ghost сохранил тот же рисунок, без телепорта в 8-шаговый фасад',
+    demoteHits.length === 4, demoteHits.length);
+  ok('снятый ритм исчезает fade-out и не получает target flight',
+    demoteHits.every((h) => !h.dataset.rhythmTargetTransform && !h.style.transform.includes('translate(')),
+    demoteHits.map((h) => h.dataset.rhythmTargetTransform || h.style.transform || 'none').join(' | '));
   await sleep(460);
 
   // --- 4. Перебор: столбики цифр струн -----------------------------------
