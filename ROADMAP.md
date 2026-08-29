@@ -100,6 +100,8 @@ B-25, шестой срез 2026-08-29: ритм-модалка переведе
 
 B-25, седьмой срез 2026-08-29: простые свойства без изменения структуры переведены на точечные DOM-обновления: `setSquareRepeat` меняет только бейдж квадрата (`syncSquareRepeatDom`), `setSectionRepeat` локально пересобирает `squares-list` секции, `setSectionBpm` обновляет только BPM-бейдж секции (`syncSectionBpmBadge`) и таймлайн. В тестах зафиксировано отсутствие полного `requestRender()`.
 
+B-25, восьмой срез 2026-08-29: секционный header обновляется локально через `syncSectionHeaderDom`: `renameSection`, `changeSectionType`, `setSectionKey` больше не требуют полного render; `setSectionTimeSig` мигрирует квадраты и затем локально обновляет header + `squares-list` секции. Убраны лишние `requestRender()` из popover модуляции после `setSectionKey`.
+
 ### Отменённые (R4 — не стираем, причина прилагается)
 
 | ID | Зона | Что было | Статус |

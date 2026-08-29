@@ -16590,7 +16590,8 @@ function renameSection(sid, nn) {
     s.type = 'Custom';
     s.customName = nn;
   }
-  requestRender();
+  // B-25: меняется только label в заголовке секции.
+  if (!syncSectionHeaderDom(s)) requestRender();
   showToast(`Секция переименована в "${nn}"`);
 }
 function removeSection(id) {
@@ -16663,7 +16664,8 @@ function changeSectionType(sid, nt) {
   if (!s) return;
   s.type = nt;
   if (s.customName) delete s.customName;
-  requestRender();
+  // B-25: тип секции меняет только label-класс/текст.
+  if (!syncSectionHeaderDom(s)) requestRender();
   showToast(`Тип секции изменён на "${LABEL_RU[nt] || nt}"`);
 }
 function setSectionKey(sid, nk) {
@@ -16687,7 +16689,8 @@ function setSectionKey(sid, nk) {
     nk = resolvedKey;
   }
   s.key = nk || null;
-  requestRender();
+  // B-25: тональность секции меняет бейдж и ступени, не структуру DOM.
+  if (!syncSectionHeaderDom(s)) requestRender();
   updateCellsDegrees();
   if (nk) showToast(`Тональность секции: ${nk}`);
   else showToast('Секция использует глобальную тональность');
@@ -16719,7 +16722,10 @@ function setSectionTimeSig(sid, nts) {
     migrateSquareForTimeSig(sq, oldTimeSig, newTimeSig);
   }
 
-  requestRender();
+  // B-25: размер секции мигрирует её квадраты, но не требует полной
+  // пересборки документа: обновляем header + squares-list этой секции.
+  const synced = syncSectionHeaderDom(s) && rerenderSectionSquaresDom(s);
+  if (!synced) requestRender();
   updateSubdivisionButtons(s.timeSig || globalTimeSig);
   showToast(
     s.timeSig
@@ -25350,9 +25356,9 @@ function showSectionModulationControls(sectionId) {
   resetBtn.textContent = '✕';
   resetBtn.className = 'modulation-round-btn reset-btn';
   resetBtn.onclick = () => {
+    sec.shift = null;
     setSectionKey(sectionId, null);
     panel.remove();
-    requestRender();
   };
   panel.appendChild(resetBtn);
   const minusBtn = document.createElement('button');
@@ -25409,7 +25415,6 @@ function showSectionModulationControls(sectionId) {
       sec.shift = shift;
     }
     updateDisplay();
-    requestRender();
   }
 }
 function showSectionTimeSigButtons(sectionId) {
@@ -29053,6 +29058,103 @@ function rerenderSectionSquaresDom(sec) {
   return true;
 }
 
+function syncSectionHeaderDom(sec) {
+  if (!sec) return false;
+  const card = document.querySelector(`.section-card[data-id="${sec.id}"]`);
+  const header = card && card.querySelector('.section-header');
+  const badgesDiv = card && card.querySelector('.section-mod-badges');
+  if (!card || !header || !badgesDiv) return false;
+
+  let labelClass, labelText;
+  if (sec.type === 'Custom') {
+    labelClass = 'custom';
+    labelText = sec.customName || 'Кастом';
+  } else {
+    labelClass = LABEL_MAP[sec.type] || 'verse';
+    labelText = LABEL_RU[sec.type] || sec.type;
+  }
+  let label = header.querySelector('.section-label');
+  if (!label) {
+    const editor = header.querySelector('.section-type-select');
+    label = document.createElement('span');
+    if (editor) editor.replaceWith(label);
+    else (header.querySelector('.drag-handle') || header).after(label);
+  }
+  label.className = `section-label ${labelClass}`;
+  label.dataset.sectionId = String(sec.id);
+  label.textContent = labelText;
+
+  strumPreviewStepEls.delete(sec.id);
+  badgesDiv.innerHTML = '';
+  if (sec.key && sec.key !== globalKey) {
+    let semitones = sec.shift != null ? sec.shift : getRawSemitonesBetween(globalKey, sec.key);
+    const sign = semitones > 0 ? '+' : '';
+    const badge = document.createElement('span');
+    badge.className = 'section-badge section-badge--key';
+    badge.textContent = `модуляция ${sign}${semitones}`;
+    badge.title = `Тональность секции: ${sec.key}`;
+    badge.onclick = (e) => {
+      e.stopPropagation();
+      showSectionModulationControls(sec.id);
+    };
+    badgesDiv.appendChild(badge);
+  }
+  if (sec.timeSig && sec.timeSig !== globalTimeSig) {
+    const badge = document.createElement('span');
+    badge.className = 'section-badge section-badge--timesig';
+    badge.textContent = `${sec.timeSig}`;
+    badge.title = `Размер секции: ${sec.timeSig}`;
+    badge.onclick = (e) => {
+      e.stopPropagation();
+      showSectionTimeSigButtons(sec.id);
+    };
+    badgesDiv.appendChild(badge);
+  }
+  if (squareZoom > 1.001) {
+    badgesDiv.appendChild(makeZoomBadge());
+  }
+  const globalBpm = parseInt(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
+  if (sec.bpm && sec.bpm !== globalBpm) {
+    const bpmBadge = document.createElement('span');
+    bpmBadge.className = 'section-badge section-badge--bpm';
+    bpmBadge.textContent = `${sec.bpm} BPM`;
+    bpmBadge.title = `BPM секции: ${sec.bpm}`;
+    bpmBadge.onclick = (e) => {
+      e.stopPropagation();
+      const newBpm = prompt('BPM секции (0 или пусто – глобальный):', sec.bpm);
+      if (newBpm !== null) {
+        const val = parseInt(newBpm);
+        if (isNaN(val) || val <= 0) setSectionBpm(sec.id, null);
+        else setSectionBpm(sec.id, val);
+      }
+    };
+    badgesDiv.appendChild(bpmBadge);
+  }
+  if (sec.strumPattern) {
+    const wrap = document.createElement('span');
+    wrap.className = 'strum-badge-wrap';
+    wrap.title = 'Бой/перебор секции (по умолчанию для всех её квадратов) — нажмите, чтобы изменить';
+    wrap.onclick = (e) => {
+      e.stopPropagation();
+      openStrumPatternEditor('section', sec.id);
+    };
+    const refSq = getReferenceSquareForBadge(sec);
+    const { modeBadge, preview } = buildStrumPreviewEls(sec.strumPattern, {
+      chordChangeUnits: getChordChangeUnits(refSq, sec.timeSig || globalTimeSig),
+    });
+    wrap.appendChild(modeBadge);
+    wrap.appendChild(preview);
+    badgesDiv.appendChild(wrap);
+    strumPreviewStepEls.set(sec.id, Array.from(preview.querySelectorAll('.strum-step')));
+  }
+
+  attachEditLabelEvents();
+  if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
+  window.__b25IncrementalSectionHeaderSyncCount = (window.__b25IncrementalSectionHeaderSyncCount || 0) + 1;
+  window.__b25IncrementalSectionBadgeSyncCount = (window.__b25IncrementalSectionBadgeSyncCount || 0) + 1;
+  return true;
+}
+
 function syncSquareRepeatDom(sec, sq) {
   if (!sec || !sq) return false;
   const badge = document.querySelector(
@@ -29073,36 +29175,12 @@ function syncSquareRepeatDom(sec, sq) {
 }
 
 function syncSectionBpmBadge(sec) {
-  if (!sec) return false;
-  const badgesDiv = document.querySelector(`.section-card[data-id="${sec.id}"] .section-mod-badges`);
-  if (!badgesDiv) return false;
-  badgesDiv.querySelectorAll('.section-badge--bpm, .section-badge[title^="BPM секции"]')
-    .forEach((el) => el.remove());
-  const globalBpm = parseInt(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
-  if (sec.bpm && sec.bpm !== globalBpm) {
-    const bpmBadge = document.createElement('span');
-    bpmBadge.className = 'section-badge section-badge--bpm';
-    bpmBadge.textContent = `${sec.bpm} BPM`;
-    bpmBadge.title = `BPM секции: ${sec.bpm}`;
-    bpmBadge.onclick = (e) => {
-      e.stopPropagation();
-      const newBpm = prompt('BPM секции (0 или пусто – глобальный):', sec.bpm);
-      if (newBpm !== null) {
-        const val = parseInt(newBpm);
-        if (isNaN(val) || val <= 0) setSectionBpm(sec.id, null);
-        else setSectionBpm(sec.id, val);
-      }
-    };
-    const rhythmBadge = badgesDiv.querySelector('.strum-badge-wrap');
-    badgesDiv.insertBefore(bpmBadge, rhythmBadge || null);
-  }
-  if (timelineMode) {
+  const ok = syncSectionHeaderDom(sec);
+  if (ok && timelineMode) {
     renderTimeline();
     syncTimelineSongBar();
   }
-  if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
-  window.__b25IncrementalSectionBadgeSyncCount = (window.__b25IncrementalSectionBadgeSyncCount || 0) + 1;
-  return true;
+  return ok;
 }
 
 function syncSquareDomNow(sec, sq) {
@@ -29147,9 +29225,9 @@ function syncSectionStrumBadge(sec) {
 }
 
 function syncSectionRhythmDom(sec) {
-  const badgeOk = syncSectionStrumBadge(sec);
+  const headerOk = syncSectionHeaderDom(sec);
   const squaresOk = rerenderSectionSquaresDom(sec);
-  if (!badgeOk || !squaresOk) {
+  if (!headerOk || !squaresOk) {
     requestRender();
     return false;
   }

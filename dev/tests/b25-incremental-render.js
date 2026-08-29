@@ -50,6 +50,7 @@ function resetRenderCounter() {
     window.__b25IncrementalSectionSquaresRenderCount = 0;
     window.__b25IncrementalRepeatSyncCount = 0;
     window.__b25IncrementalSectionBadgeSyncCount = 0;
+    window.__b25IncrementalSectionHeaderSyncCount = 0;
     requestRender = function () {
       window.__b25RequestRenderCount++;
       return window.__b25OldRequestRender.apply(this, arguments);
@@ -66,12 +67,16 @@ function restoreRenderCounter() {
     delete window.__b25IncrementalSectionSquaresRenderCount;
     delete window.__b25IncrementalRepeatSyncCount;
     delete window.__b25IncrementalSectionBadgeSyncCount;
+    delete window.__b25IncrementalSectionHeaderSyncCount;
     return 0`);
 }
 
 function scene() {
   evl(`
-    sections = [{ id: 1, type: 'Verse', customName: null, key: 'C', timeSig: null, bpm: 0,
+    globalKey = 'C';
+    keyMode = 'manual';
+    DOM.rootKey.value = 'C';
+    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
       repeat: 1, strumPattern: null, squares: [
         { id: 2, repeat: 1, customBeats: null, strumPattern: null, events: [
           { chord: 'C', span: 2, timeSig: null, strumPattern: null },
@@ -371,6 +376,53 @@ w.addEventListener('load', async () => {
   evl(`setSectionBpm(1, null); return 0`);
   ok('сброс BPM секции удаляет BPM-бейдж локально',
     !w.document.querySelector('.section-card[data-id="1"] .section-badge--bpm'));
+  restoreRenderCounter();
+
+  console.log('=== B-25.6 section header/key/timeSig: локально ===');
+  scene();
+  resetRenderCounter();
+  evl(`renameSection(1, 'Middle'); return 0`);
+  ok('renameSection не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('renameSection обновляет label локально',
+    evl(`return document.querySelector('.section-card[data-id="1"] .section-label').textContent`) === 'Middle'
+      && evl(`return document.querySelector('.section-card[data-id="1"] .section-label').classList.contains('custom')`));
+  restoreRenderCounter();
+
+  resetRenderCounter();
+  evl(`changeSectionType(1, 'Chorus'); return 0`);
+  ok('changeSectionType не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('changeSectionType обновляет label локально',
+    evl(`return document.querySelector('.section-card[data-id="1"] .section-label').textContent`) === 'Припев'
+      && evl(`return document.querySelector('.section-card[data-id="1"] .section-label').classList.contains('chorus')`));
+  restoreRenderCounter();
+
+  resetRenderCounter();
+  evl(`setSectionKey(1, 'G'); return 0`);
+  ok('setSectionKey не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('setSectionKey обновляет бейдж модуляции локально',
+    evl(`return !!document.querySelector('.section-card[data-id="1"] .section-badge--key')
+      && document.querySelector('.section-card[data-id="1"] .section-badge--key').title === 'Тональность секции: G'`));
+  restoreRenderCounter();
+
+  scene();
+  resetRenderCounter();
+  evl(`setSectionTimeSig(1, '3/4'); return 0`);
+  ok('setSectionTimeSig не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('setSectionTimeSig обновляет header и squares-list локально',
+    evl('return window.__b25IncrementalSectionHeaderSyncCount') >= 1
+      && evl('return window.__b25IncrementalSectionSquaresRenderCount') >= 1,
+    evl(`return JSON.stringify({h: window.__b25IncrementalSectionHeaderSyncCount, s: window.__b25IncrementalSectionSquaresRenderCount})`));
+  ok('setSectionTimeSig показывает бейдж размера секции',
+    evl(`return !!document.querySelector('.section-card[data-id="1"] .section-badge--timesig')
+      && document.querySelector('.section-card[data-id="1"] .section-badge--timesig').textContent === '3/4'`));
   restoreRenderCounter();
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');
