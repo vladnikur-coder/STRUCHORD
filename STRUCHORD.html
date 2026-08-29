@@ -28478,21 +28478,34 @@ function finishRhythmHints() {
   // Reflow в новом контексте — иначе выходное состояние склеится с входным.
   void ghost.offsetHeight;
   session.entries.forEach((entry, ei) => {
-    entry.el.classList.remove('is-in');
     const ex = exitDeltas[ei];
     if (ex) {
+      // Кастом на выходе НЕ гасим opacity'ю: иначе движение скрывается,
+      // и пользователь видит fade-out вместо того же «переплывания», что
+      // было на входе. Полоса остаётся .is-in до самоуборки ghost, а
+      // улетают именно отдельные удары.
+      entry.el.classList.add('is-in');
       const hitEls = [...entry.el.querySelectorAll('.rhythm-hint-hit')];
-      hitEls.forEach((h, j) => {
+      const moves = hitEls.map((h, j) => {
         const base = j === 0 ? '' : 'translateX(-50%) ';
         // Уплывание должно выглядеть тем же жестом, что и приплывание:
         // та же лесенка 0,10,20… слева направо, та же длительность и
         // та же кривая. Меняется только вектор — обратно к мини-превью.
         h.style.transitionDelay = Math.min(j * 10, 60) + 'ms';
         h.dataset.rhythmSourceIndex = String(ex[j].sourceIndex);
-        h.style.transform = `${base}translate(${ex[j].dx}px, ${ex[j].dy}px)`;
+        return { h, transform: `${base}translate(${ex[j].dx}px, ${ex[j].dy}px)` };
       });
-    } else if (entry.custom) {
-      entry.el.style.transform = 'translateY(-34px)';
+      // Задержки и стартовая поза должны попасть в отдельный style pass,
+      // иначе Chrome иногда не стартует transform-transition, если у
+      // кастомной полосы нет параллельного opacity-transition. Это и
+      // выглядело как «обратного переплывания нет».
+      void entry.el.offsetHeight;
+      moves.forEach(({ h, transform }) => { h.style.transform = transform; });
+    } else {
+      entry.el.classList.remove('is-in');
+      if (entry.custom) {
+        entry.el.style.transform = 'translateY(-34px)';
+      }
     }
   });
   // Самоуборка — после самого долгого transition: лесенка задержек (≤60мс)

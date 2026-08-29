@@ -192,6 +192,12 @@ w.addEventListener('load', async () => {
   ok('полоса кастомной не уезжала целиком (поударный путь, не fallback)',
     !!(gHints[0] && !gHints[0].style.transform.includes('translateY')),
     gHints[0] && gHints[0].style.transform);
+  ok('кастом на выходе не гаснет fade-out: остаётся is-in до прилёта',
+    !!(gHints[0] && gHints[0].classList.contains('is-in')),
+    gHints[0] && gHints[0].className);
+  ok('наследуемая полоса на выходе, наоборот, только fade-out',
+    !!(gHints[1] && !gHints[1].classList.contains('is-in')),
+    gHints[1] && gHints[1].className);
   ok('обратная лесенка такая же, как входная (0,10,20,30мс для 4 ударов)',
     gHits0.map((h) => h.style.transitionDelay).join(',') === '0ms,10ms,20ms,30ms',
     gHits0.map((h) => h.style.transitionDelay).join(','));
