@@ -239,8 +239,12 @@ w.addEventListener('load',()=>{
      !/transition:[^;]*width/.test(listRule), listRule);
   ok('анимация вынесена в отдельный класс',
      /\.squares-list\.zoom-animated\s*\{[^}]*transition:[^;]*width/.test(css2));
-  w.eval('setSquareZoom(2.5); resetSquareZoom();');
-  ok('сброс анимируется', d.querySelector('.squares-list').classList.contains('zoom-animated'));
+  w.eval('setSquareZoom(2.5); const vp=document.querySelector(".squares-viewport"); vp.scrollLeft=80; resetSquareZoom();');
+  ok('сброс по бейджу-лупе НЕ анимирует width (не стягивает из невидимой зоны)',
+     !d.querySelector('.squares-list').classList.contains('zoom-animated'));
+  ok('сброс по бейджу-лупе возвращает ряд в начало',
+     d.querySelector('.squares-viewport').scrollLeft === 0,
+     d.querySelector('.squares-viewport').scrollLeft + '');
 
 
   console.log('\n=== 10. Подгонка имён аккордов не переписывает DOM зря ===');

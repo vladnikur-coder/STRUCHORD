@@ -3955,20 +3955,14 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 .square.is-hinting .event-strum-preview {
   opacity: 0;
 }
-@keyframes rhythm-hint-preview-return {
-  from { opacity: 0; }
-  to { opacity: 1; }
-}
-/* Обратная фаза — тот же обмен слоями наоборот: подсказка улетает и
-   тает, а мини-превью в верхнем слоте проявляется с тем же timing, с
-   которым оно исчезало на входе. animation надёжнее, чем transition на
-   свежем render()-DOM: новый .event-strum-preview может появиться уже
-   после pointerup, но пока body-класс жив, он всё равно стартует с 0. */
-.square.is-rhythm-hint-returning .event-strum-preview.has-pattern {
-  animation: rhythm-hint-preview-return 0.18s ease both;
-}
+/* Обратная фаза: пока ghost летит/тает, mini-preview в ячейках активного
+   квадрата не должен показывать финальный результат заранее. Иначе глаз
+   видит уже готовый ритм в ячейке, а сверху в него «вплывает» ghost.
+   Держим target/removing preview скрытым до конца ghost; когда класс
+   снимается, базовый transition .event-strum-preview плавно вернёт
+   opacity только у реально оставшихся кастомных ячеек. */
+.square.is-rhythm-hint-returning .event-strum-preview.is-rhythm-return-target,
 .square.is-rhythm-hint-returning .event-strum-preview.is-rhythm-removing {
-  animation: none;
   opacity: 0;
 }
 
@@ -9596,11 +9590,18 @@ function restoreZoomAfterPlayback() {
 }
 
 function resetSquareZoom() {
-  setZoomAnimated(true);
+  // Клик по бейджу-лупе — не художественная анимация, а возврат к рабочему
+  // масштабу. Анимировать width .squares-list нельзя: при большом зуме
+  // ряды визуально «стягиваются» из невидимой прокрученной зоны и дают
+  // тяжёлые кадры. Сбрасываем мгновенно и возвращаем скролл в начало.
+  setZoomAnimated(false);
+  document.querySelectorAll('.squares-viewport').forEach((vp) => {
+    if (vp.scrollLeft) {
+      scrollEchoExpected.add(vp);
+      vp.scrollLeft = 0;
+    }
+  });
   setSquareZoom(1);
-  // Снимаем класс после окончания перехода, чтобы следующий жест снова
-  // шёл без анимации.
-  setTimeout(() => setZoomAnimated(false), 220);
 }
 
 // Жест масштабирования над рядом квадратов.
@@ -28679,10 +28680,10 @@ function finishRhythmHints(opts) {
     session.sqEl.classList.add('is-rhythm-hint-returning');
     session.sqEl.classList.remove('is-hinting');
   }
-  // body-класс держим до конца ghost-анимации: текущий DOM уже показывает
-  // мини-превью, а отложенный render() может пересоздать его после прилёта.
-  // CSS-анимация rhythm-hint-preview-return даёт обратный fade-in без
-  // скачка в первые кадры отпускания.
+  // body/square-класс держим до конца ghost-анимации: текущий DOM уже
+  // может содержать mini-preview. На время полёта/исчезновения его
+  // дополнительно закрывают классы is-rhythm-return-target/is-rhythm-removing,
+  // чтобы финальная картинка не была видна под ghost заранее.
   // Перед выходом сверяем модель ПОСЛЕ settleSquareRhythmWithFacade():
   // если кастомный ритм был снят/демотирован в наследование, ему уже
   // некуда «уплывать» — компактного превью в финальном DOM не будет.
@@ -28706,7 +28707,11 @@ function finishRhythmHints(opts) {
       // Если дать ему обычный return fade-in, пользователь видит старый
       // ритм в ячейке ещё сотни мс, а потом он исчезает на render(). Такие
       // превью держим скрытыми до финального render.
-      prevEl.classList.toggle('is-rhythm-removing', prevEl.classList.contains('has-pattern') && !finalCustom);
+      const hasPreview = prevEl.classList.contains('has-pattern');
+      prevEl.classList.toggle('is-rhythm-removing', hasPreview && !finalCustom);
+      // Для настоящего reverse-flight тоже скрываем mini-preview-цель до
+      // конца полёта: финальный результат не должен быть виден заранее.
+      prevEl.classList.toggle('is-rhythm-return-target', hasPreview && finalCustom);
     }
   });
   // Выходные сдвиги меряем СЕЙЧАС, пока жив текущий DOM после drag:
@@ -28799,7 +28804,11 @@ function finishRhythmHints(opts) {
   setTimeout(() => {
     ghost.remove();
     document.body.classList.remove('is-rhythm-hint-returning');
-    session.sqEl && session.sqEl.classList.remove('is-rhythm-hint-returning');
+    if (session.sqEl) {
+      session.sqEl.querySelectorAll('.event-strum-preview.is-rhythm-removing, .event-strum-preview.is-rhythm-return-target')
+        .forEach((el) => el.classList.remove('is-rhythm-removing', 'is-rhythm-return-target'));
+      session.sqEl.classList.remove('is-rhythm-hint-returning');
+    }
   }, exitMs);
   return exitMs;
 }
@@ -28821,6 +28830,8 @@ function cancelRhythmHints() {
   // Выходные ghost-оверлеи живут на body — добираем и их.
   document.querySelectorAll('body > .rhythm-hints').forEach((el) => el.remove());
   document.body.classList.remove('is-rhythm-hint-returning');
+  document.querySelectorAll('.event-strum-preview.is-rhythm-removing, .event-strum-preview.is-rhythm-return-target')
+    .forEach((el) => el.classList.remove('is-rhythm-removing', 'is-rhythm-return-target'));
   document.querySelectorAll('.square.is-rhythm-hint-returning')
     .forEach((el) => el.classList.remove('is-rhythm-hint-returning'));
 }
@@ -28979,7 +28990,7 @@ function syncResizedSquareDom(sec, sq, bi) {
         spanBtn.title = `Изменить размер ячейки (долей: ${ev.span})`;
       }
       const preview = cw.querySelector('.event-strum-preview');
-      if (preview) preview.classList.remove('is-rhythm-removing');
+      if (preview) preview.classList.remove('is-rhythm-removing', 'is-rhythm-return-target');
       if (typeof playbackState === 'undefined' || !playbackState.isPlaying) {
         restoreEventStrumPreview(`${sec.id}:${sq.id}:${i}`);
       }

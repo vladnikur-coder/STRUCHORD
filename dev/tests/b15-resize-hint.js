@@ -324,6 +324,10 @@ w.addEventListener('load', async () => {
   ok('в зуме ghost сохраняет clip viewport: скрытые части квадрата не вылезают наружу',
     g && g.style.clipPath === 'inset(0px 60px 0px 40px)',
     g && g.style.clipPath);
+  const returnPreview = d.querySelector('.chord-wrapper[data-ei="0"] .event-strum-preview');
+  ok('mini-preview цели скрыт до конца обратного полёта (финал не виден заранее)',
+    !!(returnPreview && returnPreview.classList.contains('is-rhythm-return-target')),
+    returnPreview && returnPreview.className);
   const gHints = g ? [...g.querySelectorAll('.rhythm-hint')] : [];
   let gHits0 = gHints[0] ? [...gHints[0].querySelectorAll('.rhythm-hint-hit')] : [];
   ok('кастом ждёт окончания fade-out наследуемых перед уплыванием',
@@ -355,6 +359,9 @@ w.addEventListener('load', async () => {
       && !gHints[1].style.transform.includes('translateY')),
     gHints[1] && gHints[1].style.transform);
   await sleep(480);
+  ok('после обратного полёта mini-preview цели снова разрешён',
+    !returnPreview.classList.contains('is-rhythm-return-target'),
+    returnPreview.className);
 
   // --- 7. Входной FLIP: сдвиг «от глифа превью до узла сетки» -----------
   console.log('=== 7. Входной FLIP: формула поударных сдвигов ===');
@@ -447,11 +454,10 @@ w.addEventListener('load', async () => {
       && /const RHYTHM_HINT_MOVE_MS\s*=\s*220/.test(cssText)
       && /const RHYTHM_HINT_EXIT_PAD_MS\s*=\s*140/.test(cssText)
       && /setTimeout\(\(\) => \{[\s\S]*ghost\.remove\(\);[\s\S]*is-rhythm-hint-returning[\s\S]*\}, exitMs\)/.test(cssText));
-  ok('обратная фаза анимирует fade-in свежего мини-превью',
-    /@keyframes\s+rhythm-hint-preview-return/.test(cssText)
-      && /\.square\.is-rhythm-hint-returning \.event-strum-preview\.has-pattern\s*\{[^}]*animation:\s*rhythm-hint-preview-return 0\.18s ease both/.test(cssText));
+  ok('обратная фаза скрывает mini-preview цели до конца полёта',
+    /\.square\.is-rhythm-hint-returning \.event-strum-preview\.is-rhythm-return-target,\s*\n\.square\.is-rhythm-hint-returning \.event-strum-preview\.is-rhythm-removing\s*\{[^}]*opacity:\s*0/.test(cssText));
   ok('мини-превью снятого ритма не проявляется обратно перед render',
-    /\.square\.is-rhythm-hint-returning \.event-strum-preview\.is-rhythm-removing\s*\{[^}]*animation:\s*none;[^}]*opacity:\s*0/.test(cssText));
+    /\.event-strum-preview\.is-rhythm-removing/.test(cssText));
   ok('.rhythm-hint-hit: плывут сами удары (transition transform)',
     /\.rhythm-hint-hit\s*\{[^}]*transition:\s*transform/.test(cssText));
   ok('реальный браузер запускает обратный полёт через Web Animations API (без случайного CSS-jump)',

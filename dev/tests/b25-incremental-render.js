@@ -465,6 +465,27 @@ w.addEventListener('load', async () => {
       && evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="1"] .chord-input').value`) === 'Em');
   restoreRenderCounter();
 
+  console.log('=== B-25.8 zoom reset: без стягивающей width-анимации ===');
+  scene();
+  const zoomResetState = JSON.parse(evl(`
+    const vp = document.querySelector('.squares-viewport');
+    setSquareZoom(2);
+    vp.scrollLeft = 120;
+    resetSquareZoom();
+    const list = document.querySelector('.squares-list');
+    return JSON.stringify({
+      zoom: squareZoom,
+      animated: list.classList.contains('zoom-animated'),
+      zoomed: document.body.classList.contains('is-zoomed'),
+      scrollLeft: vp.scrollLeft,
+      width: list.style.width,
+    })`));
+  ok('resetSquareZoom сбрасывает масштаб без zoom-animated',
+    zoomResetState.zoom === 1 && !zoomResetState.animated && !zoomResetState.zoomed,
+    JSON.stringify(zoomResetState));
+  ok('resetSquareZoom возвращает прокрутку ряда в начало',
+    zoomResetState.scrollLeft === 0, JSON.stringify(zoomResetState));
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');
   process.exit(bad ? 1 : 0);
 });
