@@ -36,6 +36,7 @@ function resetRenderCounter() {
     if (!window.__b25OldRequestRender) window.__b25OldRequestRender = requestRender;
     window.__b25RequestRenderCount = 0;
     window.__b25IncrementalSquareSyncCount = 0;
+    window.__b25IncrementalSquareRenderCount = 0;
     requestRender = function () {
       window.__b25RequestRenderCount++;
       return window.__b25OldRequestRender.apply(this, arguments);
@@ -48,6 +49,7 @@ function restoreRenderCounter() {
     delete window.__b25OldRequestRender;
     delete window.__b25RequestRenderCount;
     delete window.__b25IncrementalSquareSyncCount;
+    delete window.__b25IncrementalSquareRenderCount;
     return 0`);
 }
 
@@ -113,6 +115,66 @@ w.addEventListener('load', async () => {
     evl(`return sections[0].squares[0].events[0].timeSig`));
   const btnText = evl(`return document.querySelector('.chord-wrapper[data-ei="0"] .chord-span-btn').textContent`);
   ok('DOM-кнопка показывает новый размер', btnText === '2/4', btnText);
+  restoreRenderCounter();
+
+  console.log('=== B-25.2 addChordAfter: локальный rerender square-inner ===');
+  scene();
+  resetRenderCounter();
+  evl(`addChordAfter(1, 2, 0); return 0`);
+  ok('addChordAfter не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('addChordAfter пересобрал один square-inner локально',
+    evl('return window.__b25IncrementalSquareRenderCount') >= 1,
+    evl('return window.__b25IncrementalSquareRenderCount'));
+  ok('после + в модели три ячейки',
+    evl('return sections[0].squares[0].events.length') === 3,
+    evl('return sections[0].squares[0].events.length'));
+  ok('после + в DOM три chord-wrapper с актуальными data-ei',
+    evl(`return [...document.querySelectorAll('.square[data-square="2"] .chord-wrapper')].map((el) => el.dataset.ei).join(',')`) === '0,1,2',
+    evl(`return [...document.querySelectorAll('.square[data-square="2"] .chord-wrapper')].map((el) => el.dataset.ei).join(',')`));
+  ok('после + появились две ручки границ',
+    evl(`return document.querySelectorAll('.square[data-square="2"] .resize-handle').length`) === 2,
+    evl(`return document.querySelectorAll('.square[data-square="2"] .resize-handle').length`));
+  restoreRenderCounter();
+
+  console.log('=== B-25.2 removeChordAt: локальный rerender square-inner ===');
+  evl(`
+    sections = [{ id: 1, type: 'Verse', customName: null, key: 'C', timeSig: null, bpm: 0,
+      repeat: 1, strumPattern: null, squares: [
+        { id: 2, repeat: 1, customBeats: null, strumPattern: null, events: [
+          { chord: 'C', span: 2, timeSig: null, strumPattern: null },
+          { chord: 'G', span: 2, timeSig: null, strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: null, strumPattern: null },
+        ]},
+      ]
+    }];
+    if (songRhythmRolls) {
+      for (const key of [...songRhythmRolls.refs.keys()]) if (key.startsWith('1:2:')) songRhythmRolls.refs.delete(key);
+      songRhythmRolls.sectionRolls.delete(1);
+    }
+    render();
+    return 0`);
+  resetRenderCounter();
+  evl(`removeChordAt(1, 2, 1); return 0`);
+  ok('removeChordAt не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('removeChordAt пересобрал один square-inner локально',
+    evl('return window.__b25IncrementalSquareRenderCount') >= 1,
+    evl('return window.__b25IncrementalSquareRenderCount'));
+  ok('после − в модели две ячейки',
+    evl('return sections[0].squares[0].events.length') === 2,
+    evl('return sections[0].squares[0].events.length'));
+  ok('поглотитель получил длительность удалённой ячейки',
+    evl('return sections[0].squares[0].events[0].span') === 4,
+    evl('return sections[0].squares[0].events[0].span'));
+  ok('после − в DOM две chord-wrapper с актуальными data-ei',
+    evl(`return [...document.querySelectorAll('.square[data-square="2"] .chord-wrapper')].map((el) => el.dataset.ei).join(',')`) === '0,1',
+    evl(`return [...document.querySelectorAll('.square[data-square="2"] .chord-wrapper')].map((el) => el.dataset.ei).join(',')`));
+  ok('после − осталась одна ручка границы',
+    evl(`return document.querySelectorAll('.square[data-square="2"] .resize-handle').length`) === 1,
+    evl(`return document.querySelectorAll('.square[data-square="2"] .resize-handle').length`));
   restoreRenderCounter();
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');

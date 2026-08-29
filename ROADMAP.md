@@ -90,6 +90,8 @@ B-25, первый срез 2026-08-29: финал cell-boundary resize боль
 
 B-25, второй срез 2026-08-29: операции без изменения числа ячеек (`changeChordSpanDirect`, `setEventTimeSig`) переведены на локальную синхронизацию квадрата через `syncSquareDomNow()`: обновляются ширины квадратов секции, grid/counts/ticks, бейдж тактов, title/text кнопки размера и кнопка `ритм`; полный `requestRender()` не вызывается, если DOM текущего квадрата найден.
 
+B-25, третий срез 2026-08-29: структурные операции внутри квадрата (`addChordAfter` / `removeChordAt`) больше не пересобирают всю песню. Введён локальный rerender одного `.square-inner` (`buildSquareInnerEventsHtml` + `rerenderSquareInnerDom`), после которого переинициализируются previews, chord click, resize handles и square resize handle; проверяется актуальность `data-ei` и числа ручек.
+
 ### Отменённые (R4 — не стираем, причина прилагается)
 
 | ID | Зона | Что было | Статус |

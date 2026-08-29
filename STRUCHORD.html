@@ -18496,7 +18496,9 @@ function addChordAfter(sid, sqid, ei) {
   // B-20: окна половин после деления могли совпасть с боем секции.
   settleSquareRhythmWithFacade(s, sq);
   if (keyMode === 'auto') refreshAutoDetectedKey();
-  requestRender();
+  // B-25: структурно меняется только один квадрат — пересобираем его
+  // square-inner локально, не весь документ.
+  if (!rerenderSquareInnerDom(s, sq)) requestRender();
 }
 function removeChordAt(sid, sqid, ei) {
   const s = sections.find((s) => s.id === sid);
@@ -18626,7 +18628,8 @@ function removeChordAt(sid, sqid, ei) {
     }
   }
   if (keyMode === 'auto') refreshAutoDetectedKey();
-  requestRender();
+  // B-25: «−» меняет число ячеек только внутри текущего квадрата.
+  if (!rerenderSquareInnerDom(s, sq)) requestRender();
 }
 // ===== НОВОЕ МЕНЮ ДЛЯ БЫСТРОЙ СМЕНЫ РАЗМЕРА ЯЧЕЙКИ =====
 function openSpanMenu(sectionId, squareId, eventIndex, btnElement) {
@@ -28763,6 +28766,60 @@ function updateChordRhythmButtonState(cw, sec, sq, ei) {
   });
 }
 
+function buildSquareInnerEventsHtml(sec, sq, distribution) {
+  const parentTs = sec.timeSig || globalTimeSig;
+  const effectiveSpans = distribution.spans;
+  const beatsPerBar = getGridUnitsPerBar(parentTs);
+  const subdiv = Math.round(1 / getResizeStep());
+  let eventsHtml = '';
+
+  // Та же эпохальная бухгалтерия счёта, что в полном render(): серия
+  // ячеек с одинаковым effective timeSig ведёт общий счёт, смена размера
+  // открывает новую эпоху.
+  let epochTs = null;
+  let epochOwnOffset = 0;
+  let epochBeatsPerBar = beatsPerBar;
+  let epochUnitScale = 1;
+
+  sq.events.forEach((ev, ei) => {
+    const evTsEff = ev.timeSig || parentTs;
+    if (evTsEff !== epochTs) {
+      epochTs = evTsEff;
+      epochOwnOffset = 0;
+      epochBeatsPerBar = getGridUnitsPerBar(evTsEff);
+      epochUnitScale = parseTimeSig(evTsEff).denominator
+        / (parseTimeSig(parentTs).denominator || 1);
+    }
+    const effectiveSpan = effectiveSpans[ei];
+    const isLastEvent = ei === sq.events.length - 1;
+    const hasOwnRhythm = !!(ev.strumPattern
+      || (songRhythmRolls && songRhythmRolls.refs.has(`${sec.id}:${sq.id}:${ei}`)))
+      && !isGhostSilenceCell(sec, sq, ei);
+    const beats = getEventVisualSpanInParentUnits(ev, parentTs);
+
+    eventsHtml += `<div class="chord-wrapper" style="grid-column:span ${effectiveSpan};" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}">
+      <div class="event-strum-preview" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}"></div>
+      <div class="chord-content">
+        <input class="chord-input" readonly data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" value="${escapeHtml(ev.chord || '')}" placeholder="—">
+        <div class="chord-display" aria-hidden="true">${renderChordDisplayHtml(ev.chord)}</div>
+      </div>
+      <div class="chord-ticks" aria-hidden="true" style="${buildInnerTicks(beats, epochOwnOffset, '--color-tick-line', 1, effectiveSpan, { ownOffset: epochOwnOffset, unitScale: epochUnitScale })}"></div>
+      <div class="chord-ticks-step" aria-hidden="true" style="${buildInnerTicks(beats, epochOwnOffset, '--color-tick-substep', subdiv, effectiveSpan, { ownOffset: epochOwnOffset, unitScale: epochUnitScale })}"></div>
+      <div class="chord-counts" aria-hidden="true">${buildInnerCounts(beats, epochOwnOffset, subdiv, effectiveSpan, epochBeatsPerBar, { ownOffset: epochOwnOffset, unitScale: epochUnitScale })}</div>
+      ${(ei < sq.events.length - 1) ? '<div class="resize-handle"></div>' : ''}
+      ${isLastEvent ? '<div class="square-resize-handle" data-sec="' + sec.id + '" data-square="' + sq.id + '"></div>' : ''}
+      <div class="chord-buttons">
+        <button class="chord-btn chord-span-btn" onclick="event.stopPropagation();openSpanMenu(${sec.id},${sq.id},${ei}, this)" title="Изменить размер ячейки (долей: ${ev.span})">${ev.timeSig || parentTs}</button>
+        <button class="chord-btn chord-btn-strum${hasOwnRhythm ? ' chord-btn-strum--own' : ''}" onclick="event.stopPropagation();openStrumPatternEditor('event',${sec.id},${sq.id},${ei})" title="${hasOwnRhythm ? 'Свой бой/перебор для этой ячейки — нажмите, чтобы изменить' : 'Задать свой бой/перебор именно для этой ячейки'}">ритм</button>
+        <button class="chord-btn chord-btn-add" onclick="event.stopPropagation();addChordAfter(${sec.id},${sq.id},${ei})" title="Разделить аккорд">+</button>
+        <button class="chord-btn chord-btn-del" onclick="event.stopPropagation();removeChordAt(${sec.id},${sq.id},${ei})" title="Удалить аккорд"><i class="ti ti-minus"></i></button>
+      </div>
+    </div>`;
+    epochOwnOffset += ev.span || 1;
+  });
+  return eventsHtml;
+}
+
 function syncSectionSquaresGeometry(sec) {
   if (!sec || !Array.isArray(sec.squares)) return false;
   const card = document.querySelector(`.section-card[data-id="${sec.id}"]`);
@@ -28872,6 +28929,33 @@ function scheduleResizedSquareDomSync(sec, sq, bi, delay) {
     }
     if (!syncResizedSquareDom(sec, sq, bi)) requestRender();
   }, wait);
+}
+
+function rerenderSquareInnerDom(sec, sq) {
+  if (!sec || !sq || !Array.isArray(sq.events)) return false;
+  const sqEl = document.querySelector(
+    `.section-card[data-id="${sec.id}"] .square[data-square="${sq.id}"]`
+  );
+  const bi = sqEl && sqEl.querySelector('.square-inner');
+  if (!sqEl || !bi) return false;
+  const parentTs = sec.timeSig || globalTimeSig;
+  const distribution = distributeVisualSpans(sq.events, parentTs);
+  bi.style.gridTemplateColumns = `repeat(${distribution.totalCols}, minmax(0, 1fr))`;
+  bi.innerHTML = buildSquareInnerEventsHtml(sec, sq, distribution);
+
+  const prefix = `${sec.id}:${sq.id}:`;
+  for (const key of Array.from(eventStrumPreviewStepEls.keys())) {
+    if (key.startsWith(prefix)) eventStrumPreviewStepEls.delete(key);
+  }
+  renderEventStrumPreviews(sqEl);
+  observeChordDisplays(bi);
+  attachChordWheelEvents();
+  attachResizeHandlers();
+  attachSquareResizeHandlers();
+  syncSectionSquaresGeometry(sec);
+  syncResizedSquareDom(sec, sq, bi);
+  window.__b25IncrementalSquareRenderCount = (window.__b25IncrementalSquareRenderCount || 0) + 1;
+  return true;
 }
 
 function syncSquareDomNow(sec, sq) {
