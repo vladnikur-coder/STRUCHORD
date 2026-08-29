@@ -157,7 +157,7 @@ w.addEventListener('load', async () => {
     evl('return window.__b15RequestRenderCount') === 0,
     evl('return window.__b15RequestRenderCount'));
   ok('ghost живёт до отложенного render', !!ghostIn() && !overlayIn());
-  await sleep(400); // добиваем таймер самоуборки/render (420мс от pointerup)
+  await sleep(600); // добиваем staged fade→flight→render (~570мс от pointerup)
   ok('ghost самоубрался по таймеру', !ghostIn());
   ok('отложенный requestRender всё же вызвался после уплывания',
     evl('return window.__b15RequestRenderCount') >= 1,
@@ -211,19 +211,24 @@ w.addEventListener('load', async () => {
       && g.style.width === '400px' && g.style.height === '76px',
     g && [g.style.left, g.style.top, g.style.width, g.style.height].join(' '));
   const gHints = g ? [...g.querySelectorAll('.rhythm-hint')] : [];
-  const gHits0 = gHints[0] ? [...gHints[0].querySelectorAll('.rhythm-hint-hit')] : [];
-  ok('кастомные УДАРЫ уплывают поодиночке (инлайн translate на каждом)',
-    !!(gHits0.length && gHits0.every((h) => h.style.transform.includes('translate('))),
-    gHits0.map((h) => h.style.transform).join(' | '));
+  let gHits0 = gHints[0] ? [...gHints[0].querySelectorAll('.rhythm-hint-hit')] : [];
+  ok('кастом ждёт окончания fade-out наследуемых перед уплыванием',
+    !!(gHits0.length && gHits0.every((h) => !h.style.transform.includes('translate('))),
+    gHits0.map((h) => h.style.transform || 'none').join(' | '));
   ok('полоса кастомной не уезжала целиком (поударный путь, не fallback)',
     !!(gHints[0] && !gHints[0].style.transform.includes('translateY')),
     gHints[0] && gHints[0].style.transform);
   ok('кастом на выходе не гаснет fade-out: остаётся is-in до прилёта',
     !!(gHints[0] && gHints[0].classList.contains('is-in')),
     gHints[0] && gHints[0].className);
-  ok('наследуемая полоса на выходе, наоборот, только fade-out',
+  ok('наследуемая полоса на выходе уходит первой через fade-out',
     !!(gHints[1] && !gHints[1].classList.contains('is-in')),
     gHints[1] && gHints[1].className);
+  await sleep(200);
+  gHits0 = gHints[0] ? [...gHints[0].querySelectorAll('.rhythm-hint-hit')] : [];
+  ok('после fade-out наследуемых кастомные УДАРЫ уплывают поодиночке',
+    !!(gHits0.length && gHits0.every((h) => h.style.transform.includes('translate('))),
+    gHits0.map((h) => h.style.transform).join(' | '));
   ok('обратная лесенка такая же, как входная (0,10,20,30мс для 4 ударов)',
     gHits0.map((h) => h.style.transitionDelay).join(',') === '0ms,10ms,20ms,30ms',
     gHits0.map((h) => h.style.transitionDelay).join(','));
@@ -315,9 +320,11 @@ w.addEventListener('load', async () => {
     /\.event-strum-preview\s*\{[^}]*transition:\s*opacity/.test(cssText));
   ok('мягкая кривая cubic-bezier (не линейная)',
     /cubic-bezier\(0\.2,\s*0\.7,\s*0\.2,\s*1\)/.test(cssText));
-  ok('уборка ghost позже конца transition с лесенкой (420ms > 60+220ms)',
-    /const RHYTHM_HINT_EXIT_MS\s*=\s*420/.test(cssText)
-      && /setTimeout\(\(\) => \{[\s\S]*ghost\.remove\(\);[\s\S]*is-rhythm-hint-returning[\s\S]*\}, RHYTHM_HINT_EXIT_MS\)/.test(cssText));
+  ok('уборка ghost учитывает последовательность fade → flight',
+    /const RHYTHM_HINT_FADE_MS\s*=\s*180/.test(cssText)
+      && /const RHYTHM_HINT_MOVE_MS\s*=\s*220/.test(cssText)
+      && /const RHYTHM_HINT_EXIT_PAD_MS\s*=\s*140/.test(cssText)
+      && /setTimeout\(\(\) => \{[\s\S]*ghost\.remove\(\);[\s\S]*is-rhythm-hint-returning[\s\S]*\}, exitMs\)/.test(cssText));
   ok('обратная фаза анимирует fade-in свежего мини-превью',
     /@keyframes\s+rhythm-hint-preview-return/.test(cssText)
       && /body\.is-rhythm-hint-returning \.event-strum-preview\.has-pattern\s*\{[^}]*animation:\s*rhythm-hint-preview-return 0\.18s ease both/.test(cssText));

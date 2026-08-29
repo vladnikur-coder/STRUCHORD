@@ -99,9 +99,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
   await page.mouse.move(cx + 40, cy, { steps: 4 });
   await sleep(120);
   await page.screenshot({ path: path.join(OUT, 'b15-3-drag.png') });
-  // Кадр 4: отпустили — ghost тает/уплывает (~70мс)
+  // Кадр 4: отпустили — сначала fade наследуемых (~180мс), затем
+  // кастомные глифы уплывают назад; снимаем уже фазу полёта.
   await page.mouse.up();
-  await sleep(70);
+  await sleep(260);
   console.log(JSON.stringify(await probe('mid-exit')));
   await page.screenshot({ path: path.join(OUT, 'b15-4-mid-exit.png') });
   // Кадр 5: финал
