@@ -449,12 +449,14 @@ w.addEventListener('load', async () => {
     /\.event-strum-preview\s*\{[^}]*transition:\s*opacity/.test(cssText));
   ok('мягкая кривая cubic-bezier (не линейная)',
     /cubic-bezier\(0\.2,\s*0\.7,\s*0\.2,\s*1\)/.test(cssText));
-  ok('уборка ghost учитывает последовательность fade → flight',
+  ok('уборка ghost учитывает последовательность fade → flight → handoff',
     /const RHYTHM_HINT_FADE_MS\s*=\s*180/.test(cssText)
       && /const RHYTHM_HINT_MOVE_MS\s*=\s*220/.test(cssText)
-      && /const RHYTHM_HINT_EXIT_PAD_MS\s*=\s*140/.test(cssText)
+      && /const RHYTHM_HINT_EXIT_PAD_MS\s*=\s*40/.test(cssText)
+      && /const flyEndMs\s*=/.test(cssText)
+      && /setTimeout\(\(\) => \{[\s\S]*is-rhythm-return-target[\s\S]*entry\.el\.classList\.remove\('is-in'\)[\s\S]*\}, flyEndMs\)/.test(cssText)
       && /setTimeout\(\(\) => \{[\s\S]*ghost\.remove\(\);[\s\S]*is-rhythm-hint-returning[\s\S]*\}, exitMs\)/.test(cssText));
-  ok('обратная фаза скрывает mini-preview цели до конца полёта',
+  ok('обратная фаза скрывает mini-preview цели до handoff',
     /\.square\.is-rhythm-hint-returning \.event-strum-preview\.is-rhythm-return-target,\s*\n\.square\.is-rhythm-hint-returning \.event-strum-preview\.is-rhythm-removing\s*\{[^}]*opacity:\s*0/.test(cssText));
   ok('мини-превью снятого ритма не проявляется обратно перед render',
     /\.event-strum-preview\.is-rhythm-removing/.test(cssText));

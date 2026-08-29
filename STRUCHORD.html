@@ -28303,7 +28303,7 @@ const RHYTHM_HINT_FADE_MS = 180;
 const RHYTHM_HINT_MOVE_MS = 220;
 const RHYTHM_HINT_STEP_DELAY_MS = 10;
 const RHYTHM_HINT_MAX_DELAY_MS = 60;
-const RHYTHM_HINT_EXIT_PAD_MS = 140;
+const RHYTHM_HINT_EXIT_PAD_MS = 40;
 
 function rhythmHintStepDelay(index) {
   return Math.min(Math.max(0, index) * RHYTHM_HINT_STEP_DELAY_MS, RHYTHM_HINT_MAX_DELAY_MS);
@@ -28796,11 +28796,24 @@ function finishRhythmHints(opts) {
   };
   if (flyDelay > 0 && delayedMoves.length) setTimeout(startCustomFly, flyDelay);
   else startCustomFly();
-  const exitMs = (delayedMoves.length
-    ? flyDelay + RHYTHM_HINT_MOVE_MS + customMaxDelay
-    : RHYTHM_HINT_FADE_MS) + RHYTHM_HINT_EXIT_PAD_MS;
+  const flyEndMs = delayedMoves.length ? flyDelay + RHYTHM_HINT_MOVE_MS + customMaxDelay : 0;
+  const exitMs = delayedMoves.length
+    ? flyEndMs + RHYTHM_HINT_FADE_MS + RHYTHM_HINT_EXIT_PAD_MS
+    : RHYTHM_HINT_FADE_MS + RHYTHM_HINT_EXIT_PAD_MS;
+  // Handoff без скачка: когда глифы уже долетели до mini-preview,
+  // разрешаем самому mini-preview плавно проявиться ПОД ghost'ом, а ghost
+  // в этот же момент гасим. К моменту remove() под ним уже стоит та же
+  // финальная картинка — исчезновение оверлея не даёт рывка.
+  if (delayedMoves.length && session.sqEl) {
+    setTimeout(() => {
+      if (!ghost.isConnected) return;
+      session.sqEl.querySelectorAll('.event-strum-preview.is-rhythm-return-target')
+        .forEach((el) => el.classList.remove('is-rhythm-return-target'));
+      delayedMoves.forEach(({ entry }) => entry.el.classList.remove('is-in'));
+    }, flyEndMs);
+  }
   // Самоуборка — после самого долгого transition: fade-фаза (если есть)
-  // + лесенка задержек + длительность движения + запас.
+  // + лесенка задержек + длительность движения + handoff-fade + запас.
   setTimeout(() => {
     ghost.remove();
     document.body.classList.remove('is-rhythm-hint-returning');
