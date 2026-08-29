@@ -152,6 +152,14 @@ w.addEventListener('load', async () => {
   ok('is-hinting снят', !d.querySelector('.square.is-hinting'));
   ok('на старте уплывания мини-превью ещё скрыто body-классом',
     d.body.classList.contains('is-rhythm-hint-returning'));
+  const demotedGhost = ghostIn();
+  const demotedHits0 = demotedGhost
+    ? [...demotedGhost.querySelectorAll('.rhythm-hint')[0].querySelectorAll('.rhythm-hint-hit')]
+    : [];
+  ok('если ритм снят в наследование, он не уплывает, а только fade-out',
+    !!(demotedHits0.length && demotedHits0.every((h) => !h.style.transform.includes('translate(')
+      && !h.dataset.rhythmTargetTransform)),
+    demotedHits0.map((h) => h.style.transform || h.dataset.rhythmTargetTransform || 'none').join(' | '));
   await sleep(100); // середина обратной анимации: render ещё отложен
   ok('финальный requestRender отложен до конца уплывания (не дёргает анимацию)',
     evl('return window.__b15RequestRenderCount') === 0,
@@ -168,7 +176,7 @@ w.addEventListener('load', async () => {
 
   console.log('=== 3b. Быстрое отпускание: невидимое наследование не задерживает кастом ===');
   scene(
-    [D(strum(2, 'DUDU'), 2), D(null, 2)],
+    [D(strum(2, 'DUDX'), 2), D(null, 2)],
     strum(2, 'DUDUDUDU')
   );
   firePointerDown(handle(), 100);
@@ -215,12 +223,15 @@ w.addEventListener('load', async () => {
   // (в jsdom нет раскладки — подменяем rect квадрата и проверяем перенос
   //  координат один-в-один; в браузере этот же код читает настоящий rect)
   console.log('=== 6. Геометрия выхода: fixed-ghost повторяет квадрат ===');
-  scene([D(strum(2, 'DUDU'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  scene([D(strum(2, 'DUDX'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
   firePointerDown(handle(), 100);
   await sleep(280); // наследуемая полоса уже проявлена, значит выход должен начаться с fade-out
   const biEl = d.querySelector('.square-inner');
   biEl.getBoundingClientRect = () =>
     ({ left: 10, top: 50, width: 400, height: 76, right: 410, bottom: 126, x: 10, y: 50 });
+  const vpEl = d.querySelector('.squares-viewport');
+  vpEl.getBoundingClientRect = () =>
+    ({ left: 50, top: 40, width: 300, height: 100, right: 350, bottom: 140, x: 50, y: 40 });
   firePointerUp();
   const g = ghostIn();
   ok('ghost стал fixed', g && g.style.position === 'fixed');
@@ -228,6 +239,9 @@ w.addEventListener('load', async () => {
     g && g.style.left === '10px' && g.style.top === '50px'
       && g.style.width === '400px' && g.style.height === '76px',
     g && [g.style.left, g.style.top, g.style.width, g.style.height].join(' '));
+  ok('в зуме ghost сохраняет clip viewport: скрытые части квадрата не вылезают наружу',
+    g && g.style.clipPath === 'inset(0px 60px 0px 40px)',
+    g && g.style.clipPath);
   const gHints = g ? [...g.querySelectorAll('.rhythm-hint')] : [];
   let gHits0 = gHints[0] ? [...gHints[0].querySelectorAll('.rhythm-hint-hit')] : [];
   ok('кастом ждёт окончания fade-out наследуемых перед уплыванием',
@@ -251,7 +265,7 @@ w.addEventListener('load', async () => {
     gHits0.map((h) => h.style.transitionDelay).join(',') === '0ms,10ms,20ms,30ms',
     gHits0.map((h) => h.style.transitionDelay).join(','));
   ok('каждый удар знает, в какой глиф превью он возвращается (j % sourceCount)',
-    gHits0.map((h) => h.dataset.rhythmSourceIndex).join(',') === '0,1,0,1',
+    gHits0.map((h) => h.dataset.rhythmSourceIndex).join(',') === '0,1,2,3',
     gHits0.map((h) => h.dataset.rhythmSourceIndex).join(','));
   const gHits1 = gHints[1] ? [...gHints[1].querySelectorAll('.rhythm-hint-hit')] : [];
   ok('наследуемая полоса только тает (ни ударных, ни полосового сдвига)',
@@ -324,6 +338,14 @@ w.addEventListener('load', async () => {
   ok('dy выхода — вверх к компактному превью',
     exactExit && exactExit.every((x) => x.dy === -44),
     exactExit && exactExit.map((x) => x.dy).join(','));
+  const removedExit = evl(`
+    const hint = document.createElement('div');
+    const h = document.createElement('div');
+    h.className = 'rhythm-hint-hit';
+    hint.appendChild(h);
+    return rhythmHintExitDeltas({ custom: true, exitCustom: false, el: hint }, 0,
+      document.querySelector('.square-inner')) === null`);
+  ok('ритм, снятый к финалу, не получает обратный flight', removedExit);
 
   // --- 9. CSS-контракт: transition'ы и геометрия на месте ----------------
   console.log('=== 9. CSS-контракт анимаций ===');
@@ -346,6 +368,8 @@ w.addEventListener('load', async () => {
   ok('обратная фаза анимирует fade-in свежего мини-превью',
     /@keyframes\s+rhythm-hint-preview-return/.test(cssText)
       && /body\.is-rhythm-hint-returning \.event-strum-preview\.has-pattern\s*\{[^}]*animation:\s*rhythm-hint-preview-return 0\.18s ease both/.test(cssText));
+  ok('мини-превью снятого ритма не проявляется обратно перед render',
+    /\.event-strum-preview\.is-rhythm-removing\s*\{[^}]*animation:\s*none;[^}]*opacity:\s*0/.test(cssText));
   ok('.rhythm-hint-hit: плывут сами удары (transition transform)',
     /\.rhythm-hint-hit\s*\{[^}]*transition:\s*transform/.test(cssText));
   ok('реальный браузер запускает обратный полёт через Web Animations API (без случайного CSS-jump)',
