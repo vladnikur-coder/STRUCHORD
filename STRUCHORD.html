@@ -3578,6 +3578,30 @@ body {
 .section-badge--zoom:hover {
   background: rgba(var(--color-accent-rgb), 0.24);
 }
+/* Сброс масштаба по лупе не анимирует width рядов (это лагало и
+   стягивало секции из невидимой зоны), но сама кнопка оставляет короткий
+   transform/opacity-след — безопасный compositor-only отклик. */
+.zoom-reset-flash {
+  position: fixed;
+  z-index: 20000;
+  pointer-events: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  box-sizing: border-box;
+  border-radius: var(--border-radius-pill);
+  background: rgba(var(--color-accent-rgb), 0.16);
+  color: var(--color-accent);
+  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.14);
+  transform-origin: center;
+  animation: zoom-reset-flash 0.28s cubic-bezier(0.2, 0.7, 0.2, 1) forwards;
+}
+@keyframes zoom-reset-flash {
+  0% { opacity: 0.95; transform: scale(1); }
+  45% { opacity: 1; transform: scale(1.12); }
+  100% { opacity: 0; transform: scale(0.82); }
+}
 .zoom-badge-step {
   font-size: 10px;
   opacity: 0.7;
@@ -9271,6 +9295,20 @@ function getResizeStepLabel() {
 // бейджами секции — отдельная полоса во всю ширину для этого избыточна.
 // Клик возвращает 100%. Создаётся и из render(), и из updateZoomChrome():
 // вызывать полный ре-рендер ради появления бейджа посреди жеста — рывок.
+function animateZoomResetBadge(sourceEl) {
+  const rect = sourceEl && sourceEl.getBoundingClientRect ? sourceEl.getBoundingClientRect() : null;
+  if (!rect || rect.width <= 0 || rect.height <= 0 || !document.body) return;
+  const flash = document.createElement('span');
+  flash.className = 'zoom-reset-flash';
+  flash.innerHTML = sourceEl.innerHTML;
+  flash.style.left = rect.left + 'px';
+  flash.style.top = rect.top + 'px';
+  flash.style.width = rect.width + 'px';
+  flash.style.height = rect.height + 'px';
+  document.body.appendChild(flash);
+  setTimeout(() => flash.remove(), 340);
+}
+
 function makeZoomBadge() {
   const b = document.createElement('span');
   b.className = 'section-badge section-badge--zoom';
@@ -9286,6 +9324,7 @@ function makeZoomBadge() {
     ' (отмечен подсечками снизу ячейки). Нажмите, чтобы вернуть 100%';
   b.onclick = (e) => {
     e.stopPropagation();
+    animateZoomResetBadge(b);
     resetSquareZoom();
   };
   return b;

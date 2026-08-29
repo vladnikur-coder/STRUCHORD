@@ -85,8 +85,10 @@ w.addEventListener('load',()=>{
   ok('шаг назван в подсказке', !!badge && /восьмые/.test(badge.title||''), badge&&badge.title);
   ok('в бейдже только процент', !!badge && !/восьмые|четверти/.test(badge.textContent),
      badge&&badge.textContent);
+  badge.getBoundingClientRect=()=>({left:10,top:20,width:80,height:24,right:90,bottom:44,x:10,y:20});
   badge.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
   ok('клик сбрасывает масштаб', w.eval('squareZoom')===1, w.eval('squareZoom')+'');
+  ok('клик оставляет безопасную transform/opacity-вспышку лупы', !!d.querySelector('.zoom-reset-flash'));
   w.eval('render()');
   ok('бейдж исчез при 1×', d.querySelectorAll('.section-badge--zoom').length===0);
   // Ползунок под секцией удалён: зум делается колесом с Ctrl (десктоп)
