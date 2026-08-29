@@ -28521,6 +28521,37 @@ function rhythmHintExitDeltas(entry, ei, bi) {
   });
 }
 
+function runRhythmHintHitFlight(hitEl, transform, delay) {
+  hitEl.style.transitionDelay = delay + 'ms';
+  hitEl.dataset.rhythmTargetTransform = transform;
+  // В реальном браузере используем Web Animations API: так обратный полёт
+  // не зависит от того, решит ли CSS transition стартовать после
+  // setTimeout/fade-фазы. В jsdom animate() нет — там остаётся CSS-fallback
+  // через inline transform, который проверяют стенды.
+  if (typeof hitEl.animate === 'function') {
+    const current = getComputedStyle(hitEl).transform;
+    const from = current && current !== 'none'
+      ? current
+      : (hitEl.classList.contains('is-edge') ? 'none' : 'translateX(-50%)');
+    const anim = hitEl.animate(
+      [{ transform: from }, { transform }],
+      {
+        duration: RHYTHM_HINT_MOVE_MS,
+        delay,
+        easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)',
+        fill: 'forwards',
+      }
+    );
+    hitEl._rhythmHintExitAnimation = anim;
+    anim.onfinish = () => {
+      hitEl.style.transform = transform;
+    };
+    return anim;
+  }
+  hitEl.style.transform = transform;
+  return null;
+}
+
 // Отпускание: оверлей пересаживается на body (свежий render() его не
 // убьёт), доигрывает выход и самоубирается. Кастомные удары уплывают
 // КАЖДЫЙ в свой глиф превью, наследуемые полосы просто тают.
@@ -28598,7 +28629,9 @@ function finishRhythmHints() {
       // иначе Chrome иногда не стартует transform-transition, если у
       // кастомной полосы нет параллельного opacity-transition.
       void entry.el.offsetHeight;
-      if (moves) moves.forEach(({ h, transform }) => { h.style.transform = transform; });
+      if (moves) moves.forEach(({ h, transform }) => {
+        runRhythmHintHitFlight(h, transform, parseFloat(h.style.transitionDelay) || 0);
+      });
       else entry.el.style.transform = 'translateY(-34px)';
     });
   };

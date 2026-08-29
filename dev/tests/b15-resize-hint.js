@@ -330,6 +330,10 @@ w.addEventListener('load', async () => {
       && /body\.is-rhythm-hint-returning \.event-strum-preview\.has-pattern\s*\{[^}]*animation:\s*rhythm-hint-preview-return 0\.18s ease both/.test(cssText));
   ok('.rhythm-hint-hit: плывут сами удары (transition transform)',
     /\.rhythm-hint-hit\s*\{[^}]*transition:\s*transform/.test(cssText));
+  ok('реальный браузер запускает обратный полёт через Web Animations API (без случайного CSS-jump)',
+    /function runRhythmHintHitFlight/.test(cssText)
+      && /hitEl\.animate\(/.test(cssText)
+      && /duration:\s*RHYTHM_HINT_MOVE_MS/.test(cssText));
 
   // --- 10. Вычисленные стили (jsdom умеет getComputedStyle по stylesheet) --
   console.log('=== 10. Вычисленные стили анимаций ===');

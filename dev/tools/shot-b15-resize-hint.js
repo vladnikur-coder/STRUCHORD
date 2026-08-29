@@ -72,6 +72,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
                    now: getComputedStyle(hh).transform,
                    delay: hh.style.transitionDelay || '',
                    sourceIndex: hh.dataset.rhythmSourceIndex || '',
+                   target: hh.dataset.rhythmTargetTransform || '',
                  })),
                  host: h.parentElement.parentElement === document.body ? 'body' : 'square' };
       }),
