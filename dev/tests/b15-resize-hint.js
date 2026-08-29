@@ -123,8 +123,13 @@ w.addEventListener('load', async () => {
   console.log('=== 2. Наследующая ячейка: свой срез боя секции ===');
   const cell1Hits = hints[1] ? [...hints[1].querySelectorAll('.rhythm-hint-hit')] : [];
   ok('у наследующей ячейки 4 удара (вторая половина DUDUDUDU)', cell1Hits.length === 4, cell1Hits.length);
-  ok('входная анимация запущена (is-in)',
-    ov && [...ov.querySelectorAll('.rhythm-hint')].every((el) => el.classList.contains('is-in')));
+  ok('кастомная полоса приплывает сразу',
+    !!(hints[0] && hints[0].classList.contains('is-in')));
+  ok('наследуемая полоса ждёт конца приплывания кастома',
+    !!(hints[1] && !hints[1].classList.contains('is-in')));
+  await sleep(280);
+  ok('наследуемая полоса появляется fade-in после приплывания кастома',
+    !!(hints[1] && hints[1].classList.contains('is-in')));
   const inheritedKeepsFadeAfterRefresh = evl(`
     sections[0].squares[0].events[1].strumPattern = { mode: 'strum', subdivision: 2, steps: ['D','U'] };
     refreshRhythmHints(sections[0], sections[0].squares[0],

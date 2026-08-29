@@ -28199,7 +28199,14 @@ function render() {
 let rhythmHintSession = null; // { sqEl, bi, overlay, entries: [{el, custom, startCustom, patternKey}] }
 let rhythmHintRefreshRAF = null;
 let rhythmHintRefreshPending = null;
+const RHYTHM_HINT_MOVE_MS = 220;
+const RHYTHM_HINT_STEP_DELAY_MS = 10;
+const RHYTHM_HINT_MAX_DELAY_MS = 60;
 const RHYTHM_HINT_EXIT_MS = 420;
+
+function rhythmHintStepDelay(index) {
+  return Math.min(Math.max(0, index) * RHYTHM_HINT_STEP_DELAY_MS, RHYTHM_HINT_MAX_DELAY_MS);
+}
 
 function rhythmHintPatternKey(pattern) {
   if (!pattern || !Array.isArray(pattern.steps)) return '';
@@ -28336,7 +28343,7 @@ function rhythmHintEnterDeltas(bi, ei, pattern, distribution, cumCols, biRect) {
     const dx = (src.left + src.width / 2 - biRect.left) - (stripLeft + (j / n) * stripWidth);
     const dy = (src.top + src.height / 2 - biRect.top) - baselineY;
     // Лесенка 10мс/удар (потолок 60мс): «распределение» читается волной.
-    deltas.push({ dx, dy, delay: Math.min(j * 10, 60) });
+    deltas.push({ dx, dy, delay: rhythmHintStepDelay(j) });
   }
   return deltas;
 }
@@ -28375,6 +28382,14 @@ function startRhythmHints(s, sq, bi, distribution) {
       : 0;
     cum += Math.max(1, distribution.spans[ei] || 1);
   });
+  const inheritedRevealDelay = data.reduce((maxDelay, d, ei) => {
+    if (!d || !d.custom) return maxDelay;
+    const hitDelay = (deltasByCell[ei] || []).reduce(
+      (cellMax, item) => Math.max(cellMax, item.delay || 0),
+      0
+    );
+    return Math.max(maxDelay, RHYTHM_HINT_MOVE_MS + hitDelay);
+  }, 0);
   const overlay = document.createElement('div');
   overlay.className = 'rhythm-hints';
   const entries = sq.events.map((ev, ei) => {
@@ -28405,10 +28420,22 @@ function startRhythmHints(s, sq, bi, distribution) {
   // Форсируем reflow ДО добавления is-in: запечатывается СТАРТОВОЕ
   // состояние, следующая правка играет transition из него в конечное.
   void overlay.offsetHeight;
-  entries.forEach((entry) => {
+  const revealEntry = (entry) => {
     entry.el.classList.add('is-in');
     entry.el.style.transform = '';
     entry.el.querySelectorAll('.rhythm-hint-hit').forEach((h) => { h.style.transform = ''; });
+  };
+  entries.forEach((entry) => {
+    if (!entry.custom && inheritedRevealDelay > 0 && entry.el.firstChild) {
+      // Наследуемый ритм не спорит с «переплыванием» кастома: сначала
+      // кастомные стрелки/цифры долетают до своих узлов, затем соседние
+      // наследуемые полосы спокойно проявляются fade-in.
+      setTimeout(() => {
+        if (rhythmHintSession === session) revealEntry(entry);
+      }, inheritedRevealDelay);
+      return;
+    }
+    revealEntry(entry);
   });
 }
 
@@ -28543,7 +28570,7 @@ function finishRhythmHints() {
         // Уплывание должно выглядеть тем же жестом, что и приплывание:
         // та же лесенка 0,10,20… слева направо, та же длительность и
         // та же кривая. Меняется только вектор — обратно к мини-превью.
-        h.style.transitionDelay = Math.min(j * 10, 60) + 'ms';
+        h.style.transitionDelay = rhythmHintStepDelay(j) + 'ms';
         h.dataset.rhythmSourceIndex = String(ex[j].sourceIndex);
         return { h, transform: `${base}translate(${ex[j].dx}px, ${ex[j].dy}px)` };
       });
