@@ -23953,7 +23953,11 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
       demoteMatchingCellRhythms(sec, sq);
     }
     closeEditor();
-    requestRender();
+    // B-25: сохранение ритма меняет только бейдж секции или текущий
+    // квадрат; полный render всей песни не нужен и может конфликтовать с
+    // B-15/stale preview.
+    if (scope === 'section') syncSectionRhythmDom(sec);
+    else syncSquareDomNow(sec, sq);
     showToast('Паттерн сохранён');
   };
   modal.querySelector('#reset-pattern').onclick = () => {
@@ -23979,7 +23983,9 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
       evt.strumPattern = null;
     }
     closeEditor();
-    requestRender();
+    // B-25: сброс ритма — локальное обновление секционного бейджа/квадрата.
+    if (scope === 'section') syncSectionRhythmDom(sec);
+    else syncSquareDomNow(sec, sq);
     showToast(
       scope === 'section'
         ? 'Паттерн секции убран'
@@ -29052,6 +29058,42 @@ function syncSquareDomNow(sec, sq) {
     return false;
   }
   if (!syncResizedSquareDom(sec, sq, bi)) {
+    requestRender();
+    return false;
+  }
+  return true;
+}
+
+function syncSectionStrumBadge(sec) {
+  if (!sec) return false;
+  const badgesDiv = document.querySelector(`.section-card[data-id="${sec.id}"] .section-mod-badges`);
+  if (!badgesDiv) return false;
+  strumPreviewStepEls.delete(sec.id);
+  const old = badgesDiv.querySelector('.strum-badge-wrap');
+  if (old) old.remove();
+  if (!sec.strumPattern) return true;
+  const wrap = document.createElement('span');
+  wrap.className = 'strum-badge-wrap';
+  wrap.title = 'Бой/перебор секции (по умолчанию для всех её квадратов) — нажмите, чтобы изменить';
+  wrap.onclick = (e) => {
+    e.stopPropagation();
+    openStrumPatternEditor('section', sec.id);
+  };
+  const refSq = getReferenceSquareForBadge(sec);
+  const { modeBadge, preview } = buildStrumPreviewEls(sec.strumPattern, {
+    chordChangeUnits: getChordChangeUnits(refSq, sec.timeSig || globalTimeSig),
+  });
+  wrap.appendChild(modeBadge);
+  wrap.appendChild(preview);
+  badgesDiv.appendChild(wrap);
+  strumPreviewStepEls.set(sec.id, Array.from(preview.querySelectorAll('.strum-step')));
+  return true;
+}
+
+function syncSectionRhythmDom(sec) {
+  const badgeOk = syncSectionStrumBadge(sec);
+  const squaresOk = rerenderSectionSquaresDom(sec);
+  if (!badgeOk || !squaresOk) {
     requestRender();
     return false;
   }

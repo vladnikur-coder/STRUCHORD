@@ -275,6 +275,61 @@ w.addEventListener('load', async () => {
     evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`));
   restoreRenderCounter();
 
+  console.log('=== B-25.4 rhythm modal: event save/reset без полного render ===');
+  scene();
+  evl(`sections[0].squares[0].events[0].strumPattern = { mode: 'strum', subdivision: 2, steps: ['D','U','D','U'] }; render(); return 0`);
+  resetRenderCounter();
+  evl(`openStrumPatternEditor('event', 1, 2, 0); document.querySelector('#save-pattern').click(); return 0`);
+  ok('save event rhythm не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('save event rhythm синхронизирует текущий квадрат локально',
+    evl('return window.__b25IncrementalSquareSyncCount') >= 1,
+    evl('return window.__b25IncrementalSquareSyncCount'));
+  ok('после save event кнопка ритма помечена как own',
+    !!w.document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="0"] .chord-btn-strum--own'));
+  restoreRenderCounter();
+
+  resetRenderCounter();
+  evl(`openStrumPatternEditor('event', 1, 2, 0); document.querySelector('#reset-pattern').click(); return 0`);
+  ok('reset event rhythm не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('reset event rhythm синхронизирует текущий квадрат локально',
+    evl('return window.__b25IncrementalSquareSyncCount') >= 1,
+    evl('return window.__b25IncrementalSquareSyncCount'));
+  ok('после reset event кнопка/preview очищены',
+    !w.document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="0"] .chord-btn-strum--own')
+      && !w.document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="0"] .event-strum-preview.has-pattern'));
+  restoreRenderCounter();
+
+  console.log('=== B-25.4 rhythm modal: section save/reset без полного render ===');
+  scene();
+  evl(`sections[0].strumPattern = { mode: 'strum', subdivision: 2, steps: ['D','U','D','U','D','U','D','U'] }; render(); return 0`);
+  resetRenderCounter();
+  evl(`openStrumPatternEditor('section', 1); document.querySelector('#save-pattern').click(); return 0`);
+  ok('save section rhythm не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('save section rhythm пересобирает squares-list секции локально',
+    evl('return window.__b25IncrementalSectionSquaresRenderCount') >= 1,
+    evl('return window.__b25IncrementalSectionSquaresRenderCount'));
+  ok('section rhythm badge есть после save',
+    !!w.document.querySelector('.section-card[data-id="1"] .strum-badge-wrap'));
+  restoreRenderCounter();
+
+  resetRenderCounter();
+  evl(`openStrumPatternEditor('section', 1); document.querySelector('#reset-pattern').click(); return 0`);
+  ok('reset section rhythm не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('reset section rhythm пересобирает squares-list секции локально',
+    evl('return window.__b25IncrementalSectionSquaresRenderCount') >= 1,
+    evl('return window.__b25IncrementalSectionSquaresRenderCount'));
+  ok('section rhythm badge удалён после reset',
+    !w.document.querySelector('.section-card[data-id="1"] .strum-badge-wrap'));
+  restoreRenderCounter();
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');
   process.exit(bad ? 1 : 0);
 });
