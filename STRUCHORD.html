@@ -3786,8 +3786,14 @@ body.is-zooming .squares-list {
 .square-inner.is-live-resizing {
   contain: layout style;
 }
+/* B-31: resize остаётся дискретным, но переход между snapped-состояниями
+   сглаживается самой сеткой одного квадрата. Это не continuous stretch за
+   курсором: JS меняет template только когда пересечён следующий шаг. */
+.square-inner.is-live-resizing.is-snap-resize-animated {
+  transition: grid-template-columns 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
+}
 .square-inner.is-live-resizing .chord-wrapper {
-  transition: none;
+  transition: background 0.14s ease;
 }
 .square-inner.is-live-resizing .resize-handle {
   opacity: 1;
@@ -3797,6 +3803,39 @@ body.is-zooming .squares-list {
   background:
     linear-gradient(180deg, rgba(var(--color-accent-rgb), 0.10), rgba(var(--color-accent-rgb), 0.035)),
     var(--color-surface);
+}
+/* Подписи счёта не должны «резиниться» вместе с ячейками. На время
+   snapped-анимации прячем штатные подписи внутри ячеек и показываем
+   замороженный метрический слой поверх квадрата: 1/та/и/та остаются на
+   своих узлах, пока граница мягко переезжает к следующему шагу. */
+.square-inner.is-live-resizing .chord-counts {
+  opacity: 0;
+}
+.resize-metric-overlay {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 5;
+  contain: layout style paint;
+}
+.resize-metric-overlay .chord-count {
+  position: absolute;
+  bottom: 4px;
+  transform: none;
+  margin-left: 0;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+}
+.resize-metric-overlay .chord-count.is-beat {
+  color: var(--color-text-secondary);
+  font-size: 10px;
+  font-weight: 800;
+}
+.resize-metric-overlay .chord-count.is-downbeat {
+  font-size: 12px;
 }
 /* История слоёв у нижней кромки: B-04 (2026-08-25) убрала засечки,
    перенеся роль на подписи счёта; B-21 подняла подписи на 3px
@@ -29110,14 +29149,16 @@ function syncResizedSquareDom(sec, sq, bi) {
   return true;
 }
 
-function scheduleResizedSquareDomSync(sec, sq, bi, delay) {
+function scheduleResizedSquareDomSync(sec, sq, bi, delay, afterSync) {
   const wait = Math.max(0, delay || 0);
   setTimeout(() => {
     if (rhythmHintSession) {
-      scheduleResizedSquareDomSync(sec, sq, bi, 80);
+      scheduleResizedSquareDomSync(sec, sq, bi, 80, afterSync);
       return;
     }
-    if (!syncResizedSquareDom(sec, sq, bi)) requestRender();
+    const ok = syncResizedSquareDom(sec, sq, bi);
+    if (!ok) requestRender();
+    if (typeof afterSync === 'function') afterSync(!!ok);
   }, wait);
 }
 
@@ -29489,6 +29530,7 @@ function attachResizeHandlers() {
       const activeWrapper = wrappers[ei] || null;
       const neighborWrapper = wrappers[ei + 1] || null;
       let liveGridActive = false;
+      let resizeMetricOverlay = null;
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
@@ -29572,21 +29614,65 @@ function attachResizeHandlers() {
           .join(' ');
       }
 
+      function removeResizeMetricOverlay() {
+        if (resizeMetricOverlay) {
+          resizeMetricOverlay.remove();
+          resizeMetricOverlay = null;
+        }
+      }
+
+      function installResizeMetricOverlay() {
+        removeResizeMetricOverlay();
+        const overlay = document.createElement('div');
+        overlay.className = 'resize-metric-overlay';
+        overlay.setAttribute('aria-hidden', 'true');
+        const biBox = bi.getBoundingClientRect();
+        const counts = Array.from(bi.querySelectorAll('.chord-count'));
+        counts.forEach((src) => {
+          const box = src.getBoundingClientRect();
+          const clone = document.createElement('span');
+          clone.className = src.className;
+          clone.textContent = src.textContent;
+          // Фиксируем именно ВИЗУАЛЬНОЕ место подписи. Поэтому клону не
+          // нужен translateX(-50%): left — это уже левый край текста после
+          // всех transforms/margins исходного элемента. В реальном браузере
+          // берём rect; в jsdom rect нулевой — там важен сам факт слоя.
+          const leftPx = (box && Number.isFinite(box.left) ? box.left : 0)
+            - (biBox && Number.isFinite(biBox.left) ? biBox.left : 0);
+          clone.style.left = Math.max(0, leftPx).toFixed(3) + 'px';
+          clone.style.transform = 'none';
+          clone.style.marginLeft = '0';
+          overlay.appendChild(clone);
+        });
+        bi.appendChild(overlay);
+        resizeMetricOverlay = overlay;
+      }
+
       function ensureLiveGrid() {
         if (liveGridActive) return;
         liveGridActive = true;
         bi.classList.add('is-live-resizing');
+        bi.classList.remove('is-snap-resize-animated');
         if (activeWrapper) activeWrapper.classList.add('is-live-resize-active');
         if (neighborWrapper) neighborWrapper.classList.add('is-live-resize-neighbor');
-        // На время drag каждая ячейка становится отдельной fr-колонкой.
-        // Дальше pointermove пишет только gridTemplateColumns: это живой
-        // resize видимых ячеек без innerHTML, reslice и записи модели.
+        installResizeMetricOverlay();
+        // На время drag каждая ячейка становится отдельной fr-колонкой,
+        // но стартовая геометрия остаётся ТОЙ ЖЕ, что у обычной repeat-
+        // сетки. После forced reflow включаем transition: дальше каждый
+        // snapped-переход мягко доезжает из текущего положения, а не
+        // телепортируется. Подписи счёта лежат в frozen-overlay и не
+        // растягиваются вместе с меняющимися ячейками.
+        bi.style.gridTemplateColumns = liveGridTemplate(sSp);
         wrappers.forEach((cw, i) => {
           cw.style.gridColumn = `${i + 1} / span 1`;
         });
+        // eslint-disable-next-line no-unused-expressions
+        void bi.offsetWidth;
+        bi.classList.add('is-snap-resize-animated');
       }
 
       function restoreStartGrid() {
+        bi.classList.remove('is-snap-resize-animated');
         bi.style.gridTemplateColumns = `repeat(${distribution.totalCols}, minmax(0, 1fr))`;
         wrappers.forEach((cw, i) => {
           cw.style.gridColumn = `span ${Math.max(1, distribution.spans[i] || 1)}`;
@@ -29594,7 +29680,8 @@ function attachResizeHandlers() {
       }
 
       function cleanupLiveClasses() {
-        bi.classList.remove('is-live-resizing');
+        bi.classList.remove('is-snap-resize-animated', 'is-live-resizing');
+        removeResizeMetricOverlay();
         if (activeWrapper) activeWrapper.classList.remove('is-live-resize-active');
         if (neighborWrapper) neighborWrapper.classList.remove('is-live-resize-neighbor');
       }
@@ -29681,7 +29768,6 @@ function attachResizeHandlers() {
         }
         applyResizePreviewAt(pendingResizeClientX, true);
         document.body.classList.remove('is-resizing');
-        cleanupLiveClasses();
 
         const finalSpans = lastPreviewSpans || calcResizeSpans(pendingResizeClientX);
         const finalKey = resizeKey(finalSpans);
@@ -29692,6 +29778,7 @@ function attachResizeHandlers() {
           // и закрываем B-15-подсказку.
           if (liveGridActive) restoreStartGrid();
           const hintExitMs = finishRhythmHints({ droppedOut: [] });
+          cleanupLiveClasses();
           isResizing = true;
           setTimeout(() => {
             isResizing = false;
@@ -29699,6 +29786,11 @@ function attachResizeHandlers() {
           return;
         }
 
+        // Дальше новые snapped-переходы уже не нужны: фиксируем сетку в
+        // последней визуальной точке и ждём B-15 reverse. Frozen-счёт
+        // остаётся поверх до локальной синхронизации DOM, чтобы старые
+        // подписи внутри ячеек не мигнули в неправильных местах.
+        bi.classList.remove('is-snap-resize-animated');
         commitVisualSpans(finalSpans);
 
         // Финальная сверка длины квадрата. Обе величины — в ДОЛЯХ:
@@ -29732,7 +29824,7 @@ function attachResizeHandlers() {
         // анимацией и возвращал stale mini-preview. droppedOut передаём
         // явно: снятый на этом отпускании ритм не должен улетать вообще.
         const hintExitMs = finishRhythmHints({ droppedOut: droppedRhythmHintCells });
-        scheduleResizedSquareDomSync(s, sq, bi, hintExitMs);
+        scheduleResizedSquareDomSync(s, sq, bi, hintExitMs, () => cleanupLiveClasses());
         isResizing = true;
         setTimeout(() => {
           isResizing = false;

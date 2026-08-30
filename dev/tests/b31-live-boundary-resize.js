@@ -1,9 +1,10 @@
-// B-31 (2026-08-30): smooth live resize границы между ячейками.
+// B-31 (2026-08-30): smooth snapped resize границы между ячейками.
 //
 // Уточнённая постановка после визуальной отмены guide-only прототипа:
-// во время drag пользователь должен видеть живое изменение самих ячеек,
-// но pointermove не должен мутировать модель, делать reslice/settle или
-// пересобирать innerHTML. Коммит модели — один раз на pointerup.
+// существующий resize остаётся дискретным и привязанным к шагам сетки,
+// но переходы между snapped-состояниями не должны быть резкими скачками.
+// Pointermove не мутирует модель, не делает reslice/settle и не
+// пересобирает innerHTML; модель фиксируется один раз на pointerup.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const file = process.argv[2] || __dirname + '/../../STRUCHORD.html';
@@ -100,9 +101,15 @@ w.addEventListener('load', async () => {
     evl('return sections[0].squares[0].events.map((e) => e.span).join(",")'));
   await sleep(35);
   const liveTemplate = evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`);
-  ok('на pointermove включается live-grid из fr-колонок самих ячеек',
+  ok('на pointermove включается live-grid из fr-колонок snapped-ячеек',
     liveTemplate.includes('3.5fr') && liveTemplate.includes('0.5fr') && !liveTemplate.startsWith('repeat('),
     liveTemplate);
+  ok('snap-переходы анимируются grid-template-columns',
+    evl(`return document.querySelector('.square-inner').classList.contains('is-snap-resize-animated')`),
+    evl(`return document.querySelector('.square-inner').className`));
+  ok('счёт вынесен в frozen overlay, чтобы 1/та/и/та не резинились',
+    evl(`return !!document.querySelector('.resize-metric-overlay .chord-count')`),
+    'no metric overlay');
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,
     'wrapper node changed');
@@ -126,6 +133,10 @@ w.addEventListener('load', async () => {
   ok('после локальной синхронизации DOM соответствует финальной дробной сетке',
     /^repeat\(8,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
     evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`));
+  ok('после commit frozen-счёт снят вместе с live-классами',
+    !evl(`return !!document.querySelector('.resize-metric-overlay')`)
+      && !evl(`return document.querySelector('.square-inner').classList.contains('is-live-resizing')`),
+    evl(`return document.querySelector('.square-inner').className`));
   ok('полный requestRender не понадобился для commit',
     evl('return window.__b31RequestRenderCount') === 0,
     evl('return window.__b31RequestRenderCount'));
