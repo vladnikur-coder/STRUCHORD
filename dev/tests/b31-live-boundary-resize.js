@@ -115,6 +115,10 @@ w.addEventListener('load', async () => {
   ok('засечки тоже вынесены в frozen overlay и не едут вместе с ячейкой',
     evl(`return !!document.querySelector('.resize-metric-overlay .chord-ticks') && !!document.querySelector('.resize-metric-overlay .chord-ticks-step')`),
     'no frozen ticks');
+  ok('нижняя метрическая полоса перекрывает движущиеся grid-gap',
+    fs.readFileSync(file, 'utf8').includes('.resize-metric-overlay::before')
+      && fs.readFileSync(file, 'utf8').includes('height: 20px;'),
+    'no bottom metric cover');
   ok('edge-отступ счёта перенесён на новую snapped-границу до отпускания',
     evl(`return Array.from(document.querySelectorAll('.resize-count-plane .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
     evl(`return Array.from(document.querySelectorAll('.resize-count-plane .chord-count.is-edge')).map(n => n.textContent).join('|')`));
