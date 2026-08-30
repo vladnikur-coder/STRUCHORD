@@ -4712,41 +4712,6 @@ body.mode-anim .transport-bar {
 .resize-handle:hover {
   background: rgba(var(--color-accent-rgb), 0.18);
 }
-.resize-preview-layer {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 9;
-  overflow: hidden;
-}
-.resize-preview-guide {
-  position: absolute;
-  top: 0;
-  bottom: 0;
-  left: 0;
-  width: 0;
-  border-left: 2px solid rgba(var(--color-accent-rgb), 0.78);
-  transform: translateX(0);
-  will-change: transform;
-  filter: drop-shadow(0 0 5px rgba(var(--color-accent-rgb), 0.28));
-}
-.resize-preview-guide::after {
-  content: attr(data-label);
-  position: absolute;
-  left: 6px;
-  top: 6px;
-  padding: 2px 7px;
-  border-radius: var(--border-radius-pill);
-  background: rgba(var(--color-accent-rgb), 0.14);
-  color: var(--color-accent);
-  font-size: 10px;
-  font-weight: 700;
-  white-space: nowrap;
-}
-.resize-preview-guide.is-square-edge {
-  border-left-color: rgba(var(--color-brand-rgb), 0.82);
-  filter: drop-shadow(0 0 5px rgba(var(--color-brand-rgb), 0.26));
-}
 .transport-bar {
   display: flex;
   align-items: center;
@@ -28950,59 +28915,6 @@ function cancelRhythmHints() {
     .forEach((el) => el.classList.remove('is-rhythm-hint-returning'));
 }
 
-// ---------- B-31 (2026-08-30): smooth resize preview / FLIP commit ----------
-function ensureResizePreviewLayer(bi) {
-  if (!bi) return null;
-  let layer = bi.querySelector(':scope > .resize-preview-layer');
-  if (layer) return layer;
-  layer = document.createElement('div');
-  layer.className = 'resize-preview-layer';
-  const guide = document.createElement('div');
-  guide.className = 'resize-preview-guide';
-  layer.appendChild(guide);
-  bi.appendChild(layer);
-  return layer;
-}
-function updateResizePreviewGuide(layer, xPx, label, squareEdge) {
-  const guide = layer && layer.querySelector('.resize-preview-guide');
-  if (!guide) return;
-  guide.classList.toggle('is-square-edge', !!squareEdge);
-  guide.style.transform = `translateX(${Math.round(xPx)}px)`;
-  guide.dataset.label = label || '';
-}
-function removeResizePreviewLayer(bi) {
-  bi && bi.querySelector(':scope > .resize-preview-layer')?.remove();
-}
-function captureChordWrapperRects(bi) {
-  const rects = new Map();
-  if (!bi) return rects;
-  bi.querySelectorAll('.chord-wrapper').forEach((el) => {
-    const key = el.dataset.ei;
-    if (key != null) rects.set(key, el.getBoundingClientRect());
-  });
-  return rects;
-}
-function animateChordWrappersFromRects(bi, firstRects) {
-  if (!bi || !firstRects || !firstRects.size) return;
-  bi.querySelectorAll('.chord-wrapper').forEach((el) => {
-    const first = firstRects.get(el.dataset.ei);
-    if (!first) return;
-    const last = el.getBoundingClientRect();
-    if (!last.width || !last.height) return;
-    const dx = first.left - last.left;
-    const dy = first.top - last.top;
-    const sx = first.width > 0 ? first.width / last.width : 1;
-    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(sx - 1) < 0.01) return;
-    el.animate(
-      [
-        { transformOrigin: 'left center', transform: `translate(${dx}px, ${dy}px) scaleX(${sx})` },
-        { transformOrigin: 'left center', transform: 'translate(0, 0) scaleX(1)' },
-      ],
-      { duration: 180, easing: 'cubic-bezier(0.2, 0.7, 0.2, 1)' }
-    );
-  });
-}
-
 // ---------- B-25 (2026-08-29): первый инкрементальный рендер для resize ----------
 // После протяжки границы весь DOM приложения пересобирать не нужно: по
 // ходу drag мы уже обновили сетку, подписи счёта, засечки и превью внутри
@@ -29556,7 +29468,6 @@ function attachResizeHandlers() {
       const bi = w.closest('.square-inner');
       const tw = bi.getBoundingClientRect().width;
       const gs = tw / tc; // ширина одной визуальной колонки
-      const canSmoothResizePreview = tw > 0 && tc > 0 && Number.isFinite(gs) && gs > 0;
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
@@ -29733,14 +29644,11 @@ function attachResizeHandlers() {
 }
 
       const resizeKey = (sp) => sp.map((v) => Math.round(v * 1e6) / 1e6).join('|');
-      let lastResizePreviewKey = resizeKey(sSp);
+      let lastResizeWriteKey = resizeKey(sSp);
       let resizeMoveRAF = 0;
       let pendingResizeClientX = sX;
-      let previewSpans = sSp.slice();
-      const previewLayer = ensureResizePreviewLayer(bi);
 
-      function calcResizeSpans(clientX) {
-        if (!canSmoothResizePreview) return sSp.slice();
+      function applyResizeAt(clientX) {
         const delta = clientX - sX;
         // Шаг тянем не по целым колонкам, а по текущему шагу зума:
         // при ×1.5 доступны восьмые, при ×2.5 — шестнадцатые.
@@ -29767,48 +29675,23 @@ function attachResizeHandlers() {
             if (nsp[ei] > maxSp) nsp[ei] = maxSp;
           }
         }
-        return nsp;
-      }
-
-      function previewResizeAt(clientX) {
-        const nsp = calcResizeSpans(clientX);
         const key = resizeKey(nsp);
-        if (key === lastResizePreviewKey) return;
-        lastResizePreviewKey = key;
-        previewSpans = nsp;
-        const boundaryCols = nsp.slice(0, ei + 1).reduce((sum, v) => sum + v, 0);
-        const x = (boundaryCols / tc) * tw;
-        const leftBeats = colsToBeats(nsp[ei]);
-        const rightBeats = colsToBeats(nsp[ei + 1] || 0);
-        updateResizePreviewGuide(previewLayer, x, `${roundSpan(leftBeats)} · ${roundSpan(rightBeats)}`);
-        if (rhythmHintSession) layoutRhythmHints(rhythmHintSession, { totalCols: tc, spans: nsp });
-        window.__b31ResizePreviewCount = (window.__b31ResizePreviewCount || 0) + 1;
-      }
-
-      function commitResizePreview() {
-        removeResizePreviewLayer(bi);
-        const finalKey = resizeKey(previewSpans);
-        if (finalKey === resizeKey(sSp)) return false;
-        const firstRects = captureChordWrapperRects(bi);
+        if (key === lastResizeWriteKey) return;
+        lastResizeWriteKey = key;
         window.__b25ResizeWriteCount = (window.__b25ResizeWriteCount || 0) + 1;
-        window.__b31ResizeCommitCount = (window.__b31ResizeCommitCount || 0) + 1;
-        writeSpans(previewSpans);
-        // Коммит один раз перед finishRhythmHints: теперь можно безопасно
-        // применить актуальный rhythm overlay ДО settle/droppedOut, без
-        // телепорта после снятия пина.
-        flushRhythmHintsRefresh();
-        animateChordWrappersFromRects(bi, firstRects);
-        return true;
+        writeSpans(nsp);
       }
 
       function onMove(ev) {
         pendingResizeClientX = ev.clientX;
-        // B-31 / 60fps: live drag не мутирует модель и основной DOM.
-        // В кадр уходит только лёгкий guide + layout оверлея подсказки.
+        // B-25 / 60fps: pointermove может приходить чаще частоты экрана.
+        // Вся тяжёлая работа resize (пересчёт DOM, счёта, превью, ритма)
+        // допускается максимум один раз за animation frame; последний x
+        // всегда сохраняем и на pointerup принудительно flush'им.
         if (resizeMoveRAF) return;
         resizeMoveRAF = requestAnimationFrame(() => {
           resizeMoveRAF = 0;
-          previewResizeAt(pendingResizeClientX);
+          applyResizeAt(pendingResizeClientX);
         });
       }
 
@@ -29819,20 +29702,9 @@ function attachResizeHandlers() {
         if (resizeMoveRAF) {
           cancelAnimationFrame(resizeMoveRAF);
           resizeMoveRAF = 0;
+          applyResizeAt(pendingResizeClientX);
         }
-        previewResizeAt(pendingResizeClientX);
-        const didCommitResize = commitResizePreview();
         document.body.classList.remove('is-resizing');
-        if (!didCommitResize) {
-          // B-31: клик по ручке без фактического изменения — не операция
-          // редактирования. Не трогаем модель/ритм, только отпускаем B-15
-          // подсказку обратно.
-          const hintExitMs = finishRhythmHints({ droppedOut: [] });
-          scheduleResizedSquareDomSync(s, sq, bi, hintExitMs);
-          isResizing = true;
-          setTimeout(() => { isResizing = false; }, 50);
-          return;
-        }
         // Финальная сверка длины квадрата. Обе величины — в ДОЛЯХ:
         // раньше сумма долей сравнивалась с числом колонок tc, и на
         // квадрате с дробными ячейками (32 колонки против 16 долей)
@@ -29983,13 +29855,8 @@ function attachSquareResizeHandlers() {
           refreshChordWrapperRects();
         }
 
-        const previewLayer = ensureResizePreviewLayer(sqEl);
-        updateResizePreviewGuide(previewLayer, startWidth, `${startBeats / beatsPerBar} такт${startBeats / beatsPerBar !== 1 ? 'а' : ''}`, true);
-        let squareResizeRAF = 0;
-        let pendingSquareClientX = startX;
-
-        function calcRoundedBeats(clientX) {
-          const deltaX = startX - clientX;
+        function onMove(ev) {
+          const deltaX = startX - ev.clientX;
           let newWidth = startWidth - deltaX;
           if (newWidth < minWidth) newWidth = minWidth;
           if (newWidth > maxWidth) newWidth = maxWidth;
@@ -29998,47 +29865,33 @@ function attachSquareResizeHandlers() {
           let rounded = Math.round(preciseBeats / beatsPerBar) * beatsPerBar;
           if (rounded < minBeats) rounded = minBeats;
           if (rounded > maxBeats) rounded = maxBeats;
-          return rounded;
-        }
 
-        function previewSquareResizeAt(clientX) {
-          const rounded = calcRoundedBeats(clientX);
-          if (rounded === lastRoundedBeats) return;
-          lastRoundedBeats = rounded;
-          const bars = rounded / beatsPerBar;
-          updateResizePreviewGuide(previewLayer, oneBeatWidth * rounded, `${bars} такт${bars !== 1 ? 'а' : ''}`, true);
-          window.__b31SquareResizePreviewCount = (window.__b31SquareResizePreviewCount || 0) + 1;
-        }
-
-        function onMove(ev) {
-          pendingSquareClientX = ev.clientX;
-          // B-31: live drag правого края квадрата — только guide overlay.
-          // Никакого sqInner.innerHTML на pointermove: модель и DOM
-          // коммитятся один раз на pointerup через setSquareCustomBeats.
-          if (squareResizeRAF) return;
-          squareResizeRAF = requestAnimationFrame(() => {
-            squareResizeRAF = 0;
-            previewSquareResizeAt(pendingSquareClientX);
-          });
+          if (rounded !== lastRoundedBeats) {
+            lastRoundedBeats = rounded;
+            const percent = (rounded / maxBeats) * 100;
+            sqInner.style.width = percent + '%';
+            updateSquarePreview(rounded);
+          }
         }
 
         function onUp() {
           document.removeEventListener('pointermove', onMove);
           document.removeEventListener('pointerup', onUp);
           document.removeEventListener('pointercancel', onUp);
-          if (squareResizeRAF) {
-            cancelAnimationFrame(squareResizeRAF);
-            squareResizeRAF = 0;
-          }
-          previewSquareResizeAt(pendingSquareClientX);
-          const newBeats = lastRoundedBeats;
-          removeResizePreviewLayer(sqEl);
+
+          const currentWidth = sqInner.offsetWidth;
+          const preciseBeats = currentWidth / oneBeatWidth;
+          let newBeats = Math.round(preciseBeats / beatsPerBar) * beatsPerBar;
+          if (newBeats < minBeats) newBeats = minBeats;
+          if (newBeats > maxBeats) newBeats = maxBeats;
+
+          sqInner.style.width = '';
+          sqInner.style.gridTemplateColumns = '';
 
           if (newBeats !== startBeats) {
-            const firstRects = captureChordWrapperRects(sqInner);
             setSquareCustomBeats(sid, sqid, newBeats);
-            const freshInner = sqEl.querySelector('.square-inner');
-            animateChordWrappersFromRects(freshInner, firstRects);
+          } else {
+            requestRender();
           }
         }
 

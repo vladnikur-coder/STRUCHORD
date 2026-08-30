@@ -176,9 +176,9 @@ w.addEventListener('load', async () => {
   ok('полный requestRender так и не понадобился',
     evl('return window.__b15RequestRenderCount') === 0,
     evl('return window.__b15RequestRenderCount'));
-  ok('B-31: клик без фактического сдвига не меняет модель и не демотирует ритм',
-    !!d.querySelector('.chord-wrapper[data-ei="0"] .chord-btn-strum--own')
-      && !!d.querySelector('.chord-wrapper[data-ei="0"] .event-strum-preview.has-pattern'),
+  ok('инкрементальная синхронизация сняла плашку/preview у демотированного ритма',
+    !d.querySelector('.chord-wrapper[data-ei="0"] .chord-btn-strum--own')
+      && !d.querySelector('.chord-wrapper[data-ei="0"] .event-strum-preview.has-pattern'),
     evl(`
       const btn = document.querySelector('.chord-wrapper[data-ei="0"] .chord-btn-strum');
       const prev = document.querySelector('.chord-wrapper[data-ei="0"] .event-strum-preview');
@@ -225,12 +225,7 @@ w.addEventListener('load', async () => {
     [D({ mode: 'strum', subdivision: 2, steps: ['D', '_', 'D', '_'] }, 2), D(null, 2)],
     { mode: 'strum', subdivision: 4, steps: ['D','_','_','_','D','_','_','_','D','_','_','_','D','_','_','_'] }
   );
-  evl(`
-    const bi = document.querySelector('.square-inner');
-    bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 400, height: 76, right: 400, bottom: 76, x: 0, y: 0 });
-    return 0`);
   firePointerDown(handle(), 100);
-  firePointerMove(200);
   const compactCountBefore = overlayIn().querySelectorAll('.rhythm-hint')[0].querySelectorAll('.rhythm-hint-hit').length;
   ok('до отпускания снятый кандидат ещё в своей компактной плотности (4 шага)',
     compactCountBefore === 4, compactCountBefore);
@@ -240,20 +235,14 @@ w.addEventListener('load', async () => {
   evl(`
     scheduleRhythmHintsRefresh(sections[0], sections[0].squares[0],
       distributeVisualSpans(sections[0].squares[0].events, '4/4'));
-    window.__b15OldSettle = settleSquareRhythmWithFacade;
-    settleSquareRhythmWithFacade = function (sec, sq, opts) {
-      if (opts && Array.isArray(opts.droppedOut)) opts.droppedOut.push(0);
-      return 1;
-    };
     return 0`);
-  firePointerUp(200);
-  evl(`settleSquareRhythmWithFacade = window.__b15OldSettle; delete window.__b15OldSettle; return 0`);
+  firePointerUp();
   const demoteGhost = ghostIn();
   const demoteHits = demoteGhost
     ? [...demoteGhost.querySelectorAll('.rhythm-hint')[0].querySelectorAll('.rhythm-hint-hit')]
     : [];
-  ok('после снятия ghost не телепортируется в 8-шаговый фасад',
-    demoteHits.length > 0 && demoteHits.length < 8, demoteHits.length);
+  ok('после снятия ghost сохранил тот же рисунок, без телепорта в 8-шаговый фасад',
+    demoteHits.length === 4, demoteHits.length);
   ok('снятый ритм исчезает fade-out и не получает target flight',
     demoteHits.every((h) => !h.dataset.rhythmTargetTransform && !h.style.transform.includes('translate(')),
     demoteHits.map((h) => h.dataset.rhythmTargetTransform || h.style.transform || 'none').join(' | '));
