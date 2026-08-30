@@ -118,11 +118,11 @@ w.addEventListener('load', async () => {
   ok('движущаяся граница перекрывает frozen-засечки, но не счёт',
     evl(`return !!document.querySelector('.resize-boundary-cover')
       && getComputedStyle(document.querySelector('.resize-boundary-grid')).zIndex === '2'
-      && getComputedStyle(document.querySelector('.resize-count-plane')).zIndex === '3'`),
+      && getComputedStyle(document.querySelector('.resize-count-cell')).zIndex === '3'`),
     'no boundary cover layer');
   ok('edge-отступ счёта перенесён на новую snapped-границу до отпускания',
-    evl(`return Array.from(document.querySelectorAll('.resize-count-plane .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
-    evl(`return Array.from(document.querySelectorAll('.resize-count-plane .chord-count.is-edge')).map(n => n.textContent).join('|')`));
+    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
+    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`));
   ok('счёт не пересобирается на каждый snap, а только переключает edge-классы',
     evl('return window.__b31ResizeMetricCountBuildCount') === 1
       && evl('return window.__b31ResizeMetricEdgeUpdateCount') >= 1,
