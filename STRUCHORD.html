@@ -3783,6 +3783,21 @@ body.is-zooming .squares-list {
 .chord-wrapper:hover {
   background: var(--color-surface-hover);
 }
+.square-inner.is-live-resizing {
+  contain: layout style;
+}
+.square-inner.is-live-resizing .chord-wrapper {
+  transition: none;
+}
+.square-inner.is-live-resizing .resize-handle {
+  opacity: 1;
+}
+.square-inner.is-live-resizing .chord-wrapper.is-live-resize-active,
+.square-inner.is-live-resizing .chord-wrapper.is-live-resize-neighbor {
+  background:
+    linear-gradient(180deg, rgba(var(--color-accent-rgb), 0.10), rgba(var(--color-accent-rgb), 0.035)),
+    var(--color-surface);
+}
 /* История слоёв у нижней кромки: B-04 (2026-08-25) убрала засечки,
    перенеся роль на подписи счёта; B-21 подняла подписи на 3px
    (bottom: 4px); B-22 (2026-08-26) вернула засечки ПОД подписи по
@@ -29466,8 +29481,14 @@ function attachResizeHandlers() {
       const origVisSpans = sSp.slice();                 // запоминаем исходные визуальные колонки
       const origSpans = sq.events.map(e => e.span);    // запоминаем исходные span
       const bi = w.closest('.square-inner');
-      const tw = bi.getBoundingClientRect().width;
+      const wrappers = Array.from(bi.querySelectorAll('.chord-wrapper'));
+      const biRect = bi.getBoundingClientRect();
+      const tw = Math.max(1, biRect.width || bi.offsetWidth || tc * 24);
       const gs = tw / tc; // ширина одной визуальной колонки
+
+      const activeWrapper = wrappers[ei] || null;
+      const neighborWrapper = wrappers[ei + 1] || null;
+      let liveGridActive = false;
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
@@ -29493,162 +29514,99 @@ function attachResizeHandlers() {
         return { newSpans: nsp, remaining: rem };
       }
 
-      function writeSpans(nsp) {
-  const parentDenom = parseTimeSig(parentTs).denominator || 4;
+      function buildEventsForVisualSpans(nsp) {
+        const parentDenom = parseTimeSig(parentTs).denominator || 4;
+        const nextEvents = sq.events.map((ev, i) => ({ ...ev, span: origSpans[i] }));
 
-  for (let i = 0; i < ec; i++) {
-    if (nsp[i] === origVisSpans[i]) {
-      // Визуальная ширина не изменилась — оставляем исходный span
-      sq.events[i].span = origSpans[i];
-    } else {
-      // Изменилась — вычисляем новый span, добавляя к исходному span
-      // ровно столько, на сколько изменилась визуальная ширина
-      // deltaVis — в КОЛОНКАХ; span хранится в долях собственного
-      // размера ячейки. Сначала колонки -> доли родителя, и только
-      // потом пересчёт под свой размер.
-      const deltaVis = nsp[i] - origVisSpans[i];
-      const deltaParentBeats = colsToBeats(deltaVis);
-      const ownTs = getEventOwnTimeSig(sq.events[i], parentTs);
-      const ownDenom = parseTimeSig(ownTs).denominator || 4;
-      const deltaOwn = deltaParentBeats * (ownDenom / parentDenom);
-      // Округляем к текущему шагу зума, а не к целой доле: иначе
-      // восьмые и шестнадцатые немедленно схлопнулись бы в четверти.
-      const step = getResizeStep();
-      const raw = origSpans[i] + deltaOwn;
-      const newSpan = Math.max(step, Math.round(raw / step) * step);
-      sq.events[i].span = roundSpan(newSpan);
-    }
-  }
+        for (let i = 0; i < ec; i++) {
+          if (nsp[i] === origVisSpans[i]) {
+            nextEvents[i].span = origSpans[i];
+          } else {
+            // Изменилась визуальная ширина. Сначала переводим дельту из
+            // колонок в доли родительского размера, потом — в собственный
+            // размер конкретной ячейки. Модель при pointermove не трогаем:
+            // это только вычисление будущего состояния для живой геометрии.
+            const deltaVis = nsp[i] - origVisSpans[i];
+            const deltaParentBeats = colsToBeats(deltaVis);
+            const ownTs = getEventOwnTimeSig(nextEvents[i], parentTs);
+            const ownDenom = parseTimeSig(ownTs).denominator || 4;
+            const deltaOwn = deltaParentBeats * (ownDenom / parentDenom);
+            const step = getResizeStep();
+            const raw = origSpans[i] + deltaOwn;
+            const newSpan = Math.max(step, Math.round(raw / step) * step);
+            nextEvents[i].span = roundSpan(newSpan);
+          }
+        }
 
-  // Корректировка, чтобы суммарная длина квадрата не уплывала.
-  // getEventVisualSpanInParentUnits возвращает ДОЛИ, поэтому и сравнивать
-  // надо с длиной квадрата в долях, а не с числом колонок tc.
-  const visualSum = sq.events.reduce((s, ev) => s + getEventVisualSpanInParentUnits(ev, parentTs), 0);
-  const targetBeats = colsToBeats(tc);
-  const diffBeats = visualSum - targetBeats;
-  const diff = Math.abs(diffBeats) < 1e-9 ? 0 : diffBeats;
-  if (diff !== 0) {
-    // Корректируем ту ячейку, которую тащим (ei), если её визуальная ширина изменилась
-    if (nsp[ei] !== origVisSpans[ei]) {
-      const draggedEv = sq.events[ei];
-      const ownDenom = parseTimeSig(getEventOwnTimeSig(draggedEv, parentTs)).denominator || 4;
-      const correctionOwn = diff * (ownDenom / parentDenom);
-      const st = getResizeStep();
-      draggedEv.span = roundSpan(Math.max(st, Math.round((draggedEv.span - correctionOwn) / st) * st));
-    } else {
-      // fallback: корректируем последнюю ячейку квадрата
-      const last = sq.events[sq.events.length - 1];
-      const ownDenom = parseTimeSig(getEventOwnTimeSig(last, parentTs)).denominator || 4;
-      const correctionOwn = diff * (ownDenom / parentDenom);
-      const st2 = getResizeStep();
-      last.span = roundSpan(Math.max(st2, Math.round((last.span - correctionOwn) / st2) * st2));
-    }
-  }
+        // Та же финальная компенсация, что раньше выполнялась внутри
+        // live-writeSpans(), но теперь — на временных событиях. Сумма
+        // длительностей будущей модели остаётся равной длине квадрата,
+        // не требуя мутировать sq.events на каждом кадре.
+        const visualSum = nextEvents.reduce((sum, ev) => sum + getEventVisualSpanInParentUnits(ev, parentTs), 0);
+        const targetBeats = colsToBeats(tc);
+        const diffBeats = visualSum - targetBeats;
+        const diff = Math.abs(diffBeats) < 1e-9 ? 0 : diffBeats;
+        if (diff !== 0) {
+          const idx = nsp[ei] !== origVisSpans[ei] ? ei : ec - 1;
+          const ev = nextEvents[idx];
+          const ownDenom = parseTimeSig(getEventOwnTimeSig(ev, parentTs)).denominator || 4;
+          const correctionOwn = diff * (ownDenom / parentDenom);
+          const st = getResizeStep();
+          ev.span = roundSpan(Math.max(st, Math.round((ev.span - correctionOwn) / st) * st));
+        }
 
-  // Обновляем DOM.
-  //
-  // Раньше здесь каждой ячейке ставился `span Math.round(nsp[i])` при
-  // НЕИЗМЕННОЙ сетке грида (repeat(tc, ...)). Пока шаг равнялся целой
-  // доле, это совпадало. Но при зуме шаг дробный: ячейка 4.25 доли не
-  // ложится в сетку из 10 целых колонок — округления перестают давать в
-  // сумме tc, ячейки вылезают за квадрат (замер показал переполнение на
-  // 108px) и картинка «разваливается» прямо под курсором. После
-  // отпускания render() пересобирал сетку заново, и всё вставало на
-  // место — отсюда ощущение, что ломается только во время перетаскивания.
-  //
-  // Считаем раскладку тем же способом, что и финальный рендер, и
-  // обновляем сетку целиком — тогда промежуточная картинка совпадает с
-  // тем, что получится после отпускания.
-  const liveDist = distributeVisualSpans(sq.events, parentTs);
-  bi.style.gridTemplateColumns = `repeat(${liveDist.totalCols}, minmax(0, 1fr))`;
-  for (let i = 0; i < ec; i++) {
-    const cw = bi.querySelector(`.chord-wrapper[data-ei="${i}"]`);
-    if (cw) cw.style.gridColumn = `span ${Math.max(1, liveDist.spans[i])}`;
-  }
-
-  // Подписи счёта лежат ВНУТРИ ячеек и рассчитаны от их длины, поэтому
-  // при перетаскивании их надо пересобрать: меняется и длина ячейки, и
-  // её смещение от начала квадрата. (История: здесь же пересобирались
-  // засечки — B-04 их сняла; когда-то они не пересобирались, отставали
-  // от прошлого рендера, и на отпускании картинка прыгала на узлы.)
-  const subdiv = Math.round(1 / getResizeStep());
-  // B-19: те же эпохи, что в render(), — иначе по дороге подписи 4/4
-  // проскакивали бы на ячейку 2/2 (или наоборот).
-  let epochTs = null;
-  let epochOwnOffset = 0;
-  let epochBeatsPerBar = getGridUnitsPerBar(parentTs);
-  let epochUnitScale = 1;
-  for (let i = 0; i < ec; i++) {
-    const cw = bi.querySelector(`.chord-wrapper[data-ei="${i}"]`);
-    const evL = sq.events[i];
-    const evTsEff = (evL && evL.timeSig) || parentTs;
-    if (evTsEff !== epochTs) {
-      epochTs = evTsEff;
-      epochOwnOffset = 0;
-      epochBeatsPerBar = getGridUnitsPerBar(evTsEff);
-      epochUnitScale = parseTimeSig(evTsEff).denominator
-        / (parseTimeSig(parentTs).denominator || 1);
-    }
-    const beats = getEventVisualSpanInParentUnits(sq.events[i], parentTs);
-    if (cw) {
-      // Подписи счёта — ровно по узлам сетки. Раньше они здесь не
-      // пересобирались: разметка от прошлого рендера просто
-      // растягивалась вместе с ячейкой, и «1 та и та» уползало с узлов
-      // (замер: шаг 37.8px -> 44.5px на 8 движениях мыши). На отпускании
-      // render() возвращал их на места — это и был скачок.
-      // Засечки и подсечки (B-22) пересобираем по ходу — как до B-04,
-      // иначе по дороге они оставались бы от прошлого рендера, а на
-      // отпускании прыгали на узлы.
-      const tickEl = cw.querySelector('.chord-ticks');
-      if (tickEl) {
-        tickEl.setAttribute('style',
-          buildInnerTicks(beats, epochOwnOffset, '--color-tick-line', 1, liveDist.spans[i],
-            { ownOffset: epochOwnOffset, unitScale: epochUnitScale }));
+        return nextEvents;
       }
-      const stepEl = cw.querySelector('.chord-ticks-step');
-      if (stepEl) {
-        stepEl.setAttribute('style',
-          buildInnerTicks(beats, epochOwnOffset, '--color-tick-substep', subdiv, liveDist.spans[i],
-            { ownOffset: epochOwnOffset, unitScale: epochUnitScale }));
+
+      function commitVisualSpans(nsp) {
+        const nextEvents = buildEventsForVisualSpans(nsp);
+        for (let i = 0; i < ec; i++) {
+          sq.events[i].span = nextEvents[i].span;
+        }
+        window.__b31ResizeModelCommitCount = (window.__b31ResizeModelCommitCount || 0) + 1;
       }
-      const countsEl = cw.querySelector('.chord-counts');
-      if (countsEl) {
-        countsEl.innerHTML = buildInnerCounts(
-          beats, epochOwnOffset, subdiv, liveDist.spans[i], epochBeatsPerBar,
-          { ownOffset: epochOwnOffset, unitScale: epochUnitScale });
+
+      function liveGridTemplate(nsp) {
+        return nsp
+          .map((v) => `minmax(0, ${Math.max(0.000001, Math.round(v * 1e6) / 1e6)}fr)`)
+          .join(' ');
       }
-    }
-    epochOwnOffset += (sq.events[i] && sq.events[i].span) || 1;
-  }
 
-  // Рисунок поделённых ячеек следует за границей: граница сдвинулась —
-  // нарезку общего ритма пересчитываем по новым долям. Пары без общей
-  // метки внутри не тронутся, как и границы, лёгшие не на шаг рисунка.
-  resliceSharedRhythmsInSquare(sq, parentTs, s, ei, origSpans);
+      function ensureLiveGrid() {
+        if (liveGridActive) return;
+        liveGridActive = true;
+        bi.classList.add('is-live-resizing');
+        if (activeWrapper) activeWrapper.classList.add('is-live-resize-active');
+        if (neighborWrapper) neighborWrapper.classList.add('is-live-resize-neighbor');
+        // На время drag каждая ячейка становится отдельной fr-колонкой.
+        // Дальше pointermove пишет только gridTemplateColumns: это живой
+        // resize видимых ячеек без innerHTML, reslice и записи модели.
+        wrappers.forEach((cw, i) => {
+          cw.style.gridColumn = `${i + 1} / span 1`;
+        });
+      }
 
-  // Мини-превью боя пересобираем на каждом движении, а не на
-  // отпускании: перерезка уже сменила рисунки, а лента в ячейке
-  // обновлялась только после отпускания мыши — ритм «прыгал» после
-  // факта. При воспроизведении не трогаем: там лента живая, её
-  // переставит ближайшее событие планировщика.
-  if (typeof playbackState === 'undefined' || !playbackState.isPlaying) {
-    for (let i = 0; i < ec; i++) {
-      restoreEventStrumPreview(`${s.id}:${sq.id}:${i}`);
-    }
-  }
+      function restoreStartGrid() {
+        bi.style.gridTemplateColumns = `repeat(${distribution.totalCols}, minmax(0, 1fr))`;
+        wrappers.forEach((cw, i) => {
+          cw.style.gridColumn = `span ${Math.max(1, distribution.spans[i] || 1)}`;
+        });
+      }
 
-  // B-15: подсказка ритма переезжает вместе с границами и перечитывает
-  // окна после перерезки — показывает ровно то, что прозвучит после
-  // отпускания.
-  scheduleRhythmHintsRefresh(s, sq, liveDist);
-}
+      function cleanupLiveClasses() {
+        bi.classList.remove('is-live-resizing');
+        if (activeWrapper) activeWrapper.classList.remove('is-live-resize-active');
+        if (neighborWrapper) neighborWrapper.classList.remove('is-live-resize-neighbor');
+      }
 
       const resizeKey = (sp) => sp.map((v) => Math.round(v * 1e6) / 1e6).join('|');
-      let lastResizeWriteKey = resizeKey(sSp);
+      const startResizeKey = resizeKey(sSp);
+      let lastResizePreviewKey = startResizeKey;
+      let lastPreviewSpans = sSp.slice();
       let resizeMoveRAF = 0;
       let pendingResizeClientX = sX;
 
-      function applyResizeAt(clientX) {
+      function calcResizeSpans(clientX) {
         const delta = clientX - sX;
         // Шаг тянем не по целым колонкам, а по текущему шагу зума:
         // при ×1.5 доступны восьмые, при ×2.5 — шестнадцатые.
@@ -29675,36 +29633,74 @@ function attachResizeHandlers() {
             if (nsp[ei] > maxSp) nsp[ei] = maxSp;
           }
         }
+        return nsp;
+      }
+
+      function applyResizePreviewAt(clientX, force) {
+        const nsp = calcResizeSpans(clientX);
         const key = resizeKey(nsp);
-        if (key === lastResizeWriteKey) return;
-        lastResizeWriteKey = key;
-        window.__b25ResizeWriteCount = (window.__b25ResizeWriteCount || 0) + 1;
-        writeSpans(nsp);
+        lastPreviewSpans = nsp;
+        if (!force && key === lastResizePreviewKey) return false;
+        lastResizePreviewKey = key;
+        ensureLiveGrid();
+        bi.style.gridTemplateColumns = liveGridTemplate(nsp);
+        // B-15-оверлей едет вместе с живой геометрией, но контент ритма
+        // не пересрезается на каждом кадре: это было одной из дорогих
+        // частей старого resize-loop. Финальный reslice остаётся на commit.
+        if (rhythmHintSession) {
+          layoutRhythmHints(rhythmHintSession, { totalCols: tc, spans: nsp });
+        }
+        window.__b31ResizePreviewFrameCount = (window.__b31ResizePreviewFrameCount || 0) + 1;
+        return true;
       }
 
       function onMove(ev) {
         pendingResizeClientX = ev.clientX;
-        // B-25 / 60fps: pointermove может приходить чаще частоты экрана.
-        // Вся тяжёлая работа resize (пересчёт DOM, счёта, превью, ритма)
-        // допускается максимум один раз за animation frame; последний x
-        // всегда сохраняем и на pointerup принудительно flush'им.
+        // B-31 / 60fps: pointermove может приходить чаще частоты экрана.
+        // В кадре делаем только дешёвую live-геометрию одного квадрата:
+        // одна запись gridTemplateColumns + сдвиг B-15 overlay. Модель,
+        // reslice, mini-preview и innerHTML ждут pointerup.
         if (resizeMoveRAF) return;
         resizeMoveRAF = requestAnimationFrame(() => {
           resizeMoveRAF = 0;
-          applyResizeAt(pendingResizeClientX);
+          applyResizePreviewAt(pendingResizeClientX, false);
         });
       }
 
-      function onUp() {
+      function onUp(ev) {
         document.removeEventListener('pointermove', onMove);
         document.removeEventListener('pointerup', onUp);
         document.removeEventListener('pointercancel', onUp);
+        // Не берём clientX из pointerup: в jsdom и некоторых синтетических
+        // событиях он приходит как 0, что превращало честный drag в no-op.
+        // Финальный x хранится из последнего pointermove; браузеры перед
+        // отпусканием обычно присылают именно его.
         if (resizeMoveRAF) {
           cancelAnimationFrame(resizeMoveRAF);
           resizeMoveRAF = 0;
-          applyResizeAt(pendingResizeClientX);
         }
+        applyResizePreviewAt(pendingResizeClientX, true);
         document.body.classList.remove('is-resizing');
+        cleanupLiveClasses();
+
+        const finalSpans = lastPreviewSpans || calcResizeSpans(pendingResizeClientX);
+        const finalKey = resizeKey(finalSpans);
+        if (finalKey === startResizeKey) {
+          // Клик/микродвижение по ручке не должно запускать общий settle:
+          // иначе можно демотировать кастомный ритм, хотя пользователь
+          // фактически ничего не менял. Возвращаем только визуальную сетку
+          // и закрываем B-15-подсказку.
+          if (liveGridActive) restoreStartGrid();
+          const hintExitMs = finishRhythmHints({ droppedOut: [] });
+          isResizing = true;
+          setTimeout(() => {
+            isResizing = false;
+          }, Math.max(50, hintExitMs));
+          return;
+        }
+
+        commitVisualSpans(finalSpans);
+
         // Финальная сверка длины квадрата. Обе величины — в ДОЛЯХ:
         // раньше сумма долей сравнивалась с числом колонок tc, и на
         // квадрате с дробными ячейками (32 колонки против 16 долей)
