@@ -7461,3 +7461,30 @@ B-29 закрыт по дороге: глобальный «Сброс» теп�
 - STRUCHORD.html: sha256 `41f29be0e1f4e9897aa794f7576db04b7edec2d42d57ebc1df4a6358ecdc7987`, 1 558 354 байта.
 - sw.js: `struchord-v49`, sha256 `f8a585a1de2c65f3afa0e7f7e6c691c3e0af422a363241b2e1baea1ae401905b`.
 - Последний push: `982d247` (`Clear rhythm storage on reset`) поверх B-25-коммитов до `3d5a2a7`.
+
+## B-15: подсказка ритма при ресайзе — принятая анимация (2026-08-30)
+
+B-15 сдан после стабилизации рендера в B-25. Поведение:
+
+- при начале resize кастомный ритм поударно переплывает из компактного mini-preview в ряд над счётом;
+- наследуемый ритм не спорит с кастомом: появляется fade-in после приплывания кастомных ударов;
+- на отпускании порядок обратный: сначала fade-out наследуемых полос, затем reverse flight кастомных ударов;
+- если кастомный ритм к финалу снят/демотирован в наследование — он не улетает, а исчезает fade-out;
+- если ячейка стала кастомной в результате resize — она тоже получает reverse flight к своему mini-preview;
+- target mini-preview скрыт до handoff, поэтому финальный результат не виден заранее под ghost;
+- при зуме ghost клипуется по `.squares-viewport`, скрытые части ряда не вылезают наружу;
+- сброс зума по лупе анимирует ряды через FLIP `transform`, без `width`-transition и без стягивания из невидимой зоны.
+
+Проверки:
+
+- `node dev/tests/b15-resize-hint.js` — ok.
+- `node dev/tests/ui-test-zoom.js` — ok.
+- `node dev/tests/b25-incremental-render.js` — ok.
+- `node dev/tools/shot-b15-resize-hint.js` — Chromium-зонд enter/exit/final.
+- `bash dev/run-tests.sh` — 38 ok / 0 FAIL.
+
+Контрольный снимок:
+
+- STRUCHORD.html: sha256 `86b6064e1f7701420e99483272a7aa56bd415941ec72da309f1334c3beefd8b0`, 1 563 226 байт.
+- sw.js: `struchord-v55`, sha256 `86df1858a72c9d31c758e379d6c6898d5e33c8631e33c8fcae4a5c74ae95fc9f`.
+- Последний push перед сдачей: `f5df3f5` (`Animate zoom reset rows with FLIP`).
