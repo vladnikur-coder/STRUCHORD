@@ -29559,7 +29559,6 @@ function attachResizeHandlers() {
       const neighborWrapper = wrappers[ei + 1] || null;
       let liveGridActive = false;
       let resizeMetricOverlay = null;
-      let resizeMetricCountEls = [];
       let resizeBoundaryGrid = null;
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
@@ -29649,22 +29648,7 @@ function attachResizeHandlers() {
           resizeMetricOverlay.remove();
           resizeMetricOverlay = null;
         }
-        resizeMetricCountEls = [];
         resizeBoundaryGrid = null;
-      }
-
-      function resizeMetricNodeKey(cols) {
-        return String(Math.round((cols || 0) * 1e6));
-      }
-
-      function currentResizeEdgeKeys(nsp) {
-        const edgeKeys = new Set();
-        let leftCols = 0;
-        for (let i = 0; i < nsp.length; i++) {
-          edgeKeys.add(resizeMetricNodeKey(leftCols));
-          leftCols += Math.max(0, nsp[i] || 0);
-        }
-        return edgeKeys;
       }
 
       function updateResizeBoundaryCovers(nsp) {
@@ -29695,85 +29679,12 @@ function attachResizeHandlers() {
         overlay.appendChild(grid);
       }
 
-      function buildResizeMetricCountKeyGroups() {
-        const groups = [];
-        const subdiv = Math.round(1 / getResizeStep());
-        let leftCols = 0;
-        let epochTs = null;
-        let epochOwnOffset = 0;
-        let epochBeatsPerBar = getGridUnitsPerBar(parentTs);
-        let epochUnitScale = 1;
-
-        for (let i = 0; i < sq.events.length; i++) {
-          const ev = sq.events[i];
-          const evTsEff = (ev && ev.timeSig) || parentTs;
-          if (evTsEff !== epochTs) {
-            epochTs = evTsEff;
-            epochOwnOffset = 0;
-            epochBeatsPerBar = getGridUnitsPerBar(evTsEff);
-            epochUnitScale = parseTimeSig(evTsEff).denominator
-              / (parseTimeSig(parentTs).denominator || 1);
-          }
-
-          const spanBeats = getEventVisualSpanInParentUnits(ev, parentTs);
-          const effectiveSpan = Math.max(1e-6, sSp[i] || spanBeats || 1);
-          const C = Math.max(1, Math.round(effectiveSpan || spanBeats));
-          const div = Math.max(1, Math.round(subdiv || 1));
-          const step = 1 / div;
-          const unitScale = epochUnitScale || 1;
-          const ownOff = epochOwnOffset || 0;
-          const ownSpan = spanBeats * unitScale;
-          const colsPerBeatLocal = C / Math.max(1e-6, spanBeats || 1);
-          const keys = [];
-          const firstNode = Math.ceil((ownOff - 1e-6) / step) * step;
-
-          for (let node = firstNode; node < ownOff + ownSpan - 1e-6; node += step) {
-            const j = (node - ownOff) / unitScale;
-            if (j < -1e-6) continue;
-            const sub = Math.round((node - Math.floor(node + 1e-6)) * div) % div;
-            if (!countLabelFor(node, sub, div, epochBeatsPerBar)) continue;
-            keys.push(resizeMetricNodeKey(leftCols + j * colsPerBeatLocal));
-          }
-
-          groups[i] = keys;
-          leftCols += effectiveSpan;
-          epochOwnOffset += (ev && ev.span) || 1;
-        }
-
-        if (typeof window !== 'undefined') {
-          window.__b31ResizeMetricCountBuildCount = (window.__b31ResizeMetricCountBuildCount || 0) + 1;
-        }
-        return groups;
-      }
-
-      function annotateResizeMetricCountClone(countsEl, keys) {
-        if (!countsEl) return;
-        const counts = Array.from(countsEl.querySelectorAll('.chord-count'));
-        counts.forEach((count, idx) => {
-          count.dataset.resizeMetricKey = keys[idx] || '';
-          resizeMetricCountEls.push(count);
-        });
-      }
-
-      function updateResizeMetricCounts(nsp) {
-        if (!resizeMetricOverlay) return;
-        const edgeKeys = currentResizeEdgeKeys(nsp);
-        resizeMetricCountEls.forEach((count) => {
-          const isEdge = edgeKeys.has(count.dataset.resizeMetricKey || '');
-          count.classList.toggle('is-edge', isEdge);
-        });
-        if (typeof window !== 'undefined') {
-          window.__b31ResizeMetricEdgeUpdateCount = (window.__b31ResizeMetricEdgeUpdateCount || 0) + 1;
-        }
-      }
-
       function installResizeMetricOverlay() {
         removeResizeMetricOverlay();
         const overlay = document.createElement('div');
         overlay.className = 'resize-metric-overlay';
         overlay.setAttribute('aria-hidden', 'true');
         const biBox = bi.getBoundingClientRect();
-        const countKeyGroups = buildResizeMetricCountKeyGroups();
         const applyCellBox = (cell, box, cw) => {
           const leftPx = (box && Number.isFinite(box.left) ? box.left : 0)
             - (biBox && Number.isFinite(biBox.left) ? biBox.left : 0);
@@ -29803,11 +29714,7 @@ function attachResizeHandlers() {
           countCell.className = 'resize-metric-cell resize-count-cell chord-wrapper';
           applyCellBox(countCell, box, cw);
           const countsLayer = cw.querySelector('.chord-counts');
-          if (countsLayer) {
-            const countsClone = countsLayer.cloneNode(true);
-            annotateResizeMetricCountClone(countsClone, countKeyGroups[i] || []);
-            countCell.appendChild(countsClone);
-          }
+          if (countsLayer) countCell.appendChild(countsLayer.cloneNode(true));
           overlay.appendChild(countCell);
         });
         appendResizeBoundaryGrid(overlay);
@@ -29904,15 +29811,12 @@ function attachResizeHandlers() {
         if (rhythmHintSession) {
           layoutRhythmHints(rhythmHintSession, { totalCols: tc, spans: nsp });
         }
-        // Засечки остаются frozen. Поверх них, но под счётом, двигаем
-        // тонкие covers текущих границ ячеек: когда граница проходит по
-        // засечке, она аккуратно перекрывает её вместо визуального
-        // конфликта двух сеток.
+        // Засечки и счёт во время drag — снимок стартового вида:
+        // они не пересчитываются и не меняют горизонтальные позиции до
+        // отпускания. Поверх frozen-засечек, но под счётом, двигаем
+        // covers текущих границ ячеек — так граница аккуратно перекрывает
+        // засечку, над которой проходит.
         updateResizeBoundaryCovers(nsp);
-        // Edge-отступ подписей следует текущей snapped-границе: старая
-        // «краевая» цифра перестаёт быть краевой, новая получает тот же
-        // отступ вправо, что и в обычном DOM после отпускания.
-        updateResizeMetricCounts(nsp);
         window.__b31ResizePreviewFrameCount = (window.__b31ResizePreviewFrameCount || 0) + 1;
         return true;
       }

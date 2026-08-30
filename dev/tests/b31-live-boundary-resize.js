@@ -4,7 +4,7 @@
 // существующий resize остаётся дискретным и привязанным к шагам сетки,
 // но переходы между snapped-состояниями не должны быть резкими скачками.
 // Pointermove не мутирует модель, не делает reslice/settle и не
-// пересобирает основной square-inner; модель фиксируется один раз на pointerup.
+// пересобирает основной square-inner; счёт/засечки во время drag остаются снимком стартового вида; модель фиксируется один раз на pointerup.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const file = process.argv[2] || __dirname + '/../../STRUCHORD.html';
@@ -65,8 +65,6 @@ function scene() {
     render();
     window.__b31ResizePreviewFrameCount = 0;
     window.__b31ResizeModelCommitCount = 0;
-    window.__b31ResizeMetricCountBuildCount = 0;
-    window.__b31ResizeMetricEdgeUpdateCount = 0;
     window.__b31RequestRenderCount = 0;
     if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
     requestRender = function () {
@@ -120,13 +118,9 @@ w.addEventListener('load', async () => {
       && getComputedStyle(document.querySelector('.resize-boundary-grid')).zIndex === '2'
       && getComputedStyle(document.querySelector('.resize-count-cell')).zIndex === '3'`),
     'no boundary cover layer');
-  ok('edge-отступ счёта перенесён на новую snapped-границу до отпускания',
-    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
+  ok('счёт во время drag остаётся снимком стартового вида',
+    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|3',
     evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`));
-  ok('счёт не пересобирается на каждый snap, а только переключает edge-классы',
-    evl('return window.__b31ResizeMetricCountBuildCount') === 1
-      && evl('return window.__b31ResizeMetricEdgeUpdateCount') >= 1,
-    evl('return "builds=" + window.__b31ResizeMetricCountBuildCount + " edgeUpdates=" + window.__b31ResizeMetricEdgeUpdateCount'));
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,
     'wrapper node changed');
