@@ -3804,11 +3804,14 @@ body.is-zooming .squares-list {
     linear-gradient(180deg, rgba(var(--color-accent-rgb), 0.10), rgba(var(--color-accent-rgb), 0.035)),
     var(--color-surface);
 }
-/* Подписи счёта не должны «резиниться» вместе с ячейками. На время
-   snapped-анимации прячем штатные подписи внутри ячеек и показываем
-   замороженный метрический слой поверх квадрата: 1/та/и/та остаются на
-   своих узлах, пока граница мягко переезжает к следующему шагу. */
-.square-inner.is-live-resizing .chord-counts {
+/* Засечки и счёт не должны «резиниться» вместе с ячейками. На время
+   snapped-анимации прячем штатные метрические слои только в реальных
+   ячейках и показываем их замороженные клоны поверх квадрата. Клоны
+   сохраняют исходную разметку .chord-ticks/.chord-counts, поэтому
+   выглядят как до B-31, но остаются прибитыми к стартовым узлам. */
+.square-inner.is-live-resizing > .chord-wrapper > .chord-ticks,
+.square-inner.is-live-resizing > .chord-wrapper > .chord-ticks-step,
+.square-inner.is-live-resizing > .chord-wrapper > .chord-counts {
   opacity: 0;
 }
 .resize-metric-overlay {
@@ -3818,24 +3821,20 @@ body.is-zooming .squares-list {
   z-index: 5;
   contain: layout style paint;
 }
-.resize-metric-overlay .chord-count {
+.resize-metric-overlay .resize-metric-cell.chord-wrapper {
   position: absolute;
-  bottom: 4px;
-  transform: none;
-  margin-left: 0;
-  font-size: 9px;
-  font-weight: 700;
-  line-height: 1;
-  color: var(--color-text-tertiary);
-  white-space: nowrap;
+  min-height: 0;
+  height: 72px;
+  display: block;
+  background: transparent;
+  background-image: none;
+  cursor: default;
+  transition: none;
 }
-.resize-metric-overlay .chord-count.is-beat {
-  color: var(--color-text-secondary);
-  font-size: 10px;
-  font-weight: 800;
-}
-.resize-metric-overlay .chord-count.is-downbeat {
-  font-size: 12px;
+.resize-metric-overlay .chord-ticks,
+.resize-metric-overlay .chord-ticks-step,
+.resize-metric-overlay .chord-counts {
+  opacity: 1;
 }
 /* История слоёв у нижней кромки: B-04 (2026-08-25) убрала засечки,
    перенеся роль на подписи счёта; B-21 подняла подписи на 3px
@@ -29627,22 +29626,29 @@ function attachResizeHandlers() {
         overlay.className = 'resize-metric-overlay';
         overlay.setAttribute('aria-hidden', 'true');
         const biBox = bi.getBoundingClientRect();
-        const counts = Array.from(bi.querySelectorAll('.chord-count'));
-        counts.forEach((src) => {
-          const box = src.getBoundingClientRect();
-          const clone = document.createElement('span');
-          clone.className = src.className;
-          clone.textContent = src.textContent;
-          // Фиксируем именно ВИЗУАЛЬНОЕ место подписи. Поэтому клону не
-          // нужен translateX(-50%): left — это уже левый край текста после
-          // всех transforms/margins исходного элемента. В реальном браузере
-          // берём rect; в jsdom rect нулевой — там важен сам факт слоя.
+        wrappers.forEach((cw) => {
+          const box = cw.getBoundingClientRect();
+          const cell = document.createElement('div');
+          cell.className = 'resize-metric-cell chord-wrapper';
           const leftPx = (box && Number.isFinite(box.left) ? box.left : 0)
             - (biBox && Number.isFinite(biBox.left) ? biBox.left : 0);
-          clone.style.left = Math.max(0, leftPx).toFixed(3) + 'px';
-          clone.style.transform = 'none';
-          clone.style.marginLeft = '0';
-          overlay.appendChild(clone);
+          const topPx = (box && Number.isFinite(box.top) ? box.top : 0)
+            - (biBox && Number.isFinite(biBox.top) ? biBox.top : 0);
+          const widthPx = box && box.width ? box.width : cw.offsetWidth;
+          const heightPx = box && box.height ? box.height : cw.offsetHeight;
+          cell.style.left = Math.max(0, leftPx).toFixed(3) + 'px';
+          cell.style.top = Math.max(0, topPx).toFixed(3) + 'px';
+          if (widthPx) cell.style.width = Math.max(0, widthPx).toFixed(3) + 'px';
+          if (heightPx) cell.style.height = Math.max(0, heightPx).toFixed(3) + 'px';
+          // Клонируем целые метрические слои, а не отдельные цифры: так
+          // сохраняются все старые CSS-правила, inline-градиенты засечек,
+          // edge-отступы и выделение «1». Во время анимации двигается
+          // только геометрия ячеек; счёт и засечки остаются как раньше.
+          ['.chord-ticks', '.chord-ticks-step', '.chord-counts'].forEach((sel) => {
+            const layer = cw.querySelector(sel);
+            if (layer) cell.appendChild(layer.cloneNode(true));
+          });
+          overlay.appendChild(cell);
         });
         bi.appendChild(overlay);
         resizeMetricOverlay = overlay;

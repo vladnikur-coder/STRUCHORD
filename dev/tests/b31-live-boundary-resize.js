@@ -110,6 +110,9 @@ w.addEventListener('load', async () => {
   ok('счёт вынесен в frozen overlay, чтобы 1/та/и/та не резинились',
     evl(`return !!document.querySelector('.resize-metric-overlay .chord-count')`),
     'no metric overlay');
+  ok('засечки тоже вынесены в frozen overlay и не едут вместе с ячейкой',
+    evl(`return !!document.querySelector('.resize-metric-overlay .chord-ticks') && !!document.querySelector('.resize-metric-overlay .chord-ticks-step')`),
+    'no frozen ticks');
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,
     'wrapper node changed');
