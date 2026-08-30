@@ -115,6 +115,11 @@ w.addEventListener('load', async () => {
   ok('засечки тоже вынесены в frozen overlay и не едут вместе с ячейкой',
     evl(`return !!document.querySelector('.resize-metric-overlay .chord-ticks') && !!document.querySelector('.resize-metric-overlay .chord-ticks-step')`),
     'no frozen ticks');
+  ok('движущаяся граница перекрывает frozen-засечки, но не счёт',
+    evl(`return !!document.querySelector('.resize-boundary-cover')
+      && getComputedStyle(document.querySelector('.resize-boundary-plane')).zIndex === '2'
+      && getComputedStyle(document.querySelector('.resize-count-plane')).zIndex === '3'`),
+    'no boundary cover layer');
   ok('edge-отступ счёта перенесён на новую snapped-границу до отпускания',
     evl(`return Array.from(document.querySelectorAll('.resize-count-plane .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
     evl(`return Array.from(document.querySelectorAll('.resize-count-plane .chord-count.is-edge')).map(n => n.textContent).join('|')`));

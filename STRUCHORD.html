@@ -3822,6 +3822,7 @@ body.is-zooming .squares-list {
   contain: layout style paint;
 }
 .resize-metric-overlay .resize-metric-cell.chord-wrapper,
+.resize-metric-overlay .resize-boundary-plane,
 .resize-metric-overlay .resize-count-plane.chord-wrapper {
   position: absolute;
   min-height: 0;
@@ -3832,8 +3833,27 @@ body.is-zooming .squares-list {
   cursor: default;
   transition: none;
 }
+.resize-metric-overlay .resize-tick-cell {
+  z-index: 1;
+}
+.resize-metric-overlay .resize-boundary-plane {
+  inset: 0;
+  z-index: 2;
+}
+.resize-metric-overlay .resize-boundary-cover {
+  position: absolute;
+  bottom: 0;
+  width: 2px;
+  height: 20px;
+  border-radius: 1px;
+  background: var(--color-warm-border);
+  transform: translateX(0);
+  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
+  will-change: transform;
+}
 .resize-metric-overlay .resize-count-plane.chord-wrapper {
   inset: 0;
+  z-index: 3;
 }
 .resize-metric-overlay .chord-ticks,
 .resize-metric-overlay .chord-ticks-step,
@@ -29535,6 +29555,7 @@ function attachResizeHandlers() {
       let liveGridActive = false;
       let resizeMetricOverlay = null;
       let resizeMetricCountEls = [];
+      let resizeBoundaryEls = [];
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
@@ -29624,6 +29645,7 @@ function attachResizeHandlers() {
           resizeMetricOverlay = null;
         }
         resizeMetricCountEls = [];
+        resizeBoundaryEls = [];
       }
 
       function resizeMetricNodeKey(cols) {
@@ -29646,6 +29668,47 @@ function attachResizeHandlers() {
           leftCols += Math.max(0, nsp[i] || 0);
         }
         return edgeKeys;
+      }
+
+      function liveResizeBoundaryPositions(nsp) {
+        const gap = typeof SQUARE_GRID_GAP === 'number' ? SQUARE_GRID_GAP : 2;
+        const width = Math.max(1, tw || bi.getBoundingClientRect().width || bi.offsetWidth || 1);
+        const total = Math.max(1e-6, nsp.reduce((sum, v) => sum + Math.max(0, v || 0), 0));
+        const available = Math.max(1, width - Math.max(0, nsp.length - 1) * gap);
+        const positions = [];
+        let x = 0;
+        for (let i = 0; i < nsp.length - 1; i++) {
+          x += available * Math.max(0, nsp[i] || 0) / total;
+          positions.push(x);
+          x += gap;
+        }
+        return positions;
+      }
+
+      function updateResizeBoundaryCovers(nsp) {
+        const gap = typeof SQUARE_GRID_GAP === 'number' ? SQUARE_GRID_GAP : 2;
+        const positions = liveResizeBoundaryPositions(nsp);
+        positions.forEach((x, i) => {
+          const el = resizeBoundaryEls[i];
+          if (!el) return;
+          el.style.width = Math.max(1, gap).toFixed(3) + 'px';
+          el.style.transform = `translateX(${Math.max(0, x).toFixed(3)}px)`;
+        });
+      }
+
+      function appendResizeBoundaryPlane(overlay) {
+        const plane = document.createElement('div');
+        plane.className = 'resize-boundary-plane';
+        plane.setAttribute('aria-hidden', 'true');
+        resizeBoundaryEls = [];
+        for (let i = 0; i < Math.max(0, ec - 1); i++) {
+          const cover = document.createElement('div');
+          cover.className = 'resize-boundary-cover';
+          plane.appendChild(cover);
+          resizeBoundaryEls.push(cover);
+        }
+        overlay.appendChild(plane);
+        updateResizeBoundaryCovers(sSp);
       }
 
       function appendResizeMetricCountPlane(overlay) {
@@ -29754,6 +29817,7 @@ function attachResizeHandlers() {
           });
           overlay.appendChild(cell);
         });
+        appendResizeBoundaryPlane(overlay);
         appendResizeMetricCountPlane(overlay);
         bi.appendChild(overlay);
         resizeMetricOverlay = overlay;
@@ -29848,10 +29912,14 @@ function attachResizeHandlers() {
         if (rhythmHintSession) {
           layoutRhythmHints(rhythmHintSession, { totalCols: tc, spans: nsp });
         }
-        // Сами засечки остаются frozen, но edge-отступ подписей должен
-        // следовать текущей snapped-границе: старая «краевая» цифра
-        // перестаёт быть краевой, новая получает тот же отступ вправо,
-        // что и в обычном DOM после отпускания.
+        // Засечки остаются frozen. Поверх них, но под счётом, двигаем
+        // тонкие covers текущих границ ячеек: когда граница проходит по
+        // засечке, она аккуратно перекрывает её вместо визуального
+        // конфликта двух сеток.
+        updateResizeBoundaryCovers(nsp);
+        // Edge-отступ подписей следует текущей snapped-границе: старая
+        // «краевая» цифра перестаёт быть краевой, новая получает тот же
+        // отступ вправо, что и в обычном DOM после отпускания.
         updateResizeMetricCounts(nsp);
         window.__b31ResizePreviewFrameCount = (window.__b31ResizePreviewFrameCount || 0) + 1;
         return true;
