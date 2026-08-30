@@ -3822,7 +3822,6 @@ body.is-zooming .squares-list {
   contain: layout style paint;
 }
 .resize-metric-overlay .resize-metric-cell.chord-wrapper,
-.resize-metric-overlay .resize-boundary-plane,
 .resize-metric-overlay .resize-count-plane.chord-wrapper {
   position: absolute;
   min-height: 0;
@@ -3836,20 +3835,28 @@ body.is-zooming .squares-list {
 .resize-metric-overlay .resize-tick-cell {
   z-index: 1;
 }
-.resize-metric-overlay .resize-boundary-plane {
+.resize-metric-overlay .resize-boundary-grid {
+  position: absolute;
   inset: 0;
   z-index: 2;
+  display: grid;
+  grid-auto-rows: 72px;
+  gap: 2px;
+  pointer-events: none;
+  transition: grid-template-columns 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
+}
+.resize-metric-overlay .resize-boundary-slot {
+  position: relative;
+  min-width: 0;
+  overflow: visible;
 }
 .resize-metric-overlay .resize-boundary-cover {
   position: absolute;
+  top: 0;
   bottom: 0;
+  left: 100%;
   width: 2px;
-  height: 20px;
-  border-radius: 1px;
   background: var(--color-warm-border);
-  transform: translateX(0);
-  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
-  will-change: transform;
 }
 .resize-metric-overlay .resize-count-plane.chord-wrapper {
   inset: 0;
@@ -29555,7 +29562,7 @@ function attachResizeHandlers() {
       let liveGridActive = false;
       let resizeMetricOverlay = null;
       let resizeMetricCountEls = [];
-      let resizeBoundaryEls = [];
+      let resizeBoundaryGrid = null;
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
@@ -29645,7 +29652,7 @@ function attachResizeHandlers() {
           resizeMetricOverlay = null;
         }
         resizeMetricCountEls = [];
-        resizeBoundaryEls = [];
+        resizeBoundaryGrid = null;
       }
 
       function resizeMetricNodeKey(cols) {
@@ -29670,45 +29677,32 @@ function attachResizeHandlers() {
         return edgeKeys;
       }
 
-      function liveResizeBoundaryPositions(nsp) {
-        const gap = typeof SQUARE_GRID_GAP === 'number' ? SQUARE_GRID_GAP : 2;
-        const width = Math.max(1, tw || bi.getBoundingClientRect().width || bi.offsetWidth || 1);
-        const total = Math.max(1e-6, nsp.reduce((sum, v) => sum + Math.max(0, v || 0), 0));
-        const available = Math.max(1, width - Math.max(0, nsp.length - 1) * gap);
-        const positions = [];
-        let x = 0;
-        for (let i = 0; i < nsp.length - 1; i++) {
-          x += available * Math.max(0, nsp[i] || 0) / total;
-          positions.push(x);
-          x += gap;
-        }
-        return positions;
-      }
-
       function updateResizeBoundaryCovers(nsp) {
-        const gap = typeof SQUARE_GRID_GAP === 'number' ? SQUARE_GRID_GAP : 2;
-        const positions = liveResizeBoundaryPositions(nsp);
-        positions.forEach((x, i) => {
-          const el = resizeBoundaryEls[i];
-          if (!el) return;
-          el.style.width = Math.max(1, gap).toFixed(3) + 'px';
-          el.style.transform = `translateX(${Math.max(0, x).toFixed(3)}px)`;
-        });
+        if (!resizeBoundaryGrid) return;
+        // Границы в метрическом overlay раскладывает сам CSS Grid с тем
+        // же template/gap/transition, что и основной квадрат. Так они
+        // пиксельно совпадают с настоящими границами ячеек и аккуратно
+        // перекрывают frozen-засечки, без ручной геометрии и без лагов от
+        // transform-полосок, которые расходились с grid-gap.
+        resizeBoundaryGrid.style.gridTemplateColumns = liveGridTemplate(nsp);
       }
 
-      function appendResizeBoundaryPlane(overlay) {
-        const plane = document.createElement('div');
-        plane.className = 'resize-boundary-plane';
-        plane.setAttribute('aria-hidden', 'true');
-        resizeBoundaryEls = [];
+      function appendResizeBoundaryGrid(overlay) {
+        const grid = document.createElement('div');
+        grid.className = 'resize-boundary-grid';
+        grid.setAttribute('aria-hidden', 'true');
+        grid.style.gridTemplateColumns = liveGridTemplate(sSp);
+        resizeBoundaryGrid = grid;
         for (let i = 0; i < Math.max(0, ec - 1); i++) {
+          const slot = document.createElement('div');
+          slot.className = 'resize-boundary-slot';
+          slot.style.gridColumn = `${i + 1} / span 1`;
           const cover = document.createElement('div');
           cover.className = 'resize-boundary-cover';
-          plane.appendChild(cover);
-          resizeBoundaryEls.push(cover);
+          slot.appendChild(cover);
+          grid.appendChild(slot);
         }
-        overlay.appendChild(plane);
-        updateResizeBoundaryCovers(sSp);
+        overlay.appendChild(grid);
       }
 
       function appendResizeMetricCountPlane(overlay) {
@@ -29817,7 +29811,7 @@ function attachResizeHandlers() {
           });
           overlay.appendChild(cell);
         });
-        appendResizeBoundaryPlane(overlay);
+        appendResizeBoundaryGrid(overlay);
         appendResizeMetricCountPlane(overlay);
         bi.appendChild(overlay);
         resizeMetricOverlay = overlay;

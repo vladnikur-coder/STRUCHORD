@@ -117,7 +117,7 @@ w.addEventListener('load', async () => {
     'no frozen ticks');
   ok('движущаяся граница перекрывает frozen-засечки, но не счёт',
     evl(`return !!document.querySelector('.resize-boundary-cover')
-      && getComputedStyle(document.querySelector('.resize-boundary-plane')).zIndex === '2'
+      && getComputedStyle(document.querySelector('.resize-boundary-grid')).zIndex === '2'
       && getComputedStyle(document.querySelector('.resize-count-plane')).zIndex === '3'`),
     'no boundary cover layer');
   ok('edge-отступ счёта перенесён на новую snapped-границу до отпускания',
