@@ -3578,19 +3578,21 @@ body {
 .section-badge--zoom:hover {
   background: rgba(var(--color-accent-rgb), 0.24);
 }
-/* Сброс масштаба по лупе не анимирует width рядов (это лагало и
-   стягивало секции из невидимой зоны). Вместо этого после мгновенного
-   layout-сброса даём самим рядам короткий compositor-only settle:
-   transform + opacity, без пересчёта ширины на каждом кадре. */
-.squares-list.zoom-reset-settle {
-  transform-origin: left center;
-  will-change: transform, opacity;
-  animation: zoom-reset-row-settle 0.26s cubic-bezier(0.2, 0.7, 0.2, 1);
+/* Сброс масштаба по лупе анимирует сами ряды, но НЕ через width.
+   FLIP-подход: до сброса запоминаем фактическую геометрию списка, затем
+   мгновенно ставим финальный layout 100% и инвертируем его transform'ом
+   в старое положение. Дальше compositor-only transition возвращает
+   transform к нулю. Viewport временно клипует ряд, чтобы из прокрученной
+   невидимой области ничего не «стягивалось» наружу. */
+.squares-viewport.zoom-reset-clip {
+  overflow: hidden !important;
 }
-@keyframes zoom-reset-row-settle {
-  0% { opacity: 0.88; transform: translateX(-10px) scaleX(0.985); }
-  62% { opacity: 1; transform: translateX(1px) scaleX(1.004); }
-  100% { opacity: 1; transform: translateX(0) scaleX(1); }
+.squares-list.zoom-reset-flip {
+  transform-origin: left center;
+  will-change: transform;
+}
+.squares-list.zoom-reset-flip.is-animating {
+  transition: transform 0.32s cubic-bezier(0.2, 0.7, 0.2, 1);
 }
 .zoom-badge-step {
   font-size: 10px;
@@ -9286,22 +9288,52 @@ function getResizeStepLabel() {
 // Клик возвращает 100%. Создаётся и из render(), и из updateZoomChrome():
 // вызывать полный ре-рендер ради появления бейджа посреди жеста — рывок.
 let zoomResetSettleTimer = 0;
-function animateZoomResetRows() {
-  const lists = Array.from(document.querySelectorAll('.squares-list'));
-  if (!lists.length) return;
-  lists.forEach((el) => el.classList.remove('zoom-reset-settle'));
-  // Один style flush на клик: перезапускает animation без width-transition.
-  // Это не горячий путь жеста, зато повторные клики дают тот же отклик.
-  void document.body.offsetWidth;
-  lists.forEach((el) => {
-    if (el.isConnected) el.classList.add('zoom-reset-settle');
-  });
+function captureZoomResetRows() {
+  return Array.from(document.querySelectorAll('.squares-viewport'))
+    .map((vp) => {
+      const list = vp.querySelector('.squares-list');
+      if (!list) return null;
+      const rect = list.getBoundingClientRect();
+      return { vp, list, rect };
+    })
+    .filter(Boolean);
+}
+function animateZoomResetRows(states) {
+  const rows = (states || []).filter((item) => item.list && item.list.isConnected);
+  if (!rows.length) return;
   if (zoomResetSettleTimer) clearTimeout(zoomResetSettleTimer);
+  rows.forEach(({ vp, list }) => {
+    vp.classList.add('zoom-reset-clip');
+    list.classList.remove('zoom-reset-flip', 'is-animating');
+    list.style.transition = '';
+    list.style.transform = '';
+  });
+  rows.forEach(({ list, rect }) => {
+    const now = list.getBoundingClientRect();
+    const scaleX = now.width > 0 ? rect.width / now.width : 1;
+    const dx = rect.left - now.left;
+    list.classList.add('zoom-reset-flip');
+    list.style.transform = `translateX(${dx}px) scaleX(${scaleX})`;
+  });
+  // Стартовая FLIP-поза должна попасть в отдельный кадр/flush, иначе
+  // браузер схлопнет её с transform:none и анимация превратится в скачок.
+  void document.body.offsetWidth;
+  requestAnimationFrame(() => {
+    rows.forEach(({ list }) => {
+      if (!list.isConnected) return;
+      list.classList.add('is-animating');
+      list.style.transform = 'translateX(0) scaleX(1)';
+    });
+  });
   zoomResetSettleTimer = setTimeout(() => {
     zoomResetSettleTimer = 0;
-    document.querySelectorAll('.squares-list.zoom-reset-settle')
-      .forEach((el) => el.classList.remove('zoom-reset-settle'));
-  }, 320);
+    rows.forEach(({ vp, list }) => {
+      vp.classList.remove('zoom-reset-clip');
+      list.classList.remove('zoom-reset-flip', 'is-animating');
+      list.style.transition = '';
+      list.style.transform = '';
+    });
+  }, 380);
 }
 
 function makeZoomBadge() {
@@ -9623,10 +9655,10 @@ function restoreZoomAfterPlayback() {
 }
 
 function resetSquareZoom() {
-  // Клик по бейджу-лупе — не художественная анимация, а возврат к рабочему
-  // масштабу. Анимировать width .squares-list нельзя: при большом зуме
-  // ряды визуально «стягиваются» из невидимой прокрученной зоны и дают
-  // тяжёлые кадры. Сбрасываем мгновенно и возвращаем скролл в начало.
+  // Клик по бейджу-лупе возвращает рабочий масштаб. Width рядов не
+  // анимируем: сначала мгновенно ставим финальный layout и scroll=0,
+  // затем FLIP-анимацией transform'а показываем путь рядов к нему.
+  const flipRows = captureZoomResetRows();
   setZoomAnimated(false);
   document.querySelectorAll('.squares-viewport').forEach((vp) => {
     if (vp.scrollLeft) {
@@ -9635,7 +9667,7 @@ function resetSquareZoom() {
     }
   });
   setSquareZoom(1);
-  animateZoomResetRows();
+  animateZoomResetRows(flipRows);
 }
 
 // Жест масштабирования над рядом квадратов.
