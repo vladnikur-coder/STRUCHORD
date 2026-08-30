@@ -4,7 +4,7 @@
 // существующий resize остаётся дискретным и привязанным к шагам сетки,
 // но переходы между snapped-состояниями не должны быть резкими скачками.
 // Pointermove не мутирует модель, не делает reslice/settle и не
-// пересобирает innerHTML; модель фиксируется один раз на pointerup.
+// пересобирает основной square-inner; модель фиксируется один раз на pointerup.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const file = process.argv[2] || __dirname + '/../../STRUCHORD.html';
@@ -113,6 +113,9 @@ w.addEventListener('load', async () => {
   ok('засечки тоже вынесены в frozen overlay и не едут вместе с ячейкой',
     evl(`return !!document.querySelector('.resize-metric-overlay .chord-ticks') && !!document.querySelector('.resize-metric-overlay .chord-ticks-step')`),
     'no frozen ticks');
+  ok('edge-отступ счёта перенесён на новую snapped-границу до отпускания',
+    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
+    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`));
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,
     'wrapper node changed');

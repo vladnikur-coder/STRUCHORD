@@ -29620,6 +29620,64 @@ function attachResizeHandlers() {
         }
       }
 
+      function setResizeMetricCellBox(cell, leftCols, spanCols, totalCols) {
+        const gap = typeof SQUARE_GRID_GAP === 'number' ? SQUARE_GRID_GAP : 2;
+        const cols = Math.max(1e-6, totalCols || tc || 1);
+        const width = Math.max(1, tw || bi.getBoundingClientRect().width || bi.offsetWidth || 1);
+        const colW = (width - Math.max(0, cols - 1) * gap) / cols;
+        const stepW = colW + gap;
+        const leftPx = leftCols * stepW;
+        const spanPx = spanCols * colW + Math.max(0, spanCols - 1) * gap;
+        cell.style.left = Math.max(0, leftPx).toFixed(3) + 'px';
+        cell.style.top = '0px';
+        cell.style.width = Math.max(0, spanPx).toFixed(3) + 'px';
+        cell.style.height = '72px';
+      }
+
+      function updateResizeMetricCounts(nsp) {
+        if (!resizeMetricOverlay) return;
+        resizeMetricOverlay.querySelectorAll('.resize-count-cell').forEach((el) => el.remove());
+        const nextEvents = buildEventsForVisualSpans(nsp);
+        const liveDist = distributeVisualSpans(nextEvents, parentTs);
+        const totalCols = Math.max(1, liveDist.totalCols || tc);
+        const subdiv = Math.round(1 / getResizeStep());
+        let leftCols = 0;
+        let epochTs = null;
+        let epochOwnOffset = 0;
+        let epochBeatsPerBar = getGridUnitsPerBar(parentTs);
+        let epochUnitScale = 1;
+        for (let i = 0; i < nextEvents.length; i++) {
+          const ev = nextEvents[i];
+          const effectiveSpan = Math.max(1, liveDist.spans[i] || 1);
+          const evTsEff = (ev && ev.timeSig) || parentTs;
+          if (evTsEff !== epochTs) {
+            epochTs = evTsEff;
+            epochOwnOffset = 0;
+            epochBeatsPerBar = getGridUnitsPerBar(evTsEff);
+            epochUnitScale = parseTimeSig(evTsEff).denominator
+              / (parseTimeSig(parentTs).denominator || 1);
+          }
+          const cell = document.createElement('div');
+          cell.className = 'resize-metric-cell resize-count-cell chord-wrapper';
+          setResizeMetricCellBox(cell, leftCols, effectiveSpan, totalCols);
+          const countsEl = document.createElement('div');
+          countsEl.className = 'chord-counts';
+          countsEl.setAttribute('aria-hidden', 'true');
+          countsEl.innerHTML = buildInnerCounts(
+            getEventVisualSpanInParentUnits(ev, parentTs),
+            epochOwnOffset,
+            subdiv,
+            effectiveSpan,
+            epochBeatsPerBar,
+            { ownOffset: epochOwnOffset, unitScale: epochUnitScale }
+          );
+          cell.appendChild(countsEl);
+          resizeMetricOverlay.appendChild(cell);
+          leftCols += effectiveSpan;
+          epochOwnOffset += (ev && ev.span) || 1;
+        }
+      }
+
       function installResizeMetricOverlay() {
         removeResizeMetricOverlay();
         const overlay = document.createElement('div');
@@ -29629,7 +29687,7 @@ function attachResizeHandlers() {
         wrappers.forEach((cw) => {
           const box = cw.getBoundingClientRect();
           const cell = document.createElement('div');
-          cell.className = 'resize-metric-cell chord-wrapper';
+          cell.className = 'resize-metric-cell resize-tick-cell chord-wrapper';
           const leftPx = (box && Number.isFinite(box.left) ? box.left : 0)
             - (biBox && Number.isFinite(biBox.left) ? biBox.left : 0);
           const topPx = (box && Number.isFinite(box.top) ? box.top : 0)
@@ -29640,11 +29698,9 @@ function attachResizeHandlers() {
           cell.style.top = Math.max(0, topPx).toFixed(3) + 'px';
           if (widthPx) cell.style.width = Math.max(0, widthPx).toFixed(3) + 'px';
           if (heightPx) cell.style.height = Math.max(0, heightPx).toFixed(3) + 'px';
-          // Клонируем целые метрические слои, а не отдельные цифры: так
-          // сохраняются все старые CSS-правила, inline-градиенты засечек,
-          // edge-отступы и выделение «1». Во время анимации двигается
-          // только геометрия ячеек; счёт и засечки остаются как раньше.
-          ['.chord-ticks', '.chord-ticks-step', '.chord-counts'].forEach((sel) => {
+          // Засечки — чистая метрическая сетка. Их фиксируем как снимок
+          // стартового вида: они вообще не двигаются во время drag.
+          ['.chord-ticks', '.chord-ticks-step'].forEach((sel) => {
             const layer = cw.querySelector(sel);
             if (layer) cell.appendChild(layer.cloneNode(true));
           });
@@ -29652,6 +29708,7 @@ function attachResizeHandlers() {
         });
         bi.appendChild(overlay);
         resizeMetricOverlay = overlay;
+        updateResizeMetricCounts(sSp);
       }
 
       function ensureLiveGrid() {
@@ -29743,6 +29800,11 @@ function attachResizeHandlers() {
         if (rhythmHintSession) {
           layoutRhythmHints(rhythmHintSession, { totalCols: tc, spans: nsp });
         }
+        // Сами засечки остаются frozen, но edge-отступ подписей должен
+        // следовать текущей snapped-границе: старая «краевая» цифра
+        // перестаёт быть краевой, новая получает тот же отступ вправо,
+        // что и в обычном DOM после отпускания.
+        updateResizeMetricCounts(nsp);
         window.__b31ResizePreviewFrameCount = (window.__b31ResizePreviewFrameCount || 0) + 1;
         return true;
       }
