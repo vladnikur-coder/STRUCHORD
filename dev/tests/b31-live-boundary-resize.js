@@ -65,6 +65,8 @@ function scene() {
     render();
     window.__b31ResizePreviewFrameCount = 0;
     window.__b31ResizeModelCommitCount = 0;
+    window.__b31ResizeMetricCountBuildCount = 0;
+    window.__b31ResizeMetricEdgeUpdateCount = 0;
     window.__b31RequestRenderCount = 0;
     if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
     requestRender = function () {
@@ -114,8 +116,12 @@ w.addEventListener('load', async () => {
     evl(`return !!document.querySelector('.resize-metric-overlay .chord-ticks') && !!document.querySelector('.resize-metric-overlay .chord-ticks-step')`),
     'no frozen ticks');
   ok('edge-отступ счёта перенесён на новую snapped-границу до отпускания',
-    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
-    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`));
+    evl(`return Array.from(document.querySelectorAll('.resize-count-plane .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
+    evl(`return Array.from(document.querySelectorAll('.resize-count-plane .chord-count.is-edge')).map(n => n.textContent).join('|')`));
+  ok('счёт не пересобирается на каждый snap, а только переключает edge-классы',
+    evl('return window.__b31ResizeMetricCountBuildCount') === 1
+      && evl('return window.__b31ResizeMetricEdgeUpdateCount') >= 1,
+    evl('return "builds=" + window.__b31ResizeMetricCountBuildCount + " edgeUpdates=" + window.__b31ResizeMetricEdgeUpdateCount'));
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,
     'wrapper node changed');

@@ -3821,7 +3821,8 @@ body.is-zooming .squares-list {
   z-index: 5;
   contain: layout style paint;
 }
-.resize-metric-overlay .resize-metric-cell.chord-wrapper {
+.resize-metric-overlay .resize-metric-cell.chord-wrapper,
+.resize-metric-overlay .resize-count-plane.chord-wrapper {
   position: absolute;
   min-height: 0;
   height: 72px;
@@ -3830,6 +3831,9 @@ body.is-zooming .squares-list {
   background-image: none;
   cursor: default;
   transition: none;
+}
+.resize-metric-overlay .resize-count-plane.chord-wrapper {
+  inset: 0;
 }
 .resize-metric-overlay .chord-ticks,
 .resize-metric-overlay .chord-ticks-step,
@@ -29530,6 +29534,7 @@ function attachResizeHandlers() {
       const neighborWrapper = wrappers[ei + 1] || null;
       let liveGridActive = false;
       let resizeMetricOverlay = null;
+      let resizeMetricCountEls = [];
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
@@ -29618,37 +29623,49 @@ function attachResizeHandlers() {
           resizeMetricOverlay.remove();
           resizeMetricOverlay = null;
         }
+        resizeMetricCountEls = [];
       }
 
-      function setResizeMetricCellBox(cell, leftCols, spanCols, totalCols) {
+      function resizeMetricNodeKey(cols) {
+        return String(Math.round((cols || 0) * 1e6));
+      }
+
+      function resizeMetricNodeLeftPx(cols, totalCols) {
         const gap = typeof SQUARE_GRID_GAP === 'number' ? SQUARE_GRID_GAP : 2;
-        const cols = Math.max(1e-6, totalCols || tc || 1);
+        const safeCols = Math.max(1e-6, totalCols || tc || 1);
         const width = Math.max(1, tw || bi.getBoundingClientRect().width || bi.offsetWidth || 1);
-        const colW = (width - Math.max(0, cols - 1) * gap) / cols;
-        const stepW = colW + gap;
-        const leftPx = leftCols * stepW;
-        const spanPx = spanCols * colW + Math.max(0, spanCols - 1) * gap;
-        cell.style.left = Math.max(0, leftPx).toFixed(3) + 'px';
-        cell.style.top = '0px';
-        cell.style.width = Math.max(0, spanPx).toFixed(3) + 'px';
-        cell.style.height = '72px';
+        const colW = (width - Math.max(0, safeCols - 1) * gap) / safeCols;
+        return cols * (colW + gap);
       }
 
-      function updateResizeMetricCounts(nsp) {
-        if (!resizeMetricOverlay) return;
-        resizeMetricOverlay.querySelectorAll('.resize-count-cell').forEach((el) => el.remove());
-        const nextEvents = buildEventsForVisualSpans(nsp);
-        const liveDist = distributeVisualSpans(nextEvents, parentTs);
-        const totalCols = Math.max(1, liveDist.totalCols || tc);
+      function currentResizeEdgeKeys(nsp) {
+        const edgeKeys = new Set();
+        let leftCols = 0;
+        for (let i = 0; i < nsp.length; i++) {
+          edgeKeys.add(resizeMetricNodeKey(leftCols));
+          leftCols += Math.max(0, nsp[i] || 0);
+        }
+        return edgeKeys;
+      }
+
+      function appendResizeMetricCountPlane(overlay) {
+        const countPlane = document.createElement('div');
+        countPlane.className = 'resize-count-plane chord-wrapper';
+        countPlane.setAttribute('aria-hidden', 'true');
+        const countsEl = document.createElement('div');
+        countsEl.className = 'chord-counts';
+        countsEl.setAttribute('aria-hidden', 'true');
+
         const subdiv = Math.round(1 / getResizeStep());
         let leftCols = 0;
         let epochTs = null;
         let epochOwnOffset = 0;
         let epochBeatsPerBar = getGridUnitsPerBar(parentTs);
         let epochUnitScale = 1;
-        for (let i = 0; i < nextEvents.length; i++) {
-          const ev = nextEvents[i];
-          const effectiveSpan = Math.max(1, liveDist.spans[i] || 1);
+        const initialEdgeKeys = currentResizeEdgeKeys(sSp);
+
+        for (let i = 0; i < sq.events.length; i++) {
+          const ev = sq.events[i];
           const evTsEff = (ev && ev.timeSig) || parentTs;
           if (evTsEff !== epochTs) {
             epochTs = evTsEff;
@@ -29657,24 +29674,55 @@ function attachResizeHandlers() {
             epochUnitScale = parseTimeSig(evTsEff).denominator
               / (parseTimeSig(parentTs).denominator || 1);
           }
-          const cell = document.createElement('div');
-          cell.className = 'resize-metric-cell resize-count-cell chord-wrapper';
-          setResizeMetricCellBox(cell, leftCols, effectiveSpan, totalCols);
-          const countsEl = document.createElement('div');
-          countsEl.className = 'chord-counts';
-          countsEl.setAttribute('aria-hidden', 'true');
-          countsEl.innerHTML = buildInnerCounts(
-            getEventVisualSpanInParentUnits(ev, parentTs),
-            epochOwnOffset,
-            subdiv,
-            effectiveSpan,
-            epochBeatsPerBar,
-            { ownOffset: epochOwnOffset, unitScale: epochUnitScale }
-          );
-          cell.appendChild(countsEl);
-          resizeMetricOverlay.appendChild(cell);
+
+          const spanBeats = getEventVisualSpanInParentUnits(ev, parentTs);
+          const effectiveSpan = Math.max(1e-6, sSp[i] || spanBeats || 1);
+          const C = Math.max(1, Math.round(effectiveSpan || spanBeats));
+          const div = Math.max(1, Math.round(subdiv || 1));
+          const step = 1 / div;
+          const unitScale = epochUnitScale || 1;
+          const ownOff = epochOwnOffset || 0;
+          const ownSpan = spanBeats * unitScale;
+          const colsPerBeatLocal = C / Math.max(1e-6, spanBeats || 1);
+          const firstNode = Math.ceil((ownOff - 1e-6) / step) * step;
+
+          for (let node = firstNode; node < ownOff + ownSpan - 1e-6; node += step) {
+            const j = (node - ownOff) / unitScale;
+            if (j < -1e-6) continue;
+            const sub = Math.round((node - Math.floor(node + 1e-6)) * div) % div;
+            const text = countLabelFor(node, sub, div, epochBeatsPerBar);
+            if (!text) continue;
+            const globalCols = leftCols + j * colsPerBeatLocal;
+            const key = resizeMetricNodeKey(globalCols);
+            const count = document.createElement('span');
+            count.className = `chord-count${sub === 0 ? ' is-beat' : ''}${text === '1' ? ' is-downbeat' : ''}${initialEdgeKeys.has(key) ? ' is-edge' : ''}`;
+            count.dataset.resizeMetricKey = key;
+            count.style.left = Math.max(0, resizeMetricNodeLeftPx(globalCols, tc)).toFixed(3) + 'px';
+            count.textContent = text;
+            countsEl.appendChild(count);
+            resizeMetricCountEls.push(count);
+          }
+
           leftCols += effectiveSpan;
           epochOwnOffset += (ev && ev.span) || 1;
+        }
+
+        countPlane.appendChild(countsEl);
+        overlay.appendChild(countPlane);
+        if (typeof window !== 'undefined') {
+          window.__b31ResizeMetricCountBuildCount = (window.__b31ResizeMetricCountBuildCount || 0) + 1;
+        }
+      }
+
+      function updateResizeMetricCounts(nsp) {
+        if (!resizeMetricOverlay) return;
+        const edgeKeys = currentResizeEdgeKeys(nsp);
+        resizeMetricCountEls.forEach((count) => {
+          const isEdge = edgeKeys.has(count.dataset.resizeMetricKey || '');
+          count.classList.toggle('is-edge', isEdge);
+        });
+        if (typeof window !== 'undefined') {
+          window.__b31ResizeMetricEdgeUpdateCount = (window.__b31ResizeMetricEdgeUpdateCount || 0) + 1;
         }
       }
 
@@ -29706,9 +29754,9 @@ function attachResizeHandlers() {
           });
           overlay.appendChild(cell);
         });
+        appendResizeMetricCountPlane(overlay);
         bi.appendChild(overlay);
         resizeMetricOverlay = overlay;
-        updateResizeMetricCounts(sSp);
       }
 
       function ensureLiveGrid() {
