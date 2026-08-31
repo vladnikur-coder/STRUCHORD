@@ -30321,7 +30321,7 @@ function attachSquareResizeHandlers() {
           }
         }
 
-        function makeSquareEdgeFreezeOverlay() {
+        function makeSquareEdgeFreezeOverlay(opts = {}) {
           clearSquareEdgeFreezeOverlay();
           const box = sqInner.getBoundingClientRect();
           const style = getComputedStyle(sqInner);
@@ -30330,11 +30330,22 @@ function attachSquareResizeHandlers() {
           const overlay = document.createElement('div');
           overlay.className = 'square-edge-freeze-overlay';
           overlay.setAttribute('aria-hidden', 'true');
-          const frozenCells = Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper'));
-          frozenCells.forEach((cw, idx) => {
-            const rect = cw.getBoundingClientRect();
-            const clone = cw.cloneNode(true);
-            clone.className = `${cw.className} square-edge-freeze-cell`;
+          const allCells = Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper'));
+          let offset = 0;
+          const selected = [];
+          allCells.forEach((cw, idx) => {
+            const ev = startEvents[idx] || sq.events[idx];
+            const span = ev ? getEventSpanInParentUnits(ev, parentTs) : 0;
+            const start = offset;
+            const end = offset + span;
+            offset = end;
+            if (opts.mode === 'removed' && end <= (opts.cutoffBeats || 0) + 1e-6) return;
+            selected.push({ cw, idx, start, end });
+          });
+          selected.forEach((item, selectedIdx) => {
+            const rect = item.cw.getBoundingClientRect();
+            const clone = item.cw.cloneNode(true);
+            clone.className = `${item.cw.className} square-edge-freeze-cell`;
             clone.style.gridColumn = '';
             clone.style.left = Math.max(0, rect.left - originLeft).toFixed(3) + 'px';
             clone.style.top = Math.max(0, rect.top - originTop).toFixed(3) + 'px';
@@ -30343,17 +30354,18 @@ function attachSquareResizeHandlers() {
             clone.querySelectorAll('.chord-buttons,.resize-handle,.square-resize-handle').forEach((el) => el.remove());
             overlay.appendChild(clone);
             // Freeze-overlay закрывает старые ячейки от визуального
-            // растяжения, поэтому нативный grid-gap может частично
-            // потеряться под клонами. Явно восстанавливаем старые границы
+            // растяжения/серой пустоты, поэтому нативный grid-gap может
+            // частично потеряться под клонами. Явно восстанавливаем границы
             // поверх frozen-клеток, тем же цветом/шириной, что и gap.
-            if (idx < frozenCells.length - 1) {
+            const next = selected[selectedIdx + 1];
+            if (next && next.idx === item.idx + 1) {
               const boundary = document.createElement('span');
               boundary.className = 'square-edge-freeze-boundary';
               boundary.style.left = Math.max(0, rect.right - originLeft).toFixed(3) + 'px';
               overlay.appendChild(boundary);
             }
           });
-          return overlay;
+          return overlay.childNodes.length ? overlay : null;
         }
 
         function settleSquareEdgeFreezeOverlay(overlay) {
@@ -30371,9 +30383,12 @@ function attachSquareResizeHandlers() {
 
         function renderSquareEdgePreview(beats, fromBeats) {
           enableSquareEdgePreviewTransition();
-          const freezeOverlay = beats > (fromBeats == null ? startBeats : fromBeats)
+          const prevBeats = fromBeats == null ? startBeats : fromBeats;
+          const freezeOverlay = beats > prevBeats
             ? makeSquareEdgeFreezeOverlay()
-            : null;
+            : beats < prevBeats
+              ? makeSquareEdgeFreezeOverlay({ mode: 'removed', cutoffBeats: beats })
+              : null;
           const eventsCopy = buildPreviewEventsForBeats(beats);
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);

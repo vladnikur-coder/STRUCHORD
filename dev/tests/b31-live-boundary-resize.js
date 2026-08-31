@@ -273,9 +273,13 @@ w.addEventListener('load', async () => {
       && evl('return window.__b31RequestRenderCount') === 0,
     evl('return "events=" + sections[0].squares[0].events.length + " renders=" + window.__b31RequestRenderCount'));
   ok('до отпускания DOM показывает будущую snapped-структуру без записи модели',
-    evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`) === 3
-      && evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="3"]')`) === null,
+    evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length`) === 3
+      && evl(`return document.querySelector('.square[data-square="2"] > .square-inner > .chord-wrapper[data-ei="3"]')`) === null,
     'right edge preview did not switch to future structure');
+  ok('удаляемый такт остаётся frozen поверх серой зоны до ухода края',
+    evl(`return !!document.querySelector('.square-edge-freeze-overlay')
+      && document.querySelectorAll('.square-edge-freeze-cell').length === 1`),
+    evl(`return 'freeze=' + !!document.querySelector('.square-edge-freeze-overlay') + ' cells=' + document.querySelectorAll('.square-edge-freeze-cell').length`));
   ok('preview правого края строится один раз на snapped-переход',
     evl('return window.__b31SquareEdgePreviewRenderCount') === 1
       && evl('return window.__b31SquareEdgePreviewFrameCount') === 1,
