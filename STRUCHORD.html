@@ -3816,6 +3816,7 @@ body.is-zooming .squares-list {
 }
 .square-edge-freeze-cell.chord-wrapper {
   position: absolute;
+  z-index: 1;
   min-height: 0;
   height: 72px;
   display: flex;
@@ -3823,6 +3824,14 @@ body.is-zooming .squares-list {
   background-image: var(--panel-sheen);
   cursor: default;
   transition: none;
+}
+.square-edge-freeze-boundary {
+  position: absolute;
+  z-index: 2;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--color-warm-border);
 }
 .square-edge-freeze-cell .chord-buttons,
 .square-edge-freeze-cell .resize-handle,
@@ -30321,7 +30330,8 @@ function attachSquareResizeHandlers() {
           const overlay = document.createElement('div');
           overlay.className = 'square-edge-freeze-overlay';
           overlay.setAttribute('aria-hidden', 'true');
-          Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper')).forEach((cw) => {
+          const frozenCells = Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper'));
+          frozenCells.forEach((cw, idx) => {
             const rect = cw.getBoundingClientRect();
             const clone = cw.cloneNode(true);
             clone.className = `${cw.className} square-edge-freeze-cell`;
@@ -30332,6 +30342,16 @@ function attachSquareResizeHandlers() {
             clone.style.height = Math.max(0, rect.height).toFixed(3) + 'px';
             clone.querySelectorAll('.chord-buttons,.resize-handle,.square-resize-handle').forEach((el) => el.remove());
             overlay.appendChild(clone);
+            // Freeze-overlay закрывает старые ячейки от визуального
+            // растяжения, поэтому нативный grid-gap может частично
+            // потеряться под клонами. Явно восстанавливаем старые границы
+            // поверх frozen-клеток, тем же цветом/шириной, что и gap.
+            if (idx < frozenCells.length - 1) {
+              const boundary = document.createElement('span');
+              boundary.className = 'square-edge-freeze-boundary';
+              boundary.style.left = Math.max(0, rect.right - originLeft).toFixed(3) + 'px';
+              overlay.appendChild(boundary);
+            }
           });
           return overlay;
         }

@@ -317,6 +317,9 @@ w.addEventListener('load', async () => {
       && document.querySelectorAll('.square-edge-freeze-cell').length === 3
       && window.__b31SquareEdgeFreezeOverlayCount === 1`),
     evl(`return 'freeze=' + !!document.querySelector('.square-edge-freeze-overlay') + ' cells=' + document.querySelectorAll('.square-edge-freeze-cell').length + ' count=' + window.__b31SquareEdgeFreezeOverlayCount`));
+  ok('frozen overlay явно восстанавливает границы между старыми тактами',
+    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`) === 2,
+    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
   firePointerUp(400);
   await sleep(50);
   ok('на pointerup добавление коммитится один раз',
