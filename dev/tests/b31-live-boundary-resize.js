@@ -86,6 +86,40 @@ function restoreRequestRender() {
     return 0`);
 }
 
+function sceneSquareEdge() {
+  evl(`
+    globalTimeSig = '4/4';
+    DOM.globalTimeSig.value = '4/4';
+    squareZoom = 1;
+    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
+      repeat: 1, strumPattern: null, squares: [
+        { id: 2, repeat: 1, customBeats: null, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'G', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'F', span: 4, timeSig: null, strumPattern: null },
+        ]},
+      ]
+    }];
+    if (songRhythmRolls) {
+      for (const key of [...songRhythmRolls.refs.keys()]) if (key.startsWith('1:2:')) songRhythmRolls.refs.delete(key);
+      songRhythmRolls.sectionRolls.delete(1);
+    }
+    render();
+    window.__b31RequestRenderCount = 0;
+    window.__b31SquareEdgeStageCount = 0;
+    window.__b31SquareEdgePreviewFrameCount = 0;
+    window.__b31SquareEdgeCommitCount = 0;
+    if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
+    requestRender = function () {
+      window.__b31RequestRenderCount++;
+      return window.__b31OldRequestRender.apply(this, arguments);
+    };
+    const bi = document.querySelector('.square-inner');
+    bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 402, height: 74, right: 402, bottom: 74, x: 0, y: 0 });
+    return 0`);
+}
+
 w.addEventListener('load', async () => {
   console.log('=== B-31.1 live boundary resize: pointermove меняет только геометрию ===');
   scene();
@@ -180,6 +214,46 @@ w.addEventListener('load', async () => {
     /^repeat\(4,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
     evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`));
   ok('no-op не вызывает полный requestRender',
+    evl('return window.__b31RequestRenderCount') === 0,
+    evl('return window.__b31RequestRenderCount'));
+  restoreRequestRender();
+
+  console.log('=== B-31.4 right edge: smooth snapped crop без innerHTML на move ===');
+  sceneSquareEdge();
+  await sleep(30);
+  const edgeHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
+  ok('ручка правого края есть', !!edgeHandle);
+  firePointerDown(edgeHandle, 400);
+  firePointerMove(300); // 4 такта -> 3 такта
+  ok('до rAF модель правого края ещё не изменилась',
+    evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)') === '4:16',
+    evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)'));
+  await sleep(35);
+  ok('правый край перешёл в staged crop-preview',
+    evl(`return document.querySelector('.square-inner').classList.contains('is-square-edge-resizing')`)
+      && /px\)\)$/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
+    evl(`return document.querySelector('.square-inner').className + ' | ' + document.querySelector('.square-inner').style.gridTemplateColumns`));
+  ok('на pointermove правого края модель не мутирует и полный render не нужен',
+    evl('return sections[0].squares[0].events.length') === 4
+      && evl('return window.__b31RequestRenderCount') === 0,
+    evl('return "events=" + sections[0].squares[0].events.length + " renders=" + window.__b31RequestRenderCount'));
+  ok('staged preview правого края строится один раз',
+    evl('return window.__b31SquareEdgeStageCount') === 1
+      && evl('return window.__b31SquareEdgePreviewFrameCount') === 1,
+    evl('return "stage=" + window.__b31SquareEdgeStageCount + " frames=" + window.__b31SquareEdgePreviewFrameCount'));
+  firePointerMove(295);
+  await sleep(35);
+  ok('движения внутри того же snap не перестраивают staged preview',
+    evl('return window.__b31SquareEdgeStageCount') === 1,
+    evl('return window.__b31SquareEdgeStageCount'));
+  firePointerUp(300);
+  await sleep(50);
+  ok('на pointerup правый край коммитится один раз',
+    evl('return sections[0].squares[0].customBeats') === 12
+      && evl('return sections[0].squares[0].events.length') === 3
+      && evl('return window.__b31SquareEdgeCommitCount') === 1,
+    evl('return "beats=" + sections[0].squares[0].customBeats + " events=" + sections[0].squares[0].events.length + " commits=" + window.__b31SquareEdgeCommitCount'));
+  ok('commit правого края тоже без полного requestRender',
     evl('return window.__b31RequestRenderCount') === 0,
     evl('return window.__b31RequestRenderCount'));
   restoreRequestRender();

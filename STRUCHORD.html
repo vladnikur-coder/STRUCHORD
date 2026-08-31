@@ -3792,7 +3792,13 @@ body.is-zooming .squares-list {
 .square-inner.is-live-resizing.is-snap-resize-animated {
   transition: grid-template-columns 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
 }
-.square-inner.is-live-resizing .chord-wrapper {
+.square-inner.is-square-edge-resizing {
+  transition: width 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
+  will-change: width;
+  contain: layout style;
+}
+.square-inner.is-live-resizing .chord-wrapper,
+.square-inner.is-square-edge-resizing .chord-wrapper {
   transition: background 0.14s ease;
 }
 .square-inner.is-live-resizing .resize-handle {
@@ -30163,7 +30169,8 @@ function attachSquareResizeHandlers() {
         const sq = sec?.squares.find((sq) => sq.id === sqid);
         if (!sec || !sq) return;
 
-        const beatsPerBar = getGridUnitsPerBar(sec.timeSig || globalTimeSig);
+        const parentTs = sec.timeSig || globalTimeSig;
+        const beatsPerBar = getGridUnitsPerBar(parentTs);
         const minBeats = beatsPerBar; // 1 такт
         // 4 такта, либо длина самого длинного квадрата секции, если он
         // больше — тот же эталон, что и при рендере ширины (см.
@@ -30171,34 +30178,53 @@ function attachSquareResizeHandlers() {
         // квадрат вплоть до длины самого длинного соседа по секции, но не
         // растянуть его ещё дальше.
         const maxBeats = getSectionMaxBeats(sec);
-
-        const startBeats = sq.customBeats || beatsPerBar * 4;
+        const defaultBeats = beatsPerBar * 4;
+        const startBeats = sq.customBeats || defaultBeats;
         const sqInner = sqEl.querySelector('.square-inner');
-        const startEvents = sq.events.map((e) => ({ chord: e.chord, span: e.span, timeSig: e.timeSig || null }));
+        if (!sqInner) return;
+        const controls = sqInner.nextElementSibling;
+        const startEvents = sq.events.map((ev) => ({
+          chord: ev.chord,
+          span: ev.span,
+          timeSig: ev.timeSig || null,
+          strumPattern: ev.strumPattern || null,
+          fingering: ev.fingering || null,
+        }));
 
-        const startWidth = sqInner.offsetWidth;
-        const oneBeatWidth = startWidth / startBeats;
-        const minWidth = oneBeatWidth * minBeats;
-        const maxWidth = oneBeatWidth * maxBeats;
+        const sqRect = sqInner.getBoundingClientRect();
+        const sqStyle = getComputedStyle(sqInner);
+        const borderLeft = parseFloat(sqStyle.borderLeftWidth) || 0;
+        const borderRight = parseFloat(sqStyle.borderRightWidth) || 0;
+        const startBoxWidth = Math.max(1, sqRect.width || sqInner.offsetWidth || startBeats * 44);
+        // width у .square-inner — content-box; offset/rect включают border.
+        // Для плавного crop/extend считаем именно ширину контента, чтобы
+        // px-preview совпал с финальной процентной раскладкой без +1px.
+        const startContentWidth = Math.max(1, startBoxWidth - borderLeft - borderRight);
+        const oneBeatWidth = startContentWidth / Math.max(1e-6, startBeats);
+        const minContentWidth = oneBeatWidth * minBeats;
+        const maxContentWidth = oneBeatWidth * maxBeats;
+        const gridGapPx = typeof SQUARE_GRID_GAP === 'number' ? SQUARE_GRID_GAP : 2;
         const startX = e.clientX;
         let lastRoundedBeats = startBeats;
+        let pendingSquareResizeClientX = startX;
+        let squareResizeRAF = 0;
+        let squareEdgePreviewActive = false;
 
-        function updateSquarePreview(beats) {
-          const parentTsPreview = sec.timeSig || globalTimeSig;
+        function buildPreviewEventsForBeats(beats) {
           const totalBeats = beats;
-          let eventsCopy = startEvents.map((e) => ({ chord: e.chord, span: e.span, timeSig: e.timeSig || null }));
-          let currentSum = eventsCopy.reduce((s, e) => s + getEventSpanInParentUnits(e, parentTsPreview), 0);
+          const eventsCopy = startEvents.map((ev) => ({ ...ev }));
+          let currentSum = eventsCopy.reduce((sum, ev) => sum + getEventSpanInParentUnits(ev, parentTs), 0);
 
           while (currentSum > totalBeats && eventsCopy.length > 0) {
             const last = eventsCopy[eventsCopy.length - 1];
-            const lastParentUnits = getEventSpanInParentUnits(last, parentTsPreview);
+            const lastParentUnits = getEventSpanInParentUnits(last, parentTs);
             const excessParentUnits = currentSum - totalBeats;
             if (lastParentUnits <= excessParentUnits) {
               currentSum -= lastParentUnits;
               eventsCopy.pop();
             } else {
-              const ownTs = getEventOwnTimeSig(last, parentTsPreview);
-              last.span -= convertSpanBetweenTimeSigs(excessParentUnits, parentTsPreview, ownTs);
+              const ownTs = getEventOwnTimeSig(last, parentTs);
+              last.span -= convertSpanBetweenTimeSigs(excessParentUnits, parentTs, ownTs);
               currentSum -= excessParentUnits;
               break;
             }
@@ -30207,86 +30233,124 @@ function attachSquareResizeHandlers() {
           while (currentSum < totalBeats) {
             const diff = totalBeats - currentSum;
             if (diff >= beatsPerBar) {
-              eventsCopy.push({ chord: '', span: beatsPerBar, timeSig: null });
+              eventsCopy.push({ chord: '', span: beatsPerBar, timeSig: null, strumPattern: null, fingering: null });
               currentSum += beatsPerBar;
             } else {
-              eventsCopy.push({ chord: '', span: 1, timeSig: null });
+              eventsCopy.push({ chord: '', span: 1, timeSig: null, strumPattern: null, fingering: null });
               currentSum += 1;
             }
           }
 
-          eventsCopy.forEach((e) => {
-            if (e.span < 1) e.span = 1;
+          eventsCopy.forEach((ev) => {
+            if (ev.span < 1) ev.span = 1;
           });
-
-          const parentTs = sec.timeSig || globalTimeSig;
-          const distribution = distributeVisualSpans(eventsCopy, parentTs);
-          const effectiveSpans = distribution.spans;
-          const totalCols = distribution.totalCols;
-
-          let html = '';
-          eventsCopy.forEach((ev, ei) => {
-            const effectiveSpan = effectiveSpans[ei];
-            const chordDisplay = ev.chord || '';
-
-            html += `<div class="chord-wrapper" style="grid-column:span ${effectiveSpan};" data-sec="${sid}" data-square="${sqid}" data-ei="${ei}">
-              <div class="chord-content">
-                <input class="chord-input" readonly value="${escapeHtml(chordDisplay)}" placeholder="—">
-                <div class="chord-display" aria-hidden="true">${renderChordDisplayHtml(chordDisplay)}</div>
-              </div>
-              ${(ei < eventsCopy.length - 1) ? '<div class="resize-handle"></div>' : ''}
-              ${ei === eventsCopy.length - 1 ? '<div class="square-resize-handle" data-sec="' + sid + '" data-square="' + sqid + '"></div>' : ''}
-              <div class="chord-buttons">
-                <button class="chord-btn chord-span-btn" onclick="event.stopPropagation();openSpanMenu(${sid},${sqid},${ei}, this)" title="Изменить размер ячейки (долей: ${ev.span})">${ev.timeSig || parentTs}</button>
-                <button class="chord-btn chord-btn-add" onclick="event.stopPropagation();addChordAfter(${sid},${sqid},${ei})" title="Разделить аккорд">+</button>
-                <button class="chord-btn chord-btn-del" onclick="event.stopPropagation();removeChordAt(${sid},${sqid},${ei})" title="Удалить аккорд"><i class="ti ti-minus"></i></button>
-              </div>
-            </div>`;
-          });
-
-          sqInner.innerHTML = html;
-          sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, 1fr))`;
-          observeChordDisplays(sqInner);
-          refreshChordWrapperRects();
+          return eventsCopy;
         }
 
-        function onMove(ev) {
-          const deltaX = startX - ev.clientX;
-          let newWidth = startWidth - deltaX;
-          if (newWidth < minWidth) newWidth = minWidth;
-          if (newWidth > maxWidth) newWidth = maxWidth;
+        function contentWidthForBeats(beats) {
+          return Math.max(minContentWidth, Math.min(maxContentWidth, oneBeatWidth * beats));
+        }
 
-          const preciseBeats = newWidth / oneBeatWidth;
+        function setControlsForBeats(beats) {
+          if (!controls) return;
+          const width = contentWidthForBeats(beats);
+          controls.style.right = `calc(100% - ${width.toFixed(3)}px - 49px)`;
+        }
+
+        function stageSquareEdgePreview() {
+          if (squareEdgePreviewActive) return;
+          squareEdgePreviewActive = true;
+          const previewEvents = buildPreviewEventsForBeats(maxBeats);
+          const previewSq = { ...sq, events: previewEvents };
+          const distribution = distributeVisualSpans(previewEvents, parentTs);
+          const totalCols = Math.max(1, distribution.totalCols || 1);
+          const fixedColWidth = Math.max(
+            1e-6,
+            (maxContentWidth - Math.max(0, totalCols - 1) * gridGapPx) / totalCols
+          );
+
+          sqInner.classList.remove('is-square-edge-resizing');
+          sqInner.style.width = startContentWidth.toFixed(3) + 'px';
+          // Внутреннюю метрическую сетку фиксируем на максимальную длину.
+          // При сжатии двигается только правый край контейнера, а содержимое
+          // не сжимается: квадрат выглядит как аккуратная обрезка. При
+          // расширении заранее подготовленные пустые ячейки просто
+          // открываются из-под overflow:hidden. Pointermove дальше пишет
+          // только width, без innerHTML.
+          sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, ${fixedColWidth.toFixed(6)}px))`;
+          sqInner.innerHTML = buildSquareInnerEventsHtml(sec, previewSq, distribution);
+          const previewPrefix = `${sec.id}:${sq.id}:`;
+          for (const key of Array.from(eventStrumPreviewStepEls.keys())) {
+            if (key.startsWith(previewPrefix)) eventStrumPreviewStepEls.delete(key);
+          }
+          renderEventStrumPreviews(sqEl);
+          observeChordDisplays(sqInner);
+          refreshChordWrapperRects();
+          if (controls) {
+            controls.style.transition = 'right 0.16s cubic-bezier(0.2, 0.75, 0.18, 1)';
+            setControlsForBeats(startBeats);
+          }
+          void sqInner.offsetWidth;
+          sqInner.classList.add('is-square-edge-resizing');
+          window.__b31SquareEdgeStageCount = (window.__b31SquareEdgeStageCount || 0) + 1;
+        }
+
+        function calcRoundedBeats(clientX) {
+          const desiredWidth = Math.max(
+            minContentWidth,
+            Math.min(maxContentWidth, startContentWidth + (clientX - startX))
+          );
+          const preciseBeats = desiredWidth / oneBeatWidth;
           let rounded = Math.round(preciseBeats / beatsPerBar) * beatsPerBar;
           if (rounded < minBeats) rounded = minBeats;
           if (rounded > maxBeats) rounded = maxBeats;
+          return rounded;
+        }
 
-          if (rounded !== lastRoundedBeats) {
-            lastRoundedBeats = rounded;
-            const percent = (rounded / maxBeats) * 100;
-            sqInner.style.width = percent + '%';
-            updateSquarePreview(rounded);
-          }
+        function applySquareEdgePreviewAt(clientX, force) {
+          const rounded = calcRoundedBeats(clientX);
+          if (!force && rounded === lastRoundedBeats) return false;
+          lastRoundedBeats = rounded;
+          stageSquareEdgePreview();
+          sqInner.style.width = contentWidthForBeats(rounded).toFixed(3) + 'px';
+          setControlsForBeats(rounded);
+          window.__b31SquareEdgePreviewFrameCount = (window.__b31SquareEdgePreviewFrameCount || 0) + 1;
+          return true;
+        }
+
+        function cleanupSquareEdgePreview() {
+          sqInner.classList.remove('is-square-edge-resizing');
+          if (controls) controls.style.transition = '';
+        }
+
+        function onMove(ev) {
+          pendingSquareResizeClientX = ev.clientX;
+          if (squareResizeRAF) return;
+          squareResizeRAF = requestAnimationFrame(() => {
+            squareResizeRAF = 0;
+            applySquareEdgePreviewAt(pendingSquareResizeClientX, false);
+          });
         }
 
         function onUp() {
           document.removeEventListener('pointermove', onMove);
           document.removeEventListener('pointerup', onUp);
           document.removeEventListener('pointercancel', onUp);
+          if (squareResizeRAF) {
+            cancelAnimationFrame(squareResizeRAF);
+            squareResizeRAF = 0;
+          }
+          const finalBeats = calcRoundedBeats(pendingSquareResizeClientX);
+          applySquareEdgePreviewAt(pendingSquareResizeClientX, true);
+          cleanupSquareEdgePreview();
 
-          const currentWidth = sqInner.offsetWidth;
-          const preciseBeats = currentWidth / oneBeatWidth;
-          let newBeats = Math.round(preciseBeats / beatsPerBar) * beatsPerBar;
-          if (newBeats < minBeats) newBeats = minBeats;
-          if (newBeats > maxBeats) newBeats = maxBeats;
-
-          sqInner.style.width = '';
-          sqInner.style.gridTemplateColumns = '';
-
-          if (newBeats !== startBeats) {
-            setSquareCustomBeats(sid, sqid, newBeats);
-          } else {
-            requestRender();
+          if (finalBeats !== startBeats) {
+            window.__b31SquareEdgeCommitCount = (window.__b31SquareEdgeCommitCount || 0) + 1;
+            setSquareCustomBeats(sid, sqid, finalBeats);
+          } else if (squareEdgePreviewActive) {
+            // Клик/возврат в исходный размер: staged max-preview нужно
+            // убрать локально, но полный render для этого не нужен.
+            rerenderSquareInnerDom(sec, sq);
           }
         }
 
