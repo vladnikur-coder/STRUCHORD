@@ -30191,8 +30191,17 @@ function attachSquareResizeHandlers() {
           fingering: ev.fingering || null,
         }));
 
-        const startWidth = Math.max(1, sqInner.getBoundingClientRect().width || sqInner.offsetWidth || 1);
-        const oneBeatWidth = startWidth / Math.max(1e-6, startBeats);
+        const sqRect = sqInner.getBoundingClientRect();
+        const sqStyle = getComputedStyle(sqInner);
+        const borderLeft = parseFloat(sqStyle.borderLeftWidth) || 0;
+        const borderRight = parseFloat(sqStyle.borderRightWidth) || 0;
+        const startWidth = Math.max(1, sqRect.width || sqInner.offsetWidth || 1);
+        // Для визуальной стабильности считаем длину доли по content-box:
+        // CSS width у .square-inner задаёт именно контент, а border добавляет
+        // по пикселю снаружи. Если считать по border-box, к правому краю
+        // снова накапливается микросдвиг.
+        const startContentWidth = Math.max(1, startWidth - borderLeft - borderRight);
+        const oneBeatWidth = startContentWidth / Math.max(1e-6, startBeats);
         const minWidth = oneBeatWidth * minBeats;
         const maxWidth = oneBeatWidth * maxBeats;
         const startX = e.clientX;
@@ -30242,6 +30251,10 @@ function attachSquareResizeHandlers() {
           return Math.min(100, (beats / Math.max(1e-6, maxBeats)) * 100);
         }
 
+        function contentWidthForBeats(beats) {
+          return Math.max(minWidth, Math.min(maxWidth, oneBeatWidth * beats));
+        }
+
         function setControlsForPercent(percent) {
           if (!controls) return;
           controls.style.right = `calc((100% - ${percent}%) - 49px)`;
@@ -30265,17 +30278,24 @@ function attachSquareResizeHandlers() {
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
           const percent = widthPercentForBeats(beats);
+          const targetContentWidth = contentWidthForBeats(beats);
+          const fixedColWidth = Math.max(
+            1e-6,
+            (targetContentWidth - Math.max(0, totalCols - 1) * SQUARE_GRID_GAP) / totalCols
+          );
 
           // Правый край — не crop старого DOM. На snapped-переходе локально
           // показываем будущую структуру квадрата (как старый preview), но
-          // делаем это редко — только когда изменилась snapped-длина. Между
-          // такими переходами pointermove не трогает ни DOM, ни модель.
+          // сами оставшиеся такты не должны визуально стягиваться. Поэтому
+          // будущую сетку кладём в фиксированные px-колонки финальной ширины:
+          // первый/второй/третий такты остаются там же, плавно едет только
+          // правый край и область добавления/удаления.
           const previewPrefix = `${sec.id}:${sq.id}:`;
           for (const key of Array.from(eventStrumPreviewStepEls.keys())) {
             if (key.startsWith(previewPrefix)) eventStrumPreviewStepEls.delete(key);
           }
           sqInner.innerHTML = buildSquareInnerEventsHtml(sec, previewSq, distribution);
-          sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, 1fr))`;
+          sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, ${fixedColWidth.toFixed(6)}px))`;
           sqInner.style.width = percent + '%';
           setControlsForPercent(percent);
           observeChordDisplays(sqInner);
@@ -30284,7 +30304,7 @@ function attachSquareResizeHandlers() {
         }
 
         function calcRoundedBeats(clientX) {
-          let newWidth = startWidth + (clientX - startX);
+          let newWidth = startContentWidth + (clientX - startX);
           if (newWidth < minWidth) newWidth = minWidth;
           if (newWidth > maxWidth) newWidth = maxWidth;
           const preciseBeats = newWidth / oneBeatWidth;

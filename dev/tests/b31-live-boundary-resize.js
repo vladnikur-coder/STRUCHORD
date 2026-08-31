@@ -231,7 +231,8 @@ w.addEventListener('load', async () => {
   await sleep(35);
   ok('правый край перешёл в smooth snapped preview будущей структуры',
     evl(`return document.querySelector('.square-inner').classList.contains('is-square-edge-resizing')`)
-      && /^repeat\(12,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
+      && /^repeat\(12,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`))
+      && /px\)\)$/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
     evl(`return document.querySelector('.square-inner').className + ' | ' + document.querySelector('.square-inner').style.gridTemplateColumns`));
   ok('на pointermove правого края модель не мутирует и полный render не нужен',
     evl('return sections[0].squares[0].events.length') === 4
