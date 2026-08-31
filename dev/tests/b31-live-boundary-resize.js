@@ -107,7 +107,7 @@ function sceneSquareEdge() {
     }
     render();
     window.__b31RequestRenderCount = 0;
-    window.__b31SquareEdgeStageCount = 0;
+    window.__b31SquareEdgePreviewRenderCount = 0;
     window.__b31SquareEdgePreviewFrameCount = 0;
     window.__b31SquareEdgeCommitCount = 0;
     if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
@@ -218,39 +218,38 @@ w.addEventListener('load', async () => {
     evl('return window.__b31RequestRenderCount'));
   restoreRequestRender();
 
-  console.log('=== B-31.4 right edge: smooth snapped crop без innerHTML на move ===');
+  console.log('=== B-31.4 right edge: smooth snapped preview без модели на move ===');
   sceneSquareEdge();
   await sleep(30);
   const edgeHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
   ok('ручка правого края есть', !!edgeHandle);
-  const edgeLastNodeStable = evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="3"]')`);
   firePointerDown(edgeHandle, 400);
   firePointerMove(300); // 4 такта -> 3 такта
   ok('до rAF модель правого края ещё не изменилась',
     evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)') === '4:16',
     evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)'));
   await sleep(35);
-  ok('правый край перешёл в staged crop-preview',
+  ok('правый край перешёл в smooth snapped preview будущей структуры',
     evl(`return document.querySelector('.square-inner').classList.contains('is-square-edge-resizing')`)
-      && /px\)\)$/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
+      && /^repeat\(12,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
     evl(`return document.querySelector('.square-inner').className + ' | ' + document.querySelector('.square-inner').style.gridTemplateColumns`));
   ok('на pointermove правого края модель не мутирует и полный render не нужен',
     evl('return sections[0].squares[0].events.length') === 4
       && evl('return window.__b31RequestRenderCount') === 0,
     evl('return "events=" + sections[0].squares[0].events.length + " renders=" + window.__b31RequestRenderCount'));
-  ok('до отпускания правый край не пересобирает ячейки и не удаляет последнюю',
-    evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`) === 4
-      && evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="3"]')`) === edgeLastNodeStable,
-    'right edge DOM was rebuilt before pointerup');
-  ok('staged preview правого края строится один раз',
-    evl('return window.__b31SquareEdgeStageCount') === 1
+  ok('до отпускания DOM показывает будущую snapped-структуру без записи модели',
+    evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`) === 3
+      && evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="3"]')`) === null,
+    'right edge preview did not switch to future structure');
+  ok('preview правого края строится один раз на snapped-переход',
+    evl('return window.__b31SquareEdgePreviewRenderCount') === 1
       && evl('return window.__b31SquareEdgePreviewFrameCount') === 1,
-    evl('return "stage=" + window.__b31SquareEdgeStageCount + " frames=" + window.__b31SquareEdgePreviewFrameCount'));
+    evl('return "renders=" + window.__b31SquareEdgePreviewRenderCount + " frames=" + window.__b31SquareEdgePreviewFrameCount'));
   firePointerMove(295);
   await sleep(35);
-  ok('движения внутри того же snap не перестраивают staged preview',
-    evl('return window.__b31SquareEdgeStageCount') === 1,
-    evl('return window.__b31SquareEdgeStageCount'));
+  ok('движения внутри того же snap не перестраивают preview правого края',
+    evl('return window.__b31SquareEdgePreviewRenderCount') === 1,
+    evl('return window.__b31SquareEdgePreviewRenderCount'));
   firePointerUp(300);
   await sleep(50);
   ok('на pointerup правый край коммитится один раз',
