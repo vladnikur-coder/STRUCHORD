@@ -130,6 +130,9 @@ w.addEventListener('load', async () => {
     evl(`return !!document.querySelector('.resize-frozen-tick.is-hidden')`)
       && /\.resize-metric-overlay \.resize-frozen-tick \{[\s\S]*transition:\s*opacity 0\.14s/.test(fs.readFileSync(file, 'utf8')),
     'no fading hidden tick');
+  ok('засечка на старой границе снова видима, когда границу утащили дальше',
+    evl(`return !!document.querySelector('.resize-frozen-tick[data-resize-metric-key="2000000"]:not(.is-hidden)')`),
+    evl(`return Array.from(document.querySelectorAll('.resize-frozen-tick[data-resize-metric-key="2000000"]')).map(n => n.className).join('|') || 'missing old-edge tick'`));
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,
     'wrapper node changed');
