@@ -3801,6 +3801,34 @@ body.is-zooming .squares-list {
 .square-inner.is-square-edge-resizing .chord-wrapper {
   transition: background 0.14s ease;
 }
+.square-edge-freeze-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 8;
+  pointer-events: none;
+  overflow: hidden;
+  opacity: 1;
+  transition: opacity 0.08s ease;
+  contain: layout style paint;
+}
+.square-edge-freeze-overlay.is-hiding {
+  opacity: 0;
+}
+.square-edge-freeze-cell.chord-wrapper {
+  position: absolute;
+  min-height: 0;
+  height: 72px;
+  display: flex;
+  background: var(--color-surface);
+  background-image: var(--panel-sheen);
+  cursor: default;
+  transition: none;
+}
+.square-edge-freeze-cell .chord-buttons,
+.square-edge-freeze-cell .resize-handle,
+.square-edge-freeze-cell .square-resize-handle {
+  display: none !important;
+}
 .square-inner.is-live-resizing .resize-handle {
   opacity: 1;
 }
@@ -30209,6 +30237,8 @@ function attachSquareResizeHandlers() {
         let pendingSquareResizeClientX = startX;
         let squareResizeRAF = 0;
         let squareEdgePreviewActive = false;
+        let squareEdgeFreezeOverlay = null;
+        let squareEdgeFreezeTimer = 0;
 
         function buildPreviewEventsForBeats(beats) {
           const totalBeats = beats;
@@ -30271,8 +30301,59 @@ function attachSquareResizeHandlers() {
           void sqInner.offsetWidth;
         }
 
-        function renderSquareEdgePreview(beats) {
+        function clearSquareEdgeFreezeOverlay() {
+          if (squareEdgeFreezeTimer) {
+            clearTimeout(squareEdgeFreezeTimer);
+            squareEdgeFreezeTimer = 0;
+          }
+          if (squareEdgeFreezeOverlay) {
+            squareEdgeFreezeOverlay.remove();
+            squareEdgeFreezeOverlay = null;
+          }
+        }
+
+        function makeSquareEdgeFreezeOverlay() {
+          clearSquareEdgeFreezeOverlay();
+          const box = sqInner.getBoundingClientRect();
+          const style = getComputedStyle(sqInner);
+          const originLeft = box.left + (parseFloat(style.borderLeftWidth) || 0);
+          const originTop = box.top + (parseFloat(style.borderTopWidth) || 0);
+          const overlay = document.createElement('div');
+          overlay.className = 'square-edge-freeze-overlay';
+          overlay.setAttribute('aria-hidden', 'true');
+          Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper')).forEach((cw) => {
+            const rect = cw.getBoundingClientRect();
+            const clone = cw.cloneNode(true);
+            clone.className = `${cw.className} square-edge-freeze-cell`;
+            clone.style.gridColumn = '';
+            clone.style.left = Math.max(0, rect.left - originLeft).toFixed(3) + 'px';
+            clone.style.top = Math.max(0, rect.top - originTop).toFixed(3) + 'px';
+            clone.style.width = Math.max(0, rect.width).toFixed(3) + 'px';
+            clone.style.height = Math.max(0, rect.height).toFixed(3) + 'px';
+            clone.querySelectorAll('.chord-buttons,.resize-handle,.square-resize-handle').forEach((el) => el.remove());
+            overlay.appendChild(clone);
+          });
+          return overlay;
+        }
+
+        function settleSquareEdgeFreezeOverlay(overlay) {
+          if (!overlay) return;
+          squareEdgeFreezeTimer = setTimeout(() => {
+            if (!overlay.isConnected) return;
+            overlay.classList.add('is-hiding');
+            squareEdgeFreezeTimer = setTimeout(() => {
+              if (squareEdgeFreezeOverlay === overlay) squareEdgeFreezeOverlay = null;
+              overlay.remove();
+              squareEdgeFreezeTimer = 0;
+            }, 90);
+          }, 170);
+        }
+
+        function renderSquareEdgePreview(beats, fromBeats) {
           enableSquareEdgePreviewTransition();
+          const freezeOverlay = beats > (fromBeats == null ? startBeats : fromBeats)
+            ? makeSquareEdgeFreezeOverlay()
+            : null;
           const eventsCopy = buildPreviewEventsForBeats(beats);
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
@@ -30298,6 +30379,12 @@ function attachSquareResizeHandlers() {
           sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, ${fixedColWidth.toFixed(6)}px))`;
           sqInner.style.width = percent + '%';
           setControlsForPercent(percent);
+          if (freezeOverlay) {
+            sqInner.appendChild(freezeOverlay);
+            squareEdgeFreezeOverlay = freezeOverlay;
+            settleSquareEdgeFreezeOverlay(freezeOverlay);
+            window.__b31SquareEdgeFreezeOverlayCount = (window.__b31SquareEdgeFreezeOverlayCount || 0) + 1;
+          }
           observeChordDisplays(sqInner);
           refreshChordWrapperRects();
           window.__b31SquareEdgePreviewRenderCount = (window.__b31SquareEdgePreviewRenderCount || 0) + 1;
@@ -30317,13 +30404,15 @@ function attachSquareResizeHandlers() {
         function applySquareEdgePreviewAt(clientX, force) {
           const rounded = calcRoundedBeats(clientX);
           if (!force && rounded === lastRoundedBeats) return false;
+          const fromBeats = lastRoundedBeats;
           lastRoundedBeats = rounded;
-          renderSquareEdgePreview(rounded);
+          renderSquareEdgePreview(rounded, fromBeats);
           window.__b31SquareEdgePreviewFrameCount = (window.__b31SquareEdgePreviewFrameCount || 0) + 1;
           return true;
         }
 
         function cleanupSquareEdgePreview() {
+          clearSquareEdgeFreezeOverlay();
           sqInner.classList.remove('is-square-edge-resizing');
           if (controls) controls.style.transition = '';
         }
