@@ -30248,6 +30248,7 @@ function attachSquareResizeHandlers() {
         let squareEdgePreviewActive = false;
         let squareEdgeFreezeOverlay = null;
         let squareEdgeFreezeTimer = 0;
+        let squareEdgeAfterFreeze = null;
 
         function buildPreviewEventsForBeats(beats) {
           const totalBeats = beats;
@@ -30315,6 +30316,7 @@ function attachSquareResizeHandlers() {
             clearTimeout(squareEdgeFreezeTimer);
             squareEdgeFreezeTimer = 0;
           }
+          squareEdgeAfterFreeze = null;
           if (squareEdgeFreezeOverlay) {
             squareEdgeFreezeOverlay.remove();
             squareEdgeFreezeOverlay = null;
@@ -30363,12 +30365,22 @@ function attachSquareResizeHandlers() {
             // растяжения/серой пустоты, поэтому нативный grid-gap может
             // частично потеряться под клонами. Явно восстанавливаем границы
             // поверх frozen-клеток, тем же цветом/шириной, что и gap.
-            const next = selected[selectedIdx + 1];
-            if (next && next.idx === item.idx + 1) {
+            const drawBoundary = (x) => {
               const boundary = document.createElement('span');
               boundary.className = 'square-edge-freeze-boundary';
-              boundary.style.left = Math.max(0, rect.right - originLeft).toFixed(3) + 'px';
+              boundary.style.left = Math.max(0, x).toFixed(3) + 'px';
               overlay.appendChild(boundary);
+            };
+            // При удалении первый frozen-такт начинается сразу за границей
+            // оставшегося такта. Из-за overscan clone закрывает старый gap,
+            // поэтому эту границу нужно явно вернуть поверх клона и держать
+            // до конца анимации.
+            if (opts.mode === 'removed' && selectedIdx === 0 && item.idx > 0) {
+              drawBoundary(rect.left - originLeft - SQUARE_GRID_GAP);
+            }
+            const next = selected[selectedIdx + 1];
+            if (next && next.idx === item.idx + 1) {
+              drawBoundary(rect.right - originLeft);
             }
           });
           return overlay.childNodes.length ? overlay : null;
@@ -30387,6 +30399,9 @@ function attachSquareResizeHandlers() {
               if (squareEdgeFreezeOverlay === overlay) squareEdgeFreezeOverlay = null;
               overlay.remove();
               squareEdgeFreezeTimer = 0;
+              const after = squareEdgeAfterFreeze;
+              squareEdgeAfterFreeze = null;
+              if (typeof after === 'function') after();
             }, 110);
           };
           const onTransitionEnd = (ev) => {
@@ -30460,7 +30475,7 @@ function attachSquareResizeHandlers() {
 
         function applySquareEdgePreviewAt(clientX, force) {
           const rounded = calcRoundedBeats(clientX);
-          if (!force && rounded === lastRoundedBeats) return false;
+          if (rounded === lastRoundedBeats) return false;
           const fromBeats = lastRoundedBeats;
           lastRoundedBeats = rounded;
           renderSquareEdgePreview(rounded, fromBeats);
@@ -30493,14 +30508,27 @@ function attachSquareResizeHandlers() {
           }
           const finalBeats = calcRoundedBeats(pendingSquareResizeClientX);
           applySquareEdgePreviewAt(pendingSquareResizeClientX, true);
-          cleanupSquareEdgePreview();
 
           if (finalBeats !== startBeats) {
-            window.__b31SquareEdgeCommitCount = (window.__b31SquareEdgeCommitCount || 0) + 1;
-            setSquareCustomBeats(sid, sqid, finalBeats);
+            const commitSquareEdgeResize = () => {
+              cleanupSquareEdgePreview();
+              window.__b31SquareEdgeCommitCount = (window.__b31SquareEdgeCommitCount || 0) + 1;
+              setSquareCustomBeats(sid, sqid, finalBeats);
+            };
+            if (squareEdgeFreezeOverlay && squareEdgeFreezeOverlay.isConnected) {
+              // Если пользователь отпустил мышь до конца визуального хода,
+              // не сносим freeze-overlay вместе с его границами немедленно:
+              // именно это давало раннее исчезновение разделителей и серые
+              // вспышки. Модель зафиксируем один раз после визуального
+              // settle; под ним уже стоит preview будущей структуры.
+              squareEdgeAfterFreeze = commitSquareEdgeResize;
+            } else {
+              commitSquareEdgeResize();
+            }
           } else if (squareEdgePreviewActive) {
             // Клик/возврат в исходный размер: staged preview нужно убрать
             // локально, но полный render для этого не нужен.
+            cleanupSquareEdgePreview();
             rerenderSquareInnerDom(sec, sq);
           }
         }

@@ -280,6 +280,9 @@ w.addEventListener('load', async () => {
     evl(`return !!document.querySelector('.square-edge-freeze-overlay')
       && document.querySelectorAll('.square-edge-freeze-cell').length === 1`),
     evl(`return 'freeze=' + !!document.querySelector('.square-edge-freeze-overlay') + ' cells=' + document.querySelectorAll('.square-edge-freeze-cell').length`));
+  ok('граница перед удаляемым тактом остаётся видимой до конца анимации',
+    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length >= 1`),
+    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
   ok('preview правого края строится один раз на snapped-переход',
     evl('return window.__b31SquareEdgePreviewRenderCount') === 1
       && evl('return window.__b31SquareEdgePreviewFrameCount') === 1,
@@ -290,8 +293,8 @@ w.addEventListener('load', async () => {
     evl('return window.__b31SquareEdgePreviewRenderCount') === 1,
     evl('return window.__b31SquareEdgePreviewRenderCount'));
   firePointerUp(300);
-  await sleep(50);
-  ok('на pointerup правый край коммитится один раз',
+  await sleep(450);
+  ok('после визуального settle правый край коммитится один раз',
     evl('return sections[0].squares[0].customBeats') === 12
       && evl('return sections[0].squares[0].events.length') === 3
       && evl('return window.__b31SquareEdgeCommitCount') === 1,
@@ -325,8 +328,8 @@ w.addEventListener('load', async () => {
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`) === 2,
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
   firePointerUp(400);
-  await sleep(50);
-  ok('на pointerup добавление коммитится один раз',
+  await sleep(450);
+  ok('после визуального settle добавление коммитится один раз',
     evl('return (sections[0].squares[0].customBeats || 16)') === 16
       && evl('return sections[0].squares[0].events.length') === 4
       && evl('return window.__b31SquareEdgeCommitCount') === 1,
