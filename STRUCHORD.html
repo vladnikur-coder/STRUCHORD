@@ -3865,12 +3865,23 @@ body.is-zooming .squares-list {
 .resize-metric-overlay .chord-counts {
   opacity: 1;
 }
-.resize-metric-overlay .resize-tick-cell .chord-ticks,
-.resize-metric-overlay .resize-tick-cell .chord-ticks-step {
-  -webkit-mask-repeat: no-repeat;
-  mask-repeat: no-repeat;
-  -webkit-mask-size: 100% 100%;
-  mask-size: 100% 100%;
+.resize-metric-overlay .resize-frozen-tick {
+  position: absolute;
+  bottom: 1px;
+  width: 2px;
+  height: 4px;
+  border-radius: 1px;
+  background: var(--color-tick-line);
+  opacity: 1;
+  transition: opacity 0.14s cubic-bezier(0.2, 0.75, 0.18, 1);
+  will-change: opacity;
+}
+.resize-metric-overlay .resize-frozen-tick.is-step {
+  height: 3px;
+  background: var(--color-tick-substep);
+}
+.resize-metric-overlay .resize-frozen-tick.is-hidden {
+  opacity: 0;
 }
 /* Во время snapped-resize координаты счёта frozen, но edge-отступ должен
    переключаться у текущей границы. Делаем этот микросдвиг compositor-only:
@@ -29593,7 +29604,7 @@ function attachResizeHandlers() {
       let resizeMetricOverlay = null;
       let resizeBoundaryGrid = null;
       let resizeMetricCountEls = [];
-      let resizeMetricTickLayers = [];
+      let resizeMetricTickEls = [];
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
@@ -29694,7 +29705,7 @@ function attachResizeHandlers() {
         }
         resizeBoundaryGrid = null;
         resizeMetricCountEls = [];
-        resizeMetricTickLayers = [];
+        resizeMetricTickEls = [];
       }
 
       function resizeMetricNodeKey(cols) {
@@ -29729,58 +29740,78 @@ function attachResizeHandlers() {
         resizeBoundaryGrid.style.gridTemplateColumns = liveGridTemplate(nsp);
       }
 
-      function resizeBoundaryNodePositions(nsp) {
-        const positions = [];
-        let leftCols = 0;
-        for (let i = 0; i < nsp.length - 1; i++) {
-          leftCols += Math.max(0, nsp[i] || 0);
-          // Узел счёта/засечки — правый край gap'а, то есть старт
-          // следующей метрической колонки. Сам grid-gap границы лежит на
-          // 2px левее; поэтому простой border-cover скрывал только
-          // половину засечки. Маску строим именно по node-position.
-          positions.push(leftCols * (metricColumnWidth + gridGapPx));
-        }
-        return positions;
-      }
-
-      function buildResizeTickMask(localHoles) {
-        const erase = 2.75;
-        const holes = localHoles
-          .filter((x) => Number.isFinite(x))
-          .sort((a, b) => a - b)
-          .map((x) => [Math.max(0, x - erase), x + erase])
-          .filter(([a, b]) => b > 0);
-        if (!holes.length) return '';
-        const stops = ['#000 0px'];
-        holes.forEach(([a, b]) => {
-          const start = Math.max(0, a);
-          const end = Math.max(start, b);
-          stops.push(`#000 ${start.toFixed(3)}px`);
-          stops.push(`transparent ${start.toFixed(3)}px`);
-          stops.push(`transparent ${end.toFixed(3)}px`);
-          stops.push(`#000 ${end.toFixed(3)}px`);
-        });
-        stops.push('#000 100%');
-        return `linear-gradient(to right, ${stops.join(', ')})`;
-      }
-
       function updateResizeHiddenTicks(nsp) {
-        if (!resizeMetricTickLayers.length) return;
-        const nodePositions = resizeBoundaryNodePositions(nsp);
-        resizeMetricTickLayers.forEach((entry) => {
-          const localHoles = nodePositions
-            .map((x) => x - entry.left)
-            .filter((x) => x > -4 && x < entry.width + 4);
-          const mask = buildResizeTickMask(localHoles);
-          entry.layers.forEach((layer) => {
-            if (mask) {
-              layer.style.setProperty('-webkit-mask-image', mask);
-              layer.style.setProperty('mask-image', mask);
-            } else {
-              layer.style.removeProperty('-webkit-mask-image');
-              layer.style.removeProperty('mask-image');
+        if (!resizeMetricTickEls.length) return;
+        const edgeKeys = currentResizeEdgeKeys(nsp);
+        resizeMetricTickEls.forEach((tick) => {
+          tick.classList.toggle('is-hidden', edgeKeys.has(tick.dataset.resizeMetricKey || ''));
+        });
+      }
+
+      function buildResizeMetricTickGroups() {
+        const groups = [];
+        const subdiv = Math.round(1 / getResizeStep());
+        let leftCols = 0;
+        let epochTs = null;
+        let epochOwnOffset = 0;
+        let epochUnitScale = 1;
+
+        for (let i = 0; i < sq.events.length; i++) {
+          const ev = sq.events[i];
+          const evTsEff = (ev && ev.timeSig) || parentTs;
+          if (evTsEff !== epochTs) {
+            epochTs = evTsEff;
+            epochOwnOffset = 0;
+            epochUnitScale = parseTimeSig(evTsEff).denominator
+              / (parseTimeSig(parentTs).denominator || 1);
+          }
+
+          const spanBeats = getEventVisualSpanInParentUnits(ev, parentTs);
+          const effectiveSpan = Math.max(1e-6, sSp[i] || spanBeats || 1);
+          const unitScale = epochUnitScale || 1;
+          const ownOff = epochOwnOffset || 0;
+          const ownSpan = spanBeats * unitScale;
+          const colsPerBeatLocal = effectiveSpan / Math.max(1e-6, spanBeats || 1);
+          const specs = [];
+
+          const collect = (div, isStep) => {
+            if (isStep && (div || 1) <= 1) return;
+            const step = 1 / Math.max(1, div || 1);
+            const firstNode = Math.ceil((ownOff - 1e-6) / step) * step;
+            for (let node = firstNode; node < ownOff + ownSpan - 1e-6; node += step) {
+              const j = (node - ownOff) / unitScale;
+              if (j < 1e-6) continue;
+              if (isStep && Math.abs(node - Math.round(node)) < 1e-6) continue;
+              const localCols = j * colsPerBeatLocal;
+              specs.push({
+                localCols,
+                key: resizeMetricNodeKey(leftCols + localCols),
+                isStep,
+              });
             }
-          });
+          };
+
+          collect(1, false);
+          collect(subdiv, true);
+          groups[i] = { spanCols: effectiveSpan, specs };
+          leftCols += effectiveSpan;
+          epochOwnOffset += (ev && ev.span) || 1;
+        }
+
+        return groups;
+      }
+
+      function appendResizeFrozenTicks(cell, tickBox, group) {
+        const spanCols = Math.max(1, Math.round((group && group.spanCols) || 1));
+        const colW = (tickBox.width - Math.max(0, spanCols - 1) * gridGapPx) / Math.max(1, spanCols);
+        ((group && group.specs) || []).forEach((spec) => {
+          const x = spec.localCols * (colW + gridGapPx);
+          const tick = document.createElement('span');
+          tick.className = `resize-frozen-tick${spec.isStep ? ' is-step' : ''}`;
+          tick.dataset.resizeMetricKey = spec.key;
+          tick.style.left = (x - 1).toFixed(3) + 'px';
+          cell.appendChild(tick);
+          resizeMetricTickEls.push(tick);
         });
       }
 
@@ -29863,6 +29894,7 @@ function attachResizeHandlers() {
         overlay.setAttribute('aria-hidden', 'true');
         const biBox = bi.getBoundingClientRect();
         const countKeyGroups = buildResizeMetricCountKeyGroups();
+        const tickGroups = buildResizeMetricTickGroups();
         const overlayOriginLeft = (biBox && Number.isFinite(biBox.left) ? biBox.left : 0) + biBorderLeft;
         const overlayOriginTop = (biBox && Number.isFinite(biBox.top) ? biBox.top : 0) + biBorderTop;
         const applyCellBox = (cell, box, cw) => {
@@ -29885,22 +29917,11 @@ function attachResizeHandlers() {
           const tickCell = document.createElement('div');
           tickCell.className = 'resize-metric-cell resize-tick-cell chord-wrapper';
           const tickBox = applyCellBox(tickCell, box, cw);
-          const tickLayers = [];
-          // Засечки — чистая метрическая сетка. Их фиксируем как снимок
-          // стартового вида: они вообще не двигаются во время drag.
-          ['.chord-ticks', '.chord-ticks-step'].forEach((sel) => {
-            const layer = cw.querySelector(sel);
-            if (layer) {
-              const clone = layer.cloneNode(true);
-              tickLayers.push(clone);
-              tickCell.appendChild(clone);
-            }
-          });
-          resizeMetricTickLayers.push({
-            left: tickBox.left,
-            width: tickBox.width,
-            layers: tickLayers,
-          });
+          // Засечки — frozen-снимок стартовой метрической сетки, но не
+          // gradient-слой: каждая линия отдельным span, чтобы засечка под
+          // текущей границей могла мягко погаснуть/вернуться opacity-
+          // transition'ом без пересборки и без видимой маски.
+          appendResizeFrozenTicks(tickCell, tickBox, tickGroups[i]);
           overlay.appendChild(tickCell);
 
           const countCell = document.createElement('div');

@@ -112,7 +112,7 @@ w.addEventListener('load', async () => {
     evl(`return !!document.querySelector('.resize-metric-overlay .chord-count')`),
     'no metric overlay');
   ok('засечки тоже вынесены в frozen overlay и не едут вместе с ячейкой',
-    evl(`return !!document.querySelector('.resize-metric-overlay .chord-ticks') && !!document.querySelector('.resize-metric-overlay .chord-ticks-step')`),
+    evl(`return !!document.querySelector('.resize-metric-overlay .resize-frozen-tick') && !!document.querySelector('.resize-metric-overlay .resize-frozen-tick.is-step')`),
     'no frozen ticks');
   ok('движущаяся граница перекрывает frozen-засечки, но не счёт',
     evl(`return !!document.querySelector('.resize-boundary-cover')
@@ -126,11 +126,10 @@ w.addEventListener('load', async () => {
     /\.resize-metric-overlay \.resize-count-cell \.chord-count \{[\s\S]*transition:\s*transform 0\.12s/.test(fs.readFileSync(file, 'utf8'))
       && /\.resize-metric-overlay \.resize-count-cell \.chord-count\.is-edge \{[\s\S]*transform:\s*translateX\(2px\)/.test(fs.readFileSync(file, 'utf8')),
     'no smooth transform edge offset');
-  ok('засечка под текущей границей скрывается маской в реальном времени',
-    /function updateResizeHiddenTicks\(nsp\)/.test(fs.readFileSync(file, 'utf8'))
-      && /-webkit-mask-image/.test(fs.readFileSync(file, 'utf8'))
-      && /updateResizeHiddenTicks\(nsp\)/.test(fs.readFileSync(file, 'utf8')),
-    'no tick mask');
+  ok('засечка под текущей границей плавно скрывается в реальном времени',
+    evl(`return !!document.querySelector('.resize-frozen-tick.is-hidden')`)
+      && /\.resize-metric-overlay \.resize-frozen-tick \{[\s\S]*transition:\s*opacity 0\.14s/.test(fs.readFileSync(file, 'utf8')),
+    'no fading hidden tick');
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,
     'wrapper node changed');
