@@ -122,6 +122,10 @@ w.addEventListener('load', async () => {
   ok('счёт остаётся на стартовых координатах, но edge-отступ следует текущей границе',
     evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
     evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`));
+  ok('edge-отступ счёта во время resize плавный и transform-only',
+    /\.resize-metric-overlay \.resize-count-cell \.chord-count \{[\s\S]*transition:\s*transform 0\.12s/.test(fs.readFileSync(file, 'utf8'))
+      && /\.resize-metric-overlay \.resize-count-cell \.chord-count\.is-edge \{[\s\S]*transform:\s*translateX\(2px\)/.test(fs.readFileSync(file, 'utf8')),
+    'no smooth transform edge offset');
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,
     'wrapper node changed');
