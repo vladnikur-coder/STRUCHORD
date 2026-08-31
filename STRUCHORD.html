@@ -30347,9 +30347,15 @@ function attachSquareResizeHandlers() {
             const clone = item.cw.cloneNode(true);
             clone.className = `${item.cw.className} square-edge-freeze-cell`;
             clone.style.gridColumn = '';
-            clone.style.left = Math.max(0, rect.left - originLeft).toFixed(3) + 'px';
+            // При shrink frozen-копия закрывает серую область удаляемого
+            // такта. Даем ей небольшой нахлёст вправо/влево на ширину gap:
+            // иначе на субпиксельных ширинах иногда простреливает серый
+            // фон между будущей структурой и старой удаляемой ячейкой.
+            const overscan = opts.mode === 'removed' ? SQUARE_GRID_GAP : 0;
+            const safeLeft = Math.max(0, rect.left - originLeft - overscan);
+            clone.style.left = safeLeft.toFixed(3) + 'px';
             clone.style.top = Math.max(0, rect.top - originTop).toFixed(3) + 'px';
-            clone.style.width = Math.max(0, rect.width).toFixed(3) + 'px';
+            clone.style.width = Math.max(0, rect.width + overscan * 2).toFixed(3) + 'px';
             clone.style.height = Math.max(0, rect.height).toFixed(3) + 'px';
             clone.querySelectorAll('.chord-buttons,.resize-handle,.square-resize-handle').forEach((el) => el.remove());
             overlay.appendChild(clone);
@@ -30370,15 +30376,31 @@ function attachSquareResizeHandlers() {
 
         function settleSquareEdgeFreezeOverlay(overlay) {
           if (!overlay) return;
-          squareEdgeFreezeTimer = setTimeout(() => {
+          let done = false;
+          const finish = () => {
+            if (done) return;
+            done = true;
+            sqInner.removeEventListener('transitionend', onTransitionEnd);
             if (!overlay.isConnected) return;
             overlay.classList.add('is-hiding');
             squareEdgeFreezeTimer = setTimeout(() => {
               if (squareEdgeFreezeOverlay === overlay) squareEdgeFreezeOverlay = null;
               overlay.remove();
               squareEdgeFreezeTimer = 0;
-            }, 90);
-          }, 170);
+            }, 110);
+          };
+          const onTransitionEnd = (ev) => {
+            if (ev.target !== sqInner || ev.propertyName !== 'width') return;
+            // Не убираем overlay в тот же момент, когда ширина закончила
+            // ехать: даём браузеру один спокойный кадр, чтобы не мигнула
+            // серая область при быстрых/прерванных жестах.
+            setTimeout(finish, 40);
+          };
+          sqInner.addEventListener('transitionend', onTransitionEnd);
+          // fallback на случай, если transitionend не придёт (jsdom,
+          // отключенные анимации, быстрый interrupt). Значительно дольше
+          // самой width-анимации 160мс, но визуально overlay уже clipped.
+          squareEdgeFreezeTimer = setTimeout(finish, 320);
         }
 
         function renderSquareEdgePreview(beats, fromBeats) {
