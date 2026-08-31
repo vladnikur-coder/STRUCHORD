@@ -229,18 +229,24 @@ w.addEventListener('load', async () => {
     evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)') === '4:16',
     evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)'));
   await sleep(35);
-  ok('правый край перешёл в smooth snapped preview будущей структуры',
+  ok('правый край начал shrink как crop старой структуры без стягивания тактов',
     evl(`return document.querySelector('.square-inner').classList.contains('is-square-edge-resizing')`)
-      && /^repeat\(12,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`))
+      && /^repeat\(16,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`))
       && /px\)\)$/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
     evl(`return document.querySelector('.square-inner').className + ' | ' + document.querySelector('.square-inner').style.gridTemplateColumns`));
   ok('на pointermove правого края модель не мутирует и полный render не нужен',
     evl('return sections[0].squares[0].events.length') === 4
       && evl('return window.__b31RequestRenderCount') === 0,
     evl('return "events=" + sections[0].squares[0].events.length + " renders=" + window.__b31RequestRenderCount'));
-  ok('до отпускания DOM показывает будущую snapped-структуру без записи модели',
+  ok('во время движения края старые такты не пересобраны и не стянуты',
+    evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`) === 4
+      && evl('return window.__b31SquareEdgePreviewRenderCount') === 0,
+    evl(`return "wrappers=" + document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length + " renders=" + window.__b31SquareEdgePreviewRenderCount`));
+  await sleep(180);
+  ok('после доезда края DOM показывает будущую snapped-структуру без записи модели',
     evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`) === 3
-      && evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="3"]')`) === null,
+      && evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="3"]')`) === null
+      && /^repeat\(12,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
     'right edge preview did not switch to future structure');
   ok('preview правого края строится один раз на snapped-переход',
     evl('return window.__b31SquareEdgePreviewRenderCount') === 1

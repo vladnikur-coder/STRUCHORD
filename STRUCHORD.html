@@ -30260,9 +30260,34 @@ function attachSquareResizeHandlers() {
           controls.style.right = `calc((100% - ${percent}%) - 49px)`;
         }
 
-        function enableSquareEdgePreviewTransition() {
+        function fixedGridTemplateForEvents(events, contentWidth) {
+          const distribution = distributeVisualSpans(events, parentTs);
+          const totalCols = Math.max(1, distribution.totalCols || 1);
+          const fixedColWidth = Math.max(
+            1e-6,
+            (contentWidth - Math.max(0, totalCols - 1) * SQUARE_GRID_GAP) / totalCols
+          );
+          return { distribution, totalCols, template: `repeat(${totalCols}, minmax(0, ${fixedColWidth.toFixed(6)}px))` };
+        }
+
+        let previewDomBeats = startBeats;
+        let previewDomEvents = startEvents;
+        let squareEdgeSwapTimer = 0;
+
+        function clearSquareEdgeSwapTimer() {
+          if (squareEdgeSwapTimer) {
+            clearTimeout(squareEdgeSwapTimer);
+            squareEdgeSwapTimer = 0;
+          }
+        }
+
+        function enableSquareEdgePreviewTransition(fromBeats) {
           if (squareEdgePreviewActive) return;
           squareEdgePreviewActive = true;
+          const fixed = fixedGridTemplateForEvents(previewDomEvents, contentWidthForBeats(previewDomBeats));
+          sqInner.style.gridTemplateColumns = fixed.template;
+          sqInner.style.width = widthPercentForBeats(fromBeats) + '%';
+          setControlsForPercent(widthPercentForBeats(fromBeats));
           sqInner.classList.add('is-square-edge-resizing');
           if (controls) controls.style.transition = 'right 0.16s cubic-bezier(0.2, 0.75, 0.18, 1)';
           // Фиксируем исходное computed-состояние в отдельном кадре: первый
@@ -30271,36 +30296,54 @@ function attachSquareResizeHandlers() {
           void sqInner.offsetWidth;
         }
 
-        function renderSquareEdgePreview(beats) {
-          enableSquareEdgePreviewTransition();
+        function renderSquareEdgePreviewStructure(beats) {
           const eventsCopy = buildPreviewEventsForBeats(beats);
           const previewSq = { ...sq, events: eventsCopy };
-          const distribution = distributeVisualSpans(eventsCopy, parentTs);
-          const totalCols = Math.max(1, distribution.totalCols || 1);
-          const percent = widthPercentForBeats(beats);
-          const targetContentWidth = contentWidthForBeats(beats);
-          const fixedColWidth = Math.max(
-            1e-6,
-            (targetContentWidth - Math.max(0, totalCols - 1) * SQUARE_GRID_GAP) / totalCols
-          );
-
-          // Правый край — не crop старого DOM. На snapped-переходе локально
-          // показываем будущую структуру квадрата (как старый preview), но
-          // сами оставшиеся такты не должны визуально стягиваться. Поэтому
-          // будущую сетку кладём в фиксированные px-колонки финальной ширины:
-          // первый/второй/третий такты остаются там же, плавно едет только
-          // правый край и область добавления/удаления.
+          const targetWidth = contentWidthForBeats(beats);
+          const fixed = fixedGridTemplateForEvents(eventsCopy, targetWidth);
           const previewPrefix = `${sec.id}:${sq.id}:`;
           for (const key of Array.from(eventStrumPreviewStepEls.keys())) {
             if (key.startsWith(previewPrefix)) eventStrumPreviewStepEls.delete(key);
           }
-          sqInner.innerHTML = buildSquareInnerEventsHtml(sec, previewSq, distribution);
-          sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, ${fixedColWidth.toFixed(6)}px))`;
-          sqInner.style.width = percent + '%';
-          setControlsForPercent(percent);
+          sqInner.innerHTML = buildSquareInnerEventsHtml(sec, previewSq, fixed.distribution);
+          sqInner.style.gridTemplateColumns = fixed.template;
+          sqInner.style.width = widthPercentForBeats(beats) + '%';
+          setControlsForPercent(widthPercentForBeats(beats));
           observeChordDisplays(sqInner);
           refreshChordWrapperRects();
+          previewDomBeats = beats;
+          previewDomEvents = eventsCopy;
           window.__b31SquareEdgePreviewRenderCount = (window.__b31SquareEdgePreviewRenderCount || 0) + 1;
+        }
+
+        function renderSquareEdgePreview(beats, fromBeats) {
+          enableSquareEdgePreviewTransition(fromBeats);
+          clearSquareEdgeSwapTimer();
+          const percent = widthPercentForBeats(beats);
+
+          if (beats > previewDomBeats) {
+            // Расширение — зеркально сжатию: сначала подготавливаем будущую
+            // структуру за правым краем, затем плавно открываем её шириной.
+            renderSquareEdgePreviewStructure(beats);
+          } else if (beats < previewDomBeats) {
+            // Сжатие: оставшиеся такты не должны выглядеть стянутыми.
+            // Поэтому во время хода края держим текущую структуру в px-сетке
+            // и только обрезаем правую часть. Когда край доехал, локально
+            // подменяем DOM на будущую структуру — без видимого скачка,
+            // потому что удалённая область уже скрыта.
+            const fixed = fixedGridTemplateForEvents(previewDomEvents, contentWidthForBeats(previewDomBeats));
+            sqInner.style.gridTemplateColumns = fixed.template;
+            sqInner.style.width = percent + '%';
+            setControlsForPercent(percent);
+            squareEdgeSwapTimer = setTimeout(() => {
+              squareEdgeSwapTimer = 0;
+              if (!squareEdgePreviewActive || lastRoundedBeats !== beats) return;
+              renderSquareEdgePreviewStructure(beats);
+            }, 170);
+          } else {
+            sqInner.style.width = percent + '%';
+            setControlsForPercent(percent);
+          }
         }
 
         function calcRoundedBeats(clientX) {
@@ -30317,13 +30360,15 @@ function attachSquareResizeHandlers() {
         function applySquareEdgePreviewAt(clientX, force) {
           const rounded = calcRoundedBeats(clientX);
           if (!force && rounded === lastRoundedBeats) return false;
+          const fromBeats = lastRoundedBeats;
           lastRoundedBeats = rounded;
-          renderSquareEdgePreview(rounded);
+          renderSquareEdgePreview(rounded, fromBeats);
           window.__b31SquareEdgePreviewFrameCount = (window.__b31SquareEdgePreviewFrameCount || 0) + 1;
           return true;
         }
 
         function cleanupSquareEdgePreview() {
+          clearSquareEdgeSwapTimer();
           sqInner.classList.remove('is-square-edge-resizing');
           if (controls) controls.style.transition = '';
         }
