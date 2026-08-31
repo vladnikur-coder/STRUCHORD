@@ -126,6 +126,11 @@ w.addEventListener('load', async () => {
     /\.resize-metric-overlay \.resize-count-cell \.chord-count \{[\s\S]*transition:\s*transform 0\.12s/.test(fs.readFileSync(file, 'utf8'))
       && /\.resize-metric-overlay \.resize-count-cell \.chord-count\.is-edge \{[\s\S]*transform:\s*translateX\(2px\)/.test(fs.readFileSync(file, 'utf8')),
     'no smooth transform edge offset');
+  ok('засечка под текущей границей скрывается маской в реальном времени',
+    /function updateResizeHiddenTicks\(nsp\)/.test(fs.readFileSync(file, 'utf8'))
+      && /-webkit-mask-image/.test(fs.readFileSync(file, 'utf8'))
+      && /updateResizeHiddenTicks\(nsp\)/.test(fs.readFileSync(file, 'utf8')),
+    'no tick mask');
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,
     'wrapper node changed');

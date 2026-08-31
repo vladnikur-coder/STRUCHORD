@@ -3865,6 +3865,13 @@ body.is-zooming .squares-list {
 .resize-metric-overlay .chord-counts {
   opacity: 1;
 }
+.resize-metric-overlay .resize-tick-cell .chord-ticks,
+.resize-metric-overlay .resize-tick-cell .chord-ticks-step {
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+}
 /* Во время snapped-resize координаты счёта frozen, но edge-отступ должен
    переключаться у текущей границы. Делаем этот микросдвиг compositor-only:
    не margin-left, а transform, чтобы переход не щёлкал и не трогал layout. */
@@ -29586,6 +29593,7 @@ function attachResizeHandlers() {
       let resizeMetricOverlay = null;
       let resizeBoundaryGrid = null;
       let resizeMetricCountEls = [];
+      let resizeMetricTickLayers = [];
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
@@ -29686,6 +29694,7 @@ function attachResizeHandlers() {
         }
         resizeBoundaryGrid = null;
         resizeMetricCountEls = [];
+        resizeMetricTickLayers = [];
       }
 
       function resizeMetricNodeKey(cols) {
@@ -29718,6 +29727,61 @@ function attachResizeHandlers() {
         // перекрывают frozen-засечки, без ручной геометрии и без лагов от
         // transform-полосок, которые расходились с grid-gap.
         resizeBoundaryGrid.style.gridTemplateColumns = liveGridTemplate(nsp);
+      }
+
+      function resizeBoundaryNodePositions(nsp) {
+        const positions = [];
+        let leftCols = 0;
+        for (let i = 0; i < nsp.length - 1; i++) {
+          leftCols += Math.max(0, nsp[i] || 0);
+          // Узел счёта/засечки — правый край gap'а, то есть старт
+          // следующей метрической колонки. Сам grid-gap границы лежит на
+          // 2px левее; поэтому простой border-cover скрывал только
+          // половину засечки. Маску строим именно по node-position.
+          positions.push(leftCols * (metricColumnWidth + gridGapPx));
+        }
+        return positions;
+      }
+
+      function buildResizeTickMask(localHoles) {
+        const erase = 2.75;
+        const holes = localHoles
+          .filter((x) => Number.isFinite(x))
+          .sort((a, b) => a - b)
+          .map((x) => [Math.max(0, x - erase), x + erase])
+          .filter(([a, b]) => b > 0);
+        if (!holes.length) return '';
+        const stops = ['#000 0px'];
+        holes.forEach(([a, b]) => {
+          const start = Math.max(0, a);
+          const end = Math.max(start, b);
+          stops.push(`#000 ${start.toFixed(3)}px`);
+          stops.push(`transparent ${start.toFixed(3)}px`);
+          stops.push(`transparent ${end.toFixed(3)}px`);
+          stops.push(`#000 ${end.toFixed(3)}px`);
+        });
+        stops.push('#000 100%');
+        return `linear-gradient(to right, ${stops.join(', ')})`;
+      }
+
+      function updateResizeHiddenTicks(nsp) {
+        if (!resizeMetricTickLayers.length) return;
+        const nodePositions = resizeBoundaryNodePositions(nsp);
+        resizeMetricTickLayers.forEach((entry) => {
+          const localHoles = nodePositions
+            .map((x) => x - entry.left)
+            .filter((x) => x > -4 && x < entry.width + 4);
+          const mask = buildResizeTickMask(localHoles);
+          entry.layers.forEach((layer) => {
+            if (mask) {
+              layer.style.setProperty('-webkit-mask-image', mask);
+              layer.style.setProperty('mask-image', mask);
+            } else {
+              layer.style.removeProperty('-webkit-mask-image');
+              layer.style.removeProperty('mask-image');
+            }
+          });
+        });
       }
 
       function appendResizeBoundaryGrid(overlay) {
@@ -29806,21 +29870,36 @@ function attachResizeHandlers() {
           const topPx = (box && Number.isFinite(box.top) ? box.top : 0) - overlayOriginTop;
           const widthPx = box && box.width ? box.width : cw.offsetWidth;
           const heightPx = box && box.height ? box.height : cw.offsetHeight;
-          cell.style.left = Math.max(0, leftPx).toFixed(3) + 'px';
-          cell.style.top = Math.max(0, topPx).toFixed(3) + 'px';
-          if (widthPx) cell.style.width = Math.max(0, widthPx).toFixed(3) + 'px';
-          if (heightPx) cell.style.height = Math.max(0, heightPx).toFixed(3) + 'px';
+          const safeLeft = Math.max(0, leftPx);
+          const safeTop = Math.max(0, topPx);
+          const safeWidth = Math.max(0, widthPx || 0);
+          const safeHeight = Math.max(0, heightPx || 0);
+          cell.style.left = safeLeft.toFixed(3) + 'px';
+          cell.style.top = safeTop.toFixed(3) + 'px';
+          if (widthPx) cell.style.width = safeWidth.toFixed(3) + 'px';
+          if (heightPx) cell.style.height = safeHeight.toFixed(3) + 'px';
+          return { left: safeLeft, width: safeWidth, top: safeTop, height: safeHeight };
         };
         wrappers.forEach((cw, i) => {
           const box = cw.getBoundingClientRect();
           const tickCell = document.createElement('div');
           tickCell.className = 'resize-metric-cell resize-tick-cell chord-wrapper';
-          applyCellBox(tickCell, box, cw);
+          const tickBox = applyCellBox(tickCell, box, cw);
+          const tickLayers = [];
           // Засечки — чистая метрическая сетка. Их фиксируем как снимок
           // стартового вида: они вообще не двигаются во время drag.
           ['.chord-ticks', '.chord-ticks-step'].forEach((sel) => {
             const layer = cw.querySelector(sel);
-            if (layer) tickCell.appendChild(layer.cloneNode(true));
+            if (layer) {
+              const clone = layer.cloneNode(true);
+              tickLayers.push(clone);
+              tickCell.appendChild(clone);
+            }
+          });
+          resizeMetricTickLayers.push({
+            left: tickBox.left,
+            width: tickBox.width,
+            layers: tickLayers,
           });
           overlay.appendChild(tickCell);
 
@@ -29838,6 +29917,7 @@ function attachResizeHandlers() {
         appendResizeBoundaryGrid(overlay);
         bi.appendChild(overlay);
         resizeMetricOverlay = overlay;
+        updateResizeHiddenTicks(sSp);
       }
 
       function ensureLiveGrid() {
@@ -29937,6 +30017,7 @@ function attachResizeHandlers() {
         // получает тот же маленький отступ вправо, что и обычный счёт у
         // края ячейки, без переезда всей метрической сетки.
         updateResizeBoundaryCovers(nsp);
+        updateResizeHiddenTicks(nsp);
         updateResizeMetricCountEdges(nsp);
         window.__b31ResizePreviewFrameCount = (window.__b31ResizePreviewFrameCount || 0) + 1;
         return true;
