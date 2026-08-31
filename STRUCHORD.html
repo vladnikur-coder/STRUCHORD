@@ -29553,7 +29553,20 @@ function attachResizeHandlers() {
       const wrappers = Array.from(bi.querySelectorAll('.chord-wrapper'));
       const biRect = bi.getBoundingClientRect();
       const tw = Math.max(1, biRect.width || bi.offsetWidth || tc * 24);
-      const gs = tw / tc; // ширина одной визуальной колонки
+      const biStyle = getComputedStyle(bi);
+      const biBorderLeft = parseFloat(biStyle.borderLeftWidth) || 0;
+      const biBorderRight = parseFloat(biStyle.borderRightWidth) || 0;
+      const biBorderTop = parseFloat(biStyle.borderTopWidth) || 0;
+      const gridGapPx = typeof SQUARE_GRID_GAP === 'number' ? SQUARE_GRID_GAP : 2;
+      const gridContentWidth = Math.max(
+        1,
+        bi.clientWidth || (tw - biBorderLeft - biBorderRight) || tw
+      );
+      const metricColumnWidth = Math.max(
+        1e-6,
+        (gridContentWidth - Math.max(0, tc - 1) * gridGapPx) / Math.max(1, tc)
+      );
+      const gs = tw / tc; // ширина одного визуального шага вместе с gap
 
       const activeWrapper = wrappers[ei] || null;
       const neighborWrapper = wrappers[ei + 1] || null;
@@ -29639,7 +29652,17 @@ function attachResizeHandlers() {
 
       function liveGridTemplate(nsp) {
         return nsp
-          .map((v) => `minmax(0, ${Math.max(0.000001, Math.round(v * 1e6) / 1e6)}fr)`)
+          .map((v) => {
+            // Важно: значения fr здесь НЕ равны числу долей. Трек ячейки
+            // должен включать внутренние gap'ы тех метрических колонок,
+            // которые он накрывает, иначе 4-track grid постепенно уплывает
+            // от исходной repeat(tc)-сетки: к концу квадрата граница уже
+            // не совпадает с frozen-засечкой. Вес = ширина span-колонок в
+            // старой метрической сетке без межъячеечного gap после ячейки.
+            const span = Math.max(1e-6, Math.round((v || 0) * 1e6) / 1e6);
+            const metricWidth = span * metricColumnWidth + Math.max(0, span - 1) * gridGapPx;
+            return `minmax(0, ${Math.max(0.000001, Math.round(metricWidth * 1e6) / 1e6)}fr)`;
+          })
           .join(' ');
       }
 
@@ -29685,11 +29708,11 @@ function attachResizeHandlers() {
         overlay.className = 'resize-metric-overlay';
         overlay.setAttribute('aria-hidden', 'true');
         const biBox = bi.getBoundingClientRect();
+        const overlayOriginLeft = (biBox && Number.isFinite(biBox.left) ? biBox.left : 0) + biBorderLeft;
+        const overlayOriginTop = (biBox && Number.isFinite(biBox.top) ? biBox.top : 0) + biBorderTop;
         const applyCellBox = (cell, box, cw) => {
-          const leftPx = (box && Number.isFinite(box.left) ? box.left : 0)
-            - (biBox && Number.isFinite(biBox.left) ? biBox.left : 0);
-          const topPx = (box && Number.isFinite(box.top) ? box.top : 0)
-            - (biBox && Number.isFinite(biBox.top) ? biBox.top : 0);
+          const leftPx = (box && Number.isFinite(box.left) ? box.left : 0) - overlayOriginLeft;
+          const topPx = (box && Number.isFinite(box.top) ? box.top : 0) - overlayOriginTop;
           const widthPx = box && box.width ? box.width : cw.offsetWidth;
           const heightPx = box && box.height ? box.height : cw.offsetHeight;
           cell.style.left = Math.max(0, leftPx).toFixed(3) + 'px';

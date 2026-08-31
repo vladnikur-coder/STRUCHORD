@@ -101,8 +101,9 @@ w.addEventListener('load', async () => {
     evl('return sections[0].squares[0].events.map((e) => e.span).join(",")'));
   await sleep(35);
   const liveTemplate = evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`);
-  ok('на pointermove включается live-grid из fr-колонок snapped-ячеек',
-    liveTemplate.includes('3.5fr') && liveTemplate.includes('0.5fr') && !liveTemplate.startsWith('repeat('),
+  ok('на pointermove включается live-grid из fr-треков snapped-ячеек',
+    /^minmax\(0, [0-9.]+fr\) minmax\(0, [0-9.]+fr\)/.test(liveTemplate)
+      && !liveTemplate.startsWith('repeat('),
     liveTemplate);
   ok('snap-переходы анимируются grid-template-columns',
     evl(`return document.querySelector('.square-inner').classList.contains('is-snap-resize-animated')`),
