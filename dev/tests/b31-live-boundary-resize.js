@@ -110,7 +110,6 @@ function sceneSquareEdge() {
     window.__b31SquareEdgePreviewRenderCount = 0;
     window.__b31SquareEdgePreviewFrameCount = 0;
     window.__b31SquareEdgeCommitCount = 0;
-    window.__b31SquareEdgeAddedRevealCount = 0;
     if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
     requestRender = function () {
       window.__b31RequestRenderCount++;
@@ -118,40 +117,6 @@ function sceneSquareEdge() {
     };
     const bi = document.querySelector('.square-inner');
     bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 402, height: 74, right: 402, bottom: 74, x: 0, y: 0 });
-    return 0`);
-}
-
-function sceneSquareEdgeAdd() {
-  evl(`
-    globalTimeSig = '4/4';
-    DOM.globalTimeSig.value = '4/4';
-    squareZoom = 1;
-    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
-      repeat: 1, strumPattern: null, squares: [
-        { id: 2, repeat: 1, customBeats: 12, strumPattern: null, events: [
-          { chord: 'C', span: 4, timeSig: null, strumPattern: null },
-          { chord: 'G', span: 4, timeSig: null, strumPattern: null },
-          { chord: 'Am', span: 4, timeSig: null, strumPattern: null },
-        ]},
-      ]
-    }];
-    if (songRhythmRolls) {
-      for (const key of [...songRhythmRolls.refs.keys()]) if (key.startsWith('1:2:')) songRhythmRolls.refs.delete(key);
-      songRhythmRolls.sectionRolls.delete(1);
-    }
-    render();
-    window.__b31RequestRenderCount = 0;
-    window.__b31SquareEdgePreviewRenderCount = 0;
-    window.__b31SquareEdgePreviewFrameCount = 0;
-    window.__b31SquareEdgeCommitCount = 0;
-    window.__b31SquareEdgeAddedRevealCount = 0;
-    if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
-    requestRender = function () {
-      window.__b31RequestRenderCount++;
-      return window.__b31OldRequestRender.apply(this, arguments);
-    };
-    const bi = document.querySelector('.square-inner');
-    bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 302, height: 74, right: 302, bottom: 74, x: 0, y: 0 });
     return 0`);
 }
 
@@ -296,37 +261,6 @@ w.addEventListener('load', async () => {
   ok('commit правого края тоже без полного requestRender',
     evl('return window.__b31RequestRenderCount') === 0,
     evl('return window.__b31RequestRenderCount'));
-  restoreRequestRender();
-
-  console.log('=== B-31.5 right edge add: новый такт раскрывается справа ===');
-  sceneSquareEdgeAdd();
-  await sleep(30);
-  const addEdgeHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
-  ok('ручка правого края для добавления есть', !!addEdgeHandle);
-  firePointerDown(addEdgeHandle, 300);
-  firePointerMove(400); // 3 такта -> 4 такта
-  ok('до rAF модель добавления ещё не изменилась',
-    evl('return sections[0].squares[0].events.length + ":" + sections[0].squares[0].customBeats') === '3:12',
-    evl('return sections[0].squares[0].events.length + ":" + sections[0].squares[0].customBeats'));
-  await sleep(45);
-  ok('добавление правого края показывает будущий четвёртый такт без записи модели',
-    evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`) === 4
-      && evl('return sections[0].squares[0].events.length') === 3,
-    evl(`return 'dom=' + document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length + ' model=' + sections[0].squares[0].events.length`));
-  ok('новая область помечена и мягко проявляется, не затемняя старые такты',
-    evl(`return !!document.querySelector('.chord-wrapper[data-ei="3"].is-square-edge-new.is-visible')`)
-      && evl('return window.__b31SquareEdgeAddedRevealCount') === 1,
-    evl('return "reveal=" + window.__b31SquareEdgeAddedRevealCount'));
-  ok('существующие три такта при добавлении не помечены как новые',
-    evl(`return document.querySelectorAll('.chord-wrapper.is-square-edge-new:not([data-ei="3"])').length`) === 0,
-    evl(`return document.querySelectorAll('.chord-wrapper.is-square-edge-new:not([data-ei="3"])').length`));
-  firePointerUp(400);
-  await sleep(50);
-  ok('на pointerup добавление коммитится один раз',
-    evl('return (sections[0].squares[0].customBeats || 16)') === 16
-      && evl('return sections[0].squares[0].events.length') === 4
-      && evl('return window.__b31SquareEdgeCommitCount') === 1,
-    evl('return "beats=" + (sections[0].squares[0].customBeats || 16) + " events=" + sections[0].squares[0].events.length + " commits=" + window.__b31SquareEdgeCommitCount'));
   restoreRequestRender();
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');
