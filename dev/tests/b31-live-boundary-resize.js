@@ -223,6 +223,7 @@ w.addEventListener('load', async () => {
   await sleep(30);
   const edgeHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
   ok('ручка правого края есть', !!edgeHandle);
+  const edgeLastNodeStable = evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="3"]')`);
   firePointerDown(edgeHandle, 400);
   firePointerMove(300); // 4 такта -> 3 такта
   ok('до rAF модель правого края ещё не изменилась',
@@ -237,6 +238,10 @@ w.addEventListener('load', async () => {
     evl('return sections[0].squares[0].events.length') === 4
       && evl('return window.__b31RequestRenderCount') === 0,
     evl('return "events=" + sections[0].squares[0].events.length + " renders=" + window.__b31RequestRenderCount'));
+  ok('до отпускания правый край не пересобирает ячейки и не удаляет последнюю',
+    evl(`return document.querySelectorAll('.square[data-square="2"] .chord-wrapper').length`) === 4
+      && evl(`return document.querySelector('.square[data-square="2"] .chord-wrapper[data-ei="3"]')`) === edgeLastNodeStable,
+    'right edge DOM was rebuilt before pointerup');
   ok('staged preview правого края строится один раз',
     evl('return window.__b31SquareEdgeStageCount') === 1
       && evl('return window.__b31SquareEdgePreviewFrameCount') === 1,

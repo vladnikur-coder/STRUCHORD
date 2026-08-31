@@ -30210,43 +30210,6 @@ function attachSquareResizeHandlers() {
         let squareResizeRAF = 0;
         let squareEdgePreviewActive = false;
 
-        function buildPreviewEventsForBeats(beats) {
-          const totalBeats = beats;
-          const eventsCopy = startEvents.map((ev) => ({ ...ev }));
-          let currentSum = eventsCopy.reduce((sum, ev) => sum + getEventSpanInParentUnits(ev, parentTs), 0);
-
-          while (currentSum > totalBeats && eventsCopy.length > 0) {
-            const last = eventsCopy[eventsCopy.length - 1];
-            const lastParentUnits = getEventSpanInParentUnits(last, parentTs);
-            const excessParentUnits = currentSum - totalBeats;
-            if (lastParentUnits <= excessParentUnits) {
-              currentSum -= lastParentUnits;
-              eventsCopy.pop();
-            } else {
-              const ownTs = getEventOwnTimeSig(last, parentTs);
-              last.span -= convertSpanBetweenTimeSigs(excessParentUnits, parentTs, ownTs);
-              currentSum -= excessParentUnits;
-              break;
-            }
-          }
-
-          while (currentSum < totalBeats) {
-            const diff = totalBeats - currentSum;
-            if (diff >= beatsPerBar) {
-              eventsCopy.push({ chord: '', span: beatsPerBar, timeSig: null, strumPattern: null, fingering: null });
-              currentSum += beatsPerBar;
-            } else {
-              eventsCopy.push({ chord: '', span: 1, timeSig: null, strumPattern: null, fingering: null });
-              currentSum += 1;
-            }
-          }
-
-          eventsCopy.forEach((ev) => {
-            if (ev.span < 1) ev.span = 1;
-          });
-          return eventsCopy;
-        }
-
         function contentWidthForBeats(beats) {
           return Math.max(minContentWidth, Math.min(maxContentWidth, oneBeatWidth * beats));
         }
@@ -30260,32 +30223,21 @@ function attachSquareResizeHandlers() {
         function stageSquareEdgePreview() {
           if (squareEdgePreviewActive) return;
           squareEdgePreviewActive = true;
-          const previewEvents = buildPreviewEventsForBeats(maxBeats);
-          const previewSq = { ...sq, events: previewEvents };
-          const distribution = distributeVisualSpans(previewEvents, parentTs);
+          const distribution = distributeVisualSpans(startEvents, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
           const fixedColWidth = Math.max(
             1e-6,
-            (maxContentWidth - Math.max(0, totalCols - 1) * gridGapPx) / totalCols
+            (startContentWidth - Math.max(0, totalCols - 1) * gridGapPx) / totalCols
           );
 
           sqInner.classList.remove('is-square-edge-resizing');
           sqInner.style.width = startContentWidth.toFixed(3) + 'px';
-          // Внутреннюю метрическую сетку фиксируем на максимальную длину.
-          // При сжатии двигается только правый край контейнера, а содержимое
-          // не сжимается: квадрат выглядит как аккуратная обрезка. При
-          // расширении заранее подготовленные пустые ячейки просто
-          // открываются из-под overflow:hidden. Pointermove дальше пишет
-          // только width, без innerHTML.
+          // Правый край не должен менять содержимое квадрата до отпускания:
+          // фиксируем ТЕКУЩУЮ метрическую сетку в пикселях и дальше двигаем
+          // только width контейнера. Поэтому сжатие выглядит как crop, а
+          // расширение — как открытие пустой области справа; новые/снятые
+          // ячейки появятся только после commit на pointerup.
           sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, ${fixedColWidth.toFixed(6)}px))`;
-          sqInner.innerHTML = buildSquareInnerEventsHtml(sec, previewSq, distribution);
-          const previewPrefix = `${sec.id}:${sq.id}:`;
-          for (const key of Array.from(eventStrumPreviewStepEls.keys())) {
-            if (key.startsWith(previewPrefix)) eventStrumPreviewStepEls.delete(key);
-          }
-          renderEventStrumPreviews(sqEl);
-          observeChordDisplays(sqInner);
-          refreshChordWrapperRects();
           if (controls) {
             controls.style.transition = 'right 0.16s cubic-bezier(0.2, 0.75, 0.18, 1)';
             setControlsForBeats(startBeats);
