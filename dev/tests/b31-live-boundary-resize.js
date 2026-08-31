@@ -4,7 +4,7 @@
 // существующий resize остаётся дискретным и привязанным к шагам сетки,
 // но переходы между snapped-состояниями не должны быть резкими скачками.
 // Pointermove не мутирует модель, не делает reslice/settle и не
-// пересобирает основной square-inner; счёт/засечки во время drag остаются снимком стартового вида; модель фиксируется один раз на pointerup.
+// пересобирает основной square-inner; счёт/засечки во время drag остаются на стартовых координатах, а edge-отступ счёта следует текущей snapped-границе; модель фиксируется один раз на pointerup.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const file = process.argv[2] || __dirname + '/../../STRUCHORD.html';
@@ -119,8 +119,8 @@ w.addEventListener('load', async () => {
       && getComputedStyle(document.querySelector('.resize-boundary-grid')).zIndex === '2'
       && getComputedStyle(document.querySelector('.resize-count-cell')).zIndex === '3'`),
     'no boundary cover layer');
-  ok('счёт во время drag остаётся снимком стартового вида',
-    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|3',
+  ok('счёт остаётся на стартовых координатах, но edge-отступ следует текущей границе',
+    evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`) === '1|и',
     evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`));
   ok('ячейки живо переставлены без пересоздания wrapper-узлов',
     evl(`return document.querySelector('.chord-wrapper[data-ei="0"]')`) === firstNodeStable,

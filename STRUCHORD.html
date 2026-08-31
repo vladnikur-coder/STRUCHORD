@@ -29573,6 +29573,7 @@ function attachResizeHandlers() {
       let liveGridActive = false;
       let resizeMetricOverlay = null;
       let resizeBoundaryGrid = null;
+      let resizeMetricCountEls = [];
 
       // B-15: на старте протяжки ритм уезжает в подсказку над счётом
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
@@ -29672,6 +29673,29 @@ function attachResizeHandlers() {
           resizeMetricOverlay = null;
         }
         resizeBoundaryGrid = null;
+        resizeMetricCountEls = [];
+      }
+
+      function resizeMetricNodeKey(cols) {
+        return String(Math.round((cols || 0) * 1e6));
+      }
+
+      function currentResizeEdgeKeys(nsp) {
+        const edgeKeys = new Set();
+        let leftCols = 0;
+        for (let i = 0; i < nsp.length; i++) {
+          edgeKeys.add(resizeMetricNodeKey(leftCols));
+          leftCols += Math.max(0, nsp[i] || 0);
+        }
+        return edgeKeys;
+      }
+
+      function updateResizeMetricCountEdges(nsp) {
+        if (!resizeMetricCountEls.length) return;
+        const edgeKeys = currentResizeEdgeKeys(nsp);
+        resizeMetricCountEls.forEach((count) => {
+          count.classList.toggle('is-edge', edgeKeys.has(count.dataset.resizeMetricKey || ''));
+        });
       }
 
       function updateResizeBoundaryCovers(nsp) {
@@ -29702,12 +29726,67 @@ function attachResizeHandlers() {
         overlay.appendChild(grid);
       }
 
+      function buildResizeMetricCountKeyGroups() {
+        const groups = [];
+        const subdiv = Math.round(1 / getResizeStep());
+        let leftCols = 0;
+        let epochTs = null;
+        let epochOwnOffset = 0;
+        let epochBeatsPerBar = getGridUnitsPerBar(parentTs);
+        let epochUnitScale = 1;
+
+        for (let i = 0; i < sq.events.length; i++) {
+          const ev = sq.events[i];
+          const evTsEff = (ev && ev.timeSig) || parentTs;
+          if (evTsEff !== epochTs) {
+            epochTs = evTsEff;
+            epochOwnOffset = 0;
+            epochBeatsPerBar = getGridUnitsPerBar(evTsEff);
+            epochUnitScale = parseTimeSig(evTsEff).denominator
+              / (parseTimeSig(parentTs).denominator || 1);
+          }
+
+          const spanBeats = getEventVisualSpanInParentUnits(ev, parentTs);
+          const effectiveSpan = Math.max(1e-6, sSp[i] || spanBeats || 1);
+          const div = Math.max(1, Math.round(subdiv || 1));
+          const step = 1 / div;
+          const unitScale = epochUnitScale || 1;
+          const ownOff = epochOwnOffset || 0;
+          const ownSpan = spanBeats * unitScale;
+          const colsPerBeatLocal = effectiveSpan / Math.max(1e-6, spanBeats || 1);
+          const keys = [];
+          const firstNode = Math.ceil((ownOff - 1e-6) / step) * step;
+
+          for (let node = firstNode; node < ownOff + ownSpan - 1e-6; node += step) {
+            const j = (node - ownOff) / unitScale;
+            if (j < -1e-6) continue;
+            const sub = Math.round((node - Math.floor(node + 1e-6)) * div) % div;
+            if (!countLabelFor(node, sub, div, epochBeatsPerBar)) continue;
+            keys.push(resizeMetricNodeKey(leftCols + j * colsPerBeatLocal));
+          }
+
+          groups[i] = keys;
+          leftCols += effectiveSpan;
+          epochOwnOffset += (ev && ev.span) || 1;
+        }
+        return groups;
+      }
+
+      function annotateResizeMetricCountClone(countsEl, keys) {
+        if (!countsEl) return;
+        Array.from(countsEl.querySelectorAll('.chord-count')).forEach((count, idx) => {
+          count.dataset.resizeMetricKey = keys[idx] || '';
+          resizeMetricCountEls.push(count);
+        });
+      }
+
       function installResizeMetricOverlay() {
         removeResizeMetricOverlay();
         const overlay = document.createElement('div');
         overlay.className = 'resize-metric-overlay';
         overlay.setAttribute('aria-hidden', 'true');
         const biBox = bi.getBoundingClientRect();
+        const countKeyGroups = buildResizeMetricCountKeyGroups();
         const overlayOriginLeft = (biBox && Number.isFinite(biBox.left) ? biBox.left : 0) + biBorderLeft;
         const overlayOriginTop = (biBox && Number.isFinite(biBox.top) ? biBox.top : 0) + biBorderTop;
         const applyCellBox = (cell, box, cw) => {
@@ -29737,7 +29816,11 @@ function attachResizeHandlers() {
           countCell.className = 'resize-metric-cell resize-count-cell chord-wrapper';
           applyCellBox(countCell, box, cw);
           const countsLayer = cw.querySelector('.chord-counts');
-          if (countsLayer) countCell.appendChild(countsLayer.cloneNode(true));
+          if (countsLayer) {
+            const countsClone = countsLayer.cloneNode(true);
+            annotateResizeMetricCountClone(countsClone, countKeyGroups[i] || []);
+            countCell.appendChild(countsClone);
+          }
           overlay.appendChild(countCell);
         });
         appendResizeBoundaryGrid(overlay);
@@ -29834,12 +29917,15 @@ function attachResizeHandlers() {
         if (rhythmHintSession) {
           layoutRhythmHints(rhythmHintSession, { totalCols: tc, spans: nsp });
         }
-        // Засечки и счёт во время drag — снимок стартового вида:
-        // они не пересчитываются и не меняют горизонтальные позиции до
-        // отпускания. Поверх frozen-засечек, но под счётом, двигаем
-        // covers текущих границ ячеек — так граница аккуратно перекрывает
-        // засечку, над которой проходит.
+        // Засечки и счёт во время drag остаются снимком стартового
+        // метрического слоя: координаты не пересчитываем. Поверх frozen-
+        // засечек, но под счётом, двигаем covers текущих границ. Для
+        // цифр/«та/и/та» меняем только edge-класс у уже существующих
+        // клонов: если текущая граница пришла на этот узел, подпись
+        // получает тот же маленький отступ вправо, что и обычный счёт у
+        // края ячейки, без переезда всей метрической сетки.
         updateResizeBoundaryCovers(nsp);
+        updateResizeMetricCountEdges(nsp);
         window.__b31ResizePreviewFrameCount = (window.__b31ResizePreviewFrameCount || 0) + 1;
         return true;
       }
