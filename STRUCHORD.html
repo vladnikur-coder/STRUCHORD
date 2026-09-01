@@ -3825,20 +3825,9 @@ body.is-zooming .squares-list {
   cursor: default;
   transition: none;
 }
-.square-edge-freeze-cell.is-kept {
-  z-index: 3;
-}
-.square-edge-freeze-cell.is-removed-slide {
-  z-index: 1;
-  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
-  will-change: transform;
-}
-.square-edge-freeze-overlay.is-slide-out .square-edge-freeze-cell.is-removed-slide {
-  transform: translateX(calc(-100% - 2px));
-}
 .square-edge-freeze-boundary {
   position: absolute;
-  z-index: 4;
+  z-index: 2;
   top: 0;
   bottom: 0;
   width: 2px;
@@ -8559,7 +8548,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.84</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.85</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30355,22 +30344,19 @@ function attachSquareResizeHandlers() {
             const start = offset;
             const end = offset + span;
             offset = end;
-            const isRemoved = opts.mode === 'removed' && end > (opts.cutoffBeats || 0) + 1e-6;
-            // Для slide-out удаления держим в overlay и оставшиеся такты:
-            // они лежат выше и принимают удаляемый такт «под себя», поэтому
-            // исчезновение читается как задвигание, а не как заслонка.
-            selected.push({ cw, idx, start, end, isRemoved });
+            if (opts.mode === 'removed' && end <= (opts.cutoffBeats || 0) + 1e-6) return;
+            selected.push({ cw, idx, start, end });
           });
           selected.forEach((item, selectedIdx) => {
             const rect = item.cw.getBoundingClientRect();
             const clone = item.cw.cloneNode(true);
-            clone.className = `${item.cw.className} square-edge-freeze-cell${item.isRemoved ? ' is-removed-slide' : ' is-kept'}`;
+            clone.className = `${item.cw.className} square-edge-freeze-cell`;
             clone.style.gridColumn = '';
             // При shrink frozen-копия закрывает серую область удаляемого
             // такта. Даем ей небольшой нахлёст вправо/влево на ширину gap:
             // иначе на субпиксельных ширинах иногда простреливает серый
             // фон между будущей структурой и старой удаляемой ячейкой.
-            const overscan = item.isRemoved ? SQUARE_GRID_GAP : 0;
+            const overscan = opts.mode === 'removed' ? SQUARE_GRID_GAP : 0;
             const safeLeft = Math.max(0, rect.left - originLeft - overscan);
             clone.style.left = safeLeft.toFixed(3) + 'px';
             clone.style.top = Math.max(0, rect.top - originTop).toFixed(3) + 'px';
@@ -30482,12 +30468,6 @@ function attachSquareResizeHandlers() {
           if (freezeOverlay) {
             sqInner.appendChild(freezeOverlay);
             squareEdgeFreezeOverlay = freezeOverlay;
-            if ((freezeOverlay.dataset.mode || '') === 'removed') {
-              // Start pose must be painted before slide-out class, otherwise
-              // Chrome can collapse the transform transition into a jump.
-              void freezeOverlay.offsetWidth;
-              if (freezeOverlay.isConnected) freezeOverlay.classList.add('is-slide-out');
-            }
             settleSquareEdgeFreezeOverlay(freezeOverlay);
             window.__b31SquareEdgeFreezeOverlayCount = (window.__b31SquareEdgeFreezeOverlayCount || 0) + 1;
           }
@@ -30549,13 +30529,12 @@ function attachSquareResizeHandlers() {
               window.__b31SquareEdgeCommitCount = (window.__b31SquareEdgeCommitCount || 0) + 1;
               setSquareCustomBeats(sid, sqid, finalBeats);
             };
-            if (squareEdgeFreezeOverlay
-              && squareEdgeFreezeOverlay.isConnected
-              && (squareEdgeFreezeOverlay.dataset.mode || '') === 'removed'
-              && !squareEdgeFreezeSettled) {
-              // Только shrink ждёт визуальный settle: там freeze-overlay
-              // держит удаляемый такт и границы. Для add оставляем прежний
-              // быстрый commit, иначе можно задержать фиксацию без пользы.
+            if (squareEdgeFreezeOverlay && squareEdgeFreezeOverlay.isConnected && !squareEdgeFreezeSettled) {
+              // Если пользователь отпустил мышь до конца визуального хода,
+              // не сносим freeze-overlay вместе с его границами немедленно:
+              // именно это давало раннее исчезновение разделителей и серые
+              // вспышки. Модель зафиксируем один раз после визуального
+              // settle; под ним уже стоит preview будущей структуры.
               squareEdgeAfterFreeze = commitSquareEdgeResize;
             } else {
               commitSquareEdgeResize();
