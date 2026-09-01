@@ -3851,17 +3851,16 @@ body.is-zooming .squares-list {
 .square-edge-freeze-cell.is-removed-slide {
   z-index: 1;
 }
+/* B-31 «instant cells»: штора удаляемых тактов. left = конец финальной
+   px-сетки (ставит JS), right:0 = текущий край коробки — она сужается сама
+   по мере того, как анимированный край доезжает, без трансформаций. */
 .square-edge-removed-strip {
   position: absolute;
   z-index: 1;
   top: 0;
   bottom: 0;
-  overflow: visible;
-  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
-  will-change: transform;
-}
-.square-edge-freeze-overlay.is-slide-out .square-edge-removed-strip {
-  transform: translateX(var(--square-edge-slide-dx, 0px));
+  right: 0;
+  overflow: hidden;
 }
 .square-edge-removed-strip .square-edge-freeze-cell {
   z-index: 1;
@@ -8592,7 +8591,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.106</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.107</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30488,7 +30487,20 @@ function attachSquareResizeHandlers() {
           }
         }
 
+        // B-31 «instant cells» (решение пользователя 2026-09-01): на снапе
+        // клетки мгновенно встают в финальные px-размеры, плавно едет только
+        // правый край. Клоны ОСТАВШИХСЯ клеток больше не создаём вовсе: их
+        // позиции снимались с экрана в середине 160мс-анимации ширины и,
+        // зависая до конца settle, давали двойное изображение поверх уже
+        // финальной сетки (замер на живой песне: клон сдвинут на 4–20px,
+        // 76 кадров двойного изображения за один быстрый драг — «ячейки
+        // съехали, непропорциональны»). Overlay нужен теперь только на
+        // сжатии: «штора» удаляемых тактов закрывает зону от конца
+        // финальной сетки до текущего края коробки, и подъезжающий край
+        // сам её «подметает». На расширении overlay не нужен — сетка уже
+        // финальная, overflow:hidden коробки открывает её по мере хода.
         function makeSquareEdgeFreezeOverlay(opts = {}) {
+          if (opts.mode !== 'removed-slide') return null;
           clearSquareEdgeFreezeOverlay();
           const box = sqInner.getBoundingClientRect();
           const style = getComputedStyle(sqInner);
@@ -30496,121 +30508,66 @@ function attachSquareResizeHandlers() {
           const originTop = box.top + (parseFloat(style.borderTopWidth) || 0);
           const overlay = document.createElement('div');
           overlay.className = 'square-edge-freeze-overlay';
-          overlay.dataset.mode = opts.mode || 'keep';
+          overlay.dataset.mode = opts.mode;
           overlay.setAttribute('aria-hidden', 'true');
           const allCells = Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper'));
-          const isSlideRemove = opts.mode === 'removed-slide';
           let offset = 0;
-          const selected = [];
+          const removed = [];
           allCells.forEach((cw, idx) => {
             const ev = startEvents[idx] || sq.events[idx];
             const span = ev ? getEventSpanInParentUnits(ev, parentTs) : 0;
-            const start = offset;
             const end = offset + span;
             offset = end;
+            if (end <= (opts.cutoffBeats || 0) + 1e-6) return;
             const rect = cw.getBoundingClientRect();
-            const item = {
+            removed.push({
               cw,
               idx,
-              start,
-              end,
-              isRemoved: (opts.mode === 'removed' || isSlideRemove)
-                && end > (opts.cutoffBeats || 0) + 1e-6,
               left: rect.left - originLeft,
               right: rect.right - originLeft,
               top: rect.top - originTop,
               width: rect.width,
               height: rect.height,
-            };
-            if (opts.mode === 'removed' && !item.isRemoved) return;
-            selected.push(item);
+            });
           });
+          if (!removed.length) return null;
+          // Лево шторы = конец ФИНАЛЬНОЙ px-сетки (не старая позиция первой
+          // удаляемой ячейки): при смене числа колонок старый kept-префикс
+          // не совпадает с новым, и от «первой удалённой» до конца сетки
+          // оставался бы голый просвет. Право = 0 в CSS: штора приклеена к
+          // текущему краю коробки и сужается сама, без JS на каждый кадр.
+          const strip = document.createElement('div');
+          strip.className = 'square-edge-removed-strip';
+          strip.style.left = Math.max(0, opts.targetContentWidth || 0).toFixed(3) + 'px';
+          overlay.appendChild(strip);
 
-          const drawBoundary = (x, parent = overlay, localOrigin = 0) => {
+          const drawBoundary = (x, parent, localOrigin) => {
             const boundary = document.createElement('span');
             boundary.className = 'square-edge-freeze-boundary';
             boundary.style.left = Math.max(0, x - localOrigin).toFixed(3) + 'px';
             parent.appendChild(boundary);
           };
-
-          const appendCellClone = (item, parent, localOrigin, extraClass = '') => {
+          // Линия на левом краю шторы = конец финальной сетки: пока край
+          // коробки едет, эта метка показывает, где новый край встанет.
+          drawBoundary(opts.targetContentWidth || 0, strip, opts.targetContentWidth);
+          removed.forEach((item, removedIdx) => {
             const clone = item.cw.cloneNode(true);
             const baseClass = item.cw.className.replace(/\bis-buttons-armed\b/g, '').replace(/\s+/g, ' ').trim();
-            clone.className = `${baseClass} square-edge-freeze-cell${extraClass}`;
+            clone.className = `${baseClass} square-edge-freeze-cell is-removed-slide`;
             clone.style.gridColumn = '';
-            const overscan = item.isRemoved ? SQUARE_GRID_GAP : 0;
-            clone.style.left = Math.max(0, item.left - localOrigin - overscan).toFixed(3) + 'px';
+            // overscan в обе стороны: 2px-зазор сетки не должен проглядывать
+            // между клонами шторы серой нитью
+            const overscan = SQUARE_GRID_GAP;
+            clone.style.left = Math.max(0, item.left - opts.targetContentWidth - overscan).toFixed(3) + 'px';
             clone.style.top = Math.max(0, item.top).toFixed(3) + 'px';
             clone.style.width = Math.max(0, item.width + overscan * 2).toFixed(3) + 'px';
             clone.style.height = Math.max(0, item.height).toFixed(3) + 'px';
             clone.querySelectorAll('.chord-buttons,.resize-handle,.square-resize-handle').forEach((el) => el.remove());
-            parent.appendChild(clone);
-            return clone;
-          };
-
-          if (isSlideRemove) {
-            const kept = selected.filter((item) => !item.isRemoved);
-            const removed = selected.filter((item) => item.isRemoved);
-            kept.forEach((item, keptIdx) => {
-              appendCellClone(item, overlay, 0, ' is-kept');
-              const next = kept[keptIdx + 1];
-              if (next && next.idx === item.idx + 1) drawBoundary(item.right);
-            });
-            if (removed.length) {
-              const firstLeft = Math.min(...removed.map((item) => item.left));
-              const lastRight = Math.max(...removed.map((item) => item.right));
-              const strip = document.createElement('div');
-              strip.className = 'square-edge-removed-strip';
-              // The whole removed zone is one strip with its real old left
-              // position. We animate the strip by the exact width delta while
-              // the square edge shrinks, so its right edge stays glued to the
-              // moving square edge. This avoids the gray flash that appeared
-              // when removed cells were separately anchored/reflowed.
-              const stripOrigin = firstLeft - SQUARE_GRID_GAP;
-              // Полоса обязана докрывать до ПРАВОЙ кромки коробки (box
-              // content-ширина): между последней удалённой ячейкой и краем
-              // остаются gap+border, и при быстрых прерывистых драгах там
-              // проглядывал голый серый фон (замер: просвет 12px на старте
-              // снапа). Поэтому ширина — до края коробки, а не до последней
-              // ячейки.
-              const boxContentRight = Math.max(
-                0,
-                box.width - (parseFloat(style.borderLeftWidth) || 0) - (parseFloat(style.borderRightWidth) || 0)
-              );
-              const stripWidth = Math.max(
-                0,
-                Math.max(lastRight + SQUARE_GRID_GAP, boxContentRight) - stripOrigin
-              );
-              strip.style.left = Math.max(0, stripOrigin).toFixed(3) + 'px';
-              strip.style.width = stripWidth.toFixed(3) + 'px';
-              // Двигаем удаляемую группу на её ПОЛНУЮ ширину, а не только
-              // на дельту ширины квадрата: тогда к концу задвигания
-              // удаляемые такты целиком уходят под frozen-оставшиеся и не
-              // оставляют тёмный/серый хвост у правого края.
-              overlay.style.setProperty('--square-edge-slide-dx', `${(-stripWidth).toFixed(3)}px`);
-              overlay.appendChild(strip);
-              removed.forEach((item, removedIdx) => {
-                appendCellClone(item, strip, stripOrigin, ' is-removed-slide');
-                const next = removed[removedIdx + 1];
-                if (next && next.idx === item.idx + 1) drawBoundary(item.right, strip, firstLeft - SQUARE_GRID_GAP);
-              });
-              // Границу перед первой удаляемой ячейкой НЕ дублируем:
-              // после shrink это уже новый правый край квадрата, и его
-              // рисует border самого .square-inner. Лишняя overlay-boundary
-              // складывалась с border и давала серую вертикальную полосу.
-            }
-          } else {
-            selected.forEach((item, selectedIdx) => {
-              appendCellClone(item, overlay, 0, '');
-              if (opts.mode === 'removed' && selectedIdx === 0 && item.idx > 0) {
-                drawBoundary(item.left - SQUARE_GRID_GAP);
-              }
-              const next = selected[selectedIdx + 1];
-              if (next && next.idx === item.idx + 1) drawBoundary(item.right);
-            });
-          }
-
-          return overlay.childNodes.length ? overlay : null;
+            strip.appendChild(clone);
+            const next = removed[removedIdx + 1];
+            if (next && next.idx === item.idx + 1) drawBoundary(item.right, strip, opts.targetContentWidth);
+          });
+          return overlay;
         }
 
         function settleSquareEdgeFreezeOverlay(overlay) {
@@ -30655,16 +30612,16 @@ function attachSquareResizeHandlers() {
         function renderSquareEdgePreview(beats, fromBeats) {
           enableSquareEdgePreviewTransition();
           const prevBeats = fromBeats == null ? startBeats : fromBeats;
-          const freezeOverlay = beats > prevBeats
-            ? makeSquareEdgeFreezeOverlay()
-            : beats < prevBeats
-              ? makeSquareEdgeFreezeOverlay({ mode: 'removed-slide', cutoffBeats: beats })
-              : null;
           const eventsCopy = buildPreviewEventsForBeats(beats);
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
           const { percent, targetContentWidth, futureVisualMax } = previewWidthMetrics(eventsCopy);
+          // Штору удаляемых тактов строим ПОСЛЕ метрик (нужен конец финальной
+          // сетки), но ДО пересборки innerHTML — клоны снимаются со старого DOM.
+          const freezeOverlay = beats < prevBeats
+            ? makeSquareEdgeFreezeOverlay({ mode: 'removed-slide', cutoffBeats: beats, targetContentWidth })
+            : null;
           const fixedColWidth = Math.max(
             1e-6,
             (targetContentWidth - Math.max(0, totalCols - 1) * SQUARE_GRID_GAP) / totalCols
@@ -30692,9 +30649,6 @@ function attachSquareResizeHandlers() {
           // ехать right-edge width. Иначе задвигание визуально стартует
           // позже края и кажется отстающим.
           void sqInner.offsetWidth;
-          if (freezeOverlay && (freezeOverlay.dataset.mode || '') === 'removed-slide') {
-            freezeOverlay.classList.add('is-slide-out');
-          }
           sqInner.style.width = percent + '%';
           setControlsForPercent(percent);
           // Кадр до отпускания должен совпадать с финалом: соседи/repeat-ряд
