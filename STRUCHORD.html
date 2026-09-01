@@ -8592,7 +8592,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.100</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.101</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32089,5 +32089,102 @@ toggleTimeAndBeats();
     <div class="scheme-popover" id="schemePopover" aria-hidden="true">
       <div class="scheme-popover-list" id="schemePopoverList" role="listbox" aria-label="Быстрый выбор цветовой схемы"></div>
     </div>
+<script>
+/* ===== B-31 DEBUG — временный диагност, удалить после приёмки =====
+   Включается ТОЛЬКО параметром ?b31debug=1 (без него код самовыключается).
+   Задача: пользователь делает ресайз правого края квадрата; в момент
+   pointerup (ДО коммита) снимаем слепок ряда секции, через 900мс (ПОСЛЕ
+   коммита и всех анимаций) — второй слепок, печатаем построчный diff
+   в панель внизу справа и копируем в буфер. Отчёт текстом можно вставить
+   в чат — это заменяет скриншоты, которые до песочницы не долетают. */
+(function () {
+  if (!/[?&]b31debug=1/.test(location.search)) return;
+  var pending = null;
+  document.addEventListener('pointerdown', function (e) {
+    var h = e.target && e.target.closest && e.target.closest('.square-resize-handle');
+    if (!h) return;
+    var sq = h.closest('.square');
+    pending = {
+      card: sq && sq.closest('.section-card'),
+      victim: sq && sq.dataset.square,
+      t: Date.now(),
+    };
+  }, true);
+  function snap(card, victim) {
+    var rows = [];
+    card.querySelectorAll('.squares-list > .square').forEach(function (el) {
+      var bi = el.querySelector('.square-inner');
+      if (!bi) return;
+      var r = bi.getBoundingClientRect();
+      rows.push({
+        id: el.dataset.square + (el.dataset.square === victim ? '*' : ''),
+        styleW: bi.style.width,
+        px: Math.round(r.width),
+        badge: (el.querySelector('.square-beats-badge') || {}).textContent || '',
+        controlsRight: bi.nextElementSibling ? bi.nextElementSibling.style.right : '',
+        classes: bi.className,
+        grid: (bi.style.gridTemplateColumns || '').slice(0, 48),
+        cells: bi.querySelectorAll(':scope > .chord-wrapper').length,
+        previews: bi.querySelectorAll('.event-strum-preview.has-pattern').length,
+        counts: bi.querySelector('.chord-counts') ? bi.querySelector('.chord-counts').innerHTML.length : -1,
+        ticks: bi.querySelector('.chord-ticks') ? bi.querySelector('.chord-ticks').style.cssText.length : -1,
+      });
+    });
+    var repeatRow = card.querySelector('.section-repeat-row');
+    return {
+      rows: rows,
+      repeatW: repeatRow ? repeatRow.style.width : '',
+      headerBadges: (card.querySelector('.section-mod-badges') || {}).innerHTML.length || 0,
+    };
+  }
+  function diff(a, b) {
+    var out = [];
+    var keys = ['styleW', 'px', 'badge', 'controlsRight', 'classes', 'grid', 'cells', 'previews', 'counts', 'ticks'];
+    if (a.repeatW !== b.repeatW) out.push('repeat-row: ' + a.repeatW + ' -> ' + b.repeatW);
+    if (a.headerBadges !== b.headerBadges) out.push('header-badges: ' + a.headerBadges + ' -> ' + b.headerBadges);
+    var mapB = {};
+    b.rows.forEach(function (r) { mapB[r.id.replace('*', '')] = r; });
+    a.rows.forEach(function (ra) {
+      var rb = mapB[ra.id.replace('*', '')];
+      if (!rb) { out.push('квадрат ' + ra.id + ': исчез в финале'); return; }
+      keys.forEach(function (k) {
+        if (String(ra[k]) !== String(rb[k])) {
+          out.push('квадрат ' + ra.id + ' ' + k + ': «' + ra[k] + '» -> «' + rb[k] + '»');
+        }
+      });
+    });
+    Object.keys(mapB).forEach(function (id) {
+      if (!a.rows.some(function (r) { return r.id.replace('*', '') === id; })) {
+        out.push('квадрат ' + id + ': появился только в финале');
+      }
+    });
+    return out;
+  }
+  document.addEventListener('pointerup', function () {
+    if (!pending || !pending.card) { pending = null; return; }
+    var card = pending.card, victim = pending.victim;
+    var held = snap(card, victim);
+    pending = null;
+    setTimeout(function () {
+      var fin = snap(card, victim);
+      var env = 'UA=' + navigator.userAgent.slice(0, 60)
+        + ' zoom=' + (typeof squareZoom !== 'undefined' ? squareZoom : '?')
+        + ' viewport=' + innerWidth + 'x' + innerHeight
+        + ' theme=' + (document.body.dataset.theme || document.documentElement.dataset.theme || 'default')
+        + ' ver=' + ((document.querySelector('.app-title span') || {}).textContent || '?');
+      var lines = ['=== B-31 DIFF (кадр2 до отпускания -> кадр3 после) ===', env];
+      var d = diff(held, fin);
+      lines.push(d.length ? d.join('\n') : 'РАЗЛИЧИЙ НЕТ: кадр 2 == кадр 3');
+      var text = lines.join('\n');
+      console.log(text);
+      var pre = document.createElement('pre');
+      pre.textContent = text;
+      pre.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:99999;max-width:420px;max-height:45vh;overflow:auto;margin:0;padding:10px;background:#1e1e22;color:#e8e8e8;font:11px/1.45 monospace;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.4);white-space:pre-wrap';
+      document.body.appendChild(pre);
+      if (navigator.clipboard) navigator.clipboard.writeText(text).catch(function () {});
+    }, 900);
+  }, true);
+})();
+</script>
 </body>
 </html>
