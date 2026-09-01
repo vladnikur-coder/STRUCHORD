@@ -8592,7 +8592,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.101</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.102</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30382,13 +30382,13 @@ function attachSquareResizeHandlers() {
             100,
             (visualBeats / Math.max(1e-6, futureVisualMax)) * 100
           );
-          const targetContentWidth = Math.max(
-            minWidth,
-            Math.min(
-              maxWidth,
-              (rowContentWidth * visualBeats) / Math.max(1e-6, futureVisualMax)
-            )
-          );
+          // px-цель — ровно та же формула, что даёт styleW%-коробку
+          // (rowContent × visual/etalon). Никаких клэмпов minWidth/maxWidth:
+          // они считались в ЗВУКОВЫХ единицах и в секциях с ячейками своего
+          // размера урезали px-сетку короче коробки — справа оставался
+          // голый серый фон .square-inner («серый хвост» из кадров пользователя).
+          const targetContentWidth =
+            (rowContentWidth * visualBeats) / Math.max(1e-6, futureVisualMax);
           return { percent, targetContentWidth, futureVisualMax };
         }
 
@@ -30419,7 +30419,18 @@ function attachSquareResizeHandlers() {
               otherControls.style.right = `calc((100% - ${p}%) - 49px)`;
             }
           });
-          // repeat-ряд секции шириною по последнему квадрату списка.
+        }
+
+        // Repeat-ряд секции шириною следует за ПОСЛЕДНИМ квадратом списка.
+        // Обновлять его нужно на КАЖДОМ snapped-переходе, а не только при
+        // смене эталона секции: если жертва — последний квадрат, полоса
+        // обязана ехать вместе с ним ещё до отпускания. Иначе на pointerup
+        // она прыгала (репро пользователя: 6.25% -> 100%).
+        function syncRepeatRowWidth(futureVisualMax, victimPercent) {
+          const card = sqEl.closest('.section-card');
+          if (!card) return;
+          const list = card.querySelector('.squares-list');
+          if (list) list.classList.add('is-square-edge-resizing');
           const lastSquare = sec.squares[sec.squares.length - 1];
           const lastPercent = lastSquare === sq
             ? victimPercent
@@ -30677,6 +30688,7 @@ function attachSquareResizeHandlers() {
           // встают на после-коммитные ширины сразу, бейдж тактов тоже не
           // ждёт pointerup (иначе это виден скачок текста и строки).
           syncSiblingsForSectionMax(futureVisualMax, percent);
+          syncRepeatRowWidth(futureVisualMax, percent);
           const holdBars = beats / beatsPerBar;
           const holdBadge = sqEl.querySelector('.square-beats-badge');
           if (holdBadge) {

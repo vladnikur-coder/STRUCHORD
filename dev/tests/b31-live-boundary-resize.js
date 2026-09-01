@@ -463,7 +463,7 @@ w.addEventListener('load', async () => {
     DOM.globalTimeSig.value = '4/4';
     squareZoom = 1;
     sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
-      repeat: 1, strumPattern: null, squares: [
+      repeat: 2, strumPattern: null, squares: [
         { id: 2, repeat: 1, customBeats: 20, strumPattern: null, events: [
           { chord: 'C', span: 4, timeSig: '3/4', strumPattern: null },
           { chord: 'G', span: 4, timeSig: '3/4', strumPattern: null },
@@ -508,6 +508,9 @@ w.addEventListener('load', async () => {
   ok('сосед при удержании уже раздвинут до финальных 100% (без скачка на pointerup)',
     Math.abs(parseFloat(holdSibling) - 100) < 0.01, holdSibling);
   ok('бейдж тактов жертвы обновлён ещё до отпускания', holdBadge === '1 такт', holdBadge);
+  const holdRepeatRow = evl(`return document.querySelector('.section-card[data-id="1"] .section-repeat-row').style.width`);
+  ok('repeat-ряд при удержании уже на финальной ширине (без прыжка на pointerup)',
+    Math.abs(parseFloat(holdRepeatRow) - 100) < 0.01, holdRepeatRow);
   await sleep(520);
   firePointerUp(90);
   await sleep(600);
@@ -519,6 +522,10 @@ w.addEventListener('load', async () => {
   ok('после pointerup сосед не скачет: финал == удержание',
     Math.abs(parseFloat(finalSibling) - parseFloat(holdSibling)) < 0.01,
     holdSibling + ' -> ' + finalSibling);
+  const finalRepeatRow = evl(`return document.querySelector('.section-card[data-id="1"] .section-repeat-row').style.width`);
+  ok('после pointerup repeat-ряд не скачет: финал == удержание',
+    Math.abs(parseFloat(finalRepeatRow) - parseFloat(holdRepeatRow)) < 0.01,
+    holdRepeatRow + ' -> ' + finalRepeatRow);
   ok('модель закоммичена в 1 такт',
     evl('return sections[0].squares[0].customBeats') === 4
       && evl('return sections[0].squares[0].events.length') === 1,
