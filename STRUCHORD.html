@@ -8572,7 +8572,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.94</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.95</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30361,9 +30361,6 @@ function attachSquareResizeHandlers() {
           overlay.setAttribute('aria-hidden', 'true');
           const allCells = Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper'));
           const isSlideRemove = opts.mode === 'removed-slide';
-          if (isSlideRemove) {
-            overlay.style.setProperty('--square-edge-slide-dx', `${(opts.slideDx || 0).toFixed(3)}px`);
-          }
           let offset = 0;
           const selected = [];
           allCells.forEach((cw, idx) => {
@@ -30430,8 +30427,14 @@ function attachSquareResizeHandlers() {
               // moving square edge. This avoids the gray flash that appeared
               // when removed cells were separately anchored/reflowed.
               const stripOrigin = firstLeft - SQUARE_GRID_GAP;
+              const stripWidth = Math.max(0, lastRight - firstLeft + SQUARE_GRID_GAP * 2);
               strip.style.left = Math.max(0, stripOrigin).toFixed(3) + 'px';
-              strip.style.width = Math.max(0, lastRight - firstLeft + SQUARE_GRID_GAP * 2).toFixed(3) + 'px';
+              strip.style.width = stripWidth.toFixed(3) + 'px';
+              // Двигаем удаляемую группу на её ПОЛНУЮ ширину, а не только
+              // на дельту ширины квадрата: тогда к концу задвигания
+              // удаляемые такты целиком уходят под frozen-оставшиеся и не
+              // оставляют тёмный/серый хвост у правого края.
+              overlay.style.setProperty('--square-edge-slide-dx', `${(-stripWidth).toFixed(3)}px`);
               overlay.appendChild(strip);
               removed.forEach((item, removedIdx) => {
                 appendCellClone(item, strip, stripOrigin, ' is-removed-slide');
@@ -30506,11 +30509,7 @@ function attachSquareResizeHandlers() {
           const freezeOverlay = beats > prevBeats
             ? makeSquareEdgeFreezeOverlay()
             : beats < prevBeats
-              ? makeSquareEdgeFreezeOverlay({
-                mode: 'removed-slide',
-                cutoffBeats: beats,
-                slideDx: contentWidthForBeats(beats) - contentWidthForBeats(prevBeats),
-              })
+              ? makeSquareEdgeFreezeOverlay({ mode: 'removed-slide', cutoffBeats: beats })
               : null;
           const eventsCopy = buildPreviewEventsForBeats(beats);
           const previewSq = { ...sq, events: eventsCopy };
