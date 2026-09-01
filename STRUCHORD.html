@@ -3837,6 +3837,11 @@ body.is-zooming .squares-list {
   top: 0;
   bottom: 0;
   overflow: visible;
+  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
+  will-change: transform;
+}
+.square-edge-freeze-overlay.is-slide-out .square-edge-removed-strip {
+  transform: translateX(var(--square-edge-slide-dx, 0px));
 }
 .square-edge-removed-strip .square-edge-freeze-cell {
   z-index: 1;
@@ -8567,7 +8572,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.93</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.94</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30356,6 +30361,9 @@ function attachSquareResizeHandlers() {
           overlay.setAttribute('aria-hidden', 'true');
           const allCells = Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper'));
           const isSlideRemove = opts.mode === 'removed-slide';
+          if (isSlideRemove) {
+            overlay.style.setProperty('--square-edge-slide-dx', `${(opts.slideDx || 0).toFixed(3)}px`);
+          }
           let offset = 0;
           const selected = [];
           allCells.forEach((cw, idx) => {
@@ -30416,16 +30424,17 @@ function attachSquareResizeHandlers() {
               const lastRight = Math.max(...removed.map((item) => item.right));
               const strip = document.createElement('div');
               strip.className = 'square-edge-removed-strip';
-              // The whole removed zone is one right-anchored strip. When the
-              // square width shrinks, the strip moves left as a unit under
-              // the frozen kept cells; removed cells keep their relative
-              // spacing, so multi-takt shrink has no overlapping cells/gray
-              // flashes.
-              strip.style.right = (-SQUARE_GRID_GAP).toFixed(3) + 'px';
+              // The whole removed zone is one strip with its real old left
+              // position. We animate the strip by the exact width delta while
+              // the square edge shrinks, so its right edge stays glued to the
+              // moving square edge. This avoids the gray flash that appeared
+              // when removed cells were separately anchored/reflowed.
+              const stripOrigin = firstLeft - SQUARE_GRID_GAP;
+              strip.style.left = Math.max(0, stripOrigin).toFixed(3) + 'px';
               strip.style.width = Math.max(0, lastRight - firstLeft + SQUARE_GRID_GAP * 2).toFixed(3) + 'px';
               overlay.appendChild(strip);
               removed.forEach((item, removedIdx) => {
-                appendCellClone(item, strip, firstLeft - SQUARE_GRID_GAP, ' is-removed-slide');
+                appendCellClone(item, strip, stripOrigin, ' is-removed-slide');
                 const next = removed[removedIdx + 1];
                 if (next && next.idx === item.idx + 1) drawBoundary(item.right, strip, firstLeft - SQUARE_GRID_GAP);
               });
@@ -30497,7 +30506,11 @@ function attachSquareResizeHandlers() {
           const freezeOverlay = beats > prevBeats
             ? makeSquareEdgeFreezeOverlay()
             : beats < prevBeats
-              ? makeSquareEdgeFreezeOverlay({ mode: 'removed-slide', cutoffBeats: beats })
+              ? makeSquareEdgeFreezeOverlay({
+                mode: 'removed-slide',
+                cutoffBeats: beats,
+                slideDx: contentWidthForBeats(beats) - contentWidthForBeats(prevBeats),
+              })
               : null;
           const eventsCopy = buildPreviewEventsForBeats(beats);
           const previewSq = { ...sq, events: eventsCopy };
@@ -30532,6 +30545,9 @@ function attachSquareResizeHandlers() {
           // ехать right-edge width. Иначе задвигание визуально стартует
           // позже края и кажется отстающим.
           void sqInner.offsetWidth;
+          if (freezeOverlay && (freezeOverlay.dataset.mode || '') === 'removed-slide') {
+            freezeOverlay.classList.add('is-slide-out');
+          }
           sqInner.style.width = percent + '%';
           setControlsForPercent(percent);
           if (freezeOverlay) {

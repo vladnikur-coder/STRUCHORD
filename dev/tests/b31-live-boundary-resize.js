@@ -281,8 +281,9 @@ w.addEventListener('load', async () => {
       && !!document.querySelector('.square-edge-removed-strip')
       && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 3
       && document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length === 1
-      && document.querySelector('.square-edge-removed-strip').style.right !== ''`),
-    evl(`return 'strip=' + !!document.querySelector('.square-edge-removed-strip') + ' kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length + ' right=' + (document.querySelector('.square-edge-removed-strip')?.style.right || '')`));
+      && document.querySelector('.square-edge-removed-strip').style.left !== ''
+      && document.querySelector('.square-edge-freeze-overlay').classList.contains('is-slide-out')`),
+    evl(`return 'strip=' + !!document.querySelector('.square-edge-removed-strip') + ' kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length + ' left=' + (document.querySelector('.square-edge-removed-strip')?.style.left || '') + ' slide=' + !!document.querySelector('.square-edge-freeze-overlay.is-slide-out')`));
   ok('граница перед удаляемым тактом остаётся видимой до конца анимации',
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length >= 1`),
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
