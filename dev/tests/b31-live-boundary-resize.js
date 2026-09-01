@@ -292,6 +292,12 @@ w.addEventListener('load', async () => {
   ok('движения внутри того же snap не перестраивают preview правого края',
     evl('return window.__b31SquareEdgePreviewRenderCount') === 1,
     evl('return window.__b31SquareEdgePreviewRenderCount'));
+  await sleep(360);
+  ok('при удержании shrink-оверлей с границами не гаснет до pointerup',
+    evl(`return !!document.querySelector('.square-edge-freeze-overlay')
+      && !document.querySelector('.square-edge-freeze-overlay').classList.contains('is-hiding')
+      && document.querySelectorAll('.square-edge-freeze-boundary').length >= 1`),
+    'removed overlay faded before pointerup');
   firePointerUp(300);
   await sleep(450);
   ok('после визуального settle правый край коммитится один раз',

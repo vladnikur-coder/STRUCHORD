@@ -30248,6 +30248,7 @@ function attachSquareResizeHandlers() {
         let squareEdgePreviewActive = false;
         let squareEdgeFreezeOverlay = null;
         let squareEdgeFreezeTimer = 0;
+        let squareEdgeFreezeSettled = false;
         let squareEdgeAfterFreeze = null;
 
         function buildPreviewEventsForBeats(beats) {
@@ -30316,6 +30317,7 @@ function attachSquareResizeHandlers() {
             clearTimeout(squareEdgeFreezeTimer);
             squareEdgeFreezeTimer = 0;
           }
+          squareEdgeFreezeSettled = false;
           squareEdgeAfterFreeze = null;
           if (squareEdgeFreezeOverlay) {
             squareEdgeFreezeOverlay.remove();
@@ -30331,6 +30333,7 @@ function attachSquareResizeHandlers() {
           const originTop = box.top + (parseFloat(style.borderTopWidth) || 0);
           const overlay = document.createElement('div');
           overlay.className = 'square-edge-freeze-overlay';
+          overlay.dataset.mode = opts.mode || 'keep';
           overlay.setAttribute('aria-hidden', 'true');
           const allCells = Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper'));
           let offset = 0;
@@ -30394,13 +30397,24 @@ function attachSquareResizeHandlers() {
             done = true;
             sqInner.removeEventListener('transitionend', onTransitionEnd);
             if (!overlay.isConnected) return;
+            squareEdgeFreezeSettled = true;
+            const mode = overlay.dataset.mode || '';
+            const after = squareEdgeAfterFreeze;
+            squareEdgeAfterFreeze = null;
+            if (mode === 'removed') {
+              // Удаляемый такт и его границы должны жить до commit. Иначе
+              // при удержании/быстром отпускании видны раннее исчезновение
+              // разделителей и серый фон. Если pointerup уже ждёт settle —
+              // коммитим сейчас; если мышь ещё зажата — просто оставляем
+              // overlay на месте до pointerup.
+              if (typeof after === 'function') after();
+              return;
+            }
             overlay.classList.add('is-hiding');
             squareEdgeFreezeTimer = setTimeout(() => {
               if (squareEdgeFreezeOverlay === overlay) squareEdgeFreezeOverlay = null;
               overlay.remove();
               squareEdgeFreezeTimer = 0;
-              const after = squareEdgeAfterFreeze;
-              squareEdgeAfterFreeze = null;
               if (typeof after === 'function') after();
             }, 110);
           };
@@ -30515,7 +30529,7 @@ function attachSquareResizeHandlers() {
               window.__b31SquareEdgeCommitCount = (window.__b31SquareEdgeCommitCount || 0) + 1;
               setSquareCustomBeats(sid, sqid, finalBeats);
             };
-            if (squareEdgeFreezeOverlay && squareEdgeFreezeOverlay.isConnected) {
+            if (squareEdgeFreezeOverlay && squareEdgeFreezeOverlay.isConnected && !squareEdgeFreezeSettled) {
               // Если пользователь отпустил мышь до конца визуального хода,
               // не сносим freeze-overlay вместе с его границами немедленно:
               // именно это давало раннее исчезновение разделителей и серые
