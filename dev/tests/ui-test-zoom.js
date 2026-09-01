@@ -87,6 +87,9 @@ w.addEventListener('load',()=>{
      badge&&badge.textContent);
   badge.dispatchEvent(new w.MouseEvent('click',{bubbles:true}));
   ok('клик сбрасывает масштаб', w.eval('squareZoom')===1, w.eval('squareZoom')+'');
+  ok('клик запускает безопасную FLIP-анимацию рядов',
+     !!d.querySelector('.squares-list.zoom-reset-flip')
+       && !!d.querySelector('.squares-viewport.zoom-reset-clip'));
   w.eval('render()');
   ok('бейдж исчез при 1×', d.querySelectorAll('.section-badge--zoom').length===0);
   // Ползунок под секцией удалён: зум делается колесом с Ctrl (десктоп)
@@ -239,8 +242,19 @@ w.addEventListener('load',()=>{
      !/transition:[^;]*width/.test(listRule), listRule);
   ok('анимация вынесена в отдельный класс',
      /\.squares-list\.zoom-animated\s*\{[^}]*transition:[^;]*width/.test(css2));
-  w.eval('setSquareZoom(2.5); resetSquareZoom();');
-  ok('сброс анимируется', d.querySelector('.squares-list').classList.contains('zoom-animated'));
+  ok('анимация сброса рядов — FLIP transform, не width',
+     /\.squares-list\.zoom-reset-flip\.is-animating\s*\{[^}]*transition:\s*transform/.test(css2)
+       && /\.squares-viewport\.zoom-reset-clip\s*\{[^}]*overflow:\s*hidden/.test(css2)
+       && !/zoom-reset-flip[^}]*width/.test(css2));
+  w.eval('setSquareZoom(2.5); const vp=document.querySelector(".squares-viewport"); vp.scrollLeft=80; resetSquareZoom();');
+  ok('сброс по бейджу-лупе НЕ анимирует width (не стягивает из невидимой зоны)',
+     !d.querySelector('.squares-list').classList.contains('zoom-animated'));
+  ok('сброс по бейджу-лупе анимирует сами ряды',
+     d.querySelector('.squares-list').classList.contains('zoom-reset-flip')
+       && d.querySelector('.squares-viewport').classList.contains('zoom-reset-clip'));
+  ok('сброс по бейджу-лупе возвращает ряд в начало',
+     d.querySelector('.squares-viewport').scrollLeft === 0,
+     d.querySelector('.squares-viewport').scrollLeft + '');
 
 
   console.log('\n=== 10. Подгонка имён аккордов не переписывает DOM зря ===');
