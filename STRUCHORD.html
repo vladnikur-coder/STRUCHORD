@@ -3833,24 +3833,6 @@ body.is-zooming .squares-list {
   width: 2px;
   background: var(--color-warm-border);
 }
-.square-edge-shutter-overlay {
-  position: absolute;
-  z-index: 9;
-  top: 0;
-  bottom: 0;
-  pointer-events: none;
-  background: var(--color-surface);
-  background-image: var(--panel-sheen);
-  border-left: 2px solid var(--color-warm-border);
-  box-sizing: border-box;
-  transform: scaleX(1);
-  transform-origin: right center;
-  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
-  will-change: transform;
-}
-.square-edge-shutter-overlay.is-opening {
-  transform: scaleX(0);
-}
 .square-edge-freeze-cell .chord-buttons,
 .square-edge-freeze-cell .resize-handle,
 .square-edge-freeze-cell .square-resize-handle {
@@ -8566,7 +8548,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.86</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.87</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30268,10 +30250,6 @@ function attachSquareResizeHandlers() {
         let squareEdgeFreezeTimer = 0;
         let squareEdgeFreezeSettled = false;
         let squareEdgeAfterFreeze = null;
-        let squareEdgeShutterOverlay = null;
-        let squareEdgeShutterTimer = 0;
-        let squareEdgeShutterSettled = false;
-        let squareEdgeAfterShutter = null;
 
         function buildPreviewEventsForBeats(beats) {
           const totalBeats = beats;
@@ -30345,64 +30323,6 @@ function attachSquareResizeHandlers() {
             squareEdgeFreezeOverlay.remove();
             squareEdgeFreezeOverlay = null;
           }
-        }
-
-        function clearSquareEdgeShutterOverlay() {
-          if (squareEdgeShutterTimer) {
-            clearTimeout(squareEdgeShutterTimer);
-            squareEdgeShutterTimer = 0;
-          }
-          squareEdgeShutterSettled = false;
-          squareEdgeAfterShutter = null;
-          if (squareEdgeShutterOverlay) {
-            squareEdgeShutterOverlay.remove();
-            squareEdgeShutterOverlay = null;
-          }
-        }
-
-        function makeSquareEdgeShutterOverlay(fromBeats, toBeats) {
-          clearSquareEdgeShutterOverlay();
-          const left = contentWidthForBeats(fromBeats);
-          const width = Math.max(0, contentWidthForBeats(toBeats) - left);
-          if (!(width > 1)) return null;
-          const shutter = document.createElement('div');
-          shutter.className = 'square-edge-shutter-overlay';
-          shutter.setAttribute('aria-hidden', 'true');
-          shutter.style.left = left.toFixed(3) + 'px';
-          shutter.style.width = (width + SQUARE_GRID_GAP).toFixed(3) + 'px';
-          return shutter;
-        }
-
-        function settleSquareEdgeShutterOverlay(shutter) {
-          if (!shutter) return;
-          let done = false;
-          const finish = () => {
-            if (done) return;
-            done = true;
-            shutter.removeEventListener('transitionend', onTransitionEnd);
-            if (!shutter.isConnected) return;
-            squareEdgeShutterSettled = true;
-            const after = squareEdgeAfterShutter;
-            squareEdgeAfterShutter = null;
-            if (squareEdgeShutterOverlay === shutter) squareEdgeShutterOverlay = null;
-            shutter.remove();
-            squareEdgeShutterTimer = 0;
-            if (typeof after === 'function') after();
-          };
-          const onTransitionEnd = (ev) => {
-            if (ev.target !== shutter || ev.propertyName !== 'transform') return;
-            finish();
-          };
-          shutter.addEventListener('transitionend', onTransitionEnd);
-          // На случай быстрых interrupt/окружений без transitionend.
-          squareEdgeShutterTimer = setTimeout(finish, 260);
-          // Стартовая заслонка должна успеть попасть в layout, затем
-          // открываем её transform'ом: добавляемый такт не выдвигается, а
-          // проявляется из-под открывающейся створки.
-          void shutter.offsetWidth;
-          requestAnimationFrame(() => {
-            if (shutter.isConnected) shutter.classList.add('is-opening');
-          });
         }
 
         function makeSquareEdgeFreezeOverlay(opts = {}) {
@@ -30515,18 +30435,11 @@ function attachSquareResizeHandlers() {
         function renderSquareEdgePreview(beats, fromBeats) {
           enableSquareEdgePreviewTransition();
           const prevBeats = fromBeats == null ? startBeats : fromBeats;
-          const isAdding = beats > prevBeats;
-          const isRemoving = beats < prevBeats;
-          // Эксперимент «заслонка»: удаление оставляем закрыванием текущей
-          // правой области, а добавление делаем открыванием новой области.
-          // Старый freeze-overlay для add убираем, чтобы новый такт не
-          // выглядел как выдвигающийся из-под существующих.
-          if (isAdding) clearSquareEdgeFreezeOverlay();
-          else clearSquareEdgeShutterOverlay();
-          const freezeOverlay = isRemoving
-            ? makeSquareEdgeFreezeOverlay({ mode: 'removed', cutoffBeats: beats })
-            : null;
-          const shutterOverlay = isAdding ? makeSquareEdgeShutterOverlay(prevBeats, beats) : null;
+          const freezeOverlay = beats > prevBeats
+            ? makeSquareEdgeFreezeOverlay()
+            : beats < prevBeats
+              ? makeSquareEdgeFreezeOverlay({ mode: 'removed', cutoffBeats: beats })
+              : null;
           const eventsCopy = buildPreviewEventsForBeats(beats);
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
@@ -30558,12 +30471,6 @@ function attachSquareResizeHandlers() {
             settleSquareEdgeFreezeOverlay(freezeOverlay);
             window.__b31SquareEdgeFreezeOverlayCount = (window.__b31SquareEdgeFreezeOverlayCount || 0) + 1;
           }
-          if (shutterOverlay) {
-            sqInner.appendChild(shutterOverlay);
-            squareEdgeShutterOverlay = shutterOverlay;
-            settleSquareEdgeShutterOverlay(shutterOverlay);
-            window.__b31SquareEdgeShutterOverlayCount = (window.__b31SquareEdgeShutterOverlayCount || 0) + 1;
-          }
           observeChordDisplays(sqInner);
           refreshChordWrapperRects();
           window.__b31SquareEdgePreviewRenderCount = (window.__b31SquareEdgePreviewRenderCount || 0) + 1;
@@ -30592,7 +30499,6 @@ function attachSquareResizeHandlers() {
 
         function cleanupSquareEdgePreview() {
           clearSquareEdgeFreezeOverlay();
-          clearSquareEdgeShutterOverlay();
           sqInner.classList.remove('is-square-edge-resizing');
           if (controls) controls.style.transition = '';
         }
@@ -30624,13 +30530,12 @@ function attachSquareResizeHandlers() {
               setSquareCustomBeats(sid, sqid, finalBeats);
             };
             if (squareEdgeFreezeOverlay && squareEdgeFreezeOverlay.isConnected && !squareEdgeFreezeSettled) {
-              // Shrink: не сносим freeze-overlay вместе с его границами
-              // немедленно — он держит закрывающуюся область до settle.
+              // Если пользователь отпустил мышь до конца визуального хода,
+              // не сносим freeze-overlay вместе с его границами немедленно:
+              // именно это давало раннее исчезновение разделителей и серые
+              // вспышки. Модель зафиксируем один раз после визуального
+              // settle; под ним уже стоит preview будущей структуры.
               squareEdgeAfterFreeze = commitSquareEdgeResize;
-            } else if (squareEdgeShutterOverlay && squareEdgeShutterOverlay.isConnected && !squareEdgeShutterSettled) {
-              // Add: ждём, пока «заслонка» откроет новый такт, потом один
-              // раз фиксируем модель.
-              squareEdgeAfterShutter = commitSquareEdgeResize;
             } else {
               commitSquareEdgeResize();
             }
