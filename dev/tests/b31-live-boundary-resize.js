@@ -276,14 +276,15 @@ w.addEventListener('load', async () => {
     evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length`) === 3
       && evl(`return document.querySelector('.square[data-square="2"] > .square-inner > .chord-wrapper[data-ei="3"]')`) === null,
     'right edge preview did not switch to future structure');
-  ok('удаляемый такт задвигается единым right-anchored strip под frozen-старые такты',
+  ok('удаляемый такт — right-anchored strip: лево фиксировано, ширины нет (право приклеено к краю)',
     evl(`return !!document.querySelector('.square-edge-freeze-overlay')
       && !!document.querySelector('.square-edge-removed-strip')
       && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 3
       && document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length === 1
       && document.querySelector('.square-edge-removed-strip').style.left !== ''
-      && document.querySelector('.square-edge-freeze-overlay').classList.contains('is-slide-out')`),
-    evl(`return 'strip=' + !!document.querySelector('.square-edge-removed-strip') + ' kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length + ' left=' + (document.querySelector('.square-edge-removed-strip')?.style.left || '') + ' slide=' + !!document.querySelector('.square-edge-freeze-overlay.is-slide-out')`));
+      && document.querySelector('.square-edge-removed-strip').style.width === ''
+      && getComputedStyle(document.querySelector('.square-edge-removed-strip')).right === '0px'`),
+    evl(`return 'strip=' + !!document.querySelector('.square-edge-removed-strip') + ' kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length + ' left=' + (document.querySelector('.square-edge-removed-strip')?.style.left || '') + ' width=' + (document.querySelector('.square-edge-removed-strip')?.style.width || '') + ' right=' + getComputedStyle(document.querySelector('.square-edge-removed-strip')).right`));
   ok('граница перед удаляемым тактом остаётся видимой до конца анимации',
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length >= 1`),
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
@@ -297,23 +298,31 @@ w.addEventListener('load', async () => {
     evl('return window.__b31SquareEdgePreviewRenderCount') === 1,
     evl('return window.__b31SquareEdgePreviewRenderCount'));
   await sleep(520);
-  ok('после visual settle до pointerup overlay снят, preview уже выглядит как финал',
-    evl(`return !document.querySelector('.square-edge-freeze-overlay')
+  ok('follow_mouse: overlay и ghost живут до pointerup (hold != финал по дизайну), модель не тронута',
+    evl(`return !!document.querySelector('.square-edge-freeze-overlay')
+      && !!document.querySelector('.square[data-square="2"] .square-inner > .square-edge-extend-ghost')
       && document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length === 3
       && sections[0].squares[0].events.length === 4`),
     evl(`return 'overlay=' + !!document.querySelector('.square-edge-freeze-overlay')
+      + ' ghost=' + !!document.querySelector('.square[data-square="2"] .square-inner > .square-edge-extend-ghost')
       + ' dom=' + document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length
       + ' model=' + sections[0].squares[0].events.length`));
   firePointerUp(300);
+  await sleep(80);
+  ok('на pointerup preview-слой (overlay + ghost) снят',
+    evl(`return !document.querySelector('.square-edge-freeze-overlay')
+      && !document.querySelector('.square-edge-extend-ghost')`),
+    evl(`return 'overlay=' + !!document.querySelector('.square-edge-freeze-overlay')
+      + ' ghost=' + !!document.querySelector('.square-edge-extend-ghost')`));
   await sleep(450);
-  ok('после визуального settle правый край коммитится один раз',
-    evl('return sections[0].squares[0].customBeats') === 12
-      && evl('return sections[0].squares[0].events.length') === 3
-      && evl('return window.__b31SquareEdgeCommitCount') === 1,
-    evl('return "beats=" + sections[0].squares[0].customBeats + " events=" + sections[0].squares[0].events.length + " commits=" + window.__b31SquareEdgeCommitCount'));
+  ok('после pointerup правый край коммитится один раз',
+    evl(`return sections[0].squares[0].customBeats`) === 12
+      && evl(`return sections[0].squares[0].events.length`) === 3
+      && evl(`return window.__b31SquareEdgeCommitCount`) === 1,
+    evl(`return "beats=" + sections[0].squares[0].customBeats + " events=" + sections[0].squares[0].events.length + " commits=" + window.__b31SquareEdgeCommitCount`));
   ok('commit правого края тоже без полного requestRender',
-    evl('return window.__b31RequestRenderCount') === 0,
-    evl('return window.__b31RequestRenderCount'));
+    evl(`return window.__b31RequestRenderCount`) === 0,
+    evl(`return window.__b31RequestRenderCount`));
   restoreRequestRender();
 
   console.log('=== B-31.5 right edge add: старые такты frozen поверх preview ===');
@@ -453,11 +462,13 @@ w.addEventListener('load', async () => {
     evl('return "events=" + sections[0].squares[0].events.length + " beats=" + sections[0].squares[0].customBeats + " commits=" + window.__b31SquareEdgeCommitCount'));
   restoreRequestRender();
 
-  console.log('=== B-31.8 right edge: самый длинный квадрат — эталон секции live, соседи не прыгают ===');
-  // Репро Wind of Change (2026-09-01): квадрат сам задавал эталон секции
-  // (визуал 18 при полу 16). Замороженный на старте эталон давал скачок
-  // ширины на pointerup (22.22% -> 25%). Теперь и процент жертвы, и ширины
-  // соседей считаются от ПОСЛЕ-КОММИТНОГО эталона ещё до отпускания.
+  console.log('=== B-31.8 right edge: follow_mouse — край за мышью, соседи заморожены, доезд на pointerup ===');
+  // Решение пользователя (2026-09-01, «follow_mouse»): при задвигании
+  // самого длинного квадрата правый край непрерывно следует за мышью ВЕСЬ
+  // жест (никакого залипания на 100% и лестницы 25%-шагов), соседи и
+  // repeat-ряд на время жеста заморожены на стартовых ширинах, а на
+  // pointerup всё мягко «доезжает» до финальных макетных ширин.
+  // Репро-геометрия: старт ряда 402px, драг 400->90 → follow = 92/402.
   evl(`
     globalTimeSig = '4/4';
     DOM.globalTimeSig.value = '4/4';
@@ -487,6 +498,7 @@ w.addEventListener('load', async () => {
     render();
     window.__b31RequestRenderCount = 0;
     window.__b31SquareEdgePreviewRenderCount = 0;
+    window.__b31SquareEdgePreviewFrameCount = 0;
     window.__b31SquareEdgeCommitCount = 0;
     if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
     requestRender = function () {
@@ -497,35 +509,56 @@ w.addEventListener('load', async () => {
     bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 402, height: 74, right: 402, bottom: 74, x: 0, y: 0 });
     return 0`);
   const victimHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
+  const startSibling = evl(`return document.querySelector('.square[data-square="3"] .square-inner').style.width`);
+  const startRepeatRow = evl(`return document.querySelector('.section-card[data-id="1"] .section-repeat-row').style.width`);
   firePointerDown(victimHandle, 400);
   firePointerMove(90); // звуковые 20 доли -> 4 (1 такт)
   await sleep(35);
   const holdVictim = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
   const holdSibling = evl(`return document.querySelector('.square[data-square="3"] .square-inner').style.width`);
   const holdBadge = evl(`return document.querySelector('.square[data-square="2"] .square-beats-badge').textContent`);
-  ok('жертва при удержании уже на после-коммитной ширине (18.75%, не 22.22%)',
-    Math.abs(parseFloat(holdVictim) - 18.75) < 0.01, holdVictim);
-  ok('сосед при удержании уже раздвинут до финальных 100% (без скачка на pointerup)',
-    Math.abs(parseFloat(holdSibling) - 100) < 0.01, holdSibling);
+  // follow-формула: clamp(startPx + dx) / rowWidth * 100 = (402-310)/402
+  ok('край при удержании следует за мышью: follow 22.89%, не финал 18.75% и не залипание 100%',
+    Math.abs(parseFloat(holdVictim) - (92 / 402) * 100) < 0.01, holdVictim);
+  ok('сосед при удержании заморожен на стартовой ширине, без живой перестройки',
+    Math.abs(parseFloat(holdSibling) - parseFloat(startSibling)) < 0.01, startSibling + ' -> ' + holdSibling);
   ok('бейдж тактов жертвы обновлён ещё до отпускания', holdBadge === '1 такт', holdBadge);
   const holdRepeatRow = evl(`return document.querySelector('.section-card[data-id="1"] .section-repeat-row').style.width`);
-  ok('repeat-ряд при удержании уже на финальной ширине (без прыжка на pointerup)',
-    Math.abs(parseFloat(holdRepeatRow) - 100) < 0.01, holdRepeatRow);
+  ok('repeat-ряд при удержании заморожен на стартовой ширине',
+    Math.abs(parseFloat(holdRepeatRow) - parseFloat(startRepeatRow)) < 0.01, startRepeatRow + ' -> ' + holdRepeatRow);
+  // Непрерывность: движение ВНУТРИ того же снапа (4 доли: px ∈ (80.4,120.6))
+  // двигает край (follow), хотя структура (preview render) не перестраивается.
+  const framesBefore = evl('return window.__b31SquareEdgePreviewFrameCount || 0');
+  const rendersBefore = evl('return window.__b31SquareEdgePreviewRenderCount || 0');
+  firePointerMove(105); // тот же снап (1 такт), но мышь правее
+  await sleep(35);
+  const followVictim = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
+  ok('внутри того же снапа край продолжает ехать за мышью (22.89% -> 26.62%)',
+    Math.abs(parseFloat(followVictim) - (107 / 402) * 100) < 0.01, holdVictim + ' -> ' + followVictim);
+  ok('preview-структура при этом не перестраивается (render count не растёт)',
+    evl('return window.__b31SquareEdgePreviewRenderCount || 0') === rendersBefore,
+    rendersBefore + ' -> ' + evl('return window.__b31SquareEdgePreviewRenderCount || 0'));
+  ok('каждый pointermove даёт follow-кадр (frame count растёт)',
+    evl('return window.__b31SquareEdgePreviewFrameCount || 0') > framesBefore,
+    framesBefore + ' -> ' + evl('return window.__b31SquareEdgePreviewFrameCount || 0'));
   await sleep(520);
   firePointerUp(90);
   await sleep(600);
   const finalVictim = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
   const finalSibling = evl(`return document.querySelector('.square[data-square="3"] .square-inner').style.width`);
-  ok('после pointerup ширина жертвы не скачет: финал == удержание',
-    Math.abs(parseFloat(finalVictim) - parseFloat(holdVictim)) < 0.01,
+  ok('после pointerup жертва доезжает до финальной ширины 18.75% (визуальный эталон)',
+    Math.abs(parseFloat(finalVictim) - 18.75) < 0.01,
     holdVictim + ' -> ' + finalVictim);
-  ok('после pointerup сосед не скачет: финал == удержание',
-    Math.abs(parseFloat(finalSibling) - parseFloat(holdSibling)) < 0.01,
+  ok('после pointerup сосед доезжает до финальных 100%',
+    Math.abs(parseFloat(finalSibling) - 100) < 0.01,
     holdSibling + ' -> ' + finalSibling);
   const finalRepeatRow = evl(`return document.querySelector('.section-card[data-id="1"] .section-repeat-row').style.width`);
-  ok('после pointerup repeat-ряд не скачет: финал == удержание',
-    Math.abs(parseFloat(finalRepeatRow) - parseFloat(holdRepeatRow)) < 0.01,
+  ok('после pointerup repeat-ряд доезжает до финальных 100%',
+    Math.abs(parseFloat(finalRepeatRow) - 100) < 0.01,
     holdRepeatRow + ' -> ' + finalRepeatRow);
+  ok('settle-доезд запускался (не мгновенный скачок без обработки)',
+    (evl('return window.__b31SquareEdgeSettleCount || 0') >= 1),
+    String(evl('return window.__b31SquareEdgeSettleCount || 0')));
   ok('модель закоммичена в 1 такт',
     evl('return sections[0].squares[0].customBeats') === 4
       && evl('return sections[0].squares[0].events.length') === 1,
