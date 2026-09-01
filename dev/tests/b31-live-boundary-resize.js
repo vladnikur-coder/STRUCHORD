@@ -532,6 +532,57 @@ w.addEventListener('load', async () => {
     evl('return "beats=" + sections[0].squares[0].customBeats + " events=" + sections[0].squares[0].events.length'));
   restoreRequestRender();
 
+  console.log('=== B-31.9 right edge: превью боя живёт и во время preview, не только после pointerup ===');
+  // Отложенный пробел из handoff: renderSquareEdgePreview пересобирал
+  // square-inner, но не вызывал renderEventStrumPreviews — при зажатой
+  // мыши ячейки с кастомным боем теряли рисунок и «хлопали» им на pointerup.
+  evl(`
+    globalTimeSig = '4/4';
+    DOM.globalTimeSig.value = '4/4';
+    squareZoom = 1;
+    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
+      repeat: 1, strumPattern: null, squares: [
+        { id: 2, repeat: 1, customBeats: 8, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: null, strumPattern: { mode: 'strum', subdivision: 2, steps: ['D','U'] } },
+          { chord: 'G', span: 4, timeSig: null, strumPattern: null },
+        ]},
+      ]
+    }];
+    if (songRhythmRolls) {
+      for (const key of [...songRhythmRolls.refs.keys()]) songRhythmRolls.refs.delete(key);
+      songRhythmRolls.sectionRolls.delete(1);
+    }
+    render();
+    window.__b31RequestRenderCount = 0;
+    if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
+    requestRender = function () {
+      window.__b31RequestRenderCount++;
+      return window.__b31OldRequestRender.apply(this, arguments);
+    };
+    const bi = document.querySelector('.square[data-square="2"] .square-inner');
+    bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 402, height: 74, right: 402, bottom: 74, x: 0, y: 0 });
+    return 0`);
+  // считаем только шаги в прямых ячейках сетки: freeze-overlay клонирует
+  // ячейки вместе с рисунком, и клоны иначе попадают в счёт
+  const beforeSteps = evl(`return document.querySelectorAll('.square[data-square="2"] .square-inner > .chord-wrapper .strum-step').length`);
+  ok('до drag превью боя нарисовано (иначе тест ничего не ловит)', beforeSteps > 0, String(beforeSteps));
+  const edgeHandle9 = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
+  firePointerDown(edgeHandle9, 400);
+  firePointerMove(150); // 8 доли -> 4: ячейка G уходит, C с боем остаётся
+  await sleep(35);
+  const holdSteps = evl(`return document.querySelectorAll('.square[data-square="2"] .square-inner > .chord-wrapper .strum-step').length`);
+  ok('во время preview (мышь зажата) рисунок боя не пропадает',
+    holdSteps > 0, holdSteps + ' шагов (было до drag: ' + beforeSteps + ')');
+  ok('шаги превью перерегистрированы для оставшейся ячейки',
+    evl(`return eventStrumPreviewStepEls.has('1:2:0')`), 
+    evl(`return [...eventStrumPreviewStepEls.keys()].filter(k => k.startsWith('1:2:')).join(',')`));
+  firePointerUp(150);
+  await sleep(450);
+  const finalSteps = evl(`return document.querySelectorAll('.square[data-square="2"] .square-inner > .chord-wrapper .strum-step').length`);
+  ok('после pointerup рисунок на месте (без «хлопка» появления)',
+    finalSteps > 0 && Math.abs(finalSteps - holdSteps) <= 0, holdSteps + ' -> ' + finalSteps);
+  restoreRequestRender();
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');
   process.exit(bad ? 1 : 0);
 });
