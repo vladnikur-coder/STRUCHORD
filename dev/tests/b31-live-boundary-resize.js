@@ -453,6 +453,78 @@ w.addEventListener('load', async () => {
     evl('return "events=" + sections[0].squares[0].events.length + " beats=" + sections[0].squares[0].customBeats + " commits=" + window.__b31SquareEdgeCommitCount'));
   restoreRequestRender();
 
+  console.log('=== B-31.8 right edge: самый длинный квадрат — эталон секции live, соседи не прыгают ===');
+  // Репро Wind of Change (2026-09-01): квадрат сам задавал эталон секции
+  // (визуал 18 при полу 16). Замороженный на старте эталон давал скачок
+  // ширины на pointerup (22.22% -> 25%). Теперь и процент жертвы, и ширины
+  // соседей считаются от ПОСЛЕ-КОММИТНОГО эталона ещё до отпускания.
+  evl(`
+    globalTimeSig = '4/4';
+    DOM.globalTimeSig.value = '4/4';
+    squareZoom = 1;
+    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
+      repeat: 1, strumPattern: null, squares: [
+        { id: 2, repeat: 1, customBeats: 20, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'G', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'F', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Em', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Dm', span: 4, timeSig: '3/4', strumPattern: null },
+        ]},
+        { id: 3, repeat: 1, customBeats: null, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'G', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'F', span: 4, timeSig: null, strumPattern: null },
+        ]},
+      ]
+    }];
+    if (songRhythmRolls) {
+      for (const key of [...songRhythmRolls.refs.keys()]) songRhythmRolls.refs.delete(key);
+      songRhythmRolls.sectionRolls.delete(1);
+    }
+    render();
+    window.__b31RequestRenderCount = 0;
+    window.__b31SquareEdgePreviewRenderCount = 0;
+    window.__b31SquareEdgeCommitCount = 0;
+    if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
+    requestRender = function () {
+      window.__b31RequestRenderCount++;
+      return window.__b31OldRequestRender.apply(this, arguments);
+    };
+    const bi = document.querySelector('.square[data-square="2"] .square-inner');
+    bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 402, height: 74, right: 402, bottom: 74, x: 0, y: 0 });
+    return 0`);
+  const victimHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
+  firePointerDown(victimHandle, 400);
+  firePointerMove(90); // звуковые 20 доли -> 4 (1 такт)
+  await sleep(35);
+  const holdVictim = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
+  const holdSibling = evl(`return document.querySelector('.square[data-square="3"] .square-inner').style.width`);
+  const holdBadge = evl(`return document.querySelector('.square[data-square="2"] .square-beats-badge').textContent`);
+  ok('жертва при удержании уже на после-коммитной ширине (18.75%, не 22.22%)',
+    Math.abs(parseFloat(holdVictim) - 18.75) < 0.01, holdVictim);
+  ok('сосед при удержании уже раздвинут до финальных 100% (без скачка на pointerup)',
+    Math.abs(parseFloat(holdSibling) - 100) < 0.01, holdSibling);
+  ok('бейдж тактов жертвы обновлён ещё до отпускания', holdBadge === '1 такт', holdBadge);
+  await sleep(520);
+  firePointerUp(90);
+  await sleep(600);
+  const finalVictim = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
+  const finalSibling = evl(`return document.querySelector('.square[data-square="3"] .square-inner').style.width`);
+  ok('после pointerup ширина жертвы не скачет: финал == удержание',
+    Math.abs(parseFloat(finalVictim) - parseFloat(holdVictim)) < 0.01,
+    holdVictim + ' -> ' + finalVictim);
+  ok('после pointerup сосед не скачет: финал == удержание',
+    Math.abs(parseFloat(finalSibling) - parseFloat(holdSibling)) < 0.01,
+    holdSibling + ' -> ' + finalSibling);
+  ok('модель закоммичена в 1 такт',
+    evl('return sections[0].squares[0].customBeats') === 4
+      && evl('return sections[0].squares[0].events.length') === 1,
+    evl('return "beats=" + sections[0].squares[0].customBeats + " events=" + sections[0].squares[0].events.length'));
+  restoreRequestRender();
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');
   process.exit(bad ? 1 : 0);
 });

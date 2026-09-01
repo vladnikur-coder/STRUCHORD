@@ -3797,6 +3797,13 @@ body.is-zooming .squares-list {
   will-change: width;
   contain: layout style;
 }
+/* B-31: при задвигании самого длинного квадрата эталон секции меняется —
+   соседи и repeat-ряд переставляются на финальные ширины ещё до
+   отпускания. Их переход тот же, что у самого квадрата: строка едет
+   согласованно, без скачка на pointerup. */
+.squares-list.is-square-edge-resizing .square-inner {
+  transition: width 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
+}
 .square-inner.is-live-resizing .chord-wrapper,
 .square-inner.is-square-edge-resizing .chord-wrapper {
   transition: background 0.14s ease;
@@ -8585,7 +8592,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.99</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.100</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30293,6 +30300,20 @@ function attachSquareResizeHandlers() {
         const rowContentWidth = startVisualBeats > 1e-6
           ? (startContentWidth * visualMaxBeats) / startVisualBeats
           : startContentWidth;
+        // B-31 (продолжение): эталон секции live. Если задвигаемый квадрат
+        // САМ самый длинный, то после отпускания getSectionMaxVisualBeats
+        // уменьшится — и финальный рендер раздвинет и его, и всех соседей.
+        // Замороженный на старте эталон давал скачок ширины на pointerup
+        // (Wind of Change: 22.22% -> 25%, +21px). Поэтому считаем
+        // ПОСЛЕ-КОММИТНЫЙ эталон: пол 4 такта + самый длинный сосед +
+        // визуальная длина preview самого квадрата.
+        const visualFloorBeats = getGridUnitsPerBar(parentTs) * 4;
+        const othersVisualBeats = sec.squares
+          .filter((other) => other !== sq)
+          .reduce((m, other) => Math.max(m, getSquareVisualBeats(other, parentTs)), 0);
+        // Кэш последнего применённого эталона — чтобы трогать соседей
+        // только на переходе, а не на каждом snapped-кадре.
+        let appliedSectionVisualMax = visualMaxBeats;
         const startX = e.clientX;
         let lastRoundedBeats = startBeats;
         let pendingSquareResizeClientX = startX;
@@ -30341,10 +30362,10 @@ function attachSquareResizeHandlers() {
         }
 
         // Проценты и px-цель — от ВИЗУАЛЬНОЙ длины preview-событий по
-        // визуальному эталону секции: ровно та формула, по которой
-        // финальный рендер (buildSectionSquaresListHtml /
-        // syncSectionSquaresGeometry) посчитает ширину после отпускания,
-        // поэтому settled-preview и финал совпадают пиксель в пиксель.
+        // ПОСЛЕ-КОММИТНОМУ визуальному эталону секции: ровно та величина,
+        // которую getSectionMaxVisualBeats вернёт ПОСЛЕ отпускания, —
+        // поэтому settled-preview и финал совпадают пиксель в пиксель даже
+        // когда задвигаемый квадрат сам был самым длинным в секции.
         // Достроенные при расширении такты — обычные бары без своего
         // размера, их визуал совпадает со звуком.
         function previewWidthMetrics(eventsCopy) {
@@ -30352,18 +30373,79 @@ function attachSquareResizeHandlers() {
             (sum, ev) => sum + getEventVisualSpanInParentUnits(ev, parentTs),
             0
           );
+          const futureVisualMax = Math.max(
+            visualFloorBeats,
+            othersVisualBeats,
+            visualBeats
+          );
           const percent = Math.min(
             100,
-            (visualBeats / Math.max(1e-6, visualMaxBeats)) * 100
+            (visualBeats / Math.max(1e-6, futureVisualMax)) * 100
           );
           const targetContentWidth = Math.max(
             minWidth,
             Math.min(
               maxWidth,
-              (rowContentWidth * visualBeats) / Math.max(1e-6, visualMaxBeats)
+              (rowContentWidth * visualBeats) / Math.max(1e-6, futureVisualMax)
             )
           );
-          return { percent, targetContentWidth };
+          return { percent, targetContentWidth, futureVisualMax };
+        }
+
+        // Соседи и repeat-ряд обязаны встать на финальные ширины ещё ДО
+        // отпускания: их процент считается от того же эталона секции, и на
+        // pointerup они бы прыгнули. Пишем только style-свойства и только
+        // когда эталон реально изменился (редкая работа на snapped-переходе).
+        function syncSiblingsForSectionMax(futureVisualMax, victimPercent) {
+          if (Math.abs(futureVisualMax - appliedSectionVisualMax) < 1e-6) return;
+          appliedSectionVisualMax = futureVisualMax;
+          const card = sqEl.closest('.section-card');
+          if (!card) return;
+          const list = card.querySelector('.squares-list');
+          if (list) list.classList.add('is-square-edge-resizing');
+          card.querySelectorAll('.squares-list > .square').forEach((el) => {
+            const other = sec.squares.find((s) => s.id === +el.dataset.square);
+            if (!other || other === sq) return;
+            const bi = el.querySelector('.square-inner');
+            if (!bi) return;
+            const p = Math.min(
+              100,
+              (getSquareVisualBeats(other, parentTs) / Math.max(1e-6, futureVisualMax)) * 100
+            );
+            bi.style.width = p + '%';
+            const otherControls = bi.nextElementSibling;
+            if (otherControls) {
+              otherControls.style.transition = 'right 0.16s cubic-bezier(0.2, 0.75, 0.18, 1)';
+              otherControls.style.right = `calc((100% - ${p}%) - 49px)`;
+            }
+          });
+          // repeat-ряд секции шириною по последнему квадрату списка.
+          const lastSquare = sec.squares[sec.squares.length - 1];
+          const lastPercent = lastSquare === sq
+            ? victimPercent
+            : Math.min(
+                100,
+                (getSquareVisualBeats(lastSquare, parentTs) / Math.max(1e-6, futureVisualMax)) * 100
+              );
+          card.querySelectorAll('.section-repeat-row').forEach((row) => {
+            row.style.transition = 'width 0.16s cubic-bezier(0.2, 0.75, 0.18, 1)';
+            row.style.width = lastPercent.toFixed(4) + '%';
+          });
+        }
+
+        function cleanupSiblingsSync() {
+          const card = sqEl.closest('.section-card');
+          const list = card && card.querySelector('.squares-list');
+          if (list) list.classList.remove('is-square-edge-resizing');
+          if (!card) return;
+          card.querySelectorAll('.squares-list > .square').forEach((el) => {
+            const bi = el.querySelector('.square-inner');
+            const otherControls = bi && bi.nextElementSibling;
+            if (otherControls) otherControls.style.transition = '';
+          });
+          card.querySelectorAll('.section-repeat-row').forEach((row) => {
+            row.style.transition = '';
+          });
         }
 
         function setControlsForPercent(percent) {
@@ -30558,7 +30640,7 @@ function attachSquareResizeHandlers() {
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
-          const { percent, targetContentWidth } = previewWidthMetrics(eventsCopy);
+          const { percent, targetContentWidth, futureVisualMax } = previewWidthMetrics(eventsCopy);
           const fixedColWidth = Math.max(
             1e-6,
             (targetContentWidth - Math.max(0, totalCols - 1) * SQUARE_GRID_GAP) / totalCols
@@ -30591,6 +30673,15 @@ function attachSquareResizeHandlers() {
           }
           sqInner.style.width = percent + '%';
           setControlsForPercent(percent);
+          // Кадр до отпускания должен совпадать с финалом: соседи/repeat-ряд
+          // встают на после-коммитные ширины сразу, бейдж тактов тоже не
+          // ждёт pointerup (иначе это виден скачок текста и строки).
+          syncSiblingsForSectionMax(futureVisualMax, percent);
+          const holdBars = beats / beatsPerBar;
+          const holdBadge = sqEl.querySelector('.square-beats-badge');
+          if (holdBadge) {
+            holdBadge.textContent = `${holdBars} такт${holdBars !== 1 ? 'а' : ''}`;
+          }
           if (freezeOverlay) {
             settleSquareEdgeFreezeOverlay(freezeOverlay);
           }
@@ -30624,6 +30715,7 @@ function attachSquareResizeHandlers() {
           clearSquareEdgeFreezeOverlay();
           sqInner.classList.remove('is-square-edge-resizing');
           if (controls) controls.style.transition = '';
+          cleanupSiblingsSync();
         }
 
         function onMove(ev) {
