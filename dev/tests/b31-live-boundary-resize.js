@@ -144,7 +144,6 @@ function sceneSquareEdgeAdd() {
     window.__b31SquareEdgePreviewFrameCount = 0;
     window.__b31SquareEdgeCommitCount = 0;
     window.__b31SquareEdgeFreezeOverlayCount = 0;
-    window.__b31SquareEdgeCurtainOverlayCount = 0;
     if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
     requestRender = function () {
       window.__b31RequestRenderCount++;
@@ -277,11 +276,12 @@ w.addEventListener('load', async () => {
     evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length`) === 3
       && evl(`return document.querySelector('.square[data-square="2"] > .square-inner > .chord-wrapper[data-ei="3"]')`) === null,
     'right edge preview did not switch to future structure');
-  ok('удаление снова закрывает только удаляемый такт заслонкой/freeze-слоем',
+  ok('удаляемый такт задвигается под frozen-старые такты без отдельного transform',
     evl(`return !!document.querySelector('.square-edge-freeze-overlay')
-      && document.querySelectorAll('.square-edge-freeze-cell').length === 1
-      && !document.querySelector('.square-edge-freeze-cell.is-removed-slide')`),
-    evl(`return 'freeze=' + !!document.querySelector('.square-edge-freeze-overlay') + ' cells=' + document.querySelectorAll('.square-edge-freeze-cell').length + ' slide=' + !!document.querySelector('.square-edge-freeze-cell.is-removed-slide')`));
+      && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 3
+      && document.querySelectorAll('.square-edge-freeze-cell.is-removed-slide').length === 1
+      && document.querySelector('.square-edge-freeze-cell.is-removed-slide').style.right !== ''`),
+    evl(`return 'kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-freeze-cell.is-removed-slide').length + ' right=' + (document.querySelector('.square-edge-freeze-cell.is-removed-slide')?.style.right || '')`));
   ok('граница перед удаляемым тактом остаётся видимой до конца анимации',
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length >= 1`),
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
@@ -335,11 +335,6 @@ w.addEventListener('load', async () => {
   ok('frozen overlay явно восстанавливает границы между старыми тактами',
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`) === 2,
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
-  ok('новый такт открывается отдельной заслонкой поверх новой области',
-    evl(`return !!document.querySelector('.square-edge-curtain-overlay')
-      && document.querySelector('.square-edge-curtain-overlay').classList.contains('is-opening')
-      && window.__b31SquareEdgeCurtainOverlayCount === 1`),
-    evl(`return 'curtain=' + !!document.querySelector('.square-edge-curtain-overlay') + ' opening=' + !!document.querySelector('.square-edge-curtain-overlay.is-opening') + ' count=' + window.__b31SquareEdgeCurtainOverlayCount`));
   firePointerUp(400);
   await sleep(450);
   ok('после визуального settle добавление коммитится один раз',

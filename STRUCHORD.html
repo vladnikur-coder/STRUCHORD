@@ -3825,31 +3825,20 @@ body.is-zooming .squares-list {
   cursor: default;
   transition: none;
 }
+.square-edge-freeze-cell.is-kept {
+  z-index: 3;
+}
+.square-edge-freeze-cell.is-removed-slide {
+  z-index: 1;
+  will-change: right;
+}
 .square-edge-freeze-boundary {
   position: absolute;
-  z-index: 2;
+  z-index: 4;
   top: 0;
   bottom: 0;
   width: 2px;
   background: var(--color-warm-border);
-}
-.square-edge-curtain-overlay {
-  position: absolute;
-  z-index: 9;
-  top: 0;
-  bottom: 0;
-  pointer-events: none;
-  background: var(--color-surface);
-  background-image: var(--panel-sheen);
-  border-left: 2px solid var(--color-warm-border);
-  box-sizing: border-box;
-  transform: scaleX(1);
-  transform-origin: right center;
-  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
-  will-change: transform;
-}
-.square-edge-curtain-overlay.is-opening {
-  transform: scaleX(0);
 }
 .square-edge-freeze-cell .chord-buttons,
 .square-edge-freeze-cell .resize-handle,
@@ -8566,7 +8555,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.92</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.91</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30268,8 +30257,6 @@ function attachSquareResizeHandlers() {
         let squareEdgeFreezeTimer = 0;
         let squareEdgeFreezeSettled = false;
         let squareEdgeAfterFreeze = null;
-        let squareEdgeCurtainOverlay = null;
-        let squareEdgeCurtainTimer = 0;
 
         function buildPreviewEventsForBeats(beats) {
           const totalBeats = beats;
@@ -30345,57 +30332,6 @@ function attachSquareResizeHandlers() {
           }
         }
 
-        function clearSquareEdgeCurtainOverlay() {
-          if (squareEdgeCurtainTimer) {
-            clearTimeout(squareEdgeCurtainTimer);
-            squareEdgeCurtainTimer = 0;
-          }
-          if (squareEdgeCurtainOverlay) {
-            squareEdgeCurtainOverlay.remove();
-            squareEdgeCurtainOverlay = null;
-          }
-        }
-
-        function makeSquareEdgeCurtainOverlay(fromBeats, toBeats) {
-          clearSquareEdgeCurtainOverlay();
-          const left = contentWidthForBeats(fromBeats);
-          const width = Math.max(0, contentWidthForBeats(toBeats) - left);
-          if (!(width > 1)) return null;
-          const curtain = document.createElement('div');
-          curtain.className = 'square-edge-curtain-overlay';
-          curtain.setAttribute('aria-hidden', 'true');
-          curtain.style.left = left.toFixed(3) + 'px';
-          // Небольшой нахлёст вправо, чтобы на краю не мигал фон при
-          // субпиксельной ширине. Старые такты при этом закрыты freeze-
-          // overlay и не участвуют в открывании.
-          curtain.style.width = (width + SQUARE_GRID_GAP).toFixed(3) + 'px';
-          return curtain;
-        }
-
-        function openSquareEdgeCurtainOverlay(curtain) {
-          if (!curtain) return;
-          const finish = () => {
-            if (!curtain.isConnected) return;
-            if (squareEdgeCurtainOverlay === curtain) squareEdgeCurtainOverlay = null;
-            curtain.remove();
-            squareEdgeCurtainTimer = 0;
-          };
-          const onTransitionEnd = (ev) => {
-            if (ev.target !== curtain || ev.propertyName !== 'transform') return;
-            curtain.removeEventListener('transitionend', onTransitionEnd);
-            finish();
-          };
-          curtain.addEventListener('transitionend', onTransitionEnd);
-          squareEdgeCurtainTimer = setTimeout(() => {
-            curtain.removeEventListener('transitionend', onTransitionEnd);
-            finish();
-          }, 260);
-          // Стартовая закрытая заслонка должна быть отрисована отдельно,
-          // иначе браузер схлопывает её с открытым состоянием.
-          void curtain.offsetWidth;
-          if (curtain.isConnected) curtain.classList.add('is-opening');
-        }
-
         function makeSquareEdgeFreezeOverlay(opts = {}) {
           clearSquareEdgeFreezeOverlay();
           const box = sqInner.getBoundingClientRect();
@@ -30407,6 +30343,7 @@ function attachSquareResizeHandlers() {
           overlay.dataset.mode = opts.mode || 'keep';
           overlay.setAttribute('aria-hidden', 'true');
           const allCells = Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper'));
+          const isSlideRemove = opts.mode === 'removed-slide';
           let offset = 0;
           const selected = [];
           allCells.forEach((cw, idx) => {
@@ -30415,22 +30352,31 @@ function attachSquareResizeHandlers() {
             const start = offset;
             const end = offset + span;
             offset = end;
-            const isRemoved = opts.mode === 'removed' && end > (opts.cutoffBeats || 0) + 1e-6;
+            const isRemoved = (opts.mode === 'removed' || isSlideRemove)
+              && end > (opts.cutoffBeats || 0) + 1e-6;
             if (opts.mode === 'removed' && !isRemoved) return;
+            // Slide-remove держит ВСЮ старую структуру в одном overlay:
+            // нетронутые такты остаются сверху неподвижно, а удаляемый такт
+            // привязан к правому краю overlay (`right`) и за счёт shrink
+            // родительской ширины заезжает под них без отдельного transform.
             selected.push({ cw, idx, start, end, isRemoved });
           });
           selected.forEach((item, selectedIdx) => {
             const rect = item.cw.getBoundingClientRect();
             const clone = item.cw.cloneNode(true);
-            clone.className = `${item.cw.className} square-edge-freeze-cell`;
+            clone.className = `${item.cw.className} square-edge-freeze-cell${isSlideRemove ? (item.isRemoved ? ' is-removed-slide' : ' is-kept') : ''}`;
             clone.style.gridColumn = '';
             // При shrink frozen-копия закрывает серую область удаляемого
-            // такта. Даем ей небольшой нахлёст вправо/влево на ширину gap:
-            // иначе на субпиксельных ширинах иногда простреливает серый
-            // фон между будущей структурой и старой удаляемой ячейкой.
+            // такта. Для slide-remove удаляемый clone привязан к right:0 —
+            // его правый край всегда совпадает с анимируемым правым краем
+            // квадрата, поэтому серой щели быть не должно.
             const overscan = item.isRemoved ? SQUARE_GRID_GAP : 0;
             const safeLeft = Math.max(0, rect.left - originLeft - overscan);
-            clone.style.left = safeLeft.toFixed(3) + 'px';
+            if (isSlideRemove && item.isRemoved) {
+              clone.style.right = (-overscan).toFixed(3) + 'px';
+            } else {
+              clone.style.left = safeLeft.toFixed(3) + 'px';
+            }
             clone.style.top = Math.max(0, rect.top - originTop).toFixed(3) + 'px';
             clone.style.width = Math.max(0, rect.width + overscan * 2).toFixed(3) + 'px';
             clone.style.height = Math.max(0, rect.height).toFixed(3) + 'px';
@@ -30450,7 +30396,7 @@ function attachSquareResizeHandlers() {
             // оставшегося такта. Из-за overscan clone закрывает старый gap,
             // поэтому эту границу нужно явно вернуть поверх клона и держать
             // до конца анимации.
-            if (opts.mode === 'removed' && selectedIdx === 0 && item.idx > 0) {
+            if ((opts.mode === 'removed' || isSlideRemove) && selectedIdx === 0 && item.idx > 0) {
               drawBoundary(rect.left - originLeft - SQUARE_GRID_GAP);
             }
             const next = selected[selectedIdx + 1];
@@ -30473,7 +30419,7 @@ function attachSquareResizeHandlers() {
             const mode = overlay.dataset.mode || '';
             const after = squareEdgeAfterFreeze;
             squareEdgeAfterFreeze = null;
-            if (mode === 'removed') {
+            if (mode === 'removed' || mode === 'removed-slide') {
               // Удаляемый такт и его границы должны жить до commit. Иначе
               // при удержании/быстром отпускании видны раннее исчезновение
               // разделителей и серый фон. Если pointerup уже ждёт settle —
@@ -30507,13 +30453,11 @@ function attachSquareResizeHandlers() {
         function renderSquareEdgePreview(beats, fromBeats) {
           enableSquareEdgePreviewTransition();
           const prevBeats = fromBeats == null ? startBeats : fromBeats;
-          const isAdding = beats > prevBeats;
-          const freezeOverlay = isAdding
+          const freezeOverlay = beats > prevBeats
             ? makeSquareEdgeFreezeOverlay()
             : beats < prevBeats
-              ? makeSquareEdgeFreezeOverlay({ mode: 'removed', cutoffBeats: beats })
+              ? makeSquareEdgeFreezeOverlay({ mode: 'removed-slide', cutoffBeats: beats })
               : null;
-          const curtainOverlay = isAdding ? makeSquareEdgeCurtainOverlay(prevBeats, beats) : null;
           const eventsCopy = buildPreviewEventsForBeats(beats);
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
@@ -30542,11 +30486,6 @@ function attachSquareResizeHandlers() {
             squareEdgeFreezeOverlay = freezeOverlay;
             window.__b31SquareEdgeFreezeOverlayCount = (window.__b31SquareEdgeFreezeOverlayCount || 0) + 1;
           }
-          if (curtainOverlay) {
-            sqInner.appendChild(curtainOverlay);
-            squareEdgeCurtainOverlay = curtainOverlay;
-            window.__b31SquareEdgeCurtainOverlayCount = (window.__b31SquareEdgeCurtainOverlayCount || 0) + 1;
-          }
           // Важно для синхронности: overlay старого/удаляемого такта должен
           // быть вставлен и отрисован на СТАРОЙ ширине до того, как начнёт
           // ехать right-edge width. Иначе задвигание визуально стартует
@@ -30554,7 +30493,6 @@ function attachSquareResizeHandlers() {
           void sqInner.offsetWidth;
           sqInner.style.width = percent + '%';
           setControlsForPercent(percent);
-          if (curtainOverlay) openSquareEdgeCurtainOverlay(curtainOverlay);
           if (freezeOverlay) {
             settleSquareEdgeFreezeOverlay(freezeOverlay);
           }
@@ -30586,7 +30524,6 @@ function attachSquareResizeHandlers() {
 
         function cleanupSquareEdgePreview() {
           clearSquareEdgeFreezeOverlay();
-          clearSquareEdgeCurtainOverlay();
           sqInner.classList.remove('is-square-edge-resizing');
           if (controls) controls.style.transition = '';
         }
