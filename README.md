@@ -25,7 +25,7 @@ manifest.json, sw.js    PWA-обвязка (офлайн-кэш, иконки)
 uploads/                исходники песен, присланные пользователем (.struchord-*.json)
 dev/
   run-tests.sh          прогон всех тестов одной командой
-  tests/                35 jsdom-тестов (JavaScript)
+  tests/                39 jsdom-тестов (JavaScript)
   fixtures/             золотые слепки для тестов (rhythm-golden, wind-of-change, praskovya)
   bench/                Chrome-стенды с живыми кадрами (требуют puppeteer + Chrome)
   tools/                вспомогательные скрипты (Python, в приложение не входят)
@@ -55,7 +55,7 @@ package.json            зависимости для тестов (jsdom; puppe
 bash dev/run-tests.sh
 ```
 
-После `npm install` (для jsdom) команда гоняет все 35 тестов и возвращает
+После `npm install` (для jsdom) команда гоняет все 39 тестов и возвращает
 0 при полном успехе.
 
 UI-тесты поднимают приложение в jsdom и кликают по интерфейсу как
