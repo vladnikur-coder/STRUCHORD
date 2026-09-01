@@ -276,10 +276,11 @@ w.addEventListener('load', async () => {
     evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length`) === 3
       && evl(`return document.querySelector('.square[data-square="2"] > .square-inner > .chord-wrapper[data-ei="3"]')`) === null,
     'right edge preview did not switch to future structure');
-  ok('удаляемый такт остаётся frozen поверх серой зоны до ухода края',
-    evl(`return !!document.querySelector('.square-edge-freeze-overlay')
-      && document.querySelectorAll('.square-edge-freeze-cell').length === 1`),
-    evl(`return 'freeze=' + !!document.querySelector('.square-edge-freeze-overlay') + ' cells=' + document.querySelectorAll('.square-edge-freeze-cell').length`));
+  ok('удаляемый такт задвигается под frozen-старые такты',
+    evl(`return !!document.querySelector('.square-edge-freeze-overlay.is-slide-out')
+      && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 3
+      && document.querySelectorAll('.square-edge-freeze-cell.is-removed-slide').length === 1`),
+    evl(`return 'slide=' + !!document.querySelector('.square-edge-freeze-overlay.is-slide-out') + ' kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-freeze-cell.is-removed-slide').length`));
   ok('граница перед удаляемым тактом остаётся видимой до конца анимации',
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length >= 1`),
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
