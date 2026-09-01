@@ -8592,7 +8592,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.108</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.109</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30311,9 +30311,6 @@ function attachSquareResizeHandlers() {
         const othersVisualBeats = sec.squares
           .filter((other) => other !== sq)
           .reduce((m, other) => Math.max(m, getSquareVisualBeats(other, parentTs)), 0);
-        // Кэш последнего применённого эталона — чтобы трогать соседей
-        // только на переходе, а не на каждом snapped-кадре.
-        let appliedSectionVisualMax = visualMaxBeats;
         const startX = e.clientX;
         let lastRoundedBeats = startBeats;
         let pendingSquareResizeClientX = startX;
@@ -30390,73 +30387,6 @@ function attachSquareResizeHandlers() {
           const targetContentWidth =
             (rowContentWidth * visualBeats) / Math.max(1e-6, futureVisualMax);
           return { percent, targetContentWidth, futureVisualMax };
-        }
-
-        // Соседи и repeat-ряд обязаны встать на финальные ширины ещё ДО
-        // отпускания: их процент считается от того же эталона секции, и на
-        // pointerup они бы прыгнули. Пишем только style-свойства и только
-        // когда эталон реально изменился (редкая работа на snapped-переходе).
-        function syncSiblingsForSectionMax(futureVisualMax, victimPercent) {
-          if (Math.abs(futureVisualMax - appliedSectionVisualMax) < 1e-6) return;
-          appliedSectionVisualMax = futureVisualMax;
-          const card = sqEl.closest('.section-card');
-          if (!card) return;
-          const list = card.querySelector('.squares-list');
-          if (list) list.classList.add('is-square-edge-resizing');
-          card.querySelectorAll('.squares-list > .square').forEach((el) => {
-            const other = sec.squares.find((s) => s.id === +el.dataset.square);
-            if (!other || other === sq) return;
-            const bi = el.querySelector('.square-inner');
-            if (!bi) return;
-            const p = Math.min(
-              100,
-              (getSquareVisualBeats(other, parentTs) / Math.max(1e-6, futureVisualMax)) * 100
-            );
-            bi.style.width = p + '%';
-            const otherControls = bi.nextElementSibling;
-            if (otherControls) {
-              otherControls.style.transition = 'right 0.16s cubic-bezier(0.2, 0.75, 0.18, 1)';
-              otherControls.style.right = `calc((100% - ${p}%) - 49px)`;
-            }
-          });
-        }
-
-        // Repeat-ряд секции шириною следует за ПОСЛЕДНИМ квадратом списка.
-        // Обновлять его нужно на КАЖДОМ snapped-переходе, а не только при
-        // смене эталона секции: если жертва — последний квадрат, полоса
-        // обязана ехать вместе с ним ещё до отпускания. Иначе на pointerup
-        // она прыгала (репро пользователя: 6.25% -> 100%).
-        function syncRepeatRowWidth(futureVisualMax, victimPercent) {
-          const card = sqEl.closest('.section-card');
-          if (!card) return;
-          const list = card.querySelector('.squares-list');
-          if (list) list.classList.add('is-square-edge-resizing');
-          const lastSquare = sec.squares[sec.squares.length - 1];
-          const lastPercent = lastSquare === sq
-            ? victimPercent
-            : Math.min(
-                100,
-                (getSquareVisualBeats(lastSquare, parentTs) / Math.max(1e-6, futureVisualMax)) * 100
-              );
-          card.querySelectorAll('.section-repeat-row').forEach((row) => {
-            row.style.transition = 'width 0.16s cubic-bezier(0.2, 0.75, 0.18, 1)';
-            row.style.width = lastPercent.toFixed(4) + '%';
-          });
-        }
-
-        function cleanupSiblingsSync() {
-          const card = sqEl.closest('.section-card');
-          const list = card && card.querySelector('.squares-list');
-          if (list) list.classList.remove('is-square-edge-resizing');
-          if (!card) return;
-          card.querySelectorAll('.squares-list > .square').forEach((el) => {
-            const bi = el.querySelector('.square-inner');
-            const otherControls = bi && bi.nextElementSibling;
-            if (otherControls) otherControls.style.transition = '';
-          });
-          card.querySelectorAll('.section-repeat-row').forEach((row) => {
-            row.style.transition = '';
-          });
         }
 
         function setControlsForPercent(percent) {
@@ -30681,7 +30611,13 @@ function attachSquareResizeHandlers() {
             if (key.startsWith(previewPrefix)) eventStrumPreviewStepEls.delete(key);
           }
           sqInner.innerHTML = buildSquareInnerEventsHtml(sec, previewSq, distribution);
-          sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, ${fixedColWidth.toFixed(6)}px))`;
+          // ФИКСИРОВАННЫЕ треки (без minmax): упругие minmax(0,Xpx) сжимались
+          // и растягивались вместе с анимирующейся коробкой — ячейки и превью
+          // ритма «резинились» весь ход (кадр 2 пользователя: шаг ячеек 109.6px
+          // при финальном 113.3px). С фиксированными треками ячейки встают в
+          // финальный размер мгновенно, а коробка доехжает и открывает/режет их
+          // краем (overflow:hidden).
+          sqInner.style.gridTemplateColumns = `repeat(${totalCols}, ${fixedColWidth.toFixed(6)}px)`;
           if (freezeOverlay) {
             sqInner.appendChild(freezeOverlay);
             squareEdgeFreezeOverlay = freezeOverlay;
@@ -30697,11 +30633,10 @@ function attachSquareResizeHandlers() {
           }
           sqInner.style.width = percent + '%';
           setControlsForPercent(percent);
-          // Кадр до отпускания должен совпадать с финалом: соседи/repeat-ряд
-          // встают на после-коммитные ширины сразу, бейдж тактов тоже не
-          // ждёт pointerup (иначе это виден скачок текста и строки).
-          syncSiblingsForSectionMax(futureVisualMax, percent);
-          syncRepeatRowWidth(futureVisualMax, percent);
+          // Заметка пользователя (2026-09-01): эталон НЕ должен обновляться
+          // на ходу — соседи и repeat-ряд стоят на стартовых ширинах весь
+          // жест и мягко доезжают после отпускания (settleSquareEdgeAfterCommit).
+          // Бейдж тактов жертвы обновляем сразу — текст не должен прыгать на pointerup.
           const holdBars = beats / beatsPerBar;
           const holdBadge = sqEl.querySelector('.square-beats-badge');
           if (holdBadge) {
@@ -30746,8 +30681,8 @@ function attachSquareResizeHandlers() {
         function cleanupSquareEdgePreview() {
           clearSquareEdgeFreezeOverlay();
           sqInner.classList.remove('is-square-edge-resizing');
+          sqInner.style.transition = '';
           if (controls) controls.style.transition = '';
-          cleanupSiblingsSync();
         }
 
         function onMove(ev) {
@@ -30757,6 +30692,87 @@ function attachSquareResizeHandlers() {
             squareResizeRAF = 0;
             applySquareEdgePreviewAt(pendingSquareResizeClientX, false);
           });
+        }
+
+        // Заметка пользователя (2026-09-01): «только после отпускания мыши
+        // квадрат должен плавно принимать свою форму». Во время жеста соседние
+        // квадраты и repeat-ряд заморожены на стартовых ширинах, поэтому сразу
+        // после коммита их нужно перевезти к финалу анимацией, а не скачком:
+        // фиксируем px-ширины до коммита, даём коммиту выставить финальные
+        // проценты, затем FLIP — откат на стартовые px без transition и
+        // возврат финального процента уже с transition.
+        function captureSectionWidthsForSettle() {
+          const card = sqEl.closest('.section-card');
+          if (!card) return null;
+          const items = [];
+          // Захватываем ПРОЦЕНТЫ (style.width), а не px-ректы:_percent и есть
+          // текущее honest-состояние, а getBoundingClientRect в тестовом DOM
+          // не работает — и не нужен.
+          card.querySelectorAll('.squares-list .square[data-square]').forEach((el) => {
+            const bi = el.querySelector('.square-inner');
+            const ctl = bi && bi.nextElementSibling;
+            if (bi) {
+              items.push({
+                kind: 'sq', key: el.getAttribute('data-square'),
+                preWidth: bi.style.width,
+                ctl,
+                ctlRight: ctl ? getComputedStyle(ctl).right : '',
+              });
+            }
+          });
+          card.querySelectorAll('.section-repeat-row').forEach((row, i) => {
+            items.push({ kind: 'repeat', idx: i, preWidth: row.style.width });
+          });
+          return { card, items };
+        }
+
+        function settleSquareEdgeAfterCommit(captured) {
+          if (!captured || !captured.card.isConnected) return;
+          const changed = [];
+          captured.items.forEach((it) => {
+            let el = null;
+            if (it.kind === 'sq') {
+              el = captured.card.querySelector(`.square[data-square="${it.key}"] .square-inner`);
+            } else {
+              el = captured.card.querySelectorAll('.section-repeat-row')[it.idx] || null;
+            }
+            if (!el || !el.style.width || !it.preWidth) return;
+            if (Math.abs(parseFloat(el.style.width) - parseFloat(it.preWidth)) <= 0.01) return;
+            changed.push({
+              el,
+              preWidth: it.preWidth,
+              finalWidth: el.style.width,
+              ctl: it.ctl || null,
+              ctlRight: it.ctlRight || '',
+              ctlFinalRight: it.ctl && it.ctl.isConnected ? it.ctl.style.right : '',
+            });
+          });
+          window.__b31SquareEdgeSettleCount = (window.__b31SquareEdgeSettleCount || 0) + 1;
+          if (!changed.length) return;
+          changed.forEach((it) => {
+            it.el.style.transition = 'none';
+            it.el.style.width = it.preWidth;
+            if (it.ctl && it.ctl.isConnected && it.ctlRight) {
+              it.ctl.style.transition = 'none';
+              it.ctl.style.right = it.ctlRight;
+            }
+          });
+          void changed[0].el.offsetWidth;
+          changed.forEach((it) => {
+            it.el.style.transition = 'width 0.18s cubic-bezier(0.2, 0.75, 0.18, 1)';
+            it.el.style.width = it.finalWidth;
+            if (it.ctl && it.ctl.isConnected && it.ctlFinalRight) {
+              it.ctl.style.transition = 'right 0.18s cubic-bezier(0.2, 0.75, 0.18, 1)';
+              it.ctl.style.right = it.ctlFinalRight;
+            }
+          });
+          window.__b31SquareEdgeSettleFlipCount = (window.__b31SquareEdgeSettleFlipCount || 0) + 1;
+          setTimeout(() => {
+            changed.forEach((it) => {
+              if (it.el.isConnected) it.el.style.transition = '';
+              if (it.ctl && it.ctl.isConnected) it.ctl.style.transition = '';
+            });
+          }, 260);
         }
 
         function onUp() {
@@ -30772,9 +30788,11 @@ function attachSquareResizeHandlers() {
 
           if (finalBeats !== startBeats) {
             const commitSquareEdgeResize = () => {
+              const captured = captureSectionWidthsForSettle();
               cleanupSquareEdgePreview();
               window.__b31SquareEdgeCommitCount = (window.__b31SquareEdgeCommitCount || 0) + 1;
               setSquareCustomBeats(sid, sqid, finalBeats);
+              settleSquareEdgeAfterCommit(captured);
             };
             if (squareEdgeFreezeOverlay && squareEdgeFreezeOverlay.isConnected && !squareEdgeFreezeSettled) {
               // Если пользователь отпустил мышь до конца визуального хода,

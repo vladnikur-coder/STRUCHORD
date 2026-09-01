@@ -263,11 +263,11 @@ w.addEventListener('load', async () => {
     evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)') === '4:16',
     evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)'));
   await sleep(35);
-  ok('правый край перешёл в smooth snapped preview будущей структуры',
-    evl(`return document.querySelector('.square-inner').classList.contains('is-square-edge-resizing')`)
-      && /^repeat\(12,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`))
-      && /px\)\)$/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
-    evl(`return document.querySelector('.square-inner').className + ' | ' + document.querySelector('.square-inner').style.gridTemplateColumns`));
+  const holdTpl = evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`);
+  const holdCls = evl(`return document.querySelector('.square-inner').className`);
+  ok('правый край перешёл в smooth snapped preview: ФИКСИРОВАННЫЕ px-треки (не резинятся)',
+    holdCls.includes('is-square-edge-resizing') && /^repeat\(\d+, [0-9.]+px\)$/.test(holdTpl),
+    holdCls + ' | ' + holdTpl);
   ok('на pointermove правого края модель не мутирует и полный render не нужен',
     evl('return sections[0].squares[0].events.length') === 4
       && evl('return window.__b31RequestRenderCount') === 0,
@@ -505,12 +505,12 @@ w.addEventListener('load', async () => {
   const holdBadge = evl(`return document.querySelector('.square[data-square="2"] .square-beats-badge').textContent`);
   ok('жертва при удержании уже на после-коммитной ширине (18.75%, не 22.22%)',
     Math.abs(parseFloat(holdVictim) - 18.75) < 0.01, holdVictim);
-  ok('сосед при удержании уже раздвинут до финальных 100% (без скачка на pointerup)',
-    Math.abs(parseFloat(holdSibling) - 100) < 0.01, holdSibling);
+  ok('сосед при удержании ЗАМОРОЖЕН на стартовой ширине (эталон не обновляется на ходу)',
+    Math.abs(parseFloat(holdSibling) - 66.6667) < 0.01, holdSibling);
   ok('бейдж тактов жертвы обновлён ещё до отпускания', holdBadge === '1 такт', holdBadge);
   const holdRepeatRow = evl(`return document.querySelector('.section-card[data-id="1"] .section-repeat-row').style.width`);
-  ok('repeat-ряд при удержании уже на финальной ширине (без прыжка на pointerup)',
-    Math.abs(parseFloat(holdRepeatRow) - 100) < 0.01, holdRepeatRow);
+  ok('repeat-ряд при удержании ЗАМОРОЖЕН на стартовой ширине',
+    Math.abs(parseFloat(holdRepeatRow) - 66.6667) < 0.01, holdRepeatRow);
   await sleep(520);
   firePointerUp(90);
   await sleep(600);
@@ -519,12 +519,13 @@ w.addEventListener('load', async () => {
   ok('после pointerup ширина жертвы не скачет: финал == удержание',
     Math.abs(parseFloat(finalVictim) - parseFloat(holdVictim)) < 0.01,
     holdVictim + ' -> ' + finalVictim);
-  ok('после pointerup сосед не скачет: финал == удержание',
-    Math.abs(parseFloat(finalSibling) - parseFloat(holdSibling)) < 0.01,
-    holdSibling + ' -> ' + finalSibling);
+  ok('после pointerup сосед ПЛАВНО доезжает до финальных 100% (settle-flip запускался)',
+    Math.abs(parseFloat(finalSibling) - 100) < 0.01
+      && (evl('return window.__b31SquareEdgeSettleFlipCount || 0') >= 1),
+    holdSibling + ' -> ' + finalSibling + ' flips=' + evl('return window.__b31SquareEdgeSettleFlipCount || 0'));
   const finalRepeatRow = evl(`return document.querySelector('.section-card[data-id="1"] .section-repeat-row').style.width`);
-  ok('после pointerup repeat-ряд не скачет: финал == удержание',
-    Math.abs(parseFloat(finalRepeatRow) - parseFloat(holdRepeatRow)) < 0.01,
+  ok('после pointerup repeat-ряд доезжает до финальных 100%',
+    Math.abs(parseFloat(finalRepeatRow) - 100) < 0.01,
     holdRepeatRow + ' -> ' + finalRepeatRow);
   ok('модель закоммичена в 1 такт',
     evl('return sections[0].squares[0].customBeats') === 4
