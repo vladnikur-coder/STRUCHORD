@@ -276,12 +276,13 @@ w.addEventListener('load', async () => {
     evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length`) === 3
       && evl(`return document.querySelector('.square[data-square="2"] > .square-inner > .chord-wrapper[data-ei="3"]')`) === null,
     'right edge preview did not switch to future structure');
-  ok('удаляемый такт задвигается под frozen-старые такты без отдельного transform',
+  ok('удаляемый такт задвигается единым right-anchored strip под frozen-старые такты',
     evl(`return !!document.querySelector('.square-edge-freeze-overlay')
+      && !!document.querySelector('.square-edge-removed-strip')
       && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 3
-      && document.querySelectorAll('.square-edge-freeze-cell.is-removed-slide').length === 1
-      && document.querySelector('.square-edge-freeze-cell.is-removed-slide').style.right !== ''`),
-    evl(`return 'kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-freeze-cell.is-removed-slide').length + ' right=' + (document.querySelector('.square-edge-freeze-cell.is-removed-slide')?.style.right || '')`));
+      && document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length === 1
+      && document.querySelector('.square-edge-removed-strip').style.right !== ''`),
+    evl(`return 'strip=' + !!document.querySelector('.square-edge-removed-strip') + ' kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length + ' right=' + (document.querySelector('.square-edge-removed-strip')?.style.right || '')`));
   ok('граница перед удаляемым тактом остаётся видимой до конца анимации',
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length >= 1`),
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
@@ -342,6 +343,31 @@ w.addEventListener('load', async () => {
       && evl('return sections[0].squares[0].events.length') === 4
       && evl('return window.__b31SquareEdgeCommitCount') === 1,
     evl('return "beats=" + (sections[0].squares[0].customBeats || 16) + " events=" + sections[0].squares[0].events.length + " commits=" + window.__b31SquareEdgeCommitCount'));
+  restoreRequestRender();
+
+  console.log('=== B-31.6 right edge: multi-takt shrink не складывает удаляемые такты ===');
+  sceneSquareEdge();
+  await sleep(30);
+  const multiEdgeHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
+  firePointerDown(multiEdgeHandle, 400);
+  firePointerMove(100); // 4 такта -> 1 такт
+  await sleep(35);
+  ok('multi-shrink держит удаляемые такты в одном strip без наложения в правый край',
+    evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length === 1
+      && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 1
+      && document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length === 3
+      && document.querySelectorAll('.square-edge-removed-strip').length === 1`),
+    evl(`return 'dom=' + document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length
+      + ' kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length
+      + ' removed=' + document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length
+      + ' strips=' + document.querySelectorAll('.square-edge-removed-strip').length`));
+  firePointerUp(100);
+  await sleep(450);
+  ok('multi-shrink после settle коммитится в 1 такт без overlay-хвостов',
+    evl('return sections[0].squares[0].customBeats') === 4
+      && evl('return sections[0].squares[0].events.length') === 1
+      && evl(`return document.querySelectorAll('.square-edge-freeze-overlay,.square-edge-removed-strip').length`) === 0,
+    evl(`return 'beats=' + sections[0].squares[0].customBeats + ' events=' + sections[0].squares[0].events.length + ' overlays=' + document.querySelectorAll('.square-edge-freeze-overlay,.square-edge-removed-strip').length`));
   restoreRequestRender();
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');

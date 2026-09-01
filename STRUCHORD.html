@@ -3830,7 +3830,19 @@ body.is-zooming .squares-list {
 }
 .square-edge-freeze-cell.is-removed-slide {
   z-index: 1;
-  will-change: right;
+}
+.square-edge-removed-strip {
+  position: absolute;
+  z-index: 1;
+  top: 0;
+  bottom: 0;
+  overflow: visible;
+}
+.square-edge-removed-strip .square-edge-freeze-cell {
+  z-index: 1;
+}
+.square-edge-removed-strip .square-edge-freeze-boundary {
+  z-index: 2;
 }
 .square-edge-freeze-boundary {
   position: absolute;
@@ -8555,7 +8567,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.91</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.93</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30352,58 +30364,87 @@ function attachSquareResizeHandlers() {
             const start = offset;
             const end = offset + span;
             offset = end;
-            const isRemoved = (opts.mode === 'removed' || isSlideRemove)
-              && end > (opts.cutoffBeats || 0) + 1e-6;
-            if (opts.mode === 'removed' && !isRemoved) return;
-            // Slide-remove держит ВСЮ старую структуру в одном overlay:
-            // нетронутые такты остаются сверху неподвижно, а удаляемый такт
-            // привязан к правому краю overlay (`right`) и за счёт shrink
-            // родительской ширины заезжает под них без отдельного transform.
-            selected.push({ cw, idx, start, end, isRemoved });
-          });
-          selected.forEach((item, selectedIdx) => {
-            const rect = item.cw.getBoundingClientRect();
-            const clone = item.cw.cloneNode(true);
-            clone.className = `${item.cw.className} square-edge-freeze-cell${isSlideRemove ? (item.isRemoved ? ' is-removed-slide' : ' is-kept') : ''}`;
-            clone.style.gridColumn = '';
-            // При shrink frozen-копия закрывает серую область удаляемого
-            // такта. Для slide-remove удаляемый clone привязан к right:0 —
-            // его правый край всегда совпадает с анимируемым правым краем
-            // квадрата, поэтому серой щели быть не должно.
-            const overscan = item.isRemoved ? SQUARE_GRID_GAP : 0;
-            const safeLeft = Math.max(0, rect.left - originLeft - overscan);
-            if (isSlideRemove && item.isRemoved) {
-              clone.style.right = (-overscan).toFixed(3) + 'px';
-            } else {
-              clone.style.left = safeLeft.toFixed(3) + 'px';
-            }
-            clone.style.top = Math.max(0, rect.top - originTop).toFixed(3) + 'px';
-            clone.style.width = Math.max(0, rect.width + overscan * 2).toFixed(3) + 'px';
-            clone.style.height = Math.max(0, rect.height).toFixed(3) + 'px';
-            clone.querySelectorAll('.chord-buttons,.resize-handle,.square-resize-handle').forEach((el) => el.remove());
-            overlay.appendChild(clone);
-            // Freeze-overlay закрывает старые ячейки от визуального
-            // растяжения/серой пустоты, поэтому нативный grid-gap может
-            // частично потеряться под клонами. Явно восстанавливаем границы
-            // поверх frozen-клеток, тем же цветом/шириной, что и gap.
-            const drawBoundary = (x) => {
-              const boundary = document.createElement('span');
-              boundary.className = 'square-edge-freeze-boundary';
-              boundary.style.left = Math.max(0, x).toFixed(3) + 'px';
-              overlay.appendChild(boundary);
+            const rect = cw.getBoundingClientRect();
+            const item = {
+              cw,
+              idx,
+              start,
+              end,
+              isRemoved: (opts.mode === 'removed' || isSlideRemove)
+                && end > (opts.cutoffBeats || 0) + 1e-6,
+              left: rect.left - originLeft,
+              right: rect.right - originLeft,
+              top: rect.top - originTop,
+              width: rect.width,
+              height: rect.height,
             };
-            // При удалении первый frozen-такт начинается сразу за границей
-            // оставшегося такта. Из-за overscan clone закрывает старый gap,
-            // поэтому эту границу нужно явно вернуть поверх клона и держать
-            // до конца анимации.
-            if ((opts.mode === 'removed' || isSlideRemove) && selectedIdx === 0 && item.idx > 0) {
-              drawBoundary(rect.left - originLeft - SQUARE_GRID_GAP);
-            }
-            const next = selected[selectedIdx + 1];
-            if (next && next.idx === item.idx + 1) {
-              drawBoundary(rect.right - originLeft);
-            }
+            if (opts.mode === 'removed' && !item.isRemoved) return;
+            selected.push(item);
           });
+
+          const drawBoundary = (x, parent = overlay, localOrigin = 0) => {
+            const boundary = document.createElement('span');
+            boundary.className = 'square-edge-freeze-boundary';
+            boundary.style.left = Math.max(0, x - localOrigin).toFixed(3) + 'px';
+            parent.appendChild(boundary);
+          };
+
+          const appendCellClone = (item, parent, localOrigin, extraClass = '') => {
+            const clone = item.cw.cloneNode(true);
+            clone.className = `${item.cw.className} square-edge-freeze-cell${extraClass}`;
+            clone.style.gridColumn = '';
+            const overscan = item.isRemoved ? SQUARE_GRID_GAP : 0;
+            clone.style.left = Math.max(0, item.left - localOrigin - overscan).toFixed(3) + 'px';
+            clone.style.top = Math.max(0, item.top).toFixed(3) + 'px';
+            clone.style.width = Math.max(0, item.width + overscan * 2).toFixed(3) + 'px';
+            clone.style.height = Math.max(0, item.height).toFixed(3) + 'px';
+            clone.querySelectorAll('.chord-buttons,.resize-handle,.square-resize-handle').forEach((el) => el.remove());
+            parent.appendChild(clone);
+            return clone;
+          };
+
+          if (isSlideRemove) {
+            const kept = selected.filter((item) => !item.isRemoved);
+            const removed = selected.filter((item) => item.isRemoved);
+            kept.forEach((item, keptIdx) => {
+              appendCellClone(item, overlay, 0, ' is-kept');
+              const next = kept[keptIdx + 1];
+              if (next && next.idx === item.idx + 1) drawBoundary(item.right);
+            });
+            if (removed.length) {
+              const firstLeft = Math.min(...removed.map((item) => item.left));
+              const lastRight = Math.max(...removed.map((item) => item.right));
+              const strip = document.createElement('div');
+              strip.className = 'square-edge-removed-strip';
+              // The whole removed zone is one right-anchored strip. When the
+              // square width shrinks, the strip moves left as a unit under
+              // the frozen kept cells; removed cells keep their relative
+              // spacing, so multi-takt shrink has no overlapping cells/gray
+              // flashes.
+              strip.style.right = (-SQUARE_GRID_GAP).toFixed(3) + 'px';
+              strip.style.width = Math.max(0, lastRight - firstLeft + SQUARE_GRID_GAP * 2).toFixed(3) + 'px';
+              overlay.appendChild(strip);
+              removed.forEach((item, removedIdx) => {
+                appendCellClone(item, strip, firstLeft - SQUARE_GRID_GAP, ' is-removed-slide');
+                const next = removed[removedIdx + 1];
+                if (next && next.idx === item.idx + 1) drawBoundary(item.right, strip, firstLeft - SQUARE_GRID_GAP);
+              });
+              const firstRemoved = removed[0];
+              if (firstRemoved && firstRemoved.idx > 0) {
+                drawBoundary(firstRemoved.left - SQUARE_GRID_GAP);
+              }
+            }
+          } else {
+            selected.forEach((item, selectedIdx) => {
+              appendCellClone(item, overlay, 0, '');
+              if (opts.mode === 'removed' && selectedIdx === 0 && item.idx > 0) {
+                drawBoundary(item.left - SQUARE_GRID_GAP);
+              }
+              const next = selected[selectedIdx + 1];
+              if (next && next.idx === item.idx + 1) drawBoundary(item.right);
+            });
+          }
+
           return overlay.childNodes.length ? overlay : null;
         }
 
