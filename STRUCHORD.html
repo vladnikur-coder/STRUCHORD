@@ -3825,9 +3825,20 @@ body.is-zooming .squares-list {
   cursor: default;
   transition: none;
 }
+.square-edge-freeze-cell.is-kept {
+  z-index: 3;
+}
+.square-edge-freeze-cell.is-removed-slide {
+  z-index: 1;
+  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
+  will-change: transform;
+}
+.square-edge-freeze-overlay.is-slide-out .square-edge-freeze-cell.is-removed-slide {
+  transform: translateX(var(--square-edge-slide-dx, calc(-100% - 2px)));
+}
 .square-edge-freeze-boundary {
   position: absolute;
-  z-index: 2;
+  z-index: 4;
   top: 0;
   bottom: 0;
   width: 2px;
@@ -8548,7 +8559,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.87</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.88</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30336,6 +30347,10 @@ function attachSquareResizeHandlers() {
           overlay.dataset.mode = opts.mode || 'keep';
           overlay.setAttribute('aria-hidden', 'true');
           const allCells = Array.from(sqInner.querySelectorAll(':scope > .chord-wrapper'));
+          const isSlideRemove = opts.mode === 'removed-slide';
+          if (isSlideRemove) {
+            overlay.style.setProperty('--square-edge-slide-dx', `${(opts.slideDx || 0).toFixed(3)}px`);
+          }
           let offset = 0;
           const selected = [];
           allCells.forEach((cw, idx) => {
@@ -30344,19 +30359,23 @@ function attachSquareResizeHandlers() {
             const start = offset;
             const end = offset + span;
             offset = end;
-            if (opts.mode === 'removed' && end <= (opts.cutoffBeats || 0) + 1e-6) return;
-            selected.push({ cw, idx, start, end });
+            const isRemoved = (opts.mode === 'removed' || isSlideRemove)
+              && end > (opts.cutoffBeats || 0) + 1e-6;
+            if (opts.mode === 'removed' && !isRemoved) return;
+            // Для slide-out удаления держим в overlay и оставшиеся, и
+            // удаляемые такты: старые лежат выше, удаляемый уезжает под них.
+            selected.push({ cw, idx, start, end, isRemoved });
           });
           selected.forEach((item, selectedIdx) => {
             const rect = item.cw.getBoundingClientRect();
             const clone = item.cw.cloneNode(true);
-            clone.className = `${item.cw.className} square-edge-freeze-cell`;
+            clone.className = `${item.cw.className} square-edge-freeze-cell${isSlideRemove ? (item.isRemoved ? ' is-removed-slide' : ' is-kept') : ''}`;
             clone.style.gridColumn = '';
             // При shrink frozen-копия закрывает серую область удаляемого
             // такта. Даем ей небольшой нахлёст вправо/влево на ширину gap:
             // иначе на субпиксельных ширинах иногда простреливает серый
             // фон между будущей структурой и старой удаляемой ячейкой.
-            const overscan = opts.mode === 'removed' ? SQUARE_GRID_GAP : 0;
+            const overscan = item.isRemoved ? SQUARE_GRID_GAP : 0;
             const safeLeft = Math.max(0, rect.left - originLeft - overscan);
             clone.style.left = safeLeft.toFixed(3) + 'px';
             clone.style.top = Math.max(0, rect.top - originTop).toFixed(3) + 'px';
@@ -30378,7 +30397,7 @@ function attachSquareResizeHandlers() {
             // оставшегося такта. Из-за overscan clone закрывает старый gap,
             // поэтому эту границу нужно явно вернуть поверх клона и держать
             // до конца анимации.
-            if (opts.mode === 'removed' && selectedIdx === 0 && item.idx > 0) {
+            if ((opts.mode === 'removed' || isSlideRemove) && selectedIdx === 0 && item.idx > 0) {
               drawBoundary(rect.left - originLeft - SQUARE_GRID_GAP);
             }
             const next = selected[selectedIdx + 1];
@@ -30401,7 +30420,7 @@ function attachSquareResizeHandlers() {
             const mode = overlay.dataset.mode || '';
             const after = squareEdgeAfterFreeze;
             squareEdgeAfterFreeze = null;
-            if (mode === 'removed') {
+            if (mode === 'removed' || mode === 'removed-slide') {
               // Удаляемый такт и его границы должны жить до commit. Иначе
               // при удержании/быстром отпускании видны раннее исчезновение
               // разделителей и серый фон. Если pointerup уже ждёт settle —
@@ -30438,7 +30457,11 @@ function attachSquareResizeHandlers() {
           const freezeOverlay = beats > prevBeats
             ? makeSquareEdgeFreezeOverlay()
             : beats < prevBeats
-              ? makeSquareEdgeFreezeOverlay({ mode: 'removed', cutoffBeats: beats })
+              ? makeSquareEdgeFreezeOverlay({
+                mode: 'removed-slide',
+                cutoffBeats: beats,
+                slideDx: contentWidthForBeats(beats) - contentWidthForBeats(prevBeats),
+              })
               : null;
           const eventsCopy = buildPreviewEventsForBeats(beats);
           const previewSq = { ...sq, events: eventsCopy };
@@ -30468,6 +30491,13 @@ function attachSquareResizeHandlers() {
           if (freezeOverlay) {
             sqInner.appendChild(freezeOverlay);
             squareEdgeFreezeOverlay = freezeOverlay;
+            if ((freezeOverlay.dataset.mode || '') === 'removed-slide') {
+              // Синхронизируем старт transform с width-transition: сначала
+              // старое положение должно попасть в layout, потом тем же
+              // кадром запускаем задвигание удаляемого такта.
+              void freezeOverlay.offsetWidth;
+              if (freezeOverlay.isConnected) freezeOverlay.classList.add('is-slide-out');
+            }
             settleSquareEdgeFreezeOverlay(freezeOverlay);
             window.__b31SquareEdgeFreezeOverlayCount = (window.__b31SquareEdgeFreezeOverlayCount || 0) + 1;
           }
