@@ -276,18 +276,17 @@ w.addEventListener('load', async () => {
     evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length`) === 3
       && evl(`return document.querySelector('.square[data-square="2"] > .square-inner > .chord-wrapper[data-ei="3"]')`) === null,
     'right edge preview did not switch to future structure');
-  ok('удаляемый такт — штора от конца финальной сетки до края; kept-клонов нет (нет двойного изображения)',
+  ok('удаляемый такт задвигается единым right-anchored strip под frozen-старые такты',
     evl(`return !!document.querySelector('.square-edge-freeze-overlay')
       && !!document.querySelector('.square-edge-removed-strip')
-      && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 0
+      && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 3
       && document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length === 1
       && document.querySelector('.square-edge-removed-strip').style.left !== ''
-      && document.querySelector('.square-edge-removed-strip').style.width === ''`),
-    evl(`return 'strip=' + !!document.querySelector('.square-edge-removed-strip') + ' kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length + ' left=' + (document.querySelector('.square-edge-removed-strip')?.style.left || '') + ' width=' + (document.querySelector('.square-edge-removed-strip')?.style.width || '')`));
-  ok('метка будущего края на левом краю шторы видна до конца анимации',
-    evl(`return document.querySelectorAll('.square-edge-removed-strip > .square-edge-freeze-boundary').length >= 1
-      && document.querySelector('.square-edge-removed-strip > .square-edge-freeze-boundary').style.left === '0.000px'`),
-    evl(`return document.querySelectorAll('.square-edge-removed-strip > .square-edge-freeze-boundary').length + ' left=' + (document.querySelector('.square-edge-removed-strip > .square-edge-freeze-boundary')?.style.left || '')`));
+      && document.querySelector('.square-edge-freeze-overlay').classList.contains('is-slide-out')`),
+    evl(`return 'strip=' + !!document.querySelector('.square-edge-removed-strip') + ' kept=' + document.querySelectorAll('.square-edge-freeze-cell.is-kept').length + ' removed=' + document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length + ' left=' + (document.querySelector('.square-edge-removed-strip')?.style.left || '') + ' slide=' + !!document.querySelector('.square-edge-freeze-overlay.is-slide-out')`));
+  ok('граница перед удаляемым тактом остаётся видимой до конца анимации',
+    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length >= 1`),
+    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
   ok('preview правого края строится один раз на snapped-переход',
     evl('return window.__b31SquareEdgePreviewRenderCount') === 1
       && evl('return window.__b31SquareEdgePreviewFrameCount') === 1,
@@ -332,13 +331,13 @@ w.addEventListener('load', async () => {
     evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length`) === 4
       && evl('return sections[0].squares[0].events.length') === 3,
     evl(`return 'dom=' + document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length + ' model=' + sections[0].squares[0].events.length`));
-  ok('расширение: overlay больше не нужен — сетка уже финальная в px-колонках, край открывает её',
-    evl(`return !document.querySelector('.square-edge-freeze-overlay')
-      && document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length === 4
-      && document.querySelector('.square[data-square="2"] .square-inner').style.gridTemplateColumns.includes('px')`),
-    evl(`return 'freeze=' + !!document.querySelector('.square-edge-freeze-overlay') + ' cells=' + document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length + ' grid=' + document.querySelector('.square[data-square="2"] .square-inner').style.gridTemplateColumns`));
-  ok('границы между тактами рисует сама px-сетка (зазоры), не overlay-клоны',
-    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`) === 0,
+  ok('старые три такта frozen overlay закрывает от визуального растяжения',
+    evl(`return !!document.querySelector('.square-edge-freeze-overlay')
+      && document.querySelectorAll('.square-edge-freeze-cell').length === 3
+      && window.__b31SquareEdgeFreezeOverlayCount === 1`),
+    evl(`return 'freeze=' + !!document.querySelector('.square-edge-freeze-overlay') + ' cells=' + document.querySelectorAll('.square-edge-freeze-cell').length + ' count=' + window.__b31SquareEdgeFreezeOverlayCount`));
+  ok('frozen overlay явно восстанавливает границы между старыми тактами',
+    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`) === 2,
     evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
   firePointerUp(400);
   await sleep(450);
@@ -356,9 +355,9 @@ w.addEventListener('load', async () => {
   firePointerDown(multiEdgeHandle, 400);
   firePointerMove(100); // 4 такта -> 1 такт
   await sleep(35);
-  ok('multi-shrink держит удаляемые такты в одной шторе, kept-клонов нет',
+  ok('multi-shrink держит удаляемые такты в одном strip без наложения в правый край',
     evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length === 1
-      && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 0
+      && document.querySelectorAll('.square-edge-freeze-cell.is-kept').length === 1
       && document.querySelectorAll('.square-edge-removed-strip .square-edge-freeze-cell.is-removed-slide').length === 3
       && document.querySelectorAll('.square-edge-removed-strip').length === 1`),
     evl(`return 'dom=' + document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length
