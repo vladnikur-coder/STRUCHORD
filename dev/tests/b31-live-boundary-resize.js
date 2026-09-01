@@ -144,6 +144,7 @@ function sceneSquareEdgeAdd() {
     window.__b31SquareEdgePreviewFrameCount = 0;
     window.__b31SquareEdgeCommitCount = 0;
     window.__b31SquareEdgeFreezeOverlayCount = 0;
+    window.__b31SquareEdgeShutterOverlayCount = 0;
     if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
     requestRender = function () {
       window.__b31RequestRenderCount++;
@@ -310,7 +311,7 @@ w.addEventListener('load', async () => {
     evl('return window.__b31RequestRenderCount'));
   restoreRequestRender();
 
-  console.log('=== B-31.5 right edge add: старые такты frozen поверх preview ===');
+  console.log('=== B-31.5 right edge add: новый такт открывается заслонкой ===');
   sceneSquareEdgeAdd();
   await sleep(30);
   const addEdgeHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
@@ -325,14 +326,12 @@ w.addEventListener('load', async () => {
     evl(`return document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length`) === 4
       && evl('return sections[0].squares[0].events.length') === 3,
     evl(`return 'dom=' + document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length + ' model=' + sections[0].squares[0].events.length`));
-  ok('старые три такта frozen overlay закрывает от визуального растяжения',
-    evl(`return !!document.querySelector('.square-edge-freeze-overlay')
-      && document.querySelectorAll('.square-edge-freeze-cell').length === 3
-      && window.__b31SquareEdgeFreezeOverlayCount === 1`),
-    evl(`return 'freeze=' + !!document.querySelector('.square-edge-freeze-overlay') + ' cells=' + document.querySelectorAll('.square-edge-freeze-cell').length + ' count=' + window.__b31SquareEdgeFreezeOverlayCount`));
-  ok('frozen overlay явно восстанавливает границы между старыми тактами',
-    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`) === 2,
-    evl(`return document.querySelectorAll('.square-edge-freeze-boundary').length`));
+  ok('новый такт открывается заслонкой, а не frozen-слоем старых тактов',
+    evl(`return !!document.querySelector('.square-edge-shutter-overlay')
+      && document.querySelector('.square-edge-shutter-overlay').classList.contains('is-opening')
+      && !document.querySelector('.square-edge-freeze-overlay')
+      && window.__b31SquareEdgeShutterOverlayCount === 1`),
+    evl(`return 'shutter=' + !!document.querySelector('.square-edge-shutter-overlay') + ' opening=' + !!document.querySelector('.square-edge-shutter-overlay.is-opening') + ' freeze=' + !!document.querySelector('.square-edge-freeze-overlay') + ' count=' + window.__b31SquareEdgeShutterOverlayCount`));
   firePointerUp(400);
   await sleep(450);
   ok('после визуального settle добавление коммитится один раз',
