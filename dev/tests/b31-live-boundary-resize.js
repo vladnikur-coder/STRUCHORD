@@ -373,6 +373,86 @@ w.addEventListener('load', async () => {
     evl(`return 'beats=' + sections[0].squares[0].customBeats + ' events=' + sections[0].squares[0].events.length + ' overlays=' + document.querySelectorAll('.square-edge-freeze-overlay,.square-edge-removed-strip').length`));
   restoreRequestRender();
 
+  console.log('=== B-31.7 right edge: секция с visual≠sound — settled-preview == финал ===');
+  // Репро «серого пятна» (2026-09-01): preview считал проценты от ЗВУКОВОГО
+  // эталона (getSectionMaxBeats), а финальный рендер — от ВИЗУАЛЬНОГО
+  // (getSectionMaxVisualBeats). В секции с ячейками своего размера (Wind of
+  // Change: sound=20 / visual=18) коробка preview расходилась с px-сеткой:
+  // серая дорожка фона при задвигании + скачок ширины на pointerup.
+  evl(`
+    globalTimeSig = '4/4';
+    DOM.globalTimeSig.value = '4/4';
+    squareZoom = 1;
+    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
+      repeat: 1, strumPattern: null, squares: [
+        { id: 2, repeat: 1, customBeats: null, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'G', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'F', span: 4, timeSig: null, strumPattern: null },
+        ]},
+        { id: 3, repeat: 1, customBeats: null, strumPattern: null, events: [
+          { chord: 'Em', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Dm', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'G', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'C', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'E', span: 4, timeSig: '3/4', strumPattern: null },
+        ]},
+      ]
+    }];
+    if (songRhythmRolls) {
+      for (const key of [...songRhythmRolls.refs.keys()]) songRhythmRolls.refs.delete(key);
+      songRhythmRolls.sectionRolls.delete(1);
+    }
+    render();
+    window.__b31RequestRenderCount = 0;
+    window.__b31SquareEdgePreviewRenderCount = 0;
+    window.__b31SquareEdgePreviewFrameCount = 0;
+    window.__b31SquareEdgeCommitCount = 0;
+    if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
+    requestRender = function () {
+      window.__b31RequestRenderCount++;
+      return window.__b31OldRequestRender.apply(this, arguments);
+    };
+    const bi = document.querySelector('.square[data-square="2"] .square-inner');
+    bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 402, height: 74, right: 402, bottom: 74, x: 0, y: 0 });
+    return JSON.stringify({
+      soundMax: getSectionMaxBeats(sections[0]),
+      visualMax: getSectionMaxVisualBeats(sections[0]),
+    })`);
+  const etalons = JSON.parse(evl(`return JSON.stringify({
+    soundMax: getSectionMaxBeats(sections[0]),
+    visualMax: getSectionMaxVisualBeats(sections[0]),
+  })`));
+  ok('эталоны секции расходятся (иначе тест ничего не ловит)',
+    etalons.soundMax > etalons.visualMax + 1 && etalons.visualMax === 24,
+    JSON.stringify(etalons));
+  const mixedHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
+  firePointerDown(mixedHandle, 400);
+  firePointerMove(98); // 16 долей -> 4 доли (визуальная цель 4/24 = 16.6667%)
+  await sleep(35);
+  const holdWidth = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
+  ok('settled-preview (мышь зажата) считает % от ВИЗУАЛЬНОГО эталона (16.6667%, не 12.5%)',
+    Math.abs(parseFloat(holdWidth) - 16.6667) < 0.01,
+    holdWidth);
+  const holdGrid = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.gridTemplateColumns`);
+  ok('px-колонки preview посчитаны от визуальной ширины ряда (23.625px)',
+    /23\.6250*px/.test(holdGrid), holdGrid);
+  await sleep(520); // visual settle до отпускания
+  firePointerUp(98);
+  await sleep(600);
+  const finalWidth = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
+  ok('после pointerup ширина НЕ скачет: финал == settled-preview',
+    Math.abs(parseFloat(finalWidth) - parseFloat(holdWidth)) < 0.01,
+    holdWidth + ' -> ' + finalWidth);
+  ok('модель закоммичена в 4 доли, один commit',
+    evl('return sections[0].squares[0].events.length') === 1
+      && evl('return sections[0].squares[0].customBeats') === 4
+      && evl('return window.__b31SquareEdgeCommitCount') === 1,
+    evl('return "events=" + sections[0].squares[0].events.length + " beats=" + sections[0].squares[0].customBeats + " commits=" + window.__b31SquareEdgeCommitCount'));
+  restoreRequestRender();
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');
   process.exit(bad ? 1 : 0);
 });

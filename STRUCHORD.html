@@ -8585,7 +8585,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.98</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.99</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30278,6 +30278,21 @@ function attachSquareResizeHandlers() {
         const oneBeatWidth = startContentWidth / Math.max(1e-6, startBeats);
         const minWidth = oneBeatWidth * minBeats;
         const maxWidth = oneBeatWidth * maxBeats;
+        // B-31: ширина квадрата при рендере считается в ВИЗУАЛЬНЫХ
+        // единицах (getSectionMaxVisualBeats); звуковой maxBeats — только
+        // потолок жеста. Если здесь делить проценты на звуковой эталон,
+        // то в секциях с ячейками своего размера (напр. Wind of Change,
+        // секция sound=20 / visual=18) preview-коробка расходится с
+        // px-сеткой внутри неё: при задвигании видна голая серая дорожка
+        // фона .square-inner либо сетка сжимается, а на pointerup ширина
+        // скачет к правильному проценту — кадр 2 ≠ кадр 3.
+        const visualMaxBeats = getSectionMaxVisualBeats(sec);
+        const startVisualBeats = getSquareVisualBeats(sq, parentTs);
+        // Ширину ряда (content-box .square) выводим из честного текущего
+        // рендера: startContentWidth = startVisual/visualMax × rowContent.
+        const rowContentWidth = startVisualBeats > 1e-6
+          ? (startContentWidth * visualMaxBeats) / startVisualBeats
+          : startContentWidth;
         const startX = e.clientX;
         let lastRoundedBeats = startBeats;
         let pendingSquareResizeClientX = startX;
@@ -30325,12 +30340,30 @@ function attachSquareResizeHandlers() {
           return eventsCopy;
         }
 
-        function widthPercentForBeats(beats) {
-          return Math.min(100, (beats / Math.max(1e-6, maxBeats)) * 100);
-        }
-
-        function contentWidthForBeats(beats) {
-          return Math.max(minWidth, Math.min(maxWidth, oneBeatWidth * beats));
+        // Проценты и px-цель — от ВИЗУАЛЬНОЙ длины preview-событий по
+        // визуальному эталону секции: ровно та формула, по которой
+        // финальный рендер (buildSectionSquaresListHtml /
+        // syncSectionSquaresGeometry) посчитает ширину после отпускания,
+        // поэтому settled-preview и финал совпадают пиксель в пиксель.
+        // Достроенные при расширении такты — обычные бары без своего
+        // размера, их визуал совпадает со звуком.
+        function previewWidthMetrics(eventsCopy) {
+          const visualBeats = eventsCopy.reduce(
+            (sum, ev) => sum + getEventVisualSpanInParentUnits(ev, parentTs),
+            0
+          );
+          const percent = Math.min(
+            100,
+            (visualBeats / Math.max(1e-6, visualMaxBeats)) * 100
+          );
+          const targetContentWidth = Math.max(
+            minWidth,
+            Math.min(
+              maxWidth,
+              (rowContentWidth * visualBeats) / Math.max(1e-6, visualMaxBeats)
+            )
+          );
+          return { percent, targetContentWidth };
         }
 
         function setControlsForPercent(percent) {
@@ -30525,8 +30558,7 @@ function attachSquareResizeHandlers() {
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
-          const percent = widthPercentForBeats(beats);
-          const targetContentWidth = contentWidthForBeats(beats);
+          const { percent, targetContentWidth } = previewWidthMetrics(eventsCopy);
           const fixedColWidth = Math.max(
             1e-6,
             (targetContentWidth - Math.max(0, totalCols - 1) * SQUARE_GRID_GAP) / totalCols
