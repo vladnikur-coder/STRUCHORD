@@ -8637,7 +8637,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.121</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.122</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -13991,9 +13991,15 @@ function tooltipViewportMetrics() {
     return { visLeft: 0, visTop: 0, visW: window.innerWidth, visH: window.innerHeight };
   }
   const sc = vv.scale;
+  // offsetLeft/Top по спецификации УЖЕ в CSS-px (layout): замер с CDP-эталоном
+  // (Page.getLayoutMetrics.visualViewport.offsetX = 400 при
+  // window.visualViewport.offsetLeft = 400, scale 1.5) — делить их на scale
+  // НЕЛЬЗЯ. В 0.113 они делились: при пане вправо на 400px видимый регион
+  // съезжал влево на 133px — тултип прижимался к чужой границе («в рандомном
+  // месте»). А вот width/height visual-вьюпорта — в visual-px, их делим.
   return {
-    visLeft: (vv.offsetLeft || 0) / sc,
-    visTop: (vv.offsetTop || 0) / sc,
+    visLeft: vv.offsetLeft || 0,
+    visTop: vv.offsetTop || 0,
     visW: vv.width / sc,
     visH: vv.height / sc,
   };
@@ -26867,9 +26873,13 @@ function mouseEventToLayoutXY(e) {
     return { x: e.clientX, y: e.clientY };
   }
   const sc = vv.scale;
+  // clientX/Y реального жеста — в visual-px относительно видимого региона;
+  // offsetLeft/Top — уже CSS-px (см. tooltipViewportMetrics), поэтому
+  // формула: client/scale + offset (в 0.113 было (client+offset)/scale —
+  // сдвиг на offset*(1-1/scale), при пане 400px и scale 1.5 это 133px).
   return {
-    x: (e.clientX + (vv.offsetLeft || 0)) / sc,
-    y: (e.clientY + (vv.offsetTop || 0)) / sc,
+    x: e.clientX / sc + (vv.offsetLeft || 0),
+    y: e.clientY / sc + (vv.offsetTop || 0),
   };
 }
 
