@@ -8603,7 +8603,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.112</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.113</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -13943,6 +13943,28 @@ function fingeringCounterText(variants, methods, shape) {
   return `${pos}/${total}${tag}`;
 }
 
+// Pinch-зум (жест двумя пальцами) масштабирует VISUAL viewport без reflow:
+// window.innerWidth/innerHeight остаются layout-размерами и перестают
+// описывать то, что реально видно, а getBoundingClientRect продолжает
+// жить в layout-px. Тултип, посчитанный по innerWidth, после pinch-жеста
+// «уезжал в случайное место» (заметка пользователя 2026-09-02). Видимый
+// регион в layout-px: [offset/scale, (offset+size)/scale]; при обычном
+// зуме/без жеста scale === 1 и всё вырождается в 0,0,innerW/H — поведение
+// бит-в-бит прежнее.
+function tooltipViewportMetrics() {
+  const vv = window.visualViewport;
+  if (!vv || !isFinite(vv.scale) || Math.abs(vv.scale - 1) < 1e-4) {
+    return { visLeft: 0, visTop: 0, visW: window.innerWidth, visH: window.innerHeight };
+  }
+  const sc = vv.scale;
+  return {
+    visLeft: (vv.offsetLeft || 0) / sc,
+    visTop: (vv.offsetTop || 0) / sc,
+    visW: vv.width / sc,
+    visH: vv.height / sc,
+  };
+}
+
 function positionMainTooltip(wrapper) {
   const tooltipEl = document.getElementById('fingering-tooltip');
   if (!tooltipEl || tooltipEl.style.display === 'none') return;
@@ -13951,16 +13973,15 @@ function positionMainTooltip(wrapper) {
   const tw = tooltipEl.offsetWidth || 220;
   const th = tooltipEl.offsetHeight || 220;
   const margin = 12;
-  const ww = window.innerWidth;
-  const wh = window.innerHeight;
+  const { visLeft, visTop, visW, visH } = tooltipViewportMetrics();
 
   let left, top;
 
-  // Свободное место по четырём направлениям.
-  const spaceTop = rect.top - th - margin;
-  const spaceBottom = wh - rect.bottom - th - margin;
-  const spaceLeft = rect.left - tw - margin;
-  const spaceRight = ww - rect.right - tw - margin;
+  // Свободное место по четырём направлениям — от ВИДИМОГО региона.
+  const spaceTop = rect.top - visTop - th - margin;
+  const spaceBottom = (visTop + visH) - rect.bottom - th - margin;
+  const spaceLeft = rect.left - visLeft - tw - margin;
+  const spaceRight = (visLeft + visW) - rect.right - tw - margin;
 
   // Выбор стороны.
   //
@@ -13985,7 +14006,7 @@ function positionMainTooltip(wrapper) {
   // ячейкой — общая коррекция ниже всё равно вернёт его в окно. Вбок
   // уходим только когда по вертикали не влезть по-настоящему, то есть
   // тултип выше самого окна.
-  const fitsVertically = th + margin * 2 <= wh;
+  const fitsVertically = th + margin * 2 <= visH;
   if (spaceTop >= 0 || (fitsVertically && spaceTop >= spaceBottom)) {
     // Над ячейкой — основной случай.
     left = rect.left + rect.width / 2 - tw / 2;
@@ -14001,8 +14022,8 @@ function positionMainTooltip(wrapper) {
     left = rect.right + margin;
     top = rect.top + rect.height / 2 - th / 2;
   } else {
-    left = (ww - tw) / 2;
-    top = (wh - th) / 2;
+    left = visLeft + (visW - tw) / 2;
+    top = visTop + (visH - th) / 2;
   }
 
   // Коррекция, чтобы тултип не выходил за границы окна.
@@ -14019,10 +14040,10 @@ function positionMainTooltip(wrapper) {
   // по высоте целиком, обрезается низ (там кнопка правки и переключатель
   // вариантов), а гриф с именем аккорда — то, ради чего тултип и
   // открывают, — остаётся на экране.
-  if (left < 0) left = margin;
-  if (left + tw > ww) left = ww - tw - margin;
-  if (top + th > wh) top = wh - th - margin;
-  if (top < 0) top = margin;
+  if (left < visLeft + margin) left = visLeft + margin;
+  if (left + tw > visLeft + visW - margin) left = visLeft + visW - tw - margin;
+  if (top + th > visTop + visH - margin) top = visTop + visH - th - margin;
+  if (top < visTop + margin) top = visTop + margin;
 
   tooltipEl.style.left = left + 'px';
   tooltipEl.style.top = top + 'px';
@@ -14034,8 +14055,10 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
   const pw = previewTooltipEl.offsetWidth || 200;
   const ph = previewTooltipEl.offsetHeight || 200;
   const margin = 10;
-  const ww = window.innerWidth;
-  const wh = window.innerHeight;
+  // Границы — от видимого региона (pinch-зум), см. tooltipViewportMetrics.
+  const { visLeft, visTop, visW, visH } = tooltipViewportMetrics();
+  const ww = visLeft + visW;
+  const wh = visTop + visH;
   
   let left, top;
   
@@ -14071,10 +14094,10 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
   // Коррекция. Прижатие к ВЕРХУ идёт последним — та же причина, что и в
   // positionMainTooltip: когда тултип выше окна, «прижать к низу» даёт
   // отрицательный top и срезает шапку с именем аккорда.
-  if (left < 0) left = margin;
-  if (left + pw > ww) left = ww - pw - margin;
-  if (top + ph > wh) top = wh - ph - margin;
-  if (top < 0) top = margin;
+  if (left < visLeft + margin) left = visLeft + margin;
+  if (left + pw > ww - margin) left = ww - pw - margin;
+  if (top + ph > wh - margin) top = wh - ph - margin;
+  if (top < visTop + margin) top = visTop + margin;
 
   previewTooltipEl.style.left = left + 'px';
   previewTooltipEl.style.top = top + 'px';
@@ -26799,6 +26822,23 @@ function pointInRect(x, y, rect) {
   return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
+// При pinch-зуме (жест двумя пальцами) браузер присылает clientX/Y в
+// координатах VISUAL viewport, а getBoundingClientRect (и кэш rects) —
+// в layout-px: без пересчёта хиттест промахивается мимо ячеек. Приводим
+// мышь к layout-пространству; при scale===1 (обычный экран/зум-рефлоу)
+// это тождественное преобразование.
+function mouseEventToLayoutXY(e) {
+  const vv = window.visualViewport;
+  if (!vv || !isFinite(vv.scale) || Math.abs(vv.scale - 1) < 1e-4) {
+    return { x: e.clientX, y: e.clientY };
+  }
+  const sc = vv.scale;
+  return {
+    x: (e.clientX + (vv.offsetLeft || 0)) / sc,
+    y: (e.clientY + (vv.offsetTop || 0)) / sc,
+  };
+}
+
 function setArmedChordWrapper(wrapperEl) {
   if (armedChordWrapper === wrapperEl) return;
   if (armedChordWrapper) armedChordWrapper.classList.remove('is-buttons-armed');
@@ -26810,8 +26850,9 @@ document.addEventListener('mousemove', (e) => {
   // Координаты могли устареть с прошлого движения — обновляем лениво.
   ensureChordWrapperRects();
   if (!chordWrapperRectCache.length) return;
-  const x = e.clientX,
-    y = e.clientY;
+  // Мышь — в layout-пространстве rects (см. mouseEventToLayoutXY):
+  // при pinch-жесте clientX/Y живут в visual-viewport координатах.
+  const { x, y } = mouseEventToLayoutXY(e);
 
   // Вооружённая ячейка могла быть удалена перерисовкой (или сам кэш
   // пересобран) — тогда класс висит на «мёртвом» узле, а новая ячейка на
