@@ -8592,7 +8592,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.109</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.110</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30297,9 +30297,18 @@ function attachSquareResizeHandlers() {
         const startVisualBeats = getSquareVisualBeats(sq, parentTs);
         // Ширину ряда (content-box .square) выводим из честного текущего
         // рендера: startContentWidth = startVisual/visualMax × rowContent.
-        const rowContentWidth = startVisualBeats > 1e-6
-          ? (startContentWidth * visualMaxBeats) / startVisualBeats
-          : startContentWidth;
+        // Базис процентов (ширина коробки при 100%) выводим на уровне BOX,
+        // а не контента: проценты применяются к контент-боксу .square, но
+        // границы .square-inner (2px) в проценты не входят и НЕ масштабируются.
+        // Раньше базис считали от контент-ширины жертвы (box-2px) и умножали
+        // на отношение долей — 2px терялись на каждый такт масштаба: на сцене
+        // «resize test» (4->64 доли) это -26px, шаг превью-ячеек 43px против
+        // финальных 44.9px у соседа — та самая «непропорциональность и
+        // расхождение» рядов во время жеста. Масштабируем коробку, границы
+        // вычитаем ПОСЛЕ — шаг совпадает с финальным бит-в-бит.
+        const basisBoxWidth = startVisualBeats > 1e-6
+          ? (startWidth * visualMaxBeats) / startVisualBeats
+          : startWidth;
         // B-31 (продолжение): эталон секции live. Если задвигаемый квадрат
         // САМ самый длинный, то после отпускания getSectionMaxVisualBeats
         // уменьшится — и финальный рендер раздвинет и его, и всех соседей.
@@ -30384,8 +30393,12 @@ function attachSquareResizeHandlers() {
           // они считались в ЗВУКОВЫХ единицах и в секциях с ячейками своего
           // размера урезали px-сетку короче коробки — справа оставался
           // голый серый фон .square-inner («серый хвост» из кадров пользователя).
-          const targetContentWidth =
-            (rowContentWidth * visualBeats) / Math.max(1e-6, futureVisualMax);
+          const targetBoxWidth =
+            (basisBoxWidth * visualBeats) / Math.max(1e-6, futureVisualMax);
+          const targetContentWidth = Math.max(
+            0,
+            targetBoxWidth - borderLeft - borderRight
+          );
           return { percent, targetContentWidth, futureVisualMax };
         }
 
