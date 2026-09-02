@@ -8637,7 +8637,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.122</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.123</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30702,6 +30702,32 @@ function attachSquareResizeHandlers() {
             freezeOverlay.classList.add('is-slide-out');
           }
           sqInner.style.width = percent + '%';
+          // Доводка до бит-в-бит (0.123): во время полёта сетка стоит в
+          // фиксированных px (ячейки не резинятся — механика 0.110), но
+          // ОСТАВШАЯСЯ такой после доезда коробки, она расходится с финалом
+          // на субпиксель: px-треки посчитаны от targetContentWidth, а финал
+          // раскладывается fr-долями от фактической percent-ширины (её
+          // округление даёт ±1 CSS px). На обычном масштабе это невидимо,
+          // но при сильном зуме (DPR2 + pinch ~2x, видео пользователя
+          // 01.20.22) границы ячеек в СЕРЕДИНЕ квадрата скачут на старте
+          // жеста и обратно на pointerup — щели между ячейками мигают
+          // белым/тёплым. Поэтому, когда width-переход доехал, переводим
+          // колонки в ровно тот же fr-вид, что и финал: settled-hold ==
+          // финал пиксель в пиксель при любом масштабе. Тег защищает от
+          // гонки: если до transitionend случился следующий снап, старый
+          // слушатель не должен перетиреть новую px-сетку.
+          const settleTag = {};
+          sqInner.__b31SettleTag = settleTag;
+          sqInner.addEventListener(
+            'transitionend',
+            (ev) => {
+              if (ev.target !== sqInner || ev.propertyName !== 'width') return;
+              if (sqInner.__b31SettleTag !== settleTag) return;
+              if (!sqInner.classList.contains('is-square-edge-resizing')) return;
+              sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, 1fr))`;
+            },
+            { once: true }
+          );
           setControlsForPercent(percent);
           // Заметка пользователя (2026-09-01): эталон НЕ должен обновляться
           // на ходу — соседи и repeat-ряд стоят на стартовых ширинах весь
