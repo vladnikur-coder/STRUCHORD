@@ -297,8 +297,8 @@ w.addEventListener('load', async () => {
     evl('return window.__b31SquareEdgePreviewRenderCount') === 1,
     evl('return window.__b31SquareEdgePreviewRenderCount'));
   await sleep(520);
-  ok('после visual settle до pointerup overlay снят, preview уже выглядит как финал',
-    evl(`return !document.querySelector('.square-edge-freeze-overlay')
+  ok('overlay НЕ снимается таймером (гонка «серый прямоугольник»): живёт до pointerup, модель не тронута',
+    evl(`return !!document.querySelector('.square-edge-freeze-overlay')
       && document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length === 3
       && sections[0].squares[0].events.length === 4`),
     evl(`return 'overlay=' + !!document.querySelector('.square-edge-freeze-overlay')
