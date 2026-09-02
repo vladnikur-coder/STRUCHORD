@@ -8637,7 +8637,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.120</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.121</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30332,15 +30332,6 @@ function attachSquareResizeHandlers() {
         const sqEl = handle.closest('.square');
         const sid = +sqEl.dataset.sec;
         const sqid = +sqEl.dataset.square;
-        if (!document.getElementById('b31-diag-hud')) {
-          const hud = document.createElement('div');
-          hud.id = 'b31-diag-hud';
-          hud.style.cssText = 'position:fixed;left:8px;bottom:8px;z-index:99999;'
-            + 'font:11px monospace;background:#111;color:#0f0;padding:2px 6px;'
-            + 'border-radius:4px;pointer-events:none;opacity:.85';
-          hud.textContent = 'жест вооружён';
-          document.body.appendChild(hud);
-        }
         const sec = sections.find((s) => s.id === sid);
         const sq = sec?.squares.find((sq) => sq.id === sqid);
         if (!sec || !sq) return;
@@ -30526,56 +30517,6 @@ function attachSquareResizeHandlers() {
           }
         }
 
-        // B-31 DIAG (0.117): разделяем «DOM пуст» и «слои не рисуются».
-        // На машине пользователя в момент снапа пиксели текста пропадают
-        // (видео 21.51.21), при этом в headless DOM в тот же момент полон
-        // имён. HUD показывает живое DOM-здоровье секции; если HUD говорит
-        // «4/4», а на экране пусто — виноват композитор/растер, не логика.
-        function b31SnapDiag(phase, diagBeats, diagEvents) {
-          try {
-            const card = sqEl.closest('.section-card') || sqEl.parentElement;
-            if (!card) return;
-            const perSquare = [...card.querySelectorAll('.square')].map((el) => {
-              const cells = [...el.querySelectorAll(':scope > .square-inner > .chord-wrapper')];
-              const named = cells.filter((c) => {
-                const d = c.querySelector('.chord-display');
-                return d && d.querySelector('.chord-display-inner');
-              }).length;
-              return named + '/' + cells.length;
-            }).join(' ');
-            const firstInp = sqInner.querySelector('.chord-input');
-            const firstVal = firstInp ? JSON.stringify(firstInp.value) : 'нет';
-            const firstDisp = sqInner.querySelector('.chord-display');
-            const dispLen = firstDisp ? firstDisp.innerHTML.length : -1;
-            console.log('B31-DIAG ' + JSON.stringify({
-              phase, sq: sqid, parentTs,
-              beats: diagBeats, startBeats,
-              start: startEvents.map((e) => e.chord + '|' + e.span + '|' + (e.timeSig || '-')),
-              preview: (diagEvents || []).map((e) => (e.chord || '·') + '|' + e.span + '|' + (e.timeSig || '-')),
-              firstVal, dispLen, dom: perSquare,
-            }));
-            const hud = document.getElementById('b31-diag-hud');
-            if (hud) {
-              hud.textContent = phase + ' · DOM ' + perSquare
-                + ' · beats=' + diagBeats
-                + ' · val0=' + firstVal
-                + ' · dispLen=' + dispLen;
-              hud.dataset.stamp = String(Date.now());
-            }
-            // Layer-nudge: пересборка absolute-слоёв на дробном DPR (pinch)
-            // может оставлять растровые слои незаливающимися. Кратковременный
-            // translateZ(0) на карточке секции заставляет Chrome выделить и
-            // перерастерить слои заново. Если диагноз «слои» — лечит;
-            // если нет — безвредно и незаметно.
-            if (card.style.transform === 'translateZ(0)') return;
-            card.style.transform = 'translateZ(0)';
-            void card.getBoundingClientRect();
-            requestAnimationFrame(() => requestAnimationFrame(() => {
-              card.style.transform = '';
-            }));
-          } catch (err) { /* диагностика не должна ломать жест */ }
-        }
-
         function makeSquareEdgeFreezeOverlay(opts = {}) {
           clearSquareEdgeFreezeOverlay();
           const box = sqInner.getBoundingClientRect();
@@ -30710,7 +30651,6 @@ function attachSquareResizeHandlers() {
               ? makeSquareEdgeFreezeOverlay({ mode: 'removed-slide', cutoffBeats: beats })
               : null;
           const eventsCopy = buildPreviewEventsForBeats(beats);
-          b31SnapDiag('snap', beats, eventsCopy);
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
@@ -30901,7 +30841,6 @@ function attachSquareResizeHandlers() {
         function onUp() {
           document.removeEventListener('pointermove', onMove);
           document.removeEventListener('pointerup', onUp);
-          try { document.getElementById('b31-diag-hud')?.remove(); } catch (e) {}
           document.removeEventListener('pointercancel', onUp);
           if (squareResizeRAF) {
             cancelAnimationFrame(squareResizeRAF);
