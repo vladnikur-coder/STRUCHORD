@@ -503,8 +503,8 @@ w.addEventListener('load', async () => {
   const holdVictim = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
   const holdSibling = evl(`return document.querySelector('.square[data-square="3"] .square-inner').style.width`);
   const holdBadge = evl(`return document.querySelector('.square[data-square="2"] .square-beats-badge').textContent`);
-  ok('жертва при удержании уже на после-коммитной ширине (18.75%, не 22.22%)',
-    Math.abs(parseFloat(holdVictim) - 18.75) < 0.01, holdVictim);
+  ok('жертва при удержании считает % от СТАРТОВОГО эталона (12.5% = 3/24, эталон заморожен на жесте)',
+    Math.abs(parseFloat(holdVictim) - 12.5) < 0.01, holdVictim);
   ok('сосед при удержании ЗАМОРОЖЕН на стартовой ширине (эталон не обновляется на ходу)',
     Math.abs(parseFloat(holdSibling) - 66.6667) < 0.01, holdSibling);
   ok('бейдж тактов жертвы обновлён ещё до отпускания', holdBadge === '1 такт', holdBadge);
@@ -516,8 +516,8 @@ w.addEventListener('load', async () => {
   await sleep(600);
   const finalVictim = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
   const finalSibling = evl(`return document.querySelector('.square[data-square="3"] .square-inner').style.width`);
-  ok('после pointerup ширина жертвы не скачет: финал == удержание',
-    Math.abs(parseFloat(finalVictim) - parseFloat(holdVictim)) < 0.01,
+  ok('после pointerup жертва плавно доезжает к финальным 18.75% (настоящий эталон 16, не стартовый 24)',
+    Math.abs(parseFloat(finalVictim) - 18.75) < 0.01,
     holdVictim + ' -> ' + finalVictim);
   ok('после pointerup сосед ПЛАВНО доезжает до финальных 100% (settle-flip запускался)',
     Math.abs(parseFloat(finalSibling) - 100) < 0.01

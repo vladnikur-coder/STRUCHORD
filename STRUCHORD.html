@@ -8592,7 +8592,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.110</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.111</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30379,27 +30379,31 @@ function attachSquareResizeHandlers() {
             (sum, ev) => sum + getEventVisualSpanInParentUnits(ev, parentTs),
             0
           );
-          const futureVisualMax = Math.max(
-            visualFloorBeats,
-            othersVisualBeats,
-            visualBeats
-          );
+          // Заметка пользователя (2026-09-01, уточнена 2026-09-02):
+          // «эталон 100% не должен обновляться на ходу». Знаменатель —
+          // СТАРТОВЫЙ эталон жеста (visualMaxBeats, заморожен на
+          // pointerdown), а не будущий: пока жертва сама эталон, живой
+          // знаменатель держал её на 100% и край «возвращался к правому
+          // краю экрана» мгновенно. Со стартовым эталоном край отъезжает
+          // влево на каждом удалённом такте, а финальную ширину (уже от
+          // настоящего эталона) квадрат плавно принимает после отпускания —
+          // settleSquareEdgeAfterCommit.
           const percent = Math.min(
             100,
-            (visualBeats / Math.max(1e-6, futureVisualMax)) * 100
+            (visualBeats / Math.max(1e-6, visualMaxBeats)) * 100
           );
           // px-цель — ровно та же формула, что даёт styleW%-коробку
-          // (rowContent × visual/etalon). Никаких клэмпов minWidth/maxWidth:
+          // (rowBox × visual/etalon). Никаких клэмпов minWidth/maxWidth:
           // они считались в ЗВУКОВЫХ единицах и в секциях с ячейками своего
           // размера урезали px-сетку короче коробки — справа оставался
           // голый серый фон .square-inner («серый хвост» из кадров пользователя).
           const targetBoxWidth =
-            (basisBoxWidth * visualBeats) / Math.max(1e-6, futureVisualMax);
+            (basisBoxWidth * visualBeats) / Math.max(1e-6, visualMaxBeats);
           const targetContentWidth = Math.max(
             0,
             targetBoxWidth - borderLeft - borderRight
           );
-          return { percent, targetContentWidth, futureVisualMax };
+          return { percent, targetContentWidth };
         }
 
         function setControlsForPercent(percent) {
@@ -30607,7 +30611,7 @@ function attachSquareResizeHandlers() {
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
-          const { percent, targetContentWidth, futureVisualMax } = previewWidthMetrics(eventsCopy);
+          const { percent, targetContentWidth } = previewWidthMetrics(eventsCopy);
           const fixedColWidth = Math.max(
             1e-6,
             (targetContentWidth - Math.max(0, totalCols - 1) * SQUARE_GRID_GAP) / totalCols
