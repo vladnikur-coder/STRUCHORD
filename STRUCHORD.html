@@ -8625,7 +8625,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.117</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.118</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30519,7 +30519,7 @@ function attachSquareResizeHandlers() {
         // (видео 21.51.21), при этом в headless DOM в тот же момент полон
         // имён. HUD показывает живое DOM-здоровье секции; если HUD говорит
         // «4/4», а на экране пусто — виноват композитор/растер, не логика.
-        function b31SnapDiag(phase) {
+        function b31SnapDiag(phase, diagBeats, diagEvents) {
           try {
             const card = sqEl.closest('.section-card') || sqEl.parentElement;
             if (!card) return;
@@ -30531,10 +30531,23 @@ function attachSquareResizeHandlers() {
               }).length;
               return named + '/' + cells.length;
             }).join(' ');
-            console.log('B31-DIAG ' + phase + ' sq' + sqid + ' имена: ' + perSquare);
+            const firstInp = sqInner.querySelector('.chord-input');
+            const firstVal = firstInp ? JSON.stringify(firstInp.value) : 'нет';
+            const firstDisp = sqInner.querySelector('.chord-display');
+            const dispLen = firstDisp ? firstDisp.innerHTML.length : -1;
+            console.log('B31-DIAG ' + JSON.stringify({
+              phase, sq: sqid, parentTs,
+              beats: diagBeats, startBeats,
+              start: startEvents.map((e) => e.chord + '|' + e.span + '|' + (e.timeSig || '-')),
+              preview: (diagEvents || []).map((e) => (e.chord || '·') + '|' + e.span + '|' + (e.timeSig || '-')),
+              firstVal, dispLen, dom: perSquare,
+            }));
             const hud = document.getElementById('b31-diag-hud');
             if (hud) {
-              hud.textContent = phase + ' · ' + perSquare;
+              hud.textContent = phase + ' · DOM ' + perSquare
+                + ' · beats=' + diagBeats
+                + ' · val0=' + firstVal
+                + ' · dispLen=' + dispLen;
               hud.dataset.stamp = String(Date.now());
             }
             // Layer-nudge: пересборка absolute-слоёв на дробном DPR (pinch)
@@ -30684,8 +30697,8 @@ function attachSquareResizeHandlers() {
             : beats < prevBeats
               ? makeSquareEdgeFreezeOverlay({ mode: 'removed-slide', cutoffBeats: beats })
               : null;
-          b31SnapDiag('snap');
           const eventsCopy = buildPreviewEventsForBeats(beats);
+          b31SnapDiag('snap', beats, eventsCopy);
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
