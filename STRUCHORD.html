@@ -3881,7 +3881,6 @@ body.is-zooming .squares-list {
   top: 0;
   bottom: 0;
   overflow: visible;
-  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
   /* will-change: transform убран: форсируемый слой внутри paint-contained
      overlay — кандидат на невидимость только на машине пользователя
      (GPU-зависимо); на время перехода Chrome выдаёт слой сам. */
@@ -3904,8 +3903,19 @@ body.is-zooming .squares-list {
      дети (клоны) от padding-right не сдвигаются. */
   padding-right: 4096px;
 }
-.square-edge-freeze-overlay.is-slide-out .square-edge-removed-strip {
+/* 0.125: слайдит СОДЕРЖИМОЕ шторки, а не её фон.
+   Раньше transform висел на самой .square-edge-removed-strip: белое
+   полотно (фон + padding-right до едущего края) уезжало ВЛЕВО под
+   оставшиеся ячейки. Клоны ячеек (z:3) его закрывали, но в 2px-зазорах
+   между ячейками вместо тёплого фона тела проглядывало белое полотно —
+   пользователь видел «границы ячеек исчезают на время жеста» (заметно
+   при зуме, видео 01.20.22). Теперь полотно стоит на месте — от
+   границы удаляемой зоны до движущегося края коробки (приклейка 0.120
+   сохранена), а сдвиг получают только клоны-ячейки жертвы. */
+.square-edge-freeze-overlay.is-slide-out
+  .square-edge-removed-strip .square-edge-freeze-cell {
   transform: translateX(var(--square-edge-slide-dx, 0px));
+  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
 }
 .square-edge-removed-strip .square-edge-freeze-cell {
   z-index: 1;
@@ -8637,7 +8647,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.124</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.125</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -13986,13 +13996,21 @@ function fingeringCounterText(variants, methods, shape) {
 // зуме/без жеста scale === 1 и всё вырождается в 0,0,innerW/H — поведение
 // бит-в-бит прежнее.
 function tooltipViewportMetrics() {
-  // 0.124 (решение пользователя 2026-09-03): тултип стоит в том же месте,
-  // как и без зума, — якорь ячейка, границы окно раскладки. Попадание в
-  // ВИДИМУЮ область при pinch-зуме не требуется: «ничего страшного, если
-  // не будет помещаться на экране». visualViewport-метрики в позициони-
-  // ровании больше не участвуют (при пане после пинча они уводили тултип
-  // от ячейки); mouseEventToLayoutXY для хиттеста наведения сохраняется.
-  return { visLeft: 0, visTop: 0, visW: window.innerWidth, visH: window.innerHeight };
+  // 0.124/0.125 (решение пользователя 2026-09-03): тултип стоит в том же
+  // месте, как и без зума, — якорь ячейка, границы окно раскладки.
+  // ВАЖНО: bounds берём из documentElement.clientWidth/Height, а НЕ из
+  // window.innerWidth/innerHeight: на РЕАЛЬНОМ pinch-зуме Chrome
+  // innerWidth/innerHeight отдают размер VISUAL-вьюпорта (маленький,
+  // например 522px при layout 1200), при этом getBoundingClientRect
+  // ячейки остаётся в layout-px. Клэмп «в окно» по innerWidth прижимал
+  // тултип к чужому левому краю раскладки — то, что пользователь видел
+  // как «не в том месте» (пережило 0.113/0.122/0.124: в CDP-эмуляции
+  // пинча innerWidth остаётся layout, на реальном жесте — нет).
+  // documentElement.clientWidth/Height всегда в layout-px — одно
+  // пространство с rect ячейки: позиция при зуме бит-в-бит равна
+  // позиции без зума; выход за видимую область принят пользователем.
+  const de = document.documentElement;
+  return { visLeft: 0, visTop: 0, visW: de.clientWidth, visH: de.clientHeight };
 }
 
 function positionMainTooltip(wrapper) {
