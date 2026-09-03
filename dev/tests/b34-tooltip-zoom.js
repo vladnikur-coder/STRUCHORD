@@ -180,6 +180,54 @@ w.addEventListener('load', async () => {
     ok('left = вьюпорт + scrollX (30+40=70)', tip.style.left === '70px', tip.style.left);
     ok('top = вьюпорт + scrollY (68+300=368)', tip.style.top === '368px', tip.style.top);
     de.getBoundingClientRect = origRect;
+    Object.defineProperty(w, 'scrollX', { value: 0, configurable: true });
+    Object.defineProperty(w, 'scrollY', { value: 0, configurable: true });
+  }
+
+  console.log('=== 7. 0.144: превью при скрытом главном (пустая ячейка звучит) ===');
+  const origMainRect = (el) => el.getBoundingClientRect.bind(el);
+  {
+    const de = d.documentElement;
+    const origRect = de.getBoundingClientRect.bind(de);
+    de.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 700, right: 1000, bottom: 700, x: 0, y: 0 });
+    Object.defineProperty(de, 'clientWidth', { get: () => 1000, configurable: true });
+    Object.defineProperty(de, 'clientHeight', { get: () => 700, configurable: true });
+
+    const main = d.getElementById('fingering-tooltip');
+    const prev = d.getElementById('preview-tooltip');
+    prev.style.display = 'block';
+
+    // (1) Главный СКРЫТ, есть ячейка-якорь: превью — над ячейкой, по центру.
+    main.style.display = 'none';
+    w.__fakeCell = { isConnected: true, getBoundingClientRect: () => ({ left: 200, top: 400, width: 80, height: 40, right: 280, bottom: 440 }) };
+    w.eval('positionPreviewTooltip(document.getElementById("fingering-tooltip"), document.getElementById("preview-tooltip"), window.__fakeCell)');
+    // pw/ph: offsetWidth/Height в jsdom = 0 → фолбэк 200. Якорь: left=200+40−100=140, top=400−200−10=190.
+    ok('скрытый main + якорь: по центру над ячейкой (left=140)', prev.style.left === '140px', prev.style.left);
+    ok('top = 400−200−10 = 190', prev.style.top === '190px', prev.style.top);
+
+    // (2) Главный скрыт, якоря НЕТ — превью гасится (никаких нулевых ректов).
+    prev.style.display = 'block';
+    w.eval('positionPreviewTooltip(document.getElementById("fingering-tooltip"), document.getElementById("preview-tooltip"), null)');
+    ok('скрытый main без якоря: превью скрыто', prev.style.display === 'none', prev.style.display);
+
+    // (3) Главный ВИДИМ (rect есть) — превью справа от него, якорь игнорируется.
+    main.style.display = 'block';
+    main.getBoundingClientRect = () => ({ left: 300, top: 100, width: 150, height: 280, right: 450, bottom: 380 });
+    prev.style.display = 'block';
+    w.eval('positionPreviewTooltip(document.getElementById("fingering-tooltip"), document.getElementById("preview-tooltip"), window.__fakeCell)');
+    // справа от main: left=450+10=460, top=100+(280−200)/2=140.
+    ok('видимый main: превью справа от него (left=460)', prev.style.left === '460px', prev.style.left);
+    ok('top=140', prev.style.top === '140px', prev.style.top);
+    main.getBoundingClientRect = origMainRect(main);
+
+    // (4) Планировщик передает ячейку-якорь (статическая проверка вызовов).
+    const appSrc = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
+    const calls = (appSrc.match(/positionPreviewTooltip\(mainTooltip, previewEl, previewWrapper\)/g) || []).length;
+    ok('планировщик: 3 вызова с previewWrapper', calls === 3, String(calls));
+    const wcalls = (appSrc.match(/positionPreviewTooltip\(mainTooltip, tooltipEl, wrapper\)/g) || []).length;
+    ok('showFingeringTooltip: 4 вызова с wrapper', wcalls === 4, String(wcalls));
+
+    de.getBoundingClientRect = origRect;
   }
 
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');

@@ -8772,7 +8772,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.143</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.144</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14302,21 +14302,28 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
   const wh = visTop + visH;
   
   let left, top;
-  
-  if (nextWrapper) {
-    // Если основного тултипа нет, позиционируем относительно nextWrapper (как раньше)
-    const rect = nextWrapper.getBoundingClientRect();
-    left = rect.left + rect.width/2 - pw/2;
-    top = rect.top - ph - margin;
-    if (top < 0) top = rect.bottom + margin;
-    if (left < 0) left = margin;
-    if (left + pw > ww) left = ww - pw - margin;
-  } else {
+
+  // B-34 (0.144): главный тултип может быть СКРЫТ — например, звучит
+  // ПУСТАЯ ячейка: показывать нечего, main display:none, а его
+  // getBoundingClientRect — сплошные нули. Раньше ветка ниже честно
+  // ставила превью «справа от нулевого ректа»: угол вьюпорта, а с
+  // документными координатами 0.143 (+scroll) — произвольное место
+  // страницы («рандомное место», заметка пользователя 2026-09-03).
+  // Теперь: главный скрыт/без геометрии — якорь ЯЧЕЙКА следующего
+  // аккорда (nextWrapper); нет и её — превью гасим: рисовать его от
+  // нулей не имеет смысла.
+  const mainVisible = !!mainTooltipEl && mainTooltipEl.style.display === 'block';
+  let mainRect = null;
+  if (mainVisible) {
+    const r = mainTooltipEl.getBoundingClientRect();
+    if (r && r.width > 0 && r.height > 0) mainRect = r;
+  }
+
+  if (mainRect) {
     // Основной тултип виден – ставим справа
-    const mainRect = mainTooltipEl.getBoundingClientRect();
     left = mainRect.right + margin;
     top = mainRect.top + (mainRect.height - ph) / 2;
-    
+
     // Если справа не влезает – слева
     if (left + pw > ww) {
       left = mainRect.left - pw - margin;
@@ -14330,6 +14337,18 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
         }
       }
     }
+  } else if (nextWrapper && nextWrapper.isConnected) {
+    // Главного нет — позиционируемся от ЯЧЕЙКИ следующего аккорда:
+    // по центру над ней (как основной тултип), не влезает — под ней.
+    const rect = nextWrapper.getBoundingClientRect();
+    left = rect.left + rect.width / 2 - pw / 2;
+    top = rect.top - ph - margin;
+    if (top < visTop) top = rect.bottom + margin;
+  } else {
+    // Ни главного тултипа, ни якоря-ячейки — превью не размещается.
+    previewTooltipEl.style.display = 'none';
+    previewTooltipEl.classList.remove('visible');
+    return;
   }
   
   // Коррекция. Прижатие к ВЕРХУ идёт последним — та же причина, что и в
@@ -14569,9 +14588,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
           }
         } else {
           const mainTooltip = document.getElementById('fingering-tooltip');
-          if (mainTooltip && mainTooltip.style.display === 'block') {
-            positionPreviewTooltip(mainTooltip, tooltipEl, null);
-          }
+          // 0.144: wrapper — якорь при скрытом главном (пустая ячейка звучит).
+          positionPreviewTooltip(mainTooltip, tooltipEl, wrapper);
         }
       } else if (editBtn) {
         e.stopPropagation();
@@ -14606,9 +14624,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
       }
     } else {
       const mainTooltip = document.getElementById('fingering-tooltip');
-      if (mainTooltip && mainTooltip.style.display === 'block') {
-        positionPreviewTooltip(mainTooltip, tooltipEl, null);
-      }
+      // 0.144: wrapper — якорь при скрытом главном (пустая ячейка звучит).
+      positionPreviewTooltip(mainTooltip, tooltipEl, wrapper);
     }
     return;
   }
@@ -14639,9 +14656,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     positionMainTooltip(wrapper);
   } else {
     const mainTooltip = document.getElementById('fingering-tooltip');
-    if (mainTooltip) {
-      positionPreviewTooltip(mainTooltip, tooltipEl, null);
-    }
+    // 0.144: wrapper — якорь при скрытом главном (пустая ячейка звучит).
+    positionPreviewTooltip(mainTooltip, tooltipEl, wrapper);
   }
 
   requestAnimationFrame(() => {
@@ -14655,9 +14671,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
       }
     } else {
       const mainTooltip = document.getElementById('fingering-tooltip');
-      if (mainTooltip && mainTooltip.style.display === 'block') {
-        positionPreviewTooltip(mainTooltip, tooltipEl, null);
-      }
+      // 0.144: wrapper — якорь при скрытом главном (пустая ячейка звучит).
+      positionPreviewTooltip(mainTooltip, tooltipEl, wrapper);
     }
     // Координаты уже применены без перехода — возвращаем его следующим
     // кадром, чтобы переход С ЯЧЕЙКИ НА ЯЧЕЙКУ остался плавным.
@@ -19842,16 +19857,19 @@ function scheduleNextEvent(ctx) {
           const mainTooltip = document.getElementById('fingering-tooltip');
           const previewEl = document.getElementById('preview-tooltip');
           if (mainTooltip && previewEl && previewEl.style.display === 'block') {
-            positionPreviewTooltip(mainTooltip, previewEl, null);
+            // B-34 (0.144): previewWrapper — якорь-падение: звучит ПУСТАЯ
+            // ячейка, главный тултип скрыт — превью встаёт над ЯЧЕЙКОЙ
+            // следующего аккорда, а не от нулевого ректа скрытого main.
+            positionPreviewTooltip(mainTooltip, previewEl, previewWrapper);
 
             requestAnimationFrame(() => {
               if (!playbackState.isPlaying) return;
-              positionPreviewTooltip(mainTooltip, previewEl, null);
+              positionPreviewTooltip(mainTooltip, previewEl, previewWrapper);
             });
 
             setTimeout(() => {
               if (!playbackState.isPlaying) return;
-              positionPreviewTooltip(mainTooltip, previewEl, null);
+              positionPreviewTooltip(mainTooltip, previewEl, previewWrapper);
             }, 100);
           }
         }, 150);
