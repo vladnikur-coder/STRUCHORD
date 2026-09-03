@@ -62,10 +62,18 @@ w.addEventListener('load', async () => {
   const settle = Date.now() - t0;
   ok('доехала быстрее, чем 5×130мс по-старому (' + settle + 'мс)', settle < 700);
 
+  console.log('=== 3b. Трекпад: мелкие дельты копятся по порогу 60px ===');
+  for (let i = 0; i < 3; i++) wheelField(15); // 45px — ниже порога
+  await sleep(80);
+  ok('3×15px (45px) — шага нет, всё ещё 125', input.value === '125', input.value);
+  wheelField(15); // добили до 60px
+  await sleep(320);
+  ok('4-я дельта (60px суммарно) — ровно +1 → 126', input.value === '126', input.value);
+
   console.log('=== 4. Клавиши при открытом барабане ===');
   key('PageUp');
   await sleep(320);
-  ok('PageUp → 135', input.value === '135', input.value);
+  ok('PageUp → 136', input.value === '136', input.value);
   key('End');
   await sleep(500);
   ok('End → 300', input.value === '300', input.value);

@@ -8724,7 +8724,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.133</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.134</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31353,8 +31353,7 @@ DOM.bpmInput.addEventListener(
     // а после паузы в редактировании барабан сам закрывается. Клик по
     // полю барабан больше не открывает — это обычный ввод цифр.
     if (!bpmDrumOpen) openBpmDrum();
-    bpmDrumNudge(e.deltaY > 0 ? step : -step);
-    bpmDrumTouchIdle();
+    bpmDrumWheelStep(e, step);
   },
   { passive: false }
 );
@@ -31629,6 +31628,35 @@ function bpmDrumNudge(dir) {
   bpmDrumAnimateToValue(cur + dir);
 }
 
+// 0.134 (фидбек: «скорость стала быстрой везде, невозможно ничего
+// выбрать»): шаг считается от ВЕЛИЧИНЫ дельты колеса, а не от факта
+// события. Трекпад шлёт поток мелких дельт (плюс momentum после отрыва
+// пальцев) — «одно событие = ±1 BPM» разгоняло темп на десятки за свайп.
+// Теперь: дискретный тик (|dy| ≥ 40 — колесо мыши) = ровно ОДИН шаг, как
+// было до 0.132; мелкие непрерывные дельты трекпада копятся, и каждые
+// 60px прокрутки дают один шаг — медленный скролл позволяет попасть в
+// конкретный BPM, быстрый флик даёт пропорционально больше.
+let bpmWheelRemainder = 0;
+function bpmDrumWheelStep(e, step) {
+  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
+  const dy = e.deltaY * unit;
+  let dir = 0;
+  if (Math.abs(dy) >= 40) {
+    bpmWheelRemainder = 0; // дискретный тик — остаток от трекпада не нужен
+    dir = dy > 0 ? 1 : -1;
+  } else {
+    bpmWheelRemainder += dy;
+    if (Math.abs(bpmWheelRemainder) >= 60) {
+      const steps = Math.trunc(bpmWheelRemainder / 60);
+      bpmWheelRemainder -= steps * 60;
+      dir = steps;
+    }
+  }
+  if (!dir) return;
+  bpmDrumNudge(dir * step);
+  bpmDrumTouchIdle();
+}
+
 function openBpmDrum() {
   const d = buildBpmDrum();
   const cur = parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM;
@@ -31782,9 +31810,8 @@ function wireBpmDrumEvents() {
   cyl.addEventListener('wheel', (e) => {
     e.preventDefault();
     const step = e.shiftKey ? 5 : 1;
-    // направление и аккумулятор — как у колеса над полем (см. там)
-    bpmDrumNudge(e.deltaY > 0 ? step : -step);
-    bpmDrumTouchIdle();
+    // направление, величина шага и аккумулятор — как у колеса над полем
+    bpmDrumWheelStep(e, step);
   }, { passive: false });
 }
 
