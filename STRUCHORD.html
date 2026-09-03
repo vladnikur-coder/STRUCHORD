@@ -8650,7 +8650,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.128</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.129</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9370,6 +9370,17 @@ function convertSpanBetweenTimeSigs(span, fromTs, toTs) {
 // span события, выраженный в единицах РОДИТЕЛЬСКОГО размера — общая валюта
 // (та же, что и у customBeats), в которой сравнимы события одного квадрата
 // с разными собственными timeSig.
+// Бейдж тактов: у секций с ячейками своего размера (напр. 4@3/4) длина
+// квадрата в родительских долях дробная (20.333...) — сырая дробь в бейдже
+// («5.0833333333 такта») неаккуратна. Целое показываем как есть, дробное —
+// максимум с двумя знаками.
+function formatSquareBars(bars) {
+  if (!isFinite(bars)) return bars;
+  const r = Math.round(bars);
+  if (Math.abs(bars - r) < 0.01) return r;
+  return Math.round(bars * 100) / 100;
+}
+
 function getEventSpanInParentUnits(ev, parentTs) {
   const ownTs = getEventOwnTimeSig(ev, parentTs);
   return convertSpanBetweenTimeSigs(ev.span, ownTs, parentTs);
@@ -9468,6 +9479,23 @@ function getEventVisualSpanFraction(ev, parentTs) {
   // получал ширину целой четверти.
   const SPAN_PRECISION = 16;
   const span = Math.max(1 / SPAN_PRECISION, ev.span || 1);
+  // B-31 / 0.129: сперва пробуем НАСТОЯЩУЮ рациональную value (маленький
+  // знаменатель ≤ 48). Trim ресайза оставляет хвосты вида 2.666666666666668
+  // (это 8/3 + флоат-пыль); жёсткая 1/16-сетка превращала их в 171/64 —
+  // неразложимый знаменатель 64 становился ОБЩИМ знаменателем всей сетки,
+  // каждая тактовая ячейка получала 256 колонок, а квадрат — 1195 треков
+  // (repeat(1195, …)), на которых px-режим схлопывался в 1e-6px. Рациональный
+  // подбор даёт 8/3: знаменатель 3, сетка остаётся короткой, а значение —
+  // БЛИЖЕ к истинному, чем 171/64.
+  const value = (span * parentDenom) / ownDenom;
+  for (let q = 1; q <= 48; q++) {
+    const p = value * q;
+    const pr = Math.round(p);
+    if (Math.abs(p - pr) <= 1e-9 * (1 + Math.abs(p))) {
+      const g = gcdInt(pr, q);
+      if (g >= 1) return { num: pr / g, den: q / g };
+    }
+  }
   const num = Math.round(span * parentDenom * SPAN_PRECISION);
   const den = ownDenom * SPAN_PRECISION;
   const g = gcdInt(num, den);
@@ -17211,11 +17239,13 @@ function setSquareCustomBeats(sid, sqid, beats) {
   const targetSum = beats;
 
   // Удаляем лишние доли с конца
-  while (currentSum > targetSum && events.length > 0) {
+  while (currentSum > targetSum + 1e-6 && events.length > 0) {
     const last = events[events.length - 1];
     const lastParentUnits = getEventSpanInParentUnits(last, parentTs);
     const excessParentUnits = currentSum - targetSum;
-    if (lastParentUnits <= excessParentUnits) {
+    // 1e-6 — тот же допуск, что в preview-trim: без него флоат-пыль
+    // оставляла в модели фантомную однодольную ячейку.
+    if (lastParentUnits <= excessParentUnits + 1e-6) {
       currentSum -= lastParentUnits;
       events.pop();
     } else {
@@ -28430,7 +28460,7 @@ function render() {
         <div style="position:absolute; right:calc((100% - ${widthPercent}%) - 49px); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; align-items:center; gap:2px;">
           <button class="del-square-btn" onclick="event.stopPropagation();removeSquare(${sec.id},${sq.id})" aria-label="Удалить квадрат"><i class="ti ti-x"></i></button>
           ${sqRepeatHtml}
-          <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${sqBeats / beatsPerBar} такт${sqBeats / beatsPerBar !== 1 ? 'а' : ''}</span>
+          <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${formatSquareBars(sqBeats / beatsPerBar)} такт${formatSquareBars(sqBeats / beatsPerBar) !== 1 ? 'а' : ''}</span>
         </div>
       </div>`;
     });
@@ -29388,7 +29418,7 @@ function syncResizedSquareDom(sec, sq, bi) {
   const sqBeats = getSquareBeats(sq, parentTs);
   const bars = Math.round((sqBeats / beatsPerBar) * 1e10) / 1e10;
   const badge = bi.closest('.square')?.querySelector('.square-beats-badge');
-  if (badge) badge.textContent = `${bars} такт${bars !== 1 ? 'а' : ''}`;
+  if (badge) badge.textContent = `${formatSquareBars(bars)} такт${formatSquareBars(bars) !== 1 ? 'а' : ''}`;
 
   refreshChordWrapperRects();
   updateCellsDegrees();
@@ -29467,7 +29497,7 @@ function buildSectionSquaresListHtml(sec) {
       <div style="position:absolute; right:calc((100% - ${widthPercent}%) - 49px); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; align-items:center; gap:2px;">
         <button class="del-square-btn" onclick="event.stopPropagation();removeSquare(${sec.id},${sq.id})" aria-label="Удалить квадрат"><i class="ti ti-x"></i></button>
         ${sqRepeatHtml}
-        <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${sqBeats / beatsPerBar} такт${sqBeats / beatsPerBar !== 1 ? 'а' : ''}</span>
+        <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${formatSquareBars(sqBeats / beatsPerBar)} такт${formatSquareBars(sqBeats / beatsPerBar) !== 1 ? 'а' : ''}</span>
       </div>
     </div>`;
   });
@@ -30366,6 +30396,14 @@ function attachSquareResizeHandlers() {
         // квадрат вплоть до длины самого длинного соседа по секции, но не
         // растянуть его ещё дальше.
         const maxBeats = getSectionMaxBeats(sec);
+        // Потолок жеста — ЦЕЛЫЕ такты: у секций с ячейками своего размера
+        // (напр. 4@3/4 → 5.333 родительских) maxBeats дробный (20.333), и
+        // кламп «rounded > maxBeats → maxBeats» делал beats дробным:
+        // бейдж «5.0833333333 такта», лишняя 1-дольная ячейка в preview
+        // («слипание» двух слотов) и кривая нумерация счёта (видео
+        // пользователя 06.17.36, resize test 2). Звуковой потолок
+        // maxBeats остаётся выше — жест в него не упирается.
+        const maxSnapBeats = Math.max(minBeats, Math.floor((maxBeats + 1e-6) / beatsPerBar) * beatsPerBar);
         const defaultBeats = beatsPerBar * 4;
         const startBeats = sq.customBeats || defaultBeats;
         const sqInner = sqEl.querySelector('.square-inner');
@@ -30391,7 +30429,7 @@ function attachSquareResizeHandlers() {
         const startContentWidth = Math.max(1, startWidth - borderLeft - borderRight);
         const oneBeatWidth = startContentWidth / Math.max(1e-6, startBeats);
         const minWidth = oneBeatWidth * minBeats;
-        const maxWidth = oneBeatWidth * maxBeats;
+        const maxWidth = oneBeatWidth * maxSnapBeats;
         // B-31: ширина квадрата при рендере считается в ВИЗУАЛЬНЫХ
         // единицах (getSectionMaxVisualBeats); звуковой maxBeats — только
         // потолок жеста. Если здесь делить проценты на звуковой эталон,
@@ -30440,11 +30478,15 @@ function attachSquareResizeHandlers() {
           const eventsCopy = startEvents.map((ev) => ({ ...ev }));
           let currentSum = eventsCopy.reduce((sum, ev) => sum + getEventSpanInParentUnits(ev, parentTs), 0);
 
-          while (currentSum > totalBeats && eventsCopy.length > 0) {
+          while (currentSum > totalBeats + 1e-6 && eventsCopy.length > 0) {
             const last = eventsCopy[eventsCopy.length - 1];
             const lastParentUnits = getEventSpanInParentUnits(last, parentTs);
             const excessParentUnits = currentSum - totalBeats;
-            if (lastParentUnits <= excessParentUnits) {
+            // 1e-6: без допуска флоат-пыль (5.333333333333333 против
+            // 5.333333333333332) не давала выкинуть ячейку целиком — она
+            // триммировалась в ~0, клампилась в 1 и появлялась фантомная
+            // однодольная ячейка с липнущей нумерацией.
+            if (lastParentUnits <= excessParentUnits + 1e-6) {
               currentSum -= lastParentUnits;
               eventsCopy.pop();
             } else {
@@ -30455,14 +30497,20 @@ function attachSquareResizeHandlers() {
             }
           }
 
-          while (currentSum < totalBeats) {
+          while (currentSum < totalBeats - 1e-6) {
             const diff = totalBeats - currentSum;
+            // Хвост — ОДНОЙ ячейкой: раньше остаток досыпался по 1 доле,
+            // и рядом с тактовой ячейкой появлялись лишние 1-дольные слоты
+            // со слипшейся нумерацией. Дробный остаток (<1 доли) не
+            // материализуем вовсе.
             if (diff >= beatsPerBar) {
               eventsCopy.push({ chord: '', span: beatsPerBar, timeSig: null, strumPattern: null, fingering: null });
               currentSum += beatsPerBar;
+            } else if (diff >= 1) {
+              eventsCopy.push({ chord: '', span: Math.round(diff), timeSig: null, strumPattern: null, fingering: null });
+              currentSum += Math.round(diff);
             } else {
-              eventsCopy.push({ chord: '', span: 1, timeSig: null, strumPattern: null, fingering: null });
-              currentSum += 1;
+              break;
             }
           }
 
@@ -30725,6 +30773,7 @@ function attachSquareResizeHandlers() {
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
+
           const { percent, targetContentWidth } = previewWidthMetrics(eventsCopy);
           const fixedColWidth = Math.max(
             1e-6,
@@ -30797,7 +30846,7 @@ function attachSquareResizeHandlers() {
           const holdBars = beats / beatsPerBar;
           const holdBadge = sqEl.querySelector('.square-beats-badge');
           if (holdBadge) {
-            holdBadge.textContent = `${holdBars} такт${holdBars !== 1 ? 'а' : ''}`;
+            holdBadge.textContent = `${formatSquareBars(holdBars)} такт${formatSquareBars(holdBars) !== 1 ? 'а' : ''}`;
           }
           // Overlay НЕ снимаем таймером: на нагруженной машине width-переход
           // стартует позже 320мс-fallback'а, overlay исчезал до того, как
@@ -30824,7 +30873,7 @@ function attachSquareResizeHandlers() {
           const preciseBeats = newWidth / oneBeatWidth;
           let rounded = Math.round(preciseBeats / beatsPerBar) * beatsPerBar;
           if (rounded < minBeats) rounded = minBeats;
-          if (rounded > maxBeats) rounded = maxBeats;
+          if (rounded > maxSnapBeats) rounded = maxSnapBeats;
           return rounded;
         }
 
