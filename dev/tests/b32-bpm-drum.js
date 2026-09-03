@@ -48,27 +48,15 @@ w.addEventListener('load', async () => {
   await sleep(260);
   ok('колесо от себя → 120', input.value === '120', input.value);
 
-  console.log('=== 3. Аккумулятор: серия тиков складывается ===');
-  // 5 тиков без пауз: цель убегает в 125, лента догоняя ускоряясь
-  const t0 = Date.now();
-  for (let i = 0; i < 5; i++) wheelField(100);
-  ok('цель аккумулятора сразу 125 (тики сложились, не перезаписались)',
-     w.eval('bpmDrum.targetValue') === 125, String(w.eval('bpmDrum.targetValue')));
-  await sleep(60);
-  const mid = +input.value;
-  ok('поле едет вслед за лентой (121..124, а не стоит на 120)', mid > 120 && mid < 125, String(mid));
-  await sleep(560);
-  ok('после доезда — 125', input.value === '125', input.value);
-  const settle = Date.now() - t0;
-  ok('доехала быстрее, чем 5×130мс по-старому (' + settle + 'мс)', settle < 700);
-
-  console.log('=== 3b. Трекпад: мелкие дельты копятся по порогу 60px ===');
-  for (let i = 0; i < 3; i++) wheelField(15); // 45px — ниже порога
-  await sleep(80);
-  ok('3×15px (45px) — шага нет, всё ещё 125', input.value === '125', input.value);
-  wheelField(15); // добили до 60px
+  console.log('=== 3. Скорость «как было»: одно событие = один шаг ===');
+  // 5 тиков с человеческими паузами: каждый двигает цель на +1 от
+  // текущего центра ленты (семантика 0.131 и ранее)
+  for (let i = 0; i < 5; i++) { wheelField(100); await sleep(60); }
+  await sleep(500);
+  ok('после 5 тиков — 125', input.value === '125', input.value);
+  wheelField(8); // мелкая трекпадная дельта — тоже один шаг, как раньше
   await sleep(320);
-  ok('4-я дельта (60px суммарно) — ровно +1 → 126', input.value === '126', input.value);
+  ok('мелкая дельта (8px) — тоже +1 → 126', input.value === '126', input.value);
 
   console.log('=== 4. Клавиши при открытом барабане ===');
   key('PageUp');

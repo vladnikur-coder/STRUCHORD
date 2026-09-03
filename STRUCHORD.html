@@ -8724,7 +8724,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.134</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.135</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31353,7 +31353,8 @@ DOM.bpmInput.addEventListener(
     // а после паузы в редактировании барабан сам закрывается. Клик по
     // полю барабан больше не открывает — это обычный ввод цифр.
     if (!bpmDrumOpen) openBpmDrum();
-    bpmDrumWheelStep(e, step);
+    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
+    bpmDrumTouchIdle();
   },
   { passive: false }
 );
@@ -31589,7 +31590,6 @@ function bpmDrumLoop(t) {
   } else {
     d.offset = d.snapTo;
     d.snapTo = null;
-    d.targetValue = null;
     d.raf = 0;
   }
 }
@@ -31604,58 +31604,15 @@ function bpmDrumKick() {
 function bpmDrumAnimateToValue(v) {
   const d = bpmDrum;
   const target = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, v));
-  d.targetValue = target;
   d.vel = 0;
   d.snapFrom = d.offset;
   d.snapTo = bpmDrumRestOffset(target);
-  // Длительность растёт с дистанцией: одиночный тик — быстрый щелчок,
-  // серия тиков (аккумулятор ниже) — разгон ленты вдогонку убегающей
-  // цели, а не телепорт.
-  d.snapDur = Math.max(120, Math.min(380, 90 + Math.abs(d.snapTo - d.snapFrom) * 1.05));
+  d.snapDur = 130;
   d.snapStart = performance.now();
   bpmDrumKick();
 }
 
-// Шаг от НАКОПЛЕННОЙ цели, а не от текущего положения ленты. Фидбек
-// 0.131: «крутишь быстро — крутится медленно» — каждый тик перезапускал
-// анимацию «отсюда +1 за 130мс»; при тиках чаще ~7/с лента не успевала
-// отъезжать и ползла со скоростью одного шага независимо от колеса.
-// Теперь быстрые тики копятся в d.targetValue — дистанция (и скорость)
-// растут, пока лента догоняет.
-function bpmDrumNudge(dir) {
-  const d = bpmDrum;
-  const cur = d.targetValue != null ? d.targetValue : Math.round(bpmDrumCenterValue());
-  bpmDrumAnimateToValue(cur + dir);
-}
 
-// 0.134 (фидбек: «скорость стала быстрой везде, невозможно ничего
-// выбрать»): шаг считается от ВЕЛИЧИНЫ дельты колеса, а не от факта
-// события. Трекпад шлёт поток мелких дельт (плюс momentum после отрыва
-// пальцев) — «одно событие = ±1 BPM» разгоняло темп на десятки за свайп.
-// Теперь: дискретный тик (|dy| ≥ 40 — колесо мыши) = ровно ОДИН шаг, как
-// было до 0.132; мелкие непрерывные дельты трекпада копятся, и каждые
-// 60px прокрутки дают один шаг — медленный скролл позволяет попасть в
-// конкретный BPM, быстрый флик даёт пропорционально больше.
-let bpmWheelRemainder = 0;
-function bpmDrumWheelStep(e, step) {
-  const unit = e.deltaMode === 1 ? 16 : e.deltaMode === 2 ? 100 : 1;
-  const dy = e.deltaY * unit;
-  let dir = 0;
-  if (Math.abs(dy) >= 40) {
-    bpmWheelRemainder = 0; // дискретный тик — остаток от трекпада не нужен
-    dir = dy > 0 ? 1 : -1;
-  } else {
-    bpmWheelRemainder += dy;
-    if (Math.abs(bpmWheelRemainder) >= 60) {
-      const steps = Math.trunc(bpmWheelRemainder / 60);
-      bpmWheelRemainder -= steps * 60;
-      dir = steps;
-    }
-  }
-  if (!dir) return;
-  bpmDrumNudge(dir * step);
-  bpmDrumTouchIdle();
-}
 
 function openBpmDrum() {
   const d = buildBpmDrum();
@@ -31663,7 +31620,6 @@ function openBpmDrum() {
   d.offset = bpmDrumRestOffset(Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, cur)));
   d.vel = 0;
   d.snapTo = null;
-  d.targetValue = null;
   d.lastValue = cur;
   d.committed = cur;
   bpmDrumPlace();
@@ -31716,10 +31672,10 @@ function bpmDrumOnKey(e) {
     closeBpmDrum();
     return;
   }
-  if (e.key === 'ArrowUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumNudge(1); return; }
-  if (e.key === 'ArrowDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumNudge(-1); return; }
-  if (e.key === 'PageUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumNudge(10); return; }
-  if (e.key === 'PageDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumNudge(-10); return; }
+  if (e.key === 'ArrowUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur + 1); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur - 1); return; }
+  if (e.key === 'PageUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur + 10); return; }
+  if (e.key === 'PageDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur - 10); return; }
   if (e.key === 'Home') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(CONFIG.MIN_BPM); return; }
   if (e.key === 'End') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(CONFIG.MAX_BPM); return; }
   if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -31746,7 +31702,6 @@ function wireBpmDrumEvents() {
     try { cyl.setPointerCapture(e.pointerId); } catch (err) {}
     // физический драг: idle не должен закрыть барабан под пальцем
     clearTimeout(bpmDrumIdleTimer);
-    d.targetValue = null; // палец перехватил управление у аккумулятора
     d.dragging = true;
     d.vel = 0;
     d.snapTo = null;
@@ -31810,8 +31765,9 @@ function wireBpmDrumEvents() {
   cyl.addEventListener('wheel', (e) => {
     e.preventDefault();
     const step = e.shiftKey ? 5 : 1;
-    // направление, величина шага и аккумулятор — как у колеса над полем
-    bpmDrumWheelStep(e, step);
+    // направление и шаг — как у колеса над полем (см. комментарий там)
+    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
+    bpmDrumTouchIdle();
   }, { passive: false });
 }
 
