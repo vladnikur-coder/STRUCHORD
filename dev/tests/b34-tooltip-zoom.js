@@ -155,6 +155,33 @@ w.addEventListener('load', async () => {
     w.eval('setSquareZoom(1, true)');
   }
 
+  console.log('=== 6. 0.143: тултип absolute — координаты документа (+scroll) ===');
+  {
+    const rules = [];
+    for (const sh of d.styleSheets) { try { for (const r of sh.cssRules) rules.push(r); } catch (e) {} }
+    const main = rules.find((r) => r.selectorText === '#fingering-tooltip');
+    const prev = rules.find((r) => r.selectorText === '#preview-tooltip');
+    ok('#fingering-tooltip — position: absolute', !!main && /position:\s*absolute/.test(main.cssText), main && main.cssText);
+    ok('#preview-tooltip — position: absolute', !!prev && /position:\s*absolute/.test(prev.cssText), prev && prev.cssText);
+
+    // Прокрученная страница: запись координат обязана уехать на scroll.
+    const de = d.documentElement;
+    const origRect = de.getBoundingClientRect.bind(de);
+    de.getBoundingClientRect = () => ({ left: 0, top: 0, width: 1000, height: 700, right: 1000, bottom: 700, x: 0, y: 0 });
+    Object.defineProperty(de, 'clientWidth', { get: () => 1000, configurable: true });
+    Object.defineProperty(de, 'clientHeight', { get: () => 700, configurable: true });
+    Object.defineProperty(w, 'scrollY', { value: 300, configurable: true });
+    Object.defineProperty(w, 'scrollX', { value: 40, configurable: true });
+    const tip = d.getElementById('fingering-tooltip');
+    tip.style.display = 'block';
+    w.__fake = { getBoundingClientRect: () => ({ left: 100, top: 300, width: 80, height: 40, right: 180, bottom: 340 }) };
+    w.eval('positionMainTooltip(window.__fake)');
+    // вьюпортные значения из секции 3: left=30, top=68 → документ: 70/368
+    ok('left = вьюпорт + scrollX (30+40=70)', tip.style.left === '70px', tip.style.left);
+    ok('top = вьюпорт + scrollY (68+300=368)', tip.style.top === '368px', tip.style.top);
+    de.getBoundingClientRect = origRect;
+  }
+
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');
   w.close();
   process.exit(bad ? 1 : 0);

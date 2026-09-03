@@ -6578,7 +6578,17 @@ html[data-theme='dark'] .tuner-string-btn {
    Анимацию обеспечивает сам transition — will-change для неё не
    обязателен, это лишь подсказка. */
 #fingering-tooltip {
-  position: fixed;
+  /* B-34 (0.143): absolute, НЕ fixed. Подсказка пользователя: «пилюля
+     барабана появляется в одном месте в любом случае» — пилюля живёт в
+     потоке документа (absolute в обёртке поля) и при любом зуме остаётся
+     при месте, а fixed-тултип Safari при pinch-зуме перемапирует через
+     VISUAL viewport: браузер сам рисует fixed-бокс в другом месте, и
+     никакая математика координат (0.113–0.142) этого не лечит —
+     «ничего не поменялось». Абсолют отсчитывается от начала ДОКУМЕНТА
+     (тултип — прямой ребёнок body без позиционированных предков),
+     координаты пишутся как viewport + scroll (см. positionMainTooltip).
+     Бонус: тултип больше не «отстаёт» от ячейки при прокрутке страницы. */
+  position: absolute;
   z-index: 10000;
   transition: opacity 0.25s ease, left 0.3s ease, top 0.3s ease;
   pointer-events: auto;
@@ -6768,7 +6778,10 @@ body.has-pinned-fingering:not(.is-timeline) #sectionsContainer {
   transition: opacity 0.25s ease;
 }
 #preview-tooltip {
-  position: fixed;
+  /* B-34 (0.143): absolute вместо fixed — та же причина, что у
+     #fingering-tooltip: fixed при pinch-зуме перемапируется браузером
+     через visual viewport (Safari), абсолют живёт в документе. */
+  position: absolute;
   z-index: 10000;
   transition: opacity 0.25s ease;
   pointer-events: none;
@@ -8759,7 +8772,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.142</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.143</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14269,8 +14282,12 @@ function positionMainTooltip(wrapper) {
     if (top < visTop + margin) top = visTop + margin;
   }
 
-  tooltipEl.style.left = left + 'px';
-  tooltipEl.style.top = top + 'px';
+  // B-34 (0.143): тултип теперь position:absolute — живёт в пространстве
+  // ДОКУМЕНТА (как пилюля барабана в обёртке поля), а расчёты выше
+  // сделаны в координатах вьюпорта. Переводим при записи: +scroll.
+  // При scroll 0 (и в jsdom) значения бит-в-бит прежние.
+  tooltipEl.style.left = (left + (window.scrollX || 0)) + 'px';
+  tooltipEl.style.top = (top + (window.scrollY || 0)) + 'px';
 }
 
 function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
@@ -14332,8 +14349,10 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
     if (top < visTop + margin) top = visTop + margin;
   }
 
-  previewTooltipEl.style.left = left + 'px';
-  previewTooltipEl.style.top = top + 'px';
+  // B-34 (0.143): абсолютное позиционирование — перевод в координаты
+  // документа (+scroll), см. positionMainTooltip.
+  previewTooltipEl.style.left = (left + (window.scrollX || 0)) + 'px';
+  previewTooltipEl.style.top = (top + (window.scrollY || 0)) + 'px';
 }
 
 function isLastEventInSquare(secId, sqId, evIndex) {
@@ -14965,8 +14984,11 @@ function attachPinDrag() {
       st.el.classList.add('is-dragging');
       if (st.source === 'tooltip') st.el.classList.add('no-move-transition');
     }
-    st.el.style.left = (e.clientX - st.dx) + 'px';
-    st.el.style.top = (e.clientY - st.dy) + 'px';
+    // B-34 (0.143): тултип absolute (документное пространство) — клиентские
+    // координаты жеста переводим +scroll. Ветка 'pinned' ниже сама ставит
+    // position:fixed и перезаписывает координаты под вьюпорт.
+    st.el.style.left = (e.clientX - st.dx + (window.scrollX || 0)) + 'px';
+    st.el.style.top = (e.clientY - st.dy + (window.scrollY || 0)) + 'px';
     if (st.source === 'pinned') {
       // Ряд позиционирован от панели — на время жеста переводим его в
       // координаты окна, иначе он уехал бы при скролле от исходной точки.

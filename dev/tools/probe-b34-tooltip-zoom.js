@@ -108,6 +108,42 @@ const ver = (n) => Math.round(n * 10) / 10;
       `tip.bottom=${ver(m.tip.top + m.tip.h)} cell.top=${m.cell.top}`);
   }
 
+  console.log('=== 1b. 0.143: скролл при открытом тултипе — едет с ячейкой ===');
+  {
+    const before = await page.evaluate(() => {
+      const tip = document.getElementById('fingering-tooltip');
+      const cell = window.__b34Cell;
+      const tr = tip.getBoundingClientRect();
+      const cr = cell.getBoundingClientRect();
+      return { gap: Math.round(cr.top - (tr.top + tr.height)) };
+    });
+    // Страница короткой песни короче окна — скроллить нечего. Распорка
+    // на время проверки (убирается сразу после).
+    await page.evaluate(() => {
+      const sp = document.createElement('div');
+      sp.id = 'b34spacer';
+      sp.style.height = '1500px';
+      document.body.appendChild(sp);
+    });
+    await page.evaluate(() => window.scrollBy(0, 250));
+    await new Promise((r) => setTimeout(r, 200));
+    const after = await page.evaluate(() => {
+      const tip = document.getElementById('fingering-tooltip');
+      const cell = window.__b34Cell;
+      const tr = tip.getBoundingClientRect();
+      const cr = cell.getBoundingClientRect();
+      return { gap: Math.round(cr.top - (tr.top + tr.height)), sy: Math.round(window.scrollY) };
+    });
+    check('скролл ' + after.sy + 'px: зазор тултип-ячейка сохранён (' + before.gap + '→' + after.gap + ')',
+      Math.abs(before.gap - after.gap) <= 2, JSON.stringify({ before, after }));
+    await page.evaluate(() => {
+      const sp = document.getElementById('b34spacer');
+      if (sp) sp.remove();
+      window.scrollTo(0, 0);
+    });
+    await new Promise((r) => setTimeout(r, 150));
+  }
+
   console.log('=== 2. Собственный зум сетки 2.6× (рефлоу ряда) ===');
   await page.evaluate(() => { window.__b34Cell = null; });
   await page.evaluate(() => setSquareZoom(2.6, true));
