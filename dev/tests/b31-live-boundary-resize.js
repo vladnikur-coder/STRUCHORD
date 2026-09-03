@@ -263,11 +263,11 @@ w.addEventListener('load', async () => {
     evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)') === '4:16',
     evl('return sections[0].squares[0].events.length + ":" + (sections[0].squares[0].customBeats || 16)'));
   await sleep(35);
-  ok('правый край перешёл в smooth snapped preview будущей структуры',
-    evl(`return document.querySelector('.square-inner').classList.contains('is-square-edge-resizing')`)
-      && /^repeat\(12,/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`))
-      && /px\)\)$/.test(evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`)),
-    evl(`return document.querySelector('.square-inner').className + ' | ' + document.querySelector('.square-inner').style.gridTemplateColumns`));
+  const holdTpl = evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`);
+  const holdCls = evl(`return document.querySelector('.square-inner').className`);
+  ok('правый край перешёл в smooth snapped preview: ФИКСИРОВАННЫЕ px-треки (не резинятся)',
+    holdCls.includes('is-square-edge-resizing') && /^repeat\(\d+, [0-9.]+px\)$/.test(holdTpl),
+    holdCls + ' | ' + holdTpl);
   ok('на pointermove правого края модель не мутирует и полный render не нужен',
     evl('return sections[0].squares[0].events.length') === 4
       && evl('return window.__b31RequestRenderCount') === 0,
@@ -297,8 +297,8 @@ w.addEventListener('load', async () => {
     evl('return window.__b31SquareEdgePreviewRenderCount') === 1,
     evl('return window.__b31SquareEdgePreviewRenderCount'));
   await sleep(520);
-  ok('после visual settle до pointerup overlay снят, preview уже выглядит как финал',
-    evl(`return !document.querySelector('.square-edge-freeze-overlay')
+  ok('overlay НЕ снимается таймером (гонка «серый прямоугольник»): живёт до pointerup, модель не тронута',
+    evl(`return !!document.querySelector('.square-edge-freeze-overlay')
       && document.querySelectorAll('.square[data-square="2"] > .square-inner > .chord-wrapper').length === 3
       && sections[0].squares[0].events.length === 4`),
     evl(`return 'overlay=' + !!document.querySelector('.square-edge-freeze-overlay')
@@ -371,6 +371,217 @@ w.addEventListener('load', async () => {
       && evl('return sections[0].squares[0].events.length') === 1
       && evl(`return document.querySelectorAll('.square-edge-freeze-overlay,.square-edge-removed-strip').length`) === 0,
     evl(`return 'beats=' + sections[0].squares[0].customBeats + ' events=' + sections[0].squares[0].events.length + ' overlays=' + document.querySelectorAll('.square-edge-freeze-overlay,.square-edge-removed-strip').length`));
+  restoreRequestRender();
+
+  console.log('=== B-31.7 right edge: секция с visual≠sound — settled-preview == финал ===');
+  // Репро «серого пятна» (2026-09-01): preview считал проценты от ЗВУКОВОГО
+  // эталона (getSectionMaxBeats), а финальный рендер — от ВИЗУАЛЬНОГО
+  // (getSectionMaxVisualBeats). В секции с ячейками своего размера (Wind of
+  // Change: sound=20 / visual=18) коробка preview расходилась с px-сеткой:
+  // серая дорожка фона при задвигании + скачок ширины на pointerup.
+  evl(`
+    globalTimeSig = '4/4';
+    DOM.globalTimeSig.value = '4/4';
+    squareZoom = 1;
+    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
+      repeat: 1, strumPattern: null, squares: [
+        { id: 2, repeat: 1, customBeats: null, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'G', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'F', span: 4, timeSig: null, strumPattern: null },
+        ]},
+        { id: 3, repeat: 1, customBeats: null, strumPattern: null, events: [
+          { chord: 'Em', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Dm', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'G', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'C', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'E', span: 4, timeSig: '3/4', strumPattern: null },
+        ]},
+      ]
+    }];
+    if (songRhythmRolls) {
+      for (const key of [...songRhythmRolls.refs.keys()]) songRhythmRolls.refs.delete(key);
+      songRhythmRolls.sectionRolls.delete(1);
+    }
+    render();
+    window.__b31RequestRenderCount = 0;
+    window.__b31SquareEdgePreviewRenderCount = 0;
+    window.__b31SquareEdgePreviewFrameCount = 0;
+    window.__b31SquareEdgeCommitCount = 0;
+    if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
+    requestRender = function () {
+      window.__b31RequestRenderCount++;
+      return window.__b31OldRequestRender.apply(this, arguments);
+    };
+    const bi = document.querySelector('.square[data-square="2"] .square-inner');
+    bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 402, height: 74, right: 402, bottom: 74, x: 0, y: 0 });
+    return JSON.stringify({
+      soundMax: getSectionMaxBeats(sections[0]),
+      visualMax: getSectionMaxVisualBeats(sections[0]),
+    })`);
+  const etalons = JSON.parse(evl(`return JSON.stringify({
+    soundMax: getSectionMaxBeats(sections[0]),
+    visualMax: getSectionMaxVisualBeats(sections[0]),
+  })`));
+  ok('эталоны секции расходятся (иначе тест ничего не ловит)',
+    etalons.soundMax > etalons.visualMax + 1 && etalons.visualMax === 24,
+    JSON.stringify(etalons));
+  const mixedHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
+  firePointerDown(mixedHandle, 400);
+  firePointerMove(98); // 16 долей -> 4 доли (визуальная цель 4/24 = 16.6667%)
+  await sleep(35);
+  const holdWidth = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
+  ok('settled-preview (мышь зажата) считает % от ВИЗУАЛЬНОГО эталона (16.6667%, не 12.5%)',
+    Math.abs(parseFloat(holdWidth) - 16.6667) < 0.01,
+    holdWidth);
+  const holdGrid = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.gridTemplateColumns`);
+  ok('px-колонки preview посчитаны от визуальной ширины ряда (23.625px)',
+    /23\.6250*px/.test(holdGrid), holdGrid);
+  await sleep(520); // visual settle до отпускания
+  firePointerUp(98);
+  await sleep(600);
+  const finalWidth = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
+  ok('после pointerup ширина НЕ скачет: финал == settled-preview',
+    Math.abs(parseFloat(finalWidth) - parseFloat(holdWidth)) < 0.01,
+    holdWidth + ' -> ' + finalWidth);
+  ok('модель закоммичена в 4 доли, один commit',
+    evl('return sections[0].squares[0].events.length') === 1
+      && evl('return sections[0].squares[0].customBeats') === 4
+      && evl('return window.__b31SquareEdgeCommitCount') === 1,
+    evl('return "events=" + sections[0].squares[0].events.length + " beats=" + sections[0].squares[0].customBeats + " commits=" + window.__b31SquareEdgeCommitCount'));
+  restoreRequestRender();
+
+  console.log('=== B-31.8 right edge: самый длинный квадрат — эталон секции live, соседи не прыгают ===');
+  // Репро Wind of Change (2026-09-01): квадрат сам задавал эталон секции
+  // (визуал 18 при полу 16). Замороженный на старте эталон давал скачок
+  // ширины на pointerup (22.22% -> 25%). Теперь и процент жертвы, и ширины
+  // соседей считаются от ПОСЛЕ-КОММИТНОГО эталона ещё до отпускания.
+  evl(`
+    globalTimeSig = '4/4';
+    DOM.globalTimeSig.value = '4/4';
+    squareZoom = 1;
+    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
+      repeat: 2, strumPattern: null, squares: [
+        { id: 2, repeat: 1, customBeats: 20, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'G', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'F', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Em', span: 4, timeSig: '3/4', strumPattern: null },
+          { chord: 'Dm', span: 4, timeSig: '3/4', strumPattern: null },
+        ]},
+        { id: 3, repeat: 1, customBeats: null, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'G', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'Am', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'F', span: 4, timeSig: null, strumPattern: null },
+        ]},
+      ]
+    }];
+    if (songRhythmRolls) {
+      for (const key of [...songRhythmRolls.refs.keys()]) songRhythmRolls.refs.delete(key);
+      songRhythmRolls.sectionRolls.delete(1);
+    }
+    render();
+    window.__b31RequestRenderCount = 0;
+    window.__b31SquareEdgePreviewRenderCount = 0;
+    window.__b31SquareEdgeCommitCount = 0;
+    if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
+    requestRender = function () {
+      window.__b31RequestRenderCount++;
+      return window.__b31OldRequestRender.apply(this, arguments);
+    };
+    const bi = document.querySelector('.square[data-square="2"] .square-inner');
+    bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 402, height: 74, right: 402, bottom: 74, x: 0, y: 0 });
+    return 0`);
+  const victimHandle = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
+  firePointerDown(victimHandle, 400);
+  firePointerMove(90); // звуковые 20 доли -> 4 (1 такт)
+  await sleep(35);
+  const holdVictim = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
+  const holdSibling = evl(`return document.querySelector('.square[data-square="3"] .square-inner').style.width`);
+  const holdBadge = evl(`return document.querySelector('.square[data-square="2"] .square-beats-badge').textContent`);
+  ok('жертва при удержании считает % от СТАРТОВОГО эталона (12.5% = 3/24, эталон заморожен на жесте)',
+    Math.abs(parseFloat(holdVictim) - 12.5) < 0.01, holdVictim);
+  ok('сосед при удержании ЗАМОРОЖЕН на стартовой ширине (эталон не обновляется на ходу)',
+    Math.abs(parseFloat(holdSibling) - 66.6667) < 0.01, holdSibling);
+  ok('бейдж тактов жертвы обновлён ещё до отпускания', holdBadge === '1 такт', holdBadge);
+  const holdRepeatRow = evl(`return document.querySelector('.section-card[data-id="1"] .section-repeat-row').style.width`);
+  ok('repeat-ряд при удержании ЗАМОРОЖЕН на стартовой ширине',
+    Math.abs(parseFloat(holdRepeatRow) - 66.6667) < 0.01, holdRepeatRow);
+  await sleep(520);
+  firePointerUp(90);
+  await sleep(600);
+  const finalVictim = evl(`return document.querySelector('.square[data-square="2"] .square-inner').style.width`);
+  const finalSibling = evl(`return document.querySelector('.square[data-square="3"] .square-inner').style.width`);
+  ok('после pointerup жертва плавно доезжает к финальным 18.75% (настоящий эталон 16, не стартовый 24)',
+    Math.abs(parseFloat(finalVictim) - 18.75) < 0.01,
+    holdVictim + ' -> ' + finalVictim);
+  ok('после pointerup сосед ПЛАВНО доезжает до финальных 100% (settle-flip запускался)',
+    Math.abs(parseFloat(finalSibling) - 100) < 0.01
+      && (evl('return window.__b31SquareEdgeSettleFlipCount || 0') >= 1),
+    holdSibling + ' -> ' + finalSibling + ' flips=' + evl('return window.__b31SquareEdgeSettleFlipCount || 0'));
+  const finalRepeatRow = evl(`return document.querySelector('.section-card[data-id="1"] .section-repeat-row').style.width`);
+  ok('после pointerup repeat-ряд доезжает до финальных 100%',
+    Math.abs(parseFloat(finalRepeatRow) - 100) < 0.01,
+    holdRepeatRow + ' -> ' + finalRepeatRow);
+  ok('модель закоммичена в 1 такт',
+    evl('return sections[0].squares[0].customBeats') === 4
+      && evl('return sections[0].squares[0].events.length') === 1,
+    evl('return "beats=" + sections[0].squares[0].customBeats + " events=" + sections[0].squares[0].events.length'));
+  restoreRequestRender();
+
+  console.log('=== B-31.9 right edge: превью боя живёт и во время preview, не только после pointerup ===');
+  // Отложенный пробел из handoff: renderSquareEdgePreview пересобирал
+  // square-inner, но не вызывал renderEventStrumPreviews — при зажатой
+  // мыши ячейки с кастомным боем теряли рисунок и «хлопали» им на pointerup.
+  evl(`
+    globalTimeSig = '4/4';
+    DOM.globalTimeSig.value = '4/4';
+    squareZoom = 1;
+    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
+      repeat: 1, strumPattern: null, squares: [
+        { id: 2, repeat: 1, customBeats: 8, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: null, strumPattern: { mode: 'strum', subdivision: 2, steps: ['D','U'] } },
+          { chord: 'G', span: 4, timeSig: null, strumPattern: null },
+        ]},
+      ]
+    }];
+    if (songRhythmRolls) {
+      for (const key of [...songRhythmRolls.refs.keys()]) songRhythmRolls.refs.delete(key);
+      songRhythmRolls.sectionRolls.delete(1);
+    }
+    render();
+    window.__b31RequestRenderCount = 0;
+    if (!window.__b31OldRequestRender) window.__b31OldRequestRender = requestRender;
+    requestRender = function () {
+      window.__b31RequestRenderCount++;
+      return window.__b31OldRequestRender.apply(this, arguments);
+    };
+    const bi = document.querySelector('.square[data-square="2"] .square-inner');
+    bi.getBoundingClientRect = () => ({ left: 0, top: 0, width: 402, height: 74, right: 402, bottom: 74, x: 0, y: 0 });
+    return 0`);
+  // считаем только шаги в прямых ячейках сетки: freeze-overlay клонирует
+  // ячейки вместе с рисунком, и клоны иначе попадают в счёт
+  const beforeSteps = evl(`return document.querySelectorAll('.square[data-square="2"] .square-inner > .chord-wrapper .strum-step').length`);
+  ok('до drag превью боя нарисовано (иначе тест ничего не ловит)', beforeSteps > 0, String(beforeSteps));
+  const edgeHandle9 = w.document.querySelector('.square[data-square="2"] .square-resize-handle');
+  firePointerDown(edgeHandle9, 400);
+  firePointerMove(150); // 8 доли -> 4: ячейка G уходит, C с боем остаётся
+  await sleep(35);
+  const holdSteps = evl(`return document.querySelectorAll('.square[data-square="2"] .square-inner > .chord-wrapper .strum-step').length`);
+  ok('во время preview (мышь зажата) рисунок боя не пропадает',
+    holdSteps > 0, holdSteps + ' шагов (было до drag: ' + beforeSteps + ')');
+  ok('шаги превью перерегистрированы для оставшейся ячейки',
+    evl(`return eventStrumPreviewStepEls.has('1:2:0')`), 
+    evl(`return [...eventStrumPreviewStepEls.keys()].filter(k => k.startsWith('1:2:')).join(',')`));
+  firePointerUp(150);
+  await sleep(450);
+  const finalSteps = evl(`return document.querySelectorAll('.square[data-square="2"] .square-inner > .chord-wrapper .strum-step').length`);
+  ok('после pointerup рисунок на месте (без «хлопка» появления)',
+    finalSteps > 0 && Math.abs(finalSteps - holdSteps) <= 0, holdSteps + ' -> ' + finalSteps);
   restoreRequestRender();
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nвсе проверки ok');

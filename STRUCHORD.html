@@ -3147,6 +3147,97 @@ body {
 .bpm-input.is-spinning {
   border-color: var(--color-brand);
 }
+/* ---------- B-32: барабан BPM — инлайн на месте поля (0.137) ---------- */
+/* Дизайн пользователя: НЕ отдельная рамка — барабан раскрывается на
+   месте самой пилюли BPM. Тот же фон/бордер/скругление, что у поля:
+   пилюля просто «вырастает» вниз на 3 строки, числа крутятся внутри.
+   Позиционирование абсолютное от обёртки поля — панель транспорта не
+   меняет высоту, барабан едет вместе с липнущей панелью при скролле. */
+.bpm-inline-wrap {
+  position: relative;
+  display: inline-block;
+}
+.bpm-inline-drum {
+  position: absolute;
+  /* Центр пилюли всегда совпадает с центром поля: top 50% минус
+     половина СОБСТВЕННОЙ высоты (translateY в % от неё же) — при росте
+     высоты пилюля раскрывается ВВЕРХ И ВНИЗ симметрично (0.139, «не по
+     низу, а посередине селектора»). */
+  top: 50%;
+  transform: translateY(-50%);
+  left: 0;
+  width: 100%;
+  height: 100%; /* сложено — ровно высота поля */
+  z-index: 20000;
+  overflow: hidden;
+  background: var(--color-surface);
+  border: 1px solid var(--color-border-medium);
+  border-radius: var(--border-radius-pill);
+  perspective: 900px;
+  touch-action: none;
+  cursor: grab;
+  opacity: 0;
+  visibility: hidden;
+  user-select: none;
+  /* Плавность появления/исчезновения (0.140, просьба «плавнее»):
+     подольше и с более мягким замедлением в конце — раскрытие и
+     складывание читаются как один непрерывный вздох, а не щелчок.
+     Высота + прозрачность — только compositor-friendly свойства. */
+  transition: height 0.34s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.28s ease-in-out;
+}
+.bpm-inline-drum.is-open {
+  height: 118px; /* 3 строки × 38px */
+  opacity: 1;
+  visibility: visible;
+}
+.bpm-inline-drum.is-dragging {
+  cursor: grabbing;
+}
+.bpm-drum-strip {
+  will-change: transform;
+}
+.bpm-drum-row {
+  height: 38px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 17px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-primary);
+  backface-visibility: hidden;
+}
+.bpm-drum-row.is-center {
+  font-size: 21px;
+  font-weight: 600;
+}
+.bpm-drum-fade {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 30px;
+  pointer-events: none;
+  z-index: 2;
+}
+.bpm-drum-fade--top {
+  top: 0;
+  background: linear-gradient(var(--color-surface), rgba(0, 0, 0, 0));
+}
+.bpm-drum-fade--bottom {
+  bottom: 0;
+  background: linear-gradient(rgba(0, 0, 0, 0), var(--color-surface));
+}
+.bpm-drum-frame {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  top: calc(50% - 19px);
+  height: 38px;
+  border-top: 1.5px solid var(--color-border-medium);
+  border-bottom: 1.5px solid var(--color-border-medium);
+  border-radius: 10px;
+  pointer-events: none;
+  z-index: 3;
+}
 .transpose-btn {
   background: var(--color-surface);
   border: 1px solid var(--color-border-medium);
@@ -3784,7 +3875,9 @@ body.is-zooming .squares-list {
   background: var(--color-surface-hover);
 }
 .square-inner.is-live-resizing {
-  contain: layout style;
+  /* contain:layout style убран (0.116) — та же причина, что и у
+     edge-resize: contain в связке с переходами на дробном DPR
+     (pinch) сбрасывал растровые слои (видео пользователя 21.51.21). */
 }
 /* B-31: resize остаётся дискретным, но переход между snapped-состояниями
    сглаживается самой сеткой одного квадрата. Это не continuous stretch за
@@ -3794,8 +3887,33 @@ body.is-zooming .squares-list {
 }
 .square-inner.is-square-edge-resizing {
   transition: width 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
-  will-change: width;
-  contain: layout style;
+  /* will-change: width убран: width-анимация всё равно проходит layout,
+     подсказка только форсирует композитный слой. В связке с
+     contain:layout-style и overlay-слоями она давала (на машине
+     пользователя, GPU-зависимо) невидимость содержимого overlay. */
+  /* contain:layout style убран (0.116): contain-изоляция в связке с
+     width-переходом и innerHTML-пересборкой на машине пользователя
+     (macOS, DPR 1.5 после pinch-зума) сбрасывала растровые слои: в видео
+     21.51.21 в момент снапа пропадали пиксели даже у СОСЕДНИХ квадратов
+     (один мигнул и восстановился, другой опустел до конца записи) —
+     это композитор, не DOM-логика. Реальная перф-цель contain здесь
+     была мизерной: width коробки всё равно лэйаутит страницу. */
+  /* background:surface (0.115) СНЯТ (0.119): это была временная защита
+     на время охоты за «серым прямоугольником». Побочный эффект: тёплые
+     межячеечные зазоры (они и есть визуальные границы карточек) на время
+     жеста становились белыми-по-белому — пользователь видел «пропадают
+     границы некоторых ячеек» и «не отрисовываются границы крайней ячейки
+     при добавлении». Реальный фикс состоялся (0.118: содержимое видно),
+     а зона удаляемого такта и так закрыта белой шторкой .square-edge-
+     removed-strip (0.112), поэтому телу можно вернуть штатный тёплый
+     фон зазоров на весь жест — границы ячеек видны непрерывно. */
+}
+/* B-31: при задвигании самого длинного квадрата эталон секции меняется —
+   соседи и repeat-ряд переставляются на финальные ширины ещё до
+   отпускания. Их переход тот же, что у самого квадрата: строка едет
+   согласованно, без скачка на pointerup. */
+.squares-list.is-square-edge-resizing .square-inner {
+  transition: width 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
 }
 .square-inner.is-live-resizing .chord-wrapper,
 .square-inner.is-square-edge-resizing .chord-wrapper {
@@ -3822,7 +3940,11 @@ body.is-zooming .squares-list {
   overflow: hidden;
   opacity: 1;
   transition: opacity 0.08s ease;
-  contain: layout style paint;
+  /* contain:layout style paint убран (0.116): paint-containment на
+     overlay — со-подозреваемый растровых дыр композитора у пользователя
+     (см. видео 21.51.21: пиксели соседних квадратов пропадали в момент
+     снапа). Overlay и так absolute + overflow:hidden + pointer-events:
+     none — изоляция краски давалась слишком дорогой ценой. */
 }
 .square-edge-freeze-overlay.is-hiding {
   opacity: 0;
@@ -3841,6 +3963,9 @@ body.is-zooming .squares-list {
 .square-edge-freeze-cell.is-kept {
   z-index: 3;
 }
+/* Голова страддлера: ширина доезжает тем же темпом, что и край коробки
+   (0.16s, та же кривая) — край непрерывно режет ячейку, без мгновенного
+   сжатия на снапе и без перестройки на pointerup. */
 .square-edge-freeze-cell.is-removed-slide {
   z-index: 1;
 }
@@ -3850,11 +3975,41 @@ body.is-zooming .squares-list {
   top: 0;
   bottom: 0;
   overflow: visible;
-  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
-  will-change: transform;
+  /* will-change: transform убран: форсируемый слой внутри paint-contained
+     overlay — кандидат на невидимость только на машине пользователя
+     (GPU-зависимо); на время перехода Chrome выдаёт слой сам. */
+  /* Гарантия против «серой дыры» (кадр пользователя: удаляемый такт —
+     сплошной #d0ccc2 всю анимацию): полоса сама несёт фон ячейки, а не
+     полагается только на клоны. Если в каком-то окружении клоны не
+     отрисовались (композитинг/GPU), зона всё равно выглядит ячейкой. */
+  background: var(--color-surface);
+  background-image: var(--panel-sheen);
+  /* Приклейка к едущему краю — ГЕОМЕТРИЕЙ, а не синхронностью переходов
+     (0.120). Правый край шторки должен совпадать с сужающимся краем
+     коробки весь полёт; раньше это держалось на идеальной синхронности
+     двух CSS-переходов (width коробки + transform шторки, оба 0.16s).
+     На машине пользователя они расходились хоть на кадр — между краем
+     шторки и краем коробки проглядывало тёплое тело (#d0ccc2): то самое
+     «серое пятно», которое раньше маскировала временная белая заливка
+     тела (0.115–0.118). padding-right растягивает ФОН шторки далеко
+     за движущийся край; overflow:hidden overlay-а режет его ровно по
+     краю коробки в каждом кадре — независимо от таймингов. Абсолютные
+     дети (клоны) от padding-right не сдвигаются. */
+  padding-right: 4096px;
 }
-.square-edge-freeze-overlay.is-slide-out .square-edge-removed-strip {
+/* 0.125: слайдит СОДЕРЖИМОЕ шторки, а не её фон.
+   Раньше transform висел на самой .square-edge-removed-strip: белое
+   полотно (фон + padding-right до едущего края) уезжало ВЛЕВО под
+   оставшиеся ячейки. Клоны ячеек (z:3) его закрывали, но в 2px-зазорах
+   между ячейками вместо тёплого фона тела проглядывало белое полотно —
+   пользователь видел «границы ячеек исчезают на время жеста» (заметно
+   при зуме, видео 01.20.22). Теперь полотно стоит на месте — от
+   границы удаляемой зоны до движущегося края коробки (приклейка 0.120
+   сохранена), а сдвиг получают только клоны-ячейки жертвы. */
+.square-edge-freeze-overlay.is-slide-out
+  .square-edge-removed-strip .square-edge-freeze-cell {
   transform: translateX(var(--square-edge-slide-dx, 0px));
+  transition: transform 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
 }
 .square-edge-removed-strip .square-edge-freeze-cell {
   z-index: 1;
@@ -3899,7 +4054,8 @@ body.is-zooming .squares-list {
   inset: 0;
   pointer-events: none;
   z-index: 5;
-  contain: layout style paint;
+  /* contain:layout style paint убран (0.116) — со-подозреваемый
+     растровых дыр композитора (см. комментарий у edge-resize). */
 }
 .resize-metric-overlay .resize-metric-cell.chord-wrapper {
   position: absolute;
@@ -8585,7 +8741,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.98</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.140</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -8854,7 +9010,7 @@ body.is-timeline.is-playing .timeline-playhead {
           step="1"
           min="40"
           max="300"
-          title="Темп. Колесо мыши — ±1, с Shift ±5; можно тянуть вверх/вниз"
+          title="Темп. Колесо — барабан: ±1, с Shift ±5; клик — ручной ввод; можно тянуть вверх/вниз"
         />
         <div class="playback-position" id="playbackPos">—</div>
         <button
@@ -9305,6 +9461,17 @@ function convertSpanBetweenTimeSigs(span, fromTs, toTs) {
 // span события, выраженный в единицах РОДИТЕЛЬСКОГО размера — общая валюта
 // (та же, что и у customBeats), в которой сравнимы события одного квадрата
 // с разными собственными timeSig.
+// Бейдж тактов: у секций с ячейками своего размера (напр. 4@3/4) длина
+// квадрата в родительских долях дробная (20.333...) — сырая дробь в бейдже
+// («5.0833333333 такта») неаккуратна. Целое показываем как есть, дробное —
+// максимум с двумя знаками.
+function formatSquareBars(bars) {
+  if (!isFinite(bars)) return bars;
+  const r = Math.round(bars);
+  if (Math.abs(bars - r) < 0.01) return r;
+  return Math.round(bars * 100) / 100;
+}
+
 function getEventSpanInParentUnits(ev, parentTs) {
   const ownTs = getEventOwnTimeSig(ev, parentTs);
   return convertSpanBetweenTimeSigs(ev.span, ownTs, parentTs);
@@ -9403,6 +9570,23 @@ function getEventVisualSpanFraction(ev, parentTs) {
   // получал ширину целой четверти.
   const SPAN_PRECISION = 16;
   const span = Math.max(1 / SPAN_PRECISION, ev.span || 1);
+  // B-31 / 0.129: сперва пробуем НАСТОЯЩУЮ рациональную value (маленький
+  // знаменатель ≤ 48). Trim ресайза оставляет хвосты вида 2.666666666666668
+  // (это 8/3 + флоат-пыль); жёсткая 1/16-сетка превращала их в 171/64 —
+  // неразложимый знаменатель 64 становился ОБЩИМ знаменателем всей сетки,
+  // каждая тактовая ячейка получала 256 колонок, а квадрат — 1195 треков
+  // (repeat(1195, …)), на которых px-режим схлопывался в 1e-6px. Рациональный
+  // подбор даёт 8/3: знаменатель 3, сетка остаётся короткой, а значение —
+  // БЛИЖЕ к истинному, чем 171/64.
+  const value = (span * parentDenom) / ownDenom;
+  for (let q = 1; q <= 48; q++) {
+    const p = value * q;
+    const pr = Math.round(p);
+    if (Math.abs(p - pr) <= 1e-9 * (1 + Math.abs(p))) {
+      const g = gcdInt(pr, q);
+      if (g >= 1) return { num: pr / g, den: q / g };
+    }
+  }
   const num = Math.round(span * parentDenom * SPAN_PRECISION);
   const den = ownDenom * SPAN_PRECISION;
   const g = gcdInt(num, den);
@@ -13925,6 +14109,32 @@ function fingeringCounterText(variants, methods, shape) {
   return `${pos}/${total}${tag}`;
 }
 
+// Pinch-зум (жест двумя пальцами) масштабирует VISUAL viewport без reflow:
+// window.innerWidth/innerHeight остаются layout-размерами и перестают
+// описывать то, что реально видно, а getBoundingClientRect продолжает
+// жить в layout-px. Тултип, посчитанный по innerWidth, после pinch-жеста
+// «уезжал в случайное место» (заметка пользователя 2026-09-02). Видимый
+// регион в layout-px: [offset/scale, (offset+size)/scale]; при обычном
+// зуме/без жеста scale === 1 и всё вырождается в 0,0,innerW/H — поведение
+// бит-в-бит прежнее.
+function tooltipViewportMetrics() {
+  // 0.124/0.125 (решение пользователя 2026-09-03): тултип стоит в том же
+  // месте, как и без зума, — якорь ячейка, границы окно раскладки.
+  // ВАЖНО: bounds берём из documentElement.clientWidth/Height, а НЕ из
+  // window.innerWidth/innerHeight: на РЕАЛЬНОМ pinch-зуме Chrome
+  // innerWidth/innerHeight отдают размер VISUAL-вьюпорта (маленький,
+  // например 522px при layout 1200), при этом getBoundingClientRect
+  // ячейки остаётся в layout-px. Клэмп «в окно» по innerWidth прижимал
+  // тултип к чужому левому краю раскладки — то, что пользователь видел
+  // как «не в том месте» (пережило 0.113/0.122/0.124: в CDP-эмуляции
+  // пинча innerWidth остаётся layout, на реальном жесте — нет).
+  // documentElement.clientWidth/Height всегда в layout-px — одно
+  // пространство с rect ячейки: позиция при зуме бит-в-бит равна
+  // позиции без зума; выход за видимую область принят пользователем.
+  const de = document.documentElement;
+  return { visLeft: 0, visTop: 0, visW: de.clientWidth, visH: de.clientHeight };
+}
+
 function positionMainTooltip(wrapper) {
   const tooltipEl = document.getElementById('fingering-tooltip');
   if (!tooltipEl || tooltipEl.style.display === 'none') return;
@@ -13933,16 +14143,15 @@ function positionMainTooltip(wrapper) {
   const tw = tooltipEl.offsetWidth || 220;
   const th = tooltipEl.offsetHeight || 220;
   const margin = 12;
-  const ww = window.innerWidth;
-  const wh = window.innerHeight;
+  const { visLeft, visTop, visW, visH } = tooltipViewportMetrics();
 
   let left, top;
 
-  // Свободное место по четырём направлениям.
-  const spaceTop = rect.top - th - margin;
-  const spaceBottom = wh - rect.bottom - th - margin;
-  const spaceLeft = rect.left - tw - margin;
-  const spaceRight = ww - rect.right - tw - margin;
+  // Свободное место по четырём направлениям — от ВИДИМОГО региона.
+  const spaceTop = rect.top - visTop - th - margin;
+  const spaceBottom = (visTop + visH) - rect.bottom - th - margin;
+  const spaceLeft = rect.left - visLeft - tw - margin;
+  const spaceRight = (visLeft + visW) - rect.right - tw - margin;
 
   // Выбор стороны.
   //
@@ -13967,7 +14176,7 @@ function positionMainTooltip(wrapper) {
   // ячейкой — общая коррекция ниже всё равно вернёт его в окно. Вбок
   // уходим только когда по вертикали не влезть по-настоящему, то есть
   // тултип выше самого окна.
-  const fitsVertically = th + margin * 2 <= wh;
+  const fitsVertically = th + margin * 2 <= visH;
   if (spaceTop >= 0 || (fitsVertically && spaceTop >= spaceBottom)) {
     // Над ячейкой — основной случай.
     left = rect.left + rect.width / 2 - tw / 2;
@@ -13983,8 +14192,8 @@ function positionMainTooltip(wrapper) {
     left = rect.right + margin;
     top = rect.top + rect.height / 2 - th / 2;
   } else {
-    left = (ww - tw) / 2;
-    top = (wh - th) / 2;
+    left = visLeft + (visW - tw) / 2;
+    top = visTop + (visH - th) / 2;
   }
 
   // Коррекция, чтобы тултип не выходил за границы окна.
@@ -14001,10 +14210,10 @@ function positionMainTooltip(wrapper) {
   // по высоте целиком, обрезается низ (там кнопка правки и переключатель
   // вариантов), а гриф с именем аккорда — то, ради чего тултип и
   // открывают, — остаётся на экране.
-  if (left < 0) left = margin;
-  if (left + tw > ww) left = ww - tw - margin;
-  if (top + th > wh) top = wh - th - margin;
-  if (top < 0) top = margin;
+  if (left < visLeft + margin) left = visLeft + margin;
+  if (left + tw > visLeft + visW - margin) left = visLeft + visW - tw - margin;
+  if (top + th > visTop + visH - margin) top = visTop + visH - th - margin;
+  if (top < visTop + margin) top = visTop + margin;
 
   tooltipEl.style.left = left + 'px';
   tooltipEl.style.top = top + 'px';
@@ -14016,8 +14225,10 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
   const pw = previewTooltipEl.offsetWidth || 200;
   const ph = previewTooltipEl.offsetHeight || 200;
   const margin = 10;
-  const ww = window.innerWidth;
-  const wh = window.innerHeight;
+  // Границы — от видимого региона (pinch-зум), см. tooltipViewportMetrics.
+  const { visLeft, visTop, visW, visH } = tooltipViewportMetrics();
+  const ww = visLeft + visW;
+  const wh = visTop + visH;
   
   let left, top;
   
@@ -14053,10 +14264,10 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
   // Коррекция. Прижатие к ВЕРХУ идёт последним — та же причина, что и в
   // positionMainTooltip: когда тултип выше окна, «прижать к низу» даёт
   // отрицательный top и срезает шапку с именем аккорда.
-  if (left < 0) left = margin;
-  if (left + pw > ww) left = ww - pw - margin;
-  if (top + ph > wh) top = wh - ph - margin;
-  if (top < 0) top = margin;
+  if (left < visLeft + margin) left = visLeft + margin;
+  if (left + pw > ww - margin) left = ww - pw - margin;
+  if (top + ph > wh - margin) top = wh - ph - margin;
+  if (top < visTop + margin) top = visTop + margin;
 
   previewTooltipEl.style.left = left + 'px';
   previewTooltipEl.style.top = top + 'px';
@@ -17119,11 +17330,13 @@ function setSquareCustomBeats(sid, sqid, beats) {
   const targetSum = beats;
 
   // Удаляем лишние доли с конца
-  while (currentSum > targetSum && events.length > 0) {
+  while (currentSum > targetSum + 1e-6 && events.length > 0) {
     const last = events[events.length - 1];
     const lastParentUnits = getEventSpanInParentUnits(last, parentTs);
     const excessParentUnits = currentSum - targetSum;
-    if (lastParentUnits <= excessParentUnits) {
+    // 1e-6 — тот же допуск, что в preview-trim: без него флоат-пыль
+    // оставляла в модели фантомную однодольную ячейку.
+    if (lastParentUnits <= excessParentUnits + 1e-6) {
       currentSum -= lastParentUnits;
       events.pop();
     } else {
@@ -26781,6 +26994,27 @@ function pointInRect(x, y, rect) {
   return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
+// При pinch-зуме (жест двумя пальцами) браузер присылает clientX/Y в
+// координатах VISUAL viewport, а getBoundingClientRect (и кэш rects) —
+// в layout-px: без пересчёта хиттест промахивается мимо ячеек. Приводим
+// мышь к layout-пространству; при scale===1 (обычный экран/зум-рефлоу)
+// это тождественное преобразование.
+function mouseEventToLayoutXY(e) {
+  const vv = window.visualViewport;
+  if (!vv || !isFinite(vv.scale) || Math.abs(vv.scale - 1) < 1e-4) {
+    return { x: e.clientX, y: e.clientY };
+  }
+  const sc = vv.scale;
+  // clientX/Y реального жеста — в visual-px относительно видимого региона;
+  // offsetLeft/Top — уже CSS-px (см. tooltipViewportMetrics), поэтому
+  // формула: client/scale + offset (в 0.113 было (client+offset)/scale —
+  // сдвиг на offset*(1-1/scale), при пане 400px и scale 1.5 это 133px).
+  return {
+    x: e.clientX / sc + (vv.offsetLeft || 0),
+    y: e.clientY / sc + (vv.offsetTop || 0),
+  };
+}
+
 function setArmedChordWrapper(wrapperEl) {
   if (armedChordWrapper === wrapperEl) return;
   if (armedChordWrapper) armedChordWrapper.classList.remove('is-buttons-armed');
@@ -26792,8 +27026,9 @@ document.addEventListener('mousemove', (e) => {
   // Координаты могли устареть с прошлого движения — обновляем лениво.
   ensureChordWrapperRects();
   if (!chordWrapperRectCache.length) return;
-  const x = e.clientX,
-    y = e.clientY;
+  // Мышь — в layout-пространстве rects (см. mouseEventToLayoutXY):
+  // при pinch-жесте clientX/Y живут в visual-viewport координатах.
+  const { x, y } = mouseEventToLayoutXY(e);
 
   // Вооружённая ячейка могла быть удалена перерисовкой (или сам кэш
   // пересобран) — тогда класс висит на «мёртвом» узле, а новая ячейка на
@@ -28316,7 +28551,7 @@ function render() {
         <div style="position:absolute; right:calc((100% - ${widthPercent}%) - 49px); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; align-items:center; gap:2px;">
           <button class="del-square-btn" onclick="event.stopPropagation();removeSquare(${sec.id},${sq.id})" aria-label="Удалить квадрат"><i class="ti ti-x"></i></button>
           ${sqRepeatHtml}
-          <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${sqBeats / beatsPerBar} такт${sqBeats / beatsPerBar !== 1 ? 'а' : ''}</span>
+          <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${formatSquareBars(sqBeats / beatsPerBar)} такт${formatSquareBars(sqBeats / beatsPerBar) !== 1 ? 'а' : ''}</span>
         </div>
       </div>`;
     });
@@ -29274,7 +29509,7 @@ function syncResizedSquareDom(sec, sq, bi) {
   const sqBeats = getSquareBeats(sq, parentTs);
   const bars = Math.round((sqBeats / beatsPerBar) * 1e10) / 1e10;
   const badge = bi.closest('.square')?.querySelector('.square-beats-badge');
-  if (badge) badge.textContent = `${bars} такт${bars !== 1 ? 'а' : ''}`;
+  if (badge) badge.textContent = `${formatSquareBars(bars)} такт${formatSquareBars(bars) !== 1 ? 'а' : ''}`;
 
   refreshChordWrapperRects();
   updateCellsDegrees();
@@ -29353,7 +29588,7 @@ function buildSectionSquaresListHtml(sec) {
       <div style="position:absolute; right:calc((100% - ${widthPercent}%) - 49px); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; align-items:center; gap:2px;">
         <button class="del-square-btn" onclick="event.stopPropagation();removeSquare(${sec.id},${sq.id})" aria-label="Удалить квадрат"><i class="ti ti-x"></i></button>
         ${sqRepeatHtml}
-        <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${sqBeats / beatsPerBar} такт${sqBeats / beatsPerBar !== 1 ? 'а' : ''}</span>
+        <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${formatSquareBars(sqBeats / beatsPerBar)} такт${formatSquareBars(sqBeats / beatsPerBar) !== 1 ? 'а' : ''}</span>
       </div>
     </div>`;
   });
@@ -30252,6 +30487,14 @@ function attachSquareResizeHandlers() {
         // квадрат вплоть до длины самого длинного соседа по секции, но не
         // растянуть его ещё дальше.
         const maxBeats = getSectionMaxBeats(sec);
+        // Потолок жеста — ЦЕЛЫЕ такты: у секций с ячейками своего размера
+        // (напр. 4@3/4 → 5.333 родительских) maxBeats дробный (20.333), и
+        // кламп «rounded > maxBeats → maxBeats» делал beats дробным:
+        // бейдж «5.0833333333 такта», лишняя 1-дольная ячейка в preview
+        // («слипание» двух слотов) и кривая нумерация счёта (видео
+        // пользователя 06.17.36, resize test 2). Звуковой потолок
+        // maxBeats остаётся выше — жест в него не упирается.
+        const maxSnapBeats = Math.max(minBeats, Math.floor((maxBeats + 1e-6) / beatsPerBar) * beatsPerBar);
         const defaultBeats = beatsPerBar * 4;
         const startBeats = sq.customBeats || defaultBeats;
         const sqInner = sqEl.querySelector('.square-inner');
@@ -30277,7 +30520,42 @@ function attachSquareResizeHandlers() {
         const startContentWidth = Math.max(1, startWidth - borderLeft - borderRight);
         const oneBeatWidth = startContentWidth / Math.max(1e-6, startBeats);
         const minWidth = oneBeatWidth * minBeats;
-        const maxWidth = oneBeatWidth * maxBeats;
+        const maxWidth = oneBeatWidth * maxSnapBeats;
+        // B-31: ширина квадрата при рендере считается в ВИЗУАЛЬНЫХ
+        // единицах (getSectionMaxVisualBeats); звуковой maxBeats — только
+        // потолок жеста. Если здесь делить проценты на звуковой эталон,
+        // то в секциях с ячейками своего размера (напр. Wind of Change,
+        // секция sound=20 / visual=18) preview-коробка расходится с
+        // px-сеткой внутри неё: при задвигании видна голая серая дорожка
+        // фона .square-inner либо сетка сжимается, а на pointerup ширина
+        // скачет к правильному проценту — кадр 2 ≠ кадр 3.
+        const visualMaxBeats = getSectionMaxVisualBeats(sec);
+        const startVisualBeats = getSquareVisualBeats(sq, parentTs);
+        // Ширину ряда (content-box .square) выводим из честного текущего
+        // рендера: startContentWidth = startVisual/visualMax × rowContent.
+        // Базис процентов (ширина коробки при 100%) выводим на уровне BOX,
+        // а не контента: проценты применяются к контент-боксу .square, но
+        // границы .square-inner (2px) в проценты не входят и НЕ масштабируются.
+        // Раньше базис считали от контент-ширины жертвы (box-2px) и умножали
+        // на отношение долей — 2px терялись на каждый такт масштаба: на сцене
+        // «resize test» (4->64 доли) это -26px, шаг превью-ячеек 43px против
+        // финальных 44.9px у соседа — та самая «непропорциональность и
+        // расхождение» рядов во время жеста. Масштабируем коробку, границы
+        // вычитаем ПОСЛЕ — шаг совпадает с финальным бит-в-бит.
+        const basisBoxWidth = startVisualBeats > 1e-6
+          ? (startWidth * visualMaxBeats) / startVisualBeats
+          : startWidth;
+        // B-31 (продолжение): эталон секции live. Если задвигаемый квадрат
+        // САМ самый длинный, то после отпускания getSectionMaxVisualBeats
+        // уменьшится — и финальный рендер раздвинет и его, и всех соседей.
+        // Замороженный на старте эталон давал скачок ширины на pointerup
+        // (Wind of Change: 22.22% -> 25%, +21px). Поэтому считаем
+        // ПОСЛЕ-КОММИТНЫЙ эталон: пол 4 такта + самый длинный сосед +
+        // визуальная длина preview самого квадрата.
+        const visualFloorBeats = getGridUnitsPerBar(parentTs) * 4;
+        const othersVisualBeats = sec.squares
+          .filter((other) => other !== sq)
+          .reduce((m, other) => Math.max(m, getSquareVisualBeats(other, parentTs)), 0);
         const startX = e.clientX;
         let lastRoundedBeats = startBeats;
         let pendingSquareResizeClientX = startX;
@@ -30285,19 +30563,21 @@ function attachSquareResizeHandlers() {
         let squareEdgePreviewActive = false;
         let squareEdgeFreezeOverlay = null;
         let squareEdgeFreezeTimer = 0;
-        let squareEdgeFreezeSettled = false;
-        let squareEdgeAfterFreeze = null;
 
         function buildPreviewEventsForBeats(beats) {
           const totalBeats = beats;
           const eventsCopy = startEvents.map((ev) => ({ ...ev }));
           let currentSum = eventsCopy.reduce((sum, ev) => sum + getEventSpanInParentUnits(ev, parentTs), 0);
 
-          while (currentSum > totalBeats && eventsCopy.length > 0) {
+          while (currentSum > totalBeats + 1e-6 && eventsCopy.length > 0) {
             const last = eventsCopy[eventsCopy.length - 1];
             const lastParentUnits = getEventSpanInParentUnits(last, parentTs);
             const excessParentUnits = currentSum - totalBeats;
-            if (lastParentUnits <= excessParentUnits) {
+            // 1e-6: без допуска флоат-пыль (5.333333333333333 против
+            // 5.333333333333332) не давала выкинуть ячейку целиком — она
+            // триммировалась в ~0, клампилась в 1 и появлялась фантомная
+            // однодольная ячейка с липнущей нумерацией.
+            if (lastParentUnits <= excessParentUnits + 1e-6) {
               currentSum -= lastParentUnits;
               eventsCopy.pop();
             } else {
@@ -30308,14 +30588,20 @@ function attachSquareResizeHandlers() {
             }
           }
 
-          while (currentSum < totalBeats) {
+          while (currentSum < totalBeats - 1e-6) {
             const diff = totalBeats - currentSum;
+            // Хвост — ОДНОЙ ячейкой: раньше остаток досыпался по 1 доле,
+            // и рядом с тактовой ячейкой появлялись лишние 1-дольные слоты
+            // со слипшейся нумерацией. Дробный остаток (<1 доли) не
+            // материализуем вовсе.
             if (diff >= beatsPerBar) {
               eventsCopy.push({ chord: '', span: beatsPerBar, timeSig: null, strumPattern: null, fingering: null });
               currentSum += beatsPerBar;
+            } else if (diff >= 1) {
+              eventsCopy.push({ chord: '', span: Math.round(diff), timeSig: null, strumPattern: null, fingering: null });
+              currentSum += Math.round(diff);
             } else {
-              eventsCopy.push({ chord: '', span: 1, timeSig: null, strumPattern: null, fingering: null });
-              currentSum += 1;
+              break;
             }
           }
 
@@ -30325,12 +30611,43 @@ function attachSquareResizeHandlers() {
           return eventsCopy;
         }
 
-        function widthPercentForBeats(beats) {
-          return Math.min(100, (beats / Math.max(1e-6, maxBeats)) * 100);
-        }
-
-        function contentWidthForBeats(beats) {
-          return Math.max(minWidth, Math.min(maxWidth, oneBeatWidth * beats));
+        // Проценты и px-цель — от ВИЗУАЛЬНОЙ длины preview-событий по
+        // ПОСЛЕ-КОММИТНОМУ визуальному эталону секции: ровно та величина,
+        // которую getSectionMaxVisualBeats вернёт ПОСЛЕ отпускания, —
+        // поэтому settled-preview и финал совпадают пиксель в пиксель даже
+        // когда задвигаемый квадрат сам был самым длинным в секции.
+        // Достроенные при расширении такты — обычные бары без своего
+        // размера, их визуал совпадает со звуком.
+        function previewWidthMetrics(eventsCopy) {
+          const visualBeats = eventsCopy.reduce(
+            (sum, ev) => sum + getEventVisualSpanInParentUnits(ev, parentTs),
+            0
+          );
+          // Заметка пользователя (2026-09-01, уточнена 2026-09-02):
+          // «эталон 100% не должен обновляться на ходу». Знаменатель —
+          // СТАРТОВЫЙ эталон жеста (visualMaxBeats, заморожен на
+          // pointerdown), а не будущий: пока жертва сама эталон, живой
+          // знаменатель держал её на 100% и край «возвращался к правому
+          // краю экрана» мгновенно. Со стартовым эталоном край отъезжает
+          // влево на каждом удалённом такте, а финальную ширину (уже от
+          // настоящего эталона) квадрат плавно принимает после отпускания —
+          // settleSquareEdgeAfterCommit.
+          const percent = Math.min(
+            100,
+            (visualBeats / Math.max(1e-6, visualMaxBeats)) * 100
+          );
+          // px-цель — ровно та же формула, что даёт styleW%-коробку
+          // (rowBox × visual/etalon). Никаких клэмпов minWidth/maxWidth:
+          // они считались в ЗВУКОВЫХ единицах и в секциях с ячейками своего
+          // размера урезали px-сетку короче коробки — справа оставался
+          // голый серый фон .square-inner («серый хвост» из кадров пользователя).
+          const targetBoxWidth =
+            (basisBoxWidth * visualBeats) / Math.max(1e-6, visualMaxBeats);
+          const targetContentWidth = Math.max(
+            0,
+            targetBoxWidth - borderLeft - borderRight
+          );
+          return { percent, targetContentWidth };
         }
 
         function setControlsForPercent(percent) {
@@ -30354,8 +30671,6 @@ function attachSquareResizeHandlers() {
             clearTimeout(squareEdgeFreezeTimer);
             squareEdgeFreezeTimer = 0;
           }
-          squareEdgeFreezeSettled = false;
-          squareEdgeAfterFreeze = null;
           if (squareEdgeFreezeOverlay) {
             squareEdgeFreezeOverlay.remove();
             squareEdgeFreezeOverlay = null;
@@ -30396,6 +30711,31 @@ function attachSquareResizeHandlers() {
               width: rect.width,
               height: rect.height,
             };
+            // Страддлер: ячейка, НАЧАВАЯЩАЯСЯ до среза и КОНЧАЮЩАЯСЯ после.
+            // Модель при коммите отрезает только хвост (span уменьшается),
+            // поэтому и overlay обязан показывать её расщеплённой: голова
+            // (до среза) — замороженный клон с содержимым, как остальные
+            // оставшиеся; хвост (после среза) — пустое полотно в шторке.
+            // Раньше такая ячейка считалась удаляемой ЦЕЛИКОМ: шторка
+            // ложилась от её начала и накрывала голову с аккордом до
+            // pointerup («вся белая, содержимого не видно» — видео
+            // пользователя 05.19.01).
+            if (isSlideRemove && item.isRemoved && start < (opts.cutoffBeats || 0) - 1e-6) {
+              // Позиция среза — в РОДИТЕЛЬСКИХ долях, ровно как считает
+              // модель (buildPreviewEventsForBeats): у ячейки со своим
+              // размером (напр. 4@3/4) родительский span = 5.333, и доля
+              // честно пересчитывается в пиксели через её полную ширину.
+              // Раньше срез считался по «битовым» колонкам — для 3/4-ячейки
+              // он попадал на 116px вместо 88px, и голова не совпадала
+              // с тем, что коммитит модель (прыжок на pointerup).
+              const spanParent = Math.max(1e-6, end - start);
+              const keepParent = (opts.cutoffBeats || 0) - start;
+              const cutX = item.left + (keepParent / spanParent) * item.width;
+              if (cutX > item.left + 0.5 && cutX < item.right - 0.5) {
+                item.isStraddler = true;
+                item.finalWidth = cutX - item.left;
+              }
+            }
             if (opts.mode === 'removed' && !item.isRemoved) return;
             selected.push(item);
           });
@@ -30407,15 +30747,18 @@ function attachSquareResizeHandlers() {
             parent.appendChild(boundary);
           };
 
-          const appendCellClone = (item, parent, localOrigin, extraClass = '') => {
+          const appendCellClone = (item, parent, localOrigin, extraClass = '', widthOverride = null) => {
             const clone = item.cw.cloneNode(true);
             const baseClass = item.cw.className.replace(/\bis-buttons-armed\b/g, '').replace(/\s+/g, ' ').trim();
             clone.className = `${baseClass} square-edge-freeze-cell${extraClass}`;
             clone.style.gridColumn = '';
-            const overscan = item.isRemoved ? SQUARE_GRID_GAP : 0;
+            // overscan (перекрытие gap'ов) нужен только полноразмерным клонам
+            // удаляемых ячеек; голова страддлера имеет точную ширину.
+            const overscan = item.isRemoved && !item.isStraddler && widthOverride == null ? SQUARE_GRID_GAP : 0;
             clone.style.left = Math.max(0, item.left - localOrigin - overscan).toFixed(3) + 'px';
             clone.style.top = Math.max(0, item.top).toFixed(3) + 'px';
-            clone.style.width = Math.max(0, item.width + overscan * 2).toFixed(3) + 'px';
+            const cloneWidth = widthOverride != null ? widthOverride : item.width + overscan * 2;
+            clone.style.width = Math.max(0, cloneWidth).toFixed(3) + 'px';
             clone.style.height = Math.max(0, item.height).toFixed(3) + 'px';
             clone.querySelectorAll('.chord-buttons,.resize-handle,.square-resize-handle').forEach((el) => el.remove());
             parent.appendChild(clone);
@@ -30424,14 +30767,34 @@ function attachSquareResizeHandlers() {
 
           if (isSlideRemove) {
             const kept = selected.filter((item) => !item.isRemoved);
-            const removed = selected.filter((item) => item.isRemoved);
+            const straddlers = selected.filter((item) => item.isStraddler);
+            const removed = selected.filter((item) => item.isRemoved && !item.isStraddler);
             kept.forEach((item, keptIdx) => {
               appendCellClone(item, overlay, 0, ' is-kept');
               const next = kept[keptIdx + 1];
               if (next && next.idx === item.idx + 1) drawBoundary(item.right);
             });
-            if (removed.length) {
-              const firstLeft = Math.min(...removed.map((item) => item.left));
+            // Голова страддлера (дизайн пользователя, 2026-09-03):
+            // «обрезается до места, где будет заканчиваться квадрат после
+            // удаления такта» — НЕТ анимации сжатия. Клон остаётся ПОЛНЫМ
+            // (контент на исходных местах: имя там, где стояло), а видима
+            // только часть до ФИНАЛЬНОГО края. Обрезка — clip-path: он не
+            // меняет раскладку, контент не перецентрируется и не сжимается.
+            straddlers.forEach((st) => {
+              const prevKept = kept[kept.length - 1];
+              if (prevKept && prevKept.idx === st.idx - 1) drawBoundary(prevKept.right);
+              const headClone = appendCellClone(st, overlay, 0, ' is-kept is-straddler-head');
+              const cropRight = Math.max(0, st.width - st.finalWidth);
+              headClone.style.clipPath = `inset(0 ${cropRight.toFixed(3)}px 0 0)`;
+            });
+            if (removed.length || straddlers.length) {
+              // Начало шторки: от ПЕРВОЙ полностью удаляемой ячейки, а если
+              // есть стрип-страддлер — от его линии среза (правее головы
+              // больше нечего показывать: голова обрезана, хвост уезжает).
+              const firstLeft = Math.min(
+                ...removed.map((item) => item.left),
+                ...straddlers.map((st) => st.left + st.finalWidth)
+              );
               const lastRight = Math.max(...removed.map((item) => item.right));
               const strip = document.createElement('div');
               strip.className = 'square-edge-removed-strip';
@@ -30440,8 +30803,23 @@ function attachSquareResizeHandlers() {
               // the square edge shrinks, so its right edge stays glued to the
               // moving square edge. This avoids the gray flash that appeared
               // when removed cells were separately anchored/reflowed.
-              const stripOrigin = firstLeft - SQUARE_GRID_GAP;
-              const stripWidth = Math.max(0, lastRight - firstLeft + SQUARE_GRID_GAP * 2);
+              const startsAtCut = straddlers.length > 0
+                && straddlers[0].left + straddlers[0].finalWidth >= firstLeft - 1e-6;
+              const stripOrigin = startsAtCut ? firstLeft : firstLeft - SQUARE_GRID_GAP;
+              // Полоса обязана докрывать до ПРАВОЙ кромки коробки (box
+              // content-ширина): между последней удалённой ячейкой и краем
+              // остаются gap+border, и при быстрых прерывистых драгах там
+              // проглядывал голый серый фон (замер: просвет 12px на старте
+              // снапа). Поэтому ширина — до края коробки, а не до последней
+              // ячейки.
+              const boxContentRight = Math.max(
+                0,
+                box.width - (parseFloat(style.borderLeftWidth) || 0) - (parseFloat(style.borderRightWidth) || 0)
+              );
+              const stripWidth = Math.max(
+                0,
+                Math.max(lastRight + SQUARE_GRID_GAP, boxContentRight) - stripOrigin
+              );
               strip.style.left = Math.max(0, stripOrigin).toFixed(3) + 'px';
               strip.style.width = stripWidth.toFixed(3) + 'px';
               // Двигаем удаляемую группу на её ПОЛНУЮ ширину, а не только
@@ -30453,7 +30831,7 @@ function attachSquareResizeHandlers() {
               removed.forEach((item, removedIdx) => {
                 appendCellClone(item, strip, stripOrigin, ' is-removed-slide');
                 const next = removed[removedIdx + 1];
-                if (next && next.idx === item.idx + 1) drawBoundary(item.right, strip, firstLeft - SQUARE_GRID_GAP);
+                if (next && next.idx === item.idx + 1) drawBoundary(item.right, strip, stripOrigin);
               });
               // Границу перед первой удаляемой ячейкой НЕ дублируем:
               // после shrink это уже новый правый край квадрата, и его
@@ -30474,45 +30852,6 @@ function attachSquareResizeHandlers() {
           return overlay.childNodes.length ? overlay : null;
         }
 
-        function settleSquareEdgeFreezeOverlay(overlay) {
-          if (!overlay) return;
-          let done = false;
-          const finish = () => {
-            if (done) return;
-            done = true;
-            sqInner.removeEventListener('transitionend', onTransitionEnd);
-            if (!overlay.isConnected) return;
-            squareEdgeFreezeSettled = true;
-            const mode = overlay.dataset.mode || '';
-            const after = squareEdgeAfterFreeze;
-            squareEdgeAfterFreeze = null;
-            // Overlay нужен только пока идёт визуальный ход. После
-            // transitionend он должен уйти даже если мышь ещё зажата:
-            // иначе состояние «до отпускания» отличается от финала и справа
-            // копятся серые/тёмные следы старых границ. Если pointerup уже
-            // ждёт settle, commit модели выполнится после короткого fade.
-            overlay.classList.add('is-hiding');
-            squareEdgeFreezeTimer = setTimeout(() => {
-              if (squareEdgeFreezeOverlay === overlay) squareEdgeFreezeOverlay = null;
-              overlay.remove();
-              squareEdgeFreezeTimer = 0;
-              if (typeof after === 'function') after();
-            }, 110);
-          };
-          const onTransitionEnd = (ev) => {
-            if (ev.target !== sqInner || ev.propertyName !== 'width') return;
-            // Не убираем overlay в тот же момент, когда ширина закончила
-            // ехать: даём браузеру один спокойный кадр, чтобы не мигнула
-            // серая область при быстрых/прерванных жестах.
-            setTimeout(finish, 40);
-          };
-          sqInner.addEventListener('transitionend', onTransitionEnd);
-          // fallback на случай, если transitionend не придёт (jsdom,
-          // отключенные анимации, быстрый interrupt). Значительно дольше
-          // самой width-анимации 160мс, но визуально overlay уже clipped.
-          squareEdgeFreezeTimer = setTimeout(finish, 320);
-        }
-
         function renderSquareEdgePreview(beats, fromBeats) {
           enableSquareEdgePreviewTransition();
           const prevBeats = fromBeats == null ? startBeats : fromBeats;
@@ -30525,8 +30864,8 @@ function attachSquareResizeHandlers() {
           const previewSq = { ...sq, events: eventsCopy };
           const distribution = distributeVisualSpans(eventsCopy, parentTs);
           const totalCols = Math.max(1, distribution.totalCols || 1);
-          const percent = widthPercentForBeats(beats);
-          const targetContentWidth = contentWidthForBeats(beats);
+
+          const { percent, targetContentWidth } = previewWidthMetrics(eventsCopy);
           const fixedColWidth = Math.max(
             1e-6,
             (targetContentWidth - Math.max(0, totalCols - 1) * SQUARE_GRID_GAP) / totalCols
@@ -30543,7 +30882,13 @@ function attachSquareResizeHandlers() {
             if (key.startsWith(previewPrefix)) eventStrumPreviewStepEls.delete(key);
           }
           sqInner.innerHTML = buildSquareInnerEventsHtml(sec, previewSq, distribution);
-          sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, ${fixedColWidth.toFixed(6)}px))`;
+          // ФИКСИРОВАННЫЕ треки (без minmax): упругие minmax(0,Xpx) сжимались
+          // и растягивались вместе с анимирующейся коробкой — ячейки и превью
+          // ритма «резинились» весь ход (кадр 2 пользователя: шаг ячеек 109.6px
+          // при финальном 113.3px). С фиксированными треками ячейки встают в
+          // финальный размер мгновенно, а коробка доехжает и открывает/режет их
+          // краем (overflow:hidden).
+          sqInner.style.gridTemplateColumns = `repeat(${totalCols}, ${fixedColWidth.toFixed(6)}px)`;
           if (freezeOverlay) {
             sqInner.appendChild(freezeOverlay);
             squareEdgeFreezeOverlay = freezeOverlay;
@@ -30558,11 +30903,56 @@ function attachSquareResizeHandlers() {
             freezeOverlay.classList.add('is-slide-out');
           }
           sqInner.style.width = percent + '%';
+          // Доводка до бит-в-бит (0.123): во время полёта сетка стоит в
+          // фиксированных px (ячейки не резинятся — механика 0.110), но
+          // ОСТАВШАЯСЯ такой после доезда коробки, она расходится с финалом
+          // на субпиксель: px-треки посчитаны от targetContentWidth, а финал
+          // раскладывается fr-долями от фактической percent-ширины (её
+          // округление даёт ±1 CSS px). На обычном масштабе это невидимо,
+          // но при сильном зуме (DPR2 + pinch ~2x, видео пользователя
+          // 01.20.22) границы ячеек в СЕРЕДИНЕ квадрата скачут на старте
+          // жеста и обратно на pointerup — щели между ячейками мигают
+          // белым/тёплым. Поэтому, когда width-переход доехал, переводим
+          // колонки в ровно тот же fr-вид, что и финал: settled-hold ==
+          // финал пиксель в пиксель при любом масштабе. Тег защищает от
+          // гонки: если до transitionend случился следующий снап, старый
+          // слушатель не должен перетиреть новую px-сетку.
+          const settleTag = {};
+          sqInner.__b31SettleTag = settleTag;
+          sqInner.addEventListener(
+            'transitionend',
+            (ev) => {
+              if (ev.target !== sqInner || ev.propertyName !== 'width') return;
+              if (sqInner.__b31SettleTag !== settleTag) return;
+              if (!sqInner.classList.contains('is-square-edge-resizing')) return;
+              sqInner.style.gridTemplateColumns = `repeat(${totalCols}, minmax(0, 1fr))`;
+            },
+            { once: true }
+          );
           setControlsForPercent(percent);
-          if (freezeOverlay) {
-            settleSquareEdgeFreezeOverlay(freezeOverlay);
+          // Заметка пользователя (2026-09-01): эталон НЕ должен обновляться
+          // на ходу — соседи и repeat-ряд стоят на стартовых ширинах весь
+          // жест и мягко доезжают после отпускания (settleSquareEdgeAfterCommit).
+          // Бейдж тактов жертвы обновляем сразу — текст не должен прыгать на pointerup.
+          const holdBars = beats / beatsPerBar;
+          const holdBadge = sqEl.querySelector('.square-beats-badge');
+          if (holdBadge) {
+            holdBadge.textContent = `${formatSquareBars(holdBars)} такт${formatSquareBars(holdBars) !== 1 ? 'а' : ''}`;
           }
+          // Overlay НЕ снимаем таймером: на нагруженной машине width-переход
+          // стартует позже 320мс-fallback'а, overlay исчезал до того, как
+          // край доехал, и открытое тело квадрата выглядело серым
+          // прямоугольником (кадры пользователя). Hold != финал — штатная
+          // семантика, поэтому overlay живёт до следующего снапа (пересборка)
+          // или до pointerup (cleanupSquareEdgePreview).
           observeChordDisplays(sqInner);
+          // Превью боя/перебора внутри ячеек: innerHTML выше их снёс, а
+          // rebuild не вызывался — до коммита ячейки жили без рисунка и
+          // «хлопали» им на pointerup (отложенный пробел B-31). Ключи
+          // eventStrumPreviewStepEls уже почищены previewPrefix-ом выше,
+          // здесь перерегистрируем шаги для оставшихся ячеек: превью читает
+          // модель по data-ei, добавленным хвостовым ячейкам паттерна нет.
+          renderEventStrumPreviews(sqEl);
           refreshChordWrapperRects();
           window.__b31SquareEdgePreviewRenderCount = (window.__b31SquareEdgePreviewRenderCount || 0) + 1;
         }
@@ -30574,7 +30964,7 @@ function attachSquareResizeHandlers() {
           const preciseBeats = newWidth / oneBeatWidth;
           let rounded = Math.round(preciseBeats / beatsPerBar) * beatsPerBar;
           if (rounded < minBeats) rounded = minBeats;
-          if (rounded > maxBeats) rounded = maxBeats;
+          if (rounded > maxSnapBeats) rounded = maxSnapBeats;
           return rounded;
         }
 
@@ -30591,6 +30981,7 @@ function attachSquareResizeHandlers() {
         function cleanupSquareEdgePreview() {
           clearSquareEdgeFreezeOverlay();
           sqInner.classList.remove('is-square-edge-resizing');
+          sqInner.style.transition = '';
           if (controls) controls.style.transition = '';
         }
 
@@ -30601,6 +30992,87 @@ function attachSquareResizeHandlers() {
             squareResizeRAF = 0;
             applySquareEdgePreviewAt(pendingSquareResizeClientX, false);
           });
+        }
+
+        // Заметка пользователя (2026-09-01): «только после отпускания мыши
+        // квадрат должен плавно принимать свою форму». Во время жеста соседние
+        // квадраты и repeat-ряд заморожены на стартовых ширинах, поэтому сразу
+        // после коммита их нужно перевезти к финалу анимацией, а не скачком:
+        // фиксируем px-ширины до коммита, даём коммиту выставить финальные
+        // проценты, затем FLIP — откат на стартовые px без transition и
+        // возврат финального процента уже с transition.
+        function captureSectionWidthsForSettle() {
+          const card = sqEl.closest('.section-card');
+          if (!card) return null;
+          const items = [];
+          // Захватываем ПРОЦЕНТЫ (style.width), а не px-ректы:_percent и есть
+          // текущее honest-состояние, а getBoundingClientRect в тестовом DOM
+          // не работает — и не нужен.
+          card.querySelectorAll('.squares-list .square[data-square]').forEach((el) => {
+            const bi = el.querySelector('.square-inner');
+            const ctl = bi && bi.nextElementSibling;
+            if (bi) {
+              items.push({
+                kind: 'sq', key: el.getAttribute('data-square'),
+                preWidth: bi.style.width,
+                ctl,
+                ctlRight: ctl ? getComputedStyle(ctl).right : '',
+              });
+            }
+          });
+          card.querySelectorAll('.section-repeat-row').forEach((row, i) => {
+            items.push({ kind: 'repeat', idx: i, preWidth: row.style.width });
+          });
+          return { card, items };
+        }
+
+        function settleSquareEdgeAfterCommit(captured) {
+          if (!captured || !captured.card.isConnected) return;
+          const changed = [];
+          captured.items.forEach((it) => {
+            let el = null;
+            if (it.kind === 'sq') {
+              el = captured.card.querySelector(`.square[data-square="${it.key}"] .square-inner`);
+            } else {
+              el = captured.card.querySelectorAll('.section-repeat-row')[it.idx] || null;
+            }
+            if (!el || !el.style.width || !it.preWidth) return;
+            if (Math.abs(parseFloat(el.style.width) - parseFloat(it.preWidth)) <= 0.01) return;
+            changed.push({
+              el,
+              preWidth: it.preWidth,
+              finalWidth: el.style.width,
+              ctl: it.ctl || null,
+              ctlRight: it.ctlRight || '',
+              ctlFinalRight: it.ctl && it.ctl.isConnected ? it.ctl.style.right : '',
+            });
+          });
+          window.__b31SquareEdgeSettleCount = (window.__b31SquareEdgeSettleCount || 0) + 1;
+          if (!changed.length) return;
+          changed.forEach((it) => {
+            it.el.style.transition = 'none';
+            it.el.style.width = it.preWidth;
+            if (it.ctl && it.ctl.isConnected && it.ctlRight) {
+              it.ctl.style.transition = 'none';
+              it.ctl.style.right = it.ctlRight;
+            }
+          });
+          void changed[0].el.offsetWidth;
+          changed.forEach((it) => {
+            it.el.style.transition = 'width 0.18s cubic-bezier(0.2, 0.75, 0.18, 1)';
+            it.el.style.width = it.finalWidth;
+            if (it.ctl && it.ctl.isConnected && it.ctlFinalRight) {
+              it.ctl.style.transition = 'right 0.18s cubic-bezier(0.2, 0.75, 0.18, 1)';
+              it.ctl.style.right = it.ctlFinalRight;
+            }
+          });
+          window.__b31SquareEdgeSettleFlipCount = (window.__b31SquareEdgeSettleFlipCount || 0) + 1;
+          setTimeout(() => {
+            changed.forEach((it) => {
+              if (it.el.isConnected) it.el.style.transition = '';
+              if (it.ctl && it.ctl.isConnected) it.ctl.style.transition = '';
+            });
+          }, 260);
         }
 
         function onUp() {
@@ -30615,21 +31087,16 @@ function attachSquareResizeHandlers() {
           applySquareEdgePreviewAt(pendingSquareResizeClientX, true);
 
           if (finalBeats !== startBeats) {
-            const commitSquareEdgeResize = () => {
-              cleanupSquareEdgePreview();
-              window.__b31SquareEdgeCommitCount = (window.__b31SquareEdgeCommitCount || 0) + 1;
-              setSquareCustomBeats(sid, sqid, finalBeats);
-            };
-            if (squareEdgeFreezeOverlay && squareEdgeFreezeOverlay.isConnected && !squareEdgeFreezeSettled) {
-              // Если пользователь отпустил мышь до конца визуального хода,
-              // не сносим freeze-overlay вместе с его границами немедленно:
-              // именно это давало раннее исчезновение разделителей и серые
-              // вспышки. Модель зафиксируем один раз после визуального
-              // settle; под ним уже стоит preview будущей структуры.
-              squareEdgeAfterFreeze = commitSquareEdgeResize;
-            } else {
-              commitSquareEdgeResize();
-            }
+            // Коммит сразу: overlay-клоны к этому моменту совпадают с финальной
+            // сеткой (fixed-px), поэтому cleanup + rerender не дают вспышки,
+            // а ширины секции мягко доезжают settle-флипом. Отложенной ветки
+            // (ждать visual settle) больше нет — её таймер и был источником
+            // гонки «серый прямоугольник» на нагруженных машинах.
+            const captured = captureSectionWidthsForSettle();
+            cleanupSquareEdgePreview();
+            window.__b31SquareEdgeCommitCount = (window.__b31SquareEdgeCommitCount || 0) + 1;
+            setSquareCustomBeats(sid, sqid, finalBeats);
+            settleSquareEdgeAfterCommit(captured);
           } else if (squareEdgePreviewActive) {
             // Клик/возврат в исходный размер: staged preview нужно убрать
             // локально, но полный render для этого не нужен.
@@ -30891,8 +31358,20 @@ DOM.bpmInput.addEventListener(
     e.preventDefault();
     // Shift — крупный шаг: с 60 до 180 иначе пришлось бы крутить 120 раз.
     const step = e.shiftKey ? 5 : 1;
-    // deltaY < 0 — колесо от себя, темп вверх.
-    bumpBpm(e.deltaY < 0 ? step : -step);
+    // deltaY > 0 — колесо К СЕБЕ (вниз): при натуральном скролле контент
+    // едет вверх, барабан должен ехать туда же — темп ВВЕРХ. Инверсия по
+    // фидбеку пользователя 0.132: «крутишь колесо вниз — пусть барабан
+    // крутится наверх и наоборот».
+    //
+    // B-32 / 0.131 (фидбек пользователя: «ритм можно редактировать без
+    // открытия барабана колесиком — в вылетающем по клику барабане нет
+    // смысла; пусть барабан появляется именно при таком редактировании»):
+    // колесо ОТКРЫВАЕТ барабан и докручивает ленту до нового значения,
+    // а после паузы в редактировании барабан сам закрывается. Клик по
+    // полю барабан больше не открывает — это обычный ввод цифр.
+    if (!bpmDrumOpen) openBpmDrum();
+    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
+    bpmDrumTouchIdle();
   },
   { passive: false }
 );
@@ -30916,11 +31395,18 @@ window.addEventListener('pointermove', (e) => {
   // иначе каретка в поле мешает и на отпускании выделяется текст.
   if (!bpmDrag.moved) {
     bpmDrag.moved = true;
+    bpmDrumSuppressClick = true; // тащили — клик не должен мешать
     DOM.bpmInput.blur();
     document.body.style.userSelect = 'none';
     DOM.bpmInput.classList.add('is-spinning');
   }
   bumpBpm(steps);
+  // 0.139 (просьба пользователя): протяжка тоже открывает пилюлю и
+  // ведёт ленту к значению — как колесо. Открытие ПОСЛЕ bumpBpm, чтобы
+  // пилюля сразу встала на новое значение.
+  if (!bpmDrumOpen) openBpmDrum();
+  else bpmDrumAnimateToValue(parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM);
+  bpmDrumTouchIdle();
   bpmDrag.y -= steps * STEP_PX;
 });
 window.addEventListener('pointerup', () => {
@@ -30928,8 +31414,392 @@ window.addEventListener('pointerup', () => {
   if (bpmDrag.moved) {
     document.body.style.userSelect = '';
     DOM.bpmInput.classList.remove('is-spinning');
+    // пилюля открыта протяжкой — пусть живёт ещё 1.2с после отпускания
+    // и сложится сама (idle), как после колеса
+    bpmDrumTouchIdle();
   }
   bpmDrag = null;
+});
+
+// ---------- B-32: БАРАБАН BPM («как будильник iPhone», поповер) ----------
+//
+// Клик по полю открывает барабан; протяжка по самому полю осталась как
+// быстрый шаг (±1 на 6px). Внутри барабана: тянуть/фликать ленту,
+// колесо — ±1 (Shift ±5), стрелки ±1, PgUp/PgDn ±10, Home/End — края,
+// цифра — закрыть барабан и продолжить ввод в поле, Esc/клик вне —
+// закрыть. Пока лента крутится, поле показывает живое целое значение,
+// тяжёлый applyBpmChange дебаунсится (260мс) и флашится на закрытии.
+const BPM_DRUM_ROW = 38;
+const BPM_DRUM_VISIBLE = 3;
+// центрирующий отступ: окно 5×38, ряд занимает середину, а не верх —
+// покой для значения V это (V−MIN)×ROW − PAD
+const BPM_DRUM_PAD = ((BPM_DRUM_VISIBLE - 1) / 2) * BPM_DRUM_ROW;
+let bpmDrum = null;
+let bpmDrumOpen = false;
+let bpmDrumSuppressClick = false;
+let bpmDrumIdleTimer = 0;
+const BPM_DRUM_IDLE_MS = 1200;
+
+// Барабан — транзиентный фидбек редактирования колесом: пока крутят,
+// он живёт; 1.2с тишины — закрылся (с коммитом значения). Любое
+// взаимодействие (колесо, клавиши, отпускание драга) обновляет таймер.
+function bpmDrumTouchIdle() {
+  clearTimeout(bpmDrumIdleTimer);
+  bpmDrumIdleTimer = setTimeout(() => {
+    if (bpmDrumOpen && bpmDrum && !bpmDrum.dragging) closeBpmDrum();
+  }, BPM_DRUM_IDLE_MS);
+}
+
+function bpmDrumRestOffset(v) {
+  return (v - CONFIG.MIN_BPM) * BPM_DRUM_ROW - BPM_DRUM_PAD;
+}
+function bpmDrumMinOffset() {
+  return bpmDrumRestOffset(CONFIG.MIN_BPM);
+}
+function bpmDrumMaxOffset() {
+  return bpmDrumRestOffset(CONFIG.MAX_BPM);
+}
+
+// Резинка за краями: за [0..max] смещение давится до 35% — как у
+// iOS-скролла, дальше тянуть всё труднее.
+function bpmDrumRubber(raw) {
+  const min = bpmDrumMinOffset();
+  const max = bpmDrumMaxOffset();
+  if (raw < min) return min + (raw - min) * 0.35;
+  if (raw > max) return max + (raw - max) * 0.35;
+  return raw;
+}
+
+function buildBpmDrum() {
+  if (bpmDrum) return bpmDrum;
+  // Обёртка вокруг поля: барабан растёт из САМОЙ пилюли BPM на её
+  // месте (не отдельный поповер) — 0.137.
+  let wrap = DOM.bpmInput.closest('.bpm-inline-wrap');
+  if (!wrap) {
+    wrap = document.createElement('span');
+    wrap.className = 'bpm-inline-wrap';
+    DOM.bpmInput.parentNode.insertBefore(wrap, DOM.bpmInput);
+    wrap.appendChild(DOM.bpmInput);
+  }
+  const el = document.createElement('div');
+  el.className = 'bpm-inline-drum';
+  el.innerHTML =
+    '<div class="bpm-drum-strip"></div>' +
+    '<div class="bpm-drum-fade bpm-drum-fade--top"></div>' +
+    '<div class="bpm-drum-fade bpm-drum-fade--bottom"></div>' +
+    '<div class="bpm-drum-frame"></div>';
+  const strip = el.querySelector('.bpm-drum-strip');
+  const rows = [];
+  for (let v = CONFIG.MIN_BPM; v <= CONFIG.MAX_BPM; v++) {
+    const r = document.createElement('div');
+    r.className = 'bpm-drum-row';
+    r.textContent = v;
+    strip.appendChild(r);
+    rows.push(r);
+  }
+  wrap.appendChild(el);
+  // сам барабан и есть цилиндр (события вешаются на него)
+  const cyl = el;
+  bpmDrum = {
+    el, cyl, strip, rows,
+    offset: 0,          // px: (значение − MIN) × ROW в покое
+    vel: 0,             // px/мс при инерции
+    raf: 0,
+    dragging: false,
+    dragRaw: 0,
+    samples: [],
+    snapFrom: 0, snapTo: 0, snapStart: 0, snapDur: 0,
+    lastValue: 0, committed: 0, commitTimer: 0,
+    lastWindow: null,
+  };
+  wireBpmDrumEvents();
+  return bpmDrum;
+}
+
+function bpmDrumCenterValue() {
+  const v = CONFIG.MIN_BPM + (bpmDrum.offset + BPM_DRUM_PAD) / BPM_DRUM_ROW;
+  return Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, v));
+}
+
+function bpmDrumApplyLive() {
+  const v = Math.round(bpmDrumCenterValue());
+  if (v === bpmDrum.lastValue) return;
+  bpmDrum.lastValue = v;
+  DOM.bpmInput.value = v;
+  clearTimeout(bpmDrum.commitTimer);
+  bpmDrum.commitTimer = setTimeout(() => {
+    if (bpmDrumOpen) applyBpmChange();
+  }, 260);
+}
+
+function bpmDrumRenderFrame() {
+  const d = bpmDrum;
+  d.strip.style.transform = 'translate3d(0,' + (-d.offset).toFixed(2) + 'px,0)';
+  const center = CONFIG.MIN_BPM + (d.offset + BPM_DRUM_PAD) / BPM_DRUM_ROW;
+  const base = Math.round(center) - CONFIG.MIN_BPM; // ИНДЕКС центральной строки
+  const from = Math.max(0, base - 3);
+  const to = Math.min(d.rows.length - 1, base + 3);
+  const winKey = from + ':' + to;
+  if (d.lastWindow !== winKey) {
+    // за пределами окна строки гасим полностью (обычно они уже за
+    // overflow:hidden, но при резинке на краю могут выглядывать)
+    d.rows.forEach((r) => {
+      r.style.opacity = '';
+      r.style.transform = '';
+      r.classList.toggle('is-center', false);
+    });
+    d.lastWindow = winKey;
+  }
+  for (let i = from; i <= to; i++) {
+    const dist = CONFIG.MIN_BPM + i - center; // строки от центра
+    const r = d.rows[i];
+    r.style.transform = 'rotateX(' + (dist * 22).toFixed(2) + 'deg)';
+    r.style.opacity = String(Math.max(0.12, 1 - Math.abs(dist) / 3.2));
+    r.classList.toggle('is-center', i === base);
+  }
+}
+
+function bpmDrumStopLoop() {
+  if (bpmDrum && bpmDrum.raf) {
+    cancelAnimationFrame(bpmDrum.raf);
+    bpmDrum.raf = 0;
+  }
+}
+
+function bpmDrumLoop(t) {
+  const d = bpmDrum;
+  if (d.dragging) {
+    d.offset = bpmDrumRubber(d.dragRaw);
+    bpmDrumApplyLive();
+    bpmDrumRenderFrame();
+    d.raf = requestAnimationFrame(bpmDrumLoop);
+    return;
+  }
+  if (Math.abs(d.vel) > 0.05) {
+    // инерция: экспоненциальное трение, за краями — стоп и отскок к краю
+    const dt = Math.min(48, t - (d.lastT || t));
+    d.lastT = t;
+    d.offset += d.vel * dt;
+    const min = bpmDrumMinOffset();
+    const max = bpmDrumMaxOffset();
+    if (d.offset < min || d.offset > max) {
+      d.offset = Math.max(min, Math.min(max, d.offset));
+      d.vel = 0;
+      d.snapFrom = d.offset;
+      d.snapTo = bpmDrumRestOffset(Math.round(bpmDrumCenterValue()));
+      d.snapStart = t;
+      d.snapDur = 220;
+    } else {
+      d.vel *= Math.exp(-dt / 260);
+      bpmDrumApplyLive();
+      bpmDrumRenderFrame();
+      d.raf = requestAnimationFrame(bpmDrumLoop);
+      return;
+    }
+  }
+  // снап: доводка до целого BPM (easeOutCubic)
+  if (d.snapTo == null) {
+    d.snapFrom = d.offset;
+    d.snapTo = bpmDrumRestOffset(Math.round(bpmDrumCenterValue()));
+    d.snapStart = t;
+    d.snapDur = 160;
+  }
+  const k = Math.min(1, (t - d.snapStart) / d.snapDur);
+  const e = 1 - Math.pow(1 - k, 3);
+  d.offset = d.snapFrom + (d.snapTo - d.snapFrom) * e;
+  d.vel = 0;
+  bpmDrumApplyLive();
+  bpmDrumRenderFrame();
+  if (k < 1) {
+    d.raf = requestAnimationFrame(bpmDrumLoop);
+  } else {
+    d.offset = d.snapTo;
+    d.snapTo = null;
+    d.raf = 0;
+  }
+}
+
+function bpmDrumKick() {
+  if (!bpmDrum.raf) {
+    bpmDrum.lastT = 0;
+    bpmDrum.raf = requestAnimationFrame(bpmDrumLoop);
+  }
+}
+
+function bpmDrumAnimateToValue(v) {
+  const d = bpmDrum;
+  const target = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, v));
+  d.vel = 0;
+  d.snapFrom = d.offset;
+  d.snapTo = bpmDrumRestOffset(target);
+  d.snapDur = 130;
+  d.snapStart = performance.now();
+  bpmDrumKick();
+}
+
+function openBpmDrum() {
+  const d = buildBpmDrum();
+  const cur = parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM;
+  d.offset = bpmDrumRestOffset(Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, cur)));
+  d.vel = 0;
+  d.snapTo = null;
+  d.lastValue = cur;
+  d.committed = cur;
+  // Форсируем вычисление стартового стиля: на ПЕРВОМ открытии элемент
+  // только что создан, и если повесить is-open до первого расчёта,
+  // height-переход не проиграется — пилюля распахнётся скачком.
+  void d.el.offsetWidth;
+  d.el.classList.add('is-open');
+  // поле спрятано ПОД барабаном (тот же place/size) — не мерцает по краям
+  DOM.bpmInput.style.visibility = 'hidden';
+  bpmDrumOpen = true;
+  DOM.bpmInput.classList.add('is-spinning');
+  DOM.bpmInput.blur(); // каретка и мобильная клавиатура не нужны
+  bpmDrumRenderFrame();
+  bpmDrumTouchIdle();
+  document.addEventListener('pointerdown', bpmDrumOnDocPointerDown, true);
+  document.addEventListener('keydown', bpmDrumOnKey, true);
+  window.addEventListener('resize', closeBpmDrum);
+}
+
+function closeBpmDrum() {
+  if (!bpmDrumOpen) return;
+  bpmDrumStopLoop();
+  clearTimeout(bpmDrum.commitTimer);
+  clearTimeout(bpmDrumIdleTimer);
+  bpmDrum.el.classList.remove('is-open');
+  DOM.bpmInput.style.visibility = '';
+  bpmDrumOpen = false;
+  DOM.bpmInput.classList.remove('is-spinning');
+  document.removeEventListener('pointerdown', bpmDrumOnDocPointerDown, true);
+  document.removeEventListener('keydown', bpmDrumOnKey, true);
+  window.removeEventListener('resize', closeBpmDrum);
+  // флаш: тяжёлое применение (лента/рестарт) — только если значение менялось
+  if (parseInt(DOM.bpmInput.value, 10) !== bpmDrum.committed) applyBpmChange();
+}
+
+function bpmDrumOnDocPointerDown(e) {
+  if (!bpmDrumOpen) return;
+  if (bpmDrum.el.contains(e.target)) return;
+  // Включая клик по самому полю BPM: барабан закрывается, а клик
+  // продолжает жить как обычный фокус для ручного ввода.
+  closeBpmDrum();
+}
+
+function bpmDrumOnKey(e) {
+  if (!bpmDrumOpen) return;
+  const cur = Math.round(bpmDrumCenterValue());
+  if (e.key === 'Escape') {
+    e.preventDefault();
+    e.stopPropagation();
+    closeBpmDrum();
+    return;
+  }
+  if (e.key === 'ArrowUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur + 1); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur - 1); return; }
+  if (e.key === 'PageUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur + 10); return; }
+  if (e.key === 'PageDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur - 10); return; }
+  if (e.key === 'Home') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(CONFIG.MIN_BPM); return; }
+  if (e.key === 'End') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(CONFIG.MAX_BPM); return; }
+  if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
+    // цифра = «хочу ввести точное значение»: закрываем барабан и
+    // продолжаем ввод прямо в поле с этой цифры
+    e.preventDefault();
+    e.stopPropagation();
+    closeBpmDrum();
+    DOM.bpmInput.focus();
+    DOM.bpmInput.value = e.key;
+    return;
+  }
+  if (e.key === 'Tab') closeBpmDrum();
+}
+
+function wireBpmDrumEvents() {
+  const d = bpmDrum;
+  const cyl = d.cyl;
+  let startY = 0;
+  let startOffset = 0;
+  cyl.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0) return;
+    e.preventDefault();
+    try { cyl.setPointerCapture(e.pointerId); } catch (err) {}
+    // физический драг: idle не должен закрыть барабан под пальцем
+    clearTimeout(bpmDrumIdleTimer);
+    d.dragging = true;
+    d.vel = 0;
+    d.snapTo = null;
+    startY = e.clientY;
+    startOffset = d.offset;
+    d.dragRaw = d.offset;
+    d.samples = [{ t: performance.now(), off: d.offset }];
+    cyl.classList.add('is-dragging');
+    bpmDrumKick();
+  });
+  cyl.addEventListener('pointermove', (e) => {
+    if (!d.dragging) return;
+    // вверх = большее BPM: лента едет вниз, смещение растёт
+    d.dragRaw = startOffset + (startY - e.clientY);
+    d.samples.push({ t: performance.now(), off: d.dragRaw });
+    if (d.samples.length > 8) d.samples.shift();
+  });
+  const endDrag = (e) => {
+    if (!d.dragging) return;
+    d.dragging = false;
+    cyl.classList.remove('is-dragging');
+    try { cyl.releasePointerCapture(e.pointerId); } catch (err) {}
+    bpmDrumTouchIdle();
+    // скорость по сэмплам последних ~90мс: идём от свежего назад, пока
+    // укладываемся в окно. Если окно пустое (палец подержали на месте) —
+    // проба нулевая: свежайший сэмпл и есть текущее положение.
+    const now = performance.now();
+    let s0 = d.samples[d.samples.length - 1];
+    for (let i = d.samples.length - 1; i >= 0; i--) {
+      if (now - d.samples[i].t <= 90) s0 = d.samples[i];
+      else break;
+    }
+    const dt = now - s0.t;
+    const v = dt > 0 ? (d.dragRaw - s0.off) / dt : 0;
+    const desnapped = d.dragRaw; // сырой офсет (без резинки)
+    d.offset = bpmDrumRubber(desnapped);
+    const min = bpmDrumMinOffset();
+    const max = bpmDrumMaxOffset();
+    if (desnapped < min || desnapped > max) {
+      // тянули за край: без инерции, пружина обратно к краю
+      d.vel = 0;
+      d.snapFrom = d.offset;
+      d.snapTo = bpmDrumRestOffset(Math.max(CONFIG.MIN_BPM,
+        Math.min(CONFIG.MAX_BPM, Math.round(bpmDrumCenterValue()))));
+      d.snapStart = performance.now();
+      d.snapDur = 260;
+      d.raf = requestAnimationFrame(bpmDrumLoop);
+    } else if (Math.abs(v) > 0.18) {
+      d.vel = Math.max(-3.2, Math.min(3.2, v));
+      d.lastT = 0;
+      d.snapTo = null;
+      d.raf = requestAnimationFrame(bpmDrumLoop);
+    } else {
+      d.vel = 0;
+      d.snapTo = null;
+      d.raf = requestAnimationFrame(bpmDrumLoop);
+    }
+  };
+  cyl.addEventListener('pointerup', endDrag);
+  cyl.addEventListener('pointercancel', endDrag);
+  cyl.addEventListener('wheel', (e) => {
+    e.preventDefault();
+    const step = e.shiftKey ? 5 : 1;
+    // направление и шаг — как у колеса над полем (см. комментарий там)
+    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
+    bpmDrumTouchIdle();
+  }, { passive: false });
+}
+
+// Клик по полю барабан НЕ открывает (0.131): барабан — фидбек колесного
+// редактирования. Протяжка по полю (bpmDrag выше) остаётся быстрым шагом
+// без барабана; клик после реального движения глотаем, чтобы не ставить
+// каретку в поле сразу после протяжки.
+DOM.bpmInput.addEventListener('click', () => {
+  bpmDrumSuppressClick = false;
 });
 DOM.globalTimeSig.value = '4/4';
 globalTimeSig = '4/4';
@@ -31965,5 +32835,102 @@ toggleTimeAndBeats();
     <div class="scheme-popover" id="schemePopover" aria-hidden="true">
       <div class="scheme-popover-list" id="schemePopoverList" role="listbox" aria-label="Быстрый выбор цветовой схемы"></div>
     </div>
+<script>
+/* ===== B-31 DEBUG — временный диагност, удалить после приёмки =====
+   Включается ТОЛЬКО параметром ?b31debug=1 (без него код самовыключается).
+   Задача: пользователь делает ресайз правого края квадрата; в момент
+   pointerup (ДО коммита) снимаем слепок ряда секции, через 900мс (ПОСЛЕ
+   коммита и всех анимаций) — второй слепок, печатаем построчный diff
+   в панель внизу справа и копируем в буфер. Отчёт текстом можно вставить
+   в чат — это заменяет скриншоты, которые до песочницы не долетают. */
+(function () {
+  if (!/[?&]b31debug=1/.test(location.search)) return;
+  var pending = null;
+  document.addEventListener('pointerdown', function (e) {
+    var h = e.target && e.target.closest && e.target.closest('.square-resize-handle');
+    if (!h) return;
+    var sq = h.closest('.square');
+    pending = {
+      card: sq && sq.closest('.section-card'),
+      victim: sq && sq.dataset.square,
+      t: Date.now(),
+    };
+  }, true);
+  function snap(card, victim) {
+    var rows = [];
+    card.querySelectorAll('.squares-list > .square').forEach(function (el) {
+      var bi = el.querySelector('.square-inner');
+      if (!bi) return;
+      var r = bi.getBoundingClientRect();
+      rows.push({
+        id: el.dataset.square + (el.dataset.square === victim ? '*' : ''),
+        styleW: bi.style.width,
+        px: Math.round(r.width),
+        badge: (el.querySelector('.square-beats-badge') || {}).textContent || '',
+        controlsRight: bi.nextElementSibling ? bi.nextElementSibling.style.right : '',
+        classes: bi.className,
+        grid: (bi.style.gridTemplateColumns || '').slice(0, 48),
+        cells: bi.querySelectorAll(':scope > .chord-wrapper').length,
+        previews: bi.querySelectorAll('.event-strum-preview.has-pattern').length,
+        counts: bi.querySelector('.chord-counts') ? bi.querySelector('.chord-counts').innerHTML.length : -1,
+        ticks: bi.querySelector('.chord-ticks') ? bi.querySelector('.chord-ticks').style.cssText.length : -1,
+      });
+    });
+    var repeatRow = card.querySelector('.section-repeat-row');
+    return {
+      rows: rows,
+      repeatW: repeatRow ? repeatRow.style.width : '',
+      headerBadges: (card.querySelector('.section-mod-badges') || {}).innerHTML.length || 0,
+    };
+  }
+  function diff(a, b) {
+    var out = [];
+    var keys = ['styleW', 'px', 'badge', 'controlsRight', 'classes', 'grid', 'cells', 'previews', 'counts', 'ticks'];
+    if (a.repeatW !== b.repeatW) out.push('repeat-row: ' + a.repeatW + ' -> ' + b.repeatW);
+    if (a.headerBadges !== b.headerBadges) out.push('header-badges: ' + a.headerBadges + ' -> ' + b.headerBadges);
+    var mapB = {};
+    b.rows.forEach(function (r) { mapB[r.id.replace('*', '')] = r; });
+    a.rows.forEach(function (ra) {
+      var rb = mapB[ra.id.replace('*', '')];
+      if (!rb) { out.push('квадрат ' + ra.id + ': исчез в финале'); return; }
+      keys.forEach(function (k) {
+        if (String(ra[k]) !== String(rb[k])) {
+          out.push('квадрат ' + ra.id + ' ' + k + ': «' + ra[k] + '» -> «' + rb[k] + '»');
+        }
+      });
+    });
+    Object.keys(mapB).forEach(function (id) {
+      if (!a.rows.some(function (r) { return r.id.replace('*', '') === id; })) {
+        out.push('квадрат ' + id + ': появился только в финале');
+      }
+    });
+    return out;
+  }
+  document.addEventListener('pointerup', function () {
+    if (!pending || !pending.card) { pending = null; return; }
+    var card = pending.card, victim = pending.victim;
+    var held = snap(card, victim);
+    pending = null;
+    setTimeout(function () {
+      var fin = snap(card, victim);
+      var env = 'UA=' + navigator.userAgent.slice(0, 60)
+        + ' zoom=' + (typeof squareZoom !== 'undefined' ? squareZoom : '?')
+        + ' viewport=' + innerWidth + 'x' + innerHeight
+        + ' theme=' + (document.body.dataset.theme || document.documentElement.dataset.theme || 'default')
+        + ' ver=' + ((document.querySelector('.app-title span') || {}).textContent || '?');
+      var lines = ['=== B-31 DIFF (кадр2 до отпускания -> кадр3 после) ===', env];
+      var d = diff(held, fin);
+      lines.push(d.length ? d.join('\n') : 'РАЗЛИЧИЙ НЕТ: кадр 2 == кадр 3');
+      var text = lines.join('\n');
+      console.log(text);
+      var pre = document.createElement('pre');
+      pre.textContent = text;
+      pre.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:99999;max-width:420px;max-height:45vh;overflow:auto;margin:0;padding:10px;background:#1e1e22;color:#e8e8e8;font:11px/1.45 monospace;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.4);white-space:pre-wrap';
+      document.body.appendChild(pre);
+      if (navigator.clipboard) navigator.clipboard.writeText(text).catch(function () {});
+    }, 900);
+  }, true);
+})();
+</script>
 </body>
 </html>
