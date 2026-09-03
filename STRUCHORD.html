@@ -3174,7 +3174,7 @@ body {
   opacity: 0;
   visibility: hidden;
   user-select: none;
-  transition: height 0.18s cubic-bezier(0.2, 0.75, 0.18, 1), opacity 0.12s ease;
+  transition: height 0.24s cubic-bezier(0.2, 0.75, 0.18, 1), opacity 0.18s ease-out;
 }
 .bpm-inline-drum.is-open {
   height: 118px; /* 3 строки × 38px */
@@ -8732,7 +8732,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.137</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.138</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31361,7 +31361,7 @@ DOM.bpmInput.addEventListener(
     // а после паузы в редактировании барабан сам закрывается. Клик по
     // полю барабан больше не открывает — это обычный ввод цифр.
     if (!bpmDrumOpen) openBpmDrum();
-    bpmDrumNudge(e.deltaY > 0 ? step : -step);
+    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
     bpmDrumTouchIdle();
   },
   { passive: false }
@@ -31597,7 +31597,6 @@ function bpmDrumLoop(t) {
   } else {
     d.offset = d.snapTo;
     d.snapTo = null;
-    d.targetValue = null;
     d.raf = 0;
   }
 }
@@ -31612,28 +31611,12 @@ function bpmDrumKick() {
 function bpmDrumAnimateToValue(v) {
   const d = bpmDrum;
   const target = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, v));
-  d.targetValue = target;
   d.vel = 0;
   d.snapFrom = d.offset;
   d.snapTo = bpmDrumRestOffset(target);
-  // Длительность растёт с дистанцией: одиночный тик — быстрый щелчок,
-  // серия тиков (аккумулятор ниже) — разгон ленты вдогонку убегающей
-  // цели, а не телепорт.
-  d.snapDur = Math.max(120, Math.min(380, 90 + Math.abs(d.snapTo - d.snapFrom) * 1.05));
+  d.snapDur = 130;
   d.snapStart = performance.now();
   bpmDrumKick();
-}
-
-// Шаг от НАКОПЛЕННОЙ цели, а не от текущего положения ленты. Фидбек
-// 0.131: «крутишь быстро — крутится медленно» — каждый тик перезапускал
-// анимацию «отсюда +1 за 130мс»; при тиках чаще ~7/с лента не успевала
-// отъезжать и ползла со скоростью одного шага независимо от колеса.
-// Теперь быстрые тики копятся в d.targetValue — дистанция (и скорость)
-// растут, пока лента догоняет.
-function bpmDrumNudge(dir) {
-  const d = bpmDrum;
-  const cur = d.targetValue != null ? d.targetValue : Math.round(bpmDrumCenterValue());
-  bpmDrumAnimateToValue(cur + dir);
 }
 
 function openBpmDrum() {
@@ -31642,9 +31625,12 @@ function openBpmDrum() {
   d.offset = bpmDrumRestOffset(Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, cur)));
   d.vel = 0;
   d.snapTo = null;
-  d.targetValue = null;
   d.lastValue = cur;
   d.committed = cur;
+  // Форсируем вычисление стартового стиля: на ПЕРВОМ открытии элемент
+  // только что создан, и если повесить is-open до первого расчёта,
+  // height-переход не проиграется — пилюля распахнётся скачком.
+  void d.el.offsetWidth;
   d.el.classList.add('is-open');
   // поле спрятано ПОД барабаном (тот же place/size) — не мерцает по краям
   DOM.bpmInput.style.visibility = 'hidden';
@@ -31691,10 +31677,10 @@ function bpmDrumOnKey(e) {
     closeBpmDrum();
     return;
   }
-  if (e.key === 'ArrowUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumNudge(1); return; }
-  if (e.key === 'ArrowDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumNudge(-1); return; }
-  if (e.key === 'PageUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumNudge(10); return; }
-  if (e.key === 'PageDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumNudge(-10); return; }
+  if (e.key === 'ArrowUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur + 1); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur - 1); return; }
+  if (e.key === 'PageUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur + 10); return; }
+  if (e.key === 'PageDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur - 10); return; }
   if (e.key === 'Home') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(CONFIG.MIN_BPM); return; }
   if (e.key === 'End') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(CONFIG.MAX_BPM); return; }
   if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
@@ -31721,7 +31707,6 @@ function wireBpmDrumEvents() {
     try { cyl.setPointerCapture(e.pointerId); } catch (err) {}
     // физический драг: idle не должен закрыть барабан под пальцем
     clearTimeout(bpmDrumIdleTimer);
-    d.targetValue = null; // палец перехватил управление у аккумулятора
     d.dragging = true;
     d.vel = 0;
     d.snapTo = null;
@@ -31785,8 +31770,8 @@ function wireBpmDrumEvents() {
   cyl.addEventListener('wheel', (e) => {
     e.preventDefault();
     const step = e.shiftKey ? 5 : 1;
-    // направление и аккумулятор — как у колеса над полем (см. там)
-    bpmDrumNudge(e.deltaY > 0 ? step : -step);
+    // направление и шаг — как у колеса над полем (см. комментарий там)
+    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
     bpmDrumTouchIdle();
   }, { passive: false });
 }
