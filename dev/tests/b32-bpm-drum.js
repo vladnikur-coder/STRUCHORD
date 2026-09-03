@@ -29,18 +29,19 @@ w.addEventListener('load', async () => {
   const pup = (el, y) => el.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true, clientY: y, clientX: 50 }));
   const key = (k) => d.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
   const wheelField = (dy) => input.dispatchEvent(new w.WheelEvent('wheel', { deltaY: dy, cancelable: true, bubbles: true }));
-  const pop = () => d.querySelector('.bpm-drum-popover');
+  const pop = () => d.querySelector('.bpm-inline-drum');
+const isOpen = () => { const q = pop(); return !!q && q.classList.contains('is-open'); };
 
   console.log('=== 1. Клик барабан не открывает ===');
   ok('исходное значение 120', input.value === '120', input.value);
   click(input);
-  ok('после клика барабана нет', !pop() || pop().hidden);
+  ok('после клика барабана нет', !pop() || !isOpen());
 
   console.log('=== 2. Колесо: вниз = темп вверх, лента вверх ===');
   wheelField(100); // колесо к себе — темп ВВЕРХ
   await sleep(80);
   const p1 = pop();
-  ok('барабан открыт', !!p1 && !p1.hidden);
+  ok('барабан открыт', !!p1 && p1.classList.contains('is-open'));
   ok('центральная строка — 121', p1.querySelector('.bpm-drum-row.is-center').textContent === '121',
      p1.querySelector('.bpm-drum-row.is-center').textContent);
   ok('поле показывает 121', input.value === '121', input.value);
@@ -68,7 +69,7 @@ w.addEventListener('load', async () => {
 
   console.log('=== 5. Цифра — уходим в поле ===');
   key('4');
-  ok('барабан закрылся', pop().hidden);
+  ok('барабан закрылся', !isOpen());
   ok('фокус в поле', d.activeElement === input);
   ok('в поле начат ввод: 4', input.value === '4', input.value);
 
@@ -76,27 +77,27 @@ w.addEventListener('load', async () => {
   input.value = '120';
   wheelField(100);
   await sleep(80);
-  ok('открыт колесом', !pop().hidden);
+  ok('открыт колесом', isOpen());
   await sleep(1500);
-  ok('закрылся сам', pop().hidden);
+  ok('закрылся сам', !isOpen());
   ok('значение применено (121)', input.value === '121', input.value);
 
   console.log('=== 7. Резинка на краях + пружина ===');
   wheelField(100);
   await sleep(80);
-  const cyl = pop().querySelector('.bpm-drum-cylinder');
+  const cyl = pop();
   pdown(cyl, 300);
   await sleep(120);
   pmove(cyl, 3400); // сильно за минимум
   const centerDuringDrag = w.eval('Math.round(bpmDrumCenterValue())');
   ok('во время резинки центр не ниже 40', centerDuringDrag >= 40, String(centerDuringDrag));
   await sleep(400);
-  ok('держим: барабан не закрылся', !pop().hidden);
+  ok('держим: барабан не закрылся', isOpen());
   pup(cyl, 3400);
   await sleep(450);
   ok('после отпускания — пружина к 40', input.value === '40', input.value);
   await sleep(1500);
-  ok('после тишины закрылся', pop().hidden);
+  ok('после тишины закрылся', !isOpen());
 
   console.log('=== 8. Протяжка по полю — без барабана ===');
   input.value = '120';
@@ -107,16 +108,16 @@ w.addEventListener('load', async () => {
   pup(w, 194);
   await sleep(300);
   ok('протяжка дала 121', input.value === '121', input.value);
-  ok('барабан при протяжке не открывался', pop().hidden || !pop());
+  ok('барабан при протяжке не открывался', !isOpen());
 
   console.log('=== 9. Клик вне — немедленное закрытие ===');
   wheelField(100); // 122
   await sleep(80);
-  ok('открыт', !pop().hidden);
+  ok('открыт', isOpen());
   key('ArrowUp'); // 123
   await sleep(200);
   d.body.dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true }));
-  ok('клик вне закрыл', pop().hidden);
+  ok('клик вне закрыл', !isOpen());
   ok('значение применено (123)', input.value === '123', input.value);
 
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');

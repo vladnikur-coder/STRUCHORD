@@ -3147,33 +3147,41 @@ body {
 .bpm-input.is-spinning {
   border-color: var(--color-brand);
 }
-/* ---------- B-32: барабан BPM (поповер «как будильник iPhone») ---------- */
-/* Клик по полю открывает вертикальный барабан: лента чисел на цилиндре,
-   флик крутит с инерцией, остановка — магнитный снап на целом BPM,
-   края 40..300 — резинка. Колесо по закрытому полю остаётся ±1/±5. */
-.bpm-drum-popover {
+/* ---------- B-32: барабан BPM — инлайн на месте поля (0.137) ---------- */
+/* Дизайн пользователя: НЕ отдельная рамка — барабан раскрывается на
+   месте самой пилюли BPM. Тот же фон/бордер/скругление, что у поля:
+   пилюля просто «вырастает» вниз на 3 строки, числа крутятся внутри.
+   Позиционирование абсолютное от обёртки поля — панель транспорта не
+   меняет высоту, барабан едет вместе с липнущей панелью при скролле. */
+.bpm-inline-wrap {
+  position: relative;
+  display: inline-block;
+}
+.bpm-inline-drum {
   position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%; /* сложено — ровно высота поля */
   z-index: 20000;
-  width: 148px;
-  padding: 8px 0 6px;
+  overflow: hidden;
   background: var(--color-surface);
   border: 1px solid var(--color-border-medium);
-  border-radius: 16px;
-  box-shadow: 0 16px 40px rgba(0, 0, 0, 0.24), 0 3px 10px rgba(0, 0, 0, 0.14);
-  user-select: none;
-}
-.bpm-drum-popover[hidden] {
-  display: none;
-}
-.bpm-drum-cylinder {
-  position: relative;
-  height: 190px; /* 5 строк × 38px */
-  overflow: hidden;
+  border-radius: var(--border-radius-pill);
   perspective: 900px;
   touch-action: none;
   cursor: grab;
+  opacity: 0;
+  visibility: hidden;
+  user-select: none;
+  transition: height 0.18s cubic-bezier(0.2, 0.75, 0.18, 1), opacity 0.12s ease;
 }
-.bpm-drum-cylinder.is-dragging {
+.bpm-inline-drum.is-open {
+  height: 118px; /* 3 строки × 38px */
+  opacity: 1;
+  visibility: visible;
+}
+.bpm-inline-drum.is-dragging {
   cursor: grabbing;
 }
 .bpm-drum-strip {
@@ -3197,7 +3205,7 @@ body {
   position: absolute;
   left: 0;
   right: 0;
-  height: 44px;
+  height: 30px;
   pointer-events: none;
   z-index: 2;
 }
@@ -8724,7 +8732,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.136</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.137</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31404,7 +31412,7 @@ window.addEventListener('pointerup', () => {
 // закрыть. Пока лента крутится, поле показывает живое целое значение,
 // тяжёлый applyBpmChange дебаунсится (260мс) и флашится на закрытии.
 const BPM_DRUM_ROW = 38;
-const BPM_DRUM_VISIBLE = 5;
+const BPM_DRUM_VISIBLE = 3;
 // центрирующий отступ: окно 5×38, ряд занимает середину, а не верх —
 // покой для значения V это (V−MIN)×ROW − PAD
 const BPM_DRUM_PAD = ((BPM_DRUM_VISIBLE - 1) / 2) * BPM_DRUM_ROW;
@@ -31446,16 +31454,22 @@ function bpmDrumRubber(raw) {
 
 function buildBpmDrum() {
   if (bpmDrum) return bpmDrum;
+  // Обёртка вокруг поля: барабан растёт из САМОЙ пилюли BPM на её
+  // месте (не отдельный поповер) — 0.137.
+  let wrap = DOM.bpmInput.closest('.bpm-inline-wrap');
+  if (!wrap) {
+    wrap = document.createElement('span');
+    wrap.className = 'bpm-inline-wrap';
+    DOM.bpmInput.parentNode.insertBefore(wrap, DOM.bpmInput);
+    wrap.appendChild(DOM.bpmInput);
+  }
   const el = document.createElement('div');
-  el.className = 'bpm-drum-popover';
-  el.hidden = true;
+  el.className = 'bpm-inline-drum';
   el.innerHTML =
-    '<div class="bpm-drum-cylinder">' +
     '<div class="bpm-drum-strip"></div>' +
     '<div class="bpm-drum-fade bpm-drum-fade--top"></div>' +
     '<div class="bpm-drum-fade bpm-drum-fade--bottom"></div>' +
-    '<div class="bpm-drum-frame"></div>' +
-    '</div>';
+    '<div class="bpm-drum-frame"></div>';
   const strip = el.querySelector('.bpm-drum-strip');
   const rows = [];
   for (let v = CONFIG.MIN_BPM; v <= CONFIG.MAX_BPM; v++) {
@@ -31465,8 +31479,9 @@ function buildBpmDrum() {
     strip.appendChild(r);
     rows.push(r);
   }
-  document.body.appendChild(el);
-  const cyl = el.querySelector('.bpm-drum-cylinder');
+  wrap.appendChild(el);
+  // сам барабан и есть цилиндр (события вешаются на него)
+  const cyl = el;
   bpmDrum = {
     el, cyl, strip, rows,
     offset: 0,          // px: (значение − MIN) × ROW в покое
@@ -31481,14 +31496,6 @@ function buildBpmDrum() {
   };
   wireBpmDrumEvents();
   return bpmDrum;
-}
-
-function bpmDrumPlace() {
-  const r = DOM.bpmInput.getBoundingClientRect();
-  const w = bpmDrum.el.offsetWidth || 148;
-  const left = Math.max(8, Math.min(window.innerWidth - w - 8, r.left));
-  bpmDrum.el.style.left = left + 'px';
-  bpmDrum.el.style.top = r.bottom + 8 + 'px';
 }
 
 function bpmDrumCenterValue() {
@@ -31638,8 +31645,9 @@ function openBpmDrum() {
   d.targetValue = null;
   d.lastValue = cur;
   d.committed = cur;
-  bpmDrumPlace();
-  d.el.hidden = false;
+  d.el.classList.add('is-open');
+  // поле спрятано ПОД барабаном (тот же place/size) — не мерцает по краям
+  DOM.bpmInput.style.visibility = 'hidden';
   bpmDrumOpen = true;
   DOM.bpmInput.classList.add('is-spinning');
   DOM.bpmInput.blur(); // каретка и мобильная клавиатура не нужны
@@ -31648,7 +31656,6 @@ function openBpmDrum() {
   document.addEventListener('pointerdown', bpmDrumOnDocPointerDown, true);
   document.addEventListener('keydown', bpmDrumOnKey, true);
   window.addEventListener('resize', closeBpmDrum);
-  window.addEventListener('scroll', bpmDrumOnScroll, { passive: true, capture: true });
 }
 
 function closeBpmDrum() {
@@ -31656,19 +31663,15 @@ function closeBpmDrum() {
   bpmDrumStopLoop();
   clearTimeout(bpmDrum.commitTimer);
   clearTimeout(bpmDrumIdleTimer);
-  bpmDrum.el.hidden = true;
+  bpmDrum.el.classList.remove('is-open');
+  DOM.bpmInput.style.visibility = '';
   bpmDrumOpen = false;
   DOM.bpmInput.classList.remove('is-spinning');
   document.removeEventListener('pointerdown', bpmDrumOnDocPointerDown, true);
   document.removeEventListener('keydown', bpmDrumOnKey, true);
   window.removeEventListener('resize', closeBpmDrum);
-  window.removeEventListener('scroll', bpmDrumOnScroll, { passive: true, capture: true });
   // флаш: тяжёлое применение (лента/рестарт) — только если значение менялось
   if (parseInt(DOM.bpmInput.value, 10) !== bpmDrum.committed) applyBpmChange();
-}
-
-function bpmDrumOnScroll() {
-  if (bpmDrumOpen) bpmDrumPlace();
 }
 
 function bpmDrumOnDocPointerDown(e) {
