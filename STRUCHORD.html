@@ -8772,7 +8772,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.145</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.144</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14401,14 +14401,11 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
   }
   // --------------------------------------------------
 
-  // Аппликатура закреплена в панели — всплывающий тултип не нужен
-  // ВО ВРЕМЯ ИГРЫ: рядом с ведомым закреплённым грифом он мельтешил бы
-  // (исходная причина запрета). В покое ховер при закреплении РАБОТАЕТ
-  // (0.145, заметка пользователя: «аппликатуры не обновляются при
-  // наведении мыши»): панель сверху, ячейки ниже — не пересекаются, а
-  // «быстро глянуть другую форму» — законное желание. Наведение в покое
-  // и раньше доходило сюда только с isPlaying === false.
-  if (isFingeringPinned() && playbackState.isPlaying) {
+  // Аппликатура закреплена в панели — всплывающий тултип не нужен.
+  // Иначе при каждом наведении рядом с закреплённым грифом всплывал бы
+  // второй, и получилось бы то же мельтешение, от которого мы уходили
+  // в анимации ритма.
+  if (isFingeringPinned()) {
     hideFingeringTooltip(isPreview);
     return;
   }
@@ -19587,30 +19584,6 @@ function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount) {
     event: sq.events[ei],
   };
 }
-// B-34 (0.145): следующий АККОРД от заданной позиции — пустые ячейки
-// пропускаются. Нужно превью «заглядывания вперёд»: в покое
-// findNextChordAfter пустые пропускает, а во время игры превью брало
-// голое findNextEvent и ГАСЛО, стоило за текущим встать пустой ячейке —
-// закреплённый ряд и всплывающее превью рассинхронизировались с покоем
-// (заметка пользователя 2026-09-03: «система рассинхронизирована при
-// воспроизведении»). Счётчики повторов — КОПИИ, как у превью: функция
-// не имеет права трогать реальное состояние воспроизведения.
-function findNextChordEventFrom(si, sqi, ei) {
-  const secCopies = { ...(playbackState._sectionRepeatCount || {}) };
-  const sqCopies = { ...(playbackState._squareRepeatCount || {}) };
-  let cur = findNextEvent(si, sqi, ei, secCopies, sqCopies);
-  let guard = 0;
-  while (
-    cur &&
-    !(cur.event && typeof cur.event.chord === 'string' && cur.event.chord.trim()) &&
-    guard++ < 512
-  ) {
-    cur = findNextEvent(cur.sectionIndex, cur.squareIndex, cur.eventIndex + 1, secCopies, sqCopies);
-  }
-  if (cur && cur.event && typeof cur.event.chord === 'string' && cur.event.chord.trim()) return cur;
-  return null;
-}
-
 function tapTempo() {
   const now = Date.now();
   clearTimeout(tapTimeout);
@@ -19823,47 +19796,29 @@ function scheduleNextEvent(ctx) {
   // Превью следующего аккорда — это "заглядывание вперёд", а не
   // реальный переход, поэтому считаем его на КОПИИ счётчиков повторов,
   // чтобы не сбивать реальное состояние воспроизведения.
-  // B-34 (0.145): идём до ближайшего АККОРДА (пустые пропускаем) —
-  // раньше, если следующим событием была пустая ячейка, превью гасло,
-  // хотя в покое соседний аккорд показывался. Хелпер сам копирует
-  // счётчики; guard внутри защищает от циклов на повторе-лупе.
-  const previewEvent = findNextChordEventFrom(
+  const previewEvent = findNextEvent(
     next.sectionIndex,
     next.squareIndex,
-    next.eventIndex + 1
+    next.eventIndex + 1,
+    { ...playbackState._sectionRepeatCount },
+    { ...playbackState._squareRepeatCount }
   );
 
   // Закреплённый гриф ведём за игрой: слева аккорд, который звучит
   // сейчас, справа — следующий. Стоит ЗДЕСЬ, а не выше у показа
   // тултипа: «следующий» считает findNextEvent, и до этой строки он
   // ещё не известен.
-  if (isFingeringPinned()) {
-    if (next.event.chord && next.event.chord.trim()) {
-      const nextPos = previewEvent && previewEvent.event.chord && previewEvent.event.chord.trim()
-        ? {
-            secId: previewEvent.section.id,
-            squareId: previewEvent.square.id,
-            eventIndex: previewEvent.eventIndex,
-            chord: previewEvent.event.chord.trim(),
-          }
-        : null;
-      syncPinnedFingeringWithPlayback(
-        next.event.chord.trim(), next.section.id, next.square.id, next.eventIndex, nextPos);
-    } else {
-      // B-34 (0.145): звучит ПУСТАЯ ячейка. Гриф держит последнее
-      // звучавшее (в начале песни — исходно закреплённый), а превью
-      // обязано вести ближайший следующий АККОРД: раньше sync не
-      // вызывался вовсе, и весь ряд замирал на прошлом состоянии, пока
-      // пустые не кончатся — тот самый «рассинхрон при воспроизведении».
-      renderPinnedNext(previewEvent
-        ? {
-            secId: previewEvent.section.id,
-            squareId: previewEvent.square.id,
-            eventIndex: previewEvent.eventIndex,
-            chord: previewEvent.event.chord.trim(),
-          }
-        : null);
-    }
+  if (isFingeringPinned() && next.event.chord && next.event.chord.trim()) {
+    const nextPos = previewEvent && previewEvent.event.chord && previewEvent.event.chord.trim()
+      ? {
+          secId: previewEvent.section.id,
+          squareId: previewEvent.square.id,
+          eventIndex: previewEvent.eventIndex,
+          chord: previewEvent.event.chord.trim(),
+        }
+      : null;
+    syncPinnedFingeringWithPlayback(
+      next.event.chord.trim(), next.section.id, next.square.id, next.eventIndex, nextPos);
   }
 
   if (previewEvent && previewEvent.event.chord && previewEvent.event.chord.trim() !== '') {
