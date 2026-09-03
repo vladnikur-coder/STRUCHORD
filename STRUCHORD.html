@@ -8731,7 +8731,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.130</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.131</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9000,7 +9000,7 @@ body.is-timeline.is-playing .timeline-playhead {
           step="1"
           min="40"
           max="300"
-          title="Темп. Клик — барабан; колесо ±1, с Shift ±5; можно тянуть вверх/вниз"
+          title="Темп. Колесо — барабан: ±1, с Shift ±5; клик — ручной ввод; можно тянуть вверх/вниз"
         />
         <div class="playback-position" id="playbackPos">—</div>
         <button
@@ -31349,7 +31349,16 @@ DOM.bpmInput.addEventListener(
     // Shift — крупный шаг: с 60 до 180 иначе пришлось бы крутить 120 раз.
     const step = e.shiftKey ? 5 : 1;
     // deltaY < 0 — колесо от себя, темп вверх.
-    bumpBpm(e.deltaY < 0 ? step : -step);
+    //
+    // B-32 / 0.131 (фидбек пользователя: «ритм можно редактировать без
+    // открытия барабана колесиком — в вылетающем по клику барабане нет
+    // смысла; пусть барабан появляется именно при таком редактировании»):
+    // колесо ОТКРЫВАЕТ барабан и докручивает ленту до нового значения,
+    // а после паузы в редактировании барабан сам закрывается. Клик по
+    // полю барабан больше не открывает — это обычный ввод цифр.
+    if (!bpmDrumOpen) openBpmDrum();
+    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY < 0 ? step : -step));
+    bpmDrumTouchIdle();
   },
   { passive: false }
 );
@@ -31406,6 +31415,18 @@ const BPM_DRUM_PAD = ((BPM_DRUM_VISIBLE - 1) / 2) * BPM_DRUM_ROW;
 let bpmDrum = null;
 let bpmDrumOpen = false;
 let bpmDrumSuppressClick = false;
+let bpmDrumIdleTimer = 0;
+const BPM_DRUM_IDLE_MS = 1200;
+
+// Барабан — транзиентный фидбек редактирования колесом: пока крутят,
+// он живёт; 1.2с тишины — закрылся (с коммитом значения). Любое
+// взаимодействие (колесо, клавиши, отпускание драга) обновляет таймер.
+function bpmDrumTouchIdle() {
+  clearTimeout(bpmDrumIdleTimer);
+  bpmDrumIdleTimer = setTimeout(() => {
+    if (bpmDrumOpen && bpmDrum && !bpmDrum.dragging) closeBpmDrum();
+  }, BPM_DRUM_IDLE_MS);
+}
 
 function bpmDrumRestOffset(v) {
   return (v - CONFIG.MIN_BPM) * BPM_DRUM_ROW - BPM_DRUM_PAD;
@@ -31610,6 +31631,7 @@ function openBpmDrum() {
   DOM.bpmInput.classList.add('is-spinning');
   DOM.bpmInput.blur(); // каретка и мобильная клавиатура не нужны
   bpmDrumRenderFrame();
+  bpmDrumTouchIdle();
   document.addEventListener('pointerdown', bpmDrumOnDocPointerDown, true);
   document.addEventListener('keydown', bpmDrumOnKey, true);
   window.addEventListener('resize', closeBpmDrum);
@@ -31620,6 +31642,7 @@ function closeBpmDrum() {
   if (!bpmDrumOpen) return;
   bpmDrumStopLoop();
   clearTimeout(bpmDrum.commitTimer);
+  clearTimeout(bpmDrumIdleTimer);
   bpmDrum.el.hidden = true;
   bpmDrumOpen = false;
   DOM.bpmInput.classList.remove('is-spinning');
@@ -31638,7 +31661,8 @@ function bpmDrumOnScroll() {
 function bpmDrumOnDocPointerDown(e) {
   if (!bpmDrumOpen) return;
   if (bpmDrum.el.contains(e.target)) return;
-  if (e.target === DOM.bpmInput || DOM.bpmInput.contains(e.target)) return;
+  // Включая клик по самому полю BPM: барабан закрывается, а клик
+  // продолжает жить как обычный фокус для ручного ввода.
   closeBpmDrum();
 }
 
@@ -31651,12 +31675,12 @@ function bpmDrumOnKey(e) {
     closeBpmDrum();
     return;
   }
-  if (e.key === 'ArrowUp') { e.preventDefault(); bpmDrumAnimateToValue(cur + 1); return; }
-  if (e.key === 'ArrowDown') { e.preventDefault(); bpmDrumAnimateToValue(cur - 1); return; }
-  if (e.key === 'PageUp') { e.preventDefault(); bpmDrumAnimateToValue(cur + 10); return; }
-  if (e.key === 'PageDown') { e.preventDefault(); bpmDrumAnimateToValue(cur - 10); return; }
-  if (e.key === 'Home') { e.preventDefault(); bpmDrumAnimateToValue(CONFIG.MIN_BPM); return; }
-  if (e.key === 'End') { e.preventDefault(); bpmDrumAnimateToValue(CONFIG.MAX_BPM); return; }
+  if (e.key === 'ArrowUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur + 1); return; }
+  if (e.key === 'ArrowDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur - 1); return; }
+  if (e.key === 'PageUp') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur + 10); return; }
+  if (e.key === 'PageDown') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(cur - 10); return; }
+  if (e.key === 'Home') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(CONFIG.MIN_BPM); return; }
+  if (e.key === 'End') { e.preventDefault(); bpmDrumTouchIdle(); bpmDrumAnimateToValue(CONFIG.MAX_BPM); return; }
   if (/^[0-9]$/.test(e.key) && !e.ctrlKey && !e.metaKey && !e.altKey) {
     // цифра = «хочу ввести точное значение»: закрываем барабан и
     // продолжаем ввод прямо в поле с этой цифры
@@ -31679,6 +31703,8 @@ function wireBpmDrumEvents() {
     if (e.button !== 0) return;
     e.preventDefault();
     try { cyl.setPointerCapture(e.pointerId); } catch (err) {}
+    // физический драг: idle не должен закрыть барабан под пальцем
+    clearTimeout(bpmDrumIdleTimer);
     d.dragging = true;
     d.vel = 0;
     d.snapTo = null;
@@ -31701,6 +31727,7 @@ function wireBpmDrumEvents() {
     d.dragging = false;
     cyl.classList.remove('is-dragging');
     try { cyl.releasePointerCapture(e.pointerId); } catch (err) {}
+    bpmDrumTouchIdle();
     // скорость по сэмплам последних ~90мс: идём от свежего назад, пока
     // укладываемся в окно. Если окно пустое (палец подержали на месте) —
     // проба нулевая: свежайший сэмпл и есть текущее положение.
@@ -31742,18 +31769,16 @@ function wireBpmDrumEvents() {
     e.preventDefault();
     const step = e.shiftKey ? 5 : 1;
     bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY < 0 ? step : -step));
+    bpmDrumTouchIdle();
   }, { passive: false });
 }
 
-// Клик по полю открывает/закрывает барабан. Протяжка по полю (bpmDrag
-// выше) остаётся быстрым шагом: после реального движения клик глотаем.
+// Клик по полю барабан НЕ открывает (0.131): барабан — фидбек колесного
+// редактирования. Протяжка по полю (bpmDrag выше) остаётся быстрым шагом
+// без барабана; клик после реального движения глотаем, чтобы не ставить
+// каретку в поле сразу после протяжки.
 DOM.bpmInput.addEventListener('click', () => {
-  if (bpmDrumSuppressClick) {
-    bpmDrumSuppressClick = false;
-    return;
-  }
-  if (bpmDrumOpen) closeBpmDrum();
-  else openBpmDrum();
+  bpmDrumSuppressClick = false;
 });
 DOM.globalTimeSig.value = '4/4';
 globalTimeSig = '4/4';
