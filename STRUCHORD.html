@@ -8759,7 +8759,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.141</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.142</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9846,6 +9846,12 @@ function applySquareZoom(immediate) {
   // свободно выступают за правый край. Прокрутку включаем только когда
   // масштаб реально изменён.
   document.body.classList.toggle('is-zoomed', squareZoom > 1.001);
+  // B-34: ширина списков поменялась — ячейки переехали (рефлоу ряда).
+  // window resize при этом НЕ приходит (окно то же), а scroll — только
+  // если зум сдвинул scrollLeft (applyZoomAnchor); кэш ректов ячеек
+  // протухал после зума, и хиттест вооружения кнопок промахивался.
+  // Помечаем пересчёт — флаг, чтение ленивое, на жесте это бесплатно.
+  if (typeof invalidateChordWrapperRects === 'function') invalidateChordWrapperRects();
 
   // Подсечки шага: одна переменная на весь документ — плотность меток
   // внутри доли. Шаг 1/2 -> 2 деления, 1/4 -> 4. Перерисовки разметки не
@@ -14146,9 +14152,20 @@ function tooltipViewportMetrics() {
   // тултип к чужому левому краю раскладки — то, что пользователь видел
   // как «не в том месте» (пережило 0.113/0.122/0.124: в CDP-эмуляции
   // пинча innerWidth остаётся layout, на реальном жесте — нет).
-  // documentElement.clientWidth/Height всегда в layout-px — одно
-  // пространство с rect ячейки: позиция при зуме бит-в-бит равна
-  // позиции без зума; выход за видимую область принят пользователем.
+  //
+  // B-34 (репо-видео 2026-09-03): в Safari после трекпадного зума тултип
+  // прилетал к ЛЕВОМУ ВЕРХНЕМУ углу окна, обрезанный краем. Пробовался
+  // вариант «начало координат из бокса <html>» (гипотеза пункта «а»
+  // спеки B-34) — живой замер ОПРОВЕРГ его: у корневого элемента
+  // rect.top = −scrollY, на прокрученной странице visTop уезжает в
+  // минус, spaceTop раздувается на величину прокрутки, и тултип улетает
+  // за экран (замер пробы: top=−430 при якоре −140). Тултип
+  // position:fixed, его пространство — ЛАЯУТ-ВЬЮПОРТ с началом (0,0);
+  // getBoundingClientRect ячейки и clientWidth/Height корневого — из
+  // того же пространства ПО ПОСТРОЕНИЮ при любом виде зума. Настоящие
+  // причины «угла» — жёсткие клэмпы и финальный else (см.
+  // positionMainTooltip, B-34) и молчащие во время жеста события (см.
+  // attachTooltipZoomReposition, gesture*).
   const de = document.documentElement;
   return { visLeft: 0, visTop: 0, visW: de.clientWidth, visH: de.clientHeight };
 }
@@ -14210,8 +14227,13 @@ function positionMainTooltip(wrapper) {
     left = rect.right + margin;
     top = rect.top + rect.height / 2 - th / 2;
   } else {
-    left = visLeft + (visW - tw) / 2;
-    top = visTop + (visH - th) / 2;
+    // B-34: окно меньше тултипа со всех сторон. Раньше здесь был центр
+    // окна: вместе с клэмпами ниже это складывало тултип грудой у
+    // ЛЕВОГО ВЕРХНЕГО угла (репо-видео Safari: сильный зум, тултип
+    // выше/шире окна). Держим якорь — та же позиция, что была бы без
+    // зума (над ячейкой, по центру); выход за экран принят (0.124).
+    left = rect.left + rect.width / 2 - tw / 2;
+    top = rect.top - th - margin;
   }
 
   // Коррекция, чтобы тултип не выходил за границы окна.
@@ -14228,10 +14250,24 @@ function positionMainTooltip(wrapper) {
   // по высоте целиком, обрезается низ (там кнопка правки и переключатель
   // вариантов), а гриф с именем аккорда — то, ради чего тултип и
   // открывают, — остаётся на экране.
-  if (left < visLeft + margin) left = visLeft + margin;
-  if (left + tw > visLeft + visW - margin) left = visLeft + visW - tw - margin;
-  if (top + th > visTop + visH - margin) top = visTop + visH - th - margin;
-  if (top < visTop + margin) top = visTop + margin;
+  //
+  // B-34: клэмпы стали МЯГКИМИ. Когда окно меньше самого тултипа,
+  // прижатия складывали его в угол окна («обрезан краем, не над
+  // ячейкой»). По решению 0.124 («ничего страшного, если не будет
+  // помещаться на экране») в такой ситуации НЕ прижимаем вовсе:
+  // позиция остаётся якорной (над/под ячейкой), как без зума. При
+  // scale=1 тултип всегда меньше окна, обе проверки истинны —
+  // поведение бит-в-бит прежнее.
+  const fitsWindowW = tw + margin * 2 <= visW;
+  const fitsWindowH = th + margin * 2 <= visH;
+  if (fitsWindowW) {
+    if (left < visLeft + margin) left = visLeft + margin;
+    if (left + tw > visLeft + visW - margin) left = visLeft + visW - tw - margin;
+  }
+  if (fitsWindowH) {
+    if (top + th > visTop + visH - margin) top = visTop + visH - th - margin;
+    if (top < visTop + margin) top = visTop + margin;
+  }
 
   tooltipEl.style.left = left + 'px';
   tooltipEl.style.top = top + 'px';
@@ -14282,10 +14318,19 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
   // Коррекция. Прижатие к ВЕРХУ идёт последним — та же причина, что и в
   // positionMainTooltip: когда тултип выше окна, «прижать к низу» даёт
   // отрицательный top и срезает шапку с именем аккорда.
-  if (left < visLeft + margin) left = visLeft + margin;
-  if (left + pw > ww - margin) left = ww - pw - margin;
-  if (top + ph > wh - margin) top = wh - ph - margin;
-  if (top < visTop + margin) top = visTop + margin;
+  // B-34: клэмпы мягкие (как в positionMainTooltip): окно меньше
+  // превью — не прижимаем, позиция остаётся рядом с якорем; при
+  // scale=1 проверки истинны, поведение прежнее.
+  const fitsWindowW = pw + margin * 2 <= visW;
+  const fitsWindowH = ph + margin * 2 <= visH;
+  if (fitsWindowW) {
+    if (left < visLeft + margin) left = visLeft + margin;
+    if (left + pw > ww - margin) left = ww - pw - margin;
+  }
+  if (fitsWindowH) {
+    if (top + ph > wh - margin) top = wh - ph - margin;
+    if (top < visTop + margin) top = visTop + margin;
+  }
 
   previewTooltipEl.style.left = left + 'px';
   previewTooltipEl.style.top = top + 'px';
@@ -14656,6 +14701,21 @@ function attachTooltipZoomReposition() {
     window.visualViewport.addEventListener('resize', onChange);
     window.visualViewport.addEventListener('scroll', onChange);
   }
+  // B-34: Safari на macOS присылает родные gesturestart/gesturechange/
+  // gestureend (трекпадный щипок) и НЕ даёт resize/visualViewport, пока
+  // жест идёт. Отпереть две вещи: пересчитать ОТКРЫТЫЙ тултип (иначе он
+  // приклеен к точке до зума всё время жеста — репо-видео) и пометить
+  // кэш ректов ячеек устаревшим (наш attachPinchZoom «путь 1» в ответ на
+  // те же события делает РЕФЛОУ ряда — rect'ы едут, а resize не приходит
+  // вовсе). Слушатели пассивные: перехват/предотвращение жеста — задача
+  // attachPinchZoom, не тултипа.
+  const onGestureTick = () => {
+    if (typeof invalidateChordWrapperRects === 'function') invalidateChordWrapperRects();
+    onChange();
+  };
+  document.addEventListener('gesturestart', onGestureTick, { passive: true });
+  document.addEventListener('gesturechange', onGestureTick, { passive: true });
+  document.addEventListener('gestureend', onGestureTick, { passive: true });
 }
 attachTooltipZoomReposition();
 
