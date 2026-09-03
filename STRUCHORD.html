@@ -8772,7 +8772,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.146</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.147</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -19522,6 +19522,93 @@ function getSquareEventOffsetSeconds(sq, eventIndex, bpm, ts) {
   }
   return offset;
 }
+// B-35 (0.147): авто-скролл «как в Guitar Pro» при воспроизведении —
+// без подсветки (решение пользователя): виден КВАДРАТ с играющей
+// ячейкой и СЛЕДУЮЩИЙ квадрат; на границе секций следующим считается
+// первый квадрат следующей секции.
+//
+// Следующий квадрат в ПОРЯДКЕ РАЗМЕТКИ (DOM = порядок игры): сосед
+// справа в той же секции, иначе первый квадрат следующей карточки
+// секции. Для повторов (квадрат ×2) «следующий» в DOM — тот же сосед:
+// с точки зрения скролла это и есть то, что должно быть видно дальше.
+function playbackNextSquareEl(curSq) {
+  const sib = curSq.nextElementSibling;
+  if (sib && sib.classList.contains('square')) return sib;
+  const card = curSq.closest('.section-card');
+  let nc = card ? card.nextElementSibling : null;
+  while (nc && !(nc.classList && nc.classList.contains('section-card'))) {
+    nc = nc.nextElementSibling;
+  }
+  return nc ? nc.querySelector('.square') : null;
+}
+
+// Горизонтальный скролл контейнера: показать диапазон [leftDoc..rightDoc]
+// (координаты содержимого, т.е. с учётом scrollLeft). Уже видно — не
+// трогаем; влезает — минимальный сдвиг; не влезает — текущий квадрат
+// прижимаем слева, следующий обрезан справа (следовать вперёд важнее,
+// чем видеть играющий целиком — так делает Guitar Pro).
+function scrollRangeIntoViewH(vp, leftDoc, rightDoc, pad) {
+  const vw = vp.clientWidth;
+  const vl = vp.scrollLeft;
+  if (!(vw > 0)) return;
+  if (leftDoc >= vl - 1 && rightDoc <= vl + vw + 1) return; // уже видно
+  const width = rightDoc - leftDoc;
+  let target;
+  if (width + pad * 2 <= vw) {
+    target = leftDoc < vl ? leftDoc - pad : rightDoc - vw + pad;
+  } else {
+    target = leftDoc - pad;
+  }
+  const max = Math.max(0, vp.scrollWidth - vw);
+  target = Math.max(0, Math.min(max, target));
+  if (Math.abs(target - vp.scrollLeft) > 1) {
+    vp.scrollTo({ left: target, behavior: 'smooth' });
+  }
+}
+
+// Вертикаль: ряд играющей ячейки виден (как раньше, block:'nearest').
+// Горизонталь: играющий квадрат целиком + следующий квадрат (в другой
+// секции — своя вертикаль минимальным скроллом и свой горизонт).
+// Вызывается из планировщика при смене ячейки — не на pointermove,
+// поэтому плавный скролл не конфликтует с 60fps-гвардом жестов.
+function ensurePlaybackSquaresVisible(wrapper) {
+  if (!wrapper) return;
+  const curSq = wrapper.closest('.square');
+  if (!curSq) {
+    wrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    return;
+  }
+  wrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+  const pad = 24;
+  const vpOf = (el) => el.closest('.squares-viewport');
+  const curVp = vpOf(curSq);
+  if (!curVp) return;
+  const docX = (el, vp) => {
+    const vr = vp.getBoundingClientRect();
+    const er = el.getBoundingClientRect();
+    return er.left - vr.left + vp.scrollLeft;
+  };
+  const curL = docX(curSq, curVp);
+  const curR = curL + curSq.getBoundingClientRect().width;
+  const nextSq = playbackNextSquareEl(curSq);
+  const nextVp = nextSq ? vpOf(nextSq) : null;
+  if (nextSq && nextVp === curVp) {
+    const nL = docX(nextSq, curVp);
+    const nR = nL + nextSq.getBoundingClientRect().width;
+    scrollRangeIntoViewH(curVp, curL, Math.max(curR, nR), pad);
+  } else {
+    scrollRangeIntoViewH(curVp, curL, curR, pad);
+    if (nextSq && nextVp) {
+      // Следующая секция: показать её первый квадрат минимальной
+      // вертикалью (inline:'nearest' не воюет с горизонтальным доводом).
+      nextSq.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
+      const nL = docX(nextSq, nextVp);
+      const nR = nL + nextSq.getBoundingClientRect().width;
+      scrollRangeIntoViewH(nextVp, nL, nR, pad);
+    }
+  }
+}
+
 function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount) {
   // ВАЖНО: эта функция должна быть ЧИСТОЙ по отношению к состоянию
   // воспроизведения. Счётчики повторов передаются явными аргументами
@@ -19719,7 +19806,9 @@ function scheduleNextEvent(ctx) {
     playbackState.activeElements.push(newWrapper);
     // scrollIntoView в режиме ленты не нужен и вреден: элемент скрыт,
     // а вызов всё равно дёргает прокрутку страницы.
-    if (!timelineMode) newWrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // B-35 (0.147): авто-скролл «как в Guitar Pro» — виден играющий
+    // квадрат и следующий (на границе секций — первый квадрат следующей).
+    if (!timelineMode) ensurePlaybackSquaresVisible(newWrapper);
 
     const input = newWrapper.querySelector('.chord-input');
     if (input && input.value.trim()) {
