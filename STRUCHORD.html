@@ -8647,7 +8647,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.125</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.126</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30569,6 +30569,25 @@ function attachSquareResizeHandlers() {
               width: rect.width,
               height: rect.height,
             };
+            // Страддлер: ячейка, НАЧАВАЯЩАЯСЯ до среза и КОНЧАЮЩАЯСЯ после.
+            // Модель при коммите отрезает только хвост (span уменьшается),
+            // поэтому и overlay обязан показывать её расщеплённой: голова
+            // (до среза) — замороженный клон с содержимым, как остальные
+            // оставшиеся; хвост (после среза) — пустое полотно в шторке.
+            // Раньше такая ячейка считалась удаляемой ЦЕЛИКОМ: шторка
+            // ложилась от её начала и накрывала голову с аккордом до
+            // pointerup («вся белая, содержимого не видно» — видео
+            // пользователя 05.19.01).
+            if (isSlideRemove && item.isRemoved && start < (opts.cutoffBeats || 0) - 1e-6) {
+              const nCols = Math.max(1, span);
+              const kCols = (opts.cutoffBeats || 0) - start;
+              const colW = (item.width - (nCols - 1) * SQUARE_GRID_GAP) / nCols;
+              const cutX = item.left + kCols * colW + (kCols - 1) * SQUARE_GRID_GAP;
+              if (cutX > item.left + 0.5 && cutX < item.right - 0.5) {
+                item.isStraddler = true;
+                item.cutX = cutX;
+              }
+            }
             if (opts.mode === 'removed' && !item.isRemoved) return;
             selected.push(item);
           });
@@ -30580,31 +30599,54 @@ function attachSquareResizeHandlers() {
             parent.appendChild(boundary);
           };
 
-          const appendCellClone = (item, parent, localOrigin, extraClass = '') => {
+          const appendCellClone = (item, parent, localOrigin, extraClass = '', widthOverride = null, emptyContent = false) => {
             const clone = item.cw.cloneNode(true);
             const baseClass = item.cw.className.replace(/\bis-buttons-armed\b/g, '').replace(/\s+/g, ' ').trim();
             clone.className = `${baseClass} square-edge-freeze-cell${extraClass}`;
             clone.style.gridColumn = '';
-            const overscan = item.isRemoved ? SQUARE_GRID_GAP : 0;
+            // overscan (перекрытие gap'ов) нужен только полноразмерным клонам
+            // удаляемых ячеек; голова/хвост расщеплённой ячейки имеют точную
+            // ширину без запаса.
+            const overscan = item.isRemoved && widthOverride == null && !emptyContent ? SQUARE_GRID_GAP : 0;
             clone.style.left = Math.max(0, item.left - localOrigin - overscan).toFixed(3) + 'px';
             clone.style.top = Math.max(0, item.top).toFixed(3) + 'px';
-            clone.style.width = Math.max(0, item.width + overscan * 2).toFixed(3) + 'px';
+            const cloneWidth = widthOverride != null ? widthOverride : item.width + overscan * 2;
+            clone.style.width = Math.max(0, cloneWidth).toFixed(3) + 'px';
             clone.style.height = Math.max(0, item.height).toFixed(3) + 'px';
             clone.querySelectorAll('.chord-buttons,.resize-handle,.square-resize-handle').forEach((el) => el.remove());
+            // Хвост расщеплённой ячейки — пустое полотно: аккорд остаётся
+            // в голове (модель при коммите сохраняет событие, урезая span),
+            // дублировать имя в уезжающем хвосте значило бы показывать
+            // удаление того, что не удаляется.
+            if (emptyContent) clone.innerHTML = '';
             parent.appendChild(clone);
             return clone;
           };
 
           if (isSlideRemove) {
             const kept = selected.filter((item) => !item.isRemoved);
-            const removed = selected.filter((item) => item.isRemoved);
+            const straddlers = selected.filter((item) => item.isStraddler);
+            const removed = selected.filter((item) => item.isRemoved && !item.isStraddler);
             kept.forEach((item, keptIdx) => {
               appendCellClone(item, overlay, 0, ' is-kept');
               const next = kept[keptIdx + 1];
               if (next && next.idx === item.idx + 1) drawBoundary(item.right);
             });
-            if (removed.length) {
-              const firstLeft = Math.min(...removed.map((item) => item.left));
+            // Головы страддлеров: замороженные клоны точной ширины до среза,
+            // с содержимым — стоят на месте всю анимацию. Граница между
+            // последним полным kept и головой — обычная сеточная (если они
+            // соседние); на самом срезе границу НЕ рисуем: после доезда это
+            // новый правый край квадрата, его рисует border .square-inner.
+            straddlers.forEach((st) => {
+              const prevKept = kept[kept.length - 1];
+              if (prevKept && prevKept.idx === st.idx - 1) drawBoundary(prevKept.right);
+              appendCellClone(st, overlay, 0, ' is-kept', st.cutX - st.left);
+            });
+            if (removed.length || straddlers.length) {
+              const firstLeft = Math.min(
+                ...removed.map((item) => item.left),
+                ...straddlers.map((st) => st.cutX)
+              );
               const lastRight = Math.max(...removed.map((item) => item.right));
               const strip = document.createElement('div');
               strip.className = 'square-edge-removed-strip';
@@ -30613,7 +30655,12 @@ function attachSquareResizeHandlers() {
               // the square edge shrinks, so its right edge stays glued to the
               // moving square edge. This avoids the gray flash that appeared
               // when removed cells were separately anchored/reflowed.
-              const stripOrigin = firstLeft - SQUARE_GRID_GAP;
+              // Gap перед шторкой есть только когда шторка начинается
+              // с межячеечного зазора (полностью удаляемая ячейка). Если
+              // она начинается с РАЗРЕЗА большой ячейки, зазора там нет.
+              const startsAtCellGap = removed.length > 0
+                && removed[0].left - SQUARE_GRID_GAP <= firstLeft + 1e-6;
+              const stripOrigin = startsAtCellGap ? firstLeft - SQUARE_GRID_GAP : firstLeft;
               // Полоса обязана докрывать до ПРАВОЙ кромки коробки (box
               // content-ширина): между последней удалённой ячейкой и краем
               // остаются gap+border, и при быстрых прерывистых драгах там
@@ -30639,7 +30686,12 @@ function attachSquareResizeHandlers() {
               removed.forEach((item, removedIdx) => {
                 appendCellClone(item, strip, stripOrigin, ' is-removed-slide');
                 const next = removed[removedIdx + 1];
-                if (next && next.idx === item.idx + 1) drawBoundary(item.right, strip, firstLeft - SQUARE_GRID_GAP);
+                if (next && next.idx === item.idx + 1) drawBoundary(item.right, strip, stripOrigin);
+              });
+              // Хвосты страддлеров: пустые полотна точной ширины, едут
+              // вместе со шторкой (transform с 0.125 — на клетках шторки).
+              straddlers.forEach((st) => {
+                appendCellClone(st, strip, stripOrigin, ' is-removed-slide', st.right - st.cutX, true);
               });
               // Границу перед первой удаляемой ячейкой НЕ дублируем:
               // после shrink это уже новый правый край квадрата, и его
