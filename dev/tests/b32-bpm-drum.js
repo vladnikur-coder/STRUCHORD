@@ -1,7 +1,6 @@
-// B-32 (0.131): барабан BPM — транзиентный фидбек колесного редактирования.
-// Клик барабан НЕ открывает; колесо над полем открывает и докручивает;
-// 1.2с тишины — сам закрывается; Esc/клик вне — сразу. Протяжка по полю
-// остаётся быстрым шагом без барабана.
+// B-32 (0.132): барабан BPM — транзиентный фидбек колесного редактирования.
+// Направление (0.132): колесо ВНИЗ (deltaY>0) = лента вверх = темп ВВЕРХ.
+// Аккумулятор: быстрая серия тиков складывается в цель — лента разгоняется.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8'), {
@@ -37,43 +36,57 @@ w.addEventListener('load', async () => {
   click(input);
   ok('после клика барабана нет', !pop() || pop().hidden);
 
-  console.log('=== 2. Колесо над полем открывает барабан ===');
-  wheelField(-100); // +1
+  console.log('=== 2. Колесо: вниз = темп вверх, лента вверх ===');
+  wheelField(100); // колесо к себе — темп ВВЕРХ
   await sleep(80);
   const p1 = pop();
   ok('барабан открыт', !!p1 && !p1.hidden);
   ok('центральная строка — 121', p1.querySelector('.bpm-drum-row.is-center').textContent === '121',
      p1.querySelector('.bpm-drum-row.is-center').textContent);
   ok('поле показывает 121', input.value === '121', input.value);
-  wheelField(-100); // ещё +1
+  wheelField(-100); // от себя — темп вниз
   await sleep(260);
-  ok('второй тик → 122', input.value === '122', input.value);
+  ok('колесо от себя → 120', input.value === '120', input.value);
 
-  console.log('=== 3. Клавиши при открытом барабане ===');
-  key('PageDown');
-  await sleep(260);
-  ok('PageDown → 112', input.value === '112', input.value);
+  console.log('=== 3. Аккумулятор: серия тиков складывается ===');
+  // 5 тиков без пауз: цель убегает в 125, лента догоняя ускоряясь
+  const t0 = Date.now();
+  for (let i = 0; i < 5; i++) wheelField(100);
+  ok('цель аккумулятора сразу 125 (тики сложились, не перезаписались)',
+     w.eval('bpmDrum.targetValue') === 125, String(w.eval('bpmDrum.targetValue')));
+  await sleep(60);
+  const mid = +input.value;
+  ok('поле едет вслед за лентой (121..124, а не стоит на 120)', mid > 120 && mid < 125, String(mid));
+  await sleep(560);
+  ok('после доезда — 125', input.value === '125', input.value);
+  const settle = Date.now() - t0;
+  ok('доехала быстрее, чем 5×130мс по-старому (' + settle + 'мс)', settle < 700);
+
+  console.log('=== 4. Клавиши при открытом барабане ===');
+  key('PageUp');
+  await sleep(320);
+  ok('PageUp → 135', input.value === '135', input.value);
   key('End');
-  await sleep(260);
+  await sleep(500);
   ok('End → 300', input.value === '300', input.value);
 
-  console.log('=== 4. Цифра — уходим в поле ===');
+  console.log('=== 5. Цифра — уходим в поле ===');
   key('4');
   ok('барабан закрылся', pop().hidden);
   ok('фокус в поле', d.activeElement === input);
   ok('в поле начат ввод: 4', input.value === '4', input.value);
 
-  console.log('=== 5. Idle: барабан сам закрывается ===');
+  console.log('=== 6. Idle: барабан сам закрывается ===');
   input.value = '120';
-  wheelField(-100);
+  wheelField(100);
   await sleep(80);
   ok('открыт колесом', !pop().hidden);
-  await sleep(1500); // 1.2с тишины
+  await sleep(1500);
   ok('закрылся сам', pop().hidden);
   ok('значение применено (121)', input.value === '121', input.value);
 
-  console.log('=== 6. Резинка на краях + пружина ===');
-  wheelField(-100);
+  console.log('=== 7. Резинка на краях + пружина ===');
+  wheelField(100);
   await sleep(80);
   const cyl = pop().querySelector('.bpm-drum-cylinder');
   pdown(cyl, 300);
@@ -81,7 +94,7 @@ w.addEventListener('load', async () => {
   pmove(cyl, 3400); // сильно за минимум
   const centerDuringDrag = w.eval('Math.round(bpmDrumCenterValue())');
   ok('во время резинки центр не ниже 40', centerDuringDrag >= 40, String(centerDuringDrag));
-  await sleep(400); // подержали — idle снят на pointerdown
+  await sleep(400);
   ok('держим: барабан не закрылся', !pop().hidden);
   pup(cyl, 3400);
   await sleep(450);
@@ -89,19 +102,19 @@ w.addEventListener('load', async () => {
   await sleep(1500);
   ok('после тишины закрылся', pop().hidden);
 
-  console.log('=== 7. Протяжка по полю — без барабана ===');
+  console.log('=== 8. Протяжка по полю — без барабана ===');
   input.value = '120';
   pdown(input, 200);
   await sleep(30);
-  pmove(w, 194); // 6px вверх = +1
+  pmove(w, 194); // 6px вверх = +1 (жест не меняли)
   await sleep(30);
   pup(w, 194);
   await sleep(300);
   ok('протяжка дала 121', input.value === '121', input.value);
   ok('барабан при протяжке не открывался', pop().hidden || !pop());
 
-  console.log('=== 8. Клик вне — немедленное закрытие ===');
-  wheelField(-100); // 122
+  console.log('=== 9. Клик вне — немедленное закрытие ===');
+  wheelField(100); // 122
   await sleep(80);
   ok('открыт', !pop().hidden);
   key('ArrowUp'); // 123
