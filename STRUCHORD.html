@@ -3159,7 +3159,12 @@ body {
 }
 .bpm-inline-drum {
   position: absolute;
-  top: 0;
+  /* Центр пилюли всегда совпадает с центром поля: top 50% минус
+     половина СОБСТВЕННОЙ высоты (translateY в % от неё же) — при росте
+     высоты пилюля раскрывается ВВЕРХ И ВНИЗ симметрично (0.139, «не по
+     низу, а посередине селектора»). */
+  top: 50%;
+  transform: translateY(-50%);
   left: 0;
   width: 100%;
   height: 100%; /* сложено — ровно высота поля */
@@ -8732,7 +8737,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.138</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.139</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31386,12 +31391,18 @@ window.addEventListener('pointermove', (e) => {
   // иначе каретка в поле мешает и на отпускании выделяется текст.
   if (!bpmDrag.moved) {
     bpmDrag.moved = true;
-    bpmDrumSuppressClick = true; // тащили — клик не должен открыть барабан
+    bpmDrumSuppressClick = true; // тащили — клик не должен мешать
     DOM.bpmInput.blur();
     document.body.style.userSelect = 'none';
     DOM.bpmInput.classList.add('is-spinning');
   }
   bumpBpm(steps);
+  // 0.139 (просьба пользователя): протяжка тоже открывает пилюлю и
+  // ведёт ленту к значению — как колесо. Открытие ПОСЛЕ bumpBpm, чтобы
+  // пилюля сразу встала на новое значение.
+  if (!bpmDrumOpen) openBpmDrum();
+  else bpmDrumAnimateToValue(parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM);
+  bpmDrumTouchIdle();
   bpmDrag.y -= steps * STEP_PX;
 });
 window.addEventListener('pointerup', () => {
@@ -31399,6 +31410,9 @@ window.addEventListener('pointerup', () => {
   if (bpmDrag.moved) {
     document.body.style.userSelect = '';
     DOM.bpmInput.classList.remove('is-spinning');
+    // пилюля открыта протяжкой — пусть живёт ещё 1.2с после отпускания
+    // и сложится сама (idle), как после колеса
+    bpmDrumTouchIdle();
   }
   bpmDrag = null;
 });

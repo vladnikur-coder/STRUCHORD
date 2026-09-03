@@ -99,16 +99,18 @@ const isOpen = () => { const q = pop(); return !!q && q.classList.contains('is-o
   await sleep(1500);
   ok('после тишины закрылся', !isOpen());
 
-  console.log('=== 8. Протяжка по полю — без барабана ===');
+  console.log('=== 8. Протяжка открывает пилюлю (0.139) ===');
   input.value = '120';
   pdown(input, 200);
   await sleep(30);
-  pmove(w, 194); // 6px вверх = +1 (жест не меняли)
-  await sleep(30);
-  pup(w, 194);
-  await sleep(300);
+  pmove(w, 194); // 6px вверх = +1
+  await sleep(80);
+  ok('протяжка открыла пилюлю', isOpen());
   ok('протяжка дала 121', input.value === '121', input.value);
-  ok('барабан при протяжке не открывался', !isOpen());
+  pup(w, 194);
+  await sleep(1500);
+  ok('после отпускания и тишины пилюля сложилась', !isOpen());
+  ok('значение применено (121)', input.value === '121', input.value);
 
   console.log('=== 9. Клик вне — немедленное закрытие ===');
   wheelField(100); // 122
