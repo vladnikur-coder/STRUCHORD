@@ -44,6 +44,7 @@ w.addEventListener('load', async () => {
       { id: 1, type: 'Verse', customName: null, key: null, shift: null, timeSig: null, bpm: null, repeat: 1, strumPattern: null,
         squares: [{ id: 2, repeat: 1, customBeats: null, strumPattern: null, events: [
           { chord: 'Am', span: 2, timeSig: null, strumPattern: null },
+          { chord: '',   span: 2, timeSig: null, strumPattern: null },
           { chord: 'F',  span: 2, timeSig: null, strumPattern: null },
         ]}]},
     ],
@@ -228,6 +229,30 @@ w.addEventListener('load', async () => {
     ok('showFingeringTooltip: 4 вызова с wrapper', wcalls === 4, String(wcalls));
 
     de.getBoundingClientRect = origRect;
+  }
+
+  console.log('=== 8. 0.145: следующий АККОРД + ховер при закреплении ===');
+  {
+    // Песня: [Am][пустая][F]. Превью обязано прыгать ЧЕРЕЗ пустую.
+    const r1 = w.eval('findNextChordEventFrom(0, 0, 1)'); // от пустой (ei=1)
+    ok('из-за пустой ячейки найден F', !!r1 && r1.event.chord === 'F', JSON.stringify(r1 && r1.event.chord));
+    const r2 = w.eval('findNextChordEventFrom(0, 0, 2)'); // сам F
+    ok('позиция F корректна', !!r2 && r2.eventIndex === 2, r2 && String(r2.eventIndex));
+    const r3 = w.eval('findNextChordEventFrom(0, 0, 3)'); // дальше аккордов нет
+    ok('после F — null (нет аккордов)', r3 === null, JSON.stringify(r3));
+
+    // Ховер при закреплении в ПОКОЕ работает (раньше глушился всегда).
+    w.eval(`pinnedFingering = { secId: 1, squareId: 2, eventIndex: 0, chord: 'Am', shape: null };
+            renderPinnedFingering();`);
+    ok('закреплённый ряд виден', d.getElementById('pinnedRow').style.display === 'flex');
+    const wrap2 = d.querySelectorAll('.chord-wrapper')[2]; // ячейка F
+    const inputF = wrap2 && wrap2.querySelector('.chord-input');
+    inputF.dispatchEvent(new w.MouseEvent('mouseover', { bubbles: true }));
+    await sleep(80);
+    const tip8 = d.getElementById('fingering-tooltip');
+    ok('ховер при закреплении (покой) показывает тултип', tip8.style.display === 'block', tip8.style.display);
+    ok('в тултипе — F, не закреплённый Am', tip8.dataset.currentShape !== undefined || tip8.style.display === 'block');
+    w.eval('pinnedFingering = null; renderPinnedFingering();');
   }
 
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');
