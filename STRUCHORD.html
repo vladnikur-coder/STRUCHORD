@@ -3875,14 +3875,6 @@ body.is-zooming .squares-list {
 /* Голова страддлера: ширина доезжает тем же темпом, что и край коробки
    (0.16s, та же кривая) — край непрерывно режет ячейку, без мгновенного
    сжатия на снапе и без перестройки на pointerup. */
-/* Специфичность намеренно выше контекстного правила
-   .square-inner.is-square-edge-resizing .chord-wrapper
-   { transition: background .14s } (0,3,0) — иначе оно перебивало
-   transition ширины головы, и она прыгала мгновенно. */
-.square-inner.is-square-edge-resizing
-  .square-edge-freeze-cell.is-straddler-head {
-  transition: width 0.16s cubic-bezier(0.2, 0.75, 0.18, 1);
-}
 .square-edge-freeze-cell.is-removed-slide {
   z-index: 1;
 }
@@ -8658,7 +8650,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.127</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.128</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30590,10 +30582,16 @@ function attachSquareResizeHandlers() {
             // pointerup («вся белая, содержимого не видно» — видео
             // пользователя 05.19.01).
             if (isSlideRemove && item.isRemoved && start < (opts.cutoffBeats || 0) - 1e-6) {
-              const nCols = Math.max(1, span);
-              const kCols = (opts.cutoffBeats || 0) - start;
-              const colW = (item.width - (nCols - 1) * SQUARE_GRID_GAP) / nCols;
-              const cutX = item.left + kCols * colW + (kCols - 1) * SQUARE_GRID_GAP;
+              // Позиция среза — в РОДИТЕЛЬСКИХ долях, ровно как считает
+              // модель (buildPreviewEventsForBeats): у ячейки со своим
+              // размером (напр. 4@3/4) родительский span = 5.333, и доля
+              // честно пересчитывается в пиксели через её полную ширину.
+              // Раньше срез считался по «битовым» колонкам — для 3/4-ячейки
+              // он попадал на 116px вместо 88px, и голова не совпадала
+              // с тем, что коммитит модель (прыжок на pointerup).
+              const spanParent = Math.max(1e-6, end - start);
+              const keepParent = (opts.cutoffBeats || 0) - start;
+              const cutX = item.left + (keepParent / spanParent) * item.width;
               if (cutX > item.left + 0.5 && cutX < item.right - 0.5) {
                 item.isStraddler = true;
                 item.finalWidth = cutX - item.left;
@@ -30637,20 +30635,27 @@ function attachSquareResizeHandlers() {
               const next = kept[keptIdx + 1];
               if (next && next.idx === item.idx + 1) drawBoundary(item.right);
             });
-            // Головы страддлеров: полный замороженный клон с содержимым.
-            // Ширина доезжает до финальной ТЕМ ЖЕ переходом, что и край
-            // коробки (см. .is-straddler-head и применение finalWidth в
-            // renderSquareEdgePreview): край непрерывно «режет» ячейку,
-            // имя плавно съезжает в новый центр, на pointerup ничего
-            // не перестраивается. Мгновенного сжатия на снапе нет.
+            // Голова страддлера (дизайн пользователя, 2026-09-03):
+            // «обрезается до места, где будет заканчиваться квадрат после
+            // удаления такта» — НЕТ анимации сжатия. Клон остаётся ПОЛНЫМ
+            // (контент на исходных местах: имя там, где стояло), а видима
+            // только часть до ФИНАЛЬНОГО края. Обрезка — clip-path: он не
+            // меняет раскладку, контент не перецентрируется и не сжимается.
             straddlers.forEach((st) => {
               const prevKept = kept[kept.length - 1];
               if (prevKept && prevKept.idx === st.idx - 1) drawBoundary(prevKept.right);
               const headClone = appendCellClone(st, overlay, 0, ' is-kept is-straddler-head');
-              headClone.dataset.finalWidth = Math.max(0, st.finalWidth).toFixed(3) + 'px';
+              const cropRight = Math.max(0, st.width - st.finalWidth);
+              headClone.style.clipPath = `inset(0 ${cropRight.toFixed(3)}px 0 0)`;
             });
-            if (removed.length) {
-              const firstLeft = Math.min(...removed.map((item) => item.left));
+            if (removed.length || straddlers.length) {
+              // Начало шторки: от ПЕРВОЙ полностью удаляемой ячейки, а если
+              // есть стрип-страддлер — от его линии среза (правее головы
+              // больше нечего показывать: голова обрезана, хвост уезжает).
+              const firstLeft = Math.min(
+                ...removed.map((item) => item.left),
+                ...straddlers.map((st) => st.left + st.finalWidth)
+              );
               const lastRight = Math.max(...removed.map((item) => item.right));
               const strip = document.createElement('div');
               strip.className = 'square-edge-removed-strip';
@@ -30659,7 +30664,9 @@ function attachSquareResizeHandlers() {
               // the square edge shrinks, so its right edge stays glued to the
               // moving square edge. This avoids the gray flash that appeared
               // when removed cells were separately anchored/reflowed.
-              const stripOrigin = firstLeft - SQUARE_GRID_GAP;
+              const startsAtCut = straddlers.length > 0
+                && straddlers[0].left + straddlers[0].finalWidth >= firstLeft - 1e-6;
+              const stripOrigin = startsAtCut ? firstLeft : firstLeft - SQUARE_GRID_GAP;
               // Полоса обязана докрывать до ПРАВОЙ кромки коробки (box
               // content-ширина): между последней удалённой ячейкой и краем
               // остаются gap+border, и при быстрых прерывистых драгах там
@@ -30754,15 +30761,6 @@ function attachSquareResizeHandlers() {
           void sqInner.offsetWidth;
           if (freezeOverlay && (freezeOverlay.dataset.mode || '') === 'removed-slide') {
             freezeOverlay.classList.add('is-slide-out');
-            // Головы страддлеров сужаются СИНХРОННО с краем коробки:
-            // initial width уже стоит (полная), reflow выше зафиксировал
-            // стартовое состояние — теперь ставим финальную ширину, и CSS
-            // переход (тот же 0.16s/кривая, что у коробки) довозит её.
-            freezeOverlay
-              .querySelectorAll('.square-edge-freeze-cell.is-straddler-head')
-              .forEach((clone) => {
-                if (clone.dataset.finalWidth) clone.style.width = clone.dataset.finalWidth;
-              });
           }
           sqInner.style.width = percent + '%';
           // Доводка до бит-в-бит (0.123): во время полёта сетка стоит в
