@@ -122,6 +122,34 @@ const isOpen = () => { const q = pop(); return !!q && q.classList.contains('is-o
   ok('клик вне закрыл', !isOpen());
   ok('значение применено (123)', input.value === '123', input.value);
 
+  console.log('=== 10. Закрытие анимируется: visibility в переходе (0.141) ===');
+  // Регрессия «пилюля исчезает без анимации»: visibility НЕ входила в
+  // transition, снималась мгновенно и маскировала сворачивание. Теперь:
+  // закрытие — задержка ровно в длительность перехода (видима до конца),
+  // открытие — без задержки. jsdom не проигрывает переходы, проверяем
+  // объявленные правила (прецедент чтения styleSheets — layout-shift).
+  {
+    const rules = [];
+    for (const sh of d.styleSheets) { try { for (const r of sh.cssRules) rules.push(r); } catch (e) {} }
+    const base = rules.find((r) => r.selectorText === '.bpm-inline-drum');
+    const open = rules.find((r) => r.selectorText === '.bpm-inline-drum.is-open');
+    ok('правила барабана найдены', !!base && !!open);
+    if (base && open) {
+      const items = (s) => s.split(',').map((x) => x.trim());
+      const baseVis = items(base.style.transition).filter((x) => x.startsWith('visibility'));
+      const openVis = items(open.style.transition).filter((x) => x.startsWith('visibility'));
+      ok('закрытие: visibility с задержкой до конца сворачивания',
+        baseVis.length === 1 && /visibility\s+0s\s+linear\s+0\.34s/.test(baseVis[0]), baseVis[0]);
+      ok('открытие: visibility без задержки',
+        openVis.length === 1 && /^visibility\s+0s$/.test(openVis[0]), openVis[0]);
+      ok('закрытие: height/opacity остались в переходе',
+        /height\s+0\.34s/.test(base.style.transition) && /opacity\s+0\.28s/.test(base.style.transition));
+      ok('сложено — не ловит тычки, открыто — ловит',
+        /pointer-events:\s*none/.test(base.cssText) && /pointer-events:\s*auto/.test(open.cssText),
+        `${base.cssText} / ${open.cssText}`);
+    }
+  }
+
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');
   w.close();
   process.exit(bad ? 1 : 0);
