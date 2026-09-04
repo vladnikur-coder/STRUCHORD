@@ -16,7 +16,7 @@ const puppeteer = require(path.join(__dirname, '../../node_modules/puppeteer'));
     args: ['--no-sandbox', '--disable-gpu', '--window-size=1280,900', '--autoplay-policy=no-user-gesture-required']
   });
   const page = await browser.newPage();
-  await page.setViewport({ width: 1280, height: 900 });
+  await page.setViewport({ width: 1280, height: 500 }); // низкое окно: страница скроллится и по вертикали
   await page.evaluateOnNewDocument(() => {
     const sq = (id, chord) => ({ id, repeat: 1, customBeats: null, strumPattern: null,
       events: [{ chord, span: 4, timeSig: null, strumPattern: null }] });
@@ -73,6 +73,7 @@ const puppeteer = require(path.join(__dirname, '../../node_modules/puppeteer'));
         out.push({
           t: Math.round(performance.now() - t0),
           sqId,
+          scrollY: Math.round(window.scrollY || 0),
           curFullyVisible: sr.left >= vr.left - 2 && sr.right <= vr.right + 2,
           curTop: Math.round(sr.top), curBottom: Math.round(sr.bottom),
           afterChange: performance.now() - lastChange < 600,
@@ -107,6 +108,18 @@ const puppeteer = require(path.join(__dirname, '../../node_modules/puppeteer'));
   });
   check('следующий квадрат всегда виден', nextBad.length === 0,
     nextBad.slice(0, 3).map((s) => `${s.sqId}→${s.next && s.next.id}@${s.t}`).join(', '));
+
+  // «Рассинхрон»: страница не должна возвращаться к верху во время игры.
+  // Единственный законный минимум — самые первые секунды, пока не
+  // проскроллили. Как только scrollY превысил 150, назад к <50 хода нет.
+  let maxScroll = 0;
+  const topSnap = [];
+  for (const s of samples) {
+    maxScroll = Math.max(maxScroll, s.scrollY);
+    if (maxScroll >= 150 && s.scrollY < 50) topSnap.push(`${s.sqId}@${s.t} y=${s.scrollY}`);
+  }
+  check('страница не возвращается к верху после проскролла', topSnap.length === 0, topSnap.slice(0, 3).join(', '));
+  check('песня глубже одного экрана (вертикаль задействована)', maxScroll >= 150, String(maxScroll));
 
   const boundary = asserted.find((s) => s.sqId === '4');
   check('граница секций: во время кв.4 виден кв.6 (секция 2)',

@@ -8772,7 +8772,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.147</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.148</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -19573,39 +19573,96 @@ function scrollRangeIntoViewH(vp, leftDoc, rightDoc, pad) {
 // поэтому плавный скролл не конфликтует с 60fps-гвардом жестов.
 function ensurePlaybackSquaresVisible(wrapper) {
   if (!wrapper) return;
-  const curSq = wrapper.closest('.square');
-  if (!curSq) {
-    wrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-    return;
-  }
-  wrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  const pad = 24;
-  const vpOf = (el) => el.closest('.squares-viewport');
-  const curVp = vpOf(curSq);
-  if (!curVp) return;
-  const docX = (el, vp) => {
-    const vr = vp.getBoundingClientRect();
-    const er = el.getBoundingClientRect();
-    return er.left - vr.left + vp.scrollLeft;
+  // 0.148: НИ ОДНОГО scrollIntoView. Он крутит ВСЕХ прокручиваемых
+  // предков разом: страница по вертикали И .squares-viewport по
+  // горизонтали — второй явный scrollTo на тот же контейнер начинал
+  // гонку двух плавных скроллов («не всегда» докручивалось), а на
+  // элементе с вырожденной геометрией (content-visibility при
+  // автозуме, недоуложенная раскладка) уводил страницу К ВЕРХУ —
+  // тот самый «рассинхрон» из заметки пользователя. Теперь всё
+  // вручную: вертикаль окна — ОДИН scrollTo в конце, горизонтали —
+  // только собственные скроллы своих контейнеров, вырожденные
+  // ректы (0×0) просто пропускаются.
+  const padX = 24;
+  const viewH = window.innerHeight;
+  const bar = document.querySelector('.transport-bar');
+  const barH = bar ? bar.getBoundingClientRect().height : 0;
+  const topAllow = barH + 24;   // липнущая панель транспорта сверху
+  const bottomAllow = 16;
+  const pageY0 = window.scrollY || 0;
+  const rectsOK = (r) => r && r.height > 1 && r.width > 1;
+
+  // --- Вертикаль окна: интервальная математика (0.148). Для элемента
+  // считается ДИАПАЗОН позиций скролла, при которых он виден; у ячейки
+  // и следующего квадрата (граница секций) диапазоны ПЕРЕСЕКАЮТСЯ, если
+  // в окно влезают оба — тогда одна цель удовлетворяет обоих. Не
+  // влезают — приоритет играющей ячейке (как в Guitar Pro).
+  const maxPageScroll = Math.max(0, (document.documentElement.scrollHeight || 0) - viewH);
+  const visibleScrollRange = (el) => {
+    const r = el.getBoundingClientRect();
+    if (!rectsOK(r)) return null;
+    const top = r.top + pageY0;
+    const bottom = r.bottom + pageY0;
+    let lo = bottom - (viewH - bottomAllow); // ниже: придвинуть низ элемента к низу окна
+    let hi = top - topAllow;                 // выше: убрать элемент под липкую панель
+    lo = Math.max(0, Math.min(maxPageScroll, lo));
+    hi = Math.max(0, Math.min(maxPageScroll, hi));
+    if (lo > hi) return { lo: hi, hi }; // элемент выше окна — вырожденный диапазон
+    return { lo, hi };
   };
-  const curL = docX(curSq, curVp);
-  const curR = curL + curSq.getBoundingClientRect().width;
-  const nextSq = playbackNextSquareEl(curSq);
-  const nextVp = nextSq ? vpOf(nextSq) : null;
-  if (nextSq && nextVp === curVp) {
-    const nL = docX(nextSq, curVp);
-    const nR = nL + nextSq.getBoundingClientRect().width;
-    scrollRangeIntoViewH(curVp, curL, Math.max(curR, nR), pad);
+
+  const curSq = wrapper.closest('.square');
+  const curVp = curSq ? curSq.closest('.squares-viewport') : null;
+  const nextSq = curSq ? playbackNextSquareEl(curSq) : null;
+  const nextVp = nextSq ? nextSq.closest('.squares-viewport') : null;
+  const crossSection = !!(nextSq && nextVp && curVp && nextVp !== curVp);
+
+  const cellRange = visibleScrollRange(wrapper);
+  const nextRange = crossSection ? visibleScrollRange(nextSq) : null;
+  let range = null;
+  if (cellRange && nextRange) {
+    const lo = Math.max(cellRange.lo, nextRange.lo);
+    const hi = Math.min(cellRange.hi, nextRange.hi);
+    range = lo <= hi ? { lo, hi } : cellRange; // оба не влезают — ячейка важнее
   } else {
-    scrollRangeIntoViewH(curVp, curL, curR, pad);
-    if (nextSq && nextVp) {
-      // Следующая секция: показать её первый квадрат минимальной
-      // вертикалью (inline:'nearest' не воюет с горизонтальным доводом).
-      nextSq.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' });
-      const nL = docX(nextSq, nextVp);
-      const nR = nL + nextSq.getBoundingClientRect().width;
-      scrollRangeIntoViewH(nextVp, nL, nR, pad);
+    range = cellRange || nextRange;
+  }
+  const pageTarget = range
+    ? Math.max(range.lo, Math.min(range.hi, pageY0)) // ближайшая точка диапазона
+    : null;
+
+  // --- Горизонтали: только собственные скроллы контейнеров ---
+  const docX = (el, vp) =>
+    el.getBoundingClientRect().left - vp.getBoundingClientRect().left + vp.scrollLeft;
+  if (curSq && curVp) {
+    const cr = curSq.getBoundingClientRect();
+    if (rectsOK(cr)) {
+      const curL = docX(curSq, curVp);
+      const curR = curL + cr.width;
+      if (nextSq && nextVp === curVp) {
+        const nr = nextSq.getBoundingClientRect();
+        if (rectsOK(nr)) {
+          const nL = docX(nextSq, curVp);
+          scrollRangeIntoViewH(curVp, curL, Math.max(curR, nL + nr.width), padX);
+        } else {
+          scrollRangeIntoViewH(curVp, curL, curR, padX);
+        }
+      } else {
+        scrollRangeIntoViewH(curVp, curL, curR, padX);
+      }
     }
+  }
+  if (crossSection) {
+    const nr = nextSq.getBoundingClientRect();
+    if (rectsOK(nr)) {
+      const nL = docX(nextSq, nextVp);
+      scrollRangeIntoViewH(nextVp, nL, nL + nr.width, padX);
+    }
+  }
+
+  // --- Единственный вертикальный скролл окна ---
+  if (pageTarget !== null && Math.abs(pageTarget - pageY0) > 1) {
+    window.scrollTo({ top: pageTarget, behavior: 'smooth' });
   }
 }
 
