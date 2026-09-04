@@ -8772,7 +8772,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.150</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.151</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14778,11 +14778,11 @@ function isFingeringPinned() {
 // получает padding-top ровно на высоту свисания (см. CSS-переменную
 // --pinned-shift), а переход на padding-top отыгрывает сдвиг плавно.
 //
-// Считаем ТОЛЬКО по layout-координатам (offsetTop/offsetHeight). Они
-// не зависят ни от скролла и sticky-смещения панели, ни от transform
-// стартовой анимации — замер через getBoundingClientRect дал бы мусор
-// в обоих случаях: у прилипшей панели сдвиг раздувался бы на величину
-// прокрутки, у появляющегося ряда — на translateY анимации.
+// Считаем по layout-координатам (offsetTop/offsetHeight) — они не
+// зависят от transform стартовой анимации ряда (замер через
+// getBoundingClientRect дал бы мусор на translateY). НО у прилипшей
+// панели offsetTop в Chromium содержит sticky-смещение, поэтому перед
+// замером панели прилипание на миг снимается (см. ниже).
 // offsetTop у панели и сетки отсчитывается от одного offsetParent
 // (оба живут в одном потоке .container), так что разность честная;
 // padding-top при этом на ПОЗИЦИЮ сетки не влияет — он двигает лишь
@@ -14798,7 +14798,21 @@ function updatePinnedShift() {
     !document.body.classList.contains('is-timeline');
   let shift = 0;
   if (shown) {
-    const rowBottom = bar.offsetTop + bar.offsetHeight + 10 + row.offsetHeight;
+    // B-35 (0.151): у ПРИЛИПШЕЙ панели Chromium отдаёт offsetTop УЖЕ со
+    // sticky-смещением — он растёт вместе со скроллом (замер: 291 в потоке,
+    // но 308/458/608 при y=300/450/600). Пока идёт воспроизведение,
+    // syncPinnedFingeringWithPlayback пересчитывает сдвиг на каждой ячейке,
+    // --pinned-shift раздувался до сотен px и сетка прыгала вниз рывком
+    // на каждом такте (а ячейка уезжала под срез вьюпорта). Замер на одно
+    // мгновение снимает прилипание: sticky и так занимает своё место в
+    // потоке, поэтому раскладка не меняется, стиль возвращается до
+    // ближайшего кадра — мигания нет.
+    const stuck = getComputedStyle(bar).position === 'sticky';
+    const prevPos = bar.style.position;
+    if (stuck) bar.style.position = 'static';
+    const barTop = bar.offsetTop;
+    if (stuck) bar.style.position = prevPos;
+    const rowBottom = barTop + bar.offsetHeight + 10 + row.offsetHeight;
     shift = Math.max(0, rowBottom + 8 - grid.offsetTop);
   }
   grid.style.setProperty('--pinned-shift', shift > 0 ? shift.toFixed(1) + 'px' : '0px');
@@ -19621,7 +19635,23 @@ function ensurePlaybackSquaresVisible(wrapper) {
   const viewH = window.innerHeight;
   const bar = document.querySelector('.transport-bar');
   const barH = bar ? bar.getBoundingClientRect().height : 0;
-  const topAllow = barH + 24;   // липнущая панель транспорта сверху
+  let topAllow = barH + 24;   // липнущая панель транспорта сверху
+  // B-35 (0.151): при закреплённой аппликатуре под ПРИЛИПШЕЙ панелью
+  // свисает ряд «гриф + превью» (~220px) — без резерва следование могло
+  // припарковать играющую ячейку ЗА карточкой. Пока панель не прилипла,
+  // ряд висит на своём месте в потоке и сетку от него уже расчищает
+  // padding-top (#sectionsContainer, updatePinnedShift) — резерв не нужен.
+  const pinnedRow = document.getElementById('pinnedRow');
+  if (bar && pinnedRow && pinnedRow.style.display !== 'none' &&
+      document.body.classList.contains('has-pinned-fingering') &&
+      !document.body.classList.contains('is-timeline')) {
+    const br = bar.getBoundingClientRect();
+    const stickyTop = parseFloat(getComputedStyle(bar).top) || 0;
+    if (br.top <= stickyTop + 1) {
+      const pr = pinnedRow.getBoundingClientRect();
+      if (pr.height > 1) topAllow = Math.max(topAllow, pr.bottom + 8);
+    }
+  }
   const bottomAllow = 16;
   const pageY0 = window.scrollY || 0;
   const rectsOK = (r) => r && r.height > 1 && r.width > 1;
