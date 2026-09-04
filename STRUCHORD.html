@@ -8772,7 +8772,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.148</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.149</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -19573,16 +19573,14 @@ function scrollRangeIntoViewH(vp, leftDoc, rightDoc, pad) {
 // поэтому плавный скролл не конфликтует с 60fps-гвардом жестов.
 function ensurePlaybackSquaresVisible(wrapper) {
   if (!wrapper) return;
-  // 0.148: НИ ОДНОГО scrollIntoView. Он крутит ВСЕХ прокручиваемых
-  // предков разом: страница по вертикали И .squares-viewport по
-  // горизонтали — второй явный scrollTo на тот же контейнер начинал
-  // гонку двух плавных скроллов («не всегда» докручивалось), а на
-  // элементе с вырожденной геометрией (content-visibility при
-  // автозуме, недоуложенная раскладка) уводил страницу К ВЕРХУ —
-  // тот самый «рассинхрон» из заметки пользователя. Теперь всё
-  // вручную: вертикаль окна — ОДИН scrollTo в конце, горизонтали —
-  // только собственные скроллы своих контейнеров, вырожденные
-  // ректы (0×0) просто пропускаются.
+  // 0.149: раскладка .squares-list — КОЛОНКА (flex-direction: column):
+  // квадраты лежат друг под другом, горизонтальный ряд — это ЯЧЕЙКИ
+  // внутри одного квадрата. Отсюда два правила:
+  //  - вертикально считаем интервалы ИГРАЮЩЕЙ ЯЧЕЙКИ и СЛЕДУЮЩЕГО
+  //    КВАДРАТА всегда (он ниже на свою строку — в той же секции тоже);
+  //  - горизонтально приоритет у ИГРАЮЩЕЙ ЯЧЕЙКИ (в широком зум-квадрате
+  //    квадрат может не влезать целиком), квадрат — если влезает.
+  // Без единого scrollIntoView (урок 0.148): интервалы + один scrollTo.
   const padX = 24;
   const viewH = window.innerHeight;
   const bar = document.querySelector('.transport-bar');
@@ -19591,23 +19589,19 @@ function ensurePlaybackSquaresVisible(wrapper) {
   const bottomAllow = 16;
   const pageY0 = window.scrollY || 0;
   const rectsOK = (r) => r && r.height > 1 && r.width > 1;
-
-  // --- Вертикаль окна: интервальная математика (0.148). Для элемента
-  // считается ДИАПАЗОН позиций скролла, при которых он виден; у ячейки
-  // и следующего квадрата (граница секций) диапазоны ПЕРЕСЕКАЮТСЯ, если
-  // в окно влезают оба — тогда одна цель удовлетворяет обоих. Не
-  // влезают — приоритет играющей ячейке (как в Guitar Pro).
   const maxPageScroll = Math.max(0, (document.documentElement.scrollHeight || 0) - viewH);
+
+  // Диапазон позиций скролла, при которых элемент виден по вертикали.
   const visibleScrollRange = (el) => {
     const r = el.getBoundingClientRect();
     if (!rectsOK(r)) return null;
     const top = r.top + pageY0;
     const bottom = r.bottom + pageY0;
-    let lo = bottom - (viewH - bottomAllow); // ниже: придвинуть низ элемента к низу окна
-    let hi = top - topAllow;                 // выше: убрать элемент под липкую панель
+    let lo = bottom - (viewH - bottomAllow);
+    let hi = top - topAllow;
     lo = Math.max(0, Math.min(maxPageScroll, lo));
     hi = Math.max(0, Math.min(maxPageScroll, hi));
-    if (lo > hi) return { lo: hi, hi }; // элемент выше окна — вырожденный диапазон
+    if (lo > hi) return { lo: hi, hi };
     return { lo, hi };
   };
 
@@ -19615,44 +19609,43 @@ function ensurePlaybackSquaresVisible(wrapper) {
   const curVp = curSq ? curSq.closest('.squares-viewport') : null;
   const nextSq = curSq ? playbackNextSquareEl(curSq) : null;
   const nextVp = nextSq ? nextSq.closest('.squares-viewport') : null;
-  const crossSection = !!(nextSq && nextVp && curVp && nextVp !== curVp);
 
+  // --- Вертикаль: ячейка + следующий квадрат (пересечение, если влезают;
+  // нет — приоритет ячейке, как в Guitar Pro). ---
   const cellRange = visibleScrollRange(wrapper);
-  const nextRange = crossSection ? visibleScrollRange(nextSq) : null;
+  const nextRange = nextSq ? visibleScrollRange(nextSq) : null;
   let range = null;
   if (cellRange && nextRange) {
     const lo = Math.max(cellRange.lo, nextRange.lo);
     const hi = Math.min(cellRange.hi, nextRange.hi);
-    range = lo <= hi ? { lo, hi } : cellRange; // оба не влезают — ячейка важнее
+    range = lo <= hi ? { lo, hi } : cellRange;
   } else {
     range = cellRange || nextRange;
   }
   const pageTarget = range
-    ? Math.max(range.lo, Math.min(range.hi, pageY0)) // ближайшая точка диапазона
+    ? Math.max(range.lo, Math.min(range.hi, pageY0)) // ближайшая точка
     : null;
 
-  // --- Горизонтали: только собственные скроллы контейнеров ---
+  // --- Горизонталь: свой скролл своего контейнера. ---
   const docX = (el, vp) =>
     el.getBoundingClientRect().left - vp.getBoundingClientRect().left + vp.scrollLeft;
   if (curSq && curVp) {
-    const cr = curSq.getBoundingClientRect();
-    if (rectsOK(cr)) {
-      const curL = docX(curSq, curVp);
-      const curR = curL + cr.width;
-      if (nextSq && nextVp === curVp) {
-        const nr = nextSq.getBoundingClientRect();
-        if (rectsOK(nr)) {
-          const nL = docX(nextSq, curVp);
-          scrollRangeIntoViewH(curVp, curL, Math.max(curR, nL + nr.width), padX);
-        } else {
-          scrollRangeIntoViewH(curVp, curL, curR, padX);
-        }
-      } else {
-        scrollRangeIntoViewH(curVp, curL, curR, padX);
-      }
+    const cellR = wrapper.getBoundingClientRect();
+    const sqR = curSq.getBoundingClientRect();
+    const cellFits = rectsOK(cellR);
+    const sqFits = rectsOK(sqR) &&
+      sqR.width + padX * 2 <= curVp.clientWidth;
+    if (sqFits) {
+      const sL = docX(curSq, curVp);
+      scrollRangeIntoViewH(curVp, sL, sL + sqR.width, padX);
+    } else if (cellFits) {
+      const cL = docX(wrapper, curVp);
+      scrollRangeIntoViewH(curVp, cL, cL + cellR.width, padX);
     }
   }
-  if (crossSection) {
+  // Следующий квадрат в ДРУГОЙ секции — докрутить его строку и там
+  // (его вертикаль уже учтена в интервале выше).
+  if (nextSq && nextVp && curVp && nextVp !== curVp) {
     const nr = nextSq.getBoundingClientRect();
     if (rectsOK(nr)) {
       const nL = docX(nextSq, nextVp);
