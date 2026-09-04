@@ -165,6 +165,30 @@ w.addEventListener('load', async () => {
     ok('вызов в планировщике', app.includes('if (!timelineMode) ensurePlaybackSquaresVisible(newWrapper);'));
   }
 
+  console.log('=== 7. 0.150: ручной скролл — страница у пользователя ===');
+  {
+    w.eval('playbackState.isPlaying = true');
+    // Пользователь крутит колесо во время игры — флаг выставляется.
+    d.dispatchEvent(new w.Event('wheel', { bubbles: true }));
+    ok('флаг ручного скролла выставлен (во время игры)', w.eval('playbackUserScrollAt') > 0);
+    // Ячейка вне окна (page 0, ячейка на 1040) — но пользователь активен:
+    // НИКАКИХ скроллов, даже чтобы «вернуться к ячейке».
+    state.scroll.page = 0; state.scrollTo = []; state.pageTo = [];
+    w.eval('ensurePlaybackSquaresVisible(document.querySelector(\'.square[data-square="2"] .chord-wrapper\'))');
+    ok('пока пользователь активен — ноль скроллов (даже если ячейка вне окна)',
+      state.pageTo.length === 0 && state.scrollTo.length === 0,
+      JSON.stringify({ pageTo: state.pageTo, scrollTo: state.scrollTo }));
+    // Прошло >4с тишины — автоследование возвращается (обычная лестница).
+    w.eval('playbackUserScrollAt = performance.now() - 5000');
+    w.eval('ensurePlaybackSquaresVisible(document.querySelector(\'.square[data-square="2"] .chord-wrapper\'))');
+    ok('после 4с тишины — следование вернулось (цель 664)',
+      state.pageTo.length === 1 && state.pageTo[0] === 664, JSON.stringify(state.pageTo));
+    // В покое (не играет) колесо флаг НЕ ставит — редактор живёт как жил.
+    w.eval('playbackState.isPlaying = false; playbackUserScrollAt = 0');
+    d.dispatchEvent(new w.Event('wheel', { bubbles: true }));
+    ok('в покое колесо флаг не ставит', w.eval('playbackUserScrollAt') === 0);
+  }
+
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');
   w.close();
   process.exit(bad ? 1 : 0);

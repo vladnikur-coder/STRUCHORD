@@ -8772,7 +8772,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.149</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.150</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -19571,8 +19571,44 @@ function scrollRangeIntoViewH(vp, leftDoc, rightDoc, pad) {
 // секции — своя вертикаль минимальным скроллом и свой горизонт).
 // Вызывается из планировщика при смене ячейки — не на pointermove,
 // поэтому плавный скролл не конфликтует с 60fps-гвардом жестов.
+// B-35 (0.150): ручной скролл пользователя во время воспроизведения
+// приостанавливает автоследование. Замер с едиными таймстампами показал:
+// все скроллы страницы идут из ensurePlaybackSquaresVisible монотонной
+// лестницей — «скачки вверх-вниз» получались, когда пользователь крутил
+// колесо, а алгоритм на каждой следующей ячейке дёргал страницу обратно
+// (перетягивание каната). Правило плеера: пользователь скроллит →
+// автоследование молчит, ПОКА играющая ячейка видна; ячейка ушла из
+// вида и пользователь молчит >4с — следует плавный возврат.
+let playbackUserScrollAt = 0;
+function attachPlaybackFollowGuards() {
+  if (window.__pbFollowGuards) return;
+  window.__pbFollowGuards = true;
+  const mark = () => {
+    if (typeof playbackState !== 'undefined' && playbackState && playbackState.isPlaying) {
+      playbackUserScrollAt = performance.now();
+    }
+  };
+  document.addEventListener('wheel', mark, { passive: true, capture: true });
+  document.addEventListener('touchmove', mark, { passive: true, capture: true });
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].indexOf(e.key) >= 0) mark();
+  }, { passive: true, capture: true });
+}
+attachPlaybackFollowGuards();
+
+// Сколько миллисекунд после ПОСЛЕДНЕГО ручного скролла страница
+// считается «у пользователя». Перезаписывается в тестах.
+let playbackFollowResumeMs = 4000;
+
 function ensurePlaybackSquaresVisible(wrapper) {
   if (!wrapper) return;
+  // B-35 (0.150): пользователь недавно скроллил руками — страница его:
+  // не трогаем вовсе (даже если играющая ячейка ушла из вида — он может
+  // смотреть вперёд/назад). Возврат автоследования — только после 4с
+  // тишины (playbackFollowResumeMs; перезаписывается в тестах).
+  if (playbackUserScrollAt && performance.now() - playbackUserScrollAt < playbackFollowResumeMs) {
+    return;
+  }
   // 0.149: раскладка .squares-list — КОЛОНКА (flex-direction: column):
   // квадраты лежат друг под другом, горизонтальный ряд — это ЯЧЕЙКИ
   // внутри одного квадрата. Отсюда два правила:
