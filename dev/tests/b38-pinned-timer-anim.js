@@ -83,6 +83,12 @@ w.addEventListener('load', async () => {
     css.includes('conic-gradient'));
   ok('CSS: ключевые кадры уезда/приезда',
     css.includes('struchord-pin-out') && css.includes('struchord-pin-in'));
+  const nextRule = (css.match(/\.pinned-next\s*\{[^}]*\}/) || [''])[0];
+  ok('CSS: превью — матовое стекло (backdrop-filter, Safari-префикс)',
+    /-webkit-backdrop-filter/.test(nextRule) && /backdrop-filter\s*:\s*blur/.test(nextRule),
+    nextRule.slice(0, 120));
+  ok('CSS: полупрозрачность элемента убрана (было opacity 0.75)',
+    !/opacity\s*:\s*0?\.75/.test(nextRule));
 
   console.log('=== 2. Первый показ карточки — приезд справа, без уезда ===');
   pinCell('.chord-wrapper[data-sec="1"][data-square="2"][data-ei="0"]');
