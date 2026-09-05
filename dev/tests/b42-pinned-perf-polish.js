@@ -66,36 +66,38 @@ w.addEventListener('load', async () => {
   const hover = (sel) =>
     d.querySelector(sel).dispatchEvent(new w.MouseEvent('mouseover', { bubbles: true }));
 
-  console.log('=== 1. CSS-контракт: масштаб, стекло, растворение, тема ===');
+  console.log('=== 1. CSS-контракт: стекло, без transform, без transition ===');
   const rowRule = (css.match(/\.pinned-row\s*\{[^}]*\}/) || [''])[0];
-  ok('источник масштаба --pinned-scale: 1.08 на ряду',
-    /--pinned-scale:\s*1\.08/.test(rowRule), rowRule.slice(0, 100));
-  ok('ряд БЕЗ transform (WebKit: блюр потомка ломается на transform-анцесторе)',
-    !/transform\s*:/.test(rowRule), rowRule.slice(0, 160));
-  const cardRuleFull = (css.match(/\.pinned-fingering\s*\{[^}]*\}/) || [''])[0];
-  ok('масштаб несёт карточка', /transform:\s*scale\(var\(--pinned-scale/.test(cardRuleFull));
-  const nextRuleFull = (css.match(/\.pinned-next\s*\{[^}]*\}/) || [''])[0];
-  ok('превью: масштаб 0.92 от общего',
-    /transform:\s*scale\(calc\(var\(--pinned-scale, 1\) \* 0\.92\)\)/.test(nextRuleFull));
-  ok('превью: стекло заметнее (55% фон, blur 10px)',
-    /55%, transparent/.test(nextRuleFull) && /blur\(10px\)/.test(nextRuleFull));
-  ok('появление — blur-переплывание',
-    /struchord-pinned-in/.test(css) && /filter:\s*blur\(8px\)/.test(css));
-  ok('растворение — keyframes is-dissolving',
-    /struchord-pin-dissolve/.test(css) && /\.pinned-row\.is-dissolving/.test(css));
+  ok('ряд без --pinned-scale и без transform',
+    !/--pinned-scale/.test(rowRule) && !/transform\s*:/.test(rowRule), rowRule.slice(0, 140));
   const cardRule = (css.match(/\.pinned-fingering\s*\{[^}]*\}/) || [''])[0];
-  ok('карточка светлее поверхности (color-mix с белым)',
-    /color-mix\(in srgb, var\(--color-surface\) 94%, white\)/.test(cardRule));
-  ok('рамка у карточки', /border:\s*1px solid var\(--color-border-medium\)/.test(cardRule));
-  ok('мягкая смена темы (transition background-color)',
-    /transition:[^;]*background-color/.test(cardRule));
-  ok('reduced-motion гасит анимации ряда',
-    /prefers-reduced-motion/.test(css) && /\.pinned-row\.is-dissolving/.test(css));
+  ok('карточка — прозрачное стекло (75% + blur 10 + Safari-префикс)',
+    /75%, transparent/.test(cardRule) && /blur\(10px\)/.test(cardRule) &&
+    /-webkit-backdrop-filter/.test(cardRule));
+  ok('карточка без transform (раскладка честная)', !/transform\s*:/.test(cardRule));
+  ok('карточка без transition темы (артефакты WebKit)', !/transition\s*:/.test(cardRule));
+  const nextRule = (css.match(/\.pinned-next\s*\{[^}]*\}/) || [''])[0];
+  ok('превью — стекло 55% + blur 10px, без transform и transition',
+    /55%, transparent/.test(nextRule) && /blur\(10px\)/.test(nextRule) &&
+    !/transform\s*:/.test(nextRule) && !/transition\s*:/.test(nextRule));
+  ok('появление/растворение — blur-переплывание',
+    /struchord-pinned-in/.test(css) && /struchord-pin-dissolve/.test(css) &&
+    /filter:\s*blur\(8px\)/.test(css));
+  ok('reduced-motion гасит анимации ряда', /prefers-reduced-motion/.test(css));
 
   console.log('=== 2. Переплывание: закрепление ===');
   pinCell('.chord-wrapper[data-sec="1"][data-square="2"][data-ei="0"]');
   ok('ряд показан', rowEl().style.display === 'flex');
   ok('класс появления повешен', rowEl().classList.contains('is-appearing'));
+  const cardSvg = d.querySelector('#pinnedFingering svg');
+  ok('SVG карточки БЕЗ внутренней плашки (transparent)',
+    cardSvg && ![...cardSvg.children].some((c) => c.getAttribute('fill') === 'var(--color-surface)'),
+    cardSvg && cardSvg.innerHTML.slice(0, 80));
+  ok('SVG карточки крупнее базы (атрибуты ×1.08)',
+    cardSvg && +cardSvg.getAttribute('width') > 124 && +cardSvg.getAttribute('height') > 174,
+    cardSvg && cardSvg.getAttribute('width') + '×' + cardSvg.getAttribute('height'));
+  ok('viewBox прежний (пропорции честные)',
+    cardSvg && cardSvg.getAttribute('viewBox').split(' ').slice(2).map(Number).reduce((a, b) => a + b, 0) > 0);
 
   console.log('=== 3. Перф: тот же аккорл при ховере — ноль рендеров ===');
   hover('.chord-wrapper[data-sec="1"][data-square="3"][data-ei="0"] .chord-input');
