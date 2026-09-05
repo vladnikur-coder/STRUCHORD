@@ -127,18 +127,21 @@ w.addEventListener('load', async () => {
   ok('у наследующей ячейки 4 удара (вторая половина DUDUDUDU)', cell1Hits.length === 4, cell1Hits.length);
   ok('кастомная полоса приплывает сразу',
     !!(hints[0] && hints[0].classList.contains('is-in')));
-  ok('наследуемая полоса ждёт конца приплывания кастома',
-    !!(hints[1] && !hints[1].classList.contains('is-in')));
-  await sleep(280);
-  ok('наследуемая полоса появляется fade-in после приплывания кастома',
+  // 0.170: наследуемый, но реально видимый неполный срез тоже имеет
+  // конкретные mini-preview-глифы, поэтому входит как per-hit FLIP, а не
+  // как безадресная fade-only полоса.
+  ok('видимый неполный срез наследуемого боя тоже приплывает сразу',
     !!(hints[1] && hints[1].classList.contains('is-in')));
-  const inheritedKeepsFadeAfterRefresh = evl(`
+  await sleep(280);
+  ok('неполный срез остаётся видимым после входного flight',
+    !!(hints[1] && hints[1].classList.contains('is-in')));
+  const inheritedKeepsFlightAfterRefresh = evl(`
     sections[0].squares[0].events[1].strumPattern = { mode: 'strum', subdivision: 2, steps: ['D','U'] };
     refreshRhythmHints(sections[0], sections[0].squares[0],
       distributeVisualSpans(sections[0].squares[0].events, '4/4'));
-    return rhythmHintSession && rhythmHintSession.entries[1].custom === false`);
-  ok('ячейка, стартовавшая наследуемой, остаётся fade-only даже после временного reslice в custom',
-    inheritedKeepsFadeAfterRefresh);
+    return rhythmHintSession && rhythmHintSession.entries[1].custom === true`);
+  ok('видимый preview сохраняет FLIP-семантику после временного reslice в custom',
+    inheritedKeepsFlightAfterRefresh);
   console.log('=== 3. Отпускание: оверлей уезжает на body и тает ===');
   evl(`
     window.__b15OldRequestRender = requestRender;
@@ -207,8 +210,8 @@ w.addEventListener('load', async () => {
   );
   firePointerDown(handle(), 100);
   const fastHints = overlayIn() ? [...overlayIn().querySelectorAll('.rhythm-hint')] : [];
-  ok('перед быстрым отпусканием наследуемая полоса ещё не проявлена',
-    !!(fastHints[1] && !fastHints[1].classList.contains('is-in')));
+  ok('перед быстрым отпусканием видимый неполный срез уже в flight-состоянии',
+    !!(fastHints[1] && fastHints[1].classList.contains('is-in')));
   firePointerUp();
   const fastGhost = ghostIn();
   const fastHits = fastGhost ? [...fastGhost.querySelectorAll('.rhythm-hint')[0].querySelectorAll('.rhythm-hint-hit')] : [];
@@ -226,11 +229,14 @@ w.addEventListener('load', async () => {
     stale.appendChild(document.createElement('span'));
     return 0`);
   firePointerUp();
-  // 0.168: на отпускании превью перестраиваются по ФИНАЛЬНОЙ модели —
-  // устаревшее содержимое не «прячется до render», а стирается на месте.
+  // 0.170: на отпускании превью перестраиваются по ФИНАЛЬНОЙ модели —
+  // старый искусственный child стирается, а если финальная модель даёт
+  // видимый inherited slice, на его месте появляется именно этот slice.
   const staleBox3c = d.querySelector('.chord-wrapper[data-ei="1"] .event-strum-preview');
-  ok('stale mini-preview ячейки без финального кастома стёрт перестройкой',
-    !!(staleBox3c && !staleBox3c.firstChild && !staleBox3c.classList.contains('has-pattern')),
+  ok('stale mini-preview заменён финальным inherited slice',
+    !!(staleBox3c && staleBox3c.classList.contains('has-pattern')
+      && staleBox3c.classList.contains('is-inherited-slice')
+      && staleBox3c.children.length === 1),
     staleBox3c ? (staleBox3c.children.length + '/' + staleBox3c.className) : 'no box');
   await sleep(460);
 
@@ -375,34 +381,33 @@ w.addEventListener('load', async () => {
     returnPreview && returnPreview.className);
   const gHints = g ? [...g.querySelectorAll('.rhythm-hint')] : [];
   let gHits0 = gHints[0] ? [...gHints[0].querySelectorAll('.rhythm-hint-hit')] : [];
-  ok('кастом ждёт окончания fade-out наследуемых перед уплыванием',
-    !!(gHits0.length && gHits0.every((h) => !h.style.transform.includes('translate('))),
-    gHits0.map((h) => h.style.transform || 'none').join(' | '));
-  ok('полоса кастомной не уезжала целиком (поударный путь, не fallback)',
-    !!(gHints[0] && !gHints[0].style.transform.includes('translateY')),
-    gHints[0] && gHints[0].style.transform);
-  ok('кастом на выходе не гаснет fade-out: остаётся is-in до прилёта',
-    !!(gHints[0] && gHints[0].classList.contains('is-in')),
-    gHints[0] && gHints[0].className);
-  ok('наследуемая полоса на выходе уходит первой через fade-out',
-    !!(gHints[1] && !gHints[1].classList.contains('is-in')),
+  const gHits1 = gHints[1] ? [...gHints[1].querySelectorAll('.rhythm-hint-hit')] : [];
+  ok('видимый inherited slice получает reverse flight наравне с custom rhythm',
+    !!(gHits0.length && gHits1.length
+      && gHits0.every((h) => h.dataset.rhythmTargetTransform)
+      && gHits1.every((h) => h.dataset.rhythmTargetTransform)),
+    `${gHits0.length}/${gHits1.length}`);
+  ok('оба видимых рисунка используют поударный путь, не fallback-полосу',
+    !!(gHints[0] && gHints[1]
+      && !gHints[0].style.transform.includes('translateY')
+      && !gHints[1].style.transform.includes('translateY')),
+    `${gHints[0]?.style.transform || ''} | ${gHints[1]?.style.transform || ''}`);
+  ok('частичный наследуемый срез на выходе остаётся is-in',
+    !!(gHints[1] && gHints[1].classList.contains('is-in')),
     gHints[1] && gHints[1].className);
   await sleep(200);
   gHits0 = gHints[0] ? [...gHints[0].querySelectorAll('.rhythm-hint-hit')] : [];
-  ok('после fade-out наследуемых кастомные УДАРЫ уплывают поодиночке',
-    !!(gHits0.length && gHits0.every((h) => h.style.transform.includes('translate('))),
-    gHits0.map((h) => h.style.transform).join(' | '));
+  ok('после старта reverse flight оба рисунка летят поударно',
+    !!(gHits0.length && gHits1.length
+      && gHits0.every((h) => h.style.transform.includes('translate('))
+      && gHits1.every((h) => h.style.transform.includes('translate('))),
+    `${gHits0.map((h) => h.style.transform).join(' | ')} / ${gHits1.map((h) => h.style.transform).join(' | ')}`);
   ok('обратная лесенка такая же, как входная (0,10,20,30мс для 4 ударов)',
     gHits0.map((h) => h.style.transitionDelay).join(',') === '0ms,10ms,20ms,30ms',
     gHits0.map((h) => h.style.transitionDelay).join(','));
   ok('каждый удар знает, в какой глиф превью он возвращается (j % sourceCount)',
     gHits0.map((h) => h.dataset.rhythmSourceIndex).join(',') === '0,1,2,3',
     gHits0.map((h) => h.dataset.rhythmSourceIndex).join(','));
-  const gHits1 = gHints[1] ? [...gHints[1].querySelectorAll('.rhythm-hint-hit')] : [];
-  ok('наследуемая полоса только тает (ни ударных, ни полосового сдвига)',
-    !!(gHints[1] && gHits1.length && gHits1.every((h) => !h.style.transform.includes('translate('))
-      && !gHints[1].style.transform.includes('translateY')),
-    gHints[1] && gHints[1].style.transform);
   await sleep(480);
   ok('после обратного полёта mini-preview цели снова разрешён',
     !returnPreview.classList.contains('is-rhythm-return-target'),

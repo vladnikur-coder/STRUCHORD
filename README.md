@@ -7479,6 +7479,7 @@ B-15 сдан после стабилизации рендера в B-25. Пов
 
 - `node dev/tests/b15-resize-hint.js` — ok.
 - `node dev/tests/b15-resize-hit-test.js` — DOM hit-test границы + нативная pointer-последовательность, ok.
+- `node dev/tests/b15-cheap-drama-flight.js` — сценарий «Дешевые Драмы»: видимые inherited slices получают reverse flight, ok.
 - `node dev/tests/ui-test-zoom.js` — ok.
 - `node dev/tests/b25-incremental-render.js` — ok.
 - `node dev/tools/shot-b15-resize-hint.js` — Chromium-зонд enter/exit/final.

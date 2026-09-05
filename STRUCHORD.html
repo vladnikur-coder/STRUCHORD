@@ -8895,7 +8895,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.168</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.170</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -23085,12 +23085,11 @@ function inheritedFacadeSliceForPreview(sec, sq, ei) {
   return slice;
 }
 
-// Заполняет мини-превью паттерна прямо в ячейках, у которых есть СВОЙ
-// (переопределённый на уровне ячейки) бой/перебор — над именем аккорда,
-// компактным масштабом (стили — через .event-strum-preview в CSS). Только
-// для СВОЕГО ритма ячейки (окно рулона либо легаси-вкрапление);
-// унаследованные паттерны квадрата/секции здесь не показываем, чтобы не
-// дублировать бейджи секции/квадрата в каждой ячейке.
+// Заполняет мини-превью паттерна прямо внутри ячейки: для СВОЕГО
+// ритма ячейки (окно рулона либо legacy-вкрапление) и для фактического
+// неполного среза явного боя секции (B-30). Полный повтор секционного
+// паттерна не показываем, чтобы не дублировать общий бейдж в каждой ячейке.
+// Компактный масштаб задаётся стилями .event-strum-preview.
 function renderEventStrumPreviews(container) {
   container.querySelectorAll('.event-strum-preview').forEach((box) => {
     const secId = parseInt(box.dataset.sec, 10);
@@ -23104,20 +23103,20 @@ function renderEventStrumPreviews(container) {
     const rollWinCell = songRhythmRolls ? rhythmRollWindowFor(secId, sq, ei, songRhythmRolls) : null;
     const ownPattern = rollWinCell || (ev && ev.strumPattern) || null;
     // B-30: своего ритма нет — показываем фактический СРЕЗ боя секции,
-    // если он не сводится к целому повтору рисунка. НО не во время
-    // подсказки ресайза и её закрытия (B-15): спека «снятый в наследование
-    // уплывает только fade-out» писалась, когда у наследника превью не
-    // было; появившийся срез становился целью уплывания и ломал её. Во
-    // время жеста срез и так виден полосой в оверлее; статичный срез
-    // дорисует финальная инкрементальная синкронизация.
-    const sliceSuppressed = (typeof rhythmHintSession !== 'undefined' && rhythmHintSession) ||
-      document.body.classList.contains('is-rhythm-hint-returning');
+    // если он не сводится к целому повтору рисунка. Во время входящей
+    // подсказки срез временно скрываем: он уже есть в overlay. На reverse
+    // target, наоборот, строим заново по финальной модели — finishRhythmHints
+    // сразу ставит ему is-rhythm-return-target/is-rhythm-removing до первого
+    // кадра, поэтому под ghost он не виден заранее, но его rect доступен для
+    // честного поударного FLIP.
+    const sliceSuppressed = typeof rhythmHintSession !== 'undefined' && rhythmHintSession;
     const inheritedSlice = ownPattern || sliceSuppressed
       ? null
       : inheritedFacadeSliceForPreview(sec, sq, ei);
     const cellPattern = ownPattern || inheritedSlice;
-    // Метка среза: по ней exit-flight (B-15) знает, что это НЕ цель
-    // обратного полёта — срез дорисует финальный sync, а не анимация.
+    // Метка среза сохраняет техническое происхождение preview: он не
+    // регистрируется в карте подсветки, но при B-15 всё равно может быть
+    // FLIP-целью, если его конкретные глифы видны пользователю.
     box.classList.toggle('is-inherited-slice', !!inheritedSlice);
     if (!ev || !cellPattern) return;
     // B-06: призрачную тишину превью не рисуем — ни в финале, ни по
@@ -29616,12 +29615,25 @@ function rhythmHintPatternKey(pattern) {
 function collectRhythmHintData(s, sq) {
   return sq.events.map((ev, ei) => {
     if (isGhostSilenceCell(s, sq, ei)) return null;
-    const pattern = rhythmSoundingForEvent(s, sq, ev, ei);
+    // Есть два вида ритма, который уже рисуется в mini-preview:
+    // настоящий пин ячейки (окно рулона/legacy strumPattern) и фактический
+    // неполный срез явного боя секции (B-30). Для подсказки resize оба
+    // являются видимым авторским рисунком: у обоих есть конкретные глифы,
+    // из которых можно сделать FLIP. Полный наследник сюда не попадает —
+    // для него inheritedFacadeSliceForPreview() возвращает null, и он
+    // остаётся обычной fade-only полосой без дублирующего preview.
+    const ownPattern = (songRhythmRolls && songRhythmRolls.refs.has(`${s.id}:${sq.id}:${ei}`))
+      ? rhythmRollWindowFor(s.id, sq, ei, songRhythmRolls)
+      : (ev.strumPattern || null);
+    const inheritedSlice = ownPattern
+      ? null
+      : inheritedFacadeSliceForPreview(s, sq, ei);
+    const pattern = ownPattern || inheritedSlice || rhythmSoundingForEvent(s, sq, ev, ei);
     if (!pattern || !Array.isArray(pattern.steps) || !pattern.steps.length) return null;
-    // Тот же критерий «своего» ритма, что у мини-превью в render()
-    // (волна-4: ссылка на рулон либо легаси-вкрапление strumPattern).
-    const custom = !!(ev.strumPattern
-      || (songRhythmRolls && songRhythmRolls.refs.has(`${s.id}:${sq.id}:${ei}`)));
+    // «custom» здесь означает «есть собственное видимое mini-preview для
+    // обратного полёта», а не «в модели появился ref»: B-30-срез ref не
+    // создаёт, но пользователь уже видит именно этот конкретный рисунок.
+    const custom = !!(ownPattern || inheritedSlice);
     return { pattern, custom };
   });
 }
@@ -29894,11 +29906,11 @@ function rhythmHintExitDeltas(entry, ei, bi) {
   if (!shouldFly) return null;
   const wrapperEl = bi.querySelector(`.chord-wrapper[data-ei="${ei}"]`);
   const prevEl = wrapperEl && wrapperEl.querySelector('.event-strum-preview');
-  // B-30: срез-превью (is-inherited-slice) не бывает целью полёта —
-  // унаследованный ритм уплывает только fade-out, срез дорисует финальный
-  // sync. Без фильтра появившийся срез давал полосе ложную цель (stale
-  // шаги), и выход срабатывал без fade-фазы.
-  if (!prevEl || prevEl.classList.contains('is-inherited-slice')) return null;
+  // B-30: is-inherited-slice по-прежнему означает «это не model ref»,
+  // но не запрещает reverse flight. Если срез реально рисуется в
+  // mini-preview, collectRhythmHintData пометил его как видимый рисунок и
+  // именно эти глифы становятся честной целью выхода. Полный наследник
+  // preview не имеет и остаётся fade-only.
   const stepEls = prevEl ? [...prevEl.querySelectorAll('.strum-step')] : [];
   const hitEls = [...entry.el.querySelectorAll('.rhythm-hint-hit')];
   if (!wrapperEl || !stepEls.length || !hitEls.length) return null;
@@ -29993,9 +30005,10 @@ function finishRhythmHints(opts) {
   //     рисуется в превью (фидбек 2026-09-05);
   // (2) у давно-кастомной ячейки цели летели по устаревшим глифам/
   //     позициям, и превью подменялось под руками на финальном sync.
-  // Срезы здесь по-прежнему подавлены (body уже is-rhythm-hint-returning,
-  // сессия обнулена): снятый в наследование уплывает только fade-out
-  // (B-15), срез дорисует финальная инкрементальная синхронизация (B-30).
+  // Срезы здесь по-прежнему скрываются до handoff (body уже
+  // is-rhythm-hint-returning, сессия обнулена), но теперь частичный срез,
+  // который был виден в mini-preview, получает reverse flight в свои
+  // глифы. Полный наследник без preview остаётся fade-only.
   // has-cell-rhythm на ячейках сохраняем каким был до перестройки:
   // ступень лада не должна подпрыгивать на полсекунды выхода и
   // возвращаться на финальном sync.
