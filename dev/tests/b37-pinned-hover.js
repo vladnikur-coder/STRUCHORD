@@ -104,8 +104,11 @@ w.addEventListener('load', async () => {
   await sleep(250);
   ok('ховер F → карточка F', rowName().includes('F'), rowName());
   w.eval('unpinFingering()');
-  ok('ряд скрыт после открепления', d.getElementById('pinnedRow').style.display === 'none');
+  // 0.156: открепление — растворение (blur + подъём), display:none ПОСЛЕ
+  ok('ряд ещё на экране — растворяется', d.getElementById('pinnedRow').classList.contains('is-dissolving'));
   ok('hover-режим сброшен при откреплении', w.eval('pinnedHoverWrapper') === null);
+  await sleep(320);
+  ok('ряд скрыт после открепления', d.getElementById('pinnedRow').style.display === 'none');
 
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');
   process.exit(bad ? 1 : 0);

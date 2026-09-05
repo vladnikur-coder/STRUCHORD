@@ -6701,24 +6701,66 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   /* Ниже тултипов (10000), но выше квадратов: закреплённый гриф не
      должен накрывать всплывающий, если тот всё же появится. */
   z-index: 90;
+  /* B-42 (0.156): закреплённый ряд ЧУТЬ КРУПНЕЕ натуральной величины
+     (просьба пользователя). Единый источник масштаба — переменная:
+     updatePinnedShift домножает на неё высоту ряда при расчёте
+     --pinned-shift (transform раскладку не меняет, без домножения
+     карточка наехала бы на сетку снизу). */
+  --pinned-scale: 1.08;
+  transform: scale(var(--pinned-scale, 1));
+  transform-origin: top left;
 }
-/* Появление после сброса в панель: гриф мягко «встаёт» на место —
-   fade со спуском сверху и лёгким упругим доводом. Класс вешает JS
-   ровно на один прогон (см. pinFingeringFromTooltip). */
+/* Закрепление/открепление — «переплывание» (просьба пользователя):
+   гриф не просто фейдится, а РАСТВОРЯЕТСЯ — расфокусировка blur +
+   лёгкий подъём. Классы вешает JS ровно на один прогон. */
 .pinned-row.is-appearing {
-  animation: struchord-pinned-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+  animation: struchord-pinned-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+}
+.pinned-row.is-dissolving {
+  animation: struchord-pin-dissolve 0.26s ease both;
+  pointer-events: none;
 }
 @keyframes struchord-pinned-in {
-  from { opacity: 0; transform: translateY(-10px) scale(0.96); }
-  to { opacity: 1; transform: none; }
+  from {
+    opacity: 0;
+    transform: translateY(-10px) scale(calc(var(--pinned-scale, 1) * 0.94));
+    filter: blur(8px);
+  }
+  to {
+    opacity: 1;
+    transform: scale(var(--pinned-scale, 1));
+    filter: blur(0);
+  }
+}
+@keyframes struchord-pin-dissolve {
+  from {
+    opacity: 1;
+    filter: blur(0);
+    transform: scale(var(--pinned-scale, 1));
+  }
+  to {
+    opacity: 0;
+    filter: blur(8px);
+    transform: scale(calc(var(--pinned-scale, 1) * 0.94)) translateY(-8px);
+  }
 }
 /* Сам закреплённый гриф. */
 .pinned-fingering {
+  /* B-42 (0.156): в тёмной теме карточка сливалась с фоном — подмешиваем
+     6% белого к поверхности (в светлой теме разница незаметна) и даём
+     тонкую рамку. Фолбэк — плотная поверхность строкой выше. */
   background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-surface) 94%, white);
+  border: 1px solid var(--color-border-medium);
   border-radius: 12px;
   padding: 9px 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
   cursor: grab;
+  /* Смена темы внутри карточки — ПЕРЕПЛЫВАНИЕ цвета, а не резкая
+     перекраска (фидбек: «при смене темы лаги внутри закрепленного
+     тултипа»). */
+  transition: background-color 0.25s ease, border-color 0.25s ease,
+    box-shadow 0.25s ease;
 }
 /* Превью СЛЕДУЮЩЕГО аккорда — справа от закреплённого. Пунктирная
    рамка говорит «это ещё не звучит, это дальше». Фон — МАТОВОЕ СТЕКЛО
@@ -6730,8 +6772,10 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   /* Фолбэк: без color-mix фон остаётся плотным (как до 0.155). */
   background: var(--color-surface);
   background: color-mix(in srgb, var(--color-surface) 64%, transparent);
-  -webkit-backdrop-filter: blur(10px);   /* Safari */
-  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(8px);   /* Safari */
+  backdrop-filter: blur(8px);
+  transition: background-color 0.25s ease, border-color 0.25s ease,
+    box-shadow 0.25s ease;
   border: 2px dashed var(--color-text-tertiary);
   border-radius: 12px;
   padding: 9px 10px;
@@ -6779,7 +6823,9 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
 }
 @media (prefers-reduced-motion: reduce) {
   .pin-fade-out,
-  .pin-fade-in {
+  .pin-fade-in,
+  .pinned-row.is-appearing,
+  .pinned-row.is-dissolving {
     animation: none;
   }
 }
@@ -8820,7 +8866,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.155</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.156</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14873,11 +14919,24 @@ function updatePinnedShift() {
     if (stuck) bar.style.position = 'static';
     const barTop = bar.offsetTop;
     if (stuck) bar.style.position = prevPos;
-    const rowBottom = barTop + bar.offsetHeight + 10 + row.offsetHeight;
+    // B-42 (0.156): ряд SHOWан в масштабе --pinned-scale — layout-высота
+    // этого не знает, домножаем руками (transform-origin: top left —
+    // прирост уходит вниз, к сетке).
+    const rowScale = parseFloat(getComputedStyle(row).getPropertyValue('--pinned-scale')) || 1;
+    const rowBottom = barTop + bar.offsetHeight + 10 + row.offsetHeight * rowScale;
     shift = Math.max(0, rowBottom + 8 - grid.offsetTop);
   }
-  grid.style.setProperty('--pinned-shift', shift > 0 ? shift.toFixed(1) + 'px' : '0px');
+  // B-42 (0.156): перерисовки карточки часты (ховер, тики игры) —
+  // одинаковое значение НЕ пишем: запись инвалидирует стиль сетки и
+  // гоняет transition padding-top впустую (один из источников
+  // «подлагиваний» при закрепе).
+  const val = shift > 0 ? shift.toFixed(1) + 'px' : '0px';
+  if (val !== lastPinnedShiftWritten) {
+    grid.style.setProperty('--pinned-shift', val);
+    lastPinnedShiftWritten = val;
+  }
 }
+let lastPinnedShiftWritten = null;
 
 // B-38 (0.154): смена аппликатуры в закреплённой карточке/превью — не
 // скачком: старое содержание уезжает влево (0.13с), новое приезжает
@@ -14946,9 +15005,14 @@ function updatePinnedNextTimer() {
   const ctx = getAudioContext();
   if (!ctx) return;
   const frac = (ctx.currentTime - st.cellStart) / st.cellDur;
-  el.style.setProperty('--pinned-next-progress',
-    Math.max(0, Math.min(1, frac)).toFixed(4));
+  const clamped = Math.max(0, Math.min(1, frac));
+  // B-42 (0.156): кадр за кадром значение почти не меняется — пишем
+  // только при заметном сдвиге, RAF-цикл не будит стиль лишний раз.
+  if (lastPinnedTimerFrac !== null && Math.abs(clamped - lastPinnedTimerFrac) < 0.002) return;
+  lastPinnedTimerFrac = clamped;
+  el.style.setProperty('--pinned-next-progress', clamped.toFixed(4));
 }
+let lastPinnedTimerFrac = null;
 
 let pinnedTimerRAF = 0;
 function pinnedTimerLoop() {
@@ -14965,20 +15029,51 @@ function ensurePinnedNextTimer() {
   if (!pinnedTimerRAF) pinnedTimerRAF = requestAnimationFrame(pinnedTimerLoop);
 }
 
+// B-42 (0.156): растворение ряда при откреплении — display:none ПОСЛЕ
+// анимации (0.26с). Повторное закрепление в этот интервал отменяет
+// таймер и возвращает ряд на место (см. renderPinnedFingering).
+function hidePinnedRowAnimated(row, onHidden) {
+  if (!row || row.style.display === 'none') {
+    if (onHidden) onHidden();
+    return;
+  }
+  row.classList.remove('is-appearing');
+  row.classList.add('is-dissolving');
+  if (row.__dissolveTimer) clearTimeout(row.__dissolveTimer);
+  row.__dissolveTimer = setTimeout(() => {
+    row.__dissolveTimer = 0;
+    row.classList.remove('is-dissolving');
+    row.style.display = 'none';
+    const host = document.getElementById('pinnedFingering');
+    if (host) resetFingeringSwap(host.querySelector('.fingering-content'));
+    if (onHidden) onHidden();
+  }, 270);
+}
+
 function renderPinnedFingering(chordName, shape) {
   const host = document.getElementById('pinnedFingering');
   const row = document.getElementById('pinnedRow');
   if (!host || !row) return;
   if (!pinnedFingering) {
-    row.style.display = 'none';
-    resetFingeringSwap(host.querySelector('.fingering-content'));
+    // B-42 (0.156): открепление — «переплывание»: ряд растворяется
+    // (blur + подъём), содержимое чистится ПОСЛЕ анимации, чтобы не
+    // улетала пустая карточка.
+    // Превью гасим ВМЕСТЕ с рядом (в колбэке): иначе оно исчезло бы
+    // раньше карточки, и растворялся бы огрызок.
+    hidePinnedRowAnimated(row, () => renderPinnedNext(null));
     document.body.classList.remove('has-pinned-fingering');
     updatePinnedShift();
-    renderPinnedNext(null);
     return;
   }
   document.body.classList.add('has-pinned-fingering');
   row.style.display = 'flex';
+  // Показ (в т.ч. быстрое перезакрепление во время растворения) гасит
+  // анимацию ухода.
+  if (row.__dissolveTimer) {
+    clearTimeout(row.__dissolveTimer);
+    row.__dissolveTimer = 0;
+  }
+  row.classList.remove('is-dissolving');
   const name = chordName || pinnedFingering.chord;
   const sec = sections.find((x) => x.id === pinnedFingering.secId);
   const key = sec && sec.key ? sec.key : globalKey;
@@ -15020,6 +15115,7 @@ function renderPinnedNext(pos) {
     }
     const timerEl = document.getElementById('pinnedNextTimer');
     if (timerEl) timerEl.style.removeProperty('--pinned-next-progress');
+    lastPinnedTimerFrac = null;
     return;
   }
   const sec = sections.find((x) => x.id === pos.secId);
@@ -15127,12 +15223,20 @@ function syncPinnedRowToHover(wrapper) {
   const input = wrapper.querySelector('.chord-input');
   const chord = input && input.value.trim();
   if (!chord) return;
-  pinnedHoverWrapper = wrapper;
   const secId = +wrapper.dataset.sec;
   const sec = sections.find((x) => x.id === secId);
   const key = sec && sec.key ? sec.key : globalKey;
   const posKey = buildFingeringPositionKey(chord, key, secId, +wrapper.dataset.square, +wrapper.dataset.ei);
-  renderPinnedFingering(chord, resolveFingeringShape(chord, key, posKey));
+  const form = resolveFingeringShape(chord, key, posKey);
+  // B-42 (0.156): если этот аккорд с этой формой УЖЕ показан — выходим
+  // ДО тяжёлой работы: водить мышью по сетке с закрепом не должно
+  // перестраивать SVG и раскладку на каждой ячейке (подлагивания).
+  const formKey = Array.isArray(form) ? form.join(',') : String(form);
+  const content = document.getElementById('pinnedFingering');
+  const host = content && content.querySelector('.fingering-content');
+  if (host && host.dataset.swapKey === chord + '|' + formKey) return;
+  pinnedHoverWrapper = wrapper;
+  renderPinnedFingering(chord, form);
 }
 
 // Остановились — возвращаем ту форму, которую закрепили.
