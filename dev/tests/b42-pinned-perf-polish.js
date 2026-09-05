@@ -71,9 +71,10 @@ w.addEventListener('load', async () => {
   ok('ряд без --pinned-scale и без transform',
     !/--pinned-scale/.test(rowRule) && !/transform\s*:/.test(rowRule), rowRule.slice(0, 140));
   const cardRule = (css.match(/\.pinned-fingering\s*\{[^}]*\}/) || [''])[0];
-  ok('карточка — прозрачное стекло (75% + blur 10 + Safari-префикс)',
-    /75%, transparent/.test(cardRule) && /blur\(10px\)/.test(cardRule) &&
-    /-webkit-backdrop-filter/.test(cardRule));
+  ok('карточка — ОБЫЧНЫЙ цвет: поверхность, без стекла и подмесок',
+    /background:\s*var\(--color-surface\)/.test(cardRule) &&
+    !/backdrop-filter/.test(cardRule) && !/color-mix/.test(cardRule),
+    cardRule.slice(0, 140));
   ok('карточка без transform (раскладка честная)', !/transform\s*:/.test(cardRule));
   ok('карточка без transition темы (артефакты WebKit)', !/transition\s*:/.test(cardRule));
   const nextRule = (css.match(/\.pinned-next\s*\{[^}]*\}/) || [''])[0];
