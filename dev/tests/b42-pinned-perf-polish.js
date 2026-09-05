@@ -90,6 +90,13 @@ w.addEventListener('load', async () => {
     /blur\(14px\)/.test(css) && /translateY\(-16px\)/.test(css));
   ok('длительности 0.42/0.34 синхронизированы с JS',
     /0\.42s/.test(css) && /0\.34s/.test(css));
+  const prevTipRule = (css.match(/(^|\n)#preview-tooltip\s*\{[^}]*\}/) || [''])[0];
+  ok('всплывающее превью — такое же стекло (55% + blur + пунктир)',
+    /55%, transparent/.test(prevTipRule) && /blur\(10px\)/.test(prevTipRule) &&
+    /2px dashed/.test(prevTipRule), prevTipRule.slice(0, 100));
+  const prevStyle = d.getElementById('preview-tooltip').getAttribute('style');
+  ok('у превью-тултипа нет инлайн-фона/непрозрачности',
+    !/background/.test(prevStyle) && !/opacity/.test(prevStyle), prevStyle);
   ok('reduced-motion гасит анимации ряда', /prefers-reduced-motion/.test(css));
 
   console.log('=== 2. Переплывание: закрепление ===');
