@@ -159,10 +159,20 @@ w.addEventListener('load', async () => {
   const demotedHits0 = demotedGhost
     ? [...demotedGhost.querySelectorAll('.rhythm-hint')[0].querySelectorAll('.rhythm-hint-hit')]
     : [];
-  ok('если ритм снят в наследование, он не уплывает, а только fade-out',
-    !!(demotedHits0.length && demotedHits0.every((h) => !h.style.transform.includes('translate(')
-      && !h.dataset.rhythmTargetTransform)),
-    demotedHits0.map((h) => h.style.transform || h.dataset.rhythmTargetTransform || 'none').join(' | '));
+  const becameCustomHits1 = demotedGhost
+    ? [...demotedGhost.querySelectorAll('.rhythm-hint')[1].querySelectorAll('.rhythm-hint-hit')]
+    : [];
+  // 0.168: переплывание обязано работать всегда, когда кастом рисуется
+  // в превью. Здесь ничего не снято (отпускание без сдвига) — кастом
+  // уплывает ПОУДАРНО в перестроенное по финальной модели превью.
+  ok('кастом без снятия уплывает поударно в своё превью (не fallback-полосой)',
+    !!(demotedHits0.length && demotedHits0.every((h) => h.style.transform.includes('translate(')
+      && h.dataset.rhythmTargetTransform)),
+    demotedHits0.map((h) => h.style.transform || 'none').join(' | '));
+  ok('ячейка, ставшая кастомной во время жеста, уплывает в перестроенное превью',
+    !!(becameCustomHits1.length && becameCustomHits1.every((h) => h.style.transform.includes('translate(')
+      && h.dataset.rhythmTargetTransform)),
+    becameCustomHits1.map((h) => h.style.transform || 'none').join(' | '));
   await sleep(100); // середина обратной анимации: полного render нет
   ok('финальный requestRender не вызывается: resize закрывается инкрементальной синхронизацией',
     evl('return window.__b15RequestRenderCount') === 0,
@@ -216,8 +226,12 @@ w.addEventListener('load', async () => {
     stale.appendChild(document.createElement('span'));
     return 0`);
   firePointerUp();
-  ok('stale mini-preview ячейки без финального кастома помечен на скрытие',
-    !!d.querySelector('.chord-wrapper[data-ei="1"] .event-strum-preview.is-rhythm-removing'));
+  // 0.168: на отпускании превью перестраиваются по ФИНАЛЬНОЙ модели —
+  // устаревшее содержимое не «прячется до render», а стирается на месте.
+  const staleBox3c = d.querySelector('.chord-wrapper[data-ei="1"] .event-strum-preview');
+  ok('stale mini-preview ячейки без финального кастома стёрт перестройкой',
+    !!(staleBox3c && !staleBox3c.firstChild && !staleBox3c.classList.contains('has-pattern')),
+    staleBox3c ? (staleBox3c.children.length + '/' + staleBox3c.className) : 'no box');
   await sleep(460);
 
   console.log('=== 3d. Снятый ритм не телепортируется в фасад перед fade-out ===');
@@ -257,6 +271,26 @@ w.addEventListener('load', async () => {
   ok('снятый ритм исчезает fade-out и не получает target flight',
     demoteHits.every((h) => !h.dataset.rhythmTargetTransform && !h.style.transform.includes('translate(')),
     demoteHits.map((h) => h.dataset.rhythmTargetTransform || h.style.transform || 'none').join(' | '));
+  await sleep(460);
+
+  console.log('=== 3f. Полосы ритма не двигаются во время протяжки ===');
+  scene([D(strum(2, 'DUDU'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  firePointerDown(handle(), 100);
+  await sleep(30);
+  const frozenOv = overlayIn();
+  const frozenBars = frozenOv ? [...frozenOv.querySelectorAll('.rhythm-hint')] : [];
+  const frozenBefore = frozenBars.map((b) => b.style.left + ' ' + b.style.width);
+  const gridBefore = evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`);
+  firePointerMove(200);
+  await sleep(60); // кадр applyResizePreviewAt успевает отработать
+  const frozenAfter = frozenBars.map((b) => b.style.left + ' ' + b.style.width);
+  const gridAfter = evl(`return document.querySelector('.square-inner').style.gridTemplateColumns`);
+  ok('живая сетка ячеек изменилась во время протяжки', gridBefore !== gridAfter,
+    gridBefore + ' -> ' + gridAfter);
+  ok('полосы ритма стоят на стартовых позициях (не растягиваются)',
+    frozenBefore.length === 2 && frozenBefore.every((v, i) => v === frozenAfter[i]),
+    frozenBefore.join(' | ') + ' -> ' + frozenAfter.join(' | '));
+  firePointerUp(200);
   await sleep(460);
 
   console.log('=== 3e. Новая кастомная ячейка после ресайза тоже уплывает ===');

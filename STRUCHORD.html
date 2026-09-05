@@ -8884,7 +8884,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.167</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.168</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -29677,8 +29677,10 @@ function buildRhythmHintContent(hintEl, pattern, deltas) {
   hintEl.appendChild(frag);
 }
 
-// Геометрия полос — из того же distributeVisualSpans, что правит сетку
-// на каждом движении мыши: полосы едут ровно вместе с границами ячеек.
+// Геометрия полос — из того же distributeVisualSpans, что и сетка.
+// С 0.168 вызывается только на старте жеста: всю протяжку полосы стоят
+// на стартовых позициях (замороженный метрический слой, как засечки),
+// финальную геометрию даёт commit на pointerup.
 function layoutRhythmHints(session, distribution) {
   const tc = distribution.totalCols;
   let cum = 0;
@@ -29970,6 +29972,34 @@ function finishRhythmHints(opts) {
   // если кастомный ритм был снят/демотирован в наследование, ему уже
   // некуда «уплывать» — компактного превью в финальном DOM не будет.
   // Такой ряд должен исчезнуть тем же fade-out, что и наследуемый.
+  //
+  // 0.168: перед измерением целей уплывания перестраиваем мини-превью
+  // по ФИНАЛЬНОЙ модели. Всю протяжку превью сознательно заморожено
+  // («innerHTML ждёт pointerup»), и без перестройки были два дефекта:
+  // (1) ячейка, ставшая кастомной только к отпусканию, уплывала
+  //     fallback-полосой вверх, а не поударным переплыванием в свои
+  //     глифы — а переплывание обязано работать всегда, когда ритм
+  //     рисуется в превью (фидбек 2026-09-05);
+  // (2) у давно-кастомной ячейки цели летели по устаревшим глифам/
+  //     позициям, и превью подменялось под руками на финальном sync.
+  // Срезы здесь по-прежнему подавлены (body уже is-rhythm-hint-returning,
+  // сессия обнулена): снятый в наследование уплывает только fade-out
+  // (B-15), срез дорисует финальная инкрементальная синхронизация (B-30).
+  // has-cell-rhythm на ячейках сохраняем каким был до перестройки:
+  // ступень лада не должна подпрыгивать на полсекунды выхода и
+  // возвращаться на финальном sync.
+  const keptCellRhythmWrappers = [];
+  session.bi.querySelectorAll('.event-strum-preview').forEach((b) => {
+    const wrapper = b.parentElement;
+    if (wrapper && wrapper.classList.contains('has-cell-rhythm')) {
+      keptCellRhythmWrappers.push(wrapper);
+    }
+    b.innerHTML = '';
+    b.classList.remove('has-pattern', 'is-live', 'is-inherited-slice');
+    if (wrapper) wrapper.classList.remove('has-cell-rhythm');
+  });
+  renderEventStrumPreviews(session.bi);
+  keptCellRhythmWrappers.forEach((wrapperEl) => wrapperEl.classList.add('has-cell-rhythm'));
   const currentData = session.s && session.sq ? collectRhythmHintData(session.s, session.sq) : [];
   const droppedOut = new Set(opts && Array.isArray(opts.droppedOut) ? opts.droppedOut : []);
   session.entries.forEach((entry, ei) => {
@@ -31132,12 +31162,13 @@ function attachResizeHandlers() {
         lastResizePreviewKey = key;
         ensureLiveGrid();
         bi.style.gridTemplateColumns = liveGridTemplate(nsp);
-        // B-15-оверлей едет вместе с живой геометрией, но контент ритма
-        // не пересрезается на каждом кадре: это было одной из дорогих
-        // частей старого resize-loop. Финальный reslice остаётся на commit.
-        if (rhythmHintSession) {
-          layoutRhythmHints(rhythmHintSession, { totalCols: tc, spans: nsp });
-        }
+        // 0.168: полосы ритма во время протяжки ЗАМОРОЖЕНЫ — стоят на
+        // стартовых позициях, как засечки и счёт «1-та-и-та» (фидбек
+        // 2026-09-05: «ритм не должен двигаться при ресайзе»). Раньше
+        // Раньше layoutRhythmHints гонял их по живой геометрии — глифы
+        // растягивались вместе с ячейкой и только на отпускании
+        // вставали на место.
+        // Финальную геометрию и контент полосам даёт commit на pointerup.
         // Засечки и счёт во время drag остаются снимком стартового
         // метрического слоя: координаты не пересчитываем. Поверх frozen-
         // засечек, но под счётом, двигаем covers текущих границ. Для
