@@ -8900,7 +8900,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.175</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.176</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -29732,7 +29732,24 @@ function buildRhythmHintContent(hintEl, pattern, deltas, geometry) {
     } else {
       el.classList.add('rest');
     }
-    el.style.left = (j / n * 100) + '%';
+    // B-50 (0.176): удар стоит на МЕТРИЧЕСКОМ узле — j / subdivision доли
+    // от начала ячейки, ровно как в дорожке ленты (renderTimelineRhythm
+    // ставит шаг через i / steps.length при ширине ровно span долей, то
+    // есть тот же 1/subdivision).
+    //
+    // Доля ШИРИНЫ полосы (прежнее j / n) совпадает с метрикой только
+    // когда длина ячейки делится на дробность нацело. У ячейки 1.75 доли
+    // с боем тройками шагов получается 5 (round(1.75 x 3)), они
+    // покрывают 1.667 доли, и растяжка их на всю ширину 1.75 давала
+    // нарастающий сдвиг: 0 / 0.017 / 0.033 / 0.05 / 0.067 доли —
+    // последний удар уезжал на четверть шага от «та». Пользователь
+    // (2026-09-05): «ритм над 1 та и та должен располагаться как в
+    // режиме ленты».
+    const subDiv = Math.max(1, pattern.subdivision || 1);
+    const cellBeats = (geometry && Number.isFinite(geometry.spanBeats) && geometry.spanBeats > 0)
+      ? geometry.spanBeats
+      : n / subDiv;
+    el.style.left = ((j / subDiv) / cellBeats * 100) + '%';
     if (j === 0) el.classList.add('is-edge');
     // 0.170: ключ метрического узла удара (колонки квадрата × 1e6 — та же
     // валюта, что у resizeMetricNodeKey в overlay счёта). По нему
@@ -29801,6 +29818,13 @@ function layoutRhythmHints(session, distribution) {
 // снапов за жест единицы. 60fps guardrail при этом цел.
 function syncRhythmHintCounts(session, spansBeats) {
   if (!session || !Array.isArray(spansBeats)) return;
+  // Общая метрика квадрата: длина в долях и смещение каждой ячейки в
+  // НОВЫХ долях. По ним удар кладётся на свой абсолютный узел сетки.
+  const totalBeats = spansBeats.reduce((a, b) => a + (b || 0), 0);
+  if (!(totalBeats > 0)) return;
+  const offsets = [];
+  let acc = 0;
+  spansBeats.forEach((v) => { offsets.push(acc); acc += v || 0; });
   session.entries.forEach((entry, i) => {
     const base = entry.basePattern;
     if (!base || !entry.el.firstChild) return;
@@ -29813,6 +29837,29 @@ function syncRhythmHintCounts(session, spansBeats) {
     // входного FLIP. Класс входа возвращаем, иначе новые узлы останутся
     // прозрачными до конца жеста.
     entry.el.classList.add('is-in');
+    // Билдер кладёт удары от начала СВОЕЙ полосы, а полоса всю протяжку
+    // заморожена на стартовой геометрии. Внутренний шаг от этого верен
+    // (1/subdivision доли, как в ленте), но ячейка, у которой сдвинулась
+    // ЛЕВАЯ граница, должна и начинаться с нового места: иначе выросший
+    // сосед налезает на неё (замер: Am дотянулся до 41.67%, а G всё ещё
+    // стартовала с 35.94%).
+    //
+    // Пользователь (2026-09-05): «при ресайзе его положение не должно
+    // визуально меняться (за исключением отодвигания из-за границы
+    // ячейки, но это только визуально)». Отодвигание границы — и есть
+    // это исключение: сетка узлов остаётся общей и неподвижной, меняется
+    // лишь то, с какого узла начинается ячейка.
+    //
+    // Считаем абсолютный узел в долях квадрата и переводим в систему
+    // координат замороженной полосы.
+    const stripLeft = parseFloat(entry.el.style.left) || 0;
+    const stripWidth = parseFloat(entry.el.style.width) || 0;
+    if (stripWidth <= 0) return;
+    const sub = Math.max(1, next.subdivision || 1);
+    entry.el.querySelectorAll('.rhythm-hint-hit').forEach((hit, j) => {
+      const absPct = ((offsets[i] + j / sub) / totalBeats) * 100;
+      hit.style.left = (((absPct - stripLeft) / stripWidth) * 100) + '%';
+    });
     if (session.edgeKeys) syncRhythmHintLiveEdges(session, session.edgeKeys);
   });
 }
@@ -29905,7 +29952,13 @@ function startRhythmHints(s, sq, bi, distribution) {
     el.className = 'rhythm-hint';
     const d = data[ei];
     const cellCols = Math.max(1, distribution.spans[ei] || 1);
-    const geometry = { leftCols: leftColsCum, cols: cellCols };
+    // spanBeats — истинная длина ячейки в ДОЛЯХ (не в колонках): по ней
+    // билдер кладёт удары на метрические узлы, как в ленте (B-50, 0.176).
+    const geometry = {
+      leftCols: leftColsCum,
+      cols: cellCols,
+      spanBeats: getEventVisualSpanInParentUnits(ev, s.timeSig || globalTimeSig),
+    };
     leftColsCum += cellCols;
     const entry = { el, custom: false, startCustom: false, patternKey: '', geometry };
     if (d) {

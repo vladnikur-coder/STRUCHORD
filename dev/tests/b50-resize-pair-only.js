@@ -209,6 +209,105 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ok('длина квадрата = 16', Math.abs(s.reduce((a, b) => a + b, 0) - 16) < 1e-9, s.join(','));
   }
 
+
+  // 7. Удары стоят на МЕТРИЧЕСКОЙ сетке квадрата, как в режиме ленты
+  //    (пользователь 2026-09-05: «ритм над 1 та и та должен располагаться
+  //    как в режиме ленты», «при ресайзе его положение не должно
+  //    визуально меняться»). Регрессия 0.175: число ударов менялось, а
+  //    ширина полосы оставалась стартовой — шаг между ударами плыл.
+  {
+    const w = boot();
+    w.eval(`
+      sections[0].strumPattern = { mode: 'strum', subdivision: 3,
+        steps: ['D', null, null, 'D', null, 'U', null, null, 'U', 'D', null, 'U'] };
+    `);
+    try { w.render(); } catch (e) {}
+    await sleep(300);
+    const sqEl = w.document.querySelector('.square-inner');
+    sqEl.getBoundingClientRect = () => ({ left: 0, right: W, width: W, top: 0, bottom: 60, height: 60 });
+    sqEl.querySelectorAll('.chord-wrapper').forEach((cw) => {
+      cw.getBoundingClientRect = () => ({ left: 0, right: 100, width: 100, top: 0, bottom: 60, height: 60 });
+    });
+    // Абсолютные позиции ударов в % ширины квадрата.
+    const absPositions = () => {
+      const out = [];
+      w.document.querySelectorAll('.rhythm-hint').forEach((strip) => {
+        const L = parseFloat(strip.style.left) || 0;
+        const WD = parseFloat(strip.style.width) || 0;
+        strip.querySelectorAll('.rhythm-hint-hit').forEach((hit) => {
+          out.push(L + WD * (parseFloat(hit.style.left) || 0) / 100);
+        });
+      });
+      return out.sort((a, b) => a - b);
+    };
+    // Модальный (самый частый) шаг сетки. Строгое «все шаги равны» здесь
+    // неверно: ячейка 1.75 доли не делится на тройки нацело, и на её
+    // стыке с соседом остаётся законный неровный интервал. Проверяем,
+    // что ОСНОВНАЯ сетка — шаг 1/subdivision доли — не меняется.
+    const modalGap = (arr) => {
+      const gaps = arr.slice(1).map((v, i) => +(v - arr[i]).toFixed(2));
+      const freq = {};
+      gaps.forEach((g) => { freq[g] = (freq[g] || 0) + 1; });
+      return +Object.keys(freq).sort((a, b) => freq[b] - freq[a])[0];
+    };
+    const h = sqEl.querySelectorAll('.resize-handle')[2];
+    const down = new w.MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 0 });
+    if (typeof h.onpointerdown === 'function') h.onpointerdown(down); else h.dispatchEvent(down);
+    const atDown = absPositions();
+    const gapAtDown = modalGap(atDown);
+    // 16 долей в квадрате, тройки: шаг = 100 / (16 x 3) = 2.08%
+    ok('на старте шаг сетки = 1/3 доли (как в ленте)', Math.abs(gapAtDown - 2.08) < 0.02, gapAtDown);
+    // Шаг ВНУТРИ каждой ячейки обязан быть ровно 1/subdivision доли —
+    // тот же инвариант, что у дорожки ленты (renderTimelineRhythm кладёт
+    // удары от начала ячейки с шагом span/steps). Абсолютную сетку здесь
+    // требовать нельзя: ячейка может начинаться вне сетки (G стартует на
+    // 5.75 доли), и лента в этом случае тоже сдвинута — удары считаются
+    // ОТ НАЧАЛА ЯЧЕЙКИ. Регрессия 0.175 ломала именно шаг: 9 ударов
+    // вжимались в прежнюю ширину и шли через 1.21% вместо 2.08%.
+    const perCellSteps = () => Array.from(w.document.querySelectorAll('.rhythm-hint'))
+      .map((strip) => {
+        const WD = parseFloat(strip.style.width) || 0;
+        const hits = Array.from(strip.querySelectorAll('.rhythm-hint-hit'))
+          .map((hit) => WD * (parseFloat(hit.style.left) || 0) / 100);
+        if (hits.length < 2) return null;
+        return +(hits[1] - hits[0]).toFixed(2);
+      })
+      .filter((v) => v !== null);
+    const stepsAtDown = perCellSteps();
+    ok('шаг внутри каждой ячейки = 1/3 доли (как в ленте)',
+       stepsAtDown.every((v) => Math.abs(v - 2.08) < 0.03), stepsAtDown.join(','));
+    for (let x = 1; x <= 40; x++) {
+      w.document.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: x }));
+    }
+    await sleep(150);
+    const during = absPositions();
+    ok('в жесте шаг сетки НЕ изменился', Math.abs(modalGap(during) - gapAtDown) < 0.02,
+       'было ' + gapAtDown + ' стало ' + modalGap(during));
+    const stepsDuring = perCellSteps();
+    ok('в жесте шаг ВНУТРИ ячеек не изменился',
+       stepsDuring.every((v) => Math.abs(v - 2.08) < 0.03), stepsDuring.join(','));
+    // Ячейка, у которой уехала ЛЕВАЯ граница, обязана начинаться с
+    // нового узла: иначе выросший сосед налезает на неё. Читаем позиции
+    // В ПОРЯДКЕ DOM (без сортировки — она бы замаскировала наложение) и
+    // требуем строгого возрастания.
+    const domOrder = [];
+    w.document.querySelectorAll('.rhythm-hint').forEach((strip) => {
+      const L = parseFloat(strip.style.left) || 0;
+      const WD = parseFloat(strip.style.width) || 0;
+      strip.querySelectorAll('.rhythm-hint-hit').forEach((hit) => {
+        domOrder.push(L + WD * (parseFloat(hit.style.left) || 0) / 100);
+      });
+    });
+    const monotone = domOrder.every((v, k) => k === 0 || v - domOrder[k - 1] > 0.5);
+    ok('ячейки не налезают друг на друга', monotone,
+       domOrder.map((v) => v.toFixed(2)).join(' '));
+    // Узлы метрической сетки не сдвинулись: те, что были и остались,
+    // стоят на прежних процентах.
+    const kept = atDown.filter((v) => during.some((u) => Math.abs(u - v) < 0.05));
+    ok('общие узлы сетки не сместились', kept.length >= atDown.length - 12,
+       'сохранилось ' + kept.length + ' из ' + atDown.length);
+  }
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
   process.exit(bad ? 1 : 0);
 })();
