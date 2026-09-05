@@ -8900,7 +8900,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.173</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.174</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -18471,9 +18471,22 @@ function sewRhythmChainAtBoundary(st, sec, sq, dragIdx, startSpans) {
     tapes.push(frozenTapeForEvent(st, sec, sq, i, startSpans || null));
     subs.push(tapes[tapes.length - 1] ? Math.max(1, tapes[tapes.length - 1].subdivision || 1) : 0);
   }
+  // B-50 (2026-09-05): сетку цепочки подбираем под доли ПОСЛЕ жеста.
+  // Раньше здесь стояли замороженные доли (spanAt/offs0), и дробная
+  // ячейка тащила за собой мелкую сетку: при span 1.75 и смещении 5.75
+  // тройной бой ложился только в sub12, то есть в двенадцать нот на
+  // долю. Пользователь (2026-09-05) сформулировал обратное правило:
+  // «дробность не меняется, просто шагов становится больше или меньше
+  // по длине ячейки». Содержимое ленты по-прежнему берётся замороженным
+  // (tapes) — меняется только сетка, в которую его раскладывают.
+  const offsNow = [];
+  {
+    let acc = 0;
+    sq.events.forEach((e0, i) => { offsNow.push(acc); acc += curSpan(i); });
+  }
   const fitsCell = (i, cand) =>
     (!subs[i - iMin] || cand % subs[i - iMin] === 0) &&
-    isInt(spanAt(i) * cand) && isInt(offs0[i] * cand);
+    isInt(curSpan(i) * cand) && isInt(offsNow[i] * cand);
   const ROW = [1, 2, 3, 4, 6, 8, 12, 16, 24];
   let g = 0;
   for (const cand of ROW) {

@@ -134,6 +134,35 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
     ok('длина квадрата = 16', Math.abs(s.reduce((a, b) => a + b, 0) - 16) < 1e-9, s.reduce((a, b) => a + b, 0));
   }
 
+
+  // 5. Дробность боя переживает ресайз (фидбек 2026-09-05: «ритм внутри
+  //    ячеек ломается после отпускания мыши»). Бой секции тройками:
+  //    после жеста ячейка обязана остаться тройками, изменив лишь число
+  //    шагов по своей длине. Раньше sub улетал в 4 и 12.
+  {
+    const w = boot();
+    w.eval(`
+      sections[0].strumPattern = { mode: 'strum', subdivision: 3,
+        steps: ['D', null, null, 'D', null, 'U', null, null, 'U', 'D', null, 'U'] };
+    `);
+    try { w.render(); } catch (e) {}
+    const subs = () => JSON.parse(w.eval(`JSON.stringify(sections[0].squares[0].events.map((e,i)=>{
+      const x = rhythmSoundingForEvent(sections[0], sections[0].squares[0], e, i);
+      return x ? x.subdivision : null; }))`));
+    const before = subs();
+    ok('до жеста бой тройками', before.every((v) => v === 3), before.join(','));
+    drag(w, 2, 0, [20, 40, gs]);
+    await sleep(400);
+    const after = subs();
+    const s = spans(w);
+    ok('после жеста дробность осталась 3', after.every((v) => v === 3), after.join(','));
+    const steps = JSON.parse(w.eval(`JSON.stringify(sections[0].squares[0].events.map((e,i)=>{
+      const x = rhythmSoundingForEvent(sections[0], sections[0].squares[0], e, i);
+      return x ? x.steps.length : null; }))`));
+    ok('шагов ровно span x 3', steps.every((n, i) => n === Math.round(s[i] * 3)),
+       steps.join(',') + ' при долях ' + s.join(','));
+  }
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
   process.exit(bad ? 1 : 0);
 })();
