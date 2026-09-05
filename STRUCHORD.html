@@ -8900,7 +8900,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.172</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.173</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30868,11 +30868,19 @@ function attachResizeHandlers() {
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
       startRhythmHints(s, sq, bi, distribution);
 
+      // B-50 (2026-09-05): место жеста — РОВНО пара у ручки. Раньше цикл
+      // шёл до конца квадрата и, добирая остаток, залезал в дальних
+      // соседей: протяжка границы E|Am роняла ещё и G с 2.25 на 2, хотя
+      // пользователь её не трогал. Дробные доли (законные при зуме с
+      // шагом 0.25 и при импорте) так уничтожались молча и без возврата.
+      // Предел протяжки теперь — размер соседа: дальше стена, а не тихая
+      // перекройка половины квадрата.
       function dist(sp, fi, ch) {
         let rem = ch;
         const nsp = [...sp];
         const minCell = Math.max(1e-6, getResizeStep() * (tc / squareUnits));
-        for (let i = fi + 1; i < ec && Math.abs(rem) > 1e-6; i++) {
+        const chainEnd = Math.min(ec, fi + 2);
+        for (let i = fi + 1; i < chainEnd && Math.abs(rem) > 1e-6; i++) {
           if (rem > 0) {
             const ct = nsp[i] - minCell;
             const tk = Math.min(rem, ct);
@@ -30892,8 +30900,13 @@ function attachResizeHandlers() {
         const parentDenom = parseTimeSig(parentTs).denominator || 4;
         const nextEvents = sq.events.map((ev, i) => ({ ...ev, span: origSpans[i] }));
 
+        // B-50: квантуем ТОЛЬКО пару у ручки. Ячейка, чья визуальная
+        // ширина не изменилась, обязана сохранить span бит-в-бит, даже
+        // если он не кратен текущему шагу: иначе один Math.round по всему
+        // квадрату ровнял чужие 1.75/2.25 под шаг зума.
+        const dragPair = new Set([ei, ei + 1]);
         for (let i = 0; i < ec; i++) {
-          if (nsp[i] === origVisSpans[i]) {
+          if (nsp[i] === origVisSpans[i] || !dragPair.has(i)) {
             nextEvents[i].span = origSpans[i];
           } else {
             // Изменилась визуальная ширина. Сначала переводим дельту из
@@ -30912,6 +30925,33 @@ function attachResizeHandlers() {
           }
         }
 
+        // B-50: сумма ПАРЫ у ручки неизменна — граница ездит внутри двух
+        // ячеек, длина квадрата от жеста не зависит. Правого соседа
+        // считаем вычитанием, а не отдельным Math.round: два независимых
+        // округления давали разъезд (2+3+1+2.25 = 16.25 при квадрате 16),
+        // и остаток потом списывался в непричастную ячейку.
+        //
+        // Когда сумма пары кратна шагу — а это обычный случай, включая
+        // 1.75+2.25=4 — обе ячейки встают на сетку, как и просил
+        // пользователь. Если же сумма пары дробная (сосед пришёл
+        // дробным из другого зума), на сетку встаёт перетаскиваемая
+        // ячейка, а остаток достаётся соседу: ровнять его силой значило
+        // бы менять длину квадрата.
+        const rIdx = ei + 1;
+        if (rIdx < ec && dragPair.has(rIdx)) {
+          const lEv = nextEvents[ei], rEv = nextEvents[rIdx];
+          const lDen = parseTimeSig(getEventOwnTimeSig(lEv, parentTs)).denominator || 4;
+          const rDen = parseTimeSig(getEventOwnTimeSig(rEv, parentTs)).denominator || 4;
+          // Сумма пары в долях родителя — по исходным span, до жеста.
+          const pairParent = origSpans[ei] * (parentDenom / lDen) + origSpans[rIdx] * (parentDenom / rDen);
+          const lParent = lEv.span * (parentDenom / lDen);
+          const stepP = getResizeStep();
+          const minP = stepP;
+          const lClamped = Math.min(Math.max(lParent, minP), Math.max(minP, pairParent - minP));
+          lEv.span = roundSpan(lClamped * (lDen / parentDenom));
+          rEv.span = roundSpan((pairParent - lClamped) * (rDen / parentDenom));
+        }
+
         // Та же финальная компенсация, что раньше выполнялась внутри
         // live-writeSpans(), но теперь — на временных событиях. Сумма
         // длительностей будущей модели остаётся равной длине квадрата,
@@ -30921,7 +30961,10 @@ function attachResizeHandlers() {
         const diffBeats = visualSum - targetBeats;
         const diff = Math.abs(diffBeats) < 1e-9 ? 0 : diffBeats;
         if (diff !== 0) {
-          const idx = nsp[ei] !== origVisSpans[ei] ? ei : ec - 1;
+          // B-50: остаток списываем внутрь пары у ручки. Прежний запасной
+          // адрес `ec - 1` отправлял его в последнюю ячейку квадрата —
+          // ещё один способ испортить долю, к которой не прикасались.
+          const idx = nsp[ei] !== origVisSpans[ei] ? ei : Math.min(ei + 1, ec - 1);
           const ev = nextEvents[idx];
           const ownDenom = parseTimeSig(getEventOwnTimeSig(ev, parentTs)).denominator || 4;
           const correctionOwn = diff * (ownDenom / parentDenom);
