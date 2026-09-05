@@ -4284,8 +4284,15 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   color: var(--color-text-secondary);
   /* Поударный FLIP: вход — от места глифа в мини-превью до узла сетки,
      выход — обратно; лесенку задаёт transition-delay из JS. */
-  transition: transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1);
-  will-change: transform;
+  transition: transform 0.22s cubic-bezier(0.2, 0.7, 0.2, 1),
+    margin-left 0.12s cubic-bezier(0.2, 0.75, 0.18, 1);
+  will-change: transform, margin-left;
+}
+/* B-31.9: frozen-счёт получает edge-отступ, когда snapped-граница
+   переезжает на этот узел. Ритм повторяет только этот микросдвиг —
+   полоса/удары не растягиваются и не меняют свои метрические left. */
+.rhythm-hint-hit.is-resize-edge {
+  margin-left: 2px;
 }
 /* Первый шаг первой ячейки встаёт на левой кромке квадрата — там
    центрирование обрезало бы половину глифа об overflow:hidden квадрата.
@@ -8895,7 +8902,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.170</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.171</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -29704,6 +29711,49 @@ function buildRhythmHintContent(hintEl, pattern, deltas) {
 // С 0.168 вызывается только на старте жеста: всю протяжку полосы стоят
 // на стартовых позициях (замороженный метрический слой, как засечки),
 // финальную геометрию даёт commit на pointerup.
+function rhythmHintResizeMetricKey(cols) {
+  return String(Math.round((cols || 0) * 1e6));
+}
+
+// Подпись «1/та/и/та» остаётся на стартовом месте, но при снапе границы
+// получает маленький edge-сдвиг вправо. Для ритма нужен тот же контракт:
+// не двигать полосу и не растягивать её, а только отметить удар, который
+// оказался на текущей метрической границе.
+function annotateRhythmHintResizeKeys(session, distribution) {
+  if (!session || !distribution) return;
+  let cumCols = 0;
+  session.entries.forEach((entry, ei) => {
+    const hits = entry.el.querySelectorAll('.rhythm-hint-hit');
+    const cols = Math.max(1, distribution.spans[ei] || 1);
+    const count = Math.max(1, hits.length);
+    hits.forEach((hit, j) => {
+      hit.dataset.resizeMetricKey = rhythmHintResizeMetricKey(
+        cumCols + (j / count) * cols
+      );
+    });
+    cumCols += cols;
+  });
+}
+
+function updateRhythmHintResizeEdges(spans) {
+  const session = rhythmHintSession;
+  if (!session || !Array.isArray(spans)) return;
+  const edgeKeys = new Set();
+  let cumCols = 0;
+  spans.forEach((span) => {
+    edgeKeys.add(rhythmHintResizeMetricKey(cumCols));
+    cumCols += Math.max(0, span || 0);
+  });
+  session.entries.forEach((entry) => {
+    entry.el.querySelectorAll('.rhythm-hint-hit').forEach((hit) => {
+      hit.classList.toggle(
+        'is-resize-edge',
+        edgeKeys.has(hit.dataset.resizeMetricKey || '')
+      );
+    });
+  });
+}
+
 function layoutRhythmHints(session, distribution) {
   const tc = distribution.totalCols;
   let cum = 0;
@@ -29819,6 +29869,7 @@ function startRhythmHints(s, sq, bi, distribution) {
   const session = { s, sq, sqEl, bi, overlay, entries };
   rhythmHintSession = session;
   layoutRhythmHints(session, distribution);
+  annotateRhythmHintResizeKeys(session, distribution);
   sqEl && sqEl.classList.add('is-hinting');
   // Форсируем reflow ДО добавления is-in: запечатывается СТАРТОВОЕ
   // состояние, следующая правка играет transition из него в конечное.
@@ -29873,6 +29924,7 @@ function refreshRhythmHints(s, sq, distribution) {
     }
   });
   layoutRhythmHints(session, distribution);
+  annotateRhythmHintResizeKeys(session, distribution);
 }
 
 function scheduleRhythmHintsRefresh(s, sq, distribution) {
@@ -31210,6 +31262,10 @@ function attachResizeHandlers() {
         updateResizeBoundaryCovers(nsp);
         updateResizeHiddenTicks(nsp);
         updateResizeMetricCountEdges(nsp);
+        // B-31.9: как и «1/та/и/та», ритм не меняет метрические
+        // координаты во время drag; только удар на новой snapped-границе
+        // получает тот же маленький edge-сдвиг вправо.
+        updateRhythmHintResizeEdges(nsp);
         window.__b31ResizePreviewFrameCount = (window.__b31ResizePreviewFrameCount || 0) + 1;
         return true;
       }

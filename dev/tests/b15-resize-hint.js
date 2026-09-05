@@ -296,6 +296,13 @@ w.addEventListener('load', async () => {
   ok('полосы ритма стоят на стартовых позициях (не растягиваются)',
     frozenBefore.length === 2 && frozenBefore.every((v, i) => v === frozenAfter[i]),
     frozenBefore.join(' | ') + ' -> ' + frozenAfter.join(' | '));
+  const rhythmEdgeHits = frozenOv
+    ? [...frozenOv.querySelectorAll('.rhythm-hint-hit.is-resize-edge')]
+    : [];
+  ok('ритм повторяет edge-микросдвиг счёта на новой границе',
+    rhythmEdgeHits.some((hit) => !hit.classList.contains('is-edge'))
+      && rhythmEdgeHits.every((hit) => hit.dataset.resizeMetricKey),
+    rhythmEdgeHits.map((hit) => hit.dataset.resizeMetricKey || 'none').join('|'));
   firePointerUp(200);
   await sleep(460);
 
@@ -512,6 +519,9 @@ w.addEventListener('load', async () => {
     /\.event-strum-preview\.is-rhythm-removing/.test(cssText));
   ok('.rhythm-hint-hit: плывут сами удары (transition transform)',
     /\.rhythm-hint-hit\s*\{[^}]*transition:\s*transform/.test(cssText));
+  ok('.rhythm-hint-hit: edge-микросдвиг плавный и не меняет геометрию полосы',
+    /\.rhythm-hint-hit\s*\{[^}]*margin-left\s+0\.12s/.test(cssText)
+      && /\.rhythm-hint-hit\.is-resize-edge\s*\{[^}]*margin-left:\s*2px/.test(cssText));
   ok('реальный браузер запускает обратный полёт через Web Animations API (без случайного CSS-jump)',
     /function runRhythmHintHitFlight/.test(cssText)
       && /hitEl\.animate\(/.test(cssText)
