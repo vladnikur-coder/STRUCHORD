@@ -94,9 +94,12 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 w.addEventListener('load', async () => {
   // --- 1. Кастомная ячейка + наследующая соседка -------------------------
+  // Бой секции — 2 доли: окно соседки (2 доли) равно целому рисунку, среза
+  // B-30 у неё НЕТ — это «чистый» наследник без превью, он проявляется
+  // fade-in. Наследник СО срезом (0.169) — отдельный блок 3g.
   scene(
     [D(strum(2, 'DUDU'), 2), D(null, 2)],
-    strum(2, 'DUDUDUDU')
+    strum(2, 'DUDU')
   );
 
   console.log('=== 1. Старт протяжки: подсказка появилась ===');
@@ -124,7 +127,7 @@ w.addEventListener('load', async () => {
   ok('refresh без смены рисунка не пересоздаёт hit-узлы (меньше дёрганья)', stableHitNode);
   console.log('=== 2. Наследующая ячейка: свой срез боя секции ===');
   const cell1Hits = hints[1] ? [...hints[1].querySelectorAll('.rhythm-hint-hit')] : [];
-  ok('у наследующей ячейки 4 удара (вторая половина DUDUDUDU)', cell1Hits.length === 4, cell1Hits.length);
+  ok('у наследующей ячейки 4 удара (целый повтор DUDU)', cell1Hits.length === 4, cell1Hits.length);
   ok('кастомная полоса приплывает сразу',
     !!(hints[0] && hints[0].classList.contains('is-in')));
   ok('наследуемая полоса ждёт конца приплывания кастома',
@@ -203,7 +206,7 @@ w.addEventListener('load', async () => {
   console.log('=== 3b. Быстрое отпускание: невидимое наследование не задерживает кастом ===');
   scene(
     [D(strum(2, 'DUDX'), 2), D(null, 2)],
-    strum(2, 'DUDUDUDU')
+    strum(2, 'DUDU')
   );
   firePointerDown(handle(), 100);
   const fastHints = overlayIn() ? [...overlayIn().querySelectorAll('.rhythm-hint')] : [];
@@ -218,7 +221,7 @@ w.addEventListener('load', async () => {
   await sleep(460);
 
   console.log('=== 3c. Устаревшее превью в ячейке без финального кастома не возвращается ===');
-  scene([D(strum(2, 'DUDX'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  scene([D(strum(2, 'DUDX'), 2), D(null, 2)], strum(2, 'DUDU'));
   firePointerDown(handle(), 100);
   evl(`
     const stale = document.querySelector('.chord-wrapper[data-ei="1"] .event-strum-preview');
@@ -318,6 +321,109 @@ w.addEventListener('load', async () => {
     newCustomHits.map((h) => h.dataset.rhythmSourceIndex).join(','));
   await sleep(460);
 
+  console.log('=== 3g. 0.169: срез B-30 у наследника — летит как рисуемый и не исчезает на клике ===');
+  // Репро пользователя 2026-09-05: «нажимаю на границу ячейки для теста
+  // анимации переплывания, она не срабатывает и после отпускания кастомный
+  // бой исчезает». «Кастомный бой» здесь — срез боя секции, который с
+  // 0.167 рисуется в превью наследника: бой секции 4 доли (DUDUDUDU@2),
+  // соседка 2 доли → срез DUDU (не целый повтор) → превью есть.
+  scene([D(strum(2, 'DUDU'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  const sliceBox = () => d.querySelector('.chord-wrapper[data-ei="1"] .event-strum-preview');
+  ok('до жеста у наследника есть превью-срез',
+    !!(sliceBox() && sliceBox().classList.contains('has-pattern') && sliceBox().classList.contains('is-inherited-slice')),
+    sliceBox() && sliceBox().className);
+  firePointerDown(handle(), 100);
+  const sliceHints = overlayIn() ? [...overlayIn().querySelectorAll('.rhythm-hint')] : [];
+  ok('полоса среза приплывает сразу, как кастом (не ждёт fade-in наследника)',
+    !!(sliceHints[1] && sliceHints[1].classList.contains('is-in')),
+    sliceHints[1] && sliceHints[1].className);
+  ok('в сессии срез помечен как плывущий, но НЕ как пин модели',
+    evl('return rhythmHintSession && rhythmHintSession.entries[1].custom === true && rhythmHintSession.entries[1].startPinned === false'));
+  firePointerUp(); // клик без сдвига — путь finalKey === startResizeKey
+  ok('на выходе превью-срез перестроено и назначено целью уплывания',
+    !!(sliceBox() && sliceBox().classList.contains('has-pattern')
+      && sliceBox().classList.contains('is-inherited-slice')
+      && sliceBox().classList.contains('is-rhythm-return-target')),
+    sliceBox() && sliceBox().className);
+  const sliceGhost = ghostIn();
+  const sliceHits = sliceGhost ? [...sliceGhost.querySelectorAll('.rhythm-hint')[1].querySelectorAll('.rhythm-hint-hit')] : [];
+  ok('удары среза уплывают поударно в своё превью (не fade-only)',
+    !!(sliceHits.length && sliceHits.every((h) => h.style.transform.includes('translate(') && h.dataset.rhythmTargetTransform)),
+    sliceHits.map((h) => h.style.transform || 'none').join(' | '));
+  await sleep(600);
+  ok('после уплывания превью-срез НА МЕСТЕ (баг: исчезал насовсем)',
+    !!(sliceBox() && sliceBox().classList.contains('has-pattern')
+      && sliceBox().querySelectorAll('.strum-step').length === 2
+      && !sliceBox().classList.contains('is-rhythm-return-target')),
+    sliceBox() && (sliceBox().className + ' n=' + sliceBox().querySelectorAll('.strum-step').length));
+  ok('модель не тронута: пин у наследника не появился',
+    evl(`return [...songRhythmRolls.refs.keys()].join(',')`) === '1:2:0',
+    evl(`return [...songRhythmRolls.refs.keys()].join(',')`));
+  // Снятие пина на отпускании по-прежнему уходит fade-out, даже если у
+  // снятой ячейки появился срез: критерий — «был пином на старте».
+  scene([D(strum(2, 'DUDU'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  firePointerDown(handle(), 100);
+  firePointerMove(200);
+  evl(`
+    window.__b15OldSettle = settleSquareRhythmWithFacade;
+    settleSquareRhythmWithFacade = function (sec, sq, opts) {
+      if (opts && Array.isArray(opts.droppedOut)) { opts.droppedOut.push(0); opts.droppedOut.push(1); }
+      return 1;
+    };
+    return 0`);
+  firePointerUp(200);
+  evl(`settleSquareRhythmWithFacade = window.__b15OldSettle; delete window.__b15OldSettle; return 0`);
+  const dropGhost = ghostIn();
+  const dropHits0 = dropGhost ? [...dropGhost.querySelectorAll('.rhythm-hint')[0].querySelectorAll('.rhythm-hint-hit')] : [];
+  const dropHits1 = dropGhost ? [...dropGhost.querySelectorAll('.rhythm-hint')[1].querySelectorAll('.rhythm-hint-hit')] : [];
+  ok('снятый пин (droppedOut + был пином) — сразу fade-out, не is-in',
+    !!(dropGhost && !dropGhost.querySelectorAll('.rhythm-hint')[0].classList.contains('is-in')),
+    dropGhost && dropGhost.querySelectorAll('.rhythm-hint')[0].className);
+  await sleep(230); // fade-фаза снятого (180мс) → полёт рисуемых стартует после неё
+  ok('снятый пин так и не получил target flight',
+    dropHits0.length > 0 && dropHits0.every((h) => !h.dataset.rhythmTargetTransform),
+    dropHits0.map((h) => h.dataset.rhythmTargetTransform || 'none').join(' | '));
+  ok('наследник со срезом в droppedOut (пином не был) — после fade-фазы летит в превью',
+    dropHits1.length > 0 && dropHits1.every((h) => h.dataset.rhythmTargetTransform),
+    dropHits1.map((h) => h.dataset.rhythmTargetTransform || 'none').join(' | '));
+  await sleep(600);
+
+  console.log('=== 3h. 0.170: удар над текущей границей отодвигается вместе с подписью счёта ===');
+  // Просьба пользователя 2026-09-05: «1таита отъезжает, когда граница
+  // ячейки проходит по доле — ритм должен отодвигаться вместе».
+  scene([D(strum(2, 'DUDU'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  firePointerDown(handle(), 100);
+  const edgeOv = overlayIn();
+  const hitsAll = edgeOv ? [...edgeOv.querySelectorAll('.rhythm-hint-hit')] : [];
+  ok('у каждого удара есть ключ метрического узла (колонки × 1e6)',
+    hitsAll.length === 8 && hitsAll.every((h) => /^\d+$/.test(h.dataset.hintNodeKey || '')),
+    hitsAll.map((h) => h.dataset.hintNodeKey).join(','));
+  const hit0 = hitsAll[0], hit4 = hitsAll[4];
+  ok('левая кромка квадрата — статичный is-edge, не живой',
+    !!(hit0 && hit0.classList.contains('is-edge') && !hit0.classList.contains('is-live-edge')),
+    hit0 && hit0.className);
+  ok('первый удар второй ячейки на старте — в ЖИВОЙ edge-позе (граница на его узле)',
+    !!(hit4 && hit4.classList.contains('is-live-edge') && !hit4.classList.contains('is-edge')),
+    hit4 && hit4.className);
+  ok('ключ этого удара совпадает с ключом подписи счёта на той же границе',
+    !!(hit4 && d.querySelector(`.resize-count-cell .chord-count.is-edge[data-resize-metric-key="${hit4.dataset.hintNodeKey}"]`)
+      || !d.querySelector('.resize-metric-overlay')), // overlay ставится на первом move
+    'нет совпадения ключей');
+  ok('поза edge у удара — тот же +2px без центрирования, что у подписи (CSS)',
+    /\.rhythm-hint-hit\.is-live-edge\s*\{[^}]*transform:\s*translateX\(2px\)/.test(fs.readFileSync(file, 'utf8')));
+  firePointerMove(200); // граница уходит вправо на узел третьего удара
+  await sleep(60);
+  const liveNow = hitsAll.filter((h) => h.classList.contains('is-live-edge'));
+  const countEdges = [...d.querySelectorAll('.resize-count-cell .chord-count.is-edge')].map((c) => c.dataset.resizeMetricKey);
+  ok('после сдвига границы edge-поза переехала на удар над новой границей',
+    !!(hit4 && !hit4.classList.contains('is-live-edge')) && liveNow.length === 1,
+    'live=' + liveNow.map((h) => h.dataset.hintNodeKey).join(',') + ' hit4=' + (hit4 && hit4.className));
+  ok('набор edge-узлов ударов равен набору edge-узлов подписей счёта (кроме левой кромки)',
+    liveNow.every((h) => countEdges.includes(h.dataset.hintNodeKey)),
+    'hits=' + liveNow.map((h) => h.dataset.hintNodeKey).join(',') + ' counts=' + countEdges.join(','));
+  firePointerUp(200);
+  await sleep(700);
+
   // --- 4. Перебор: столбики цифр струн -----------------------------------
   console.log('=== 4. Перебор: столбики цифр ===');
   scene(
@@ -350,7 +456,7 @@ w.addEventListener('load', async () => {
   // (в jsdom нет раскладки — подменяем rect квадрата и проверяем перенос
   //  координат один-в-один; в браузере этот же код читает настоящий rect)
   console.log('=== 6. Геометрия выхода: fixed-ghost повторяет квадрат ===');
-  scene([D(strum(2, 'DUDX'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  scene([D(strum(2, 'DUDX'), 2), D(null, 2)], strum(2, 'DUDU'));
   firePointerDown(handle(), 100);
   await sleep(280); // наследуемая полоса уже проявлена, значит выход должен начаться с fade-out
   const biEl = d.querySelector('.square-inner');
