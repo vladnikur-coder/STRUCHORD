@@ -181,6 +181,11 @@ w.addEventListener('load', async () => {
     w.eval('clearFingeringVibration()');
     ok('clearFingeringVibration гасит всё и сразу', !d.querySelector('.fing-string.is-vibrating'));
     w.eval('playbackState.isPlaying = false');
+    // 0.166: в редакторе анимация приглушена (амплитуда 0.55, подсветка 1.8)
+    ok('CSS: амплитуда через --vib-amp, редактор = 0.55',
+      /--vib-amp:\s*0\.55/.test(css) && /var\(--vib-amp, 1\) \* 1\.2px/.test(css));
+    ok('CSS: в редакторе подсветка тоньше (1.8 против 2.2)',
+      /body:not\(\.is-timeline\) \.fing-string\.is-vibrating\s*\{[^}]*1\.8/.test(css));
   }
 
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');
