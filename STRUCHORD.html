@@ -4294,6 +4294,22 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   transform: none;
   margin-left: 2px;
 }
+/* 0.170: удар над узлом, на который пришла ТЕКУЩАЯ граница протяжки,
+   встаёт в ту же edge-позу, что и подпись счёта под ним (.chord-count
+   .is-edge: не центр на узле, а прижат к границе + 2px). Раньше
+   «1/та/и/та» отъезжала от границы, а стрелка над ней стояла — доля и её
+   удар расходились. Класс ставит syncRhythmHintLiveEdges по тому же
+   набору ключей узлов, что и у счёта (updateResizeMetricCountEdges).
+   Длительность переключения намеренно НЕ здесь: на входе удар летит
+   базовым transition 0.22s (иначе граничный удар прилетал бы раньше
+   волны), а после приплывания JS ставит inline 0.12s — как у счёта. */
+.rhythm-hint-hit.is-live-edge {
+  transform: translateX(2px);
+}
+/* Первый удар квадрата и так прижат (margin-left 2px) — поза не меняется. */
+.rhythm-hint-hit.is-edge.is-live-edge {
+  transform: none;
+}
 /* Цвета — те же, что у дорожки ленты и превью боя: вниз тёмный, вверх
    зелёный, глушение красное. Чужая палитра здесь читалась бы как
    другая сущность. */
@@ -8884,7 +8900,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.169</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.170</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -29580,9 +29596,45 @@ const RHYTHM_HINT_MOVE_MS = 220;
 const RHYTHM_HINT_STEP_DELAY_MS = 10;
 const RHYTHM_HINT_MAX_DELAY_MS = 60;
 const RHYTHM_HINT_EXIT_PAD_MS = 40;
+// 0.170: edge-сдвиг удара под текущей границей протяжки — тот же, что у
+// подписи счёта (.resize-metric-overlay .chord-count.is-edge: 2px).
+const RHYTHM_HINT_LIVE_EDGE_PX = 2;
 
 function rhythmHintStepDelay(index) {
   return Math.min(Math.max(0, index) * RHYTHM_HINT_STEP_DELAY_MS, RHYTHM_HINT_MAX_DELAY_MS);
+}
+
+// 0.170: ключи метрических узлов — та же валюта, что resizeMetricNodeKey
+// в overlay счёта (колонки квадрата × 1e6). Границы ячеек = узлы, где
+// подпись счёта стоит в edge-позе; удар подсказки над таким узлом
+// встаёт в ту же позу.
+function rhythmHintNodeKey(cols) {
+  return String(Math.round((cols || 0) * 1e6));
+}
+function rhythmHintEdgeKeys(spans) {
+  const keys = new Set();
+  let leftCols = 0;
+  for (let i = 0; i < spans.length; i++) {
+    keys.add(rhythmHintNodeKey(leftCols));
+    leftCols += Math.max(0, spans[i] || 0);
+  }
+  return keys;
+}
+// Переключает edge-позу ударов по текущему набору границ. Транзишен
+// 0.12s (как у счёта) ставится inline только ПОСЛЕ приплывания: до того
+// удар летит базовым 0.22s вместе с остальной волной.
+function syncRhythmHintLiveEdges(session, edgeKeys) {
+  if (!session || !session.overlay || !edgeKeys) return;
+  session.edgeKeys = edgeKeys;
+  const settled = performance.now() >= (session.enterSettledAt || 0);
+  session.overlay.querySelectorAll('.rhythm-hint-hit[data-hint-node-key]').forEach((hit) => {
+    if (hit.classList.contains('is-edge')) return; // левая кромка квадрата — статична
+    if (settled && !hit.dataset.liveEdgeFast) {
+      hit.dataset.liveEdgeFast = '1';
+      hit.style.transition = 'transform 0.12s cubic-bezier(0.2, 0.75, 0.18, 1)';
+    }
+    hit.classList.toggle('is-live-edge', edgeKeys.has(hit.dataset.hintNodeKey || ''));
+  });
 }
 
 function rhythmHintPatternKey(pattern) {
@@ -29627,7 +29679,7 @@ function collectRhythmHintData(s, sq) {
 // перебор — столбик цифр струн с басом сверху).
 // deltas[j] (опционально, только на входе) — стартовый FLIP-сдвиг удара
 // «от его места в мини-превью до узла сетки» и лесенка задержки.
-function buildRhythmHintContent(hintEl, pattern, deltas) {
+function buildRhythmHintContent(hintEl, pattern, deltas, geometry) {
   hintEl.textContent = '';
   const steps = pattern.steps;
   const n = steps.length;
@@ -29670,6 +29722,12 @@ function buildRhythmHintContent(hintEl, pattern, deltas) {
     }
     el.style.left = (j / n * 100) + '%';
     if (j === 0) el.classList.add('is-edge');
+    // 0.170: ключ метрического узла удара (колонки квадрата × 1e6 — та же
+    // валюта, что у resizeMetricNodeKey в overlay счёта). По нему
+    // протяжка ставит is-live-edge удару над текущей границей.
+    if (geometry && Number.isFinite(geometry.leftCols) && Number.isFinite(geometry.cols)) {
+      el.dataset.hintNodeKey = rhythmHintNodeKey(geometry.leftCols + (j / n) * geometry.cols);
+    }
     const dlt = deltas && deltas[j];
     if (dlt) {
       // Базовый translateX(-50%) из CSS стоит И в конечном состоянии, поэтому
@@ -29781,11 +29839,15 @@ function startRhythmHints(s, sq, bi, distribution) {
   }, 0);
   const overlay = document.createElement('div');
   overlay.className = 'rhythm-hints';
+  let leftColsCum = 0;
   const entries = sq.events.map((ev, ei) => {
     const el = document.createElement('div');
     el.className = 'rhythm-hint';
     const d = data[ei];
-    const entry = { el, custom: false, startCustom: false, patternKey: '' };
+    const cellCols = Math.max(1, distribution.spans[ei] || 1);
+    const geometry = { leftCols: leftColsCum, cols: cellCols };
+    leftColsCum += cellCols;
+    const entry = { el, custom: false, startCustom: false, patternKey: '', geometry };
     if (d) {
       // entry.custom здесь = «полоса ПЛЫВЁТ» (свой ритм или срез), а не
       // «в модели есть пин» — см. collectRhythmHintData/drawn.
@@ -29797,7 +29859,7 @@ function startRhythmHints(s, sq, bi, distribution) {
       // же сняли приватный рулон, кастомом не был — он летит как рисуемый.
       entry.startPinned = d.custom;
       entry.patternKey = rhythmHintPatternKey(d.pattern);
-      buildRhythmHintContent(el, d.pattern, deltasByCell[ei]);
+      buildRhythmHintContent(el, d.pattern, deltasByCell[ei], geometry);
       // Наследуемому без превью смещения нет вообще: ему неоткуда плыть,
       // он просто проявляется (fade in через .is-in). У рисуемого либо
       // поударный FLIP (уже стоит), либо полёт полосой (fallback).
@@ -29813,6 +29875,22 @@ function startRhythmHints(s, sq, bi, distribution) {
   rhythmHintSession = session;
   layoutRhythmHints(session, distribution);
   sqEl && sqEl.classList.add('is-hinting');
+  // 0.170: первый удар каждой ячейки стоит в edge-позе (.is-edge, как
+  // подпись счёта под ним). У ячеек, кроме первой в квадрате, эта поза
+  // должна быть ЖИВОЙ: граница уйдёт с узла — удар вернётся в центр
+  // вместе с подписью, придёт на другой узел — тот удар прижмётся.
+  // Статичный .is-edge переводим в динамический .is-live-edge (поза
+  // визуально та же: +2px, без центрирования); inline FLIP-transform
+  // получает тот же базис, чтобы глиф стартовал ровно из превью.
+  const startEdgeKeys = rhythmHintEdgeKeys(distribution.spans);
+  overlay.querySelectorAll('.rhythm-hint-hit.is-edge[data-hint-node-key]').forEach((hit) => {
+    if (hit.dataset.hintNodeKey === rhythmHintNodeKey(0)) return; // левая кромка квадрата
+    hit.classList.remove('is-edge');
+    hit.classList.add('is-live-edge');
+    if (hit.style.transform) hit.style.transform = `translateX(${RHYTHM_HINT_LIVE_EDGE_PX}px) ${hit.style.transform}`;
+  });
+  session.edgeKeys = startEdgeKeys;
+  session.enterSettledAt = performance.now() + RHYTHM_HINT_MOVE_MS + RHYTHM_HINT_MAX_DELAY_MS + 20;
   // Форсируем reflow ДО добавления is-in: запечатывается СТАРТОВОЕ
   // состояние, следующая правка играет transition из него в конечное.
   void overlay.offsetHeight;
@@ -29858,7 +29936,11 @@ function refreshRhythmHints(s, sq, distribution) {
       // перестраиваем, иначе только двигаем/ширим полосы.
       if (entry.patternKey !== nextKey || !entry.el.firstChild) {
         entry.patternKey = nextKey;
-        buildRhythmHintContent(entry.el, d.pattern);
+        buildRhythmHintContent(entry.el, d.pattern, null, entry.geometry);
+        entry.el.querySelectorAll('.rhythm-hint-hit.is-edge[data-hint-node-key]').forEach((hit) => {
+          if (hit.dataset.hintNodeKey !== rhythmHintNodeKey(0)) hit.classList.remove('is-edge');
+        });
+        if (session.edgeKeys) syncRhythmHintLiveEdges(session, session.edgeKeys);
       }
     } else if (entry.el.firstChild) {
       entry.patternKey = '';
@@ -29914,8 +29996,19 @@ function rhythmHintExitDeltas(entry, ei, bi) {
   return hitEls.map((h, j) => {
     const r = h.getBoundingClientRect();
     const sourceIndex = j % src.length;
+    // 0.170: удар под текущей границей стоит в edge-позе is-live-edge
+    // (центрирование снято + 2px: центр = узел + w/2 + 2). Полёт
+    // считается от невозмущённой позы (центр на узле) — WAAPI стартует из
+    // фактической и сам «съедает» сдвиг, иначе посадка промахивалась бы
+    // мимо глифа превью. Первый удар квадрата (.is-edge) позу не меняет.
+    // Невозмущённая поза любого удара, кроме левой кромки квадрата
+    // (.is-edge, статичен), — центр на узле (translateX(-50%)); целевой
+    // transform выхода собирается от неё (см. finishRhythmHints).
+    const liveEdgePx = (h.classList.contains('is-live-edge') && !h.classList.contains('is-edge'))
+      ? r.width / 2 + RHYTHM_HINT_LIVE_EDGE_PX
+      : 0;
     return {
-      dx: src[sourceIndex].x - (r.left + r.width / 2),
+      dx: src[sourceIndex].x - (r.left + r.width / 2 - liveEdgePx),
       dy: src[sourceIndex].y - (r.top + r.height / 2),
       sourceIndex,
     };
@@ -29930,7 +30023,11 @@ function runRhythmHintHitFlight(hitEl, transform, delay) {
   // setTimeout/fade-фазы. В jsdom animate() нет — там остаётся CSS-fallback
   // через inline transform, который проверяют стенды.
   if (typeof hitEl.animate === 'function') {
+    // 0.170: стартуем из фактической позы (включая edge-сдвиг is-live-edge
+    // у удара под текущей границей) и снимаем класс: его 0.12s transition
+    // не должен спорить с WAAPI-полётом.
     const current = getComputedStyle(hitEl).transform;
+    hitEl.classList.remove('is-live-edge');
     const from = current && current !== 'none'
       ? current
       : (hitEl.classList.contains('is-edge') ? 'none' : 'translateX(-50%)');
@@ -30096,7 +30193,10 @@ function finishRhythmHints(opts) {
       entry.el.classList.add('is-in');
       const hitEls = [...entry.el.querySelectorAll('.rhythm-hint-hit')];
       const moves = hitEls.map((h, j) => {
-        const base = j === 0 ? '' : 'translateX(-50%) ';
+        // 0.170: базис — фактическая поза удара, а не «первый в ячейке»:
+        // первый удар ячейки центрирован, если граница ушла с его узла
+        // (edge-поза живая); статичен только .is-edge левой кромки квадрата.
+        const base = h.classList.contains('is-edge') ? '' : 'translateX(-50%) ';
         const delay = rhythmHintStepDelay(j);
         customMaxDelay = Math.max(customMaxDelay, delay);
         // Уплывание должно выглядеть тем же жестом, что и приплывание:
@@ -30882,11 +30982,18 @@ function attachResizeHandlers() {
       }
 
       function updateResizeMetricCountEdges(nsp) {
-        if (!resizeMetricCountEls.length) return;
         const edgeKeys = currentResizeEdgeKeys(nsp);
         resizeMetricCountEls.forEach((count) => {
           count.classList.toggle('is-edge', edgeKeys.has(count.dataset.resizeMetricKey || ''));
         });
+        // 0.170: удар подсказки B-15 над тем же узлом отодвигается вместе
+        // с подписью счёта (просьба пользователя 2026-09-05: «1таита
+        // отъезжает, когда граница проходит по доле — ритм должен
+        // отодвигаться вместе»). Полосы заморожены (0.168), поэтому ключи
+        // узлов стабильны на весь жест; сравнение — тот же resizeMetricNodeKey.
+        const hintSession = rhythmHintSession;
+        if (!hintSession || hintSession.bi !== bi) return;
+        syncRhythmHintLiveEdges(hintSession, edgeKeys);
       }
 
       function updateResizeBoundaryCovers(nsp) {

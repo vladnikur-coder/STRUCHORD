@@ -388,6 +388,42 @@ w.addEventListener('load', async () => {
     dropHits1.map((h) => h.dataset.rhythmTargetTransform || 'none').join(' | '));
   await sleep(600);
 
+  console.log('=== 3h. 0.170: удар над текущей границей отодвигается вместе с подписью счёта ===');
+  // Просьба пользователя 2026-09-05: «1таита отъезжает, когда граница
+  // ячейки проходит по доле — ритм должен отодвигаться вместе».
+  scene([D(strum(2, 'DUDU'), 2), D(null, 2)], strum(2, 'DUDUDUDU'));
+  firePointerDown(handle(), 100);
+  const edgeOv = overlayIn();
+  const hitsAll = edgeOv ? [...edgeOv.querySelectorAll('.rhythm-hint-hit')] : [];
+  ok('у каждого удара есть ключ метрического узла (колонки × 1e6)',
+    hitsAll.length === 8 && hitsAll.every((h) => /^\d+$/.test(h.dataset.hintNodeKey || '')),
+    hitsAll.map((h) => h.dataset.hintNodeKey).join(','));
+  const hit0 = hitsAll[0], hit4 = hitsAll[4];
+  ok('левая кромка квадрата — статичный is-edge, не живой',
+    !!(hit0 && hit0.classList.contains('is-edge') && !hit0.classList.contains('is-live-edge')),
+    hit0 && hit0.className);
+  ok('первый удар второй ячейки на старте — в ЖИВОЙ edge-позе (граница на его узле)',
+    !!(hit4 && hit4.classList.contains('is-live-edge') && !hit4.classList.contains('is-edge')),
+    hit4 && hit4.className);
+  ok('ключ этого удара совпадает с ключом подписи счёта на той же границе',
+    !!(hit4 && d.querySelector(`.resize-count-cell .chord-count.is-edge[data-resize-metric-key="${hit4.dataset.hintNodeKey}"]`)
+      || !d.querySelector('.resize-metric-overlay')), // overlay ставится на первом move
+    'нет совпадения ключей');
+  ok('поза edge у удара — тот же +2px без центрирования, что у подписи (CSS)',
+    /\.rhythm-hint-hit\.is-live-edge\s*\{[^}]*transform:\s*translateX\(2px\)/.test(fs.readFileSync(file, 'utf8')));
+  firePointerMove(200); // граница уходит вправо на узел третьего удара
+  await sleep(60);
+  const liveNow = hitsAll.filter((h) => h.classList.contains('is-live-edge'));
+  const countEdges = [...d.querySelectorAll('.resize-count-cell .chord-count.is-edge')].map((c) => c.dataset.resizeMetricKey);
+  ok('после сдвига границы edge-поза переехала на удар над новой границей',
+    !!(hit4 && !hit4.classList.contains('is-live-edge')) && liveNow.length === 1,
+    'live=' + liveNow.map((h) => h.dataset.hintNodeKey).join(',') + ' hit4=' + (hit4 && hit4.className));
+  ok('набор edge-узлов ударов равен набору edge-узлов подписей счёта (кроме левой кромки)',
+    liveNow.every((h) => countEdges.includes(h.dataset.hintNodeKey)),
+    'hits=' + liveNow.map((h) => h.dataset.hintNodeKey).join(',') + ' counts=' + countEdges.join(','));
+  firePointerUp(200);
+  await sleep(700);
+
   // --- 4. Перебор: столбики цифр струн -----------------------------------
   console.log('=== 4. Перебор: столбики цифр ===');
   scene(
