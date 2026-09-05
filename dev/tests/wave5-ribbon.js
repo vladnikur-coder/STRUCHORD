@@ -229,7 +229,7 @@ ok('7д mouseup: связка из трёх жива', group(0) === group(1) && 
 
 // --- 8. Клик по ручке без протяжки: ничего не сшивается
 scene([D(strum(2, 'D_D_D_D_'), 4), D(null, 4)]);
-evl(`sections[0].strumPattern = { mode:'strum', subdivision:2, steps:'X_X_X_X_'.split('') }; return 0`);
+evl(`sections[0].squares[0].strumPattern = { mode:'strum', subdivision:2, steps:'X_X_X_X_'.split('') }; return 0`);
 gStart(0);
 gUp(); // нажал и отпустил, граница не двигалась
 ok('8а клик без протяжки наследника не застывает', !hasOwn(1), 'застыл');

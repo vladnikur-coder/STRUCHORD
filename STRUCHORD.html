@@ -8900,7 +8900,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.172</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.171</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -17617,6 +17617,7 @@ function cloneSection(id) {
     squares: orig.squares.map((sq) => ({
       id: nextId++,
       repeat: sq.repeat || 1,
+      strumPattern: clonePlainData(sq.strumPattern || null),
       events: sq.events.map((e) => ({
         chord: e.chord,
         span: e.span,
@@ -18024,8 +18025,12 @@ function migrateSquareForTimeSig(sq, oldParentTs, newParentTs) {
   // зовётся в цикле по квадратам: повторные вызовы холостые (пул уже
   // пуст). Дальше работаем по-старому, прямо на рисунках событий.
   dropRhythmStorage();
-  // Рисунки боя ячеек переносим ВМЕСТЕ с длительностями. Иначе они
-  // остались бы размеченными по старому такту и поехали бы по фазе.
+  // Рисунки боя переносим ВМЕСТЕ с длительностями: и свой рисунок
+  // квадрата, и рисунки отдельных ячеек. Иначе они остались бы
+  // размеченными по старому такту и поехали бы по фазе.
+  if (sq.strumPattern) {
+    sq.strumPattern = migratePatternForTimeSig(sq.strumPattern, oldParentTs, newParentTs);
+  }
   (sq.events || []).forEach((ev) => {
     if (ev && ev.strumPattern) {
       ev.strumPattern = migratePatternForTimeSig(ev.strumPattern, oldParentTs, newParentTs);
@@ -18363,8 +18368,9 @@ function rhythmRollWindowFor(secId, sq, eventIndex, storage, spansOverride) {
 // Рисунок самой ячейки здесь не читается намеренно: «своё» даёт окно пула.
 function facadeSlicePattern(sec, sq, ev, eventIndex, spansOverride, patternOverride) {
   if (!sec || !sq || !ev) return null;
-  // patternOverride (волна-7): явный бой секции, переданный вызывающим.
-  // Без него фасад — бой секции же (после B-18 другого фасада нет).
+  // patternOverride (волна-7): автонаследование сравнивает ячейку только с
+  // ЯВНЫМ боем секции — рисунок квадрата из старого сейва фасадом для
+  // демоции не считается (уточнение пользователя 2026-08-25).
   const pattern = patternOverride || getEffectiveStrumPattern(null, sq, sec);
   if (!pattern || !Array.isArray(pattern.steps) || !pattern.steps.length) return null;
   const ts = getEffectiveTimeSigForEvent(ev, sec);
@@ -19124,9 +19130,10 @@ function rhythmSoundingForEvent(sec, sq, ev, eventIndex) {
 // критерий совпадения — по ЗВУКУ (позиции и типы ударов побитово,
 // плотность записи безразлична); без явного боя у фасада правило спит
 // («один удар» при пустой секции — не совпадение); область — только пины
-// ячеек (уровень «рисунок квадрата» отменён; поле снесено чисткой-4
-// B-18 — демоция сравнивает только с явным боем секции; дефолтный
-// одиночный удар общим боем не считается).
+// ячеек (уровень «рисунок квадрата» отменён; его поле живёт ради старых
+// сейвов и участвует в фасаде ПОКАЗА/ЗВУКА, но не в фасаде демоции —
+// уточнение 2026-08-25: демоция сравнивает только с явным боем
+// секции; дефолтный одиночный удар общим боем не считается).
 // Тишина волны-5 не пострадает: заводской фасад пустой секции (один удар)
 // ей не равен, а секция из одних пауз — совпадение честное.
 
@@ -19184,7 +19191,7 @@ function soundingWindowsEqual(a, b) {
 // выбивающиеся волны-6); «не объявлен» — только про явный бой СЕКЦИИ
 // (дословно: «рисунка квадрата не существует, мы отменили эту концепцию.
 // общий ритм можно задать только для секции, больше никак» — снос фасада
-// квадрата сделан чисткой-4, B-18); промежуточный показ при протяжке
+// квадрата вынесен в чистку-4, B-18); промежуточный показ при протяжке
 // тоже прячем. Тишина при ОБЪЯВЛЕННОМ бое секции — не призрак: она глушит
 // общий бой, осмысленна и живёт (волна-7).
 function sectionRhythmDeclared(sec) {
@@ -22918,15 +22925,16 @@ function restartPlaybackFromCurrentPosition() {
 //     тонкая струна, 6 — самая толстая); null/[] — пусто. Для обратной
 //     совместимости со старыми паттернами также допускается голое число.
 //
-// Приоритет: своя ячейка > секция по умолчанию. Уровень «рисунок
-// квадрата» отменён решением пользователя (волна-7): ветки scope='square'
-// в редакторе вырезаны чисткой-2 (B-02), а само поле sq.strumPattern —
-// чисткой-4 (B-18, 2026-09-05): при загрузке оно отбрасывается
-// (sanitizeSongData), в сейв не пишется. Параметр sq оставлен ради
-// сигнатуры вызовов — на результат он не влияет.
+// Приоритет: своя ячейка > рисунок квадрата > секция по умолчанию.
+// Уровень «рисунок квадрата» отменён решением пользователя (волна-7),
+// а его ветки scope='square' в редакторе вырезаны чисткой-2 (B-02,
+// 2026-08-25 — ни один вызов их не открывал). Поле sq.strumPattern
+// читаем: оно приезжает в старых сейвах, и его фасад продолжает
+// работать, пока такой файл живёт в песне.
 
 function getEffectiveStrumPattern(event, sq, sec) {
   if (event && event.strumPattern) return event.strumPattern;
+  if (sq && sq.strumPattern) return sq.strumPattern;
   if (sec && sec.strumPattern) return sec.strumPattern;
   return null;
 }
@@ -24278,6 +24286,7 @@ function collectSongPatterns() {
     const secName = sec.type === 'Custom' ? sec.customName || 'Custom' : LABEL_RU[sec.type] || sec.type;
     add(sec.strumPattern, secName);
     (sec.squares || []).forEach((sq, sqi) => {
+      add(sq.strumPattern, `${secName} · квадрат ${sqi + 1}`);
       (sq.events || []).forEach((ev, ei) => {
         const chord = ev.chord && ev.chord.trim();
         // Волна-4: рисунок ячейки — окно на рулон (кэша нет), иначе
@@ -24476,8 +24485,8 @@ function buildPatternFromPreset(preset, gridUnits, chordName, key) {
 
 // scope: 'section' — по умолчанию для всех квадратов секции;
 //        'event'   — переопределение для конкретной ячейки (аккорда).
-// Приоритет при воспроизведении: event > section. Третьего scope нет
-// (чистка-2, B-02; поле квадрата снесено чисткой-4, B-18).
+// Приоритет при воспроизведении: event > square > section. Третьего
+// scope нет (чистка-2, B-02): 'square' был недостижим из UI.
 function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   const sec = sections.find((s) => s.id === sectionId);
   if (!sec) return;
@@ -32898,6 +32907,7 @@ toggleTimeAndBeats();
           id: sq.id,
           repeat: sq.repeat || 1,
           customBeats: sq.customBeats ?? null,
+          strumPattern: sq.strumPattern || null,
           events: sq.events.map((e) => ({
             chord: e.chord,
             span: e.span,
@@ -33206,9 +33216,7 @@ toggleTimeAndBeats();
           id: idFor(rawSq.id),
           repeat: asSafeInt(rawSq.repeat, 1, 1, 99),
           customBeats: rawSq.customBeats == null ? null : asSafeInt(rawSq.customBeats, 1, 1, SONG_LIMITS.MAX_SPAN * SONG_LIMITS.MAX_EVENTS_PER_SQUARE),
-          // B-18 (чистка-4): «рисунок квадрата» отменён — поле
-          // rawSq.strumPattern старых файлов отбрасывается (у пользователя
-          // таких сейвов нет — решение 2026-09-05).
+          strumPattern: cloneSafePattern(rawSq.strumPattern),
           events: [],
         };
         for (const rawEvent of rawSq.events) {

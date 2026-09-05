@@ -280,7 +280,7 @@ ok('K3 рулон тот же после пересетки', !!group(0) && grou
 // становится обычной своей ячейкой — дальше за боем секции НЕ следует.
 // Далёкие наследники снаружи пары фасадом текут по-прежнему (сцены M/N).
 scene([D(strum(2, 'D_D_D_D_'), 4), D(null, 4)]);
-evl(`sections[0].strumPattern = { mode:'strum', subdivision:2, steps:'X_X_X_X_'.split('') }; return 0`);
+evl(`sections[0].squares[0].strumPattern = { mode:'strum', subdivision:2, steps:'X_X_X_X_'.split('') }; return 0`);
 setSpans([3.5, 4.5]);
 // Левая на новой доле звучит D_D_D_D (7 из 8); правая — застывший срез
 // фасада: позиция границы 3.5 доли приходится на шаг 7 ленты пары —
@@ -295,16 +295,16 @@ ok('L5 жест: пара на временном общем рулоне', !!gr
 release(0);
 ok('L5б mouseup: два приватных рулона',
   group(0) !== '' && group(1) !== '' && group(0) !== group(1), `${group(0)} / ${group(1)}`);
-// Смена боя секции ПОСЛЕ протяжки (B-18: фасад — только бой секции): застывший наследник НЕ подхватывает
+// Смена боя квадрата ПОСЛЕ протяжки: застывший наследник НЕ подхватывает
 // новый бой (волна-5), своя ячейка тем более.
-evl(`sections[0].strumPattern = { mode:'strum', subdivision:2, steps:'DDDDDDDD'.split('') }; return 0`);
+evl(`sections[0].squares[0].strumPattern = { mode:'strum', subdivision:2, steps:'DDDDDDDD'.split('') }; return 0`);
 ok('L6 застывший наследник не следует за новым боем',
   soundingText(1) === '_X_X_X_X_', soundingText(1));
 ok('L7 своей ячейке смена боя безразлична (окно ленты)', soundingText(0) === 'D_D_D_D', soundingText(0));
 
 // --- M. Сосед наследует несчётный рисунок (фазы нет) — пару не трогаем --
 scene([D(strum(2, 'D_D_D_D_'), 4), D(null, 4)]);
-evl(`sections[0].strumPattern = { mode:'strum', subdivision:2, steps:'X_X_X'.split('') }; return 0`);
+evl(`sections[0].squares[0].strumPattern = { mode:'strum', subdivision:2, steps:'X_X_X'.split('') }; return 0`);
 setSpans([3, 5]);
 ok('M1 левая хранит звучащее окно (канон.)', soundingText(0) === 'DDD', soundingText(0));
 ok('M2 сосед остался без рисунка', evl('return !sections[0].squares[0].events[1].strumPattern'), 'появился');
