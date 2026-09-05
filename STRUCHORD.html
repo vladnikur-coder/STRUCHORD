@@ -8884,7 +8884,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.166</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.167</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -23038,6 +23038,42 @@ function getDefaultStrumPattern(mode, ts, unitsOverride) {
   return { mode: mode === 'pick' ? 'pick' : 'strum', subdivision, steps };
 }
 
+// B-30 (0.167): фактический СРЕЗ боя секции для показа внутри
+// ячейки-наследника. Репро пользователя: ячейка, уменьшенная ресайзом,
+// играет часть боя секции, но внутри ничего не рисуется — «малоопытному
+// непонятно, что играть». Пин здесь невозможен by design: B-20 демоция
+// снимает пин, равный своему срезу фасада, — поэтому показываем срез
+// РЕНДЕРОМ, не трогая модель (наследование и сейв не меняются).
+//
+// Показываем ТОЛЬКО когда срез не сводится к целому повтору рисунка:
+// ячейка на весь такт (×1) или на два такта (×2) звучит бейджем секции
+// как есть — превью в каждой ячейке было бы шумом. Учитывается и фаза:
+// ячейка, начинающаяся с середины рисунка, показывает свой повёрнутый
+// срез.
+function inheritedFacadeSliceForPreview(sec, sq, ei) {
+  if (!sec || !sq || !(sq.events || [])[ei]) return null;
+  const ev = sq.events[ei];
+  // Только ЯВНЫЙ бой секции — как в демоции B-20 (patternOverride):
+  // эффективный дефолт по размеру фасадом не считается, иначе срезы
+  // мелькали бы в каждой песне без заданного боя.
+  const secPat = sec.strumPattern;
+  if (!secPat || !Array.isArray(secPat.steps) || !secPat.steps.length) return null;
+  const slice = facadeSlicePattern(sec, sq, ev, ei, null, secPat);
+  if (!slice || !Array.isArray(slice.steps) || !slice.steps.length) return null;
+  const fl = secPat.steps.length, sl = slice.steps.length;
+  if (sl >= fl && sl % fl === 0) {
+    let whole = true;
+    for (let i = 0; i < sl; i++) {
+      if (JSON.stringify(slice.steps[i]) !== JSON.stringify(secPat.steps[i % fl])) {
+        whole = false;
+        break;
+      }
+    }
+    if (whole) return null;   // целый повтор рисунка — бейдж уже говорит это
+  }
+  return slice;
+}
+
 // Заполняет мини-превью паттерна прямо в ячейках, у которых есть СВОЙ
 // (переопределённый на уровне ячейки) бой/перебор — над именем аккорда,
 // компактным масштабом (стили — через .event-strum-preview в CSS). Только
@@ -23055,7 +23091,23 @@ function renderEventStrumPreviews(container) {
     // Волна-3/4: превью читает окно рулона, когда ячейка покрыта пулом
     // (волна-4: кэша нет вообще — окно и есть единственное хранимое).
     const rollWinCell = songRhythmRolls ? rhythmRollWindowFor(secId, sq, ei, songRhythmRolls) : null;
-    const cellPattern = rollWinCell || (ev && ev.strumPattern);
+    const ownPattern = rollWinCell || (ev && ev.strumPattern) || null;
+    // B-30: своего ритма нет — показываем фактический СРЕЗ боя секции,
+    // если он не сводится к целому повтору рисунка. НО не во время
+    // подсказки ресайза и её закрытия (B-15): спека «снятый в наследование
+    // уплывает только fade-out» писалась, когда у наследника превью не
+    // было; появившийся срез становился целью уплывания и ломал её. Во
+    // время жеста срез и так виден полосой в оверлее; статичный срез
+    // дорисует финальная инкрементальная синкронизация.
+    const sliceSuppressed = (typeof rhythmHintSession !== 'undefined' && rhythmHintSession) ||
+      document.body.classList.contains('is-rhythm-hint-returning');
+    const inheritedSlice = ownPattern || sliceSuppressed
+      ? null
+      : inheritedFacadeSliceForPreview(sec, sq, ei);
+    const cellPattern = ownPattern || inheritedSlice;
+    // Метка среза: по ней exit-flight (B-15) знает, что это НЕ цель
+    // обратного полёта — срез дорисует финальный sync, а не анимация.
+    box.classList.toggle('is-inherited-slice', !!inheritedSlice);
     if (!ev || !cellPattern) return;
     // B-06: призрачную тишину превью не рисуем — ни в финале, ни по
     // дороге (окно сшитой ленты при протяжке бывает целиком пустым).
@@ -23086,7 +23138,12 @@ function renderEventStrumPreviews(container) {
     // Селектора «родитель элемента с классом» в CSS нет, поэтому
     // класс ставим здесь же, где включается превью.
     box.parentElement?.classList.add('has-cell-rhythm');
-    eventStrumPreviewStepEls.set(`${secId}:${sqId}:${ei}`, Array.from(preview.querySelectorAll('.strum-step')));
+    // Срез НЕ регистрируем в карте подсветки: планировщик индексирует
+    // шаги фасадными индексами (позиция в такте), для локального среза
+    // они промахивались бы мимо элементов.
+    if (!inheritedSlice) {
+      eventStrumPreviewStepEls.set(`${secId}:${sqId}:${ei}`, Array.from(preview.querySelectorAll('.strum-step')));
+    }
   });
 }
 
@@ -23401,8 +23458,23 @@ function setEventLiveStrumPreview(secId, sqId, ei, pattern, sectionDefaultPatter
   eventStrumPreviewStepEls.delete(key);
   if (!box) return;
   box.innerHTML = '';
-  box.classList.remove('has-pattern', 'is-live');
+  box.classList.remove('has-pattern', 'is-live', 'is-inherited-slice');
   if (!pattern || patternsEqual(pattern, sectionDefaultPattern)) {
+    // B-30: наследник боем секции — но если его фактический СРЕЗ не
+    // сводится к целому повтору рисунка, во время игры показываем срез
+    // (иначе живое превью стирало статичное, и «что играть» опять
+    // пропадало). Подсветку шагов не регистрируем: индексация
+    // планировщика фасадная, по срезу она промахивалась бы.
+    const secL = sections.find((s) => s.id === secId);
+    const sqL = secL && secL.squares.find((q) => q.id === sqId);
+    const liveSlice = pattern ? inheritedFacadeSliceForPreview(secL, sqL, ei) : null;
+    if (liveSlice) {
+      const { preview: pv } = buildStrumPreviewEls(liveSlice);
+      box.appendChild(pv);
+      box.classList.add('has-pattern', 'is-live', 'is-inherited-slice');
+      box.parentElement?.classList.add('has-cell-rhythm');
+      return;
+    }
     // Ритма в ячейке нет — ступень возвращается к верхней кромке.
     box.parentElement?.classList.remove('has-cell-rhythm');
     return;
@@ -23427,17 +23499,22 @@ function restoreEventStrumPreview(key) {
   );
   if (!box) return;
   box.innerHTML = '';
-  box.classList.remove('has-pattern', 'is-live');
+  box.classList.remove('has-pattern', 'is-live', 'is-inherited-slice');
   const sec = sections.find((s) => s.id === secId);
   const sq = sec && sec.squares.find((q) => q.id === sqId);
   const ev = sq && sq.events[ei];
   // Волна-4: как и renderEventStrumPreviews — превью читает окно рулона;
   // встроенного кэша у ячейки нет, встроенный байт — легаси-вкрапление.
   const rollWinCell = sq && songRhythmRolls ? rhythmRollWindowFor(secId, sq, ei, songRhythmRolls) : null;
-  const cellPattern = rollWinCell || (ev && ev.strumPattern);
+  const ownPattern = rollWinCell || (ev && ev.strumPattern) || null;
+  // B-30: своего нет — возвращаем фактический срез боя секции (как в
+  // renderEventStrumPreviews, включая метку is-inherited-slice).
+  const inheritedSlice = ownPattern ? null : inheritedFacadeSliceForPreview(sec, sq, ei);
+  const cellPattern = ownPattern || inheritedSlice;
+  box.classList.toggle('is-inherited-slice', !!inheritedSlice);
   // B-06: призрачная тишина и здесь не показывается (иначе после стопа
   // воспроизведения превью пауз вернулось бы на место).
-  if (!ev || !cellPattern || isGhostSilenceCell(sec, sq, ei)) {
+  if (!ev || !cellPattern || (!inheritedSlice && isGhostSilenceCell(sec, sq, ei))) {
     box.parentElement?.classList.remove('has-cell-rhythm');
     return;
   }
@@ -23449,7 +23526,10 @@ function restoreEventStrumPreview(key) {
   // своим паттерном подсвечивалась только на первом круге: после ухода
   // воспроизведения ключ, зарегистрированный в renderEventStrumPreviews,
   // терялся, и на втором проходе анимировать было нечего.
-  eventStrumPreviewStepEls.set(key, Array.from(preview.querySelectorAll('.strum-step')));
+  // B-30: срез фасада не регистрируем — планировщик индексирует фасадно.
+  if (!inheritedSlice) {
+    eventStrumPreviewStepEls.set(key, Array.from(preview.querySelectorAll('.strum-step')));
+  }
 }
 
 // Убирает разом все "живые" индикаторы боя (секция + ячейка) при остановке
@@ -29801,6 +29881,11 @@ function rhythmHintExitDeltas(entry, ei, bi) {
   if (!shouldFly) return null;
   const wrapperEl = bi.querySelector(`.chord-wrapper[data-ei="${ei}"]`);
   const prevEl = wrapperEl && wrapperEl.querySelector('.event-strum-preview');
+  // B-30: срез-превью (is-inherited-slice) не бывает целью полёта —
+  // унаследованный ритм уплывает только fade-out, срез дорисует финальный
+  // sync. Без фильтра появившийся срез давал полосе ложную цель (stale
+  // шаги), и выход срабатывал без fade-фазы.
+  if (!prevEl || prevEl.classList.contains('is-inherited-slice')) return null;
   const stepEls = prevEl ? [...prevEl.querySelectorAll('.strum-step')] : [];
   const hitEls = [...entry.el.querySelectorAll('.rhythm-hint-hit')];
   if (!wrapperEl || !stepEls.length || !hitEls.length) return null;
