@@ -72,6 +72,7 @@ w.addEventListener('load', async () => {
   pinCell('.chord-wrapper[data-sec="1"][data-square="2"][data-ei="0"]');
   ok('закреп: карточка Am', rowName().includes('Am'), rowName());
   hover('.chord-wrapper[data-sec="1"][data-square="3"][data-ei="0"] .chord-input');
+  await sleep(250);   // 0.154: ховер-смена — анимация свапа
   ok('ховер F → карточка F', rowName().includes('F'), rowName());
   ok('тултип по-прежнему подавлен',
     d.getElementById('fingering-tooltip').style.display === 'none');
@@ -79,6 +80,7 @@ w.addEventListener('load', async () => {
 
   console.log('=== 2. Ховер другой ячейки (G) — карточка едет дальше ===');
   hover('.chord-wrapper[data-sec="4"][data-square="6"][data-ei="0"] .chord-input');
+  await sleep(250);
   ok('ховер G → карточка G', rowName().includes('G'), rowName());
 
   console.log('=== 3. Мышь ушла с ячеек (300мс таймер) — возврат к Am ===');
@@ -91,12 +93,15 @@ w.addEventListener('load', async () => {
   w.eval(`playbackState.isPlaying = true;
     syncPinnedFingeringWithPlayback('C', 4, 5, 0, { secId: 4, squareId: 6, eventIndex: 0, chord: 'G' })`);
   hover('.chord-wrapper[data-sec="1"][data-square="3"][data-ei="0"] .chord-input');
+  await sleep(250);
   ok('играет C — ховер F проигнорирован, карточка C', rowName().includes('C'), rowName());
   w.eval('playbackState.isPlaying = false; restorePinnedFingering()');
+  await sleep(250);
   ok('стоп — карточка вернула закреплённый Am', rowName().includes('Am'), rowName());
 
   console.log('=== 5. Открепление во время ховера — ряд скрыт, режим чист ===');
   hover('.chord-wrapper[data-sec="1"][data-square="3"][data-ei="0"] .chord-input');
+  await sleep(250);
   ok('ховер F → карточка F', rowName().includes('F'), rowName());
   w.eval('unpinFingering()');
   ok('ряд скрыт после открепления', d.getElementById('pinnedRow').style.display === 'none');

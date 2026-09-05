@@ -6734,6 +6734,49 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   transform: scale(0.92);
   transform-origin: top left;
   pointer-events: none;
+  position: relative;   /* якорь для кругляшка-таймера (B-38) */
+}
+/* Кругляшок «до смены аккорда» в превью — та же семантика, что у
+   .tl-next-timer ленты: в начале аккорда полный, к смене — пустой
+   (conic-gradient: выцветший сектор растёт с --pinned-next-progress).
+   Обновление пишется в CSS-переменную из RAF — без перерасчёта
+   раскладки, высоту карточки не трогает. */
+.pinned-next-timer {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--color-tint) calc(var(--pinned-next-progress, 0) * 360deg),
+    var(--color-accent-warm) 0
+  );
+  box-shadow: inset 0 0 0 1px var(--color-border-medium);
+}
+/* B-38: смена аппликатуры в закреплённой карточке и превью — старый
+   гриф УЕЗЖАЕТ ВЛЕВО, новый ПРИЕЗЖАЕТ СПРАВА. Только transform и
+   opacity: раскладка и высота ряда не шевелятся (замер --pinned-shift
+   не сбивается). */
+.pin-fade-out {
+  animation: struchord-pin-out 0.13s ease-in both;
+}
+.pin-fade-in {
+  animation: struchord-pin-in 0.2s ease-out both;
+}
+@keyframes struchord-pin-out {
+  from { transform: none; opacity: 1; }
+  to { transform: translateX(-26px); opacity: 0; }
+}
+@keyframes struchord-pin-in {
+  from { transform: translateX(26px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pin-fade-out,
+  .pin-fade-in {
+    animation: none;
+  }
 }
 .pinned-fingering:active {
   cursor: grabbing;
@@ -8772,7 +8815,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.153</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.154</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9075,6 +9118,15 @@ body.is-timeline.is-playing .timeline-playhead {
           </div>
           <div class="pinned-next" id="pinnedNext" style="display: none">
             <div class="fingering-content"></div>
+            <!-- B-38: кругляшок «до смены аккорда» — как tl-next-timer
+                 у панели «Дальше» в ленте (conic-gradient по CSS-переменной,
+                 обновляется на композиторе каждый кадр). -->
+            <div
+              class="pinned-next-timer"
+              id="pinnedNextTimer"
+              aria-hidden="true"
+              title="До смены аккорда"
+            ></div>
           </div>
         </div>
       </div>
@@ -14822,13 +14874,99 @@ function updatePinnedShift() {
   grid.style.setProperty('--pinned-shift', shift > 0 ? shift.toFixed(1) + 'px' : '0px');
 }
 
+// B-38 (0.154): смена аппликатуры в закреплённой карточке/превью — не
+// скачком: старое содержание уезжает влево (0.13с), новое приезжает
+// справа (0.2с). Ключ — аккорд + форма: повторные sync планировщика с
+// тем же аккордом перерисовываются ТИХО (innerHTML без анимации), чтобы
+// клетка за клеткой внутри одного квадрата ничего не мельтешило.
+// Таймеры, а не transitionend: jsdom и прерывание свапа новым свапом
+// обрабатываются одинаково предсказуемо.
+function swapFingeringContent(el, key, html) {
+  if (!el) return;
+  if (el.dataset.swapKey === key) {
+    el.innerHTML = html;
+    return;
+  }
+  if (el.dataset.swapTimer) {
+    clearTimeout(+el.dataset.swapTimer);
+    el.dataset.swapTimer = '';
+  }
+  el.classList.remove('pin-fade-in');
+  const apply = () => {
+    el.innerHTML = html;
+    el.dataset.swapKey = key;
+    el.classList.remove('pin-fade-out');
+    void el.offsetWidth;            // перезапуск анимации приезда
+    el.classList.add('pin-fade-in');
+    el.dataset.swapTimer = String(setTimeout(() => {
+      el.classList.remove('pin-fade-in');
+      el.dataset.swapTimer = '';
+    }, 220));
+  };
+  if (!el.dataset.swapKey) {
+    apply();                        // первый показ — просто приезд справа
+    return;
+  }
+  el.classList.add('pin-fade-out');
+  el.dataset.swapTimer = String(setTimeout(apply, 130));
+}
+
+// Мгновенный сброс: контент пуст, режим свапа погашен (открепление,
+// скрытие превью).
+function resetFingeringSwap(el) {
+  if (!el) return;
+  if (el.dataset.swapTimer) {
+    clearTimeout(+el.dataset.swapTimer);
+    el.dataset.swapTimer = '';
+  }
+  el.classList.remove('pin-fade-out', 'pin-fade-in');
+  el.removeAttribute('data-swap-key');
+  el.innerHTML = '';
+}
+
+// B-38 (0.154): кругляшок «до смены аккорда» в превью закреплённого
+// ряда — как tl-next-timer ленты. Прогресс = доля пройденного текущей
+// ячейки (playbackState.cellStart/cellDur пишет планировщик рядом с
+// syncPinnedFingeringWithPlayback); в начале аккорда круг полный,
+// к смене — пустой. RAF-цикл живёт, пока играют + закреплено + превью
+// видно; каждый кадр пишет только CSS-переменную (композитор).
+function updatePinnedNextTimer() {
+  const el = document.getElementById('pinnedNextTimer');
+  if (!el) return;
+  const st = playbackState;
+  if (!st.isPlaying || !st.cellDur) {
+    el.style.removeProperty('--pinned-next-progress');
+    return;
+  }
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const frac = (ctx.currentTime - st.cellStart) / st.cellDur;
+  el.style.setProperty('--pinned-next-progress',
+    Math.max(0, Math.min(1, frac)).toFixed(4));
+}
+
+let pinnedTimerRAF = 0;
+function pinnedTimerLoop() {
+  pinnedTimerRAF = 0;
+  updatePinnedNextTimer();
+  const host = document.getElementById('pinnedNext');
+  const active = playbackState.isPlaying && isFingeringPinned() && host &&
+    host.style.display !== 'none' &&
+    !document.body.classList.contains('is-timeline');
+  if (active) pinnedTimerRAF = requestAnimationFrame(pinnedTimerLoop);
+}
+
+function ensurePinnedNextTimer() {
+  if (!pinnedTimerRAF) pinnedTimerRAF = requestAnimationFrame(pinnedTimerLoop);
+}
+
 function renderPinnedFingering(chordName, shape) {
   const host = document.getElementById('pinnedFingering');
   const row = document.getElementById('pinnedRow');
   if (!host || !row) return;
   if (!pinnedFingering) {
     row.style.display = 'none';
-    host.querySelector('.fingering-content').innerHTML = '';
+    resetFingeringSwap(host.querySelector('.fingering-content'));
     document.body.classList.remove('has-pinned-fingering');
     updatePinnedShift();
     renderPinnedNext(null);
@@ -14846,15 +14984,16 @@ function renderPinnedFingering(chordName, shape) {
     form = resolveFingeringShape(name, key, posKey);
   }
   const content = host.querySelector('.fingering-content');
+  const formKey = Array.isArray(form) ? form.join(',') : String(form);
   if (!form) {
-    content.innerHTML =
-      '<span style="color:var(--color-text-tertiary);font-size:12px">Нет аппликатуры</span>';
+    swapFingeringContent(content, 'none:' + name,
+      '<span style="color:var(--color-text-tertiary);font-size:12px">Нет аппликатуры</span>');
     updatePinnedShift();
     return;
   }
-  content.innerHTML =
+  swapFingeringContent(content, name + '|' + formKey,
     `<span class="fingering-chord-name">${renderFingeringChordNameHtml(name)}</span>` +
-    `<div class="fingering-svg-container">${renderFingeringSVG(form) || ''}</div>`;
+    `<div class="fingering-svg-container">${renderFingeringSVG(form) || ''}</div>`);
   updatePinnedShift();
 }
 
@@ -14869,7 +15008,13 @@ function renderPinnedNext(pos) {
   if (!host) return;
   if (!pos || !pos.chord) {
     host.style.display = 'none';
-    host.querySelector('.fingering-content').innerHTML = '';
+    resetFingeringSwap(host.querySelector('.fingering-content'));
+    if (pinnedTimerRAF) {
+      cancelAnimationFrame(pinnedTimerRAF);
+      pinnedTimerRAF = 0;
+    }
+    const timerEl = document.getElementById('pinnedNextTimer');
+    if (timerEl) timerEl.style.removeProperty('--pinned-next-progress');
     return;
   }
   const sec = sections.find((x) => x.id === pos.secId);
@@ -14881,11 +15026,13 @@ function renderPinnedNext(pos) {
     host.style.display = 'none';
     return;
   }
-  host.querySelector('.fingering-content').innerHTML =
+  const formKey = Array.isArray(form) ? form.join(',') : String(form);
+  swapFingeringContent(host.querySelector('.fingering-content'), pos.chord + '|' + formKey,
     `<span class="fingering-chord-name">${renderFingeringChordNameHtml(pos.chord)}</span>` +
-    `<div class="fingering-svg-container">${renderFingeringSVG(form) || ''}</div>`;
+    `<div class="fingering-svg-container">${renderFingeringSVG(form) || ''}</div>`);
   host.style.display = 'block';
   updatePinnedShift();
+  ensurePinnedNextTimer();
 }
 
 // Следующая ячейка с аккордом ПО ПОРЯДКУ РАЗМЕТКИ — для покоя, когда
@@ -19907,6 +20054,11 @@ function scheduleNextEvent(ctx) {
 
   const dur = getEventDurationForTimeSig(next.event.span || 1, bpm, ts);
   const evStart = nextEventTime;
+  // B-38 (0.154): старт/длительность текущей ячейки — питание кругляшка
+  // «до смены аккорда» в превью закреплённого ряда (та же семантика,
+  // что у tl-next-timer ленты).
+  playbackState.cellStart = evStart;
+  playbackState.cellDur = dur;
 
   // Якорь фазы такта: время начала ТЕКУЩЕГО квадрата = время начала
   // текущего события минус время всех событий этого квадрата, что уже

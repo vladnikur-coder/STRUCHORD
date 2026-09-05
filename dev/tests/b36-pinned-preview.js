@@ -78,18 +78,21 @@ w.addEventListener('load', async () => {
   console.log('=== 2. Закрепление ВО ВРЕМЯ ИГРЫ — превью есть ===');
   w.eval('playbackState.isPlaying = true');
   pinCell('.chord-wrapper[data-sec="1"][data-square="3"][data-ei="0"]');
+  await sleep(250);   // 0.154: смена аппликатуры — анимация свапа
   ok('гриф — новый закреплённый аккорд F', pinnedName().includes('F'), pinnedName());
   ok('превью «Дальше» ВИДНО при игре', nextDisplay() === 'block', JSON.stringify(nextDisplay()));
 
   console.log('=== 3. Планировщик ведёт ряд: играет C — превью G ===');
   w.eval(`syncPinnedFingeringWithPlayback('C', 4, 5, 0,
     { secId: 4, squareId: 6, eventIndex: 0, chord: 'G' })`);
+  await sleep(250);   // свап
   ok('гриф — играющий аккорд C', pinnedName().includes('C'), pinnedName());
   ok('превью — следующий аккорд G', nextName().includes('G'), nextName());
   ok('превью видимо', nextDisplay() === 'block', JSON.stringify(nextDisplay()));
 
   console.log('=== 4. Стоп игры — гриф возвращается к закреплённому, превью гаснет ===');
   w.eval('playbackState.isPlaying = false; restorePinnedFingering()');
+  await sleep(250);   // возврат закреплённой формы — свап
   ok('гриф вернул закреплённую форму F', pinnedName().includes('F'), pinnedName());
   ok('превью СКРЫТО после остановки', nextDisplay() === 'none', JSON.stringify(nextDisplay()));
 
