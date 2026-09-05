@@ -143,6 +143,51 @@ const puppeteer = require(path.join(__dirname, '../../node_modules/puppeteer'));
   check('ряд и превью скрыты', st.display === 'none' &&
     (await page.evaluate(() => document.getElementById('pinnedNext').style.display)) === 'none');
 
+  console.log('=== 6. Передумал и закрепил обратно (<0.44с) — анимация жива ===');
+  await pinCell(2);
+  await new Promise((r) => setTimeout(r, 300));          // прошло 300мс от первого pin
+  await pinCell(3);                                      // re-pin: старый таймер (440) ещё тикает
+  await new Promise((r) => setTimeout(r, 170));          // t=470: старый код срезал бы класс
+  st = await rowState();
+  check('приезд НЕ срезан старым таймером (t=470мс)',
+    st.cardAnim === 'struchord-pin-in-card', st.cardAnim);
+  await new Promise((r) => setTimeout(r, 350));
+  st = await rowState();
+  check('корректное завершение', st.cardAnim === 'none' && st.classes.every((c) => !c.startsWith('is-')));
+
+  console.log('=== 7. Вынос драгом: растворение НА МЕСТЕ сброса, без телепорта ===');
+  await pinCell(2);
+  await new Promise((r) => setTimeout(r, 500));
+  const card = await page.evaluate(() => {
+    const r = document.getElementById('pinnedFingering').getBoundingClientRect();
+    return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+  });
+  await page.mouse.move(card.x, card.y);
+  await page.mouse.down();
+  await page.mouse.move(500, 300, { steps: 6 });
+  await page.mouse.move(640, 430, { steps: 6 });         // прочь из дока
+  await page.mouse.up();
+  await new Promise((r) => setTimeout(r, 130));          // середина растворения
+  st = await rowState();
+  const dragView = await page.evaluate(() => {
+    const row = document.getElementById('pinnedRow');
+    const card2 = document.getElementById('pinnedFingering').getBoundingClientRect();
+    return { pos: row.style.position, cx: Math.round(card2.left + card2.width / 2) };
+  });
+  check('ряд остался в точке сброса (fixed, без телепорта к доку)',
+    dragView.pos === 'fixed', dragView.pos);
+  check('растворение идёт на месте', st.cardAnim === 'struchord-pin-out-card', st.cardAnim);
+  check('карточка у места отпускания (640)', Math.abs(dragView.cx - 640) <= 60, String(dragView.cx));
+  check('ряд ещё виден', st.display === 'flex', st.display);
+  await new Promise((r) => setTimeout(r, 450));
+  st = await rowState();
+  const after = await page.evaluate(() => ({
+    pos: document.getElementById('pinnedRow').style.position,
+    left: document.getElementById('pinnedRow').style.left,
+  }));
+  check('скрыт, драг-остатки чисты', st.display === 'none' && after.pos === '' && after.left === '',
+    JSON.stringify(after));
+
   console.log(fails ? `PROBE FAIL: ${fails}` : 'PROBE OK');
   await browser.close();
   process.exit(fails ? 1 : 0);

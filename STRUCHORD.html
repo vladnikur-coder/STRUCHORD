@@ -8871,7 +8871,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.162</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.163</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15046,6 +15046,12 @@ function hidePinnedRowAnimated(row, onHidden) {
     if (onHidden) onHidden();
     return;
   }
+  // B-42 v8 (0.163): параллельный таймер появления гасим — иначе он
+  // мог снять класс посреди растворения.
+  if (row.__appearingTimer) {
+    clearTimeout(row.__appearingTimer);
+    row.__appearingTimer = 0;
+  }
   row.classList.remove('is-appearing');
   row.classList.add('is-dissolving');
   if (row.__dissolveTimer) clearTimeout(row.__dissolveTimer);
@@ -15054,6 +15060,13 @@ function hidePinnedRowAnimated(row, onHidden) {
     row.__dissolveTimer = 0;
     row.classList.remove('is-dissolving');
     row.style.display = 'none';
+    // B-42 v8 (0.163): остатки жеста выноса (position:fixed + координаты
+    // сброса) — только теперь, когда растворение на месте сыграло.
+    row.style.position = '';
+    row.style.left = '';
+    row.style.top = '';
+    row.style.right = '';
+    row.style.transform = '';
     const host = document.getElementById('pinnedFingering');
     if (host) resetFingeringSwap(host.querySelector('.fingering-content'));
     if (onHidden) onHidden();
@@ -15192,11 +15205,22 @@ function pinFingeringFromTooltip() {
   // перезакреплении одного грифа на другой ячейке.
   const rowEl = document.getElementById('pinnedRow');
   if (rowEl) {
+    // B-42 v8 (0.163): таймер появления ЖИВЁТ на элементе и гасится
+    // перед рестартом. Раньше «голый» setTimeout от ПРОШЛОГО закрепления
+    // срезал класс посреди новой анимации: передумал и закрепил обратно
+    // в пределах 0.44с — приезд обрывался, «анимация не срабатывает».
+    if (rowEl.__appearingTimer) {
+      clearTimeout(rowEl.__appearingTimer);
+      rowEl.__appearingTimer = 0;
+    }
     rowEl.classList.remove('is-appearing');
     void rowEl.offsetWidth;
     rowEl.classList.add('is-appearing');
     // 0.161: длительность синхронизирована с CSS (0.42s + запас).
-    setTimeout(() => rowEl.classList.remove('is-appearing'), 440);
+    rowEl.__appearingTimer = setTimeout(() => {
+      rowEl.__appearingTimer = 0;
+      rowEl.classList.remove('is-appearing');
+    }, 440);
   }
   return true;
 }
@@ -15340,12 +15364,19 @@ function attachPinDrag() {
     st.bar.classList.remove('is-drop-target');
     st.el.classList.remove('is-dragging', 'no-move-transition');
     if (st.source === 'pinned') {
-      // Возвращаем блок в поток доки — координаты жеста больше не нужны.
-      st.el.style.position = '';
-      st.el.style.left = '';
-      st.el.style.top = '';
-      st.el.style.right = '';
-      st.el.style.transform = '';
+      // B-42 v8 (0.163): координаты жеста чистим НЕ ВСЕГДА. Вернулся в
+      // док или это был клик — возвращаем блок в поток сразу. Вынесли
+      // из дока — оставляем фиксированную позицию СБРОСА: растворение
+      // играет ТАМ, где отпустили (иначе ряд мгновенно телепортировался
+      // к доку и гасся уже там — читалось как «пропал/уехал»); остатки
+      // инлайна чистит hidePinnedRowAnimated по завершении.
+      if (st.overDock || !st.moved) {
+        st.el.style.position = '';
+        st.el.style.left = '';
+        st.el.style.top = '';
+        st.el.style.right = '';
+        st.el.style.transform = '';
+      }
     }
     if (!st.moved) return;   // это был клик, а не перетаскивание
     if (st.source === 'tooltip') {

@@ -103,6 +103,7 @@ w.addEventListener('load', async () => {
   pinCell('.chord-wrapper[data-sec="1"][data-square="2"][data-ei="0"]');
   ok('ряд показан', rowEl().style.display === 'flex');
   ok('класс появления повешен', rowEl().classList.contains('is-appearing'));
+  ok('таймер появления живёт на элементе', !!rowEl().__appearingTimer);
   const cardSvg = d.querySelector('#pinnedFingering svg');
   ok('SVG карточки БЕЗ внутренней плашки',
     cardSvg && ![...cardSvg.children].some((c) => c.getAttribute('fill') === 'var(--color-surface)'),
@@ -176,6 +177,7 @@ w.addEventListener('load', async () => {
   await sleep(250);
   w.eval('unpinFingering()');
   ok('растворение началось', rowEl().classList.contains('is-dissolving'));
+  ok('таймер появления погашен при откреплении', !rowEl().__appearingTimer);
   ok('ряд ещё виден (display не none)', rowEl().style.display !== 'none');
   // перезакрепление СРАЗУ — отменяет растворение
   pinCell('.chord-wrapper[data-sec="1"][data-square="2"][data-ei="0"]');
