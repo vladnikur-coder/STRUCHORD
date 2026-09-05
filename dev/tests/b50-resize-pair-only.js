@@ -163,6 +163,52 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
        steps.join(',') + ' при долях ' + s.join(','));
   }
 
+
+  // 6. Плотность нот ВО ВРЕМЯ жеста (фидбек 2026-09-05: «количество нот
+  //    на долю меняется»). Полосы подсказки обязаны показывать столько
+  //    ударов, сколько будет после отпускания, а не сколько было до.
+  {
+    const w = boot();
+    w.eval(`
+      sections[0].strumPattern = { mode: 'strum', subdivision: 3,
+        steps: ['D', null, null, 'D', null, 'U', null, null, 'U', 'D', null, 'U'] };
+    `);
+    try { w.render(); } catch (e) {}
+    await sleep(300);
+    const sqEl = w.document.querySelector('.square-inner');
+    sqEl.getBoundingClientRect = () => ({ left: 0, right: W, width: W, top: 0, bottom: 60, height: 60 });
+    sqEl.querySelectorAll('.chord-wrapper').forEach((cw) => {
+      cw.getBoundingClientRect = () => ({ left: 0, right: 100, width: 100, top: 0, bottom: 60, height: 60 });
+    });
+    const hits = () => Array.from(w.document.querySelectorAll('.rhythm-hint'))
+      .map((el) => el.querySelectorAll('.rhythm-hint-hit').length);
+    const h = sqEl.querySelectorAll('.resize-handle')[2];
+    const down = new w.MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 0 });
+    if (typeof h.onpointerdown === 'function') h.onpointerdown(down); else h.dispatchEvent(down);
+    const atDown = hits();
+    ok('на старте жеста удары по стартовым долям (1.75x3=5)', atDown[2] === 5, atDown.join(','));
+    w.eval('window.__builds = 0;');
+    for (let x = 1; x <= 40; x++) {
+      w.document.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: x }));
+    }
+    await sleep(120);
+    const during = hits();
+    // Am -> 3 доли: 3x3 = 9 ударов; G -> 1 доля: 1x3 = 3 удара.
+    ok('в жесте удары пересчитаны под будущие доли (3x3=9)', during[2] === 9, during.join(','));
+    ok('сосед пары тоже пересчитан (1x3=3)', during[3] === 3, during.join(','));
+    ok('чужие ячейки не тронуты', during[0] === atDown[0] && during[4] === atDown[4], during.join(','));
+    w.document.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true, cancelable: true, clientX: 40 }));
+    await sleep(500);
+    const s = spans(w);
+    const steps = JSON.parse(w.eval(`JSON.stringify(sections[0].squares[0].events.map((e,i)=>{
+      const x = rhythmSoundingForEvent(sections[0], sections[0].squares[0], e, i);
+      return x ? x.steps.length : null; }))`));
+    ok('после отпускания совпало с показанным в жесте',
+       steps[2] === during[2] && steps[3] === during[3],
+       'жест ' + during.slice(2, 4).join(',') + ' vs итог ' + steps.slice(2, 4).join(','));
+    ok('длина квадрата = 16', Math.abs(s.reduce((a, b) => a + b, 0) - 16) < 1e-9, s.join(','));
+  }
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
   process.exit(bad ? 1 : 0);
 })();

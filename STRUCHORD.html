@@ -8900,7 +8900,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.174</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.175</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -29754,6 +29754,28 @@ function buildRhythmHintContent(hintEl, pattern, deltas, geometry) {
   hintEl.appendChild(frag);
 }
 
+// B-50 (0.175): сколько ударов должна показывать полоса при ДРУГОЙ длине
+// ячейки. Пользователь (2026-09-05): «количество нот на долю меняется» —
+// полосы держали число ударов от стартовых долей, а ячейка под ними
+// росла, и плотность нот на долю плыла всю протяжку, скачком приходя в
+// норму на отпускании.
+//
+// Считаем ровно по правилу, которое исполнит reslice на pointerup:
+// дробность рисунка сохраняется, число шагов = span x subdivision, шаги
+// берутся циклом (рисунок продолжается) либо обрезаются. Модель при
+// этом не трогаем — это чистая функция для превью.
+function rhythmHintPatternForSpan(pattern, spanBeats) {
+  if (!pattern || !Array.isArray(pattern.steps) || !pattern.steps.length) return pattern;
+  const sub = Math.max(1, pattern.subdivision || 1);
+  const need = Math.max(1, Math.round((spanBeats || 1) * sub));
+  if (need === pattern.steps.length) return pattern;
+  const steps = Array.from({ length: need }, (_, k) => {
+    const v = pattern.steps[k % pattern.steps.length];
+    return Array.isArray(v) ? v.slice() : v;
+  });
+  return { mode: pattern.mode, subdivision: sub, steps };
+}
+
 // Геометрия полос — из того же distributeVisualSpans, что и сетка.
 // С 0.168 вызывается только на старте жеста: всю протяжку полосы стоят
 // на стартовых позициях (замороженный метрический слой, как засечки),
@@ -29766,6 +29788,32 @@ function layoutRhythmHints(session, distribution) {
     entry.el.style.left = (cum / tc * 100) + '%';
     entry.el.style.width = (cols / tc * 100) + '%';
     cum += cols;
+  });
+}
+
+// B-50 (0.175): живой пересчёт числа ударов под текущие доли жеста.
+// Полосы остаются на своих метрических местах (0.168: «ритм не должен
+// двигаться при ресайзе»), но плотность нот на долю больше не плывёт:
+// сколько ударов будет после отпускания, столько видно и сейчас.
+//
+// Зовётся ТОЛЬКО на snapped-переходе (сетка реально сменилась), а не в
+// каждом кадре pointermove: innerHTML полосы — дорогая операция, а
+// снапов за жест единицы. 60fps guardrail при этом цел.
+function syncRhythmHintCounts(session, spansBeats) {
+  if (!session || !Array.isArray(spansBeats)) return;
+  session.entries.forEach((entry, i) => {
+    const base = entry.basePattern;
+    if (!base || !entry.el.firstChild) return;
+    const next = rhythmHintPatternForSpan(base, spansBeats[i]);
+    const key = rhythmHintPatternKey(next);
+    if (key === entry.patternKey) return;
+    entry.patternKey = key;
+    buildRhythmHintContent(entry.el, next, null, entry.geometry);
+    // Полоса перестроена — удары уже стоят в конечном состоянии, без
+    // входного FLIP. Класс входа возвращаем, иначе новые узлы останутся
+    // прозрачными до конца жеста.
+    entry.el.classList.add('is-in');
+    if (session.edgeKeys) syncRhythmHintLiveEdges(session, session.edgeKeys);
   });
 }
 
@@ -29870,6 +29918,11 @@ function startRhythmHints(s, sq, bi, distribution) {
       // срезом, которому транзитная сшивка/растворение на миг дали и тут
       // же сняли приватный рулон, кастомом не был — он летит как рисуемый.
       entry.startPinned = d.custom;
+      // B-50 (0.175): исходный рисунок ячейки — источник для живого
+      // пересчёта числа ударов при смене долей в жесте. Именно рисунок,
+      // а не текущая нарезка: пересчитывать надо всегда от него, иначе
+      // повторные снапы копили бы обрезки.
+      entry.basePattern = d.pattern;
       entry.patternKey = rhythmHintPatternKey(d.pattern);
       buildRhythmHintContent(el, d.pattern, deltasByCell[ei], geometry);
       // Наследуемому без превью смещения нет вообще: ему неоткуда плыть,
@@ -31366,6 +31419,18 @@ function attachResizeHandlers() {
         updateResizeBoundaryCovers(nsp);
         updateResizeHiddenTicks(nsp);
         updateResizeMetricCountEdges(nsp);
+        // B-50 (0.175): удары в полосах — по БУДУЩИМ долям. Сюда попадаем
+        // только на смене snapped-сетки (выше стоит гейт по ключу), так
+        // что перестройка полос случается единицы раз за жест, а не в
+        // каждом кадре. Доли считаем тем же buildEventsForVisualSpans,
+        // что исполнит commit, — превью и результат не расходятся.
+        if (rhythmHintSession && rhythmHintSession.bi === bi) {
+          const nextEvents = buildEventsForVisualSpans(nsp);
+          syncRhythmHintCounts(
+            rhythmHintSession,
+            nextEvents.map((ev) => getEventVisualSpanInParentUnits(ev, parentTs))
+          );
+        }
         window.__b31ResizePreviewFrameCount = (window.__b31ResizePreviewFrameCount || 0) + 1;
         return true;
       }
