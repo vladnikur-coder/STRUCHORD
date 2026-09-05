@@ -8772,7 +8772,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.152</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.153</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14406,6 +14406,10 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
   // второй, и получилось бы то же мельтешение, от которого мы уходили
   // в анимации ритма.
   if (isFingeringPinned()) {
+    // B-37 (0.153): наведение в покое показывает аккорд ячейки в самой
+    // закреплённой карточке. Превью-вызовы планировщика и всё во время
+    // игры — прежнее подавление (карточку ведёт воспроизведение).
+    if (!isPreview && !playbackState.isPlaying) syncPinnedRowToHover(wrapper);
     hideFingeringTooltip(isPreview);
     return;
   }
@@ -14916,6 +14920,7 @@ function pinFingeringFromTooltip() {
   };
   hideFingeringTooltip(false);
   hideFingeringTooltip(true);
+  pinnedHoverWrapper = null;   // свежее закрепление — без ховер-режима
   renderPinnedFingering();
   // B-36 (0.152): превью «Дальше» — принадлежность ВОСПРОИЗВЕДЕНИЯ.
   // В покое закреплён только сам гриф: следующий аккорд и так виден в
@@ -14939,6 +14944,7 @@ function pinFingeringFromTooltip() {
 
 function unpinFingering() {
   pinnedFingering = null;
+  pinnedHoverWrapper = null;
   renderPinnedFingering();
 }
 
@@ -14955,6 +14961,26 @@ function syncPinnedFingeringWithPlayback(chordName, secId, squareId, eventIndex,
   // секций и квадратов, а простой обход разметки на них ошибётся.
   // nextPos приходит оттуда; если его нет (конец песни) — превью гасим.
   renderPinnedNext(nextPos || null);
+}
+
+// B-37 (0.153): в ПОКОЕ закреплённая карточка — «просмотрщик»: наведение
+// на ячейку показывает её аккорд прямо в карточке (всплывающий тултип
+// по-прежнему подавлен — никакого мельтешения). Мышь ушла с ячеек —
+// карточка возвращает себе закреплённый аккорд. Во время игры не
+// действует: там карточку ведёт планировщик, а ховер игнорируется.
+let pinnedHoverWrapper = null;
+
+function syncPinnedRowToHover(wrapper) {
+  if (!pinnedFingering || !wrapper) return;
+  const input = wrapper.querySelector('.chord-input');
+  const chord = input && input.value.trim();
+  if (!chord) return;
+  pinnedHoverWrapper = wrapper;
+  const secId = +wrapper.dataset.sec;
+  const sec = sections.find((x) => x.id === secId);
+  const key = sec && sec.key ? sec.key : globalKey;
+  const posKey = buildFingeringPositionKey(chord, key, secId, +wrapper.dataset.square, +wrapper.dataset.ei);
+  renderPinnedFingering(chord, resolveFingeringShape(chord, key, posKey));
 }
 
 // Остановились — возвращаем ту форму, которую закрепили.
@@ -15226,6 +15252,12 @@ function attachFingeringEvents() {
       if (!playbackState.isPlaying) {
         hideFingeringTooltip();
         currentTooltipWrapper = null;
+        // B-37 (0.153): карточка-просмотрщик освобождается — возврат
+        // к закреплённому аккорду.
+        if (pinnedHoverWrapper) {
+          pinnedHoverWrapper = null;
+          if (isFingeringPinned()) renderPinnedFingering();
+        }
       }
     }, 300);
   });
