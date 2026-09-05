@@ -190,6 +190,25 @@ w.addEventListener('load', async () => {
   ok('ряд скрыт после растворения', rowEl().style.display === 'none');
   ok('таймер растворения погашен', !rowEl().__dissolveTimer);
 
+  console.log('=== 7. 0.164: закрепление ВО ВРЕМЯ ИГРЫ — тултип планировщика зарегистрирован ===');
+  {
+    w.eval('unpinFingering()');
+    await sleep(420);
+    w.eval('playbackState.isPlaying = true');
+    // Путь планировщика: показать тултип ячейки БЕЗ mouseover (в игре ховер заблокирован).
+    w.eval(`showFingeringTooltip('F',
+      document.querySelector('.chord-wrapper[data-sec="1"][data-square="3"][data-ei="0"]'), false)`);
+    const reg = w.eval(`currentTooltipWrapper && currentTooltipWrapper.dataset.square`);
+    ok('тултип планировщика зарегистрировал свою ячейку (sq3)', reg === '3', String(reg));
+    const pinned = w.eval(`pinFingeringFromTooltip()`);
+    await sleep(300);
+    ok('drag в док во время игры закрепляет', pinned && w.eval('isFingeringPinned()'));
+    const chord = w.eval(`pinnedFingering && pinnedFingering.chord`);
+    ok('закреплён именно показанный аккорд (F)', chord === 'F', String(chord));
+    w.eval('playbackState.isPlaying = false; unpinFingering()');
+    await sleep(420);
+  }
+
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');
   process.exit(bad ? 1 : 0);
 });
