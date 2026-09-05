@@ -8871,7 +8871,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.164</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.165</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -23832,8 +23832,10 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
 //
 // В режиме ленты панель «Сейчас» показывает гриф играющего аккорда.
 // Ритм при этом виден только на дорожке снизу — а связь «этот удар
-// задевает вот эти струны» приходится достраивать в голове. Теперь
-// задетые струны на грифе коротко дрожат в такт.
+// задевает вот эти струны» приходится достраивать в голове. Задетые
+// струны на грифе коротко дрожат в такт. 0.165: то же и В РЕДАКТОРЕ —
+// там текущий аккорд показывают тултип у играющей ячейки и закреплённая
+// карточка (превью «Дальше» не трогаем: оно ещё не звучит).
 //
 // Работает и для боя (дрожат все звучащие струны формы, с задержкой по
 // направлению — как настоящий взмах), и для перебора (только те струны,
@@ -23843,8 +23845,10 @@ let _fingVibrateTimers = [];
 function clearFingeringVibration() {
   _fingVibrateTimers.forEach((id) => clearTimeout(id));
   _fingVibrateTimers = [];
+  // 0.165: чистим глобально — грифы текущего аккорда теперь есть и в
+  // редакторе (тултип, закреп), не только в ленте.
   document
-    .querySelectorAll('#tlNowFing .fing-string.is-vibrating')
+    .querySelectorAll('.fing-string.is-vibrating')
     .forEach((el) => el.classList.remove('is-vibrating'));
 }
 
@@ -23852,10 +23856,20 @@ function clearFingeringVibration() {
 // те же, что у shapeToPluckNotes. Перебор оперирует НОМЕРАМИ струн
 // (1 — самая тонкая), их переводит вызывающая сторона.
 function vibrateFingeringStrings(ctx, stringIndexes, atTime, stepSeconds, spread) {
-  if (!timelineMode || !playbackState.isPlaying) return;
+  // 0.165: режим не фильтруем — гриф текущего аккорда есть в обоих
+  // режимах воспроизведения. В покое дрожать нечему (ударов нет).
+  if (!playbackState.isPlaying) return;
   if (!stringIndexes || !stringIndexes.length) return;
-  const host = document.getElementById('tlNowFing');
-  if (!host) return;
+  // Хосты грифа ИГРАЮЩЕГО аккорда: в ленте — панель «Сейчас», в
+  // редакторе — тултип у играющей ячейки и закреплённая карточка
+  // (планировщик держит их на текущем аккорде). Превью «Дальше»
+  // ОСОЗНАННО не входит: следующий аккорд ещё не звучит.
+  const hosts = timelineMode
+    ? [document.getElementById('tlNowFing')]
+    : [
+        document.getElementById('fingering-tooltip'),
+        document.getElementById('pinnedFingering'),
+      ];
   // Задержка до удара в миллисекундах: то же преобразование времени
   // AudioContext в setTimeout, что у подсветки шагов ритма.
   const baseDelay = Math.max(0, (atTime - ctx.currentTime) * 1000);
@@ -23863,20 +23877,23 @@ function vibrateFingeringStrings(ctx, stringIndexes, atTime, stepSeconds, spread
   // струна иначе «звенела» бы полсекунды и это выглядело бы вязко.
   const life = Math.max(90, Math.min(stepSeconds * 1000 * 0.7, 260));
   stringIndexes.forEach((idx, i) => {
-    const el = host.querySelector(`.fing-string[data-string="${idx}"]`);
-    if (!el) return;
     // spread — задержка между струнами внутри одного удара. У боя это
     // взмах медиатора (струны задеваются по очереди), у перебора 0:
     // там щипок одновременный.
     const onId = setTimeout(() => {
-      // Перезапуск анимации на уже дрожащей струне: снимаем класс и
-      // возвращаем в следующем кадре, иначе CSS-анимация не начнётся
-      // заново и частые удары сливались бы в одно движение.
-      el.classList.remove('is-vibrating');
-      void el.getBoundingClientRect();
-      el.classList.add('is-vibrating');
-      const offId = setTimeout(() => el.classList.remove('is-vibrating'), life);
-      _fingVibrateTimers.push(offId);
+      hosts.forEach((host) => {
+        if (!host || host.style.display === 'none') return;
+        const el = host.querySelector(`.fing-string[data-string="${idx}"]`);
+        if (!el) return;
+        // Перезапуск анимации на уже дрожащей струне: снимаем класс и
+        // возвращаем в следующем кадре, иначе CSS-анимация не начнётся
+        // заново и частые удары сливались бы в одно движение.
+        el.classList.remove('is-vibrating');
+        void el.getBoundingClientRect();
+        el.classList.add('is-vibrating');
+        const offId = setTimeout(() => el.classList.remove('is-vibrating'), life);
+        _fingVibrateTimers.push(offId);
+      });
     }, baseDelay + i * (spread || 0) * 1000);
     _fingVibrateTimers.push(onId);
   });

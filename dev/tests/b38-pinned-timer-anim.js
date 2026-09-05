@@ -141,6 +141,48 @@ w.addEventListener('load', async () => {
   await sleep(250);   // возврат закреплённого аккорда — тоже свап
   ok('карточка вернула закреплённый Am', rowName().includes('Am'), rowName());
 
+  console.log('=== 7. 0.165: дрожание струн В РЕДАКТОРЕ (тултип + закреп) ===');
+  {
+    // Сценарий 1: БЕЗ закрепа — текущий аккорд показывает тултип.
+    w.eval('unpinFingering()');
+    await sleep(420);
+    w.eval(`showFingeringTooltip('Am',
+      document.querySelector('.chord-wrapper[data-sec="1"][data-square="2"][data-ei="0"]'), false)`);
+    await sleep(300);   // приезд контента
+    w.eval('playbackState.isPlaying = true');
+    w.eval(`vibrateFingeringStrings({ currentTime: 0 }, [1], 0, 0.5, 0)`);
+    await sleep(40);
+    const tipStr = d.querySelector('#fingering-tooltip .fing-string[data-string="1"]');
+    ok('струна дрожит в тултипе у играющей ячейки (без закрепа)',
+      tipStr && tipStr.classList.contains('is-vibrating'));
+    await sleep(300);
+    // Сценарий 2: С закрепом — тултип скрыт, текущий аккорд в карточке.
+    pinCell('.chord-wrapper[data-sec="1"][data-square="2"][data-ei="0"]');
+    await sleep(500);   // появление ряда
+    w.eval(`vibrateFingeringStrings({ currentTime: 0 }, [2], 0, 0.5, 0)`);
+    await sleep(40);
+    const pinStr = d.querySelector('#pinnedFingering .fing-string[data-string="2"]');
+    ok('струна дрожит и в закреплённой карточке (с закрепом)',
+      pinStr && pinStr.classList.contains('is-vibrating'));
+    w.eval(`renderPinnedNext({ secId: 1, squareId: 3, eventIndex: 0, chord: 'F' })`);
+    const prevStr = d.querySelector('#pinnedNext .fing-string[data-string="1"]');
+    ok('превью «Дальше» НЕ дрожит (ещё не звучит)',
+      !prevStr || !prevStr.classList.contains('is-vibrating'));
+    await sleep(350);   // life = 260мс
+    ok('дрожание само снялось', !d.querySelector('.fing-string.is-vibrating'));
+    w.eval('playbackState.isPlaying = false');
+    w.eval(`vibrateFingeringStrings({ currentTime: 0 }, [1], 0, 0.5, 0)`);
+    await sleep(40);
+    ok('в покое дрожания нет', !d.querySelector('.fing-string.is-vibrating'));
+    w.eval('playbackState.isPlaying = true');
+    w.eval(`vibrateFingeringStrings({ currentTime: 0 }, [0], 0, 0.5, 0)`);
+    await sleep(40);
+    ok('дрожит снова', !!d.querySelector('.fing-string.is-vibrating'));
+    w.eval('clearFingeringVibration()');
+    ok('clearFingeringVibration гасит всё и сразу', !d.querySelector('.fing-string.is-vibrating'));
+    w.eval('playbackState.isPlaying = false');
+  }
+
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');
   process.exit(bad ? 1 : 0);
 });
