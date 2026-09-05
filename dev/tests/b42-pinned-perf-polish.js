@@ -91,9 +91,13 @@ w.addEventListener('load', async () => {
   ok('ряд показан', rowEl().style.display === 'flex');
   ok('класс появления повешен', rowEl().classList.contains('is-appearing'));
   const cardSvg = d.querySelector('#pinnedFingering svg');
-  ok('SVG карточки БЕЗ внутренней плашки (transparent)',
+  ok('SVG карточки БЕЗ внутренней плашки',
     cardSvg && ![...cardSvg.children].some((c) => c.getAttribute('fill') === 'var(--color-surface)'),
     cardSvg && cardSvg.innerHTML.slice(0, 80));
+  const anySvg = w.eval(`renderFingeringSVG('x,0,2,2,1,0')`);
+  ok('плашка отсутствует ГЛОБАЛЬНО (любой рендер грифа)',
+    !anySvg.includes('var(--color-surface)'),
+    anySvg.slice(0, 120));
   ok('SVG карточки крупнее базы (атрибуты ×1.08)',
     cardSvg && +cardSvg.getAttribute('width') > 124 && +cardSvg.getAttribute('height') > 174,
     cardSvg && cardSvg.getAttribute('width') + '×' + cardSvg.getAttribute('height'));
