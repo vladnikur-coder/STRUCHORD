@@ -7492,6 +7492,19 @@ B-15 сдан после стабилизации рендера в B-25. Пов
 - sw.js: `struchord-v55`, sha256 `86df1858a72c9d31c758e379d6c6898d5e33c8631e33c8fcae4a5c74ae95fc9f`.
 - Последний push перед сдачей: `f5df3f5` (`Animate zoom reset rows with FLIP`).
 
+### Дополнение B-15/B-30/B-31.9 (ver 0.170–0.171, 2026-09-05)
+
+После принятой B-15-анимации уточнена семантика видимого наследуемого ритма и frozen-слоя resize:
+
+- в `uploads/Дешевые Драмы.struchord.json` частичные inherited-slice получают настоящий поударный FLIP из mini-preview в overlay и обратно;
+- полные inherited cycles (`span: 4`) не получают дублирующее preview и остаются fade-only;
+- срезы не создают refs в `songRhythmRolls` и не меняют модель только из-за анимации; no-op resize сохраняет spans;
+- во время drag полосы ритма, их `left/width` и метрические позиции заморожены так же, как «1 та и та»;
+- B-31.9 добавляет только синхронный edge-микросдвиг: удар, на который пришла текущая snapped-граница, плавно получает `margin-left: 2px` вправо, без растягивания полосы;
+- обратная фаза строит target по финальной модели, скрывает mini-preview до handoff и не ломает live-подсветку.
+
+Регрессии: `b15-resize-hint.js`, `b15-resize-hit-test.js`, `b15-cheap-drama-flight.js`, `b30-inherited-slice-preview.js`; полный `bash dev/run-tests.sh` — **50 ok / 0 FAIL**. Кэш service worker — `struchord-v171`.
+
 ## B-31: smooth snapped resize правого края квадрата — сдано (2026-09-02)
 
 Принято пользователем («наконец то готово») на ver 0.110 / struchord-v110.
