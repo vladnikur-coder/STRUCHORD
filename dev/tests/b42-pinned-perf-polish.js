@@ -68,8 +68,17 @@ w.addEventListener('load', async () => {
 
   console.log('=== 1. CSS-контракт: масштаб, стекло, растворение, тема ===');
   const rowRule = (css.match(/\.pinned-row\s*\{[^}]*\}/) || [''])[0];
-  ok('масштаб ряда через --pinned-scale', /--pinned-scale:\s*1\.08/.test(rowRule) &&
-    /transform:\s*scale\(var\(--pinned-scale/.test(rowRule), rowRule.slice(0, 100));
+  ok('источник масштаба --pinned-scale: 1.08 на ряду',
+    /--pinned-scale:\s*1\.08/.test(rowRule), rowRule.slice(0, 100));
+  ok('ряд БЕЗ transform (WebKit: блюр потомка ломается на transform-анцесторе)',
+    !/transform\s*:/.test(rowRule), rowRule.slice(0, 160));
+  const cardRuleFull = (css.match(/\.pinned-fingering\s*\{[^}]*\}/) || [''])[0];
+  ok('масштаб несёт карточка', /transform:\s*scale\(var\(--pinned-scale/.test(cardRuleFull));
+  const nextRuleFull = (css.match(/\.pinned-next\s*\{[^}]*\}/) || [''])[0];
+  ok('превью: масштаб 0.92 от общего',
+    /transform:\s*scale\(calc\(var\(--pinned-scale, 1\) \* 0\.92\)\)/.test(nextRuleFull));
+  ok('превью: стекло заметнее (55% фон, blur 10px)',
+    /55%, transparent/.test(nextRuleFull) && /blur\(10px\)/.test(nextRuleFull));
   ok('появление — blur-переплывание',
     /struchord-pinned-in/.test(css) && /filter:\s*blur\(8px\)/.test(css));
   ok('растворение — keyframes is-dissolving',

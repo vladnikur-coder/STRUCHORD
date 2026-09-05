@@ -6701,14 +6701,13 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   /* Ниже тултипов (10000), но выше квадратов: закреплённый гриф не
      должен накрывать всплывающий, если тот всё же появится. */
   z-index: 90;
-  /* B-42 (0.156): закреплённый ряд ЧУТЬ КРУПНЕЕ натуральной величины
-     (просьба пользователя). Единый источник масштаба — переменная:
-     updatePinnedShift домножает на неё высоту ряда при расчёте
-     --pinned-shift (transform раскладку не меняет, без домножения
-     карточка наехала бы на сетку снизу). */
+  /* B-42: закреплённый ряд ЧУТЬ КРУПНЕЕ натуральной величины (просьба
+     пользователя). B-43 (0.157): сам ряд БЕЗ transform — WebKit
+     известен багом «backdrop-filter потомка не работает при
+     transform на анцесторе» (превью теряло блюр). Масштаб несут сами
+     карточки, а updatePinnedShift домножает высоту ряда при расчёте
+     --pinned-shift (transform раскладку не меняет). */
   --pinned-scale: 1.08;
-  transform: scale(var(--pinned-scale, 1));
-  transform-origin: top left;
 }
 /* Закрепление/открепление — «переплывание» (просьба пользователя):
    гриф не просто фейдится, а РАСТВОРЯЕТСЯ — расфокусировка blur +
@@ -6721,28 +6720,12 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   pointer-events: none;
 }
 @keyframes struchord-pinned-in {
-  from {
-    opacity: 0;
-    transform: translateY(-10px) scale(calc(var(--pinned-scale, 1) * 0.94));
-    filter: blur(8px);
-  }
-  to {
-    opacity: 1;
-    transform: scale(var(--pinned-scale, 1));
-    filter: blur(0);
-  }
+  from { opacity: 0; transform: translateY(-10px); filter: blur(8px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
 }
 @keyframes struchord-pin-dissolve {
-  from {
-    opacity: 1;
-    filter: blur(0);
-    transform: scale(var(--pinned-scale, 1));
-  }
-  to {
-    opacity: 0;
-    filter: blur(8px);
-    transform: scale(calc(var(--pinned-scale, 1) * 0.94)) translateY(-8px);
-  }
+  from { opacity: 1; transform: none; filter: blur(0); }
+  to { opacity: 0; transform: translateY(-8px); filter: blur(8px); }
 }
 /* Сам закреплённый гриф. */
 .pinned-fingering {
@@ -6756,6 +6739,10 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   padding: 9px 10px;
   box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
   cursor: grab;
+  /* B-43 (0.157): масштаб ряда живёт здесь (и в .pinned-next), ряд сам
+     без transform — см. комментарий в .pinned-row. */
+  transform: scale(var(--pinned-scale, 1));
+  transform-origin: top left;
   /* Смена темы внутри карточки — ПЕРЕПЛЫВАНИЕ цвета, а не резкая
      перекраска (фидбек: «при смене темы лаги внутри закрепленного
      тултипа»). */
@@ -6771,16 +6758,21 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
 .pinned-next {
   /* Фолбэк: без color-mix фон остаётся плотным (как до 0.155). */
   background: var(--color-surface);
-  background: color-mix(in srgb, var(--color-surface) 64%, transparent);
-  -webkit-backdrop-filter: blur(8px);   /* Safari */
-  backdrop-filter: blur(8px);
+  /* B-43 (0.157): поверхность прозрачнее (64→55%), блюр глубже
+     (8→10px) — стекло читается отчётливее (фидбек «не вижу блюра»;
+     блюр виден, когда под рядом проезжает контент — при
+     воспроизведении/скролле; в покое сетка отодвинута и за
+     карточкой фон). */
+  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
+  -webkit-backdrop-filter: blur(10px);   /* Safari */
+  backdrop-filter: blur(10px);
   transition: background-color 0.25s ease, border-color 0.25s ease,
     box-shadow 0.25s ease;
   border: 2px dashed var(--color-text-tertiary);
   border-radius: 12px;
   padding: 9px 10px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  transform: scale(0.92);
+  transform: scale(calc(var(--pinned-scale, 1) * 0.92));
   transform-origin: top left;
   pointer-events: none;
   position: relative;   /* якорь для кругляшка-таймера (B-38) */
@@ -8866,7 +8858,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.156</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.157</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
