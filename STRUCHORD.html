@@ -5064,12 +5064,18 @@ body.mode-anim .transport-bar {
 .resize-handle {
   position: absolute;
   top: 0;
-  right: 0;
-  width: 10px;
+  /* The visible grid boundary is the 2px gap between tracks, not the
+     inside edge of the preceding wrapper. Start inside the wrapper but let
+     the hit area bridge that gap, otherwise a real click on the boundary
+     targets .square-inner and never reaches this handler. */
+  left: calc(100% - 10px);
+  right: auto;
+  width: 12px;
   height: 100%;
   cursor: ew-resize;
   background: var(--color-tint);
   opacity: 0;
+  z-index: 7;
   transition: opacity 0.12s;
 }
 .chord-wrapper:hover .resize-handle {
@@ -8554,7 +8560,12 @@ body.is-timeline.is-playing .timeline-playhead {
   .square-resize-handle {
     width: 26px;
   }
+  /* Keep the internal boundary covered after widening the touch target: the
+     extra 2px reaches the grid gap while the rest stays inside the cell. */
   .resize-handle {
+    left: calc(100% - 26px);
+    right: auto;
+    width: 28px;
     opacity: 0;
     pointer-events: auto;
   }
@@ -30671,7 +30682,14 @@ function attachResizeHandlers() {
   document.querySelectorAll('.resize-handle').forEach((h) => {
     if (h._resizeController) h._resizeController.abort();
     h._resizeController = new AbortController();
-    h.onpointerdown = (e) => {
+    const resizeSignal = h._resizeController.signal;
+    const onResizePointerDown = (e) => {
+      // Keep the entry point usable both as a native DOM listener and through
+      // the legacy onpointerdown hook used by older integrations/tests. A
+      // browser dispatches both when both are installed, so make the event
+      // idempotent before doing any work.
+      if (e.__struchordResizeHandled) return;
+      e.__struchordResizeHandled = true;
       e.stopPropagation();
       e.preventDefault();
       const w = h.closest('.chord-wrapper');
@@ -31277,6 +31295,12 @@ function attachResizeHandlers() {
       document.addEventListener('pointerup', onUp, { once: true });
       document.addEventListener('pointercancel', onUp, { once: true });
     };
+    // Use addEventListener for real browser pointer dispatch. Keep the
+    // property hook as a compatibility entry point for the existing editor
+    // harness and older embeds; onResizePointerDown makes the two paths
+    // mutually idempotent for one event.
+    h.addEventListener('pointerdown', onResizePointerDown, { signal: resizeSignal });
+    h.onpointerdown = onResizePointerDown;
   });
 }
 function attachSquareResizeHandlers() {
