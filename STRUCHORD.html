@@ -3178,17 +3178,35 @@ body {
   cursor: grab;
   opacity: 0;
   visibility: hidden;
+  /* Сложено — не перехватывает тычки по полю BPM под ним. На открытии
+     is-open возвращает auto сразу; на закрытии none наступает мгновенно —
+     складывающаяся пилюля не ловит drag после того, как решение закрыть
+     уже принято (0.141). */
+  pointer-events: none;
   user-select: none;
   /* Плавность появления/исчезновения (0.140, просьба «плавнее»):
      подольше и с более мягким замедлением в конце — раскрытие и
      складывание читаются как один непрерывный вздох, а не щелчок.
-     Высота + прозрачность — только compositor-friendly свойства. */
-  transition: height 0.34s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.28s ease-in-out;
+     Высота + прозрачность — только compositor-friendly свойства.
+     visibility — тоже (0.141, «пилюля исчезает без анимации»): она
+     дискретна и НЕ анимируется меж значений, поэтому без строки в
+     transition снималась мгновенно при закрытии и маскировала оба
+     перехода. Хитрость — задержка ровно в длительность сворачивания:
+     при закрытии пилюля остаётся видимой весь переход и гаснет только
+     в конце; при открытии .is-open перекрывает задержку нулём (см.
+     ниже — список там повторён целиком). */
+  transition: height 0.34s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.28s ease-in-out,
+    visibility 0s linear 0.34s;
 }
 .bpm-inline-drum.is-open {
   height: 118px; /* 3 строки × 38px */
   opacity: 1;
   visibility: visible;
+  pointer-events: auto;
+  /* Открытие: тот же список, но visibility без задержки — видимым
+     пилюля становится сразу, иначе первый кадр раскрытия прозрачен. */
+  transition: height 0.34s cubic-bezier(0.22, 0.61, 0.36, 1), opacity 0.28s ease-in-out,
+    visibility 0s;
 }
 .bpm-inline-drum.is-dragging {
   cursor: grabbing;
@@ -5612,12 +5630,19 @@ html:not([data-theme='dark']) #btnPlay.active:hover {
    Смещение крошечное (1.2px): струна должна дрогнуть, а не уехать.
    Заодно чуть ярче цвет — иначе на мелком грифе движение почти не
    читается. */
+/* 0.166: амплитуда — через переменную. В ЛЕНТЕ (--vib-amp: 1) струны
+   дрожат в полную силу — там панель «Сейчас» большая и это шоу. В
+   РЕДАКТОРЕ пользователь попросил приглушить: 0.55 — движение читается,
+   но не тянет глаз с сетки. */
+body:not(.is-timeline) {
+  --vib-amp: 0.55;
+}
 @keyframes struchord-string-vibrate {
   0%   { transform: translateX(0); }
-  15%  { transform: translateX(1.2px); }
-  35%  { transform: translateX(-0.9px); }
-  55%  { transform: translateX(0.6px); }
-  75%  { transform: translateX(-0.35px); }
+  15%  { transform: translateX(calc(var(--vib-amp, 1) * 1.2px)); }
+  35%  { transform: translateX(calc(var(--vib-amp, 1) * -0.9px)); }
+  55%  { transform: translateX(calc(var(--vib-amp, 1) * 0.6px)); }
+  75%  { transform: translateX(calc(var(--vib-amp, 1) * -0.35px)); }
   100% { transform: translateX(0); }
 }
 .fing-string {
@@ -5630,6 +5655,12 @@ html:not([data-theme='dark']) #btnPlay.active:hover {
   animation: struchord-string-vibrate 0.24s ease-out;
   stroke: var(--color-accent-warm);
   stroke-width: 2.2;
+}
+/* Редактор: та же связь «удар — струна», но ПОТИШЕ — тултип и закреп
+   мельче ленточной панели, полная амплитуда и жирная подсветка на них
+   кричат. Приглушаем и толщину подсветки (2.2 → 1.8). */
+body:not(.is-timeline) .fing-string.is-vibrating {
+  stroke-width: 1.8;
 }
 @media (prefers-reduced-motion: reduce) {
   /* Движение выключено — оставляем только подсветку цветом: связь
@@ -6560,7 +6591,17 @@ html[data-theme='dark'] .tuner-string-btn {
    Анимацию обеспечивает сам transition — will-change для неё не
    обязателен, это лишь подсказка. */
 #fingering-tooltip {
-  position: fixed;
+  /* B-34 (0.143): absolute, НЕ fixed. Подсказка пользователя: «пилюля
+     барабана появляется в одном месте в любом случае» — пилюля живёт в
+     потоке документа (absolute в обёртке поля) и при любом зуме остаётся
+     при месте, а fixed-тултип Safari при pinch-зуме перемапирует через
+     VISUAL viewport: браузер сам рисует fixed-бокс в другом месте, и
+     никакая математика координат (0.113–0.142) этого не лечит —
+     «ничего не поменялось». Абсолют отсчитывается от начала ДОКУМЕНТА
+     (тултип — прямой ребёнок body без позиционированных предков),
+     координаты пишутся как viewport + scroll (см. positionMainTooltip).
+     Бонус: тултип больше не «отстаёт» от ячейки при прокрутке страницы. */
+  position: absolute;
   z-index: 10000;
   transition: opacity 0.25s ease, left 0.3s ease, top 0.3s ease;
   pointer-events: auto;
@@ -6654,9 +6695,6 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   .fingering-dock-frame rect {
     animation: none;
   }
-  .pinned-row.is-appearing {
-    animation: none;
-  }
 }
 
 /* Ряд «закреплённый гриф + превью следующего». Свисает из-под панели у
@@ -6673,39 +6711,126 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   /* Ниже тултипов (10000), но выше квадратов: закреплённый гриф не
      должен накрывать всплывающий, если тот всё же появится. */
   z-index: 90;
+  /* B-42 v3 (0.158): «чуть крупнее» делается НЕ transform, а
+     атрибутами SVG (renderFingeringSVG opts.scale) — раскладка честная:
+     превью больше не наезжает на карточку, высота ряда для
+     --pinned-shift читается сама, WebKit-блюр спокоен. */
 }
-/* Появление после сброса в панель: гриф мягко «встаёт» на место —
-   fade со спуском сверху и лёгким упругим доводом. Класс вешает JS
-   ровно на один прогон (см. pinFingeringFromTooltip). */
-.pinned-row.is-appearing {
-  animation: struchord-pinned-in 0.28s cubic-bezier(0.2, 0.9, 0.3, 1.15);
+/* Закрепление/открепление — «переплывание» (просьба пользователя):
+   гриф не просто фейдится, а РАСТВОРЯЕТСЯ — расфокусировка blur +
+   подъём. B-42 v6 (0.161): анимируются КАРТОЧКИ (дети ряда), а не ряд:
+   opacity/filter/transform на АНЦЕСТОРЕ превью создают backdrop root
+   и глушат backdrop-filter стекла в WebKit на время анимации; ряд
+   всегда «чистый» — превью блюрит подложку даже в середине переплывания.
+   Параметры сделаны явственнее: blur 8→14px, подъём 10→16px,
+   длительности 0.3/0.26 → 0.42/0.34 (JS-таймеры синхронизированы). */
+.pinned-row.is-appearing .pinned-fingering,
+.pinned-row.is-appearing .pinned-next {
+  animation: struchord-pin-in-card 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.08) both;
 }
-@keyframes struchord-pinned-in {
-  from { opacity: 0; transform: translateY(-10px) scale(0.96); }
-  to { opacity: 1; transform: none; }
+.pinned-row.is-dissolving .pinned-fingering,
+.pinned-row.is-dissolving .pinned-next {
+  animation: struchord-pin-out-card 0.34s ease both;
+}
+.pinned-row.is-dissolving {
+  pointer-events: none;
+}
+@keyframes struchord-pin-in-card {
+  from { opacity: 0; transform: translateY(-16px); filter: blur(14px); }
+  to { opacity: 1; transform: none; filter: blur(0); }
+}
+@keyframes struchord-pin-out-card {
+  from { opacity: 1; transform: none; filter: blur(0); }
+  to { opacity: 0; transform: translateY(-12px); filter: blur(14px); }
 }
 /* Сам закреплённый гриф. */
 .pinned-fingering {
+  /* B-42 v4 (0.159): основной закреплённый тултип — ОБЫЧНЫЙ цвет
+     (просьба пользователя: «основной тултип не должен быть в блюре,
+     там обычный цвет»). Стекло осталось только у превью «Дальше».
+     B-42 v5 (0.160): плашку SVG не рисует вовсе (глобально); рамка и
+     тень дают отделение от фона в тёмной теме. */
   background: var(--color-surface);
+  border: 1px solid var(--color-border-medium);
   border-radius: 12px;
-  padding: 9px 10px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+  padding: 10px 12px;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
   cursor: grab;
 }
-/* Превью СЛЕДУЮЩЕГО аккорда — справа от закреплённого. Оформление то
-   же, что у всплывающего превью (#preview-tooltip): пунктир и лёгкая
-   прозрачность говорят «это ещё не звучит, это дальше». Тащить его
-   нельзя — оно ведомое, поэтому pointer-events отключены. */
+/* Имя аккорда закрепа — чуть крупнее общего (масштаб без transform). */
+#pinnedFingering .fingering-chord-name,
+#pinnedNext .fingering-chord-name {
+  font-size: 15px;
+}
+/* Превью СЛЕДУЮЩЕГО аккорда — справа от закреплённого. Пунктирная
+   рамка говорит «это ещё не звучит, это дальше». Фон — МАТОВОЕ СТЕКЛО
+   (0.155): не полупрозрачность всего элемента, а блюр контента ПОД
+   карточкой — квадраты проезжают под рядом при скролле, и превью
+   читается сквозь них без каши. Тащить его нельзя — оно ведомое,
+   поэтому pointer-events отключены. */
 .pinned-next {
+  /* Фолбэк: без color-mix фон остаётся плотным (как до 0.155). */
   background: var(--color-surface);
+  /* B-43 (0.157): поверхность прозрачнее (64→55%), блюр глубже
+     (8→10px) — стекло читается отчётливее (фидбек «не вижу блюра»;
+     блюр виден, когда под рядом проезжает контент — при
+     воспроизведении/скролле; в покое сетка отодвинута и за
+     карточкой фон). */
+  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
+  -webkit-backdrop-filter: blur(10px);   /* Safari */
+  backdrop-filter: blur(10px);
   border: 2px dashed var(--color-text-tertiary);
   border-radius: 12px;
-  padding: 9px 10px;
+  padding: 10px 12px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
-  opacity: 0.75;
-  transform: scale(0.92);
-  transform-origin: top left;
   pointer-events: none;
+  position: relative;   /* якорь для кругляшка-таймера (B-38) */
+}
+/* Кругляшок «до смены аккорда» в превью — та же семантика, что у
+   .tl-next-timer ленты: в начале аккорда полный, к смене — пустой
+   (conic-gradient: выцветший сектор растёт с --pinned-next-progress).
+   Обновление пишется в CSS-переменную из RAF — без перерасчёта
+   раскладки, высоту карточки не трогает. */
+.pinned-next-timer {
+  position: absolute;
+  top: 6px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: conic-gradient(
+    var(--color-tint) calc(var(--pinned-next-progress, 0) * 360deg),
+    var(--color-accent-warm) 0
+  );
+  box-shadow: inset 0 0 0 1px var(--color-border-medium);
+}
+/* B-38: смена аппликатуры в закреплённой карточке и превью — старый
+   гриф УЕЗЖАЕТ ВЛЕВО, новый ПРИЕЗЖАЕТ СПРАВА. Только transform и
+   opacity: раскладка и высота ряда не шевелятся (замер --pinned-shift
+   не сбивается). */
+.pin-fade-out {
+  animation: struchord-pin-out 0.13s ease-in both;
+}
+.pin-fade-in {
+  animation: struchord-pin-in 0.2s ease-out both;
+}
+@keyframes struchord-pin-out {
+  from { transform: none; opacity: 1; }
+  to { transform: translateX(-26px); opacity: 0; }
+}
+@keyframes struchord-pin-in {
+  from { transform: translateX(26px); opacity: 0; }
+  to { transform: none; opacity: 1; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pin-fade-out,
+  .pin-fade-in,
+  .pinned-row.is-appearing .pinned-fingering,
+  .pinned-row.is-appearing .pinned-next,
+  .pinned-row.is-dissolving .pinned-fingering,
+  .pinned-row.is-dissolving .pinned-next {
+    animation: none;
+  }
 }
 .pinned-fingering:active {
   cursor: grabbing;
@@ -6750,10 +6875,28 @@ body.has-pinned-fingering:not(.is-timeline) #sectionsContainer {
   transition: opacity 0.25s ease;
 }
 #preview-tooltip {
-  position: fixed;
+  /* B-34 (0.143): absolute вместо fixed — та же причина, что у
+     #fingering-tooltip: fixed при pinch-зуме перемапируется браузером
+     через visual viewport (Safari), абсолют живёт в документе. */
+  position: absolute;
   z-index: 10000;
   transition: opacity 0.25s ease;
   pointer-events: none;
+  /* B-42 v7 (0.162): МАТОВОЕ СТЕКЛО — ровно как у превью закрепа
+     (.pinned-next; фидбек: «без закрепления нет блюра у превью —
+     при закреплении все отлично и стильно»). Инлайн-оформление
+     (сплошной фон + opacity 0.75 на всём элементе) убрано из разметки:
+     приглушение дают полупрозрачный фон 55% + блюр подложки и
+     пунктир, а не бледная копия; собственный transform (scale 0.92)
+     блюру WebKit не мешает (проверено в 0.157). */
+  border: 2px dashed var(--color-text-tertiary);
+  background: var(--color-surface);
+  background: color-mix(in srgb, var(--color-surface) 55%, transparent);
+  -webkit-backdrop-filter: blur(10px);   /* Safari */
+  backdrop-filter: blur(10px);
+  transform: scale(0.92);
+  transform-origin: top left;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
 }
 #fingering-tooltip.visible,
 #preview-tooltip.visible {
@@ -8741,7 +8884,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.140</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.168</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9044,6 +9187,15 @@ body.is-timeline.is-playing .timeline-playhead {
           </div>
           <div class="pinned-next" id="pinnedNext" style="display: none">
             <div class="fingering-content"></div>
+            <!-- B-38: кругляшок «до смены аккорда» — как tl-next-timer
+                 у панели «Дальше» в ленте (conic-gradient по CSS-переменной,
+                 обновляется на композиторе каждый кадр). -->
+            <div
+              class="pinned-next-timer"
+              id="pinnedNextTimer"
+              aria-hidden="true"
+              title="До смены аккорда"
+            ></div>
           </div>
         </div>
       </div>
@@ -9240,16 +9392,12 @@ body.is-timeline.is-playing .timeline-playhead {
       <div class="fingering-content"></div>
     </div>
 
+    <!-- Инлайн здесь только display: оформление (стекло, пунктир,
+         масштаб) живёт в CSS #preview-tooltip — как у превью закрепа. -->
     <div
   id="preview-tooltip"
   class="fingering-tooltip"
-  style="
-    display: none;
-    border: 2px dashed var(--color-text-tertiary);
-    opacity: 0.75;
-    background: var(--color-surface);
-    transform: scale(0.92);
-  "
+  style="display: none"
 >
   <div class="fingering-content"></div>
 </div>
@@ -9828,6 +9976,12 @@ function applySquareZoom(immediate) {
   // свободно выступают за правый край. Прокрутку включаем только когда
   // масштаб реально изменён.
   document.body.classList.toggle('is-zoomed', squareZoom > 1.001);
+  // B-34: ширина списков поменялась — ячейки переехали (рефлоу ряда).
+  // window resize при этом НЕ приходит (окно то же), а scroll — только
+  // если зум сдвинул scrollLeft (applyZoomAnchor); кэш ректов ячеек
+  // протухал после зума, и хиттест вооружения кнопок промахивался.
+  // Помечаем пересчёт — флаг, чтение ленивое, на жесте это бесплатно.
+  if (typeof invalidateChordWrapperRects === 'function') invalidateChordWrapperRects();
 
   // Подсечки шага: одна переменная на весь документ — плотность меток
   // внутри доли. Шаг 1/2 -> 2 деления, 1/4 -> 4. Перерисовки разметки не
@@ -13559,7 +13713,7 @@ window.auditFingeringFallbackCutoff = function (chordName, key) {
 };
 
 // ===================== ОТРИСОВКА АППЛИКАТУР (SVG) =====================
-function renderFingeringSVG(fingers, bottomPad) {
+function renderFingeringSVG(fingers, bottomPad, opts) {
   const padTop = 25;
   const stringSpacing = 18,
     fretSpacing = 25,
@@ -13629,8 +13783,18 @@ function renderFingeringSVG(fingers, bottomPad) {
   const padLeft = indicatorFret !== null ? 30 : 14;
   const width = padLeft + fretWidth + padRight;
 
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
-  svg += `<rect width="100%" height="100%" fill="var(--color-surface)" rx="8"/>`;
+  // B-42 v5 (0.160): opts — { scale }. scale умножает width/height
+  // АТРИБУТАМИ (viewBox прежний) — «чуть крупнее» честной раскладкой,
+  // без transform (transform не двигает flex и глушит backdrop-filter
+  // в WebKit). Внутренняя плашка грифа УДАЛЕНА глобально (просьба
+  // пользователя: «не только при закреплении фон должен быть
+  // прозрачным»): каждый контейнер красит свой фон сам — тултип
+  // (.fingering-tooltip, поверхность + радиус + тень), панель ленты
+  // (.tl-panel, --tl-panel-bg), карточки закрепа; рисунок грифа больше
+  // не приносит с собой непрозрачную коробку (в стекле превью и на
+  // полупрозрачном превью-тултипе она была видна как пятно).
+  const scale = opts && opts.scale ? opts.scale : 1;
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${Math.round(width * scale)}" height="${Math.round(height * scale)}" viewBox="0 0 ${width} ${height}">`;
 
   for (let f = 0; f <= frets; f++) {
     const actualFret = gridStartFret + f;
@@ -14128,9 +14292,20 @@ function tooltipViewportMetrics() {
   // тултип к чужому левому краю раскладки — то, что пользователь видел
   // как «не в том месте» (пережило 0.113/0.122/0.124: в CDP-эмуляции
   // пинча innerWidth остаётся layout, на реальном жесте — нет).
-  // documentElement.clientWidth/Height всегда в layout-px — одно
-  // пространство с rect ячейки: позиция при зуме бит-в-бит равна
-  // позиции без зума; выход за видимую область принят пользователем.
+  //
+  // B-34 (репо-видео 2026-09-03): в Safari после трекпадного зума тултип
+  // прилетал к ЛЕВОМУ ВЕРХНЕМУ углу окна, обрезанный краем. Пробовался
+  // вариант «начало координат из бокса <html>» (гипотеза пункта «а»
+  // спеки B-34) — живой замер ОПРОВЕРГ его: у корневого элемента
+  // rect.top = −scrollY, на прокрученной странице visTop уезжает в
+  // минус, spaceTop раздувается на величину прокрутки, и тултип улетает
+  // за экран (замер пробы: top=−430 при якоре −140). Тултип
+  // position:fixed, его пространство — ЛАЯУТ-ВЬЮПОРТ с началом (0,0);
+  // getBoundingClientRect ячейки и clientWidth/Height корневого — из
+  // того же пространства ПО ПОСТРОЕНИЮ при любом виде зума. Настоящие
+  // причины «угла» — жёсткие клэмпы и финальный else (см.
+  // positionMainTooltip, B-34) и молчащие во время жеста события (см.
+  // attachTooltipZoomReposition, gesture*).
   const de = document.documentElement;
   return { visLeft: 0, visTop: 0, visW: de.clientWidth, visH: de.clientHeight };
 }
@@ -14192,8 +14367,13 @@ function positionMainTooltip(wrapper) {
     left = rect.right + margin;
     top = rect.top + rect.height / 2 - th / 2;
   } else {
-    left = visLeft + (visW - tw) / 2;
-    top = visTop + (visH - th) / 2;
+    // B-34: окно меньше тултипа со всех сторон. Раньше здесь был центр
+    // окна: вместе с клэмпами ниже это складывало тултип грудой у
+    // ЛЕВОГО ВЕРХНЕГО угла (репо-видео Safari: сильный зум, тултип
+    // выше/шире окна). Держим якорь — та же позиция, что была бы без
+    // зума (над ячейкой, по центру); выход за экран принят (0.124).
+    left = rect.left + rect.width / 2 - tw / 2;
+    top = rect.top - th - margin;
   }
 
   // Коррекция, чтобы тултип не выходил за границы окна.
@@ -14210,13 +14390,31 @@ function positionMainTooltip(wrapper) {
   // по высоте целиком, обрезается низ (там кнопка правки и переключатель
   // вариантов), а гриф с именем аккорда — то, ради чего тултип и
   // открывают, — остаётся на экране.
-  if (left < visLeft + margin) left = visLeft + margin;
-  if (left + tw > visLeft + visW - margin) left = visLeft + visW - tw - margin;
-  if (top + th > visTop + visH - margin) top = visTop + visH - th - margin;
-  if (top < visTop + margin) top = visTop + margin;
+  //
+  // B-34: клэмпы стали МЯГКИМИ. Когда окно меньше самого тултипа,
+  // прижатия складывали его в угол окна («обрезан краем, не над
+  // ячейкой»). По решению 0.124 («ничего страшного, если не будет
+  // помещаться на экране») в такой ситуации НЕ прижимаем вовсе:
+  // позиция остаётся якорной (над/под ячейкой), как без зума. При
+  // scale=1 тултип всегда меньше окна, обе проверки истинны —
+  // поведение бит-в-бит прежнее.
+  const fitsWindowW = tw + margin * 2 <= visW;
+  const fitsWindowH = th + margin * 2 <= visH;
+  if (fitsWindowW) {
+    if (left < visLeft + margin) left = visLeft + margin;
+    if (left + tw > visLeft + visW - margin) left = visLeft + visW - tw - margin;
+  }
+  if (fitsWindowH) {
+    if (top + th > visTop + visH - margin) top = visTop + visH - th - margin;
+    if (top < visTop + margin) top = visTop + margin;
+  }
 
-  tooltipEl.style.left = left + 'px';
-  tooltipEl.style.top = top + 'px';
+  // B-34 (0.143): тултип теперь position:absolute — живёт в пространстве
+  // ДОКУМЕНТА (как пилюля барабана в обёртке поля), а расчёты выше
+  // сделаны в координатах вьюпорта. Переводим при записи: +scroll.
+  // При scroll 0 (и в jsdom) значения бит-в-бит прежние.
+  tooltipEl.style.left = (left + (window.scrollX || 0)) + 'px';
+  tooltipEl.style.top = (top + (window.scrollY || 0)) + 'px';
 }
 
 function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
@@ -14231,21 +14429,28 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
   const wh = visTop + visH;
   
   let left, top;
-  
-  if (nextWrapper) {
-    // Если основного тултипа нет, позиционируем относительно nextWrapper (как раньше)
-    const rect = nextWrapper.getBoundingClientRect();
-    left = rect.left + rect.width/2 - pw/2;
-    top = rect.top - ph - margin;
-    if (top < 0) top = rect.bottom + margin;
-    if (left < 0) left = margin;
-    if (left + pw > ww) left = ww - pw - margin;
-  } else {
+
+  // B-34 (0.144): главный тултип может быть СКРЫТ — например, звучит
+  // ПУСТАЯ ячейка: показывать нечего, main display:none, а его
+  // getBoundingClientRect — сплошные нули. Раньше ветка ниже честно
+  // ставила превью «справа от нулевого ректа»: угол вьюпорта, а с
+  // документными координатами 0.143 (+scroll) — произвольное место
+  // страницы («рандомное место», заметка пользователя 2026-09-03).
+  // Теперь: главный скрыт/без геометрии — якорь ЯЧЕЙКА следующего
+  // аккорда (nextWrapper); нет и её — превью гасим: рисовать его от
+  // нулей не имеет смысла.
+  const mainVisible = !!mainTooltipEl && mainTooltipEl.style.display === 'block';
+  let mainRect = null;
+  if (mainVisible) {
+    const r = mainTooltipEl.getBoundingClientRect();
+    if (r && r.width > 0 && r.height > 0) mainRect = r;
+  }
+
+  if (mainRect) {
     // Основной тултип виден – ставим справа
-    const mainRect = mainTooltipEl.getBoundingClientRect();
     left = mainRect.right + margin;
     top = mainRect.top + (mainRect.height - ph) / 2;
-    
+
     // Если справа не влезает – слева
     if (left + pw > ww) {
       left = mainRect.left - pw - margin;
@@ -14259,18 +14464,41 @@ function positionPreviewTooltip(mainTooltipEl, previewTooltipEl, nextWrapper) {
         }
       }
     }
+  } else if (nextWrapper && nextWrapper.isConnected) {
+    // Главного нет — позиционируемся от ЯЧЕЙКИ следующего аккорда:
+    // по центру над ней (как основной тултип), не влезает — под ней.
+    const rect = nextWrapper.getBoundingClientRect();
+    left = rect.left + rect.width / 2 - pw / 2;
+    top = rect.top - ph - margin;
+    if (top < visTop) top = rect.bottom + margin;
+  } else {
+    // Ни главного тултипа, ни якоря-ячейки — превью не размещается.
+    previewTooltipEl.style.display = 'none';
+    previewTooltipEl.classList.remove('visible');
+    return;
   }
   
   // Коррекция. Прижатие к ВЕРХУ идёт последним — та же причина, что и в
   // positionMainTooltip: когда тултип выше окна, «прижать к низу» даёт
   // отрицательный top и срезает шапку с именем аккорда.
-  if (left < visLeft + margin) left = visLeft + margin;
-  if (left + pw > ww - margin) left = ww - pw - margin;
-  if (top + ph > wh - margin) top = wh - ph - margin;
-  if (top < visTop + margin) top = visTop + margin;
+  // B-34: клэмпы мягкие (как в positionMainTooltip): окно меньше
+  // превью — не прижимаем, позиция остаётся рядом с якорем; при
+  // scale=1 проверки истинны, поведение прежнее.
+  const fitsWindowW = pw + margin * 2 <= visW;
+  const fitsWindowH = ph + margin * 2 <= visH;
+  if (fitsWindowW) {
+    if (left < visLeft + margin) left = visLeft + margin;
+    if (left + pw > ww - margin) left = ww - pw - margin;
+  }
+  if (fitsWindowH) {
+    if (top + ph > wh - margin) top = wh - ph - margin;
+    if (top < visTop + margin) top = visTop + margin;
+  }
 
-  previewTooltipEl.style.left = left + 'px';
-  previewTooltipEl.style.top = top + 'px';
+  // B-34 (0.143): абсолютное позиционирование — перевод в координаты
+  // документа (+scroll), см. positionMainTooltip.
+  previewTooltipEl.style.left = (left + (window.scrollX || 0)) + 'px';
+  previewTooltipEl.style.top = (top + (window.scrollY || 0)) + 'px';
 }
 
 function isLastEventInSquare(secId, sqId, evIndex) {
@@ -14305,6 +14533,10 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
   // второй, и получилось бы то же мельтешение, от которого мы уходили
   // в анимации ритма.
   if (isFingeringPinned()) {
+    // B-37 (0.153): наведение в покое показывает аккорд ячейки в самой
+    // закреплённой карточке. Превью-вызовы планировщика и всё во время
+    // игры — прежнее подавление (карточку ведёт воспроизведение).
+    if (!isPreview && !playbackState.isPlaying) syncPinnedRowToHover(wrapper);
     hideFingeringTooltip(isPreview);
     return;
   }
@@ -14313,6 +14545,17 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     ? document.getElementById('preview-tooltip')
     : document.getElementById('fingering-tooltip');
   if (!tooltipEl || !wrapper) return;
+
+  // B-42 v9 (0.164): тултип реально показывается ЭТОЙ ячейкой —
+  // регистрируем её. До сих пор current/lastTooltipWrapper заполнял
+  // только mouseover в ПОКОЕ, а тултип, который во время игры показывает
+  // планировщик, был «ничьим»: стащить его в док не получалось —
+  // pinFingeringFromTooltip молча выходил (w = null). Регистрация здесь
+  // покрывает оба пути; mouseover после вызова присваивает то же самое.
+  if (!isPreview) {
+    currentTooltipWrapper = wrapper;
+    lastTooltipWrapper = wrapper;
+  }
 
   const input = wrapper.querySelector('.chord-input');
   if (!input) return;
@@ -14487,9 +14730,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
           }
         } else {
           const mainTooltip = document.getElementById('fingering-tooltip');
-          if (mainTooltip && mainTooltip.style.display === 'block') {
-            positionPreviewTooltip(mainTooltip, tooltipEl, null);
-          }
+          // 0.144: wrapper — якорь при скрытом главном (пустая ячейка звучит).
+          positionPreviewTooltip(mainTooltip, tooltipEl, wrapper);
         }
       } else if (editBtn) {
         e.stopPropagation();
@@ -14524,9 +14766,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
       }
     } else {
       const mainTooltip = document.getElementById('fingering-tooltip');
-      if (mainTooltip && mainTooltip.style.display === 'block') {
-        positionPreviewTooltip(mainTooltip, tooltipEl, null);
-      }
+      // 0.144: wrapper — якорь при скрытом главном (пустая ячейка звучит).
+      positionPreviewTooltip(mainTooltip, tooltipEl, wrapper);
     }
     return;
   }
@@ -14557,9 +14798,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     positionMainTooltip(wrapper);
   } else {
     const mainTooltip = document.getElementById('fingering-tooltip');
-    if (mainTooltip) {
-      positionPreviewTooltip(mainTooltip, tooltipEl, null);
-    }
+    // 0.144: wrapper — якорь при скрытом главном (пустая ячейка звучит).
+    positionPreviewTooltip(mainTooltip, tooltipEl, wrapper);
   }
 
   requestAnimationFrame(() => {
@@ -14573,9 +14813,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
       }
     } else {
       const mainTooltip = document.getElementById('fingering-tooltip');
-      if (mainTooltip && mainTooltip.style.display === 'block') {
-        positionPreviewTooltip(mainTooltip, tooltipEl, null);
-      }
+      // 0.144: wrapper — якорь при скрытом главном (пустая ячейка звучит).
+      positionPreviewTooltip(mainTooltip, tooltipEl, wrapper);
     }
     // Координаты уже применены без перехода — возвращаем его следующим
     // кадром, чтобы переход С ЯЧЕЙКИ НА ЯЧЕЙКУ остался плавным.
@@ -14638,6 +14877,21 @@ function attachTooltipZoomReposition() {
     window.visualViewport.addEventListener('resize', onChange);
     window.visualViewport.addEventListener('scroll', onChange);
   }
+  // B-34: Safari на macOS присылает родные gesturestart/gesturechange/
+  // gestureend (трекпадный щипок) и НЕ даёт resize/visualViewport, пока
+  // жест идёт. Отпереть две вещи: пересчитать ОТКРЫТЫЙ тултип (иначе он
+  // приклеен к точке до зума всё время жеста — репо-видео) и пометить
+  // кэш ректов ячеек устаревшим (наш attachPinchZoom «путь 1» в ответ на
+  // те же события делает РЕФЛОУ ряда — rect'ы едут, а resize не приходит
+  // вовсе). Слушатели пассивные: перехват/предотвращение жеста — задача
+  // attachPinchZoom, не тултипа.
+  const onGestureTick = () => {
+    if (typeof invalidateChordWrapperRects === 'function') invalidateChordWrapperRects();
+    onChange();
+  };
+  document.addEventListener('gesturestart', onGestureTick, { passive: true });
+  document.addEventListener('gesturechange', onGestureTick, { passive: true });
+  document.addEventListener('gestureend', onGestureTick, { passive: true });
 }
 attachTooltipZoomReposition();
 
@@ -14666,11 +14920,11 @@ function isFingeringPinned() {
 // получает padding-top ровно на высоту свисания (см. CSS-переменную
 // --pinned-shift), а переход на padding-top отыгрывает сдвиг плавно.
 //
-// Считаем ТОЛЬКО по layout-координатам (offsetTop/offsetHeight). Они
-// не зависят ни от скролла и sticky-смещения панели, ни от transform
-// стартовой анимации — замер через getBoundingClientRect дал бы мусор
-// в обоих случаях: у прилипшей панели сдвиг раздувался бы на величину
-// прокрутки, у появляющегося ряда — на translateY анимации.
+// Считаем по layout-координатам (offsetTop/offsetHeight) — они не
+// зависят от transform стартовой анимации ряда (замер через
+// getBoundingClientRect дал бы мусор на translateY). НО у прилипшей
+// панели offsetTop в Chromium содержит sticky-смещение, поэтому перед
+// замером панели прилипание на миг снимается (см. ниже).
 // offsetTop у панели и сетки отсчитывается от одного offsetParent
 // (оба живут в одном потоке .container), так что разность честная;
 // padding-top при этом на ПОЗИЦИЮ сетки не влияет — он двигает лишь
@@ -14686,10 +14940,161 @@ function updatePinnedShift() {
     !document.body.classList.contains('is-timeline');
   let shift = 0;
   if (shown) {
-    const rowBottom = bar.offsetTop + bar.offsetHeight + 10 + row.offsetHeight;
+    // B-35 (0.151): у ПРИЛИПШЕЙ панели Chromium отдаёт offsetTop УЖЕ со
+    // sticky-смещением — он растёт вместе со скроллом (замер: 291 в потоке,
+    // но 308/458/608 при y=300/450/600). Пока идёт воспроизведение,
+    // syncPinnedFingeringWithPlayback пересчитывает сдвиг на каждой ячейке,
+    // --pinned-shift раздувался до сотен px и сетка прыгала вниз рывком
+    // на каждом такте (а ячейка уезжала под срез вьюпорта). Замер на одно
+    // мгновение снимает прилипание: sticky и так занимает своё место в
+    // потоке, поэтому раскладка не меняется, стиль возвращается до
+    // ближайшего кадра — мигания нет.
+    const stuck = getComputedStyle(bar).position === 'sticky';
+    const prevPos = bar.style.position;
+    if (stuck) bar.style.position = 'static';
+    const barTop = bar.offsetTop;
+    if (stuck) bar.style.position = prevPos;
+    // 0.158: «крупнее» — атрибутами SVG, раскладка честная: высота
+    // ряда известна layout'у, домножений не нужно.
+    const rowBottom = barTop + bar.offsetHeight + 10 + row.offsetHeight;
     shift = Math.max(0, rowBottom + 8 - grid.offsetTop);
   }
-  grid.style.setProperty('--pinned-shift', shift > 0 ? shift.toFixed(1) + 'px' : '0px');
+  // B-42 (0.156): перерисовки карточки часты (ховер, тики игры) —
+  // одинаковое значение НЕ пишем: запись инвалидирует стиль сетки и
+  // гоняет transition padding-top впустую (один из источников
+  // «подлагиваний» при закрепе).
+  const val = shift > 0 ? shift.toFixed(1) + 'px' : '0px';
+  if (val !== lastPinnedShiftWritten) {
+    grid.style.setProperty('--pinned-shift', val);
+    lastPinnedShiftWritten = val;
+  }
+}
+let lastPinnedShiftWritten = null;
+
+// B-38 (0.154): смена аппликатуры в закреплённой карточке/превью — не
+// скачком: старое содержание уезжает влево (0.13с), новое приезжает
+// справа (0.2с). Ключ — аккорд + форма: повторные sync планировщика с
+// тем же аккордом перерисовываются ТИХО (innerHTML без анимации), чтобы
+// клетка за клеткой внутри одного квадрата ничего не мельтешило.
+// Таймеры, а не transitionend: jsdom и прерывание свапа новым свапом
+// обрабатываются одинаково предсказуемо.
+function swapFingeringContent(el, key, html) {
+  if (!el) return;
+  if (el.dataset.swapKey === key) {
+    el.innerHTML = html;
+    return;
+  }
+  if (el.dataset.swapTimer) {
+    clearTimeout(+el.dataset.swapTimer);
+    el.dataset.swapTimer = '';
+  }
+  el.classList.remove('pin-fade-in');
+  const apply = () => {
+    el.innerHTML = html;
+    el.dataset.swapKey = key;
+    el.classList.remove('pin-fade-out');
+    void el.offsetWidth;            // перезапуск анимации приезда
+    el.classList.add('pin-fade-in');
+    el.dataset.swapTimer = String(setTimeout(() => {
+      el.classList.remove('pin-fade-in');
+      el.dataset.swapTimer = '';
+    }, 220));
+  };
+  if (!el.dataset.swapKey) {
+    apply();                        // первый показ — просто приезд справа
+    return;
+  }
+  el.classList.add('pin-fade-out');
+  el.dataset.swapTimer = String(setTimeout(apply, 130));
+}
+
+// Мгновенный сброс: контент пуст, режим свапа погашен (открепление,
+// скрытие превью).
+function resetFingeringSwap(el) {
+  if (!el) return;
+  if (el.dataset.swapTimer) {
+    clearTimeout(+el.dataset.swapTimer);
+    el.dataset.swapTimer = '';
+  }
+  el.classList.remove('pin-fade-out', 'pin-fade-in');
+  el.removeAttribute('data-swap-key');
+  el.innerHTML = '';
+}
+
+// B-38 (0.154): кругляшок «до смены аккорда» в превью закреплённого
+// ряда — как tl-next-timer ленты. Прогресс = доля пройденного текущей
+// ячейки (playbackState.cellStart/cellDur пишет планировщик рядом с
+// syncPinnedFingeringWithPlayback); в начале аккорда круг полный,
+// к смене — пустой. RAF-цикл живёт, пока играют + закреплено + превью
+// видно; каждый кадр пишет только CSS-переменную (композитор).
+function updatePinnedNextTimer() {
+  const el = document.getElementById('pinnedNextTimer');
+  if (!el) return;
+  const st = playbackState;
+  if (!st.isPlaying || !st.cellDur) {
+    el.style.removeProperty('--pinned-next-progress');
+    return;
+  }
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const frac = (ctx.currentTime - st.cellStart) / st.cellDur;
+  const clamped = Math.max(0, Math.min(1, frac));
+  // B-42 (0.156): кадр за кадром значение почти не меняется — пишем
+  // только при заметном сдвиге, RAF-цикл не будит стиль лишний раз.
+  if (lastPinnedTimerFrac !== null && Math.abs(clamped - lastPinnedTimerFrac) < 0.002) return;
+  lastPinnedTimerFrac = clamped;
+  el.style.setProperty('--pinned-next-progress', clamped.toFixed(4));
+}
+let lastPinnedTimerFrac = null;
+
+let pinnedTimerRAF = 0;
+function pinnedTimerLoop() {
+  pinnedTimerRAF = 0;
+  updatePinnedNextTimer();
+  const host = document.getElementById('pinnedNext');
+  const active = playbackState.isPlaying && isFingeringPinned() && host &&
+    host.style.display !== 'none' &&
+    !document.body.classList.contains('is-timeline');
+  if (active) pinnedTimerRAF = requestAnimationFrame(pinnedTimerLoop);
+}
+
+function ensurePinnedNextTimer() {
+  if (!pinnedTimerRAF) pinnedTimerRAF = requestAnimationFrame(pinnedTimerLoop);
+}
+
+// B-42 (0.156): растворение ряда при откреплении — display:none ПОСЛЕ
+// анимации (0.26с). Повторное закрепление в этот интервал отменяет
+// таймер и возвращает ряд на место (см. renderPinnedFingering).
+function hidePinnedRowAnimated(row, onHidden) {
+  if (!row || row.style.display === 'none') {
+    if (onHidden) onHidden();
+    return;
+  }
+  // B-42 v8 (0.163): параллельный таймер появления гасим — иначе он
+  // мог снять класс посреди растворения.
+  if (row.__appearingTimer) {
+    clearTimeout(row.__appearingTimer);
+    row.__appearingTimer = 0;
+  }
+  row.classList.remove('is-appearing');
+  row.classList.add('is-dissolving');
+  if (row.__dissolveTimer) clearTimeout(row.__dissolveTimer);
+  // 0.161: длительность синхронизирована с CSS (0.34s + запас).
+  row.__dissolveTimer = setTimeout(() => {
+    row.__dissolveTimer = 0;
+    row.classList.remove('is-dissolving');
+    row.style.display = 'none';
+    // B-42 v8 (0.163): остатки жеста выноса (position:fixed + координаты
+    // сброса) — только теперь, когда растворение на месте сыграло.
+    row.style.position = '';
+    row.style.left = '';
+    row.style.top = '';
+    row.style.right = '';
+    row.style.transform = '';
+    const host = document.getElementById('pinnedFingering');
+    if (host) resetFingeringSwap(host.querySelector('.fingering-content'));
+    if (onHidden) onHidden();
+  }, 360);
 }
 
 function renderPinnedFingering(chordName, shape) {
@@ -14697,15 +15102,25 @@ function renderPinnedFingering(chordName, shape) {
   const row = document.getElementById('pinnedRow');
   if (!host || !row) return;
   if (!pinnedFingering) {
-    row.style.display = 'none';
-    host.querySelector('.fingering-content').innerHTML = '';
+    // B-42 (0.156): открепление — «переплывание»: ряд растворяется
+    // (blur + подъём), содержимое чистится ПОСЛЕ анимации, чтобы не
+    // улетала пустая карточка.
+    // Превью гасим ВМЕСТЕ с рядом (в колбэке): иначе оно исчезло бы
+    // раньше карточки, и растворялся бы огрызок.
+    hidePinnedRowAnimated(row, () => renderPinnedNext(null));
     document.body.classList.remove('has-pinned-fingering');
     updatePinnedShift();
-    renderPinnedNext(null);
     return;
   }
   document.body.classList.add('has-pinned-fingering');
   row.style.display = 'flex';
+  // Показ (в т.ч. быстрое перезакрепление во время растворения) гасит
+  // анимацию ухода.
+  if (row.__dissolveTimer) {
+    clearTimeout(row.__dissolveTimer);
+    row.__dissolveTimer = 0;
+  }
+  row.classList.remove('is-dissolving');
   const name = chordName || pinnedFingering.chord;
   const sec = sections.find((x) => x.id === pinnedFingering.secId);
   const key = sec && sec.key ? sec.key : globalKey;
@@ -14716,15 +15131,16 @@ function renderPinnedFingering(chordName, shape) {
     form = resolveFingeringShape(name, key, posKey);
   }
   const content = host.querySelector('.fingering-content');
+  const formKey = Array.isArray(form) ? form.join(',') : String(form);
   if (!form) {
-    content.innerHTML =
-      '<span style="color:var(--color-text-tertiary);font-size:12px">Нет аппликатуры</span>';
+    swapFingeringContent(content, 'none:' + name,
+      '<span style="color:var(--color-text-tertiary);font-size:12px">Нет аппликатуры</span>');
     updatePinnedShift();
     return;
   }
-  content.innerHTML =
+  swapFingeringContent(content, name + '|' + formKey,
     `<span class="fingering-chord-name">${renderFingeringChordNameHtml(name)}</span>` +
-    `<div class="fingering-svg-container">${renderFingeringSVG(form) || ''}</div>`;
+    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08 }) || ''}</div>`);
   updatePinnedShift();
 }
 
@@ -14739,7 +15155,14 @@ function renderPinnedNext(pos) {
   if (!host) return;
   if (!pos || !pos.chord) {
     host.style.display = 'none';
-    host.querySelector('.fingering-content').innerHTML = '';
+    resetFingeringSwap(host.querySelector('.fingering-content'));
+    if (pinnedTimerRAF) {
+      cancelAnimationFrame(pinnedTimerRAF);
+      pinnedTimerRAF = 0;
+    }
+    const timerEl = document.getElementById('pinnedNextTimer');
+    if (timerEl) timerEl.style.removeProperty('--pinned-next-progress');
+    lastPinnedTimerFrac = null;
     return;
   }
   const sec = sections.find((x) => x.id === pos.secId);
@@ -14751,11 +15174,13 @@ function renderPinnedNext(pos) {
     host.style.display = 'none';
     return;
   }
-  host.querySelector('.fingering-content').innerHTML =
+  const formKey = Array.isArray(form) ? form.join(',') : String(form);
+  swapFingeringContent(host.querySelector('.fingering-content'), pos.chord + '|' + formKey,
     `<span class="fingering-chord-name">${renderFingeringChordNameHtml(pos.chord)}</span>` +
-    `<div class="fingering-svg-container">${renderFingeringSVG(form) || ''}</div>`;
+    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08 }) || ''}</div>`);
   host.style.display = 'block';
   updatePinnedShift();
+  ensurePinnedNextTimer();
 }
 
 // Следующая ячейка с аккордом ПО ПОРЯДКУ РАЗМЕТКИ — для покоя, когда
@@ -14790,25 +15215,43 @@ function pinFingeringFromTooltip() {
   };
   hideFingeringTooltip(false);
   hideFingeringTooltip(true);
+  pinnedHoverWrapper = null;   // свежее закрепление — без ховер-режима
   renderPinnedFingering();
-  renderPinnedNext(findNextChordAfter(
-    pinnedFingering.secId, pinnedFingering.squareId, pinnedFingering.eventIndex));
+  // B-36 (0.152): превью «Дальше» — принадлежность ВОСПРОИЗВЕДЕНИЯ.
+  // В покое закреплён только сам гриф: следующий аккорд и так виден в
+  // сетке рядом. Если закрепили прямо во время игры — превью остаётся
+  // (планировщик на следующей ячейке уточнит его с разворотом повторов).
+  renderPinnedNext(playbackState.isPlaying ? findNextChordAfter(
+    pinnedFingering.secId, pinnedFingering.squareId, pinnedFingering.eventIndex) : null);
   // Плавное появление: гриф «встаёт» под панель (fade + спуск сверху,
   // см. .pinned-row.is-appearing). Класс живёт один прогон; reflow
   // между снятием и постановкой перезапускает анимацию при
   // перезакреплении одного грифа на другой ячейке.
   const rowEl = document.getElementById('pinnedRow');
   if (rowEl) {
+    // B-42 v8 (0.163): таймер появления ЖИВЁТ на элементе и гасится
+    // перед рестартом. Раньше «голый» setTimeout от ПРОШЛОГО закрепления
+    // срезал класс посреди новой анимации: передумал и закрепил обратно
+    // в пределах 0.44с — приезд обрывался, «анимация не срабатывает».
+    if (rowEl.__appearingTimer) {
+      clearTimeout(rowEl.__appearingTimer);
+      rowEl.__appearingTimer = 0;
+    }
     rowEl.classList.remove('is-appearing');
     void rowEl.offsetWidth;
     rowEl.classList.add('is-appearing');
-    setTimeout(() => rowEl.classList.remove('is-appearing'), 320);
+    // 0.161: длительность синхронизирована с CSS (0.42s + запас).
+    rowEl.__appearingTimer = setTimeout(() => {
+      rowEl.__appearingTimer = 0;
+      rowEl.classList.remove('is-appearing');
+    }, 440);
   }
   return true;
 }
 
 function unpinFingering() {
   pinnedFingering = null;
+  pinnedHoverWrapper = null;
   renderPinnedFingering();
 }
 
@@ -14827,12 +15270,41 @@ function syncPinnedFingeringWithPlayback(chordName, secId, squareId, eventIndex,
   renderPinnedNext(nextPos || null);
 }
 
+// B-37 (0.153): в ПОКОЕ закреплённая карточка — «просмотрщик»: наведение
+// на ячейку показывает её аккорд прямо в карточке (всплывающий тултип
+// по-прежнему подавлен — никакого мельтешения). Мышь ушла с ячеек —
+// карточка возвращает себе закреплённый аккорд. Во время игры не
+// действует: там карточку ведёт планировщик, а ховер игнорируется.
+let pinnedHoverWrapper = null;
+
+function syncPinnedRowToHover(wrapper) {
+  if (!pinnedFingering || !wrapper) return;
+  const input = wrapper.querySelector('.chord-input');
+  const chord = input && input.value.trim();
+  if (!chord) return;
+  const secId = +wrapper.dataset.sec;
+  const sec = sections.find((x) => x.id === secId);
+  const key = sec && sec.key ? sec.key : globalKey;
+  const posKey = buildFingeringPositionKey(chord, key, secId, +wrapper.dataset.square, +wrapper.dataset.ei);
+  const form = resolveFingeringShape(chord, key, posKey);
+  // B-42 (0.156): если этот аккорд с этой формой УЖЕ показан — выходим
+  // ДО тяжёлой работы: водить мышью по сетке с закрепом не должно
+  // перестраивать SVG и раскладку на каждой ячейке (подлагивания).
+  const formKey = Array.isArray(form) ? form.join(',') : String(form);
+  const content = document.getElementById('pinnedFingering');
+  const host = content && content.querySelector('.fingering-content');
+  if (host && host.dataset.swapKey === chord + '|' + formKey) return;
+  pinnedHoverWrapper = wrapper;
+  renderPinnedFingering(chord, form);
+}
+
 // Остановились — возвращаем ту форму, которую закрепили.
 function restorePinnedFingering() {
   if (!pinnedFingering) return;
   renderPinnedFingering();
-  renderPinnedNext(findNextChordAfter(
-    pinnedFingering.secId, pinnedFingering.squareId, pinnedFingering.eventIndex));
+  // B-36 (0.152): игра кончилась — превью «Дальше» гаснет вместе с ней:
+  // без воспроизведения у закреплённого ряда показывается только гриф.
+  renderPinnedNext(null);
 }
 
 // ---- Перетаскивание ----
@@ -14887,8 +15359,11 @@ function attachPinDrag() {
       st.el.classList.add('is-dragging');
       if (st.source === 'tooltip') st.el.classList.add('no-move-transition');
     }
-    st.el.style.left = (e.clientX - st.dx) + 'px';
-    st.el.style.top = (e.clientY - st.dy) + 'px';
+    // B-34 (0.143): тултип absolute (документное пространство) — клиентские
+    // координаты жеста переводим +scroll. Ветка 'pinned' ниже сама ставит
+    // position:fixed и перезаписывает координаты под вьюпорт.
+    st.el.style.left = (e.clientX - st.dx + (window.scrollX || 0)) + 'px';
+    st.el.style.top = (e.clientY - st.dy + (window.scrollY || 0)) + 'px';
     if (st.source === 'pinned') {
       // Ряд позиционирован от панели — на время жеста переводим его в
       // координаты окна, иначе он уехал бы при скролле от исходной точки.
@@ -14913,12 +15388,19 @@ function attachPinDrag() {
     st.bar.classList.remove('is-drop-target');
     st.el.classList.remove('is-dragging', 'no-move-transition');
     if (st.source === 'pinned') {
-      // Возвращаем блок в поток доки — координаты жеста больше не нужны.
-      st.el.style.position = '';
-      st.el.style.left = '';
-      st.el.style.top = '';
-      st.el.style.right = '';
-      st.el.style.transform = '';
+      // B-42 v8 (0.163): координаты жеста чистим НЕ ВСЕГДА. Вернулся в
+      // док или это был клик — возвращаем блок в поток сразу. Вынесли
+      // из дока — оставляем фиксированную позицию СБРОСА: растворение
+      // играет ТАМ, где отпустили (иначе ряд мгновенно телепортировался
+      // к доку и гасся уже там — читалось как «пропал/уехал»); остатки
+      // инлайна чистит hidePinnedRowAnimated по завершении.
+      if (st.overDock || !st.moved) {
+        st.el.style.position = '';
+        st.el.style.left = '';
+        st.el.style.top = '';
+        st.el.style.right = '';
+        st.el.style.transform = '';
+      }
     }
     if (!st.moved) return;   // это был клик, а не перетаскивание
     if (st.source === 'tooltip') {
@@ -15092,6 +15574,12 @@ function attachFingeringEvents() {
       if (!playbackState.isPlaying) {
         hideFingeringTooltip();
         currentTooltipWrapper = null;
+        // B-37 (0.153): карточка-просмотрщик освобождается — возврат
+        // к закреплённому аккорду.
+        if (pinnedHoverWrapper) {
+          pinnedHoverWrapper = null;
+          if (isFingeringPinned()) renderPinnedFingering();
+        }
       }
     }, 300);
   });
@@ -19407,6 +19895,195 @@ function getSquareEventOffsetSeconds(sq, eventIndex, bpm, ts) {
   }
   return offset;
 }
+// B-35 (0.147): авто-скролл «как в Guitar Pro» при воспроизведении —
+// без подсветки (решение пользователя): виден КВАДРАТ с играющей
+// ячейкой и СЛЕДУЮЩИЙ квадрат; на границе секций следующим считается
+// первый квадрат следующей секции.
+//
+// Следующий квадрат в ПОРЯДКЕ РАЗМЕТКИ (DOM = порядок игры): сосед
+// справа в той же секции, иначе первый квадрат следующей карточки
+// секции. Для повторов (квадрат ×2) «следующий» в DOM — тот же сосед:
+// с точки зрения скролла это и есть то, что должно быть видно дальше.
+function playbackNextSquareEl(curSq) {
+  const sib = curSq.nextElementSibling;
+  if (sib && sib.classList.contains('square')) return sib;
+  const card = curSq.closest('.section-card');
+  let nc = card ? card.nextElementSibling : null;
+  while (nc && !(nc.classList && nc.classList.contains('section-card'))) {
+    nc = nc.nextElementSibling;
+  }
+  return nc ? nc.querySelector('.square') : null;
+}
+
+// Горизонтальный скролл контейнера: показать диапазон [leftDoc..rightDoc]
+// (координаты содержимого, т.е. с учётом scrollLeft). Уже видно — не
+// трогаем; влезает — минимальный сдвиг; не влезает — текущий квадрат
+// прижимаем слева, следующий обрезан справа (следовать вперёд важнее,
+// чем видеть играющий целиком — так делает Guitar Pro).
+function scrollRangeIntoViewH(vp, leftDoc, rightDoc, pad) {
+  const vw = vp.clientWidth;
+  const vl = vp.scrollLeft;
+  if (!(vw > 0)) return;
+  if (leftDoc >= vl - 1 && rightDoc <= vl + vw + 1) return; // уже видно
+  const width = rightDoc - leftDoc;
+  let target;
+  if (width + pad * 2 <= vw) {
+    target = leftDoc < vl ? leftDoc - pad : rightDoc - vw + pad;
+  } else {
+    target = leftDoc - pad;
+  }
+  const max = Math.max(0, vp.scrollWidth - vw);
+  target = Math.max(0, Math.min(max, target));
+  if (Math.abs(target - vp.scrollLeft) > 1) {
+    vp.scrollTo({ left: target, behavior: 'smooth' });
+  }
+}
+
+// Вертикаль: ряд играющей ячейки виден (как раньше, block:'nearest').
+// Горизонталь: играющий квадрат целиком + следующий квадрат (в другой
+// секции — своя вертикаль минимальным скроллом и свой горизонт).
+// Вызывается из планировщика при смене ячейки — не на pointermove,
+// поэтому плавный скролл не конфликтует с 60fps-гвардом жестов.
+// B-35 (0.150): ручной скролл пользователя во время воспроизведения
+// приостанавливает автоследование. Замер с едиными таймстампами показал:
+// все скроллы страницы идут из ensurePlaybackSquaresVisible монотонной
+// лестницей — «скачки вверх-вниз» получались, когда пользователь крутил
+// колесо, а алгоритм на каждой следующей ячейке дёргал страницу обратно
+// (перетягивание каната). Правило плеера: пользователь скроллит →
+// автоследование молчит, ПОКА играющая ячейка видна; ячейка ушла из
+// вида и пользователь молчит >4с — следует плавный возврат.
+let playbackUserScrollAt = 0;
+function attachPlaybackFollowGuards() {
+  if (window.__pbFollowGuards) return;
+  window.__pbFollowGuards = true;
+  const mark = () => {
+    if (typeof playbackState !== 'undefined' && playbackState && playbackState.isPlaying) {
+      playbackUserScrollAt = performance.now();
+    }
+  };
+  document.addEventListener('wheel', mark, { passive: true, capture: true });
+  document.addEventListener('touchmove', mark, { passive: true, capture: true });
+  document.addEventListener('keydown', (e) => {
+    if (['ArrowUp', 'ArrowDown', 'PageUp', 'PageDown', 'Home', 'End', ' '].indexOf(e.key) >= 0) mark();
+  }, { passive: true, capture: true });
+}
+attachPlaybackFollowGuards();
+
+// Сколько миллисекунд после ПОСЛЕДНЕГО ручного скролла страница
+// считается «у пользователя». Перезаписывается в тестах.
+let playbackFollowResumeMs = 4000;
+
+function ensurePlaybackSquaresVisible(wrapper) {
+  if (!wrapper) return;
+  // B-35 (0.150): пользователь недавно скроллил руками — страница его:
+  // не трогаем вовсе (даже если играющая ячейка ушла из вида — он может
+  // смотреть вперёд/назад). Возврат автоследования — только после 4с
+  // тишины (playbackFollowResumeMs; перезаписывается в тестах).
+  if (playbackUserScrollAt && performance.now() - playbackUserScrollAt < playbackFollowResumeMs) {
+    return;
+  }
+  // 0.149: раскладка .squares-list — КОЛОНКА (flex-direction: column):
+  // квадраты лежат друг под другом, горизонтальный ряд — это ЯЧЕЙКИ
+  // внутри одного квадрата. Отсюда два правила:
+  //  - вертикально считаем интервалы ИГРАЮЩЕЙ ЯЧЕЙКИ и СЛЕДУЮЩЕГО
+  //    КВАДРАТА всегда (он ниже на свою строку — в той же секции тоже);
+  //  - горизонтально приоритет у ИГРАЮЩЕЙ ЯЧЕЙКИ (в широком зум-квадрате
+  //    квадрат может не влезать целиком), квадрат — если влезает.
+  // Без единого scrollIntoView (урок 0.148): интервалы + один scrollTo.
+  const padX = 24;
+  const viewH = window.innerHeight;
+  const bar = document.querySelector('.transport-bar');
+  const barH = bar ? bar.getBoundingClientRect().height : 0;
+  let topAllow = barH + 24;   // липнущая панель транспорта сверху
+  // B-35 (0.151): при закреплённой аппликатуре под ПРИЛИПШЕЙ панелью
+  // свисает ряд «гриф + превью» (~220px) — без резерва следование могло
+  // припарковать играющую ячейку ЗА карточкой. Пока панель не прилипла,
+  // ряд висит на своём месте в потоке и сетку от него уже расчищает
+  // padding-top (#sectionsContainer, updatePinnedShift) — резерв не нужен.
+  const pinnedRow = document.getElementById('pinnedRow');
+  if (bar && pinnedRow && pinnedRow.style.display !== 'none' &&
+      document.body.classList.contains('has-pinned-fingering') &&
+      !document.body.classList.contains('is-timeline')) {
+    const br = bar.getBoundingClientRect();
+    const stickyTop = parseFloat(getComputedStyle(bar).top) || 0;
+    if (br.top <= stickyTop + 1) {
+      const pr = pinnedRow.getBoundingClientRect();
+      if (pr.height > 1) topAllow = Math.max(topAllow, pr.bottom + 8);
+    }
+  }
+  const bottomAllow = 16;
+  const pageY0 = window.scrollY || 0;
+  const rectsOK = (r) => r && r.height > 1 && r.width > 1;
+  const maxPageScroll = Math.max(0, (document.documentElement.scrollHeight || 0) - viewH);
+
+  // Диапазон позиций скролла, при которых элемент виден по вертикали.
+  const visibleScrollRange = (el) => {
+    const r = el.getBoundingClientRect();
+    if (!rectsOK(r)) return null;
+    const top = r.top + pageY0;
+    const bottom = r.bottom + pageY0;
+    let lo = bottom - (viewH - bottomAllow);
+    let hi = top - topAllow;
+    lo = Math.max(0, Math.min(maxPageScroll, lo));
+    hi = Math.max(0, Math.min(maxPageScroll, hi));
+    if (lo > hi) return { lo: hi, hi };
+    return { lo, hi };
+  };
+
+  const curSq = wrapper.closest('.square');
+  const curVp = curSq ? curSq.closest('.squares-viewport') : null;
+  const nextSq = curSq ? playbackNextSquareEl(curSq) : null;
+  const nextVp = nextSq ? nextSq.closest('.squares-viewport') : null;
+
+  // --- Вертикаль: ячейка + следующий квадрат (пересечение, если влезают;
+  // нет — приоритет ячейке, как в Guitar Pro). ---
+  const cellRange = visibleScrollRange(wrapper);
+  const nextRange = nextSq ? visibleScrollRange(nextSq) : null;
+  let range = null;
+  if (cellRange && nextRange) {
+    const lo = Math.max(cellRange.lo, nextRange.lo);
+    const hi = Math.min(cellRange.hi, nextRange.hi);
+    range = lo <= hi ? { lo, hi } : cellRange;
+  } else {
+    range = cellRange || nextRange;
+  }
+  const pageTarget = range
+    ? Math.max(range.lo, Math.min(range.hi, pageY0)) // ближайшая точка
+    : null;
+
+  // --- Горизонталь: свой скролл своего контейнера. ---
+  const docX = (el, vp) =>
+    el.getBoundingClientRect().left - vp.getBoundingClientRect().left + vp.scrollLeft;
+  if (curSq && curVp) {
+    const cellR = wrapper.getBoundingClientRect();
+    const sqR = curSq.getBoundingClientRect();
+    const cellFits = rectsOK(cellR);
+    const sqFits = rectsOK(sqR) &&
+      sqR.width + padX * 2 <= curVp.clientWidth;
+    if (sqFits) {
+      const sL = docX(curSq, curVp);
+      scrollRangeIntoViewH(curVp, sL, sL + sqR.width, padX);
+    } else if (cellFits) {
+      const cL = docX(wrapper, curVp);
+      scrollRangeIntoViewH(curVp, cL, cL + cellR.width, padX);
+    }
+  }
+  // Следующий квадрат в ДРУГОЙ секции — докрутить его строку и там
+  // (его вертикаль уже учтена в интервале выше).
+  if (nextSq && nextVp && curVp && nextVp !== curVp) {
+    const nr = nextSq.getBoundingClientRect();
+    if (rectsOK(nr)) {
+      const nL = docX(nextSq, nextVp);
+      scrollRangeIntoViewH(nextVp, nL, nL + nr.width, padX);
+    }
+  }
+
+  // --- Единственный вертикальный скролл окна ---
+  if (pageTarget !== null && Math.abs(pageTarget - pageY0) > 1) {
+    window.scrollTo({ top: pageTarget, behavior: 'smooth' });
+  }
+}
+
 function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount) {
   // ВАЖНО: эта функция должна быть ЧИСТОЙ по отношению к состоянию
   // воспроизведения. Счётчики повторов передаются явными аргументами
@@ -19552,6 +20229,11 @@ function scheduleNextEvent(ctx) {
 
   const dur = getEventDurationForTimeSig(next.event.span || 1, bpm, ts);
   const evStart = nextEventTime;
+  // B-38 (0.154): старт/длительность текущей ячейки — питание кругляшка
+  // «до смены аккорда» в превью закреплённого ряда (та же семантика,
+  // что у tl-next-timer ленты).
+  playbackState.cellStart = evStart;
+  playbackState.cellDur = dur;
 
   // Якорь фазы такта: время начала ТЕКУЩЕГО квадрата = время начала
   // текущего события минус время всех событий этого квадрата, что уже
@@ -19604,7 +20286,9 @@ function scheduleNextEvent(ctx) {
     playbackState.activeElements.push(newWrapper);
     // scrollIntoView в режиме ленты не нужен и вреден: элемент скрыт,
     // а вызов всё равно дёргает прокрутку страницы.
-    if (!timelineMode) newWrapper.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+    // B-35 (0.147): авто-скролл «как в Guitar Pro» — виден играющий
+    // квадрат и следующий (на границе секций — первый квадрат следующей).
+    if (!timelineMode) ensurePlaybackSquaresVisible(newWrapper);
 
     const input = newWrapper.querySelector('.chord-input');
     if (input && input.value.trim()) {
@@ -19742,16 +20426,19 @@ function scheduleNextEvent(ctx) {
           const mainTooltip = document.getElementById('fingering-tooltip');
           const previewEl = document.getElementById('preview-tooltip');
           if (mainTooltip && previewEl && previewEl.style.display === 'block') {
-            positionPreviewTooltip(mainTooltip, previewEl, null);
+            // B-34 (0.144): previewWrapper — якорь-падение: звучит ПУСТАЯ
+            // ячейка, главный тултип скрыт — превью встаёт над ЯЧЕЙКОЙ
+            // следующего аккорда, а не от нулевого ректа скрытого main.
+            positionPreviewTooltip(mainTooltip, previewEl, previewWrapper);
 
             requestAnimationFrame(() => {
               if (!playbackState.isPlaying) return;
-              positionPreviewTooltip(mainTooltip, previewEl, null);
+              positionPreviewTooltip(mainTooltip, previewEl, previewWrapper);
             });
 
             setTimeout(() => {
               if (!playbackState.isPlaying) return;
-              positionPreviewTooltip(mainTooltip, previewEl, null);
+              positionPreviewTooltip(mainTooltip, previewEl, previewWrapper);
             }, 100);
           }
         }, 150);
@@ -22351,6 +23038,42 @@ function getDefaultStrumPattern(mode, ts, unitsOverride) {
   return { mode: mode === 'pick' ? 'pick' : 'strum', subdivision, steps };
 }
 
+// B-30 (0.167): фактический СРЕЗ боя секции для показа внутри
+// ячейки-наследника. Репро пользователя: ячейка, уменьшенная ресайзом,
+// играет часть боя секции, но внутри ничего не рисуется — «малоопытному
+// непонятно, что играть». Пин здесь невозможен by design: B-20 демоция
+// снимает пин, равный своему срезу фасада, — поэтому показываем срез
+// РЕНДЕРОМ, не трогая модель (наследование и сейв не меняются).
+//
+// Показываем ТОЛЬКО когда срез не сводится к целому повтору рисунка:
+// ячейка на весь такт (×1) или на два такта (×2) звучит бейджем секции
+// как есть — превью в каждой ячейке было бы шумом. Учитывается и фаза:
+// ячейка, начинающаяся с середины рисунка, показывает свой повёрнутый
+// срез.
+function inheritedFacadeSliceForPreview(sec, sq, ei) {
+  if (!sec || !sq || !(sq.events || [])[ei]) return null;
+  const ev = sq.events[ei];
+  // Только ЯВНЫЙ бой секции — как в демоции B-20 (patternOverride):
+  // эффективный дефолт по размеру фасадом не считается, иначе срезы
+  // мелькали бы в каждой песне без заданного боя.
+  const secPat = sec.strumPattern;
+  if (!secPat || !Array.isArray(secPat.steps) || !secPat.steps.length) return null;
+  const slice = facadeSlicePattern(sec, sq, ev, ei, null, secPat);
+  if (!slice || !Array.isArray(slice.steps) || !slice.steps.length) return null;
+  const fl = secPat.steps.length, sl = slice.steps.length;
+  if (sl >= fl && sl % fl === 0) {
+    let whole = true;
+    for (let i = 0; i < sl; i++) {
+      if (JSON.stringify(slice.steps[i]) !== JSON.stringify(secPat.steps[i % fl])) {
+        whole = false;
+        break;
+      }
+    }
+    if (whole) return null;   // целый повтор рисунка — бейдж уже говорит это
+  }
+  return slice;
+}
+
 // Заполняет мини-превью паттерна прямо в ячейках, у которых есть СВОЙ
 // (переопределённый на уровне ячейки) бой/перебор — над именем аккорда,
 // компактным масштабом (стили — через .event-strum-preview в CSS). Только
@@ -22368,7 +23091,23 @@ function renderEventStrumPreviews(container) {
     // Волна-3/4: превью читает окно рулона, когда ячейка покрыта пулом
     // (волна-4: кэша нет вообще — окно и есть единственное хранимое).
     const rollWinCell = songRhythmRolls ? rhythmRollWindowFor(secId, sq, ei, songRhythmRolls) : null;
-    const cellPattern = rollWinCell || (ev && ev.strumPattern);
+    const ownPattern = rollWinCell || (ev && ev.strumPattern) || null;
+    // B-30: своего ритма нет — показываем фактический СРЕЗ боя секции,
+    // если он не сводится к целому повтору рисунка. НО не во время
+    // подсказки ресайза и её закрытия (B-15): спека «снятый в наследование
+    // уплывает только fade-out» писалась, когда у наследника превью не
+    // было; появившийся срез становился целью уплывания и ломал её. Во
+    // время жеста срез и так виден полосой в оверлее; статичный срез
+    // дорисует финальная инкрементальная синкронизация.
+    const sliceSuppressed = (typeof rhythmHintSession !== 'undefined' && rhythmHintSession) ||
+      document.body.classList.contains('is-rhythm-hint-returning');
+    const inheritedSlice = ownPattern || sliceSuppressed
+      ? null
+      : inheritedFacadeSliceForPreview(sec, sq, ei);
+    const cellPattern = ownPattern || inheritedSlice;
+    // Метка среза: по ней exit-flight (B-15) знает, что это НЕ цель
+    // обратного полёта — срез дорисует финальный sync, а не анимация.
+    box.classList.toggle('is-inherited-slice', !!inheritedSlice);
     if (!ev || !cellPattern) return;
     // B-06: призрачную тишину превью не рисуем — ни в финале, ни по
     // дороге (окно сшитой ленты при протяжке бывает целиком пустым).
@@ -22399,7 +23138,12 @@ function renderEventStrumPreviews(container) {
     // Селектора «родитель элемента с классом» в CSS нет, поэтому
     // класс ставим здесь же, где включается превью.
     box.parentElement?.classList.add('has-cell-rhythm');
-    eventStrumPreviewStepEls.set(`${secId}:${sqId}:${ei}`, Array.from(preview.querySelectorAll('.strum-step')));
+    // Срез НЕ регистрируем в карте подсветки: планировщик индексирует
+    // шаги фасадными индексами (позиция в такте), для локального среза
+    // они промахивались бы мимо элементов.
+    if (!inheritedSlice) {
+      eventStrumPreviewStepEls.set(`${secId}:${sqId}:${ei}`, Array.from(preview.querySelectorAll('.strum-step')));
+    }
   });
 }
 
@@ -22714,8 +23458,23 @@ function setEventLiveStrumPreview(secId, sqId, ei, pattern, sectionDefaultPatter
   eventStrumPreviewStepEls.delete(key);
   if (!box) return;
   box.innerHTML = '';
-  box.classList.remove('has-pattern', 'is-live');
+  box.classList.remove('has-pattern', 'is-live', 'is-inherited-slice');
   if (!pattern || patternsEqual(pattern, sectionDefaultPattern)) {
+    // B-30: наследник боем секции — но если его фактический СРЕЗ не
+    // сводится к целому повтору рисунка, во время игры показываем срез
+    // (иначе живое превью стирало статичное, и «что играть» опять
+    // пропадало). Подсветку шагов не регистрируем: индексация
+    // планировщика фасадная, по срезу она промахивалась бы.
+    const secL = sections.find((s) => s.id === secId);
+    const sqL = secL && secL.squares.find((q) => q.id === sqId);
+    const liveSlice = pattern ? inheritedFacadeSliceForPreview(secL, sqL, ei) : null;
+    if (liveSlice) {
+      const { preview: pv } = buildStrumPreviewEls(liveSlice);
+      box.appendChild(pv);
+      box.classList.add('has-pattern', 'is-live', 'is-inherited-slice');
+      box.parentElement?.classList.add('has-cell-rhythm');
+      return;
+    }
     // Ритма в ячейке нет — ступень возвращается к верхней кромке.
     box.parentElement?.classList.remove('has-cell-rhythm');
     return;
@@ -22740,17 +23499,22 @@ function restoreEventStrumPreview(key) {
   );
   if (!box) return;
   box.innerHTML = '';
-  box.classList.remove('has-pattern', 'is-live');
+  box.classList.remove('has-pattern', 'is-live', 'is-inherited-slice');
   const sec = sections.find((s) => s.id === secId);
   const sq = sec && sec.squares.find((q) => q.id === sqId);
   const ev = sq && sq.events[ei];
   // Волна-4: как и renderEventStrumPreviews — превью читает окно рулона;
   // встроенного кэша у ячейки нет, встроенный байт — легаси-вкрапление.
   const rollWinCell = sq && songRhythmRolls ? rhythmRollWindowFor(secId, sq, ei, songRhythmRolls) : null;
-  const cellPattern = rollWinCell || (ev && ev.strumPattern);
+  const ownPattern = rollWinCell || (ev && ev.strumPattern) || null;
+  // B-30: своего нет — возвращаем фактический срез боя секции (как в
+  // renderEventStrumPreviews, включая метку is-inherited-slice).
+  const inheritedSlice = ownPattern ? null : inheritedFacadeSliceForPreview(sec, sq, ei);
+  const cellPattern = ownPattern || inheritedSlice;
+  box.classList.toggle('is-inherited-slice', !!inheritedSlice);
   // B-06: призрачная тишина и здесь не показывается (иначе после стопа
   // воспроизведения превью пауз вернулось бы на место).
-  if (!ev || !cellPattern || isGhostSilenceCell(sec, sq, ei)) {
+  if (!ev || !cellPattern || (!inheritedSlice && isGhostSilenceCell(sec, sq, ei))) {
     box.parentElement?.classList.remove('has-cell-rhythm');
     return;
   }
@@ -22762,7 +23526,10 @@ function restoreEventStrumPreview(key) {
   // своим паттерном подсвечивалась только на первом круге: после ухода
   // воспроизведения ключ, зарегистрированный в renderEventStrumPreviews,
   // терялся, и на втором проходе анимировать было нечего.
-  eventStrumPreviewStepEls.set(key, Array.from(preview.querySelectorAll('.strum-step')));
+  // B-30: срез фасада не регистрируем — планировщик индексирует фасадно.
+  if (!inheritedSlice) {
+    eventStrumPreviewStepEls.set(key, Array.from(preview.querySelectorAll('.strum-step')));
+  }
 }
 
 // Убирает разом все "живые" индикаторы боя (секция + ячейка) при остановке
@@ -23158,8 +23925,10 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
 //
 // В режиме ленты панель «Сейчас» показывает гриф играющего аккорда.
 // Ритм при этом виден только на дорожке снизу — а связь «этот удар
-// задевает вот эти струны» приходится достраивать в голове. Теперь
-// задетые струны на грифе коротко дрожат в такт.
+// задевает вот эти струны» приходится достраивать в голове. Задетые
+// струны на грифе коротко дрожат в такт. 0.165: то же и В РЕДАКТОРЕ —
+// там текущий аккорд показывают тултип у играющей ячейки и закреплённая
+// карточка (превью «Дальше» не трогаем: оно ещё не звучит).
 //
 // Работает и для боя (дрожат все звучащие струны формы, с задержкой по
 // направлению — как настоящий взмах), и для перебора (только те струны,
@@ -23169,8 +23938,10 @@ let _fingVibrateTimers = [];
 function clearFingeringVibration() {
   _fingVibrateTimers.forEach((id) => clearTimeout(id));
   _fingVibrateTimers = [];
+  // 0.165: чистим глобально — грифы текущего аккорда теперь есть и в
+  // редакторе (тултип, закреп), не только в ленте.
   document
-    .querySelectorAll('#tlNowFing .fing-string.is-vibrating')
+    .querySelectorAll('.fing-string.is-vibrating')
     .forEach((el) => el.classList.remove('is-vibrating'));
 }
 
@@ -23178,10 +23949,20 @@ function clearFingeringVibration() {
 // те же, что у shapeToPluckNotes. Перебор оперирует НОМЕРАМИ струн
 // (1 — самая тонкая), их переводит вызывающая сторона.
 function vibrateFingeringStrings(ctx, stringIndexes, atTime, stepSeconds, spread) {
-  if (!timelineMode || !playbackState.isPlaying) return;
+  // 0.165: режим не фильтруем — гриф текущего аккорда есть в обоих
+  // режимах воспроизведения. В покое дрожать нечему (ударов нет).
+  if (!playbackState.isPlaying) return;
   if (!stringIndexes || !stringIndexes.length) return;
-  const host = document.getElementById('tlNowFing');
-  if (!host) return;
+  // Хосты грифа ИГРАЮЩЕГО аккорда: в ленте — панель «Сейчас», в
+  // редакторе — тултип у играющей ячейки и закреплённая карточка
+  // (планировщик держит их на текущем аккорде). Превью «Дальше»
+  // ОСОЗНАННО не входит: следующий аккорд ещё не звучит.
+  const hosts = timelineMode
+    ? [document.getElementById('tlNowFing')]
+    : [
+        document.getElementById('fingering-tooltip'),
+        document.getElementById('pinnedFingering'),
+      ];
   // Задержка до удара в миллисекундах: то же преобразование времени
   // AudioContext в setTimeout, что у подсветки шагов ритма.
   const baseDelay = Math.max(0, (atTime - ctx.currentTime) * 1000);
@@ -23189,20 +23970,23 @@ function vibrateFingeringStrings(ctx, stringIndexes, atTime, stepSeconds, spread
   // струна иначе «звенела» бы полсекунды и это выглядело бы вязко.
   const life = Math.max(90, Math.min(stepSeconds * 1000 * 0.7, 260));
   stringIndexes.forEach((idx, i) => {
-    const el = host.querySelector(`.fing-string[data-string="${idx}"]`);
-    if (!el) return;
     // spread — задержка между струнами внутри одного удара. У боя это
     // взмах медиатора (струны задеваются по очереди), у перебора 0:
     // там щипок одновременный.
     const onId = setTimeout(() => {
-      // Перезапуск анимации на уже дрожащей струне: снимаем класс и
-      // возвращаем в следующем кадре, иначе CSS-анимация не начнётся
-      // заново и частые удары сливались бы в одно движение.
-      el.classList.remove('is-vibrating');
-      void el.getBoundingClientRect();
-      el.classList.add('is-vibrating');
-      const offId = setTimeout(() => el.classList.remove('is-vibrating'), life);
-      _fingVibrateTimers.push(offId);
+      hosts.forEach((host) => {
+        if (!host || host.style.display === 'none') return;
+        const el = host.querySelector(`.fing-string[data-string="${idx}"]`);
+        if (!el) return;
+        // Перезапуск анимации на уже дрожащей струне: снимаем класс и
+        // возвращаем в следующем кадре, иначе CSS-анимация не начнётся
+        // заново и частые удары сливались бы в одно движение.
+        el.classList.remove('is-vibrating');
+        void el.getBoundingClientRect();
+        el.classList.add('is-vibrating');
+        const offId = setTimeout(() => el.classList.remove('is-vibrating'), life);
+        _fingVibrateTimers.push(offId);
+      });
     }, baseDelay + i * (spread || 0) * 1000);
     _fingVibrateTimers.push(onId);
   });
@@ -28893,8 +29677,10 @@ function buildRhythmHintContent(hintEl, pattern, deltas) {
   hintEl.appendChild(frag);
 }
 
-// Геометрия полос — из того же distributeVisualSpans, что правит сетку
-// на каждом движении мыши: полосы едут ровно вместе с границами ячеек.
+// Геометрия полос — из того же distributeVisualSpans, что и сетка.
+// С 0.168 вызывается только на старте жеста: всю протяжку полосы стоят
+// на стартовых позициях (замороженный метрический слой, как засечки),
+// финальную геометрию даёт commit на pointerup.
 function layoutRhythmHints(session, distribution) {
   const tc = distribution.totalCols;
   let cum = 0;
@@ -29097,6 +29883,11 @@ function rhythmHintExitDeltas(entry, ei, bi) {
   if (!shouldFly) return null;
   const wrapperEl = bi.querySelector(`.chord-wrapper[data-ei="${ei}"]`);
   const prevEl = wrapperEl && wrapperEl.querySelector('.event-strum-preview');
+  // B-30: срез-превью (is-inherited-slice) не бывает целью полёта —
+  // унаследованный ритм уплывает только fade-out, срез дорисует финальный
+  // sync. Без фильтра появившийся срез давал полосе ложную цель (stale
+  // шаги), и выход срабатывал без fade-фазы.
+  if (!prevEl || prevEl.classList.contains('is-inherited-slice')) return null;
   const stepEls = prevEl ? [...prevEl.querySelectorAll('.strum-step')] : [];
   const hitEls = [...entry.el.querySelectorAll('.rhythm-hint-hit')];
   if (!wrapperEl || !stepEls.length || !hitEls.length) return null;
@@ -29181,6 +29972,34 @@ function finishRhythmHints(opts) {
   // если кастомный ритм был снят/демотирован в наследование, ему уже
   // некуда «уплывать» — компактного превью в финальном DOM не будет.
   // Такой ряд должен исчезнуть тем же fade-out, что и наследуемый.
+  //
+  // 0.168: перед измерением целей уплывания перестраиваем мини-превью
+  // по ФИНАЛЬНОЙ модели. Всю протяжку превью сознательно заморожено
+  // («innerHTML ждёт pointerup»), и без перестройки были два дефекта:
+  // (1) ячейка, ставшая кастомной только к отпусканию, уплывала
+  //     fallback-полосой вверх, а не поударным переплыванием в свои
+  //     глифы — а переплывание обязано работать всегда, когда ритм
+  //     рисуется в превью (фидбек 2026-09-05);
+  // (2) у давно-кастомной ячейки цели летели по устаревшим глифам/
+  //     позициям, и превью подменялось под руками на финальном sync.
+  // Срезы здесь по-прежнему подавлены (body уже is-rhythm-hint-returning,
+  // сессия обнулена): снятый в наследование уплывает только fade-out
+  // (B-15), срез дорисует финальная инкрементальная синхронизация (B-30).
+  // has-cell-rhythm на ячейках сохраняем каким был до перестройки:
+  // ступень лада не должна подпрыгивать на полсекунды выхода и
+  // возвращаться на финальном sync.
+  const keptCellRhythmWrappers = [];
+  session.bi.querySelectorAll('.event-strum-preview').forEach((b) => {
+    const wrapper = b.parentElement;
+    if (wrapper && wrapper.classList.contains('has-cell-rhythm')) {
+      keptCellRhythmWrappers.push(wrapper);
+    }
+    b.innerHTML = '';
+    b.classList.remove('has-pattern', 'is-live', 'is-inherited-slice');
+    if (wrapper) wrapper.classList.remove('has-cell-rhythm');
+  });
+  renderEventStrumPreviews(session.bi);
+  keptCellRhythmWrappers.forEach((wrapperEl) => wrapperEl.classList.add('has-cell-rhythm'));
   const currentData = session.s && session.sq ? collectRhythmHintData(session.s, session.sq) : [];
   const droppedOut = new Set(opts && Array.isArray(opts.droppedOut) ? opts.droppedOut : []);
   session.entries.forEach((entry, ei) => {
@@ -30343,12 +31162,13 @@ function attachResizeHandlers() {
         lastResizePreviewKey = key;
         ensureLiveGrid();
         bi.style.gridTemplateColumns = liveGridTemplate(nsp);
-        // B-15-оверлей едет вместе с живой геометрией, но контент ритма
-        // не пересрезается на каждом кадре: это было одной из дорогих
-        // частей старого resize-loop. Финальный reslice остаётся на commit.
-        if (rhythmHintSession) {
-          layoutRhythmHints(rhythmHintSession, { totalCols: tc, spans: nsp });
-        }
+        // 0.168: полосы ритма во время протяжки ЗАМОРОЖЕНЫ — стоят на
+        // стартовых позициях, как засечки и счёт «1-та-и-та» (фидбек
+        // 2026-09-05: «ритм не должен двигаться при ресайзе»). Раньше
+        // Раньше layoutRhythmHints гонял их по живой геометрии — глифы
+        // растягивались вместе с ячейкой и только на отпускании
+        // вставали на место.
+        // Финальную геометрию и контент полосам даёт commit на pointerup.
         // Засечки и счёт во время drag остаются снимком стартового
         // метрического слоя: координаты не пересчитываем. Поверх frozen-
         // засечек, но под счётом, двигаем covers текущих границ. Для
