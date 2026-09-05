@@ -6682,9 +6682,6 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   .fingering-dock-frame rect {
     animation: none;
   }
-  .pinned-row.is-appearing {
-    animation: none;
-  }
 }
 
 /* Ряд «закреплённый гриф + превью следующего». Свисает из-под панели у
@@ -6708,21 +6705,30 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
 }
 /* Закрепление/открепление — «переплывание» (просьба пользователя):
    гриф не просто фейдится, а РАСТВОРЯЕТСЯ — расфокусировка blur +
-   лёгкий подъём. Классы вешает JS ровно на один прогон. */
-.pinned-row.is-appearing {
-  animation: struchord-pinned-in 0.3s cubic-bezier(0.2, 0.9, 0.3, 1.1);
+   подъём. B-42 v6 (0.161): анимируются КАРТОЧКИ (дети ряда), а не ряд:
+   opacity/filter/transform на АНЦЕСТОРЕ превью создают backdrop root
+   и глушат backdrop-filter стекла в WebKit на время анимации; ряд
+   всегда «чистый» — превью блюрит подложку даже в середине переплывания.
+   Параметры сделаны явственнее: blur 8→14px, подъём 10→16px,
+   длительности 0.3/0.26 → 0.42/0.34 (JS-таймеры синхронизированы). */
+.pinned-row.is-appearing .pinned-fingering,
+.pinned-row.is-appearing .pinned-next {
+  animation: struchord-pin-in-card 0.42s cubic-bezier(0.2, 0.9, 0.3, 1.08) both;
+}
+.pinned-row.is-dissolving .pinned-fingering,
+.pinned-row.is-dissolving .pinned-next {
+  animation: struchord-pin-out-card 0.34s ease both;
 }
 .pinned-row.is-dissolving {
-  animation: struchord-pin-dissolve 0.26s ease both;
   pointer-events: none;
 }
-@keyframes struchord-pinned-in {
-  from { opacity: 0; transform: translateY(-10px); filter: blur(8px); }
+@keyframes struchord-pin-in-card {
+  from { opacity: 0; transform: translateY(-16px); filter: blur(14px); }
   to { opacity: 1; transform: none; filter: blur(0); }
 }
-@keyframes struchord-pin-dissolve {
+@keyframes struchord-pin-out-card {
   from { opacity: 1; transform: none; filter: blur(0); }
-  to { opacity: 0; transform: translateY(-8px); filter: blur(8px); }
+  to { opacity: 0; transform: translateY(-12px); filter: blur(14px); }
 }
 /* Сам закреплённый гриф. */
 .pinned-fingering {
@@ -6806,8 +6812,10 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
 @media (prefers-reduced-motion: reduce) {
   .pin-fade-out,
   .pin-fade-in,
-  .pinned-row.is-appearing,
-  .pinned-row.is-dissolving {
+  .pinned-row.is-appearing .pinned-fingering,
+  .pinned-row.is-appearing .pinned-next,
+  .pinned-row.is-dissolving .pinned-fingering,
+  .pinned-row.is-dissolving .pinned-next {
     animation: none;
   }
 }
@@ -8848,7 +8856,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.160</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.161</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15030,6 +15038,7 @@ function hidePinnedRowAnimated(row, onHidden) {
   row.classList.remove('is-appearing');
   row.classList.add('is-dissolving');
   if (row.__dissolveTimer) clearTimeout(row.__dissolveTimer);
+  // 0.161: длительность синхронизирована с CSS (0.34s + запас).
   row.__dissolveTimer = setTimeout(() => {
     row.__dissolveTimer = 0;
     row.classList.remove('is-dissolving');
@@ -15037,7 +15046,7 @@ function hidePinnedRowAnimated(row, onHidden) {
     const host = document.getElementById('pinnedFingering');
     if (host) resetFingeringSwap(host.querySelector('.fingering-content'));
     if (onHidden) onHidden();
-  }, 270);
+  }, 360);
 }
 
 function renderPinnedFingering(chordName, shape) {
@@ -15175,7 +15184,8 @@ function pinFingeringFromTooltip() {
     rowEl.classList.remove('is-appearing');
     void rowEl.offsetWidth;
     rowEl.classList.add('is-appearing');
-    setTimeout(() => rowEl.classList.remove('is-appearing'), 320);
+    // 0.161: длительность синхронизирована с CSS (0.42s + запас).
+    setTimeout(() => rowEl.classList.remove('is-appearing'), 440);
   }
   return true;
 }

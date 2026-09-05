@@ -77,13 +77,13 @@ w.addEventListener('load', async () => {
   ok('кругляшок лежит внутри превью', !!d.querySelector('#pinnedNext > #pinnedNextTimer'));
   const css = [...d.styleSheets].flatMap((s) => {
     try { return [...s.cssRules].map((r) => r.cssText); } catch (e) { return []; }
-  }).join('\\n');
+  }).join('\n');
   ok('CSS: conic-gradient по --pinned-next-progress',
     css.includes('.pinned-next-timer') && css.includes('--pinned-next-progress') &&
     css.includes('conic-gradient'));
   ok('CSS: ключевые кадры уезда/приезда',
     css.includes('struchord-pin-out') && css.includes('struchord-pin-in'));
-  const nextRule = (css.match(/\.pinned-next\s*\{[^}]*\}/) || [''])[0];
+  const nextRule = (css.match(/(^|\n)\.pinned-next\s*\{[^}]*\}/) || [''])[0];
   ok('CSS: превью — матовое стекло (backdrop-filter, Safari-префикс)',
     /-webkit-backdrop-filter/.test(nextRule) && /backdrop-filter\s*:\s*blur/.test(nextRule),
     nextRule.slice(0, 120));

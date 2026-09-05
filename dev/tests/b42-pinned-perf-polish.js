@@ -77,13 +77,19 @@ w.addEventListener('load', async () => {
     cardRule.slice(0, 140));
   ok('карточка без transform (раскладка честная)', !/transform\s*:/.test(cardRule));
   ok('карточка без transition темы (артефакты WebKit)', !/transition\s*:/.test(cardRule));
-  const nextRule = (css.match(/\.pinned-next\s*\{[^}]*\}/) || [''])[0];
+  const nextRule = (css.match(/(^|\n)\.pinned-next\s*\{[^}]*\}/) || [''])[0];
   ok('превью — стекло 55% + blur 10px, без transform и transition',
     /55%, transparent/.test(nextRule) && /blur\(10px\)/.test(nextRule) &&
     !/transform\s*:/.test(nextRule) && !/transition\s*:/.test(nextRule));
-  ok('появление/растворение — blur-переплывание',
-    /struchord-pinned-in/.test(css) && /struchord-pin-dissolve/.test(css) &&
-    /filter:\s*blur\(8px\)/.test(css));
+  ok('переплывание анимирует КАРТОЧКИ, а не ряд (WebKit backdrop)',
+    /\.pinned-row\.is-appearing \.pinned-fingering/.test(css) &&
+    /\.pinned-row\.is-dissolving \.pinned-next/.test(css) &&
+    !/\.pinned-row\.is-appearing\s*\{[^}]*animation/.test(css));
+  ok('переплывание ярче: blur 14px, подъём 16px',
+    /struchord-pin-in-card/.test(css) && /struchord-pin-out-card/.test(css) &&
+    /blur\(14px\)/.test(css) && /translateY\(-16px\)/.test(css));
+  ok('длительности 0.42/0.34 синхронизированы с JS',
+    /0\.42s/.test(css) && /0\.34s/.test(css));
   ok('reduced-motion гасит анимации ряда', /prefers-reduced-motion/.test(css));
 
   console.log('=== 2. Переплывание: закрепление ===');
@@ -171,7 +177,7 @@ w.addEventListener('load', async () => {
   // теперь до конца
   await sleep(350);
   w.eval('unpinFingering()');
-  await sleep(340);
+  await sleep(420);
   ok('ряд скрыт после растворения', rowEl().style.display === 'none');
   ok('таймер растворения погашен', !rowEl().__dissolveTimer);
 
