@@ -77,6 +77,77 @@ w.addEventListener('load', () => {
   const c4 = loadWith({ mode: 'strum', subdivision: 2, steps: ['D', 'U'] });
   ok('обычный паттерн без поля swing', c4 && !('swing' in c4), JSON.stringify(c4));
 
+  console.log('=== 5. Свинг не теряется по дороге (модель -> пул -> файл) ===');
+  // Свинг обязан пережить сохранение песни: он кладётся в пул ритмов и
+  // сериализуется. Раньше serializeRhythmPoolForSave копировал только
+  // mode/subdivision/steps — кач терялся при сохранении в файл.
+  {
+    const song = { name: 'swing-roundtrip', bpm: 100, globalKey: 'C',
+      sections: [{ id: 's1', name: 'A', timeSig: '4/4',
+        strumPattern: { mode: 'strum', subdivision: 2, swing: true,
+          steps: ['D', null, 'D', 'U', null, 'U', 'D', 'U'] },
+        squares: [{ id: 'q1', events: [{ chord: 'Am', span: 4 }] }] }] };
+    w.localStorage.setItem('struchord_songs', JSON.stringify([song]));
+    w.loadSong(0);
+    ok('свинг в модели после загрузки',
+       w.eval('!!sections[0].strumPattern.swing') === true);
+    const pool = JSON.parse(w.eval('JSON.stringify(serializeRhythmPoolForSave())'));
+    const rolls = pool ? Object.values(pool.pool) : [];
+    ok('свинг попал в сериализованный пул',
+       rolls.length > 0 && rolls.some((r) => r.swing === true),
+       JSON.stringify(rolls));
+  }
+
+  console.log('=== 6. Свинг различает ритмы (подпись и сравнение) ===');
+  const A = { mode: 'strum', subdivision: 2, steps: ['D', 'U'] };
+  const B = { mode: 'strum', subdivision: 2, swing: true, steps: ['D', 'U'] };
+  ok('patternsEqual видит разницу', w.eval(`patternsEqual(${JSON.stringify(A)}, ${JSON.stringify(B)})`) === false);
+  ok('rhythmPatternSig различает',
+     w.eval(`rhythmPatternSig(${JSON.stringify(A)}) !== rhythmPatternSig(${JSON.stringify(B)})`) === true);
+  ok('одинаковые со свингом равны',
+     w.eval(`patternsEqual(${JSON.stringify(B)}, ${JSON.stringify(B)})`) === true);
+
+  console.log('=== 7. Кнопка Swing в редакторе ритма ===');
+  {
+    const song = { name: 'swing-ui', bpm: 100, globalKey: 'C',
+      sections: [{ id: 's1', name: 'A', timeSig: '4/4',
+        strumPattern: { mode: 'strum', subdivision: 2,
+          steps: ['D', null, 'D', 'U', null, 'U', 'D', 'U'] },
+        squares: [{ id: 'q1', events: [{ chord: 'Am', span: 4 }] }] }] };
+    w.localStorage.setItem('struchord_songs', JSON.stringify([song]));
+    w.loadSong(0);
+    // ВАЖНО: loadSong переприсваивает секциям СВОИ id (1, 2, ...), а не
+    // те, что были в файле. Берём реальный id из модели, иначе
+    // openStrumPatternEditor молча выходит по find() === undefined.
+    const secId = JSON.parse(w.eval('JSON.stringify(sections[0].id)'));
+    w.openStrumPatternEditor('section', secId);
+    const btn = w.document.querySelector('#patternSwingBtn');
+    ok('кнопка существует', !!btn);
+    ok('при sub2 кнопка видна', btn && !btn.hidden);
+    ok('изначально выключена', btn && !btn.classList.contains('active'));
+
+    btn.onclick();
+    ok('клик включает свинг', btn.classList.contains('active'));
+
+    // Прячется там, где свинг бессмыслен.
+    const subBtn = (n) => Array.from(w.document.querySelectorAll('.pattern-sub-btn'))
+      .find((b) => b.dataset.sub === String(n));
+    subBtn(3).onclick();
+    ok('при sub3 кнопка спрятана', w.document.querySelector('#patternSwingBtn').hidden);
+    subBtn(1).onclick();
+    ok('при sub1 кнопка спрятана', w.document.querySelector('#patternSwingBtn').hidden);
+    subBtn(2).onclick();
+    const back = w.document.querySelector('#patternSwingBtn');
+    ok('при возврате на sub2 кнопка снова видна', !back.hidden);
+    ok('свинг не потерялся при прогулке по дробностям', back.classList.contains('active'));
+
+    // Сохранение доносит свинг до модели.
+    w.document.querySelector('#save-pattern').onclick();
+    ok('после сохранения свинг в модели',
+       w.eval('!!sections[0].strumPattern.swing') === true,
+       w.eval('JSON.stringify(sections[0].strumPattern)'));
+  }
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
   if (bad) process.exitCode = 1;
 });

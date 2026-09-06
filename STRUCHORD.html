@@ -5506,6 +5506,40 @@ html:not([data-theme='dark']) #btnPlay.active:hover {
   color: #fff;
   border-color: var(--color-ink);
 }
+/* B-51: свинг — не ещё одна дробность, а переключатель поверх неё,
+   поэтому отделён слева и подсвечивается акцентом, а не чернилами:
+   иначе включённый Swing читался бы как «выбрана дробность Swing». */
+.pattern-swing-btn {
+  padding: 6px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-left: 10px;
+  position: relative;
+}
+.pattern-swing-btn::before {
+  /* Разделитель: показывает, что кнопка не входит в ряд дробностей. */
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 16px;
+  background: var(--color-border-medium);
+}
+.pattern-swing-btn.active {
+  background: var(--color-tint);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.pattern-swing-btn[hidden] {
+  display: none;
+}
 .pattern-sub-row {
   display: flex;
   gap: 6px;
@@ -8900,7 +8934,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.177</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.178</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -18282,7 +18316,8 @@ function migrateSectionsToRhythmPool(songSections) {
       const id = mintRhythmRollId(storage);
       storage.pool[id] = { mode: sec.strumPattern.mode || 'strum',
         subdivision: Math.max(1, sec.strumPattern.subdivision || 1),
-        steps: cloneRhythmSteps(sec.strumPattern.steps) };
+        steps: cloneRhythmSteps(sec.strumPattern.steps),
+        ...(sec.strumPattern.swing ? { swing: true } : {}) };
       storage.sectionRolls.set(sec.id, id);
     }
     for (const sq of sec.squares || []) migrateSquareEventsToPool(sec, sq, storage, null);
@@ -18369,7 +18404,8 @@ function migrateSquareEventsToPool(sec, sq, storage, spansOverride) {
       storage.refs.set(`${sec.id}:${sq.id}:${i}`, { roll: g.id, anchor: g.anchor, sig });
     } else { // одиночный свой паттерн — свой рулон, развёрнутый с её начала
       const id = mintRhythmRollId(storage);
-      storage.pool[id] = { mode: p.mode || 'strum', subdivision: Math.max(1, p.subdivision || 1), steps: cloneRhythmSteps(p.steps) };
+      storage.pool[id] = { mode: p.mode || 'strum', subdivision: Math.max(1, p.subdivision || 1),
+        steps: cloneRhythmSteps(p.steps), ...(p.swing ? { swing: true } : {}) };
       storage.refs.set(`${sec.id}:${sq.id}:${i}`, { roll: id, anchor: offs[i], sig });
     }
   });
@@ -18402,7 +18438,10 @@ function rhythmRollWindowFor(secId, sq, eventIndex, storage, spansOverride) {
   const need = Math.max(1, Math.round(spanAt(eventIndex) * sub));
   const steps = [];
   for (let k = 0; k < need; k++) steps.push(roll.steps[(((startStep + k) % len) + len) % len]);
-  return { mode: roll.mode, subdivision: sub, steps };
+  // B-51: свинг наследуется срезом — иначе ячейка общего рулона
+  // теряла бы кач по пути к планировщику.
+  return roll.swing ? { mode: roll.mode, subdivision: sub, steps, swing: true }
+                    : { mode: roll.mode, subdivision: sub, steps };
 }
 
 // Срез фасада (унаследованного боя секции/квадрата) под ячейку — чистая
@@ -18435,7 +18474,9 @@ function facadeSlicePattern(sec, sq, ev, eventIndex, spansOverride, patternOverr
   const startStep = Math.round(cycleOffset * sub);
   const steps = [];
   for (let i = 0; i < need; i++) steps.push(pattern.steps[(startStep + i) % total]);
-  return { mode: pattern.mode, subdivision: sub, steps };
+  // B-51: см. выше — свинг едет вместе со срезом.
+  return pattern.swing ? { mode: pattern.mode, subdivision: sub, steps, swing: true }
+                       : { mode: pattern.mode, subdivision: sub, steps };
 }
 
 // Замороженное звучащее содержимое ячейки на момент касания границы
@@ -18770,7 +18811,10 @@ function adoptRhythmPoolFromSong(rp) {
       });
       return safe.length ? safe : null;
     });
-    storage.pool[id] = { mode, subdivision: sub, steps };
+    // B-51: свинг из файла — только при двоичном делении и строгом true.
+    const swing = r.swing === true && (sub === 2 || sub === 4);
+    storage.pool[id] = swing ? { mode, subdivision: sub, steps, swing: true }
+                             : { mode, subdivision: sub, steps };
   }
   if (!Object.keys(storage.pool).length) return false;
   const fileSeq = Number(rp.seq);
@@ -18829,6 +18873,8 @@ function serializeRhythmPoolForSave() {
       mode: r.mode === 'pick' ? 'pick' : r.mode === 'mixed' ? 'mixed' : 'strum',
       subdivision: Math.max(1, r.subdivision || 1),
       steps: cloneRhythmSteps(r.steps),
+      // B-51: без этого свинг терялся бы при сохранении песни в файл.
+      ...(r.swing ? { swing: true } : {}),
     };
   }
   if (!Object.keys(pool).length) return null;
@@ -18864,7 +18910,10 @@ function rhythmRefKey(secId, sqId, eventIndex) {
 // Контрольная подпись рисунка: сетка + шаги одной строкой.
 function rhythmPatternSig(p) {
   if (!p || !Array.isArray(p.steps)) return '';
-  return (p.subdivision || 1) + '|'
+  // B-51: свинг входит в подпись. Иначе «Шестёрка» и она же со свингом
+  // считались бы ОДНИМ ритмом: ячейка со свингом молча сдавалась бы в
+  // наследование от несвингованной секции и теряла кач.
+  return (p.subdivision || 1) + (p.swing ? 's' : '') + '|'
     + p.steps.map((v) => (Array.isArray(v) ? v.join('+') : v)).join(',');
 }
 
@@ -18976,7 +19025,7 @@ function ensureSquareRhythmRefs(sec, sq, spansOverride) {
         const p = sq.events[i].strumPattern;
         const id = mintRhythmRollId(st);
         st.pool[id] = { mode: p.mode || 'strum', subdivision: Math.max(1, p.subdivision || 1),
-          steps: cloneRhythmSteps(p.steps) };
+          steps: cloneRhythmSteps(p.steps), ...(p.swing ? { swing: true } : {}) };
         st.refs.set(prefix + i, { roll: id, anchor: offsets[i], sig: rhythmPatternSig(p) });
       }
     }
@@ -23508,6 +23557,11 @@ function patternsEqual(a, b) {
   if (!a || !b) return false;
   if (a.mode !== b.mode) return false;
   if ((a.subdivision || 1) !== (b.subdivision || 1)) return false;
+  // B-51: свинг — часть ритма, а не оформление. Одинаковый рисунок с
+  // качем и без него звучит по-разному, значит это РАЗНЫЕ ритмы: иначе
+  // выбор пресета не снимал бы чужой свинг, а подсветка активного чипа
+  // врала бы.
+  if (!!a.swing !== !!b.swing) return false;
   const as = a.steps || [];
   const bs = b.steps || [];
   if (as.length !== bs.length) return false;
@@ -24600,6 +24654,9 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     pattern = {
       mode: 'strum',
       subdivision: pattern.subdivision,
+      // B-51: свинг переносим — это свойство ритма, и при пересборке
+      // объекта он иначе молча терялся бы вместе с качем.
+      swing: !!pattern.swing,
       steps: (pattern.steps || []).map((s) => (s === 'D' || s === 'U' || s === 'X' ? s : null)),
     };
   }
@@ -24674,6 +24731,11 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     <button type="button" class="pattern-sub-btn" data-sub="2">2</button>
     <button type="button" class="pattern-sub-btn" data-sub="3" title="Триоли — шаффл, блюзовый кач">3</button>
     <button type="button" class="pattern-sub-btn" data-sub="4">4</button>
+    <!-- B-51: свинг стоит именно здесь, а не отдельной строкой: он
+         связан с дробностью напрямую (осмыслен только при 2 и 4) и
+         прячется при 1 и 3, чтобы не предлагать бессмысленное. -->
+    <button type="button" class="pattern-swing-btn" id="patternSwingBtn"
+      title="Свинг — качающиеся восьмые (шаффл): вторая нота пары играется позже">Swing</button>
   </div>
 
   <div class="pattern-grid" id="patternGrid"></div>
@@ -24730,6 +24792,21 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   }
   const modeButtons = Array.from(modal.querySelectorAll('.pattern-mode-tab'));
   const subButtons = Array.from(modal.querySelectorAll('.pattern-sub-btn'));
+  const swingBtn = modal.querySelector('#patternSwingBtn');
+
+  // B-51: кнопка свинга видна только там, где свинг вообще имеет смысл —
+  // при двоичном делении. При «1 нота на долю» сдвигать внутри доли
+  // нечего, при «3» кач уже записан тройками явно. Прячем, а не гасим:
+  // недоступная кнопка провоцирует тыкать в неё и гадать, почему молчит.
+  function syncSwingBtn() {
+    const sub = pattern.subdivision || 1;
+    const allowed = sub === 2 || sub === 4;
+    swingBtn.hidden = !allowed;
+    // Флаг не стираем при уходе на sub3: пользователь может вернуться на
+    // «2» и ждёт свой свинг на месте. Играть он всё равно не будет —
+    // patternHasSwing проверяет дробность на каждом воспроизведении.
+    swingBtn.classList.toggle('active', allowed && !!pattern.swing);
+  }
 
   function setMode(mode) {
     pattern.mode = mode;
@@ -24821,6 +24898,7 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     pattern.subdivision = sub;
     pattern.steps = steps;
     subButtons.forEach((b) => b.classList.toggle('active', parseInt(b.dataset.sub, 10) === sub));
+    syncSwingBtn(); // B-51: на 1 и 3 кнопка прячется, на 2 и 4 возвращается
     renderSongPatterns();
     renderPresets();
     renderGrid();
@@ -25160,8 +25238,13 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     pattern.mode = built.mode;
     pattern.subdivision = built.subdivision;
     pattern.steps = built.steps;
+    // B-51: свинг — часть выбранного ритма. Пресет без свинга должен его
+    // СНИМАТЬ, иначе кач «залипал» бы с прошлого выбора и тихо менял
+    // чужой рисунок.
+    pattern.swing = !!built.swing;
     modeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === pattern.mode));
     subButtons.forEach((b) => b.classList.toggle('active', parseInt(b.dataset.sub, 10) === pattern.subdivision));
+    syncSwingBtn();
     renderBaseButtons();
     renderSongPatterns();
     renderPresets();
@@ -25271,6 +25354,19 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   subButtons.forEach((b) => (b.onclick = () => setSubdivision(parseInt(b.dataset.sub, 10))));
   modeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === pattern.mode));
   subButtons.forEach((b) => b.classList.toggle('active', parseInt(b.dataset.sub, 10) === (pattern.subdivision || 1)));
+  swingBtn.onclick = () => {
+    pattern.swing = !pattern.swing;
+    syncSwingBtn();
+    renderSongPatterns(); // свинг входит в сравнение — активный чип мог смениться
+    renderPresets();
+    renderGrid();
+    // Слышимая правка: если превью играет, перезапускаем, чтобы кач было
+    // слышно сразу, а не после досчёта старого цикла.
+    if (_patternPreviewPlaying) {
+      startPatternPreview(pattern, ts, getEffectiveBpm(sec), presetChord, presetKey);
+    }
+  };
+  syncSwingBtn();
   renderBaseButtons();
   renderSongPatterns();
   renderPresets();
