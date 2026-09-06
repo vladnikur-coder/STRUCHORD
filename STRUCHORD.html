@@ -8946,7 +8946,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.179</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.180</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -18411,12 +18411,31 @@ function migrateSquareEventsToPool(sec, sq, storage, spansOverride) {
     const subs = idxs.map((i) => Math.max(1, evs[i].strumPattern.subdivision || 1));
     const spanTotal = idxs.reduce((a, i) => a + spanAt(evs[i], i), 0);
     const isInt = (x) => Math.abs(x - Math.round(x)) < 1e-9;
+    // B-51: СВИНГОВАННАЯ цепочка сетку не меняет.
+    //
+    // Свинг определён на ПАРАХ: при sub2 качается вторая восьмая доли,
+    // при sub4 — уже шестнадцатые, то есть совсем другой звук. Поэтому
+    // обычный подбор g (он ищет сетку помельче, чтобы дробный span лёг
+    // нацело) свингованный бой ломал дважды: измельчал sub2 -> sub4 и
+    // терял сам флаг, потому что новый рулон собирался из mode и
+    // subdivision без swing. Замер: `D_DU` со свингом превращался в
+    // `__U_D_U_D__` на sub4 без качa.
+    //
+    // Если вся цепочка свингована одной дробностью — держим её сетку и
+    // миримся с тем, что дробный span ляжет с округлением до шага. Это
+    // тот же принцип keep_sub, что принят в 0.174 для дробности боя.
+    const allSwing = idxs.every((i) => patternHasSwing(evs[i].strumPattern));
+    const sameSub = subs.every((v) => v === subs[0]);
     let g = 0;
-    for (const cand of [1, 2, 3, 4, 6, 8, 12, 16, 24]) {
-      if (!subs.every((v) => cand % v === 0)) continue;
-      if (!idxs.every((i) => isInt(spanAt(evs[i], i) * cand) && isInt(offs[i] * cand))) continue;
-      if (!isInt(spanTotal * cand)) continue;
-      g = cand; break;
+    if (allSwing && sameSub) {
+      g = subs[0];
+    } else {
+      for (const cand of [1, 2, 3, 4, 6, 8, 12, 16, 24]) {
+        if (!subs.every((v) => cand % v === 0)) continue;
+        if (!idxs.every((i) => isInt(spanAt(evs[i], i) * cand) && isInt(offs[i] * cand))) continue;
+        if (!isInt(spanTotal * cand)) continue;
+        g = cand; break;
+      }
     }
     if (!g) continue; // сетка over 24 — раздельные пины ниже
     const anchor = offs[idxs[0]];
@@ -18435,7 +18454,10 @@ function migrateSquareEventsToPool(sec, sq, storage, spansOverride) {
       }
     }
     const id = mintRhythmRollId(storage);
-    storage.pool[id] = { mode: mode0, subdivision: g, steps };
+    // B-51: свинг переносим в слитый рулон — иначе цепочка теряла кач
+    // ровно в тот момент, когда её пересобирает ресайз.
+    storage.pool[id] = { mode: mode0, subdivision: g, steps,
+      ...(allSwing && sameSub ? { swing: true } : {}) };
     rollForGroup[gid] = { id, anchor };
   }
   evs.forEach((ev, i) => {
@@ -18621,11 +18643,32 @@ function sewRhythmChainAtBoundary(st, sec, sq, dragIdx, startSpans) {
     (!subs[i - iMin] || cand % subs[i - iMin] === 0) &&
     isInt(curSpan(i) * cand) && isInt(offsNow[i] * cand);
   const ROW = [1, 2, 3, 4, 6, 8, 12, 16, 24];
+  // B-51: свингованная цепочка сетку НЕ меняет — см. тот же приём в
+  // resliceSharedRhythmsInSquare. Свинг живёт на парах: sub2 качает
+  // восьмые, sub4 — уже шестнадцатые, поэтому «подберём сетку помельче,
+  // чтобы дробный span лёг нацело» для свинга означает подмену звука.
+  // Замер до правки: `D_DU` (sub2+swing) после протяжки становился
+  // `__U_D_U_D__` на sub4 и без качa.
+  const chainSwing = (() => {
+    let any = false;
+    for (let i = iMin; i <= iMax; i++) {
+      const t = tapes[i - iMin];
+      if (!t) continue;
+      if (!patternHasSwing(t)) return 0;      // хоть одна без качa — общий путь
+      if (any && (t.subdivision || 1) !== any) return 0; // разные дробности
+      any = t.subdivision || 1;
+    }
+    return any;
+  })();
   let g = 0;
-  for (const cand of ROW) {
-    let allOk = true;
-    for (let i = iMin; i <= iMax; i++) if (!fitsCell(i, cand)) { allOk = false; break; }
-    if (allOk) { g = cand; break; }
+  if (chainSwing) {
+    g = chainSwing;
+  } else {
+    for (const cand of ROW) {
+      let allOk = true;
+      for (let i = iMin; i <= iMax; i++) if (!fitsCell(i, cand)) { allOk = false; break; }
+      if (allOk) { g = cand; break; }
+    }
   }
   const outliers = new Set();
   if (!g) {
@@ -18712,7 +18755,10 @@ function sewRhythmChainAtBoundary(st, sec, sq, dragIdx, startSpans) {
     }
   });
   const id = mintRhythmRollId(st);
-  st.pool[id] = { mode: chainMode, subdivision: g, steps, transient: true, _clearedKeys: [...seen], _soundedKeys: [...sounded] };
+  // B-51: кач переносим в сшитую ленту, иначе он терялся прямо в жесте.
+  st.pool[id] = { mode: chainMode, subdivision: g, steps, transient: true,
+    ...(chainSwing ? { swing: true } : {}),
+    _clearedKeys: [...seen], _soundedKeys: [...sounded] };
   for (let i = iMin; i <= iMax; i++)
     st.refs.set(keys[i - iMin], { roll: id, anchor: offs0[iMin] });
   // Покинутые рулоны: уцелев в одном окне, сводятся к звучащей полосе —
@@ -18760,7 +18806,12 @@ function dissolveSewnRhythmPair(st, sec, sq, dragIdx) {
       continue;
     }
     const nid = mintRhythmRollId(st);
-    st.pool[nid] = { mode: win.mode, subdivision: win.subdivision, steps: cloneRhythmSteps(win.steps) };
+    // B-51: при роспуске сшивки кач обязан остаться у каждой ячейки —
+    // иначе свинг терялся ровно на отпускании ручки. Именно здесь он и
+    // пропадал: sew уже нёс swing, а роспуск пересобирал рулон по
+    // mode/subdivision/steps и флаг ронял.
+    st.pool[nid] = { mode: win.mode, subdivision: win.subdivision,
+      steps: cloneRhythmSteps(win.steps), ...(win.swing ? { swing: true } : {}) };
     st.refs.set(key, { roll: nid, anchor: offs[i] });
   }
   gcRhythmRolls(st);
@@ -19197,6 +19248,18 @@ function regridSquareRollsToFit(sec, sq) {
       const span = (sq.events[u.i] && sq.events[u.i].span) || 1;
       return isInt(span * s) && isInt((offs[u.i] - u.ref.anchor) * s);
     });
+    // B-51: СВИНГОВАННЫЙ рулон сетку не меняет ни в какую сторону.
+    //
+    // Свинг определён на парах шагов: при sub2 качается вторая восьмая
+    // доли, при sub4 — вторая шестнадцатая, то есть совсем другая
+    // музыка. Утончение ×2 «чтобы дробный span лёг нацело» здесь не
+    // безобидная перезапись, а подмена ритма: замер показывал
+    // `D_DU` (sub2+swing) -> `__U_D_U_D__` (sub4+swing).
+    //
+    // Пользователь (2026-09-06): «нужно сделать так чтобы ресайз не
+    // ломал свингованый бой». Дробная доля при свинге живёт с
+    // округлением до своего шага — как keep_sub в 0.174.
+    if (patternHasSwing(roll)) continue;
     // Волна-6: сначала пробуем укрупнить (обратный ход утончения —
     // сетка не застревает на мелком шаге после возврата границ).
     coarsenRhythmRoll(roll, fits);

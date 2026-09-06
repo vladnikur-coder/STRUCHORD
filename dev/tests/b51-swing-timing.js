@@ -18,7 +18,8 @@ w.AudioContext = w.webkitAudioContext = function () { return { currentTime: 0, s
 let bad = 0;
 const ok = (n, c, x) => { console.log(`   ${c ? 'ok  ' : 'FAIL'} ${n}${!c && x ? ' — ' + x : ''}`); if (!c) bad++; };
 
-w.addEventListener('load', () => {
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+w.addEventListener('load', async () => {
   // Моменты ударов (в долях) для паттерна: индексы непустых шагов,
   // разложенные по метрике с учётом свинга.
   const hitTimes = (pattern) => w.eval(`(function(){
@@ -192,6 +193,63 @@ w.addEventListener('load', () => {
     // sub3 свингом не считается — пометка врала бы.
     const triplet = badge({ mode: 'strum', subdivision: 3, swing: true, steps: ['D', null, 'U'] });
     ok('триоли не помечаются свингом', !/swing/i.test(triplet), triplet);
+  }
+
+  console.log('=== 10. Ресайз не ломает свингованный бой ===');
+  // Пользователь 2026-09-06: «нужно сделать так чтобы ресайз не ломал
+  // свингованый бой». Ломался он тремя способами сразу: терялся флаг,
+  // сетка мельчала sub2 -> sub4 (а это уже качающиеся ШЕСТНАДЦАТЫЕ,
+  // другая музыка), и рисунок переписывался.
+  {
+    const song = { name: 'swing-resize', bpm: 100, globalKey: 'C',
+      sections: [{ id: 's1', name: 'A', timeSig: '4/4',
+        strumPattern: { mode: 'strum', subdivision: 2, swing: true,
+          steps: ['D', null, 'D', 'U', null, 'U', 'D', 'U'] },
+        squares: [{ id: 'q1', events: [
+          { chord: 'F', span: 2 }, { chord: 'E', span: 2 },
+          { chord: 'Am', span: 1.75 }, { chord: 'G', span: 2.25 },
+        ] }] }] };
+    w.localStorage.setItem('struchord_songs', JSON.stringify([song]));
+    w.loadSong(0);
+    try { w.render(); } catch (e) {}
+    await sleep(300);
+
+    const sounding = () => JSON.parse(w.eval(`JSON.stringify(
+      sections[0].squares[0].events.map((e, i) => {
+        const x = rhythmSoundingForEvent(sections[0], sections[0].squares[0], e, i);
+        return x ? { sub: x.subdivision, sw: !!x.swing } : null;
+      }))`));
+
+    const before = sounding();
+    ok('до жеста все ячейки свингованы sub2',
+       before.every((v) => v && v.sub === 2 && v.sw), JSON.stringify(before));
+
+    const W = 800, cap = 8, gs = W / cap;
+    const sqEl = w.document.querySelectorAll('.square-inner')[0];
+    sqEl.getBoundingClientRect = () => ({ left: 0, right: W, width: W, top: 0, bottom: 60, height: 60 });
+    sqEl.querySelectorAll('.chord-wrapper').forEach((cw) => {
+      cw.getBoundingClientRect = () => ({ left: 0, right: 100, width: 100, top: 0, bottom: 60, height: 60 });
+    });
+    // Тянем границу E|Am — ту самую пару, где сумма дробная (2 + 1.75).
+    const h = sqEl.querySelectorAll('.resize-handle')[1];
+    const down = new w.MouseEvent('pointerdown', { bubbles: true, cancelable: true, clientX: 0 });
+    if (typeof h.onpointerdown === 'function') h.onpointerdown(down); else h.dispatchEvent(down);
+    for (let k = 1; k <= 8; k++) {
+      w.document.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, cancelable: true, clientX: gs * k / 8 }));
+    }
+    w.document.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true, cancelable: true, clientX: gs }));
+    await sleep(350);
+
+    const after = sounding();
+    ok('после жеста свинг сохранился у ВСЕХ ячеек',
+       after.every((v) => v && v.sw), JSON.stringify(after));
+    ok('дробность осталась sub2 (не уехала в качающиеся 16-е)',
+       after.every((v) => v && v.sub === 2), JSON.stringify(after));
+    // Ячейки вне пары у ручки не должны измениться вообще.
+    ok('чужие ячейки не тронуты',
+       JSON.stringify(after[0]) === JSON.stringify(before[0])
+       && JSON.stringify(after[3]) === JSON.stringify(before[3]),
+       JSON.stringify(after));
   }
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
