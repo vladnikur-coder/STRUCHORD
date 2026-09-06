@@ -8900,7 +8900,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.176</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.177</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9596,6 +9596,55 @@ function getGridUnitDurationSeconds(bpm, ts) {
   const { denominator } = parseTimeSig(ts);
   const quarterNoteDuration = 60 / bpm;
   return quarterNoteDuration * (4 / denominator);
+}
+
+// ---------- SWING (B-51) ----------
+// Свинг — включаемое свойство САМОГО ритма (pattern.swing), а не секции и
+// не песни: и общий бой, и кастомный рулон ячейки могут качать
+// независимо.
+//
+// Зачем отдельный флаг, если кач уже можно записать триолями. Затем, что
+// триольная запись смешивает ДВЕ несвязанные вещи — рисунок и кач.
+// Доказательство свёрткой: возьмём у пресета «6-ка Шаффл» (sub3,
+// D__ D_U __U D_U) первую и третью трети каждой доли —
+//
+//     6-ка Шаффл (sub3)  ->  D _ D U _ U D U
+//     Шестёрка   (sub2)  ->  D _ D U _ U D U     совпадает бит-в-бит
+//
+// то есть subdivision 3 нужен там не ради рисунка, а только ради
+// неравномерности. Расплата за смешение — ресайз: дробная ячейка (1.75
+// доли) заставляет сетку мельчить до sub12, потому что остаток 0.75 не
+// делится на трети (замер dev/tools/probe-dd-matrix.js).
+//
+// Разделив их, рисунок остаётся восьмыми, а кач становится флагом.
+// Настоящая триоль (три РАЗНЫХ удара на долю) свингом не выражается —
+// поэтому ручной sub3 остаётся законным, его никто не отменяет.
+const SWING_RATIO = 2 / 3; // классический шаффл 2:1 — первая нота 2/3 доли
+
+// Качает ли этот паттерн. Свинг осмыслен только при ДВОИЧНОМ делении:
+// при sub3 доля уже поделена на трети (кач записан явно), при sub1 внутри
+// доли просто нет второй ноты, которую можно было бы сдвинуть.
+function patternHasSwing(pattern) {
+  if (!pattern || !pattern.swing) return false;
+  const sub = Number(pattern.subdivision) || 1;
+  return sub === 2 || sub === 4;
+}
+
+// Смещение НАЧАЛА шага i от начала своей доли, в долях сетки.
+//
+// Без свинга это просто i (шаги равномерны). Со свингом нечётный шаг
+// внутри доли уезжает вперёд: пара восьмых играется 2:1 вместо 1:1 —
+// «раз ... и» вместо «раз-и». Именно это ухо и слышит как шаффл.
+function swingStepOffsetUnits(stepIndex, sub, swing) {
+  if (!swing || !(sub === 2 || sub === 4)) return stepIndex / sub;
+  // Пара шагов внутри доли: чётный — на месте, нечётный — на 2/3.
+  const pairSize = 2;
+  const pairIdx = Math.floor(stepIndex / pairSize);
+  const inPair = stepIndex % pairSize;
+  const pairsPerBeat = sub / pairSize;      // sub2 -> 1 пара, sub4 -> 2 пары
+  const pairStart = pairIdx / pairsPerBeat; // начало пары в долях
+  const pairLen = 1 / pairsPerBeat;         // длина пары в долях
+  return pairStart + (inPair === 0 ? 0 : pairLen * SWING_RATIO);
 }
 
 // ---------- SPAN: единицы записи конкретного события ----------
@@ -23820,7 +23869,18 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
       startStepInBar = Math.round(cycleOffset * sub);
     }
 
-    const stepSeconds = getGridUnitDurationSeconds(bpm, ts) / sub;
+    const unitSeconds = getGridUnitDurationSeconds(bpm, ts);
+    const stepSeconds = unitSeconds / sub;
+    // B-51: при свинге шаги перестают быть равномерными — нечётная нота
+    // пары уезжает на 2/3 доли. Считаем смещение и длительность КАЖДОГО
+    // шага отдельно; без свинга оба выражения вырождаются в прежние
+    // i * stepSeconds и stepSeconds, поэтому обычные ритмы не меняются.
+    const swingOn = patternHasSwing(pattern);
+    const stepStartSeconds = (i) => swingStepOffsetUnits(i, sub, swingOn) * unitSeconds;
+    const stepLenSeconds = (i) => Math.max(
+      0.01,
+      stepStartSeconds(i + 1) - stepStartSeconds(i)
+    );
 
     // ОДИН анимированный источник ритма в редакторе.
     //
@@ -23879,9 +23939,13 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
     for (let i = 0; i < stepsInEvent; i++) {
       const stepIdx = (startStepInBar + i) % totalSteps;
       const symbol = pattern.steps[stepIdx];
-      const t = evStart + i * stepSeconds;
-      const remaining = dur - i * stepSeconds;
+      const stepOffset = stepStartSeconds(i);
+      const t = evStart + stepOffset;
+      const remaining = dur - stepOffset;
       if (remaining <= 0.01) continue;
+      // Длительность именно ЭТОГО шага: при свинге длинная нота пары
+      // звучит вдвое дольше короткой, и подсветка должна идти за звуком.
+      const thisStepSeconds = stepLenSeconds(i);
 
       // Сторона маятника для пауз. Считаем по позиции шага В ТАКТЕ:
       // чётный шаг доли — рука идёт вниз, нечётный — вверх. При тройном
@@ -23890,15 +23954,15 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
       const restDir = sub % 3 === 0 ? null : (stepIdx % 2 === 0 ? 'rest-down' : 'rest-up');
 
       fullBarHighlightGroups.forEach((els) => {
-        scheduleStrumStepHighlight(ctx, els, stepIdx, t, stepSeconds, restDir);
+        scheduleStrumStepHighlight(ctx, els, stepIdx, t, thisStepSeconds, restDir);
       });
       if (fingeringEls) {
-        scheduleStrumStepHighlight(ctx, fingeringEls, i, t, stepSeconds, restDir);
+        scheduleStrumStepHighlight(ctx, fingeringEls, i, t, thisStepSeconds, restDir);
       }
       if (timelineEls) {
         // Свой класс: у дорожки другая типографика и другая амплитуда
         // движения, чем у мелких превью в бейджах.
-        scheduleStrumStepHighlight(ctx, timelineEls, i, t, stepSeconds, restDir, 'tl-hit-on');
+        scheduleStrumStepHighlight(ctx, timelineEls, i, t, thisStepSeconds, restDir, 'tl-hit-on');
       }
 
       // Смешанная лента (волна-5, решение mode_step): режим привязан к
@@ -23911,7 +23975,7 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
         // Дрожание на грифе: перебор щипает струны одновременно, поэтому
         // разброса по времени нет. Номера струн (1 — тонкая) переводим в
         // индексы аппликатуры (0 — толстая, слева на схеме).
-        vibrateFingeringStrings(ctx, strings.map((n) => 6 - n), t, stepSeconds, 0);
+        vibrateFingeringStrings(ctx, strings.map((n) => 6 - n), t, thisStepSeconds, 0);
         // ВАЖНО: время звучания щипка НЕ привязываем к stepSeconds/темпу.
         // На настоящей гитаре нота звенит примерно одинаковое физическое
         // время независимо от того, насколько быстро играют — она просто
@@ -23940,7 +24004,7 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
           const idx = shapeToPluckNotes(shape)
             .map((n) => n.stringIndex)
             .sort((a, b) => (up ? b - a : a - b));
-          vibrateFingeringStrings(ctx, idx, t, stepSeconds, up ? 0.01 : 0.014);
+          vibrateFingeringStrings(ctx, idx, t, thisStepSeconds, up ? 0.01 : 0.014);
         }
       }
     }
@@ -33327,7 +33391,11 @@ toggleTimeAndBeats();
       });
       return safe.length ? safe : null;
     });
-    return { mode, subdivision, steps };
+    // B-51: свинг — свойство ритма. Флаг сохраняем только при двоичном
+    // делении: при sub3 кач уже записан тройками, при sub1 внутри доли
+    // нет второй ноты, которую можно сдвинуть.
+    const swing = value.swing === true && (subdivision === 2 || subdivision === 4);
+    return swing ? { mode, subdivision, steps, swing: true } : { mode, subdivision, steps };
   }
   function cloneSafeShape(shape) {
     if (!Array.isArray(shape) || shape.length !== 6) return null;
