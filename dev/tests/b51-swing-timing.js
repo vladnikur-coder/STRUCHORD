@@ -158,11 +158,11 @@ w.addEventListener('load', async () => {
        w.eval('JSON.stringify(sections[0].strumPattern)'));
   }
 
-  console.log('=== 8. ЗВУК: удары качаются (визуал — отдельно, см. B-54) ===');
+  console.log('=== 8. ЗВУК: удары качаются (визуал НЕ качает — B-56) ===');
   {
-    // Это проверка ТОЛЬКО звуковой раскладки (schedulePatternForEvent).
-    // Визуально ноты стоят ровно по сетке — решение пользователя
-    // 2026-09-06, см. блок 11 и dev/tests/b54-swing-visual-plain.js.
+    // ТОЛЬКО звуковая раскладка (schedulePatternForEvent). Визуально
+    // ноты стоят ровно по сетке — свинг в отрисовку не входит вовсе
+    // (B-56), это проверяет блок 11.
     const layout = (sw) => JSON.parse(w.eval(`(function(){
       const sub = 2, sw = ${sw};
       const out = [];
@@ -251,6 +251,29 @@ w.addEventListener('load', async () => {
        JSON.stringify(after[0]) === JSON.stringify(before[0])
        && JSON.stringify(after[3]) === JSON.stringify(before[3]),
        JSON.stringify(after));
+  }
+
+  console.log('=== 11. Свинг НЕ влияет на отрисовку (граница B-56) ===');
+  {
+    // Главный инвариант волны: кач живёт только в звуке. Если
+    // swingStepOffsetUnits просочится в отрисовку, положение ритма при
+    // ресайзе снова поедет — ровно это и пришлось откатывать.
+    const src = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
+    const calls = (src.match(/swingStepOffsetUnits\(/g) || []).length;
+    // 1 объявление + 2 вызова (плеер и превью редактора)
+    ok('swingStepOffsetUnits зовётся ровно дважды', calls === 3, String(calls));
+    const cut = (name) => {
+      const i = src.indexOf('function ' + name);
+      if (i < 0) return '';
+      const j = src.indexOf('\nfunction ', i + 10);
+      return src.slice(i, j < 0 ? undefined : j);
+    };
+    ok('дорожка ленты не знает о свинге',
+       !cut('renderRhythmTrack').includes('swingStepOffsetUnits'));
+    ok('подсказка ресайза не знает о свинге',
+       !cut('buildRhythmHintContent').includes('swingStepOffsetUnits'));
+    ok('счёт не знает о свинге',
+       !cut('buildInnerCounts').includes('swingStepOffsetUnits'));
   }
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
