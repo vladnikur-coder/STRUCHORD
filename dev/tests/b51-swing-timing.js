@@ -76,10 +76,11 @@ w.addEventListener('load', async () => {
   const c2 = loadWith({ mode: 'strum', subdivision: 3, swing: true, steps: ['D', null, 'U'] });
   ok('sub3 со свинговой раскладкой свернулся в sub2+swing',
      c2 && c2.subdivision === 2 && c2.swing === true, JSON.stringify(c2));
-  // А вот НАСТОЯЩАЯ триоль (средняя треть занята) остаётся sub3, и флаг
-  // свинга на ней бессмыслен — patternHasSwing его игнорирует.
-  const c2b = loadWith({ mode: 'strum', subdivision: 3, swing: true, steps: ['D', 'U', 'U'] });
-  ok('настоящая триоль осталась sub3', c2b && c2b.subdivision === 3, JSON.stringify(c2b));
+  // А вот НАСТОЯЩАЯ триоль остаётся sub3 — но только там, где триоли
+  // вообще разрешены: с B-58 в простых чётных размерах их нет, поэтому
+  // проверяем сам предикат, а не загрузку в 4/4.
+  ok('в 3/4 триоли разрешены', w.eval(`timeSigAllowsTriplets('3/4')`) === true);
+  ok('в 4/4 триолей нет (кач даёт Swing)', w.eval(`timeSigAllowsTriplets('4/4')`) === false);
   ok('на триоли свинг не играет',
      w.eval(`patternHasSwing(${JSON.stringify({subdivision:3,swing:true})})`) === false);
   const c3 = loadWith({ mode: 'strum', subdivision: 2, swing: 'да', steps: ['D', 'U'] });

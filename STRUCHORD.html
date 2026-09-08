@@ -8942,7 +8942,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.185</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.186</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9662,6 +9662,26 @@ function getGridUnitDurationSeconds(bpm, ts) {
 // неравномерности. Расплата — ресайз: ячейка 1.75 доли не делится на
 // трети (1.75 x 3 = 5.25) и заставляет сетку дробиться до sub12, тогда
 // как на sub2 хватает sub4.
+// B-58: триоли доступны не во всех размерах.
+//
+// Решение пользователя 2026-09-06: «уберём sub3 из чётных размеров»,
+// уточнено — только 2/4, 4/4, 8/8. Причина: в простом чётном размере
+// доля делится надвое, и «3 ноты на долю» почти всегда означает не
+// настоящую триоль, а шаффл — который теперь честнее выражается кнопкой
+// Swing. Побочно это убирает главный источник крошева при ресайзе:
+// дробная ячейка не ложится на трети (1.75 x 3 = 5.25) и заставляла
+// сетку мельчить до sub12.
+//
+// 6/8 — ИСКЛЮЧЕНИЕ и остаётся с тройками: это составной размер, где
+// доля по своей природе делится на три (вальс, баркарола, 6/8-баллады).
+// Числитель у него чётный, поэтому проверять надо не чётность, а
+// принадлежность списку простых размеров.
+const NO_TRIPLET_TIME_SIGS = new Set(['2/4', '4/4', '8/8']);
+
+function timeSigAllowsTriplets(ts) {
+  return !NO_TRIPLET_TIME_SIGS.has(String(ts || ''));
+}
+
 const SWING_RATIO = 2 / 3; // классический шаффл 2:1 — первая нота 2/3 доли
 
 // Качает ли этот паттерн. Свинг осмыслен только при ДВОИЧНОМ делении:
@@ -24640,6 +24660,9 @@ function getPresetBassStrings(chordName, key) {
 function isPresetCompatible(preset, ts, gridUnits) {
   const base = preset && preset.base;
   if (!gridUnits || !base || gridUnits % base !== 0) return false;
+  // B-58: триольные пресеты не предлагаем в простых чётных размерах —
+  // кнопки «3» там нет, и такой ритм было бы нечем отредактировать.
+  if ((preset.subdivision || 1) === 3 && !timeSigAllowsTriplets(ts)) return false;
   if (!isCompoundMeter(ts)) return true;
   // Составной размер: рисунок в одну долю универсален, длинный —
   // должен уважать группировку по три.
@@ -24862,6 +24885,15 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   // гасим: недоступная кнопка провоцирует тыкать и гадать. Сам флаг при
   // уходе на sub3 НЕ стираем — вернувшись на «2», пользователь ждёт свой
   // свинг на месте; играть он всё равно не будет (patternHasSwing).
+  // B-58: в простом чётном размере триолей нет — прячем кнопку «3».
+  // Прячем, а не гасим: недоступная кнопка провоцирует тыкать и гадать.
+  // Кач в таких размерах даёт Swing, он ровно для этого и добавлен.
+  function syncTripletBtn() {
+    const btn = subButtons.find((b) => b.dataset.sub === '3');
+    if (!btn) return;
+    btn.hidden = !timeSigAllowsTriplets(ts);
+  }
+
   function syncSwingBtn() {
     if (!swingBtn) return;
     const sub = pattern.subdivision || 1;
@@ -25428,6 +25460,7 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     };
   }
   syncSwingBtn();
+  syncTripletBtn();
   renderBaseButtons();
   renderSongPatterns();
   renderPresets();
@@ -33557,7 +33590,7 @@ toggleTimeAndBeats();
   function asSafeTimeSig(value, fallback) {
     return typeof value === 'string' && ALLOWED_TIME_SIGS.has(value) ? value : fallback;
   }
-  function cloneSafePattern(value) {
+  function cloneSafePattern(value, ts) {
     if (!value || typeof value !== 'object') return null;
     const mode = value.mode === 'pick' ? 'pick' : value.mode === 'strum' ? 'strum' : value.mode === 'mixed' ? 'mixed' : null;
     // 3 — триольное деление (шаффл, блюзовый кач); без него сохранённые
@@ -33576,6 +33609,16 @@ toggleTimeAndBeats();
       });
       return safe.length ? safe : null;
     });
+    // B-58: триоли в простом чётном размере не поддерживаются (решение
+    // пользователя 2026-09-06: «такие песни не поддерживаются в новой
+    // версии»). Сворачиваем в свинг, если это была свинговая запись,
+    // иначе честно отказываемся от рисунка — молча играть не то, что
+    // записано, хуже.
+    if (subdivision === 3 && ts && !timeSigAllowsTriplets(ts)) {
+      const folded = foldTripletToSwing({ mode, subdivision, steps });
+      if (!folded) return null;
+      return { mode, subdivision: 2, steps: folded.steps, swing: true };
+    }
     // B-56: свинг из файла — только при двоичном делении и строгом true.
     const swing = value.swing === true && (subdivision === 2 || subdivision === 4);
     return swing ? { mode, subdivision, steps, swing: true } : { mode, subdivision, steps };
@@ -33622,7 +33665,8 @@ toggleTimeAndBeats();
         timeSig: rawSec.timeSig == null ? null : asSafeTimeSig(rawSec.timeSig, null),
         bpm: rawSec.bpm == null ? null : asSafeInt(rawSec.bpm, CONFIG.DEFAULT_BPM, CONFIG.MIN_BPM, CONFIG.MAX_BPM),
         repeat: asSafeInt(rawSec.repeat, 1, 1, 99),
-        strumPattern: cloneSafePattern(rawSec.strumPattern),
+        strumPattern: cloneSafePattern(rawSec.strumPattern,
+          (rawSec.timeSig == null ? null : asSafeTimeSig(rawSec.timeSig, null)) || globalTimeSig),
         squares: [],
       };
       for (const rawSq of rawSec.squares) {
@@ -33642,7 +33686,9 @@ toggleTimeAndBeats();
             chord: asSafeText(rawEvent.chord, SONG_LIMITS.MAX_TEXT),
             span: asSafeSpan(rawEvent.span, 1, 1 / 16, SONG_LIMITS.MAX_SPAN),
             timeSig: rawEvent.timeSig == null ? null : asSafeTimeSig(rawEvent.timeSig, null),
-            strumPattern: cloneSafePattern(rawEvent.strumPattern),
+            strumPattern: cloneSafePattern(rawEvent.strumPattern,
+              (rawEvent.timeSig == null ? null : asSafeTimeSig(rawEvent.timeSig, null))
+              || sec.timeSig || globalTimeSig),
             // Выбранная аппликатура. Проверяем формат так же строго, как
             // остальное содержимое файла: шесть позиций, каждая — «x»
             // или число лада. Битую строку молча отбрасываем, аккорд

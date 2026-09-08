@@ -57,16 +57,18 @@ w.addEventListener('load',()=>{
   click(d.querySelector('#cancel-pattern'));
 
   console.log('\n=== 6. Импорт сохраняет subdivision 3 ===');
-  const song={schemaVersion:2,name:'t',bpm:100,globalKey:'C',keyMode:'manual',globalTimeSig:'4/4',
+  // B-58: триоли живут только в размерах, где доля делится на три. В
+  // 4/4 их больше нет (там кач даёт Swing), поэтому проверяем в 3/4.
+  const song={schemaVersion:2,name:'t',bpm:100,globalKey:'C',keyMode:'manual',globalTimeSig:'3/4',
     notes:'',nextId:9,userFingerings:[],preferredFingerings:[],date:'',
     sections:[{id:1,type:'Verse',customName:null,key:null,shift:null,timeSig:null,bpm:null,repeat:1,
       // B-51: рисунок с ПУСТОЙ средней третью — это записанный руками
       // свинг, и загрузка теперь сворачивает его в sub2+swing (звук тот
       // же). Чтобы проверять именно сохранение ТРИОЛЕЙ, берём рисунок с
       // занятой средней третью — его свингом не выразить.
-      strumPattern:{mode:'strum',subdivision:3,steps:['D','U',null,'D','U',null,'D','U',null,'D','U',null]},
+      strumPattern:{mode:'strum',subdivision:3,steps:['D','U',null,'D','U',null,'D','U',null]},
       squares:[{id:2,repeat:1,customBeats:null,strumPattern:null,
-        events:[{chord:'Am',span:4,timeSig:null,strumPattern:null}]}]}]};
+        events:[{chord:'Am',span:3,timeSig:null,strumPattern:null}]}]}]};
   w.localStorage.setItem('struchord_songs',JSON.stringify([song]));
   w.loadSong(0);
   const got=w.eval('sections.length ? JSON.stringify(sections[0].strumPattern) : "null"');
