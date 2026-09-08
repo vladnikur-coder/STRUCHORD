@@ -36,13 +36,20 @@ w.addEventListener('load', () => {
      /\.section\s*\{[^}]*break-inside:\s*avoid/s.test(html.slice(html.indexOf('@media print'))));
 
   console.log('=== 3. Интерфейс не печатается ===');
-  const printCss = html.slice(html.indexOf('@media print'), html.indexOf('@media print') + 4000);
+  const printCss = html.slice(html.indexOf('@media print'), html.indexOf('@media print') + 6000);
   ['toolbar', 'transport-bar', 'app-header', 'timeline-mode', 'resize-handle', 'rhythm-hints']
     .forEach((cls) => ok(`${cls} скрыт при печати`, printCss.includes('.' + cls)));
 
   console.log('=== 4. Печать чёрным по белому ===');
   ok('тёмная тема переопределяется', printCss.includes("[data-theme='dark']"));
-  ok('фон белый', /--color-bg:\s*#ffffff\s*!important/.test(printCss));
+  // Имена переменных берём РЕАЛЬНЫЕ (первый заход переопределял
+  // несуществующие --color-bg, и лист ушёл в печать чёрным).
+  ok('фон страницы белый', /--color-body-bg:\s*#ffffff\s*!important/.test(printCss));
+  ok('фон поверхностей белый', /--color-background-primary:\s*#ffffff\s*!important/.test(printCss));
+  ok('свечение фона убрано', /--body-glow:\s*none\s*!important/.test(printCss));
+  ok('акцент на бумаге чёрный', /--color-accent:\s*#000000\s*!important/.test(printCss));
+  ok('тёмная тема перебита с той же специфичностью',
+     printCss.includes("html[data-theme='dark']"));
   ok('текст чёрный', /--color-text-primary:\s*#000000\s*!important/.test(printCss));
 
   console.log('=== 5. Шапка листа наполняется данными песни ===');
@@ -56,6 +63,45 @@ w.addEventListener('load', () => {
   ok('темп попал в шапку', /Темп:/.test(head.textContent), head.textContent);
   ok('тональность попала в шапку', /Тональность:/.test(head.textContent), head.textContent);
   ok('размер попал в шапку', /Размер:/.test(head.textContent), head.textContent);
+
+
+  console.log('=== 7. Тема НЕ утекает в печать (регрессия 0.191) ===');
+  {
+    // Присланный пользователем PDF (0.191) был залит ЧЁРНЫМ: печаталась
+    // тёмная тема. Причины: (а) :root слабее html[data-theme='dark'] по
+    // специфичности, (б) переопределялись НЕСУЩЕСТВУЮЩИЕ имена
+    // переменных (--color-bg вместо --color-body-bg), (в) 48 переменных
+    // темы вообще не были покрыты.
+    const printBlock = html.slice(html.indexOf('@media print'));
+    const varBlock = printBlock.slice(0, printBlock.indexOf('@page'));
+    const covered = new Set();
+    varBlock.replace(/(--[a-z0-9-]+)\s*:/g, (m, k) => { covered.add(k); return m; });
+
+    const di = html.indexOf("html[data-theme='dark'] {");
+    const darkBlock = html.slice(di, html.indexOf('}', di));
+    const darkVars = [...new Set(darkBlock.match(/--[a-z0-9-]+(?=\s*:)/g) || [])];
+    const used = new Set((html.match(/var\((--[a-z0-9-]+)/g) || []).map((m) => m.slice(4)));
+    const leaked = darkVars.filter((v) => used.has(v) && !covered.has(v));
+
+    ok('все переменные тёмной темы перекрыты при печати',
+       leaked.length === 0, leaked.slice(0, 8).join(' '));
+    ok('фон страницы белый', /--color-body-bg:\s*#ffffff/.test(varBlock));
+    ok('свечение фона выключено', /--body-glow:\s*none/.test(varBlock));
+    ok('метки секций не цветные',
+       /--label-verse-bg:\s*#ffffff/.test(varBlock) || !used.has('--label-verse-bg'));
+  }
+
+  console.log('=== 8. Квадраты не наезжают друг на друга ===');
+  {
+    // На присланном листе .square-inner сохранял экранную ширину в
+    // процентах и соседние квадраты перекрывались.
+    const printBlock = html.slice(html.indexOf('@media print'));
+    ok('квадрат распрямлён во всю ширину листа',
+       /\.square-inner\s*\{[^}]*width:\s*100%\s*!important/s.test(printBlock));
+    ok('позиционирование сброшено',
+       /\.square\s*\{[^}]*position:\s*static\s*!important/s.test(printBlock));
+    ok('анимации выключены', /animation:\s*none\s*!important/.test(printBlock));
+  }
 
   console.log('=== 6. window.print() вызывается ===');
   setTimeout(() => {
