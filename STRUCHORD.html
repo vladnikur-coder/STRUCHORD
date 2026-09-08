@@ -8942,7 +8942,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.187</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.188</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30003,7 +30003,20 @@ function buildRhythmHintContent(hintEl, pattern, deltas, geometry) {
     const cellBeats = (geometry && Number.isFinite(geometry.spanBeats) && geometry.spanBeats > 0)
       ? geometry.spanBeats
       : n / subDiv;
-    el.style.left = ((j / subDiv) / cellBeats * 100) + '%';
+    // B-60: первый удар садится на ближайший УЗЕЛ сетки не раньше начала
+    // ячейки — той же формулой, что в syncRhythmHintCounts. У ячейки с
+    // дробным началом (G: 5.75 доли) билдер раньше отсчитывал от 5.75 и
+    // давал 6.25 / 6.75 / 7.25, а пересчёт в жесте — 6.0 / 6.5 / 7.0.
+    // Отсюда прыжок ритма на полшага при первом же движении мыши.
+    const cellOffset = (geometry && Number.isFinite(geometry.offsetBeats))
+      ? geometry.offsetBeats : 0;
+    const nodeStep = 1 / subDiv;
+    const cellPhase = Math.ceil((cellOffset - 1e-9) / nodeStep) * nodeStep - cellOffset;
+    const nodeInCell = cellPhase + j / subDiv;
+    // Узел ровно на правой границе принадлежит СЛЕДУЮЩЕЙ ячейке: иначе
+    // один удар рисуют обе и на стыке появляется дубль (замер: «50 50»).
+    if (nodeInCell > cellBeats - 1e-9) { el.style.display = 'none'; }
+    el.style.left = ((nodeInCell / cellBeats) * 100) + '%';
     if (j === 0) el.classList.add('is-edge');
     // 0.170: ключ метрического узла удара (колонки квадрата × 1e6 — та же
     // валюта, что у resizeMetricNodeKey в overlay счёта). По нему
@@ -30240,6 +30253,9 @@ function startRhythmHints(s, sq, bi, distribution) {
   const overlay = document.createElement('div');
   overlay.className = 'rhythm-hints';
   let leftColsCum = 0;
+  // B-60: смещение ячеек в ДОЛЯХ на старте жеста — общая точка отсчёта
+  // для билдера и для пересчёта координат в протяжке.
+  let startBeatsCum = 0;
   const entries = sq.events.map((ev, ei) => {
     const el = document.createElement('div');
     el.className = 'rhythm-hint';
@@ -30251,7 +30267,14 @@ function startRhythmHints(s, sq, bi, distribution) {
       leftCols: leftColsCum,
       cols: cellCols,
       spanBeats: getEventVisualSpanInParentUnits(ev, s.timeSig || globalTimeSig),
+      // B-60: смещение ячейки от начала квадрата в ДОЛЯХ. Нужно билдеру,
+      // чтобы класть удары на узлы КВАДРАТА — так же, как это делает
+      // пересчёт в жесте (syncRhythmHintCounts). Без общей точки отсчёта
+      // два кода расходились, и ритм прыгал на полшага в момент старта
+      // протяжки.
+      offsetBeats: startBeatsCum,
     };
+    startBeatsCum += geometry.spanBeats;
     leftColsCum += cellCols;
     const entry = { el, custom: false, startCustom: false, patternKey: '', geometry };
     if (d) {

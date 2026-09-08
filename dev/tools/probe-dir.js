@@ -11,6 +11,7 @@ const W=800;
 const hint=(w)=>{const o=[];w.document.querySelectorAll('.rhythm-hint').forEach(s=>{
   const L=parseFloat(s.style.left)||0,WD=parseFloat(s.style.width)||0;
   s.querySelectorAll('.rhythm-hint-hit').forEach(h=>{if(h.classList.contains('rest'))return;
+    if(h.style.display==='none')return;
     o.push(+(L+WD*(parseFloat(h.style.left)||0)/100).toFixed(2));});});
   return o.sort((a,b)=>a-b).join(' ');};
 (async()=>{

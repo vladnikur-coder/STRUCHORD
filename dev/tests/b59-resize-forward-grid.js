@@ -144,6 +144,26 @@ async function drag(dir) {
     ok('все удары пары на узлах сетки', offGrid(pair).length === 0, offGrid(pair).join(' '));
   }
 
+
+  console.log('=== 5. Ритм не ПРЫГАЕТ в момент старта протяжки ===');
+  {
+    // B-60: билдер подсказки и пересчёт в жесте должны раскладывать
+    // удары ОДИНАКОВО. Раньше билдер отсчитывал от начала ячейки, а
+    // пересчёт — от узлов квадрата, и у ячейки с дробным началом
+    // (G: 5.75 доли) ритм прыгал на полшага при первом движении мыши,
+    // хотя жест эту ячейку не касался.
+    const fwd2 = await drag(1);
+    // Ячейки вне пары у ручки: их удары обязаны совпасть до и во время.
+    const far = (arr) => arr.filter((v) => v >= 36 && v <= 49);
+    const b = far(fwd2.before);
+    const d0 = far(fwd2.during[0]);
+    console.log('      до жеста :', b.join(' '));
+    console.log('      в жесте  :', d0.join(' '));
+    ok('нетронутая ячейка не сдвинулась', JSON.stringify(b) === JSON.stringify(d0),
+       b.join(' ') + '  ->  ' + d0.join(' '));
+    ok('её удары на узлах сетки', offGrid(b).length === 0, offGrid(b).join(' '));
+  }
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
   if (bad) process.exitCode = 1;
 })();
