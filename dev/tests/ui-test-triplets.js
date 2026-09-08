@@ -60,7 +60,11 @@ w.addEventListener('load',()=>{
   const song={schemaVersion:2,name:'t',bpm:100,globalKey:'C',keyMode:'manual',globalTimeSig:'4/4',
     notes:'',nextId:9,userFingerings:[],preferredFingerings:[],date:'',
     sections:[{id:1,type:'Verse',customName:null,key:null,shift:null,timeSig:null,bpm:null,repeat:1,
-      strumPattern:{mode:'strum',subdivision:3,steps:['D',null,null,'D',null,'U',null,null,'U','D',null,'U']},
+      // B-51: рисунок с ПУСТОЙ средней третью — это записанный руками
+      // свинг, и загрузка теперь сворачивает его в sub2+swing (звук тот
+      // же). Чтобы проверять именно сохранение ТРИОЛЕЙ, берём рисунок с
+      // занятой средней третью — его свингом не выразить.
+      strumPattern:{mode:'strum',subdivision:3,steps:['D','U',null,'D','U',null,'D','U',null,'D','U',null]},
       squares:[{id:2,repeat:1,customBeats:null,strumPattern:null,
         events:[{chord:'Am',span:4,timeSig:null,strumPattern:null}]}]}]};
   w.localStorage.setItem('struchord_songs',JSON.stringify([song]));
