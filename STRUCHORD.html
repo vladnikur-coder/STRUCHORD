@@ -8942,7 +8942,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.186</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.187</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30083,14 +30083,40 @@ function syncRhythmHintCounts(session, spansBeats) {
     const base = entry.basePattern;
     if (!base || !entry.el.firstChild) return;
     const next = rhythmHintPatternForSpan(base, spansBeats[i]);
+    // B-59: в ключ входит и СМЕЩЕНИЕ ячейки, не только её рисунок.
+    //
+    // Симптом (пользователь 2026-09-06): «при ресайзе назад бой в
+    // порядке, а при ресайзе вперёд ломается до отпускания мыши».
+    // Замер: вперёд в подсказке появлялся шаг 1.56% — сетка sub4, вдвое
+    // мельче настоящей, хотя subdivision в модели оставался 2.
+    //
+    // Причина: полоса всю протяжку заморожена на СТАРТОВОЙ ширине, а
+    // число слотов уже новое. У выросшей ячейки (2 -> 2.75 доли) шесть
+    // слотов делились на замороженные 2 доли и вылезали за край полосы.
+    // Лечит это абсолютный пересчёт координат ниже, но он стоял за
+    // гейтом по одному лишь рисунку: при движении ВПЕРЁД состав шагов
+    // часто совпадает с прежним, гейт срабатывал, и координаты
+    // оставались старыми. При движении НАЗАД состав менялся, гейт
+    // пропускал — поэтому назад и «было в порядке».
     const key = rhythmHintPatternKey(next);
-    if (key === entry.patternKey) return;
+    const geomKey = Math.round((offsets[i] || 0) * 1e6) + '#'
+      + Math.round((spansBeats[i] || 0) * 1e6);
+    const patternChanged = key !== entry.patternKey;
+    const geomChanged = geomKey !== entry.geomKey;
+    if (!patternChanged && !geomChanged) return;
     entry.patternKey = key;
-    buildRhythmHintContent(entry.el, next, null, entry.geometry);
-    // Полоса перестроена — удары уже стоят в конечном состоянии, без
-    // входного FLIP. Класс входа возвращаем, иначе новые узлы останутся
-    // прозрачными до конца жеста.
-    entry.el.classList.add('is-in');
+    entry.geomKey = geomKey;
+    // Полосу ПЕРЕСТРАИВАЕМ только при смене рисунка. Если изменилась
+    // одна геометрия, содержимое то же — хватит пересчёта координат
+    // ниже. Перестройка ради геометрии поднимала лишние rebuild и
+    // ломала fade-out наследуемого (тест b15-resize-hint).
+    if (patternChanged) {
+      buildRhythmHintContent(entry.el, next, null, entry.geometry);
+      // Полоса перестроена — удары уже стоят в конечном состоянии, без
+      // входного FLIP. Класс входа возвращаем, иначе новые узлы
+      // останутся прозрачными до конца жеста.
+      entry.el.classList.add('is-in');
+    }
     // Билдер кладёт удары от начала СВОЕЙ полосы, а полоса всю протяжку
     // заморожена на стартовой геометрии. Внутренний шаг от этого верен
     // (1/subdivision доли, как в ленте), но ячейка, у которой сдвинулась
@@ -30110,8 +30136,21 @@ function syncRhythmHintCounts(session, spansBeats) {
     const stripWidth = parseFloat(entry.el.style.width) || 0;
     if (stripWidth <= 0) return;
     const sub = Math.max(1, next.subdivision || 1);
+    // B-59: первый удар ячейки стоит на ближайшем УЗЛЕ сетки, не раньше
+    // её начала. В жесте граница едет плавно, и offsets[i] почти всегда
+    // дробное — отсчёт прямо от него уводил удары между узлами (замер
+    // давал 29.69% при шаге сетки 3.125%).
+    const step = 1 / sub;
+    const nodeStart = Math.ceil((offsets[i] - 1e-9) / step) * step;
+    // Узел ровно на правой границе принадлежит СЛЕДУЮЩЕЙ ячейке —
+    // иначе один и тот же удар рисуют обе, и в ленте появляется дубль
+    // (замер: «50 50» на стыке ячеек).
+    const cellEnd = offsets[i] + (spansBeats[i] || 0);
     entry.el.querySelectorAll('.rhythm-hint-hit').forEach((hit, j) => {
-      const absPct = ((offsets[i] + j / sub) / totalBeats) * 100;
+      const nodeBeats = nodeStart + j / sub;
+      if (nodeBeats > cellEnd - 1e-9) { hit.style.display = 'none'; return; }
+      hit.style.display = '';
+      const absPct = (nodeBeats / totalBeats) * 100;
       hit.style.left = (((absPct - stripLeft) / stripWidth) * 100) + '%';
     });
     if (session.edgeKeys) syncRhythmHintLiveEdges(session, session.edgeKeys);
