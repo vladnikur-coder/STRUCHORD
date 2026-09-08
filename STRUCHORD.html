@@ -8919,6 +8919,139 @@ body.is-timeline.is-playing .timeline-playhead {
   transition: background 0.15s;
   z-index: 7;
 }
+
+/* ============================================================
+   B-49: ПЕЧАТЬ И ЭКСПОРТ В PDF
+   ============================================================
+   Спека пользователя 2026-09-05: «экспорт в pdf, оптимизированный для
+   печати», «чтобы адекватно помещалось на A4 и можно было поставить на
+   пюпитр для игры». Механизм выбран пользователем 2026-09-06: печатный
+   CSS + системный «Сохранить как PDF» (ноль зависимостей, работает
+   офлайн и в PWA).
+
+   Сценарий БУМАЖНЫЙ: лист стоит на пюпитре, читается с расстояния
+   вытянутой руки. Отсюда три принципа:
+     1) на листе только то, что нужно играть — интерфейс не печатаем;
+     2) чёрным по белому: тёмная тема и акценты не должны утекать в
+        печать, иначе принтер зальёт лист серым, а на пюпитре это ещё и
+        хуже читается;
+     3) квадрат — неделимая единица, рвать его между страницами нельзя.
+   ============================================================ */
+@media print {
+  /* Печатная палитра поверх любой активной темы. Тёмная тема на бумаге
+     нечитаема и съедает картридж, поэтому переопределяем переменные, а
+     не правим каждое правило. */
+  :root, [data-theme='dark'], html[data-theme='dark'] {
+    --color-bg: #ffffff !important;
+    --color-surface: #ffffff !important;
+    --color-surface-alt: #ffffff !important;
+    --color-ink: #000000 !important;
+    --color-text-primary: #000000 !important;
+    --color-text-secondary: #333333 !important;
+    --color-text-tertiary: #555555 !important;
+    --color-accent: #000000 !important;
+    --color-border-medium: #999999 !important;
+    --color-tick-line: #666666 !important;
+    --color-tick-substep: #aaaaaa !important;
+  }
+
+  @page {
+    size: A4 portrait;
+    /* 12мм — минимум, который не срежет принтер, и максимум места нот. */
+    margin: 12mm 10mm;
+  }
+
+  html, body {
+    background: #fff !important;
+    color: #000 !important;
+    /* Печатаем фактические цвета фонов (метки секций, заливки). */
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  /* --- Что НЕ попадает на лист --- */
+  .app-header, .top-bar, .transport-bar, .toolbar, .timeline-mode,
+  .toast, .count-in-overlay, .fingering-tooltip, .chord-wheel-modal,
+  .tuner-panel, .pattern-modal, .rhythm-hints, .resize-metric-overlay,
+  .square-resize-handle, .resize-handle, .section-settings-btn,
+  .add-section-btn, .add-square-btn, .add-chord-btn,
+  .square-beats-badge, .section-mod-badges {
+    display: none !important;
+  }
+
+  /* --- Заголовок листа: название, тональность, темп, размер --- */
+  .print-head { display: block !important; }
+
+  /* --- Секции и квадраты --- */
+  .container { max-width: none !important; padding: 0 !important; }
+  .sections { gap: 4mm !important; }
+
+  .section {
+    /* Разрыв страницы — по границе секции, а не посреди неё. */
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-bottom: 3mm !important;
+  }
+  .section-header { margin-bottom: 1.5mm !important; }
+  .section-label {
+    font-size: 11pt !important;
+    font-weight: 700 !important;
+    color: #000 !important;
+    background: none !important;
+    border: none !important;
+    padding: 0 !important;
+  }
+
+  .square {
+    /* Квадрат неделим: рвать такт пополам между страницами нельзя. */
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+  .square-inner {
+    border: 1px solid #000 !important;
+    background: #fff !important;
+    min-height: 14mm !important;
+  }
+
+  /* Аккорд — самое крупное на листе: его читают с пюпитра. */
+  .chord-name {
+    font-size: 15pt !important;
+    font-weight: 700 !important;
+    color: #000 !important;
+  }
+  .chord-wrapper { border-color: #000 !important; }
+  .chord-counts .chord-count { color: #444 !important; font-size: 7pt !important; }
+
+  /* Ритм под ячейкой — стрелки боя. */
+  .strum-preview, .strum-mode-badge { color: #000 !important; }
+  .strum-swing-tag { color: #000 !important; border-color: #666 !important; }
+
+  /* Ссылки не печатаем как ссылки — на бумаге URL не нужен. */
+  a[href]::after { content: none !important; }
+}
+
+/* Заголовок листа существует только для печати. */
+.print-head { display: none; }
+@media print {
+  .print-head {
+    display: block !important;
+    margin: 0 0 4mm 0;
+    border-bottom: 1.5px solid #000;
+    padding-bottom: 2mm;
+  }
+  .print-title {
+    font-size: 16pt;
+    font-weight: 700;
+    color: #000;
+    line-height: 1.2;
+  }
+  .print-meta {
+    font-size: 9pt;
+    color: #333;
+    margin-top: 1mm;
+  }
+}
+
     </style>
     <!-- ===== PWA: регистрация Service Worker =====
          Без этого офлайн-режим не работает: без Service Worker ярлык на
@@ -8942,7 +9075,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.190</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.191</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9351,6 +9484,9 @@ body.is-timeline.is-playing .timeline-playhead {
           <div class="timeline-playhead" id="timelinePlayhead" aria-hidden="true"></div>
         </div>
       </div>
+      <!-- B-49: шапка печатного листа. На экране скрыта (.print-head),
+           наполняется в printSong() прямо перед вызовом печати. -->
+      <div class="print-head" id="printHead" aria-hidden="true"></div>
       <div class="sections" id="sectionsContainer"></div>
       <div
         class="add-section-bar"
@@ -9433,6 +9569,12 @@ body.is-timeline.is-playing .timeline-playhead {
        потом то, что приносит её обратно. -->
   <button class="action-btn" onclick="exportSong()">
     <i class="ti ti-download"></i> Экспорт
+  </button>
+  <!-- B-49: печать/PDF стоит рядом с экспортом — это тоже «унести работу
+       наружу», только на бумагу. Механизм системный: браузер сам
+       предлагает «Сохранить как PDF» в поле принтера. -->
+  <button class="action-btn" onclick="printSong()">
+    <i class="ti ti-printer"></i> Печать
   </button>
   <!-- Импорт живёт ВНУТРИ диалога загрузки: это тоже «открыть песню»,
        только не из хранилища, а из файла. Отдельной кнопкой в панели он
@@ -34127,6 +34269,46 @@ toggleTimeAndBeats();
     URL.revokeObjectURL(url);
     showToast('Песня экспортирована');
 };
+
+  // ---------- ПЕЧАТЬ / PDF (B-49) ----------
+  // Спека пользователя 2026-09-05: «экспорт в pdf, оптимизированный для
+  // печати», «чтобы адекватно помещалось на A4 и можно было поставить на
+  // пюпитр». Механизм выбран пользователем 2026-09-06: печатный CSS плюс
+  // системный диалог — в поле «Принтер» браузер сам предлагает
+  // «Сохранить как PDF».
+  //
+  // Почему не генерируем PDF кодом: это внешняя библиотека (~200 КБ) в
+  // проекте, где зависимостей НОЛЬ, плюс своя вёрстка координатами
+  // вместо готового CSS. Начинаем с дешёвого варианта; если точности
+  // браузерной печати не хватит — переход будет осознанным.
+  window.printSong = function () {
+    const head = document.getElementById('printHead');
+    if (head) {
+      // Шапка листа собирается ПЕРЕД печатью: на экране её нет, а на
+      // бумаге без названия и темпа лист бесполезен — играющий должен
+      // понимать, что перед ним, не глядя в приложение.
+      const title = (DOM.songTitle && DOM.songTitle.value || '').trim() || 'Без названия';
+      const bpm = (DOM.bpmInput && DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
+      const key = keyMode === 'auto' ? (globalKey + ' (авто)') : globalKey;
+      const bits = [
+        'Тональность: ' + key,
+        'Темп: ' + bpm,
+        'Размер: ' + globalTimeSig,
+      ];
+      if (typeof currentTuningLabel === 'function') {
+        const t = currentTuningLabel();
+        if (t) bits.push('Строй: ' + t);
+      }
+      head.innerHTML =
+        '<div class="print-title">' + escapeHtml(title) + '</div>' +
+        '<div class="print-meta">' + bits.map(escapeHtml).join(' · ') + '</div>';
+    }
+    // Печать синхронна и блокирует поток: сначала даём браузеру
+    // отрисовать шапку, иначе в некоторых движках лист уйдёт пустым.
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => window.print());
+    });
+  };
 
   // ---------- ИМПОРТ ИЗ ФАЙЛА (НОВЫЙ) ----------
   window.importSong = function (file) {

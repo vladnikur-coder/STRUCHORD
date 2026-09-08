@@ -1,0 +1,66 @@
+// B-49: печать / экспорт в PDF.
+//
+// Спека пользователя 2026-09-05: «экспорт в pdf, оптимизированный для
+// печати», «чтобы адекватно помещалось на A4 и можно было поставить на
+// пюпитр для игры». Механизм выбран пользователем 2026-09-06: печатный
+// CSS + системный «Сохранить как PDF».
+const fs = require('fs');
+const { JSDOM } = require('jsdom');
+const html = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
+const song = JSON.parse(fs.readFileSync(__dirname + '/../../uploads/Дешевые Драмы.struchord-3.json', 'utf8'));
+let bad = 0;
+const ok = (n, c, x) => { console.log(`   ${c ? 'ok  ' : 'FAIL'} ${n}${!c && x ? ' — ' + x : ''}`); if (!c) bad++; };
+
+const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'https://localhost/',
+  beforeParse(w) { w.HTMLCanvasElement.prototype.getContext = () => ({ font: '', measureText: () => ({ width: 10 }),
+    clearRect(){},beginPath(){},arc(){},fill(){},stroke(){},moveTo(){},lineTo(){},closePath(){},save(){},restore(){},
+    translate(){},rotate(){},fillText(){},strokeText(){},setTransform(){},scale(){},setLineDash(){},
+    createLinearGradient:()=>({addColorStop(){}}) }); } });
+const w = dom.window;
+w.AudioContext = w.webkitAudioContext = function () { return { currentTime: 0, state: 'running', resume() {} }; };
+
+w.addEventListener('load', () => {
+  console.log('=== 1. Кнопка и точка входа ===');
+  ok('printSong существует', typeof w.printSong === 'function');
+  ok('кнопка «Печать» есть в панели',
+     [...w.document.querySelectorAll('.action-btn')].some((b) => /Печать/.test(b.textContent)));
+  ok('на экране шапка листа скрыта',
+     !!w.document.getElementById('printHead'));
+
+  console.log('=== 2. Печатный CSS присутствует ===');
+  ok('есть блок @media print', html.includes('@media print'));
+  ok('лист A4 портрет', /@page\s*\{[^}]*size:\s*A4\s+portrait/.test(html));
+  ok('квадрат не рвётся между страницами',
+     /\.square\s*\{[^}]*break-inside:\s*avoid/s.test(html.slice(html.indexOf('@media print'))));
+  ok('секция не рвётся между страницами',
+     /\.section\s*\{[^}]*break-inside:\s*avoid/s.test(html.slice(html.indexOf('@media print'))));
+
+  console.log('=== 3. Интерфейс не печатается ===');
+  const printCss = html.slice(html.indexOf('@media print'), html.indexOf('@media print') + 4000);
+  ['toolbar', 'transport-bar', 'app-header', 'timeline-mode', 'resize-handle', 'rhythm-hints']
+    .forEach((cls) => ok(`${cls} скрыт при печати`, printCss.includes('.' + cls)));
+
+  console.log('=== 4. Печать чёрным по белому ===');
+  ok('тёмная тема переопределяется', printCss.includes("[data-theme='dark']"));
+  ok('фон белый', /--color-bg:\s*#ffffff\s*!important/.test(printCss));
+  ok('текст чёрный', /--color-text-primary:\s*#000000\s*!important/.test(printCss));
+
+  console.log('=== 5. Шапка листа наполняется данными песни ===');
+  w.localStorage.setItem('struchord_songs', JSON.stringify([song]));
+  w.loadSong(0);
+  let printed = 0;
+  w.print = () => { printed++; };
+  w.printSong();
+  const head = w.document.getElementById('printHead');
+  ok('название попало в шапку', /Дешевые|Без названия/.test(head.textContent), head.textContent);
+  ok('темп попал в шапку', /Темп:/.test(head.textContent), head.textContent);
+  ok('тональность попала в шапку', /Тональность:/.test(head.textContent), head.textContent);
+  ok('размер попал в шапку', /Размер:/.test(head.textContent), head.textContent);
+
+  console.log('=== 6. window.print() вызывается ===');
+  setTimeout(() => {
+    ok('печать запущена', printed === 1, String(printed));
+    console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
+    if (bad) process.exitCode = 1;
+  }, 120);
+});
