@@ -8946,7 +8946,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.183</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.184</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30186,7 +30186,13 @@ function buildRhythmHintContent(hintEl, pattern, deltas, geometry) {
     const cellBeats = (geometry && Number.isFinite(geometry.spanBeats) && geometry.spanBeats > 0)
       ? geometry.spanBeats
       : n / subDiv;
-    el.style.left = ((j / subDiv) / cellBeats * 100) + '%';
+    // B-55: ячейка, начавшаяся не на узле квадрата, сдвигает СВОИ удары
+    // на фазу — ровно как лента (B-52) и как звук. Без этого подсказка
+    // ячейки с дробным началом (G: 5.75 доли) рисовала удары на
+    // полушагах: замер давал 39.06 / 42.19 / 45.31 вместо 37.5 / 40.63 /
+    // 43.75, и это ДО начала движения.
+    const hintPhase = (pattern.gridPhase || 0);
+    el.style.left = (((hintPhase + j / subDiv) / cellBeats) * 100) + '%';
     if (j === 0) el.classList.add('is-edge');
     // 0.170: ключ метрического узла удара (колонки квадрата × 1e6 — та же
     // валюта, что у resizeMetricNodeKey в overlay счёта). По нему
@@ -30218,16 +30224,35 @@ function buildRhythmHintContent(hintEl, pattern, deltas, geometry) {
 // дробность рисунка сохраняется, число шагов = span x subdivision, шаги
 // берутся циклом (рисунок продолжается) либо обрезаются. Модель при
 // этом не трогаем — это чистая функция для превью.
-function rhythmHintPatternForSpan(pattern, spanBeats) {
+function rhythmHintPatternForSpan(pattern, spanBeats, offsetBeats, baseOffsetBeats) {
   if (!pattern || !Array.isArray(pattern.steps) || !pattern.steps.length) return pattern;
   const sub = Math.max(1, pattern.subdivision || 1);
-  const need = Math.max(1, Math.round((spanBeats || 1) * sub));
-  if (need === pattern.steps.length) return pattern;
+  // B-55: ячейка с дробным началом берёт шаги от своего УЗЛА сетки, а не
+  // от нуля. Раньше рисунок всегда циклился с k = 0, и при съехавшей
+  // границе состав ячейки менялся прямо в жесте: замер показывал, как
+  // удары на 25% и 34.38% пропадают, а на 28.13% появляется — ритм
+  // «переписывался» под курсором, чего пользователь прямо запретил
+  // («ритм двигаться при ресайзе не должен»).
+  const phase = Number.isFinite(offsetBeats)
+    ? rhythmGridPhaseForOffset(offsetBeats, sub)
+    : 0;
+  const need = phase > 0
+    ? Math.max(1, rhythmStepsForSpanWithPhase(spanBeats || 1, sub, phase))
+    : Math.max(1, Math.round((spanBeats || 1) * sub));
+  // Первый шаг ячейки — тот, что стоит на её первом узле в АБСОЛЮТНОЙ
+  // сетке квадрата: так рисунок не проворачивается при сдвиге границы.
+  const start = Number.isFinite(offsetBeats)
+    ? Math.round((offsetBeats + phase) * sub)
+    : 0;
+  if (!start && need === pattern.steps.length) return pattern;
+  const len = pattern.steps.length;
   const steps = Array.from({ length: need }, (_, k) => {
-    const v = pattern.steps[k % pattern.steps.length];
+    const v = pattern.steps[(((start + k) % len) + len) % len];
     return Array.isArray(v) ? v.slice() : v;
   });
-  return { mode: pattern.mode, subdivision: sub, steps };
+  return { mode: pattern.mode, subdivision: sub, steps,
+    ...(phase > 0 ? { gridPhase: phase } : {}),
+    ...(pattern.swing ? { swing: true } : {}) };
 }
 
 // Геометрия полос — из того же distributeVisualSpans, что и сетка.
@@ -30265,7 +30290,8 @@ function syncRhythmHintCounts(session, spansBeats) {
   session.entries.forEach((entry, i) => {
     const base = entry.basePattern;
     if (!base || !entry.el.firstChild) return;
-    const next = rhythmHintPatternForSpan(base, spansBeats[i]);
+    const next = rhythmHintPatternForSpan(
+      base, spansBeats[i], offsets[i], entry.baseOffsetBeats);
     const key = rhythmHintPatternKey(next);
     if (key === entry.patternKey) return;
     entry.patternKey = key;
@@ -30293,8 +30319,18 @@ function syncRhythmHintCounts(session, spansBeats) {
     const stripWidth = parseFloat(entry.el.style.width) || 0;
     if (stripWidth <= 0) return;
     const sub = Math.max(1, next.subdivision || 1);
+    // B-55: удары подсказки стоят на УЗЛАХ КВАДРАТА, а не от начала
+    // ячейки. Пользователь (2026-09-06, повторно): «ритм двигаться при
+    // ресайзе не должен».
+    //
+    // В жесте начало ячейки почти всегда дробное (граница едет плавно), и
+    // отсчёт от `offsets[i]` уводил удары с сетки: замер показывал
+    // переезд 31.25/34.38 -> 29.69/32.81, то есть на полшага. Та же
+    // фаза, что и в B-52 у самой ленты: сдвигаемся к ближайшему узлу НЕ
+    // РАНЬШЕ начала ячейки, и число ударов считаем от него же.
+    const phase = rhythmGridPhaseForOffset(offsets[i], sub);
     entry.el.querySelectorAll('.rhythm-hint-hit').forEach((hit, j) => {
-      const absPct = ((offsets[i] + j / sub) / totalBeats) * 100;
+      const absPct = ((offsets[i] + phase + j / sub) / totalBeats) * 100;
       hit.style.left = (((absPct - stripLeft) / stripWidth) * 100) + '%';
     });
     if (session.edgeKeys) syncRhythmHintLiveEdges(session, session.edgeKeys);
@@ -30384,6 +30420,9 @@ function startRhythmHints(s, sq, bi, distribution) {
   const overlay = document.createElement('div');
   overlay.className = 'rhythm-hints';
   let leftColsCum = 0;
+  // B-55: смещения ячеек в ДОЛЯХ на момент старта жеста — нужны, чтобы
+  // читать basePattern (локальный срез) по абсолютной сетке квадрата.
+  let startBeatsCum = 0;
   const entries = sq.events.map((ev, ei) => {
     const el = document.createElement('div');
     el.className = 'rhythm-hint';
@@ -30396,6 +30435,8 @@ function startRhythmHints(s, sq, bi, distribution) {
       cols: cellCols,
       spanBeats: getEventVisualSpanInParentUnits(ev, s.timeSig || globalTimeSig),
     };
+    const startOffsetBeats = startBeatsCum;
+    startBeatsCum += geometry.spanBeats;
     leftColsCum += cellCols;
     const entry = { el, custom: false, startCustom: false, patternKey: '', geometry };
     if (d) {
@@ -30413,6 +30454,12 @@ function startRhythmHints(s, sq, bi, distribution) {
       // а не текущая нарезка: пересчитывать надо всегда от него, иначе
       // повторные снапы копили бы обрезки.
       entry.basePattern = d.pattern;
+      // B-55: смещение ячейки НА СТАРТЕ жеста. basePattern — это срез,
+      // нарезанный под стартовые доли, поэтому его шаги адресуются
+      // локально (0 = первый шаг ЭТОЙ ячейки). Чтобы при сдвиге границы
+      // читать рисунок по абсолютной сетке квадрата, надо знать, какому
+      // абсолютному узлу соответствует локальный ноль.
+      entry.baseOffsetBeats = startOffsetBeats;
       entry.patternKey = rhythmHintPatternKey(d.pattern);
       buildRhythmHintContent(el, d.pattern, deltasByCell[ei], geometry);
       // Наследуемому без превью смещения нет вообще: ему неоткуда плыть,
