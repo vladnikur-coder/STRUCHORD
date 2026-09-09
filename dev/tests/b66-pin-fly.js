@@ -64,7 +64,7 @@ async function dragToDock(w) {
        /translate\(-\d+(\.\d+)?px,\s*-\d+(\.\d+)?px\)/.test(to || ''), to);
     ok('по пути уменьшается', /scale\(0\.\d+\)/.test(to || ''), to);
     ok('длительность мягкая, не мгновенная',
-       frames[0].opt.duration >= 200 && frames[0].opt.duration <= 400, String(frames[0].opt.duration));
+       frames[0].opt.duration >= 300 && frames[0].opt.duration <= 500, String(frames[0].opt.duration));
     ok('кривая с торможением', /cubic-bezier/.test(frames[0].opt.easing || ''), frames[0].opt.easing);
   }
 
@@ -143,6 +143,49 @@ async function dragToDock(w) {
     ok('гриф ставится ДО полёта, а не после',
        /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true \}\)[\s\S]{0,1600}el\.animate\(/.test(html),
        'порядок нарушен — док будет пустым во время полёта');
+  }
+
+
+  console.log('=== 5. Плавность: движения перетекают, а не совпадают ===');
+  {
+    // Просьба «сделай закрепление плавнее». Резкость давали три вещи:
+    // полёт 260мс (глаз не успевает проследить путь), проявление грифа
+    // РОВНО той же длительности (оба движения кончались в одну точку —
+    // вспышка) и заметный скачок масштаба 0.96.
+    const w = boot();
+    await sleep(300);
+    const { frames } = await dragToDock(w);
+    const flyMs = frames[0].opt.duration;
+
+    // Проявление грифа читаем из CSS: длительность и задержка.
+    const m = html.match(/is-fading-in[\s\S]{0,400}?animation:\s*struchord-pin-fade-in\s+([\d.]+)s[^;]*?\s([\d]+)ms/);
+    ok('проявление грифа описано в CSS', !!m, 'правило не найдено');
+    if (m) {
+      const fadeMs = parseFloat(m[1]) * 1000;
+      const delayMs = parseInt(m[2], 10);
+      console.log(`      полёт ${flyMs}мс | проявление ${fadeMs}мс с задержкой ${delayMs}мс`);
+      ok('гриф проявляется ДОЛЬШЕ, чем длится полёт',
+         fadeMs > flyMs, `${fadeMs} против ${flyMs}`);
+      ok('проявление стартует с задержкой (не одновременно)',
+         delayMs > 0 && delayMs < 150, String(delayMs));
+      ok('проявление кончается ПОЗЖЕ посадки — перетекание',
+         delayMs + fadeMs > flyMs, `${delayMs + fadeMs} против ${flyMs}`);
+    }
+
+    // Тултип должен гаснуть РАНЬШЕ, чем долетит: иначе подмена видна.
+    const mid = frames[0].kf.find((k) => k.offset === 0.75);
+    ok('к 75% пути тултип почти прозрачен',
+       mid && mid.opacity <= 0.3, mid ? String(mid.opacity) : 'нет ключа 0.75');
+
+    // Скачок масштаба у грифа не должен бросаться в глаза.
+    const sc = html.match(/struchord-pin-fade-in\s*\{[\s\S]{0,200}?scale\(([\d.]+)\)/);
+    ok('стартовый масштаб грифа близок к единице',
+       sc && parseFloat(sc[1]) >= 0.97, sc ? sc[1] : 'не найден');
+
+    // Класс не должен сниматься посреди анимации.
+    const t = html.match(/__fadeTimer = setTimeout\([\s\S]{0,200}?\}, (\d+)\)/);
+    ok('класс снимается ПОСЛЕ конца анимации',
+       t && parseInt(t[1], 10) >= 480, t ? t[1] : 'таймер не найден');
   }
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');

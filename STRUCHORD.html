@@ -6989,10 +6989,17 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
    Без сдвига: любое перемещение читалось бы как второй объект. */
 .pinned-row.is-fading-in .pinned-fingering,
 .pinned-row.is-fading-in .pinned-next {
-  animation: struchord-pin-fade-in 0.26s ease both;
+  /* B-67 (0.195): 420мс с задержкой 60мс. Раньше проявление длилось
+     260мс — ровно столько же, сколько летел тултип, и оба движения
+     кончались в одну точку: получалась вспышка вместо перетекания.
+     Теперь гриф проступает МЕДЛЕННЕЕ полёта и чуть позже: пока тултип
+     в пути, под ним уже теплится силуэт, к посадке он набирает силу. */
+  animation: struchord-pin-fade-in 0.42s cubic-bezier(.25,.8,.35,1) 60ms both;
 }
 @keyframes struchord-pin-fade-in {
-  from { opacity: 0; transform: scale(0.96); }
+  /* Масштаб 0.985 вместо 0.96: крупный скачок размера у самого конца
+     тоже читался как рывок. */
+  from { opacity: 0; transform: scale(0.985); }
   to { opacity: 1; transform: none; }
 }
 
@@ -9160,7 +9167,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.194</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.195</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15616,7 +15623,7 @@ function pinFingeringFromTooltip(opts = {}) {
     rowEl.__fadeTimer = setTimeout(() => {
       rowEl.__fadeTimer = 0;
       rowEl.classList.remove('is-fading-in');
-    }, 300);
+    }, 520);
   } else if (rowEl && !opts.skipAppear) {
     // B-42 v8 (0.163): таймер появления ЖИВЁТ на элементе и гасится
     // перед рестартом. Раньше «голый» setTimeout от ПРОШЛОГО закрепления
@@ -15893,17 +15900,26 @@ function attachPinDrag() {
 
     anim = el.animate(
       [
-        { transform: 'translate(0, 0) scale(1)', opacity: 0.85 },
-        { transform: `translate(${dx}px, ${dy}px) scale(${scale})`, opacity: 0 },
+        { transform: 'translate(0, 0) scale(1)', opacity: 0.85, offset: 0 },
+        // Гаснем РАНЬШЕ, чем долетаем (75% пути): у дока тултип уже
+        // почти прозрачен, и подмена его грифом не видна. Раньше оба
+        // события совпадали в одной точке — это читалось как вспышка.
+        { transform: `translate(${dx * 0.75}px, ${dy * 0.75}px) scale(${scale + (1 - scale) * 0.25})`, opacity: 0.22, offset: 0.75 },
+        { transform: `translate(${dx}px, ${dy}px) scale(${scale})`, opacity: 0, offset: 1 },
       ],
-      // Кривая с лёгким разгоном и мягким торможением — предмет
-      // «притягивается» к доку, а не выстреливает.
-      { duration: 260, easing: 'cubic-bezier(.3,.7,.4,1)', fill: 'forwards' }
+      // B-67 (0.195): 380мс вместо 260. Просьба «сделай закрепление
+      // плавнее»: на 260мс глаз не успевает проследить путь, и перелёт
+      // читается как мигание, а не как движение.
+      //
+      // Кривая cubic-bezier(.25,.8,.35,1) — почти без разгона, длинное
+      // мягкое торможение: предмет «притягивается» к доку. Прежняя
+      // (.3,.7,.4,1) тормозила резче, и конец пути был заметен рывком.
+      { duration: 380, easing: 'cubic-bezier(.25,.8,.35,1)', fill: 'forwards' }
     );
     anim.onfinish = land;
     // Страховка: если анимации нет (reduced-motion, старый движок) —
     // не оставляем тултип висеть в воздухе.
-    setTimeout(land, 320);
+    setTimeout(land, 460);
   };
 
   const onUp = () => {
