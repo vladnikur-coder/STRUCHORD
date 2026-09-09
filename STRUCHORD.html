@@ -9158,7 +9158,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.195</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.196</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -29214,33 +29214,42 @@ function songmapSelect(id) {
 function songmapJumpTo(id) {
   const card = document.querySelector(`.section-card[data-id="${id}"]`);
   if (!card) return;
-  // B-64 (0.195): прыжок с поправкой на ЗАКРЕПЛЁННУЮ транспортную
-  // панель. Жалоба пользователя: «перепрыгивает не на неё, а на
-  // следующую».
+  // B-64 (0.196): секция встаёт ПО ЦЕНТРУ экрана (просьба пользователя).
   //
-  // Причина не в адресации (замер probe-jump.js: каждая строка находит
-  // свою карточку), а в том, что .transport-bar висит sticky на top:8px
-  // с z-index 60. scrollIntoView про неё не знает и ставит верх карточки
-  // в нулевую точку окна — прямо ПОД панель. Видно при этом уже
-  // следующую секцию, и кажется, что промахнулись.
-  //
-  // Поэтому считаем реальную высоту панели и отнимаем её вручную.
-  const bar = document.querySelector('.transport-bar');
-  let offset = 16; // воздух, чтобы карточка не липла к панели вплотную
-  if (bar) {
-    const r = bar.getBoundingClientRect();
-    // Панель может быть скрыта (ленты/узкий экран) — тогда высота 0.
-    if (r && r.height) offset += r.height + 8; // 8px = её top
-  }
+  // Раньше её ставили под транспортную панель, вплотную к верху. По
+  // центру глазу спокойнее: видно и то, что было до секции, и то, что
+  // идёт после, — а панель структуры как раз для того, чтобы понимать
+  // форму песни, а не только текущее место.
   const rect = card.getBoundingClientRect();
-  const top = rect.top + (window.pageYOffset || document.documentElement.scrollTop || 0) - offset;
+  const pageY = window.pageYOffset || document.documentElement.scrollTop || 0;
+  const cardTop = rect.top + pageY;
+  const viewH = window.innerHeight || document.documentElement.clientHeight || 0;
+
+  // Центр: верх карточки минус половина свободного места под неё.
+  let top = cardTop - Math.max(0, (viewH - rect.height) / 2);
+
+  // Секция ВЫШЕ экрана (длинный куплет на много квадратов) при
+  // центрировании уехала бы верхом за кромку, и первый аккорд стал бы
+  // не виден. Для таких показываем начало — с поправкой на sticky
+  // транспортную панель, иначе заголовок уйдёт под неё.
+  if (rect.height > viewH) {
+    const bar = document.querySelector('.transport-bar');
+    let offset = 16;
+    if (bar) {
+      const r = bar.getBoundingClientRect();
+      if (r && r.height) offset += r.height + 8; // 8px = её top
+    }
+    top = cardTop - offset;
+  }
+
   if (typeof window.scrollTo === 'function') {
     window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   } else if (typeof card.scrollIntoView === 'function') {
-    // Запасной путь: в jsdom scrollTo/scrollIntoView может не быть вовсе.
-    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    // Запасной путь: в jsdom scrollTo может отсутствовать.
+    card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
+
 
 function initSongMap() {
   const zone = document.getElementById('songmapZone');

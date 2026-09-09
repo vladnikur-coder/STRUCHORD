@@ -214,34 +214,42 @@ const rows = (w) => [...w.document.querySelectorAll('.songmap-item')];
   }
 
 
-  console.log('=== 12. Прыжок попадает В секцию, а не под панель ===');
+  console.log('=== 12. Прыжок ставит секцию ПО ЦЕНТРУ экрана ===');
   {
-    // Жалоба пользователя (0.195): «перепрыгивает не на неё, а на
-    // следующую». Адресация была верной — виновата закреплённая
-    // .transport-bar (sticky, top:8px, z-index 60): scrollIntoView
-    // ставил верх карточки в ноль окна, то есть ПОД панель, и видно
-    // было уже следующую секцию.
+    // Просьба пользователя (0.196): при скачке выбранная секция должна
+    // появляться посередине экрана. До этого её ставили под sticky
+    // .transport-bar, вплотную к верху.
     const w = boot(police);
     await sleep(300);
+    const VH = 900;
+    Object.defineProperty(w, 'innerHeight', { value: VH, configurable: true });
     const cards = [...w.document.querySelectorAll('.section-card')];
-    // Подменяем геометрию: карточки по 300px, транспортная панель 64px.
-    cards.forEach((c, i) => {
-      c.getBoundingClientRect = () => ({ top: i * 300, height: 300, left: 0, right: 800, bottom: i * 300 + 300, width: 800 });
+    cards.forEach((c, i2) => {
+      c.getBoundingClientRect = () => ({ top: i2 * 200, height: 200, left: 0, right: 800, bottom: i2 * 200 + 200, width: 800 });
     });
     const bar = w.document.querySelector('.transport-bar');
     if (bar) bar.getBoundingClientRect = () => ({ top: 8, height: 64, left: 0, right: 800, bottom: 72, width: 800 });
     const calls = [];
     w.scrollTo = (o) => calls.push(o && o.top);
-
     const items = rows(w);
-    items[3].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
-    ok('прокрутка вызвана', calls.length === 1, String(calls.length));
-    // 3*300 минус (16 воздух + 64 панель + 8 её top) = 900 - 88 = 812
-    ok('остановились ВЫШЕ карточки на высоту панели',
-       calls[0] === 812, String(calls[0]) + ' (ждём 812)');
-    ok('карточка не уходит под панель', calls[0] < 900, String(calls[0]));
 
-    // Первая секция: прокрутка не должна уйти в минус.
+    items[2].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    ok('прокрутка вызвана', calls.length === 1, String(calls.length));
+    // Верх карточки 400, окно 900, высота 200 -> 400 - 350 = 50.
+    ok('середина карточки попадает в центр окна',
+       calls[0] + VH / 2 === 400 + 100, `scroll=${calls[0]}`);
+
+    calls.length = 0;
+    items[5].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    ok('работает и для дальней секции', calls[0] === 650, String(calls[0]));
+
+    // Секция ВЫШЕ экрана: центрировать нельзя — верх уедет за кромку.
+    calls.length = 0;
+    cards[3].getBoundingClientRect = () => ({ top: 600, height: 1400, left: 0, right: 800, bottom: 2000, width: 800 });
+    items[3].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    ok('высокая секция показывает НАЧАЛО, а не центр',
+       calls[0] === 512, String(calls[0]) + ' (600 минус панель 88)');
+
     calls.length = 0;
     items[0].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('для первой секции прокрутка не отрицательная', calls[0] >= 0, String(calls[0]));
