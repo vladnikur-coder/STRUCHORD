@@ -3335,7 +3335,12 @@ body {
      давила; список секций — вспомогательная вещь и должен вести себя
      как подпись сбоку. */
   top: 50%;
-  transform: translateX(-100%) translateY(-50%);
+  /* Центрирование вынесено в ОТДЕЛЬНОЕ свойство translate, а выезд живёт
+     в transform. Иначе браузер интерполирует обе части разом, и панель
+     уезжает по диагонали — «снизу из угла» вместо чистого выезда сбоку
+     (замечание пользователя 0.193). */
+  translate: 0 -50%;
+  transform: translateX(-100%);
   max-height: 82vh;
   width: 190px;
   z-index: 61;
@@ -3358,7 +3363,7 @@ body {
   overflow-y: auto;
   overscroll-behavior: contain;
 }
-.songmap.is-open { transform: translateX(0) translateY(-50%); }
+.songmap.is-open { transform: translateX(0); }
 /* B-64 (0.192): правый край панели уходит в лёгкий fade — жёсткая
    вертикальная граница резала макет пополам и читалась как «обрыв».
    Маска сильнее рамки: она гасит и фон, и текст длинного названия,
@@ -9153,7 +9158,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.193</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.194</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -29133,9 +29138,29 @@ function renderSongMap() {
     return;
   }
   const frag = document.createDocumentFragment();
+
+  // B-64 (0.194): секции с ОДИНАКОВЫМ названием нумеруются — «Куплет 1,
+  // Припев 1, Куплет 2». Просьба пользователя: в списке из десяти строк
+  // четыре одинаковых «Куплета» неотличимы, и непонятно, к какому
+  // прыгаешь.
+  //
+  // Считаем по ИТОГОВОЙ подписи, а не по типу: две кастомные секции с
+  // разными именами — разные вещи и нумероваться вместе не должны.
+  // Номер даём, только если таких секций больше одной: одинокий
+  // «Бридж 1» выглядел бы как ошибка.
+  const nameCount = {};
+  sections.forEach((sec) => {
+    const t = sec.type === 'Custom' ? sec.customName || 'Кастом' : LABEL_RU[sec.type] || sec.type;
+    nameCount[t] = (nameCount[t] || 0) + 1;
+  });
+  const nameSeen = {};
+
   sections.forEach((sec, idx) => {
-    const labelText =
+    const baseName =
       sec.type === 'Custom' ? sec.customName || 'Кастом' : LABEL_RU[sec.type] || sec.type;
+    nameSeen[baseName] = (nameSeen[baseName] || 0) + 1;
+    const labelText =
+      nameCount[baseName] > 1 ? `${baseName} ${nameSeen[baseName]}` : baseName;
     const labelClass = sec.type === 'Custom' ? 'custom' : LABEL_MAP[sec.type] || 'verse';
 
     const item = document.createElement('button');
