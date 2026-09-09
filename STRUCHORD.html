@@ -3277,51 +3277,43 @@ body {
 /* ============================================================
    B-64: ПАНЕЛЬ СТРУКТУРЫ ПЕСНИ
    ============================================================
-   Спека (допрос по R8, 2026-09-06). Боль пользователя: «теряюсь в
-   длинной песне, надоело дублировать, неудобно менять порядок».
+   Реализовано по dev/specs/songmap-prompt.md — задание собрано
+   пользователем после допроса (R8) и шести итераций правок.
 
-   Решения, принятые на допросе:
-   - панель СЛЕВА, СНАРУЖИ рабочей области (.container = 860px по
-     центру остаётся нетронутым: сужать редактор пользователь не
-     захотел);
-   - выезжает по наведению на узкую зону у левого края, без закрепления;
-   - секции столбиком сверху вниз, в порядке песни;
-   - повторы — ОДНОЙ строкой с бейджем «×2», не развёрнуто;
-   - подсветка играющей секции;
-   - клик = прыжок, перетаскивание = смена порядка, Cmd+C/V = копия.
+   Ключевые решения из промпта и ПРИЧИНЫ (чтобы при переделке не
+   собрали те же грабли заново):
 
-   Вид строки взят у .tl-secnav-item из ленты: там уже есть навигация по
-   секциям с подсветкой текущей, и человек этот вид знает.
+   - Панель снаружи рабочей области: 860px редактора не сужаются.
+   - Не во всю высоту: полоса от кромки до кромки читается как «панель
+     приложения», а это вспомогательное оглавление.
+   - Ориентир облика — .tl-secnav из ленты: там список живёт БЕЗ фона,
+     тени и рамки, в покое это просто приглушённый текст. Плотная плашка
+     с модальной тенью выглядит тяжело.
+   - Корешок — не безымянная полоска, а видимый торец панели с
+     вертикальной надписью: он должен объяснять сам себя.
    ============================================================ */
 
-/* Зона-ловушка у левого края: наведение на неё выдвигает панель.
-   Узкая (14px), чтобы не воровать клики у содержимого. */
-/* Зона-ловушка у левого края. B-64 (0.197): вместо безымянной полоски —
-   ВИДИМЫЙ КРАЕШЕК панели с вертикальной надписью «Структура» (просьба
-   пользователя). Прежний вариант был намёком ни о чём: цветная полоска
-   не объясняла, что за ней прячется, и о панели надо было догадаться.
-
-   Краешек намеренно выглядит как торец выдвижного ящика: та же
-   подложка и то же скругление справа, что у самой панели, — читается
-   как «её можно вытянуть». */
+/* ---- Корешок: то, на что наводят ---- */
 .songmap-zone {
   position: fixed;
   left: 0;
   top: 50%;
+  /* Центрирование В ОТДЕЛЬНОМ свойстве, не в transform: см. пояснение
+     у .songmap ниже — иначе анимация уходит по диагонали. */
   translate: 0 -50%;
   width: 26px;
-  /* Высота по содержимому надписи, но не во весь экран: ярлык-корешок,
-     а не полоса от кромки до кромки. */
   padding: 18px 0;
   z-index: 60;
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
+  /* Та же подложка и то же скругление справа, что у панели: корешок
+     читается как торец выдвижного ящика — «меня можно вытянуть». */
   background: color-mix(in srgb, var(--color-background-primary) 72%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border-radius: 0 10px 10px 0;
+  border-radius: 0 var(--border-radius-md) var(--border-radius-md) 0;
   cursor: pointer;
   transition: width 0.18s ease, opacity 0.18s ease;
 }
@@ -3340,21 +3332,18 @@ body {
 }
 .songmap-zone:hover { width: 30px; }
 .songmap-zone:hover .songmap-zone-label { color: var(--color-text-secondary); }
-/* Пока панель открыта, корешок не нужен — он бы торчал из-под неё. */
+/* Пока панель открыта, корешок торчал бы из-под неё. */
 .songmap-zone.is-hidden { opacity: 0; pointer-events: none; }
 
+/* ---- Сама панель ---- */
 .songmap {
   position: fixed;
   left: 0;
-  /* B-64 (0.193): не во всю высоту окна, а по центру — как .tl-secnav в
-     ленте. Полоса от края до края читалась как «панель приложения» и
-     давила; список секций — вспомогательная вещь и должен вести себя
-     как подпись сбоку. */
   top: 50%;
-  /* Центрирование вынесено в ОТДЕЛЬНОЕ свойство translate, а выезд живёт
-     в transform. Иначе браузер интерполирует обе части разом, и панель
-     уезжает по диагонали — «снизу из угла» вместо чистого выезда сбоку
-     (замечание пользователя 0.193). */
+  /* ВАЖНО: центрирование живёт в `translate`, а в анимируемом
+     `transform` только сдвиг по X. Если сложить их в один transform,
+     браузер интерполирует обе части разом и панель едет наискось —
+     «снизу из угла» вместо чистого выезда сбоку. */
   translate: 0 -50%;
   transform: translateX(-100%);
   max-height: 82vh;
@@ -3364,43 +3353,17 @@ body {
   flex-direction: column;
   padding: 10px 8px;
   box-sizing: border-box;
-  /* Ни фона, ни тени, ни рамки — ровно как навигация в ленте: там
-     список живёт прямо на подложке. Плотная плашка со shadow-modal
-     выглядела тяжело (замечание пользователя: «тяжёлая, грубая»).
-     Читаемость поверх содержимого даёт лёгкая размывка. */
+  /* Полупрозрачно + размывка: читаемость поверх содержимого есть, веса
+     нет. Ни тени, ни рамки — как у .tl-secnav в ленте. */
   background: color-mix(in srgb, var(--color-background-primary) 72%, transparent);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
   border-radius: 0 14px 14px 0;
-  /* Уезжает целиком за край, а не прячется display:none — иначе
-     невозможна плавность и ломается измерение при перетаскивании. */
-  transform: translateX(-100%);
   transition: transform 0.18s ease;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 .songmap.is-open { transform: translateX(0); }
-/* B-64 (0.192): правый край панели уходит в лёгкий fade — жёсткая
-   вертикальная граница резала макет пополам и читалась как «обрыв».
-   Маска сильнее рамки: она гасит и фон, и текст длинного названия,
-   которое иначе упиралось бы в кромку. Бордер убран — он спорил бы с
-   растворением. */
-/* Мягкий край: сама подложка растворяется вправо. Маску оставляем
-   только на фоне-псевдоэлементе, а не на всей панели — иначе она гасила
-   бы и текст пунктов у правого края. */
-.songmap { border-right: none; }
-
-.songmap-head {
-  /* Заголовок — служебная подпись, а не элемент интерфейса: uppercase
-     жирным на 700 спорил с названиями секций и тянул внимание на себя. */
-  font-size: 10px;
-  font-weight: 600;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-  color: var(--color-text-tertiary);
-  opacity: 0.65;
-  padding: 0 8px 6px 8px;
-}
 
 .songmap-list {
   display: flex;
@@ -3408,27 +3371,21 @@ body {
   gap: 2px;
 }
 
-/* Строка секции. Вид — как .tl-secnav-item: в покое просто текст,
-   цветная плашка проявляется только у играющей. */
+/* ---- Строка секции ---- */
 .songmap-item {
   display: flex;
   align-items: center;
   gap: 6px;
   width: 100%;
-  /* Просторнее по вертикали (было 5px): строки стояли слишком плотно и
-     список читался сплошным блоком. */
   padding: 6px 10px;
   border: none;
-  /* Левая черта убрана из покоя: она была у КАЖДОЙ строки прозрачной,
-     но съедала 2px и сбивала выравнивание текста. Теперь появляется
-     только у выбранной. */
   border-radius: var(--border-radius-pill);
   background: none;
   font-family: inherit;
   font-size: 13px;
-  /* В покое — обычный текст пониженной яркости, как в .tl-secnav-item:
-     цветные плашки на всю песню спорили бы с содержимым. */
   font-weight: 500;
+  /* В покое — просто приглушённый текст: цветные плашки на всю песню
+     спорили бы с содержимым редактора. */
   color: var(--color-text-tertiary);
   text-align: left;
   cursor: grab;
@@ -3436,11 +3393,9 @@ body {
   overflow: hidden;
   transition: background 0.15s, color 0.15s;
 }
-/* B-64 (0.192): ховер красится в цвет ТИПА секции — тот же набор
-   --label-*, что у ярлыков в редакторе и у играющей секции в ленте.
-   Нейтральная подсветка не давала понять, на что наводишь; теперь тип
-   читается ещё до клика. Цвет приглушён: полная заливка зарезервирована
-   за играющей секцией, иначе они бы спорили. */
+/* Ховер — характерный цвет ТИПА секции, тот же набор --label-*, что у
+   ярлыков в редакторе. Приглушён до 55%: полная заливка зарезервирована
+   за играющей секцией, иначе состояния спорят. */
 .songmap-item:hover { color: var(--color-text-primary); }
 .songmap-item.verse:hover { background: color-mix(in srgb, var(--label-verse-bg) 55%, transparent); }
 .songmap-item.chorus:hover { background: color-mix(in srgb, var(--label-chorus-bg) 55%, transparent); }
@@ -3449,38 +3404,40 @@ body {
 .songmap-item.outro:hover { background: color-mix(in srgb, var(--label-outro-bg) 55%, transparent); }
 .songmap-item.solo:hover { background: color-mix(in srgb, var(--label-solo-bg) 55%, transparent); }
 .songmap-item.pre-chorus:hover { background: color-mix(in srgb, var(--label-prechorus-bg) 55%, transparent); }
-/* Кастомная секция своего цвета не имеет — остаётся нейтральный тон. */
+/* Кастомная секция своего цвета не имеет. */
 .songmap-item.custom:hover { background: var(--color-tint); }
+
+/* Выделение — ВНУТРЕННЯЯ тень слева, а не бордер: бордер меняет ширину
+   строки и сдвигает текст. */
 .songmap-item.is-selected {
   background: var(--color-tint);
   color: var(--color-text-primary);
-  /* Тень вместо border: не меняет ширину строки и не двигает текст. */
   box-shadow: inset 2px 0 0 var(--color-accent);
 }
-/* Играющая секция — плашка того же цвета, что ярлык в редакторе. */
+/* Играющая секция — плашка полного цвета своего типа. */
 .songmap-item.is-current { font-weight: 650; color: var(--color-text-primary); }
-.songmap-item.is-current.verse { background: var(--label-verse-bg, #e9f0fb); }
-.songmap-item.is-current.chorus { background: var(--label-chorus-bg, #f3ebfb); }
-.songmap-item.is-current.bridge { background: var(--label-bridge-bg, #fbf0e6); }
-.songmap-item.is-current.intro { background: var(--label-intro-bg, #e8f5ee); }
-.songmap-item.is-current.outro { background: var(--label-outro-bg, #f7e9e9); }
-.songmap-item.is-current.solo { background: var(--label-solo-bg, #fdf3d6); }
-.songmap-item.is-current.pre-chorus { background: var(--label-prechorus-bg, #eef0f4); }
+.songmap-item.is-current.verse { background: var(--label-verse-bg, #e1edf6); }
+.songmap-item.is-current.chorus { background: var(--label-chorus-bg, #e4e3f6); }
+.songmap-item.is-current.bridge { background: var(--label-bridge-bg, #e1f9f0); }
+.songmap-item.is-current.intro { background: var(--label-intro-bg, #f7f1e0); }
+.songmap-item.is-current.outro { background: var(--label-outro-bg, #f7e9e0); }
+.songmap-item.is-current.solo { background: var(--label-solo-bg, #f7e3e9); }
+.songmap-item.is-current.pre-chorus { background: var(--label-prechorus-bg, #ede3f6); }
 
 .songmap-name {
   flex: 1 1 auto;
   overflow: hidden;
   text-overflow: ellipsis;
 }
-/* Повтор — одной строкой с бейджем «×2» (решение пользователя:
-   разворачивать в отдельные строки НЕ надо). */
+/* Повтор — бейджем «×N» в той же строке (разворачивать проходы в
+   отдельные строки НЕ надо, решение пользователя). */
 .songmap-repeat {
   flex: 0 0 auto;
   font-size: 11px;
   font-weight: 600;
   color: var(--color-accent);
   background: rgba(var(--color-accent-rgb), 0.12);
-  border-radius: 20px;
+  border-radius: var(--border-radius-pill);
   padding: 1px 6px;
 }
 .songmap-empty {
@@ -3493,8 +3450,7 @@ body {
 .songmap-item.is-drop-before { box-shadow: inset 0 2px 0 var(--color-accent); }
 .songmap-item.is-drop-after { box-shadow: inset 0 -2px 0 var(--color-accent); }
 
-/* На узких экранах панель перекрыла бы редактор целиком — прячем
-   вместе с зоной. Структура там всё равно листается скроллом. */
+/* Узкие экраны: панель перекрыла бы редактор целиком. */
 @media (max-width: 900px) {
   .songmap, .songmap-zone { display: none; }
 }
@@ -9164,8 +9120,8 @@ body.is-timeline.is-playing .timeline-playhead {
     </script>
   </head>
   <body>
-    <!-- B-64: панель структуры песни. Живёт СНАРУЖИ .container, чтобы не
-         сужать рабочую область (860px) — решение пользователя. -->
+    <!-- B-64: панель структуры песни (dev/specs/songmap-prompt.md).
+         Живёт СНАРУЖИ .container — рабочая область 860px не сужается. -->
     <div class="songmap-zone" id="songmapZone" aria-hidden="true">
       <span class="songmap-zone-label">Структура</span>
     </div>
@@ -9175,7 +9131,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.197</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.191</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20749,10 +20705,8 @@ function scheduleNextEvent(ctx) {
     clearActiveHighlight();
     newWrapper.classList.add('playback-active');
     playbackState.activeElements.push(newWrapper);
-    // B-64: панель структуры подсвечивает играющую секцию. Здесь же, где
-    // переезжает подсветка ячейки, — состояние гарантированно свежее.
-    // Функция только переставляет класс, список не пересобирает: это
-    // горячий путь, вызывается на каждой смене ячейки.
+    // B-64: здесь же переезжает подсветка секции в панели — состояние
+    // гарантированно свежее.
     updateSongMapCurrent();
     // scrollIntoView в режиме ленты не нужен и вреден: элемент скрыт,
     // а вызов всё равно дёргает прокрутку страницы.
@@ -29128,20 +29082,26 @@ function fillTimelinePanel(kind, chord, posCtx) {
 let timelineNavItems = [];
 
 // ---------- B-64: ПАНЕЛЬ СТРУКТУРЫ ПЕСНИ ----------
-// Спека — допрос по R8 (2026-09-06), см. строку B-64 в ROADMAP.
+// Задание: dev/specs/songmap-prompt.md (визуал + функционал).
 //
-// Панель показывает форму песни столбиком и даёт три действия: прыжок к
-// секции, смена порядка перетаскиванием, копирование Cmd+C/Cmd+V.
-// Секции остаются НЕЗАВИСИМЫМИ копиями — связывание пользователь
-// отложил, поэтому здесь его нет намеренно.
+// Панель — боковое оглавление: видно форму песни целиком, можно прыгать
+// к секции, менять порядок и копировать секции. Копии НЕЗАВИСИМЫ:
+// связывание секций в это задание не входит.
 
-// Выбранная в панели секция: с ней работают горячие клавиши. Держим id,
-// а не индекс: порядок меняется перетаскиванием, индекс бы «поехал».
+// Выбранная строка: с ней работают горячие клавиши. Держим id, а не
+// индекс — порядок меняется перетаскиванием, индекс бы «поехал».
 let songmapSelectedId = null;
-// Буфер копирования секции. Свой, а не системный: системный буфер занят
-// текстом, и перехватывать его глобально нельзя (решение пользователя —
-// горячие клавиши работают только при активной панели).
+// Свой буфер, а не системный: системный занят текстом, и перехватывать
+// его глобально нельзя (горячие клавиши работают только при открытой
+// панели — см. ниже).
 let songmapClipboard = null;
+
+// Подпись секции без номера.
+function songmapBaseName(sec) {
+  return sec.type === 'Custom'
+    ? (sec.customName || 'Кастом')
+    : (LABEL_RU[sec.type] || sec.type);
+}
 
 function renderSongMap() {
   const list = document.getElementById('songmapList');
@@ -29154,27 +29114,24 @@ function renderSongMap() {
     list.appendChild(empty);
     return;
   }
-  const frag = document.createDocumentFragment();
 
-  // B-64 (0.194): секции с ОДИНАКОВЫМ названием нумеруются — «Куплет 1,
-  // Припев 1, Куплет 2». Просьба пользователя: в списке из десяти строк
-  // четыре одинаковых «Куплета» неотличимы, и непонятно, к какому
-  // прыгаешь.
+  // Нумерация одноимённых секций: «Куплет 1, Припев 1, Куплет 2». В
+  // длинной песне четыре одинаковых «Куплета» неотличимы, и непонятно,
+  // к какому прыгаешь.
   //
   // Считаем по ИТОГОВОЙ подписи, а не по типу: две кастомные секции с
-  // разными именами — разные вещи и нумероваться вместе не должны.
-  // Номер даём, только если таких секций больше одной: одинокий
-  // «Бридж 1» выглядел бы как ошибка.
+  // разными именами — разные вещи. Номер даём только если таких секций
+  // больше одной: одинокий «Бридж 1» обещал бы второй бридж.
   const nameCount = {};
   sections.forEach((sec) => {
-    const t = sec.type === 'Custom' ? sec.customName || 'Кастом' : LABEL_RU[sec.type] || sec.type;
-    nameCount[t] = (nameCount[t] || 0) + 1;
+    const n = songmapBaseName(sec);
+    nameCount[n] = (nameCount[n] || 0) + 1;
   });
   const nameSeen = {};
 
+  const frag = document.createDocumentFragment();
   sections.forEach((sec, idx) => {
-    const baseName =
-      sec.type === 'Custom' ? sec.customName || 'Кастом' : LABEL_RU[sec.type] || sec.type;
+    const baseName = songmapBaseName(sec);
     nameSeen[baseName] = (nameSeen[baseName] || 0) + 1;
     const labelText =
       nameCount[baseName] > 1 ? `${baseName} ${nameSeen[baseName]}` : baseName;
@@ -29193,8 +29150,6 @@ function renderSongMap() {
     name.textContent = labelText;
     item.appendChild(name);
 
-    // Повтор — ОДНОЙ строкой с бейджем «×N» (решение пользователя:
-    // разворачивать проходы в отдельные строки не надо).
     const rep = Math.max(1, sec.repeat || 1);
     if (rep > 1) {
       const badge = document.createElement('span');
@@ -29208,13 +29163,12 @@ function renderSongMap() {
   list.appendChild(frag);
 }
 
-// Подсветка играющей секции — дёшево, без пересборки списка: во время
-// воспроизведения это вызывается часто.
+// Подсветка играющей секции. Только переставляет класс, список НЕ
+// пересобирает: это горячий путь, вызывается на каждой смене ячейки.
 function updateSongMapCurrent() {
   const list = document.getElementById('songmapList');
   if (!list) return;
-  const items = list.querySelectorAll('.songmap-item');
-  items.forEach((el, idx) => {
+  list.querySelectorAll('.songmap-item').forEach((el, idx) => {
     el.classList.toggle('is-current', idx === playbackState.currentSectionIndex);
   });
 }
@@ -29228,33 +29182,28 @@ function songmapSelect(id) {
   });
 }
 
+// Прокрутка к секции: ставим её ПО ЦЕНТРУ экрана — так видно и то, что
+// было до неё, и то, что идёт после.
 function songmapJumpTo(id) {
   const card = document.querySelector(`.section-card[data-id="${id}"]`);
   if (!card) return;
-  // B-64 (0.196): секция встаёт ПО ЦЕНТРУ экрана (просьба пользователя).
-  //
-  // Раньше её ставили под транспортную панель, вплотную к верху. По
-  // центру глазу спокойнее: видно и то, что было до секции, и то, что
-  // идёт после, — а панель структуры как раз для того, чтобы понимать
-  // форму песни, а не только текущее место.
   const rect = card.getBoundingClientRect();
   const pageY = window.pageYOffset || document.documentElement.scrollTop || 0;
   const cardTop = rect.top + pageY;
   const viewH = window.innerHeight || document.documentElement.clientHeight || 0;
 
-  // Центр: верх карточки минус половина свободного места под неё.
   let top = cardTop - Math.max(0, (viewH - rect.height) / 2);
 
-  // Секция ВЫШЕ экрана (длинный куплет на много квадратов) при
-  // центрировании уехала бы верхом за кромку, и первый аккорд стал бы
-  // не виден. Для таких показываем начало — с поправкой на sticky
-  // транспортную панель, иначе заголовок уйдёт под неё.
+  // Секция ВЫШЕ экрана: центрировать нельзя — верх уедет за кромку и
+  // первый аккорд станет не виден. Показываем начало, с поправкой на
+  // закреплённую сверху транспортную панель (иначе заголовок уйдёт под
+  // неё). Высоту панели берём ЗАМЕРОМ: она может быть скрыта.
   if (rect.height > viewH) {
     const bar = document.querySelector('.transport-bar');
     let offset = 16;
     if (bar) {
       const r = bar.getBoundingClientRect();
-      if (r && r.height) offset += r.height + 8; // 8px = её top
+      if (r && r.height) offset += r.height + 8; // 8px = её sticky top
     }
     top = cardTop - offset;
   }
@@ -29262,11 +29211,10 @@ function songmapJumpTo(id) {
   if (typeof window.scrollTo === 'function') {
     window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
   } else if (typeof card.scrollIntoView === 'function') {
-    // Запасной путь: в jsdom scrollTo может отсутствовать.
+    // Запасной путь: в тестовой среде scrollTo может отсутствовать.
     card.scrollIntoView({ behavior: 'smooth', block: 'center' });
   }
 }
-
 
 function initSongMap() {
   const zone = document.getElementById('songmapZone');
@@ -29274,13 +29222,12 @@ function initSongMap() {
   const list = document.getElementById('songmapList');
   if (!zone || !panel || !list) return;
 
-  // Выезд по наведению. Закрытие с задержкой: без неё панель схлопывается
-  // на дороге между зоной и панелью, и до неё невозможно доехать мышью.
+  // Выезд по наведению. Закрытие с задержкой: без неё панель
+  // схлопывается на пути мыши от корешка к самой панели.
   let closeTimer = null;
   const open = () => {
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
     panel.classList.add('is-open');
-    // Корешок прячем: иначе он торчал бы из-под выехавшей панели.
     zone.classList.add('is-hidden');
   };
   const scheduleClose = () => {
@@ -29295,18 +29242,17 @@ function initSongMap() {
   panel.addEventListener('mouseenter', open);
   panel.addEventListener('mouseleave', scheduleClose);
 
-  // Клик по строке: выделяем и прыгаем к секции.
   list.addEventListener('click', (e) => {
     const item = e.target.closest('.songmap-item');
     if (!item) return;
-    // dataset отдаёт СТРОКУ, а id секций в модели — числа. Без приведения
-    // sections.find(s => s.id === id) не находит ничего, и копирование
-    // молча не работает (замер: буфер = "5", в модели id = 5).
+    // ЛОВУШКА: dataset отдаёт СТРОКУ, а id секций в модели — числа. Без
+    // приведения sections.find(s => s.id === id) не находит ничего, и
+    // копирование молча не работает.
     songmapSelect(Number(item.dataset.id));
     songmapJumpTo(item.dataset.id);
   });
 
-  // --- Перетаскивание: смена порядка песни ---
+  // --- Перетаскивание: смена порядка ---
   let dragId = null;
   list.addEventListener('dragstart', (e) => {
     const item = e.target.closest('.songmap-item');
@@ -29314,7 +29260,6 @@ function initSongMap() {
     dragId = item.dataset.id;
     item.classList.add('is-dragging');
     e.dataTransfer.effectAllowed = 'move';
-    // Safari не начинает перетаскивание без setData.
     try { e.dataTransfer.setData('text/plain', dragId); } catch (err) {}
   });
   list.addEventListener('dragend', () => {
@@ -29340,12 +29285,8 @@ function initSongMap() {
     e.preventDefault();
     const item = e.target.closest('.songmap-item');
     if (!item || item.dataset.id === dragId) return;
-    // Переиспользуем reorderSections: там уже разобрана логика индексов
-    // при движении вверх и вниз (см. её комментарий).
-    // Тот же путь, что у перетаскивания карточек в редакторе (см.
-    // обработчик drop у .section-card): animateReorder делает FLIP, сам
-    // reorderSections правит модель. Отдельного saveState в проекте нет
-    // — состояние пишется внутри render-цикла.
+    // Тот же путь, что у перетаскивания карточек в редакторе:
+    // animateReorder делает FLIP, reorderSections правит модель.
     animateReorder(() => {
       reorderSections(Number(dragId), Number(item.dataset.id));
     });
@@ -29354,9 +29295,9 @@ function initSongMap() {
     showToast('Секция перемещена');
   });
 
-  // --- Cmd+C / Cmd+V: копирование секции ---
-  // Работают ТОЛЬКО когда панель открыта и в ней что-то выделено —
-  // решение пользователя, чтобы не перехватывать копирование текста.
+  // --- Cmd+C / Cmd+V ---
+  // Работают ТОЛЬКО при открытой панели и наличии выделения — иначе
+  // перехватили бы обычное копирование текста.
   document.addEventListener('keydown', (e) => {
     if (!panel.classList.contains('is-open')) return;
     if (!songmapSelectedId) return;
@@ -29368,22 +29309,17 @@ function initSongMap() {
       songmapClipboard = songmapSelectedId;
       e.preventDefault();
       const sec = sections.find((x) => x.id === songmapSelectedId);
-      const nm = sec
-        ? (sec.type === 'Custom' ? sec.customName || 'Кастом' : LABEL_RU[sec.type] || sec.type)
-        : 'Секция';
-      showToast(`${nm} — скопирована`);
+      showToast(`${sec ? songmapBaseName(sec) : 'Секция'} — скопирована`);
     } else if (e.key === 'v' || e.key === 'м') {
       if (songmapClipboard == null) return;
       e.preventDefault();
-      // B-64 (0.192): вставка идёт после ВЫБРАННОЙ СЕЙЧАС секции, а не
-      // после оригинала (правка пользователя; прежнее решение отменено).
-      // Так копию можно положить в любое место: скопировал припев,
-      // кликнул на нужную секцию, вставил — копия встала за ней.
+      // Вставка идёт после ВЫБРАННОЙ СЕЙЧАС секции.
       //
-      // cloneSection умеет только «сразу после оригинала», поэтому после
-      // неё переносим новую секцию на нужное место. Новая — та, которой
-      // не было в списке id до вызова: надёжнее, чем ловить её по
-      // индексу, который зависит от места оригинала.
+      // ЛОВУШКА: cloneSection умеет только «сразу после оригинала»,
+      // поэтому копию переносим. Новую секцию ищем по id, которого не
+      // было ДО вызова — индекс зависит от позиции оригинала. Индекс
+      // цели пересчитываем после удаления, иначе копия уезжает на одну
+      // позицию.
       const idsBefore = new Set(sections.map((x) => x.id));
       cloneSection(songmapClipboard);
       const added = sections.find((x) => !idsBefore.has(x.id));
@@ -29392,7 +29328,6 @@ function initSongMap() {
         const target = sections.findIndex((x) => x.id === songmapSelectedId);
         if (from !== -1 && target !== -1) {
           const [moved] = sections.splice(from, 1);
-          // Индекс цели мог сдвинуться после удаления — пересчитываем.
           const t2 = sections.findIndex((x) => x.id === songmapSelectedId);
           sections.splice(t2 + 1, 0, moved);
         }
@@ -30419,8 +30354,8 @@ function render() {
     renderTimeline();
     syncTimelineSongBar();
   }
-  // B-64: панель структуры строится из той же модели — обновляем вместе
-  // с редактором, иначе после добавления/удаления секции карта врёт.
+  // B-64: панель строится из той же модели — обновляем вместе с
+  // редактором, иначе после добавления/удаления секции карта врёт.
   renderSongMap();
 }
 // ---------- B-15 (2026-08-28): подсказка ритма над счётом при ресайзе ----------
@@ -33848,8 +33783,8 @@ initDemo();
 initTheme();
 initScheme();
 initThemeLongPress();
-// B-64: панель структуры песни. Вешает свои слушатели один раз; сам
-// список строится здесь же и дальше обновляется из render().
+// B-64: панель структуры. Слушатели вешаются один раз, дальше список
+// обновляется из render().
 initSongMap();
 document.addEventListener('input', function (e) {
   const input = e.target;

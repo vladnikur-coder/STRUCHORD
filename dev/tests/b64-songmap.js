@@ -166,7 +166,10 @@ const rows = (w) => [...w.document.querySelectorAll('.songmap-item')];
     // 0.193: маска заменена полупрозрачной подложкой с размывкой —
     // с прозрачным фоном маска гасила бы и текст пунктов. Мягкость края
     // теперь даёт сам фон, а не вырезание.
-    ok('жёсткий бордер убран', /\.songmap\s*\{[^}]*border-right:\s*none/s.test(html));
+    // Проверяем СУТЬ: у панели нет рамки справа. Раньше тест искал
+    // border-right: none, но в переписанной по промпту версии свойства
+    // нет вовсе — это то же самое, только чище.
+    ok('рамки справа нет', !/\.songmap\s*\{[^}]*border-right:\s*[0-9]/s.test(html));
     ok('подложка полупрозрачная', /\.songmap\s*\{[^}]*background:\s*color-mix/s.test(html));
     ok('фон размыт (панель не давит)', /\.songmap\s*\{[^}]*backdrop-filter:\s*blur/s.test(html));
     ok('панель не во всю высоту', /\.songmap\s*\{[^}]*max-height:\s*82vh/s.test(html));
@@ -269,8 +272,10 @@ const rows = (w) => [...w.document.querySelectorAll('.songmap-item')];
     ok('надпись вертикальная', /writing-mode:\s*vertical/.test(html));
     ok('корешок выглядит как торец панели (та же подложка)',
        /\.songmap-zone\s*\{[^}]*background:\s*color-mix/s.test(html));
+    // Скругление может быть задано токеном (--border-radius-md = 10px)
+    // — это предпочтительнее «магического» числа, поэтому принимаем оба.
     ok('скруглён справа, как выдвижной ящик',
-       /\.songmap-zone\s*\{[^}]*border-radius:\s*0\s+10px/s.test(html));
+       /\.songmap-zone\s*\{[^}]*border-radius:\s*0\s+(10px|var\(--border-radius-md\))/s.test(html));
     // Дубля заголовка внутри панели быть не должно.
     ok('заголовок внутри панели убран (не дублируем)',
        w.document.querySelectorAll('.songmap-head').length === 0);
