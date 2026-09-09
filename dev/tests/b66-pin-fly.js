@@ -68,17 +68,45 @@ async function dragToDock(w) {
     ok('кривая с торможением', /cubic-bezier/.test(frames[0].opt.easing || ''), frames[0].opt.easing);
   }
 
-  console.log('=== 2. Гриф встаёт без ВТОРОГО въезда ===');
+  console.log('=== 2. Гриф появляется СРАЗУ, полёт его перекрывает ===');
   {
+    // Вторая половина дёрганости (жалоба «закрепление всё ещё
+    // дёрганое»): док оставался пустым все 260мс полёта, а потом гриф
+    // возникал скачком. Теперь он ставится сразу и проявляется на
+    // месте, пока тултип долетает поверх.
     const w = boot();
     await sleep(300);
     await dragToDock(w);
-    await sleep(400);
-    ok('гриф закреплён', !!w.eval('pinnedFingering'));
+    await sleep(40); // полёт ещё идёт
+    ok('гриф в доке УЖЕ есть, не дожидаясь конца полёта',
+       !!w.eval('pinnedFingering'));
     const row = w.document.getElementById('pinnedRow');
-    ok('повторной анимации появления нет',
+    ok('проявляется на месте (без сдвига)',
+       row && row.classList.contains('is-fading-in'),
+       'нет is-fading-in');
+    ok('НЕ въезжает сверху',
        !row || !row.classList.contains('is-appearing'),
-       'is-appearing остался — это и был второй рывок');
+       'is-appearing остался — это и был рывок');
+    await sleep(400);
+    ok('после посадки гриф на месте', !!w.eval('pinnedFingering'));
+  }
+
+  console.log('=== 2b. Полёт не портит тултип на будущее ===');
+  {
+    // Баг после первой версии: fill:'forwards' держал конечное
+    // состояние анимации СИЛЬНЕЕ инлайн-стиля, и тултип оставался
+    // уехавшим и невидимым — «ломает появление аппликатуры».
+    const w = boot();
+    await sleep(300);
+    const { tip } = await dragToDock(w);
+    await sleep(400);
+    ok('сдвиг от полёта снят', !tip.style.transform, tip.style.transform);
+    w.eval('pinnedFingering = null');
+    const wrap = w.document.querySelector('.chord-wrapper');
+    let shown = true;
+    try { w.showFingeringTooltip('Am', wrap); } catch (e) { shown = false; }
+    await sleep(80);
+    ok('аппликатура показывается снова', shown && tip.style.display !== 'none');
   }
 
   console.log('=== 3. Обычное закрепление (не перетаскиванием) анимацию сохраняет ===');
@@ -103,6 +131,18 @@ async function dragToDock(w) {
     // тултип не должен остаться висеть в воздухе.
     ok('есть запасной таймер посадки', /setTimeout\(land,/.test(html));
     ok('посадка защищена от двойного вызова', /if \(done\) return;/.test(html));
+    // В jsdom нет настоящих Web Animations, поэтому поведенческая
+    // проверка сюда не достаёт — сторожим сам код. Без cancel() анимация
+    // с fill:'forwards' держит конечное состояние сильнее инлайна, и
+    // тултип остаётся невидимым: это и был баг «ломает появление
+    // аппликатуры».
+    ok('анимация полёта отменяется на посадке',
+       /anim && anim\.cancel\(\)/.test(html), 'нет anim.cancel() в land()');
+    ok('inline-стили снимаются через removeProperty',
+       /removeProperty\('opacity'\)/.test(html) && /removeProperty\('transform'\)/.test(html));
+    ok('гриф ставится ДО полёта, а не после',
+       /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true \}\)[\s\S]{0,1600}el\.animate\(/.test(html),
+       'порядок нарушен — док будет пустым во время полёта');
   }
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
