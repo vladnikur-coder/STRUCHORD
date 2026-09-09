@@ -141,7 +141,7 @@ async function dragToDock(w) {
     ok('inline-стили снимаются через removeProperty',
        /removeProperty\('opacity'\)/.test(html) && /removeProperty\('transform'\)/.test(html));
     ok('гриф ставится ДО полёта, а не после',
-       /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true \}\)[\s\S]{0,1600}el\.animate\(/.test(html),
+       /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true[^}]*\}\)[\s\S]{0,1600}el\.animate\(/.test(html),
        'порядок нарушен — док будет пустым во время полёта');
   }
 
@@ -186,6 +186,42 @@ async function dragToDock(w) {
     const t = html.match(/__fadeTimer = setTimeout\([\s\S]{0,200}?\}, (\d+)\)/);
     ok('класс снимается ПОСЛЕ конца анимации',
        t && parseInt(t[1], 10) >= 480, t ? t[1] : 'таймер не найден');
+  }
+
+
+  console.log('=== 6. Анимация проявления реально СТАРТУЕТ (B-67, 0.196) ===');
+  {
+    // Запись экрана показала: закрепление мгновенное, анимации нет.
+    // Причина — не тайминги (их я правил три версии подряд), а
+    // отсутствие принудительного reflow: ряд только что переведён из
+    // display:none в flex, браузер схлопывает показ и добавление класса
+    // в один пересчёт стилей и НЕ ВИДИТ смены состояния.
+    //
+    // В jsdom анимаций нет, поэтому сторожим код: класс должен сниматься,
+    // затем reflow, затем ставиться заново.
+    const block = html.slice(html.indexOf('if (rowEl && opts.fadeIn)'), html.indexOf('} else if (rowEl && !opts.skipAppear)'));
+    const iRemove = block.indexOf("classList.remove('is-fading-in')");
+    const iReflow = block.indexOf('void rowEl.offsetWidth');
+    const iAdd = block.indexOf("classList.add('is-fading-in')");
+    ok('класс сначала снимается', iRemove >= 0, 'нет remove');
+    ok('затем принудительный reflow', iReflow > iRemove, `remove=${iRemove} reflow=${iReflow}`);
+    ok('и только потом ставится', iAdd > iReflow, `reflow=${iReflow} add=${iAdd}`);
+
+    // Тултип не должен гаснуть, пока летит: иначе между его исчезновением
+    // и появлением грифа зияет пустота (замер по видео: 2 кадра при 30к/с).
+    ok('есть флаг полёта', /let tooltipFlyingToDock = false/.test(html));
+    ok('автоскрыв молчит во время полёта',
+       /if \(tooltipFlyingToDock && !isPreview\) return;/.test(html));
+    // Ищем ВНУТРИ onUp: в файле есть другие вхождения обоих выражений,
+    // и поиск по всему тексту сравнивал бы несвязанные места.
+    const onUpAt = html.indexOf('const onUp = () => {');
+    const onUpBlock = html.slice(onUpAt, onUpAt + 1400);
+    const flagAt = onUpBlock.indexOf('tooltipFlyingToDock = true');
+    const resetAt = onUpBlock.indexOf('pinDragState = null');
+    ok('флаг поднимается до сброса состояния жеста',
+       flagAt >= 0 && flagAt < resetAt,
+       `флаг=${flagAt} сброс=${resetAt} — таймер автоскрытия успеет сработать`);
+    ok('флаг снимается на посадке', /tooltipFlyingToDock = false;\n      el\.classList\.remove\('is-flying'\)/.test(html));
   }
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');

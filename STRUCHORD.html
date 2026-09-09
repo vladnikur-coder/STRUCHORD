@@ -9167,7 +9167,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.195</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.196</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15599,7 +15599,14 @@ function pinFingeringFromTooltip(opts = {}) {
     chord,
     shape: tip.dataset.currentShape ? tip.dataset.currentShape.split(',').map(Number) : null,
   };
-  hideFingeringTooltip(false);
+  // B-67 (0.196): при перелёте тултип прячет ПОСАДКА, а не эта функция.
+  //
+  // Иначе он исчезал здесь, гриф появлялся кадром позже — между ними
+  // зияла пустота ~66мс (замер по записи экрана: два пустых кадра при
+  // 30 к/с). Именно она и читалась как рывок, а не скорость анимаций.
+  //
+  // Превью-тултип прячем всегда: он в полёте не участвует.
+  if (!opts.keepTooltip) hideFingeringTooltip(false);
   hideFingeringTooltip(true);
   pinnedHoverWrapper = null;   // свежее закрепление — без ховер-режима
   renderPinnedFingering();
@@ -15618,6 +15625,19 @@ function pinFingeringFromTooltip(opts = {}) {
   // «проступить» под летящим тултипом, а не приехать откуда-то ещё.
   if (rowEl && opts.fadeIn) {
     rowEl.classList.remove('is-appearing');
+    rowEl.classList.remove('is-fading-in');
+    // B-67 (0.196): БЕЗ этого reflow анимация не запускается вовсе.
+    //
+    // Ряд только что переведён из display:none в flex (см.
+    // renderPinnedFingering выше). Браузер схлопывает показ и добавление
+    // класса в один пересчёт стилей и не видит СМЕНЫ состояния — старт
+    // анимации пропускается. На записи экрана это выглядело как мгновенное
+    // появление грифа: «переплывание плавное, а закрепление — нет».
+    //
+    // Соседняя ветка (is-appearing) этот приём уже применяет; здесь я его
+    // упустил, и три версии подряд чинил тайминги там, где анимация просто
+    // не стартовала.
+    void rowEl.offsetWidth;
     rowEl.classList.add('is-fading-in');
     if (rowEl.__fadeTimer) clearTimeout(rowEl.__fadeTimer);
     rowEl.__fadeTimer = setTimeout(() => {
@@ -15713,6 +15733,9 @@ function restorePinnedFingering() {
 let pinDragState = null;
 // B-65: id кадра петли сглаживания при перетаскивании тултипа.
 let pinFollowRaf = null;
+// B-67: идёт перелёт тултипа в док — автоскрыв по уходу мыши обязан
+// молчать, пока он не приземлится.
+let tooltipFlyingToDock = false;
 
 function attachPinDrag() {
   if (window.__pinDragReady) return;
@@ -15850,10 +15873,10 @@ function attachPinDrag() {
   const flyTooltipToDock = (st) => {
     const el = st.el;
     const bar = st.bar;
-    if (!el || !bar) { pinFingeringFromTooltip(); return; }
+    if (!el || !bar) { tooltipFlyingToDock = false; pinFingeringFromTooltip(); return; }
     const from = el.getBoundingClientRect();
     const to = bar.getBoundingClientRect();
-    if (!from.width || !to.width) { pinFingeringFromTooltip(); return; }
+    if (!from.width || !to.width) { tooltipFlyingToDock = false; pinFingeringFromTooltip(); return; }
 
     // Летим в центр дока и одновременно уменьшаемся: тултип крупнее
     // строки грифа, и без масштаба посадка выглядит как «схлопывание».
@@ -15865,6 +15888,7 @@ function attachPinDrag() {
     // и transform спорили бы за одну и ту же координату.
     el.classList.remove('is-dragging');
     el.classList.add('is-flying');
+    tooltipFlyingToDock = true;
 
     // Гриф ставим в док СРАЗУ, не дожидаясь конца полёта. Иначе 260мс
     // док пуст, а потом объект возникает скачком — вторая половина
@@ -15873,13 +15897,14 @@ function attachPinDrag() {
     //
     // Тултип летит поверх (z-index 10001) и гаснет к концу пути, гриф
     // под ним проявляется — движения перекрываются и читаются как одно.
-    pinFingeringFromTooltip({ skipAppear: false, fadeIn: true });
+    pinFingeringFromTooltip({ skipAppear: false, fadeIn: true, keepTooltip: true });
 
     let done = false;
     let anim = null;
     const land = () => {
       if (done) return;
       done = true;
+      tooltipFlyingToDock = false;
       el.classList.remove('is-flying');
       // ОБЯЗАТЕЛЬНО снять саму анимацию: с fill:'forwards' она держит
       // конечное состояние (сдвиг + scale 0.35 + opacity 0) СИЛЬНЕЕ
@@ -15925,6 +15950,16 @@ function attachPinDrag() {
   const onUp = () => {
     if (!pinDragState) return;
     const st = pinDragState;
+    // B-67 (0.196): флаг полёта поднимаем СРАЗУ, до сброса pinDragState.
+    //
+    // Иначе между сбросом и стартом полёта успевает сработать отложенный
+    // таймер автоскрытия (он взведён ещё в момент ухода курсора с
+    // ячейки): защита `if (pinDragState) return` уже не работает, а
+    // `tooltipFlyingToDock` ещё не поднят — тултип гаснет в этой щели.
+    // Замер: hideFingeringTooltip вызывался при flying=false.
+    if (st.source === 'tooltip' && st.overDock && st.moved) {
+      tooltipFlyingToDock = true;
+    }
     // B-65: петля больше не нужна. Позицию доводим до цели сразу, иначе
     // элемент застынет там, где его застало отпускание, и решение
     // «попал в док или нет» разойдётся с картинкой.
@@ -15983,6 +16018,13 @@ function hideFingeringTooltip(isPreview = false) {
   // Пока тултип тащат в панель, прятать его нельзя: курсор уходит с
   // ячейки, и обычный автоскрыв оборвал бы жест на полпути.
   if (pinDragState && !isPreview) return;
+  // B-67 (0.196): то же самое во время ПОЛЁТА к доку. Жест уже завершён
+  // (pinDragState сброшен), но тултип ещё летит — а курсор к этому
+  // моменту стоит над панелью, и автоскрыв по уходу мыши гасил его
+  // мгновенно. На записи экрана это давало два пустых кадра между
+  // исчезновением тултипа и появлением грифа: именно они читались как
+  // рывок. Прячет тултип сама посадка (land).
+  if (tooltipFlyingToDock && !isPreview) return;
   const tooltipEl = isPreview
     ? document.getElementById('preview-tooltip')
     : document.getElementById('fingering-tooltip');
