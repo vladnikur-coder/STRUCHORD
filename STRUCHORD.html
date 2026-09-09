@@ -3274,6 +3274,170 @@ body {
   background: var(--color-background-secondary);
   border-color: var(--color-text-tertiary);
 }
+/* ============================================================
+   B-64: ПАНЕЛЬ СТРУКТУРЫ ПЕСНИ
+   ============================================================
+   Спека (допрос по R8, 2026-09-06). Боль пользователя: «теряюсь в
+   длинной песне, надоело дублировать, неудобно менять порядок».
+
+   Решения, принятые на допросе:
+   - панель СЛЕВА, СНАРУЖИ рабочей области (.container = 860px по
+     центру остаётся нетронутым: сужать редактор пользователь не
+     захотел);
+   - выезжает по наведению на узкую зону у левого края, без закрепления;
+   - секции столбиком сверху вниз, в порядке песни;
+   - повторы — ОДНОЙ строкой с бейджем «×2», не развёрнуто;
+   - подсветка играющей секции;
+   - клик = прыжок, перетаскивание = смена порядка, Cmd+C/V = копия.
+
+   Вид строки взят у .tl-secnav-item из ленты: там уже есть навигация по
+   секциям с подсветкой текущей, и человек этот вид знает.
+   ============================================================ */
+
+/* Зона-ловушка у левого края: наведение на неё выдвигает панель.
+   Узкая (14px), чтобы не воровать клики у содержимого. */
+.songmap-zone {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 14px;
+  z-index: 60;
+  /* Полоска-подсказка: без неё зона невидима и о панели не догадаться. */
+  background: linear-gradient(
+    to right,
+    rgba(var(--color-accent-rgb), 0.18),
+    transparent
+  );
+  cursor: pointer;
+}
+.songmap-zone::after {
+  /* Вертикальный «корешок» — намёк, что слева что-то есть. */
+  content: '';
+  position: absolute;
+  left: 3px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 64px;
+  border-radius: 3px;
+  background: var(--color-accent);
+  opacity: 0.35;
+  transition: opacity 0.2s;
+}
+.songmap-zone:hover::after { opacity: 0.7; }
+
+.songmap {
+  position: fixed;
+  left: 0;
+  top: 0;
+  bottom: 0;
+  width: 210px;
+  z-index: 61;
+  display: flex;
+  flex-direction: column;
+  padding: 14px 10px;
+  box-sizing: border-box;
+  background: var(--color-background-primary);
+  border-right: 1px solid var(--color-border-medium);
+  box-shadow: var(--shadow-modal);
+  /* Уезжает целиком за край, а не прячется display:none — иначе
+     невозможна плавность и ломается измерение при перетаскивании. */
+  transform: translateX(-100%);
+  transition: transform 0.18s ease;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.songmap.is-open { transform: translateX(0); }
+
+.songmap-head {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  padding: 0 6px 8px 6px;
+}
+
+.songmap-list {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+/* Строка секции. Вид — как .tl-secnav-item: в покое просто текст,
+   цветная плашка проявляется только у играющей. */
+.songmap-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 5px 8px;
+  border: none;
+  border-left: 2px solid transparent;
+  border-radius: var(--border-radius-pill);
+  background: none;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  text-align: left;
+  cursor: grab;
+  white-space: nowrap;
+  overflow: hidden;
+  transition: background 0.15s, color 0.15s;
+}
+.songmap-item:hover {
+  background: var(--color-tint);
+  color: var(--color-text-primary);
+}
+.songmap-item.is-selected {
+  background: var(--color-tint);
+  color: var(--color-text-primary);
+  border-left-color: var(--color-accent);
+}
+/* Играющая секция — плашка того же цвета, что ярлык в редакторе. */
+.songmap-item.is-current { font-weight: 650; color: var(--color-text-primary); }
+.songmap-item.is-current.verse { background: var(--label-verse-bg, #e9f0fb); }
+.songmap-item.is-current.chorus { background: var(--label-chorus-bg, #f3ebfb); }
+.songmap-item.is-current.bridge { background: var(--label-bridge-bg, #fbf0e6); }
+.songmap-item.is-current.intro { background: var(--label-intro-bg, #e8f5ee); }
+.songmap-item.is-current.outro { background: var(--label-outro-bg, #f7e9e9); }
+.songmap-item.is-current.solo { background: var(--label-solo-bg, #fdf3d6); }
+.songmap-item.is-current.pre-chorus { background: var(--label-prechorus-bg, #eef0f4); }
+
+.songmap-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+/* Повтор — одной строкой с бейджем «×2» (решение пользователя:
+   разворачивать в отдельные строки НЕ надо). */
+.songmap-repeat {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.12);
+  border-radius: 20px;
+  padding: 1px 6px;
+}
+.songmap-empty {
+  padding: 8px;
+  font-size: 12px;
+  color: var(--color-text-tertiary);
+}
+/* Перетаскивание: источник бледнеет, цель показывает линию вставки. */
+.songmap-item.is-dragging { opacity: 0.4; }
+.songmap-item.is-drop-before { box-shadow: inset 0 2px 0 var(--color-accent); }
+.songmap-item.is-drop-after { box-shadow: inset 0 -2px 0 var(--color-accent); }
+
+/* На узких экранах панель перекрыла бы редактор целиком — прячем
+   вместе с зоной. Структура там всё равно листается скроллом. */
+@media (max-width: 900px) {
+  .songmap, .songmap-zone { display: none; }
+}
+
 .sections {
   display: flex;
   flex-direction: column;
@@ -3427,6 +3591,17 @@ body {
   font-weight: 600;
   color: var(--color-text-secondary);
   white-space: nowrap;
+}
+/* B-56: пометка свинга в бейдже режима. Акцент — тот же, что у кнопки. */
+.strum-swing-tag {
+  margin-left: 5px;
+  padding-left: 5px;
+  border-left: 1px solid var(--color-border-medium);
+  color: var(--color-accent);
+  font-weight: 700;
+  font-size: 9px;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
 }
 .strum-preview {
   display: inline-flex;
@@ -4212,6 +4387,37 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   color: var(--color-text-tertiary);
   white-space: nowrap;
 }
+/* B-56: свинг — переключатель ПОВЕРХ дробности, поэтому отделён слева и
+   красится акцентом, а не чернилами: иначе включённый Swing читался бы
+   как «выбрана дробность Swing». */
+.pattern-swing-btn {
+  padding: 6px 14px;
+  border-radius: 14px;
+  border: 1px solid var(--color-border-medium);
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+  margin-left: 10px;
+  position: relative;
+}
+.pattern-swing-btn::before {
+  content: '';
+  position: absolute;
+  left: -6px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 1px;
+  height: 16px;
+  background: var(--color-border-medium);
+}
+.pattern-swing-btn.active {
+  background: var(--color-tint);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+}
+.pattern-swing-btn[hidden] { display: none; }
 /* Первая подпись ячейки: прижата к краю, а не центрирована на нём.
    .square-inner обрезает содержимое ради скруглённых углов, и
    центрированная цифра «1» уходила под кромку наполовину (замер: 2px).
@@ -4293,6 +4499,22 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 .rhythm-hint-hit.is-edge {
   transform: none;
   margin-left: 2px;
+}
+/* 0.170: удар над узлом, на который пришла ТЕКУЩАЯ граница протяжки,
+   встаёт в ту же edge-позу, что и подпись счёта под ним (.chord-count
+   .is-edge: не центр на узле, а прижат к границе + 2px). Раньше
+   «1/та/и/та» отъезжала от границы, а стрелка над ней стояла — доля и её
+   удар расходились. Класс ставит syncRhythmHintLiveEdges по тому же
+   набору ключей узлов, что и у счёта (updateResizeMetricCountEdges).
+   Длительность переключения намеренно НЕ здесь: на входе удар летит
+   базовым transition 0.22s (иначе граничный удар прилетал бы раньше
+   волны), а после приплывания JS ставит inline 0.12s — как у счёта. */
+.rhythm-hint-hit.is-live-edge {
+  transform: translateX(2px);
+}
+/* Первый удар квадрата и так прижат (margin-left 2px) — поза не меняется. */
+.rhythm-hint-hit.is-edge.is-live-edge {
+  transform: none;
 }
 /* Цвета — те же, что у дорожки ленты и превью боя: вниз тёмный, вверх
    зелёный, глушение красное. Чужая палитра здесь читалась бы как
@@ -8881,10 +9103,17 @@ body.is-timeline.is-playing .timeline-playhead {
     </script>
   </head>
   <body>
+    <!-- B-64: панель структуры песни. Живёт СНАРУЖИ .container, чтобы не
+         сужать рабочую область (860px) — решение пользователя. -->
+    <div class="songmap-zone" id="songmapZone" aria-hidden="true"></div>
+    <aside class="songmap" id="songmap" aria-label="Структура песни">
+      <div class="songmap-head">Структура</div>
+      <div class="songmap-list" id="songmapList"></div>
+    </aside>
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.168</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.191</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9580,6 +9809,106 @@ function getGridUnitDurationSeconds(bpm, ts) {
   const { denominator } = parseTimeSig(ts);
   const quarterNoteDuration = 60 / bpm;
   return quarterNoteDuration * (4 / denominator);
+}
+
+// ---------- SWING (B-56) ----------
+// Свинг — включаемое свойство САМОГО ритма (pattern.swing): и общего боя
+// секции, и кастомного рулона ячейки.
+//
+// ГРАНИЦА ОТВЕТСТВЕННОСТИ (решение пользователя 2026-09-06, после отката
+// первой реализации): свинг влияет ТОЛЬКО НА ЗВУК. Ни раскладка ударов,
+// ни сетка, ни счёт, ни подсказка ресайза о нём не знают — они остаются
+// чисто метрическими. Так же устроена нотная запись: пишут ровные
+// восьмые и ставят пометку «swing», а качает исполнитель.
+//
+// Первая реализация (0.177-0.184) двигала ноты вслед за звуком и тянула
+// фазу через ленту, счёт и подсказку — это ломало положение ритма при
+// ресайзе и потребовало пяти волн заплаток. Здесь свинг намеренно
+// заперт в одной функции планировщика.
+//
+// Зачем флаг, если кач можно записать триолями: триольная запись
+// смешивает рисунок и кач. «6-ка Шаффл» (sub3, D__ D_U __U D_U), если
+// взять 1-ю и 3-ю трети каждой доли, даёт ровно D _ D U _ U D U —
+// бит-в-бит «Шестёрку» (sub2). То есть sub3 там нужен только ради
+// неравномерности. Расплата — ресайз: ячейка 1.75 доли не делится на
+// трети (1.75 x 3 = 5.25) и заставляет сетку дробиться до sub12, тогда
+// как на sub2 хватает sub4.
+// B-58: триоли доступны не во всех размерах.
+//
+// Решение пользователя 2026-09-06: «уберём sub3 из чётных размеров»,
+// уточнено — только 2/4, 4/4, 8/8. Причина: в простом чётном размере
+// доля делится надвое, и «3 ноты на долю» почти всегда означает не
+// настоящую триоль, а шаффл — который теперь честнее выражается кнопкой
+// Swing. Побочно это убирает главный источник крошева при ресайзе:
+// дробная ячейка не ложится на трети (1.75 x 3 = 5.25) и заставляла
+// сетку мельчить до sub12.
+//
+// 6/8 — ИСКЛЮЧЕНИЕ и остаётся с тройками: это составной размер, где
+// доля по своей природе делится на три (вальс, баркарола, 6/8-баллады).
+// Числитель у него чётный, поэтому проверять надо не чётность, а
+// принадлежность списку простых размеров.
+const NO_TRIPLET_TIME_SIGS = new Set(['2/4', '4/4', '8/8']);
+
+function timeSigAllowsTriplets(ts) {
+  return !NO_TRIPLET_TIME_SIGS.has(String(ts || ''));
+}
+
+const SWING_RATIO = 2 / 3; // классический шаффл 2:1 — первая нота 2/3 доли
+
+// Качает ли этот паттерн. Свинг осмыслен только при ДВОИЧНОМ делении:
+// при sub3 доля уже поделена на трети (кач записан явно), при sub1 внутри
+// доли нет второй ноты, которую можно было бы сдвинуть.
+function patternHasSwing(pattern) {
+  if (!pattern || !pattern.swing) return false;
+  const sub = Number(pattern.subdivision) || 1;
+  return sub === 2 || sub === 4;
+}
+
+// Смещение начала шага i от начала доли, в долях сетки. ТОЛЬКО ДЛЯ ЗВУКА.
+// Без свинга вырождается в i / sub, поэтому обычные ритмы не затронуты.
+// B-63: пары свинга считаются от НАЧАЛА КВАДРАТА, а не от начала ячейки.
+//
+// Спека пользователя 2026-09-06: «свинг сбивается из-за того, что
+// начинает считаться заново после ресайза: то, что должно быть "и",
+// становится "1"».
+//
+// Кач определён на ПАРАХ восьмых: первая нота пары — сильная доля,
+// вторая уезжает на 2/3. Какая из двух перед нами, решает АБСОЛЮТНАЯ
+// позиция в квадрате, а не порядковый номер шага внутри ячейки. Ячейка,
+// начавшаяся с доли 1.5 (после ресайза соседа), открывается второй
+// нотой пары — «и», и её нельзя играть как сильную.
+//
+// Раньше сюда шёл локальный индекс: удар на 1.5 считался началом пары и
+// звучал ровно на 1.5 вместо 1.667. Ритм слышимо «перезапускался».
+//
+// nodeIndex — номер узла сетки ОТ НАЧАЛА КВАДРАТА (доля * sub).
+function swingStepOffsetUnits(nodeIndex, sub, swing) {
+  if (!swing || !(sub === 2 || sub === 4)) return nodeIndex / sub;
+  const pairSize = 2;
+  const pairIdx = Math.floor(nodeIndex / pairSize);
+  const inPair = ((nodeIndex % pairSize) + pairSize) % pairSize;
+  const pairsPerBeat = sub / pairSize;      // sub2 -> 1 пара, sub4 -> 2 пары
+  const pairStart = pairIdx / pairsPerBeat;
+  const pairLen = 1 / pairsPerBeat;
+  return pairStart + (inPair === 0 ? 0 : pairLen * SWING_RATIO);
+}
+
+// Свернуть триольный ритм в свингованные восьмые, ЕСЛИ это возможно без
+// потери звука: в каждой доле заняты только 1-я и 3-я трети. Занятая
+// средняя треть = настоящая триоль (три разных удара на долю), её
+// свингом не выразить — возвращаем null и не трогаем.
+function foldTripletToSwing(pattern) {
+  if (!pattern || (pattern.subdivision || 1) !== 3) return null;
+  const steps = Array.isArray(pattern.steps) ? pattern.steps : [];
+  if (!steps.length || steps.length % 3 !== 0) return null;
+  const isEmpty = (v) => v === null || v === undefined || v === '' || v === '_'
+    || (Array.isArray(v) && !v.length);
+  const out = [];
+  for (let b = 0; b < steps.length; b += 3) {
+    if (!isEmpty(steps[b + 1])) return null;
+    out.push(steps[b], steps[b + 2]);
+  }
+  return { ...pattern, subdivision: 2, steps: out, swing: true };
 }
 
 // ---------- SPAN: единицы записи конкретного события ----------
@@ -10839,7 +11168,7 @@ const CONFIG = {
 // Версия схемы данных сохранённой/экспортированной песни.
 // Увеличивайте при любом несовместимом изменении структуры sections/squares/events
 // и добавляйте соответствующую миграцию в SONG_MIGRATIONS ниже.
-const SONG_SCHEMA_VERSION = 2;
+const SONG_SCHEMA_VERSION = 3;
 const FINGERING_WEIGHTS = {
   // ===== Система удобства аппликатур (2026-08-13, переработана) =====
   //
@@ -15517,6 +15846,14 @@ function attachFingeringEvents() {
     }
 
     if (isMouseDown || isDragging) return;
+    // 0.171: протяжка границы ячейки — тоже жест с зажатой кнопкой, но
+    // pointerdown ручки гасит mousedown (preventDefault), и isMouseDown
+    // не выставлялся. Курсор по пути задевал соседние ячейки, каждое
+    // наведение строило тултип (генерация форм 50–220 мс) и через
+    // setPreferredFingering сбрасывало fingeringCache — а после отпускания
+    // снимок истории пересчитывал формы с нуля (~0.5 с). Отсюда рывки.
+    // Пока кнопка зажата или идёт ресайз — тултипы не трогаем.
+    if (e.buttons || document.body.classList.contains('is-resizing')) return;
 
     // Проверяем, не наведена ли мышь на сам тултип
     const tooltipEl = document.getElementById('fingering-tooltip');
@@ -17593,7 +17930,6 @@ function cloneSection(id) {
     squares: orig.squares.map((sq) => ({
       id: nextId++,
       repeat: sq.repeat || 1,
-      strumPattern: clonePlainData(sq.strumPattern || null),
       events: sq.events.map((e) => ({
         chord: e.chord,
         span: e.span,
@@ -18001,12 +18337,8 @@ function migrateSquareForTimeSig(sq, oldParentTs, newParentTs) {
   // зовётся в цикле по квадратам: повторные вызовы холостые (пул уже
   // пуст). Дальше работаем по-старому, прямо на рисунках событий.
   dropRhythmStorage();
-  // Рисунки боя переносим ВМЕСТЕ с длительностями: и свой рисунок
-  // квадрата, и рисунки отдельных ячеек. Иначе они остались бы
-  // размеченными по старому такту и поехали бы по фазе.
-  if (sq.strumPattern) {
-    sq.strumPattern = migratePatternForTimeSig(sq.strumPattern, oldParentTs, newParentTs);
-  }
+  // Рисунки боя ячеек переносим ВМЕСТЕ с длительностями. Иначе они
+  // остались бы размеченными по старому такту и поехали бы по фазе.
   (sq.events || []).forEach((ev) => {
     if (ev && ev.strumPattern) {
       ev.strumPattern = migratePatternForTimeSig(ev.strumPattern, oldParentTs, newParentTs);
@@ -18214,7 +18546,8 @@ function migrateSectionsToRhythmPool(songSections) {
       const id = mintRhythmRollId(storage);
       storage.pool[id] = { mode: sec.strumPattern.mode || 'strum',
         subdivision: Math.max(1, sec.strumPattern.subdivision || 1),
-        steps: cloneRhythmSteps(sec.strumPattern.steps) };
+        steps: cloneRhythmSteps(sec.strumPattern.steps),
+        ...(sec.strumPattern.swing ? { swing: true } : {}) };
       storage.sectionRolls.set(sec.id, id);
     }
     for (const sq of sec.squares || []) migrateSquareEventsToPool(sec, sq, storage, null);
@@ -18289,7 +18622,10 @@ function migrateSquareEventsToPool(sec, sq, storage, spansOverride) {
       }
     }
     const id = mintRhythmRollId(storage);
-    storage.pool[id] = { mode: mode0, subdivision: g, steps };
+    // Слитая цепочка качает, только если качали ВСЕ её куски.
+    const chainSwing = idxs.every((k) => patternHasSwing(evs[k].strumPattern));
+    storage.pool[id] = { mode: mode0, subdivision: g, steps,
+      ...(chainSwing ? { swing: true } : {}) };
     rollForGroup[gid] = { id, anchor };
   }
   evs.forEach((ev, i) => {
@@ -18301,8 +18637,12 @@ function migrateSquareEventsToPool(sec, sq, storage, spansOverride) {
       storage.refs.set(`${sec.id}:${sq.id}:${i}`, { roll: g.id, anchor: g.anchor, sig });
     } else { // одиночный свой паттерн — свой рулон, развёрнутый с её начала
       const id = mintRhythmRollId(storage);
-      storage.pool[id] = { mode: p.mode || 'strum', subdivision: Math.max(1, p.subdivision || 1), steps: cloneRhythmSteps(p.steps) };
-      storage.refs.set(`${sec.id}:${sq.id}:${i}`, { roll: id, anchor: offs[i], sig });
+      storage.pool[id] = { mode: p.mode || 'strum', subdivision: Math.max(1, p.subdivision || 1),
+        steps: cloneRhythmSteps(p.steps), ...(p.swing ? { swing: true } : {}) };
+      // B-61: якорь — на узле сетки (см. пояснение ниже по коду).
+      const subA = Math.max(1, p.subdivision || 1);
+      storage.refs.set(`${sec.id}:${sq.id}:${i}`,
+        { roll: id, anchor: Math.round(offs[i] * subA) / subA, sig });
     }
   });
 }
@@ -18330,11 +18670,22 @@ function rhythmRollWindowFor(secId, sq, eventIndex, storage, spansOverride) {
   };
   let off = 0;
   for (let i = 0; i < eventIndex; i++) off += spanAt(i);
-  const startStep = Math.round((off - ref.anchor) * sub);
-  const need = Math.max(1, Math.round(spanAt(eventIndex) * sub));
+  // B-61: окно начинается с ближайшего УЗЛА сетки не раньше начала
+  // ячейки. Раньше отсчёт шёл прямо от `off`, и у ячейки с дробным
+  // смещением (5.75) вся лента уезжала на четверть доли: звучало
+  // 6.25 / 6.75 / 7.25 вместо узлов 6.0 / 6.5 / 7.0. Якорь при этом уже
+  // выровнен — не хватало именно фазы самой ячейки.
+  const stepUnits = 1 / sub;
+  const phase = Math.ceil((off - 1e-9) / stepUnits) * stepUnits - off;
+  const startStep = Math.round((off + phase - ref.anchor) * sub);
+  // Узел ровно на правой границе принадлежит следующей ячейке.
+  const need = Math.max(0, Math.ceil((spanAt(eventIndex) - phase) / stepUnits - 1e-9));
+  if (!need) return null;
   const steps = [];
   for (let k = 0; k < need; k++) steps.push(roll.steps[(((startStep + k) % len) + len) % len]);
-  return { mode: roll.mode, subdivision: sub, steps };
+  return { mode: roll.mode, subdivision: sub, steps,
+    ...(phase > 1e-9 ? { gridPhase: phase } : {}),
+    ...(roll.swing ? { swing: true } : {}) };
 }
 
 // Срез фасада (унаследованного боя секции/квадрата) под ячейку — чистая
@@ -18344,9 +18695,8 @@ function rhythmRollWindowFor(secId, sq, eventIndex, storage, spansOverride) {
 // Рисунок самой ячейки здесь не читается намеренно: «своё» даёт окно пула.
 function facadeSlicePattern(sec, sq, ev, eventIndex, spansOverride, patternOverride) {
   if (!sec || !sq || !ev) return null;
-  // patternOverride (волна-7): автонаследование сравнивает ячейку только с
-  // ЯВНЫМ боем секции — рисунок квадрата из старого сейва фасадом для
-  // демоции не считается (уточнение пользователя 2026-08-25).
+  // patternOverride (волна-7): явный бой секции, переданный вызывающим.
+  // Без него фасад — бой секции же (после B-18 другого фасада нет).
   const pattern = patternOverride || getEffectiveStrumPattern(null, sq, sec);
   if (!pattern || !Array.isArray(pattern.steps) || !pattern.steps.length) return null;
   const ts = getEffectiveTimeSigForEvent(ev, sec);
@@ -18368,7 +18718,8 @@ function facadeSlicePattern(sec, sq, ev, eventIndex, spansOverride, patternOverr
   const startStep = Math.round(cycleOffset * sub);
   const steps = [];
   for (let i = 0; i < need; i++) steps.push(pattern.steps[(startStep + i) % total]);
-  return { mode: pattern.mode, subdivision: sub, steps };
+  return pattern.swing ? { mode: pattern.mode, subdivision: sub, steps, swing: true }
+                       : { mode: pattern.mode, subdivision: sub, steps };
 }
 
 // Замороженное звучащее содержимое ячейки на момент касания границы
@@ -18453,15 +18804,45 @@ function sewRhythmChainAtBoundary(st, sec, sq, dragIdx, startSpans) {
     tapes.push(frozenTapeForEvent(st, sec, sq, i, startSpans || null));
     subs.push(tapes[tapes.length - 1] ? Math.max(1, tapes[tapes.length - 1].subdivision || 1) : 0);
   }
+  // B-50 (2026-09-05): сетку цепочки подбираем под доли ПОСЛЕ жеста.
+  // Раньше здесь стояли замороженные доли (spanAt/offs0), и дробная
+  // ячейка тащила за собой мелкую сетку: при span 1.75 и смещении 5.75
+  // тройной бой ложился только в sub12, то есть в двенадцать нот на
+  // долю. Пользователь (2026-09-05) сформулировал обратное правило:
+  // «дробность не меняется, просто шагов становится больше или меньше
+  // по длине ячейки». Содержимое ленты по-прежнему берётся замороженным
+  // (tapes) — меняется только сетка, в которую его раскладывают.
+  const offsNow = [];
+  {
+    let acc = 0;
+    sq.events.forEach((e0, i) => { offsNow.push(acc); acc += curSpan(i); });
+  }
   const fitsCell = (i, cand) =>
     (!subs[i - iMin] || cand % subs[i - iMin] === 0) &&
-    isInt(spanAt(i) * cand) && isInt(offs0[i] * cand);
+    isInt(curSpan(i) * cand) && isInt(offsNow[i] * cand);
   const ROW = [1, 2, 3, 4, 6, 8, 12, 16, 24];
+  // B-56: свингованная цепочка сетку НЕ меняет — см. тот же приём в
+  // regridSquareRollsToFit. sub2+swing и sub4+swing — разная музыка.
+  const chainSwing = (() => {
+    let any = 0;
+    for (let i = iMin; i <= iMax; i++) {
+      const t = tapes[i - iMin];
+      if (!t) continue;
+      if (!patternHasSwing(t)) return 0;
+      if (any && (t.subdivision || 1) !== any) return 0;
+      any = t.subdivision || 1;
+    }
+    return any;
+  })();
   let g = 0;
-  for (const cand of ROW) {
-    let allOk = true;
-    for (let i = iMin; i <= iMax; i++) if (!fitsCell(i, cand)) { allOk = false; break; }
-    if (allOk) { g = cand; break; }
+  if (chainSwing) {
+    g = chainSwing;
+  } else {
+    for (const cand of ROW) {
+      let allOk = true;
+      for (let i = iMin; i <= iMax; i++) if (!fitsCell(i, cand)) { allOk = false; break; }
+      if (allOk) { g = cand; break; }
+    }
   }
   const outliers = new Set();
   if (!g) {
@@ -18548,9 +18929,12 @@ function sewRhythmChainAtBoundary(st, sec, sq, dragIdx, startSpans) {
     }
   });
   const id = mintRhythmRollId(st);
-  st.pool[id] = { mode: chainMode, subdivision: g, steps, transient: true, _clearedKeys: [...seen], _soundedKeys: [...sounded] };
+  st.pool[id] = { mode: chainMode, subdivision: g, steps, transient: true,
+    ...(chainSwing ? { swing: true } : {}),
+    _clearedKeys: [...seen], _soundedKeys: [...sounded] };
   for (let i = iMin; i <= iMax; i++)
-    st.refs.set(keys[i - iMin], { roll: id, anchor: offs0[iMin] });
+    // B-61: якорь сшитой ленты — на узле сетки g.
+    st.refs.set(keys[i - iMin], { roll: id, anchor: Math.round(offs0[iMin] * g) / g });
   // Покинутые рулоны: уцелев в одном окне, сводятся к звучащей полосе —
   // как при форке из редактора.
   oldRolls.forEach((rid) => { if (rid !== id) collapseOrphanRhythmRoll(st, sec, sq, rid); });
@@ -18596,8 +18980,11 @@ function dissolveSewnRhythmPair(st, sec, sq, dragIdx) {
       continue;
     }
     const nid = mintRhythmRollId(st);
-    st.pool[nid] = { mode: win.mode, subdivision: win.subdivision, steps: cloneRhythmSteps(win.steps) };
-    st.refs.set(key, { roll: nid, anchor: offs[i] });
+    st.pool[nid] = { mode: win.mode, subdivision: win.subdivision,
+      steps: cloneRhythmSteps(win.steps), ...(win.swing ? { swing: true } : {}) };
+    // B-61: якорь приватного рулона — на узле его же сетки.
+    const subD = Math.max(1, win.subdivision || 1);
+    st.refs.set(key, { roll: nid, anchor: Math.round(offs[i] * subD) / subD });
   }
   gcRhythmRolls(st);
   // Волна-6: свежие приватные рулоны сразу канонизируются — лента
@@ -18690,7 +19077,9 @@ function adoptRhythmPoolFromSong(rp) {
       });
       return safe.length ? safe : null;
     });
-    storage.pool[id] = { mode, subdivision: sub, steps };
+    const swingIn = r.swing === true && (sub === 2 || sub === 4);
+    storage.pool[id] = swingIn ? { mode, subdivision: sub, steps, swing: true }
+                               : { mode, subdivision: sub, steps };
   }
   if (!Object.keys(storage.pool).length) return false;
   const fileSeq = Number(rp.seq);
@@ -18749,6 +19138,8 @@ function serializeRhythmPoolForSave() {
       mode: r.mode === 'pick' ? 'pick' : r.mode === 'mixed' ? 'mixed' : 'strum',
       subdivision: Math.max(1, r.subdivision || 1),
       steps: cloneRhythmSteps(r.steps),
+      // B-56: без этого свинг терялся бы при сохранении песни в файл.
+      ...(r.swing ? { swing: true } : {}),
     };
   }
   if (!Object.keys(pool).length) return null;
@@ -18784,7 +19175,10 @@ function rhythmRefKey(secId, sqId, eventIndex) {
 // Контрольная подпись рисунка: сетка + шаги одной строкой.
 function rhythmPatternSig(p) {
   if (!p || !Array.isArray(p.steps)) return '';
-  return (p.subdivision || 1) + '|'
+  // B-56: свинг входит в подпись — иначе «Шестёрка» и она же со свингом
+  // считались бы одним ритмом, и ячейка молча теряла бы кач при
+  // наследовании от несвингованной секции.
+  return (p.subdivision || 1) + (p.swing ? 's' : '') + '|'
     + p.steps.map((v) => (Array.isArray(v) ? v.join('+') : v)).join(',');
 }
 
@@ -18896,7 +19290,7 @@ function ensureSquareRhythmRefs(sec, sq, spansOverride) {
         const p = sq.events[i].strumPattern;
         const id = mintRhythmRollId(st);
         st.pool[id] = { mode: p.mode || 'strum', subdivision: Math.max(1, p.subdivision || 1),
-          steps: cloneRhythmSteps(p.steps) };
+          steps: cloneRhythmSteps(p.steps), ...(p.swing ? { swing: true } : {}) };
         st.refs.set(prefix + i, { roll: id, anchor: offsets[i], sig: rhythmPatternSig(p) });
       }
     }
@@ -18925,7 +19319,9 @@ function syncPrivateRhythmAnchors(st, sec, sq) {
     if (!roll || !Array.isArray(roll.steps) || !roll.steps.length) return;
     const sub = Math.max(1, roll.subdivision || 1);
     const need = Math.max(1, Math.round(((ev && ev.span) || 1) * sub));
-    ref.anchor = offs[i];
+    // B-61: см. выше — якорь всегда на узле, иначе лента ячейки
+    // отсчитывается от точки между узлами и съезжает при ресайзе.
+    ref.anchor = Math.round(offs[i] * sub) / sub;
     if (roll.steps.length !== need) {
       roll.steps = Array.from({ length: need }, (_, k) => {
         const v = roll.steps[k % roll.steps.length];
@@ -19027,6 +19423,12 @@ function regridSquareRollsToFit(sec, sq) {
     });
     // Волна-6: сначала пробуем укрупнить (обратный ход утончения —
     // сетка не застревает на мелком шаге после возврата границ).
+    // B-56: СВИНГОВАННЫЙ рулон сетку не меняет ни в какую сторону.
+    // Свинг определён на парах: при sub2 качается вторая восьмая, при
+    // sub4 — вторая шестнадцатая, то есть ДРУГАЯ музыка. Утончение ×2
+    // «чтобы дробный span лёг нацело» здесь не безобидная перезапись, а
+    // подмена ритма: замер давал `D_DU` -> `__U_D_U_D__`.
+    if (patternHasSwing(roll)) continue;
     coarsenRhythmRoll(roll, fits);
     sub = Math.max(1, roll.subdivision || 1);
     // B-03 (лесенка): утончаем ПОШАГОВО ×2, а не курсами ×2/×4/×8.
@@ -19060,7 +19462,8 @@ function cloneSquareRhythmRolls(st, srcSecId, srcSqId, dstSecId, dstSqId) {
       rollMap.set(ref.roll, nid);
       st.pool[nid] = { mode: roll.mode === 'pick' ? 'pick' : roll.mode === 'mixed' ? 'mixed' : 'strum',
         subdivision: Math.max(1, roll.subdivision || 1),
-        steps: cloneRhythmSteps(roll.steps) };
+        steps: cloneRhythmSteps(roll.steps),
+        ...(roll.swing ? { swing: true } : {}) };
     }
     st.refs.set(`${dstSecId}:${dstSqId}:${key.slice(prefix.length)}`,
       { roll: rollMap.get(ref.roll), anchor: ref.anchor });
@@ -19106,10 +19509,9 @@ function rhythmSoundingForEvent(sec, sq, ev, eventIndex) {
 // критерий совпадения — по ЗВУКУ (позиции и типы ударов побитово,
 // плотность записи безразлична); без явного боя у фасада правило спит
 // («один удар» при пустой секции — не совпадение); область — только пины
-// ячеек (уровень «рисунок квадрата» отменён; его поле живёт ради старых
-// сейвов и участвует в фасаде ПОКАЗА/ЗВУКА, но не в фасаде демоции —
-// уточнение 2026-08-25: демоция сравнивает только с явным боем
-// секции; дефолтный одиночный удар общим боем не считается).
+// ячеек (уровень «рисунок квадрата» отменён; поле снесено чисткой-4
+// B-18 — демоция сравнивает только с явным боем секции; дефолтный
+// одиночный удар общим боем не считается).
 // Тишина волны-5 не пострадает: заводской фасад пустой секции (один удар)
 // ей не равен, а секция из одних пауз — совпадение честное.
 
@@ -19167,7 +19569,7 @@ function soundingWindowsEqual(a, b) {
 // выбивающиеся волны-6); «не объявлен» — только про явный бой СЕКЦИИ
 // (дословно: «рисунка квадрата не существует, мы отменили эту концепцию.
 // общий ритм можно задать только для секции, больше никак» — снос фасада
-// квадрата вынесен в чистку-4, B-18); промежуточный показ при протяжке
+// квадрата сделан чисткой-4, B-18); промежуточный показ при протяжке
 // тоже прячем. Тишина при ОБЪЯВЛЕННОМ бое секции — не призрак: она глушит
 // общий бой, осмысленна и живёт (волна-7).
 function sectionRhythmDeclared(sec) {
@@ -19315,7 +19717,8 @@ function setSectionRhythmRoll(sec, pattern) {
       const id = mintRhythmRollId(st);
       st.pool[id] = { mode: pattern.mode === 'pick' ? 'pick' : 'strum',
         subdivision: Math.max(1, pattern.subdivision || 1),
-        steps: cloneRhythmSteps(pattern.steps) };
+        steps: cloneRhythmSteps(pattern.steps),
+        ...(pattern.swing ? { swing: true } : {}) };
       st.sectionRolls.set(sec.id, id);
     }
   } else if (cur) {
@@ -20284,6 +20687,11 @@ function scheduleNextEvent(ctx) {
     clearActiveHighlight();
     newWrapper.classList.add('playback-active');
     playbackState.activeElements.push(newWrapper);
+    // B-64: панель структуры подсвечивает играющую секцию. Здесь же, где
+    // переезжает подсветка ячейки, — состояние гарантированно свежее.
+    // Функция только переставляет класс, список не пересобирает: это
+    // горячий путь, вызывается на каждой смене ячейки.
+    updateSongMapCurrent();
     // scrollIntoView в режиме ленты не нужен и вреден: элемент скрыт,
     // а вызов всё равно дёргает прокрутку страницы.
     // B-35 (0.147): авто-скролл «как в Guitar Pro» — виден играющий
@@ -22901,16 +23309,15 @@ function restartPlaybackFromCurrentPosition() {
 //     тонкая струна, 6 — самая толстая); null/[] — пусто. Для обратной
 //     совместимости со старыми паттернами также допускается голое число.
 //
-// Приоритет: своя ячейка > рисунок квадрата > секция по умолчанию.
-// Уровень «рисунок квадрата» отменён решением пользователя (волна-7),
-// а его ветки scope='square' в редакторе вырезаны чисткой-2 (B-02,
-// 2026-08-25 — ни один вызов их не открывал). Поле sq.strumPattern
-// читаем: оно приезжает в старых сейвах, и его фасад продолжает
-// работать, пока такой файл живёт в песне.
+// Приоритет: своя ячейка > секция по умолчанию. Уровень «рисунок
+// квадрата» отменён решением пользователя (волна-7): ветки scope='square'
+// в редакторе вырезаны чисткой-2 (B-02), а само поле sq.strumPattern —
+// чисткой-4 (B-18, 2026-09-05): при загрузке оно отбрасывается
+// (sanitizeSongData), в сейв не пишется. Параметр sq оставлен ради
+// сигнатуры вызовов — на результат он не влияет.
 
 function getEffectiveStrumPattern(event, sq, sec) {
   if (event && event.strumPattern) return event.strumPattern;
-  if (sq && sq.strumPattern) return sq.strumPattern;
   if (sec && sec.strumPattern) return sec.strumPattern;
   return null;
 }
@@ -22938,11 +23345,18 @@ function getSlicedPatternForEvent(sec, sq, ev, eventIndex) {
     // же формулу: короткий рисунок зациклится, длинный обрежется.
     // Замер до правки: span 2 — звучало D_U_, показывалось D_U_DUX_.
     const subOwn = Math.max(1, pattern.subdivision || 1);
+    // B-61: у ячейки со СВОИМ рисунком окно берётся как раньше — цикл
+    // от её начала. Попытка читать его по абсолютной сетке (как
+    // наследуемый бой ниже) ломает звук связок: golden-rhythm давал 7
+    // расхождений на цепочках и старых сейвах, потому что такой рисунок
+    // хранится уже нарезанным под ячейку, и его нулевой шаг — это её
+    // собственное начало, а не узел квадрата.
     const need = Math.max(1, Math.round((ev.span || 1) * subOwn));
     if (need === pattern.steps.length) return pattern;
     const out = [];
-    for (let i = 0; i < need; i++) out.push(pattern.steps[i % pattern.steps.length]);
-    return { mode: pattern.mode, subdivision: pattern.subdivision, steps: out };
+    for (let k = 0; k < need; k++) out.push(pattern.steps[k % pattern.steps.length]);
+    return { mode: pattern.mode, subdivision: pattern.subdivision, steps: out,
+      ...(pattern.swing ? { swing: true } : {}) };
   }
   // Та же тайм-сигнатура, что использует реальный планировщик звука
   // (schedulePatternForEvent получает её через getEffectiveTimeSigForEvent) —
@@ -22960,13 +23374,37 @@ function getSlicedPatternForEvent(sec, sq, ev, eventIndex) {
   if (!Number.isInteger(patternUnits) || patternUnits < 1) return null;
   const expectedTotal = pattern.steps.length;
   const offsetUnits = getSquareEventOffsetUnits(sq, eventIndex, ts);
-  const cycleOffset = ((offsetUnits % patternUnits) + patternUnits) % patternUnits;
+  // B-61: ячейка — ОКНО в общую ленту, привязанную к сетке квадрата.
+  //
+  // Спека пользователя 2026-09-06: «ритм визуально и аудиально не
+  // меняется никогда при ресайзе, меняются только аккорды, поверх
+  // которых он играется».
+  //
+  // Раньше отсчёт шёл прямо от начала ячейки, а дробная часть глоталась
+  // округлением: у Am со смещением 4.75 получалось
+  // round(0.75 * 2) = round(1.5) = 2, и удары вставали на 4.75 / 5.25
+  // вместо узлов 5.0 / 5.5. Из-за этого при сжатии ячейки её рисунок
+  // «повторялся заново», а расширившийся сосед играл тот же кусок
+  // второй раз.
+  //
+  // Теперь первый удар садится на ближайший УЗЕЛ не раньше начала
+  // ячейки, а индекс в рисунке берётся по абсолютному номеру этого узла.
+  const stepUnits = 1 / sub;
+  const phase = Math.ceil((offsetUnits - 1e-9) / stepUnits) * stepUnits - offsetUnits;
+  const firstNode = offsetUnits + phase;
+  const cycleOffset = ((firstNode % patternUnits) + patternUnits) % patternUnits;
   const startStepInBar = Math.round(cycleOffset * sub);
+  // Сколько узлов помещается в ячейку, если первый стоит на phase.
+  // Узел ровно на правой границе принадлежит СЛЕДУЮЩЕЙ ячейке.
+  const nodeCount = Math.max(0, Math.ceil((span - phase) / stepUnits - 1e-9));
   const steps = [];
-  for (let i = 0; i < stepsInEvent; i++) {
+  for (let i = 0; i < nodeCount; i++) {
     steps.push(pattern.steps[(startStepInBar + i) % expectedTotal]);
   }
-  return { mode: pattern.mode, subdivision: pattern.subdivision, steps };
+  if (!steps.length) return null;
+  return { mode: pattern.mode, subdivision: pattern.subdivision, steps,
+    ...(phase > 1e-9 ? { gridPhase: phase } : {}),
+    ...(pattern.swing ? { swing: true } : {}) };
 }
 
 // ---------- БАСОВЫЕ ТОКЕНЫ В ПЕРЕБОРЕ ----------
@@ -23093,14 +23531,13 @@ function renderEventStrumPreviews(container) {
     const rollWinCell = songRhythmRolls ? rhythmRollWindowFor(secId, sq, ei, songRhythmRolls) : null;
     const ownPattern = rollWinCell || (ev && ev.strumPattern) || null;
     // B-30: своего ритма нет — показываем фактический СРЕЗ боя секции,
-    // если он не сводится к целому повтору рисунка. НО не во время
-    // подсказки ресайза и её закрытия (B-15): спека «снятый в наследование
-    // уплывает только fade-out» писалась, когда у наследника превью не
-    // было; появившийся срез становился целью уплывания и ломал её. Во
-    // время жеста срез и так виден полосой в оверлее; статичный срез
-    // дорисует финальная инкрементальная синкронизация.
-    const sliceSuppressed = (typeof rhythmHintSession !== 'undefined' && rhythmHintSession) ||
-      document.body.classList.contains('is-rhythm-hint-returning');
+    // если он не сводится к целому повтору рисунка. НО не во время живой
+    // подсказки ресайза (B-15): в жесте срез и так виден полосой в оверлее.
+    // 0.169: на ЗАКРЫТИИ подсказки (is-rhythm-hint-returning) срез уже
+    // рисуется — он цель уплывания, а на клике без сдвига перестройка в
+    // finishRhythmHints и есть финальный DOM. Снятый ритм fade-out'ом
+    // защищает droppedOut в finishRhythmHints, а не отсутствие среза.
+    const sliceSuppressed = !!(typeof rhythmHintSession !== 'undefined' && rhythmHintSession);
     const inheritedSlice = ownPattern || sliceSuppressed
       ? null
       : inheritedFacadeSliceForPreview(sec, sq, ei);
@@ -23216,6 +23653,16 @@ function buildStrumPreviewEls(pattern, opts) {
   const modeBadge = document.createElement('span');
   modeBadge.className = 'strum-mode-badge';
   modeBadge.textContent = pattern.mode === 'pick' ? 'Перебор' : pattern.mode === 'mixed' ? 'Бой+перебор' : 'Бой';
+  // B-56: свинг не виден в рисунке (ноты стоят ровно), поэтому опознать
+  // его можно только по пометке. Без неё два разных ритма в списке
+  // выглядели бы одинаково.
+  if (patternHasSwing(pattern)) {
+    const swingTag = document.createElement('span');
+    swingTag.className = 'strum-swing-tag';
+    swingTag.textContent = 'swing';
+    swingTag.title = 'Свинг: вторая нота пары звучит позже (шаффл). На запись не влияет';
+    modeBadge.appendChild(swingTag);
+  }
 
   const preview = document.createElement('span');
   preview.className = 'strum-preview';
@@ -23431,6 +23878,8 @@ function patternsEqual(a, b) {
   if (!a || !b) return false;
   if (a.mode !== b.mode) return false;
   if ((a.subdivision || 1) !== (b.subdivision || 1)) return false;
+  // B-56: одинаковый рисунок с качем и без — РАЗНЫЕ ритмы.
+  if (!!a.swing !== !!b.swing) return false;
   const as = a.steps || [];
   const bs = b.steps || [];
   if (as.length !== bs.length) return false;
@@ -23792,7 +24241,33 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
       startStepInBar = Math.round(cycleOffset * sub);
     }
 
-    const stepSeconds = getGridUnitDurationSeconds(bpm, ts) / sub;
+    // B-56: свинг живёт ЗДЕСЬ и только здесь. Шаги перестают быть
+    // равномерными: вторая нота пары уезжает на 2/3 доли. Без свинга обе
+    // формулы вырождаются в прежние i * stepSeconds и stepSeconds.
+    const unitSeconds = getGridUnitDurationSeconds(bpm, ts);
+    const stepSeconds = unitSeconds / sub;
+    const swingOn = patternHasSwing(pattern);
+    // B-63: свинг считается по АБСОЛЮТНОЙ сетке квадрата. Узел первого
+    // удара ячейки = (её смещение + фаза) * sub; дальше идут подряд.
+    // Из абсолютного смещения вычитаем смещение самой ячейки — на выходе
+    // время ОТНОСИТЕЛЬНО её начала, как и ждёт планировщик.
+    const cellStartBeats = (typeof square !== 'undefined' && square
+      && Number.isFinite(eventIndex))
+      ? getSquareEventOffsetUnits(square, eventIndex, ts) : 0;
+    const cellPhaseBeats = pattern.gridPhase || 0;
+    const baseNode = Math.round((cellStartBeats + cellPhaseBeats) * sub);
+    // Время шага ОТНОСИТЕЛЬНО начала ячейки = его абсолютный момент по
+    // свинговой сетке минус смещение ячейки.
+    //
+    // ВАЖНО: не вычитать здесь «момент первого шага» — первая версия
+    // B-63 так и делала и тем самым обнуляла фазу пары обратно: удар,
+    // который должен звучать на 1.667 («и»), снова прижимался к 1.5 и
+    // становился «раз». Ровно тот дефект, который чиним.
+    const stepStartSeconds = (i) =>
+      (swingStepOffsetUnits(baseNode + i, sub, swingOn) - cellStartBeats) * unitSeconds;
+    // Длительность именно ЭТОГО шага: при свинге длинная нота пары
+    // звучит вдвое дольше короткой, и подсветка должна идти за звуком.
+    const stepLenSeconds = (i) => Math.max(0.01, stepStartSeconds(i + 1) - stepStartSeconds(i));
 
     // ОДИН анимированный источник ритма в редакторе.
     //
@@ -23851,8 +24326,10 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
     for (let i = 0; i < stepsInEvent; i++) {
       const stepIdx = (startStepInBar + i) % totalSteps;
       const symbol = pattern.steps[stepIdx];
-      const t = evStart + i * stepSeconds;
-      const remaining = dur - i * stepSeconds;
+      const stepOffset = stepStartSeconds(i);
+      const t = evStart + stepOffset;
+      const remaining = dur - stepOffset;
+      const thisStepSeconds = stepLenSeconds(i);
       if (remaining <= 0.01) continue;
 
       // Сторона маятника для пауз. Считаем по позиции шага В ТАКТЕ:
@@ -23862,15 +24339,15 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
       const restDir = sub % 3 === 0 ? null : (stepIdx % 2 === 0 ? 'rest-down' : 'rest-up');
 
       fullBarHighlightGroups.forEach((els) => {
-        scheduleStrumStepHighlight(ctx, els, stepIdx, t, stepSeconds, restDir);
+        scheduleStrumStepHighlight(ctx, els, stepIdx, t, thisStepSeconds, restDir);
       });
       if (fingeringEls) {
-        scheduleStrumStepHighlight(ctx, fingeringEls, i, t, stepSeconds, restDir);
+        scheduleStrumStepHighlight(ctx, fingeringEls, i, t, thisStepSeconds, restDir);
       }
       if (timelineEls) {
         // Свой класс: у дорожки другая типографика и другая амплитуда
         // движения, чем у мелких превью в бейджах.
-        scheduleStrumStepHighlight(ctx, timelineEls, i, t, stepSeconds, restDir, 'tl-hit-on');
+        scheduleStrumStepHighlight(ctx, timelineEls, i, t, thisStepSeconds, restDir, 'tl-hit-on');
       }
 
       // Смешанная лента (волна-5, решение mode_step): режим привязан к
@@ -23883,7 +24360,7 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
         // Дрожание на грифе: перебор щипает струны одновременно, поэтому
         // разброса по времени нет. Номера струн (1 — тонкая) переводим в
         // индексы аппликатуры (0 — толстая, слева на схеме).
-        vibrateFingeringStrings(ctx, strings.map((n) => 6 - n), t, stepSeconds, 0);
+        vibrateFingeringStrings(ctx, strings.map((n) => 6 - n), t, thisStepSeconds, 0);
         // ВАЖНО: время звучания щипка НЕ привязываем к stepSeconds/темпу.
         // На настоящей гитаре нота звенит примерно одинаковое физическое
         // время независимо от того, насколько быстро играют — она просто
@@ -23912,7 +24389,7 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
           const idx = shapeToPluckNotes(shape)
             .map((n) => n.stringIndex)
             .sort((a, b) => (up ? b - a : a - b));
-          vibrateFingeringStrings(ctx, idx, t, stepSeconds, up ? 0.01 : 0.014);
+          vibrateFingeringStrings(ctx, idx, t, thisStepSeconds, up ? 0.01 : 0.014);
         }
       }
     }
@@ -24045,7 +24522,13 @@ function startPatternPreview(pattern, ts, bpm, chordName, key) {
   stopPatternPreview();
   _patternPreviewPlaying = true;
   const sub = Math.max(1, pattern.subdivision || 1);
-  const stepSeconds = getGridUnitDurationSeconds(bpm, ts) / sub;
+  const unitSeconds = getGridUnitDurationSeconds(bpm, ts);
+  const stepSeconds = unitSeconds / sub;
+  // B-56: превью в редакторе качает так же, как плеер, — иначе кнопка
+  // Swing нажималась бы «вслепую» и результат был бы слышен только при
+  // полном воспроизведении.
+  const previewSwing = patternHasSwing(pattern);
+  const stepAt = (i) => swingStepOffsetUnits(i, sub, previewSwing) * unitSeconds;
   const totalSteps = pattern.steps.length;
   const shape = resolveFingeringShape(chordName, key, null);
 
@@ -24054,7 +24537,7 @@ function startPatternPreview(pattern, ts, bpm, chordName, key) {
     const now = ctx.currentTime + 0.06;
     for (let i = 0; i < totalSteps; i++) {
       const symbol = pattern.steps[i];
-      const t = now + i * stepSeconds;
+      const t = now + stepAt(i);
       if (pattern.mode === 'pick') {
         resolvePickStepStrings(symbol, shape, chordName).forEach((stringNum) => {
           // Длительность НЕ привязана к темпу — ровно как в основном
@@ -24084,7 +24567,7 @@ function startPatternPreview(pattern, ts, bpm, chordName, key) {
         _patternPreviewHighlightTimers.push(onId);
       }
     }
-    _patternPreviewTimer = setTimeout(loopOnce, Math.max(150, totalSteps * stepSeconds * 1000));
+    _patternPreviewTimer = setTimeout(loopOnce, Math.max(150, stepAt(totalSteps) * 1000));
   }
   loopOnce();
 }
@@ -24176,8 +24659,12 @@ const STRUM_PRESETS = [
     hint: 'Перед нами лежит голубой эльдорадо...',
     mode: 'strum',
     base: 2,
-    subdivision: 3,
-    steps: ['D', null, null, 'U', null, 'U'],
+    // B-56: было sub3 ['D',null,null,'U',null,'U'] — те же удары, но
+    // рисунок и кач были смешаны. Восьмые + swing звучат идентично, а
+    // ресайз дробной ячейки больше не крошит сетку до sub12.
+    subdivision: 2,
+    swing: true,
+    steps: ['D', null, 'U', 'U'],
   },
   {
     id: 'six-shuffle',
@@ -24185,8 +24672,10 @@ const STRUM_PRESETS = [
     hint: 'Мы так любим дешёвые драмы...',
     mode: 'strum',
     base: 4,
-    subdivision: 3,
-    steps: ['D', null, null, 'D', null, 'U', null, null, 'U', 'D', null, 'U'],
+    // B-56: свёртка sub3 -> sub2+swing, см. «Шаффл» выше.
+    subdivision: 2,
+    swing: true,
+    steps: ['D', null, 'D', 'U', null, 'U', 'D', 'U'],
   },
   {
     id: 'pick-four',
@@ -24263,7 +24752,6 @@ function collectSongPatterns() {
     const secName = sec.type === 'Custom' ? sec.customName || 'Custom' : LABEL_RU[sec.type] || sec.type;
     add(sec.strumPattern, secName);
     (sec.squares || []).forEach((sq, sqi) => {
-      add(sq.strumPattern, `${secName} · квадрат ${sqi + 1}`);
       (sq.events || []).forEach((ev, ei) => {
         const chord = ev.chord && ev.chord.trim();
         // Волна-4: рисунок ячейки — окно на рулон (кэша нет), иначе
@@ -24428,6 +24916,9 @@ function getPresetBassStrings(chordName, key) {
 function isPresetCompatible(preset, ts, gridUnits) {
   const base = preset && preset.base;
   if (!gridUnits || !base || gridUnits % base !== 0) return false;
+  // B-58: триольные пресеты не предлагаем в простых чётных размерах —
+  // кнопки «3» там нет, и такой ритм было бы нечем отредактировать.
+  if ((preset.subdivision || 1) === 3 && !timeSigAllowsTriplets(ts)) return false;
   if (!isCompoundMeter(ts)) return true;
   // Составной размер: рисунок в одну долю универсален, длинный —
   // должен уважать группировку по три.
@@ -24462,8 +24953,8 @@ function buildPatternFromPreset(preset, gridUnits, chordName, key) {
 
 // scope: 'section' — по умолчанию для всех квадратов секции;
 //        'event'   — переопределение для конкретной ячейки (аккорда).
-// Приоритет при воспроизведении: event > square > section. Третьего
-// scope нет (чистка-2, B-02): 'square' был недостижим из UI.
+// Приоритет при воспроизведении: event > section. Третьего scope нет
+// (чистка-2, B-02; поле квадрата снесено чисткой-4, B-18).
 function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   const sec = sections.find((s) => s.id === sectionId);
   if (!sec) return;
@@ -24509,6 +25000,7 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     pattern = {
       mode: 'strum',
       subdivision: pattern.subdivision,
+      swing: !!pattern.swing, // B-56: при пересборке кач не теряем
       steps: (pattern.steps || []).map((s) => (s === 'D' || s === 'U' || s === 'X' ? s : null)),
     };
   }
@@ -24583,6 +25075,10 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     <button type="button" class="pattern-sub-btn" data-sub="2">2</button>
     <button type="button" class="pattern-sub-btn" data-sub="3" title="Триоли — шаффл, блюзовый кач">3</button>
     <button type="button" class="pattern-sub-btn" data-sub="4">4</button>
+    <!-- B-56: свинг стоит в ряду дробностей (он с ней связан) и прячется
+         при 1 и 3, где кач бессмыслен. -->
+    <button type="button" class="pattern-swing-btn" id="patternSwingBtn"
+      title="Свинг — качающиеся восьмые (шаффл). Влияет только на звук: ноты остаются на своих местах">Swing</button>
   </div>
 
   <div class="pattern-grid" id="patternGrid"></div>
@@ -24639,6 +25135,28 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   }
   const modeButtons = Array.from(modal.querySelectorAll('.pattern-mode-tab'));
   const subButtons = Array.from(modal.querySelectorAll('.pattern-sub-btn'));
+  const swingBtn = modal.querySelector('#patternSwingBtn');
+
+  // B-56: кнопка видна только там, где свинг имеет смысл. Прячем, а не
+  // гасим: недоступная кнопка провоцирует тыкать и гадать. Сам флаг при
+  // уходе на sub3 НЕ стираем — вернувшись на «2», пользователь ждёт свой
+  // свинг на месте; играть он всё равно не будет (patternHasSwing).
+  // B-58: в простом чётном размере триолей нет — прячем кнопку «3».
+  // Прячем, а не гасим: недоступная кнопка провоцирует тыкать и гадать.
+  // Кач в таких размерах даёт Swing, он ровно для этого и добавлен.
+  function syncTripletBtn() {
+    const btn = subButtons.find((b) => b.dataset.sub === '3');
+    if (!btn) return;
+    btn.hidden = !timeSigAllowsTriplets(ts);
+  }
+
+  function syncSwingBtn() {
+    if (!swingBtn) return;
+    const sub = pattern.subdivision || 1;
+    const allowed = sub === 2 || sub === 4;
+    swingBtn.hidden = !allowed;
+    swingBtn.classList.toggle('active', allowed && !!pattern.swing);
+  }
 
   function setMode(mode) {
     pattern.mode = mode;
@@ -24730,6 +25248,7 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     pattern.subdivision = sub;
     pattern.steps = steps;
     subButtons.forEach((b) => b.classList.toggle('active', parseInt(b.dataset.sub, 10) === sub));
+    syncSwingBtn(); // B-56: на 1 и 3 прячется, на 2 и 4 возвращается
     renderSongPatterns();
     renderPresets();
     renderGrid();
@@ -25069,8 +25588,11 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     pattern.mode = built.mode;
     pattern.subdivision = built.subdivision;
     pattern.steps = built.steps;
+    // B-56: пресет без свинга должен его СНИМАТЬ, иначе кач «залипает».
+    pattern.swing = !!built.swing;
     modeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === pattern.mode));
     subButtons.forEach((b) => b.classList.toggle('active', parseInt(b.dataset.sub, 10) === pattern.subdivision));
+    syncSwingBtn();
     renderBaseButtons();
     renderSongPatterns();
     renderPresets();
@@ -25180,6 +25702,21 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   subButtons.forEach((b) => (b.onclick = () => setSubdivision(parseInt(b.dataset.sub, 10))));
   modeButtons.forEach((b) => b.classList.toggle('active', b.dataset.mode === pattern.mode));
   subButtons.forEach((b) => b.classList.toggle('active', parseInt(b.dataset.sub, 10) === (pattern.subdivision || 1)));
+  if (swingBtn) {
+    swingBtn.onclick = () => {
+      pattern.swing = !pattern.swing;
+      syncSwingBtn();
+      renderSongPatterns(); // свинг входит в сравнение — активный чип мог смениться
+      renderPresets();
+      renderGrid();
+      // Слышимая правка: перезапускаем превью, чтобы кач было слышно сразу.
+      if (_patternPreviewPlaying) {
+        startPatternPreview(pattern, ts, getEffectiveBpm(sec), presetChord, presetKey);
+      }
+    };
+  }
+  syncSwingBtn();
+  syncTripletBtn();
   renderBaseButtons();
   renderSongPatterns();
   renderPresets();
@@ -28528,6 +29065,210 @@ function fillTimelinePanel(kind, chord, posCtx) {
 // позиционирования здесь нет — она бы разошлась с прокруткой.
 let timelineNavItems = [];
 
+// ---------- B-64: ПАНЕЛЬ СТРУКТУРЫ ПЕСНИ ----------
+// Спека — допрос по R8 (2026-09-06), см. строку B-64 в ROADMAP.
+//
+// Панель показывает форму песни столбиком и даёт три действия: прыжок к
+// секции, смена порядка перетаскиванием, копирование Cmd+C/Cmd+V.
+// Секции остаются НЕЗАВИСИМЫМИ копиями — связывание пользователь
+// отложил, поэтому здесь его нет намеренно.
+
+// Выбранная в панели секция: с ней работают горячие клавиши. Держим id,
+// а не индекс: порядок меняется перетаскиванием, индекс бы «поехал».
+let songmapSelectedId = null;
+// Буфер копирования секции. Свой, а не системный: системный буфер занят
+// текстом, и перехватывать его глобально нельзя (решение пользователя —
+// горячие клавиши работают только при активной панели).
+let songmapClipboard = null;
+
+function renderSongMap() {
+  const list = document.getElementById('songmapList');
+  if (!list) return;
+  list.innerHTML = '';
+  if (!sections.length) {
+    const empty = document.createElement('div');
+    empty.className = 'songmap-empty';
+    empty.textContent = 'Пока пусто';
+    list.appendChild(empty);
+    return;
+  }
+  const frag = document.createDocumentFragment();
+  sections.forEach((sec, idx) => {
+    const labelText =
+      sec.type === 'Custom' ? sec.customName || 'Кастом' : LABEL_RU[sec.type] || sec.type;
+    const labelClass = sec.type === 'Custom' ? 'custom' : LABEL_MAP[sec.type] || 'verse';
+
+    const item = document.createElement('button');
+    item.type = 'button';
+    item.className = 'songmap-item ' + labelClass;
+    item.dataset.id = sec.id;
+    item.draggable = true;
+    if (sec.id === songmapSelectedId) item.classList.add('is-selected');
+    if (idx === playbackState.currentSectionIndex) item.classList.add('is-current');
+
+    const name = document.createElement('span');
+    name.className = 'songmap-name';
+    name.textContent = labelText;
+    item.appendChild(name);
+
+    // Повтор — ОДНОЙ строкой с бейджем «×N» (решение пользователя:
+    // разворачивать проходы в отдельные строки не надо).
+    const rep = Math.max(1, sec.repeat || 1);
+    if (rep > 1) {
+      const badge = document.createElement('span');
+      badge.className = 'songmap-repeat';
+      badge.textContent = '×' + rep;
+      item.appendChild(badge);
+    }
+    item.title = labelText + (rep > 1 ? ` ×${rep}` : '') + ' — перейти к секции';
+    frag.appendChild(item);
+  });
+  list.appendChild(frag);
+}
+
+// Подсветка играющей секции — дёшево, без пересборки списка: во время
+// воспроизведения это вызывается часто.
+function updateSongMapCurrent() {
+  const list = document.getElementById('songmapList');
+  if (!list) return;
+  const items = list.querySelectorAll('.songmap-item');
+  items.forEach((el, idx) => {
+    el.classList.toggle('is-current', idx === playbackState.currentSectionIndex);
+  });
+}
+
+function songmapSelect(id) {
+  songmapSelectedId = id;
+  const list = document.getElementById('songmapList');
+  if (!list) return;
+  list.querySelectorAll('.songmap-item').forEach((el) => {
+    el.classList.toggle('is-selected', el.dataset.id === String(id));
+  });
+}
+
+function songmapJumpTo(id) {
+  const card = document.querySelector(`.section-card[data-id="${id}"]`);
+  if (!card) return;
+  // Страховка: scrollIntoView есть не везде (в jsdom его нет вовсе, и
+  // без проверки падал бы весь обработчик клика — вместе с выделением).
+  if (typeof card.scrollIntoView === 'function') {
+    card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
+function initSongMap() {
+  const zone = document.getElementById('songmapZone');
+  const panel = document.getElementById('songmap');
+  const list = document.getElementById('songmapList');
+  if (!zone || !panel || !list) return;
+
+  // Выезд по наведению. Закрытие с задержкой: без неё панель схлопывается
+  // на дороге между зоной и панелью, и до неё невозможно доехать мышью.
+  let closeTimer = null;
+  const open = () => {
+    if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
+    panel.classList.add('is-open');
+  };
+  const scheduleClose = () => {
+    if (closeTimer) clearTimeout(closeTimer);
+    closeTimer = setTimeout(() => panel.classList.remove('is-open'), 260);
+  };
+  zone.addEventListener('mouseenter', open);
+  zone.addEventListener('mouseleave', scheduleClose);
+  panel.addEventListener('mouseenter', open);
+  panel.addEventListener('mouseleave', scheduleClose);
+
+  // Клик по строке: выделяем и прыгаем к секции.
+  list.addEventListener('click', (e) => {
+    const item = e.target.closest('.songmap-item');
+    if (!item) return;
+    // dataset отдаёт СТРОКУ, а id секций в модели — числа. Без приведения
+    // sections.find(s => s.id === id) не находит ничего, и копирование
+    // молча не работает (замер: буфер = "5", в модели id = 5).
+    songmapSelect(Number(item.dataset.id));
+    songmapJumpTo(item.dataset.id);
+  });
+
+  // --- Перетаскивание: смена порядка песни ---
+  let dragId = null;
+  list.addEventListener('dragstart', (e) => {
+    const item = e.target.closest('.songmap-item');
+    if (!item) return;
+    dragId = item.dataset.id;
+    item.classList.add('is-dragging');
+    e.dataTransfer.effectAllowed = 'move';
+    // Safari не начинает перетаскивание без setData.
+    try { e.dataTransfer.setData('text/plain', dragId); } catch (err) {}
+  });
+  list.addEventListener('dragend', () => {
+    dragId = null;
+    list.querySelectorAll('.songmap-item').forEach((el) => {
+      el.classList.remove('is-dragging', 'is-drop-before', 'is-drop-after');
+    });
+  });
+  list.addEventListener('dragover', (e) => {
+    if (!dragId) return;
+    e.preventDefault();
+    const item = e.target.closest('.songmap-item');
+    if (!item || item.dataset.id === dragId) return;
+    const box = item.getBoundingClientRect();
+    const after = e.clientY > box.top + box.height / 2;
+    list.querySelectorAll('.songmap-item').forEach((el) => {
+      el.classList.remove('is-drop-before', 'is-drop-after');
+    });
+    item.classList.add(after ? 'is-drop-after' : 'is-drop-before');
+  });
+  list.addEventListener('drop', (e) => {
+    if (!dragId) return;
+    e.preventDefault();
+    const item = e.target.closest('.songmap-item');
+    if (!item || item.dataset.id === dragId) return;
+    // Переиспользуем reorderSections: там уже разобрана логика индексов
+    // при движении вверх и вниз (см. её комментарий).
+    // Тот же путь, что у перетаскивания карточек в редакторе (см.
+    // обработчик drop у .section-card): animateReorder делает FLIP, сам
+    // reorderSections правит модель. Отдельного saveState в проекте нет
+    // — состояние пишется внутри render-цикла.
+    animateReorder(() => {
+      reorderSections(Number(dragId), Number(item.dataset.id));
+    });
+    requestRender();
+    renderSongMap();
+    showToast('Секция перемещена');
+  });
+
+  // --- Cmd+C / Cmd+V: копирование секции ---
+  // Работают ТОЛЬКО когда панель открыта и в ней что-то выделено —
+  // решение пользователя, чтобы не перехватывать копирование текста.
+  document.addEventListener('keydown', (e) => {
+    if (!panel.classList.contains('is-open')) return;
+    if (!songmapSelectedId) return;
+    if (!(e.metaKey || e.ctrlKey)) return;
+    const tag = (e.target && e.target.tagName) || '';
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || e.target.isContentEditable) return;
+
+    if (e.key === 'c' || e.key === 'с') { // латинская и кириллическая
+      songmapClipboard = songmapSelectedId;
+      e.preventDefault();
+      const sec = sections.find((x) => x.id === songmapSelectedId);
+      const nm = sec
+        ? (sec.type === 'Custom' ? sec.customName || 'Кастом' : LABEL_RU[sec.type] || sec.type)
+        : 'Секция';
+      showToast(`${nm} — скопирована`);
+    } else if (e.key === 'v' || e.key === 'м') {
+      if (songmapClipboard == null) return;
+      e.preventDefault();
+      // cloneSection кладёт копию сразу ПОСЛЕ оригинала (splice idx+1) —
+      // ровно то поведение, которое выбрал пользователь.
+      cloneSection(songmapClipboard);
+      renderSongMap();
+      showToast('Секция вставлена');
+    }
+  });
+
+  renderSongMap();
+}
+
 function renderTimelineSectionNav() {
   const nav = document.getElementById('tlSecNav');
   if (!nav) return;
@@ -29541,6 +30282,9 @@ function render() {
     renderTimeline();
     syncTimelineSongBar();
   }
+  // B-64: панель структуры строится из той же модели — обновляем вместе
+  // с редактором, иначе после добавления/удаления секции карта врёт.
+  renderSongMap();
 }
 // ---------- B-15 (2026-08-28): подсказка ритма над счётом при ресайзе ----------
 // Спека (дословно в ROADMAP): по умолчанию вид как раньше; на старте
@@ -29573,7 +30317,7 @@ function render() {
 // стартовых трансформов форсит reflow и «запечатывает» промежуточное
 // состояние, и браузер схлопывает переход в 0→0 — «переплывание»
 // превращается в чистый fade. Именно так поймали первую версию.
-let rhythmHintSession = null; // { sqEl, bi, overlay, entries: [{el, custom, startCustom, patternKey}] }
+let rhythmHintSession = null; // { sqEl, bi, overlay, entries: [{el, custom, startCustom, startPinned, patternKey}] }
 let rhythmHintRefreshRAF = null;
 let rhythmHintRefreshPending = null;
 const RHYTHM_HINT_FADE_MS = 180;
@@ -29581,9 +30325,45 @@ const RHYTHM_HINT_MOVE_MS = 220;
 const RHYTHM_HINT_STEP_DELAY_MS = 10;
 const RHYTHM_HINT_MAX_DELAY_MS = 60;
 const RHYTHM_HINT_EXIT_PAD_MS = 40;
+// 0.170: edge-сдвиг удара под текущей границей протяжки — тот же, что у
+// подписи счёта (.resize-metric-overlay .chord-count.is-edge: 2px).
+const RHYTHM_HINT_LIVE_EDGE_PX = 2;
 
 function rhythmHintStepDelay(index) {
   return Math.min(Math.max(0, index) * RHYTHM_HINT_STEP_DELAY_MS, RHYTHM_HINT_MAX_DELAY_MS);
+}
+
+// 0.170: ключи метрических узлов — та же валюта, что resizeMetricNodeKey
+// в overlay счёта (колонки квадрата × 1e6). Границы ячеек = узлы, где
+// подпись счёта стоит в edge-позе; удар подсказки над таким узлом
+// встаёт в ту же позу.
+function rhythmHintNodeKey(cols) {
+  return String(Math.round((cols || 0) * 1e6));
+}
+function rhythmHintEdgeKeys(spans) {
+  const keys = new Set();
+  let leftCols = 0;
+  for (let i = 0; i < spans.length; i++) {
+    keys.add(rhythmHintNodeKey(leftCols));
+    leftCols += Math.max(0, spans[i] || 0);
+  }
+  return keys;
+}
+// Переключает edge-позу ударов по текущему набору границ. Транзишен
+// 0.12s (как у счёта) ставится inline только ПОСЛЕ приплывания: до того
+// удар летит базовым 0.22s вместе с остальной волной.
+function syncRhythmHintLiveEdges(session, edgeKeys) {
+  if (!session || !session.overlay || !edgeKeys) return;
+  session.edgeKeys = edgeKeys;
+  const settled = performance.now() >= (session.enterSettledAt || 0);
+  session.overlay.querySelectorAll('.rhythm-hint-hit[data-hint-node-key]').forEach((hit) => {
+    if (hit.classList.contains('is-edge')) return; // левая кромка квадрата — статична
+    if (settled && !hit.dataset.liveEdgeFast) {
+      hit.dataset.liveEdgeFast = '1';
+      hit.style.transition = 'transform 0.12s cubic-bezier(0.2, 0.75, 0.18, 1)';
+    }
+    hit.classList.toggle('is-live-edge', edgeKeys.has(hit.dataset.hintNodeKey || ''));
+  });
 }
 
 function rhythmHintPatternKey(pattern) {
@@ -29611,7 +30391,15 @@ function collectRhythmHintData(s, sq) {
     // (волна-4: ссылка на рулон либо легаси-вкрапление strumPattern).
     const custom = !!(ev.strumPattern
       || (songRhythmRolls && songRhythmRolls.refs.has(`${s.id}:${sq.id}:${ei}`)));
-    return { pattern, custom };
+    // 0.169: «рисуется в превью» — критерий ПЕРЕПЛЫВАНИЯ (правило
+    // пользователя 0.168: анимация работает всегда, когда ритм рисуется
+    // в превью). Кроме своего ритма превью рисует срез боя секции (B-30),
+    // и такой наследник летит в обе стороны, как кастом; наследник без
+    // превью (целый повтор рисунка) по-прежнему проявляется fade-in
+    // (B-15). Тот же хелпер, что решает показ среза в
+    // renderEventStrumPreviews, — критерии не расходятся.
+    const drawn = custom || !!inheritedFacadeSliceForPreview(s, sq, ei);
+    return { pattern, custom, drawn };
   });
 }
 
@@ -29620,7 +30408,7 @@ function collectRhythmHintData(s, sq) {
 // перебор — столбик цифр струн с басом сверху).
 // deltas[j] (опционально, только на входе) — стартовый FLIP-сдвиг удара
 // «от его места в мини-превью до узла сетки» и лесенка задержки.
-function buildRhythmHintContent(hintEl, pattern, deltas) {
+function buildRhythmHintContent(hintEl, pattern, deltas, geometry) {
   hintEl.textContent = '';
   const steps = pattern.steps;
   const n = steps.length;
@@ -29661,8 +30449,44 @@ function buildRhythmHintContent(hintEl, pattern, deltas) {
     } else {
       el.classList.add('rest');
     }
-    el.style.left = (j / n * 100) + '%';
+    // B-50 (0.176): удар стоит на МЕТРИЧЕСКОМ узле — j / subdivision доли
+    // от начала ячейки, ровно как в дорожке ленты (renderTimelineRhythm
+    // ставит шаг через i / steps.length при ширине ровно span долей, то
+    // есть тот же 1/subdivision).
+    //
+    // Доля ШИРИНЫ полосы (прежнее j / n) совпадает с метрикой только
+    // когда длина ячейки делится на дробность нацело. У ячейки 1.75 доли
+    // с боем тройками шагов получается 5 (round(1.75 x 3)), они
+    // покрывают 1.667 доли, и растяжка их на всю ширину 1.75 давала
+    // нарастающий сдвиг: 0 / 0.017 / 0.033 / 0.05 / 0.067 доли —
+    // последний удар уезжал на четверть шага от «та». Пользователь
+    // (2026-09-05): «ритм над 1 та и та должен располагаться как в
+    // режиме ленты».
+    const subDiv = Math.max(1, pattern.subdivision || 1);
+    const cellBeats = (geometry && Number.isFinite(geometry.spanBeats) && geometry.spanBeats > 0)
+      ? geometry.spanBeats
+      : n / subDiv;
+    // B-60: первый удар садится на ближайший УЗЕЛ сетки не раньше начала
+    // ячейки — той же формулой, что в syncRhythmHintCounts. У ячейки с
+    // дробным началом (G: 5.75 доли) билдер раньше отсчитывал от 5.75 и
+    // давал 6.25 / 6.75 / 7.25, а пересчёт в жесте — 6.0 / 6.5 / 7.0.
+    // Отсюда прыжок ритма на полшага при первом же движении мыши.
+    const cellOffset = (geometry && Number.isFinite(geometry.offsetBeats))
+      ? geometry.offsetBeats : 0;
+    const nodeStep = 1 / subDiv;
+    const cellPhase = Math.ceil((cellOffset - 1e-9) / nodeStep) * nodeStep - cellOffset;
+    const nodeInCell = cellPhase + j / subDiv;
+    // Узел ровно на правой границе принадлежит СЛЕДУЮЩЕЙ ячейке: иначе
+    // один удар рисуют обе и на стыке появляется дубль (замер: «50 50»).
+    if (nodeInCell > cellBeats - 1e-9) { el.style.display = 'none'; }
+    el.style.left = ((nodeInCell / cellBeats) * 100) + '%';
     if (j === 0) el.classList.add('is-edge');
+    // 0.170: ключ метрического узла удара (колонки квадрата × 1e6 — та же
+    // валюта, что у resizeMetricNodeKey в overlay счёта). По нему
+    // протяжка ставит is-live-edge удару над текущей границей.
+    if (geometry && Number.isFinite(geometry.leftCols) && Number.isFinite(geometry.cols)) {
+      el.dataset.hintNodeKey = rhythmHintNodeKey(geometry.leftCols + (j / n) * geometry.cols);
+    }
     const dlt = deltas && deltas[j];
     if (dlt) {
       // Базовый translateX(-50%) из CSS стоит И в конечном состоянии, поэтому
@@ -29675,6 +30499,45 @@ function buildRhythmHintContent(hintEl, pattern, deltas) {
     frag.appendChild(el);
   }
   hintEl.appendChild(frag);
+}
+
+// B-50 (0.175): сколько ударов должна показывать полоса при ДРУГОЙ длине
+// ячейки. Пользователь (2026-09-05): «количество нот на долю меняется» —
+// полосы держали число ударов от стартовых долей, а ячейка под ними
+// росла, и плотность нот на долю плыла всю протяжку, скачком приходя в
+// норму на отпускании.
+//
+// Считаем ровно по правилу, которое исполнит reslice на pointerup:
+// дробность рисунка сохраняется, число шагов = span x subdivision, шаги
+// берутся циклом (рисунок продолжается) либо обрезаются. Модель при
+// этом не трогаем — это чистая функция для превью.
+function rhythmHintPatternForSpan(pattern, spanBeats, offsetBeats, baseOffsetBeats) {
+  if (!pattern || !Array.isArray(pattern.steps) || !pattern.steps.length) return pattern;
+  const sub = Math.max(1, pattern.subdivision || 1);
+  const len = pattern.steps.length;
+  // B-61: подсказка показывает ОКНО в ленту, как и звук
+  // (getSlicedPatternForEvent). Раньше рисунок циклился с нуля от начала
+  // ячейки, и при сжатии/росте ячейка «повторяла» свой кусок вместо
+  // продолжения общей ленты — ровно то, на что жаловался пользователь.
+  //
+  // basePattern — срез, снятый на СТАРТЕ жеста, его нулевой элемент
+  // соответствует узлу baseOffsetBeats. Поэтому индекс считаем как
+  // смещение текущего узла относительно него.
+  const stepUnits = 1 / sub;
+  const off = Number.isFinite(offsetBeats) ? offsetBeats : 0;
+  const phase = Math.ceil((off - 1e-9) / stepUnits) * stepUnits - off;
+  const need = Math.max(1, Math.ceil(((spanBeats || 1) - phase) / stepUnits - 1e-9));
+  const base = Number.isFinite(baseOffsetBeats) ? baseOffsetBeats : 0;
+  const start = Number.isFinite(offsetBeats)
+    ? Math.round((off + phase - base) * sub)
+    : 0;
+  const steps = Array.from({ length: need }, (_, k) => {
+    const v = pattern.steps[(((start + k) % len) + len) % len];
+    return Array.isArray(v) ? v.slice() : v;
+  });
+  return { mode: pattern.mode, subdivision: sub, steps,
+    ...(phase > 1e-9 ? { gridPhase: phase } : {}),
+    ...(pattern.swing ? { swing: true } : {}) };
 }
 
 // Геометрия полос — из того же distributeVisualSpans, что и сетка.
@@ -29690,6 +30553,39 @@ function layoutRhythmHints(session, distribution) {
     entry.el.style.width = (cols / tc * 100) + '%';
     cum += cols;
   });
+}
+
+// B-50 (0.175): живой пересчёт числа ударов под текущие доли жеста.
+// Полосы остаются на своих метрических местах (0.168: «ритм не должен
+// двигаться при ресайзе»), но плотность нот на долю больше не плывёт:
+// сколько ударов будет после отпускания, столько видно и сейчас.
+//
+// Зовётся ТОЛЬКО на snapped-переходе (сетка реально сменилась), а не в
+// каждом кадре pointermove: innerHTML полосы — дорогая операция, а
+// снапов за жест единицы. 60fps guardrail при этом цел.
+function syncRhythmHintCounts(session, spansBeats) {
+  // B-61: НИЧЕГО НЕ ДЕЛАЕМ — и это осознанно.
+  //
+  // Спека пользователя 2026-09-06: «ритм визуально и аудиально не
+  // меняется никогда при ресайзе, меняются только аккорды, поверх
+  // которых он играется».
+  //
+  // Раньше здесь пересчитывались и содержимое полос, и координаты
+  // ударов под текущие доли. Каждый такой пересчёт двигал ленту: удары
+  // уезжали с 25% на 28.13%, ячейка «повторяла» свой кусок вместо
+  // продолжения общей ленты, на стыках появлялись дубли. Всё это —
+  // симптомы одной ошибки: подсказка пыталась перекроить то, что по
+  // спеке обязано стоять неподвижно.
+  //
+  // Полосы заморожены на стартовой геометрии (layoutRhythmHints
+  // вызывается только на pointerdown), содержимое — стартовый срез
+  // ленты. Двигается лишь граница аккорда поверх них, и её рисует
+  // отдельный слой. После отпускания честную картину даёт полный
+  // render() по обновлённой модели.
+  //
+  // Функция оставлена как точка расширения и чтобы не разбирать её
+  // вызов в applyResizePreviewAt.
+  void session; void spansBeats;
 }
 
 // Вход: поударные FLIP-сдвиги «от места в превью до узла сетки» для одной
@@ -29753,17 +30649,19 @@ function startRhythmHints(s, sq, bi, distribution) {
   const deltasByCell = [];
   const stripDyByCell = [];
   let cum = 0;
+  // 0.169: летит всё, что РИСУЕТСЯ в превью (свой ритм и срез B-30) —
+  // `drawn`; «кастомность» модели здесь не критерий.
   sq.events.forEach((ev, ei) => {
-    deltasByCell[ei] = (data[ei] && data[ei].custom)
+    deltasByCell[ei] = (data[ei] && data[ei].drawn)
       ? rhythmHintEnterDeltas(bi, ei, data[ei].pattern, distribution, cum, biRect)
       : null;
-    stripDyByCell[ei] = (data[ei] && data[ei].custom && !deltasByCell[ei])
+    stripDyByCell[ei] = (data[ei] && data[ei].drawn && !deltasByCell[ei])
       ? rhythmHintStripDy(bi.querySelector(`.chord-wrapper[data-ei="${ei}"]`))
       : 0;
     cum += Math.max(1, distribution.spans[ei] || 1);
   });
   const inheritedRevealDelay = data.reduce((maxDelay, d, ei) => {
-    if (!d || !d.custom) return maxDelay;
+    if (!d || !d.drawn) return maxDelay;
     const hitDelay = (deltasByCell[ei] || []).reduce(
       (cellMax, item) => Math.max(cellMax, item.delay || 0),
       0
@@ -29772,20 +30670,55 @@ function startRhythmHints(s, sq, bi, distribution) {
   }, 0);
   const overlay = document.createElement('div');
   overlay.className = 'rhythm-hints';
+  let leftColsCum = 0;
+  // B-60: смещение ячеек в ДОЛЯХ на старте жеста — общая точка отсчёта
+  // для билдера и для пересчёта координат в протяжке.
+  let startBeatsCum = 0;
   const entries = sq.events.map((ev, ei) => {
     const el = document.createElement('div');
     el.className = 'rhythm-hint';
     const d = data[ei];
-    const entry = { el, custom: false, startCustom: false, patternKey: '' };
+    const cellCols = Math.max(1, distribution.spans[ei] || 1);
+    // spanBeats — истинная длина ячейки в ДОЛЯХ (не в колонках): по ней
+    // билдер кладёт удары на метрические узлы, как в ленте (B-50, 0.176).
+    const geometry = {
+      leftCols: leftColsCum,
+      cols: cellCols,
+      spanBeats: getEventVisualSpanInParentUnits(ev, s.timeSig || globalTimeSig),
+      // B-60: смещение ячейки от начала квадрата в ДОЛЯХ. Нужно билдеру,
+      // чтобы класть удары на узлы КВАДРАТА — так же, как это делает
+      // пересчёт в жесте (syncRhythmHintCounts). Без общей точки отсчёта
+      // два кода расходились, и ритм прыгал на полшага в момент старта
+      // протяжки.
+      offsetBeats: startBeatsCum,
+    };
+    const startOffsetBeats = startBeatsCum;
+    startBeatsCum += geometry.spanBeats;
+    leftColsCum += cellCols;
+    const entry = { el, custom: false, startCustom: false, patternKey: '', geometry };
     if (d) {
-      entry.startCustom = d.custom;
-      entry.custom = d.custom;
+      // entry.custom здесь = «полоса ПЛЫВЁТ» (свой ритм или срез), а не
+      // «в модели есть пин» — см. collectRhythmHintData/drawn.
+      entry.startCustom = d.drawn;
+      entry.custom = d.drawn;
+      // Пин в модели на старте жеста: только такой ритм, снятый на
+      // отпускании (droppedOut), уходит fade-out (B-15). Наследник со
+      // срезом, которому транзитная сшивка/растворение на миг дали и тут
+      // же сняли приватный рулон, кастомом не был — он летит как рисуемый.
+      entry.startPinned = d.custom;
+      // B-50 (0.175): исходный рисунок ячейки — источник для живого
+      // пересчёта числа ударов при смене долей в жесте. Именно рисунок,
+      // а не текущая нарезка: пересчитывать надо всегда от него, иначе
+      // повторные снапы копили бы обрезки.
+      entry.basePattern = d.pattern;
+      // B-61: узел, которому соответствует нулевой шаг basePattern.
+      entry.baseOffsetBeats = startOffsetBeats;
       entry.patternKey = rhythmHintPatternKey(d.pattern);
-      buildRhythmHintContent(el, d.pattern, deltasByCell[ei]);
-      // Наследуемому смещения нет вообще: ему неоткуда плыть, он просто
-      // проявляется (fade in через .is-in). У кастомного либо поударный
-      // FLIP (уже стоит), либо полёт полосой (fallback).
-      if (d.custom && !deltasByCell[ei]) {
+      buildRhythmHintContent(el, d.pattern, deltasByCell[ei], geometry);
+      // Наследуемому без превью смещения нет вообще: ему неоткуда плыть,
+      // он просто проявляется (fade in через .is-in). У рисуемого либо
+      // поударный FLIP (уже стоит), либо полёт полосой (fallback).
+      if (d.drawn && !deltasByCell[ei]) {
         el.style.transform = `translateY(${stripDyByCell[ei]}px)`;
       }
     }
@@ -29797,6 +30730,22 @@ function startRhythmHints(s, sq, bi, distribution) {
   rhythmHintSession = session;
   layoutRhythmHints(session, distribution);
   sqEl && sqEl.classList.add('is-hinting');
+  // 0.170: первый удар каждой ячейки стоит в edge-позе (.is-edge, как
+  // подпись счёта под ним). У ячеек, кроме первой в квадрате, эта поза
+  // должна быть ЖИВОЙ: граница уйдёт с узла — удар вернётся в центр
+  // вместе с подписью, придёт на другой узел — тот удар прижмётся.
+  // Статичный .is-edge переводим в динамический .is-live-edge (поза
+  // визуально та же: +2px, без центрирования); inline FLIP-transform
+  // получает тот же базис, чтобы глиф стартовал ровно из превью.
+  const startEdgeKeys = rhythmHintEdgeKeys(distribution.spans);
+  overlay.querySelectorAll('.rhythm-hint-hit.is-edge[data-hint-node-key]').forEach((hit) => {
+    if (hit.dataset.hintNodeKey === rhythmHintNodeKey(0)) return; // левая кромка квадрата
+    hit.classList.remove('is-edge');
+    hit.classList.add('is-live-edge');
+    if (hit.style.transform) hit.style.transform = `translateX(${RHYTHM_HINT_LIVE_EDGE_PX}px) ${hit.style.transform}`;
+  });
+  session.edgeKeys = startEdgeKeys;
+  session.enterSettledAt = performance.now() + RHYTHM_HINT_MOVE_MS + RHYTHM_HINT_MAX_DELAY_MS + 20;
   // Форсируем reflow ДО добавления is-in: запечатывается СТАРТОВОЕ
   // состояние, следующая правка играет transition из него в конечное.
   void overlay.offsetHeight;
@@ -29842,7 +30791,11 @@ function refreshRhythmHints(s, sq, distribution) {
       // перестраиваем, иначе только двигаем/ширим полосы.
       if (entry.patternKey !== nextKey || !entry.el.firstChild) {
         entry.patternKey = nextKey;
-        buildRhythmHintContent(entry.el, d.pattern);
+        buildRhythmHintContent(entry.el, d.pattern, null, entry.geometry);
+        entry.el.querySelectorAll('.rhythm-hint-hit.is-edge[data-hint-node-key]').forEach((hit) => {
+          if (hit.dataset.hintNodeKey !== rhythmHintNodeKey(0)) hit.classList.remove('is-edge');
+        });
+        if (session.edgeKeys) syncRhythmHintLiveEdges(session, session.edgeKeys);
       }
     } else if (entry.el.firstChild) {
       entry.patternKey = '';
@@ -29883,11 +30836,11 @@ function rhythmHintExitDeltas(entry, ei, bi) {
   if (!shouldFly) return null;
   const wrapperEl = bi.querySelector(`.chord-wrapper[data-ei="${ei}"]`);
   const prevEl = wrapperEl && wrapperEl.querySelector('.event-strum-preview');
-  // B-30: срез-превью (is-inherited-slice) не бывает целью полёта —
-  // унаследованный ритм уплывает только fade-out, срез дорисует финальный
-  // sync. Без фильтра появившийся срез давал полосе ложную цель (stale
-  // шаги), и выход срабатывал без fade-фазы.
-  if (!prevEl || prevEl.classList.contains('is-inherited-slice')) return null;
+  // 0.169: срез-превью (is-inherited-slice) — такая же цель полёта, как
+  // своё превью: летит всё, что рисуется. Снятый на этом отпускании ритм
+  // сюда не доходит — у него exitCustom=false по droppedOut (B-15:
+  // «снятый в наследование уплывает только fade-out»).
+  if (!prevEl) return null;
   const stepEls = prevEl ? [...prevEl.querySelectorAll('.strum-step')] : [];
   const hitEls = [...entry.el.querySelectorAll('.rhythm-hint-hit')];
   if (!wrapperEl || !stepEls.length || !hitEls.length) return null;
@@ -29898,8 +30851,19 @@ function rhythmHintExitDeltas(entry, ei, bi) {
   return hitEls.map((h, j) => {
     const r = h.getBoundingClientRect();
     const sourceIndex = j % src.length;
+    // 0.170: удар под текущей границей стоит в edge-позе is-live-edge
+    // (центрирование снято + 2px: центр = узел + w/2 + 2). Полёт
+    // считается от невозмущённой позы (центр на узле) — WAAPI стартует из
+    // фактической и сам «съедает» сдвиг, иначе посадка промахивалась бы
+    // мимо глифа превью. Первый удар квадрата (.is-edge) позу не меняет.
+    // Невозмущённая поза любого удара, кроме левой кромки квадрата
+    // (.is-edge, статичен), — центр на узле (translateX(-50%)); целевой
+    // transform выхода собирается от неё (см. finishRhythmHints).
+    const liveEdgePx = (h.classList.contains('is-live-edge') && !h.classList.contains('is-edge'))
+      ? r.width / 2 + RHYTHM_HINT_LIVE_EDGE_PX
+      : 0;
     return {
-      dx: src[sourceIndex].x - (r.left + r.width / 2),
+      dx: src[sourceIndex].x - (r.left + r.width / 2 - liveEdgePx),
       dy: src[sourceIndex].y - (r.top + r.height / 2),
       sourceIndex,
     };
@@ -29914,7 +30878,11 @@ function runRhythmHintHitFlight(hitEl, transform, delay) {
   // setTimeout/fade-фазы. В jsdom animate() нет — там остаётся CSS-fallback
   // через inline transform, который проверяют стенды.
   if (typeof hitEl.animate === 'function') {
+    // 0.170: стартуем из фактической позы (включая edge-сдвиг is-live-edge
+    // у удара под текущей границей) и снимаем класс: его 0.12s transition
+    // не должен спорить с WAAPI-полётом.
     const current = getComputedStyle(hitEl).transform;
+    hitEl.classList.remove('is-live-edge');
     const from = current && current !== 'none'
       ? current
       : (hitEl.classList.contains('is-edge') ? 'none' : 'translateX(-50%)');
@@ -29982,9 +30950,12 @@ function finishRhythmHints(opts) {
   //     рисуется в превью (фидбек 2026-09-05);
   // (2) у давно-кастомной ячейки цели летели по устаревшим глифам/
   //     позициям, и превью подменялось под руками на финальном sync.
-  // Срезы здесь по-прежнему подавлены (body уже is-rhythm-hint-returning,
-  // сессия обнулена): снятый в наследование уплывает только fade-out
-  // (B-15), срез дорисует финальная инкрементальная синхронизация (B-30).
+  // 0.169: срезы B-30 при перестройке РИСУЮТСЯ (подавление осталось только
+  // на время живой сессии): срез — полноценная цель уплывания, а на
+  // клике без сдвига эта перестройка и есть финальный DOM (инкрементальной
+  // синхронизации не будет) — без срезов соседние наследники теряли
+  // превью насовсем. Снятый в наследование по-прежнему уплывает только
+  // fade-out: его срез прячет is-rhythm-removing до конца выхода.
   // has-cell-rhythm на ячейках сохраняем каким был до перестройки:
   // ступень лада не должна подпрыгивать на полсекунды выхода и
   // возвращаться на финальном sync.
@@ -30006,9 +30977,15 @@ function finishRhythmHints(opts) {
     // droppedOut — точная информация от settleSquareRhythmWithFacade:
     // если пин снят прямо на этом отпускании, обратного flight быть не
     // может, даже если в модели ещё торчит легаси ev.strumPattern.
-    const finalCustom = !!(!droppedOut.has(ei) && currentData[ei] && currentData[ei].custom);
-    // На выходе летит любой ритм, который К ФИНАЛУ действительно стал
-    // кастомным. Это важно для ячеек, которые были наследуемыми на старте
+    // 0.169: критерий — РИСУЕТСЯ ли ритм в финальном превью (свой или
+    // срез B-30), а не пин в модели. Снятый на этом отпускании пин
+    // (droppedOut + был пином на старте) не летит даже если у него
+    // появился срез: он уходит fade-out, срез проявится после уплывания
+    // (B-15/B-30).
+    const demoted = droppedOut.has(ei) && !!entry.startPinned;
+    const finalCustom = !!(!demoted && currentData[ei] && currentData[ei].drawn);
+    // На выходе летит любой ритм, который К ФИНАЛУ действительно
+    // рисуется. Это важно для ячеек, которые были наследуемыми на старте
     // drag, но получили свой срез/пин в результате ресайза: им уже есть
     // куда возвращаться — в новое mini-preview.
     entry.exitCustom = finalCustom;
@@ -30071,7 +31048,10 @@ function finishRhythmHints(opts) {
       entry.el.classList.add('is-in');
       const hitEls = [...entry.el.querySelectorAll('.rhythm-hint-hit')];
       const moves = hitEls.map((h, j) => {
-        const base = j === 0 ? '' : 'translateX(-50%) ';
+        // 0.170: базис — фактическая поза удара, а не «первый в ячейке»:
+        // первый удар ячейки центрирован, если граница ушла с его узла
+        // (edge-поза живая); статичен только .is-edge левой кромки квадрата.
+        const base = h.classList.contains('is-edge') ? '' : 'translateX(-50%) ';
         const delay = rhythmHintStepDelay(j);
         customMaxDelay = Math.max(customMaxDelay, delay);
         // Уплывание должно выглядеть тем же жестом, что и приплывание:
@@ -30744,11 +31724,19 @@ function attachResizeHandlers() {
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
       startRhythmHints(s, sq, bi, distribution);
 
+      // B-50 (2026-09-05): место жеста — РОВНО пара у ручки. Раньше цикл
+      // шёл до конца квадрата и, добирая остаток, залезал в дальних
+      // соседей: протяжка границы E|Am роняла ещё и G с 2.25 на 2, хотя
+      // пользователь её не трогал. Дробные доли (законные при зуме с
+      // шагом 0.25 и при импорте) так уничтожались молча и без возврата.
+      // Предел протяжки теперь — размер соседа: дальше стена, а не тихая
+      // перекройка половины квадрата.
       function dist(sp, fi, ch) {
         let rem = ch;
         const nsp = [...sp];
         const minCell = Math.max(1e-6, getResizeStep() * (tc / squareUnits));
-        for (let i = fi + 1; i < ec && Math.abs(rem) > 1e-6; i++) {
+        const chainEnd = Math.min(ec, fi + 2);
+        for (let i = fi + 1; i < chainEnd && Math.abs(rem) > 1e-6; i++) {
           if (rem > 0) {
             const ct = nsp[i] - minCell;
             const tk = Math.min(rem, ct);
@@ -30768,8 +31756,13 @@ function attachResizeHandlers() {
         const parentDenom = parseTimeSig(parentTs).denominator || 4;
         const nextEvents = sq.events.map((ev, i) => ({ ...ev, span: origSpans[i] }));
 
+        // B-50: квантуем ТОЛЬКО пару у ручки. Ячейка, чья визуальная
+        // ширина не изменилась, обязана сохранить span бит-в-бит, даже
+        // если он не кратен текущему шагу: иначе один Math.round по всему
+        // квадрату ровнял чужие 1.75/2.25 под шаг зума.
+        const dragPair = new Set([ei, ei + 1]);
         for (let i = 0; i < ec; i++) {
-          if (nsp[i] === origVisSpans[i]) {
+          if (nsp[i] === origVisSpans[i] || !dragPair.has(i)) {
             nextEvents[i].span = origSpans[i];
           } else {
             // Изменилась визуальная ширина. Сначала переводим дельту из
@@ -30788,6 +31781,33 @@ function attachResizeHandlers() {
           }
         }
 
+        // B-50: сумма ПАРЫ у ручки неизменна — граница ездит внутри двух
+        // ячеек, длина квадрата от жеста не зависит. Правого соседа
+        // считаем вычитанием, а не отдельным Math.round: два независимых
+        // округления давали разъезд (2+3+1+2.25 = 16.25 при квадрате 16),
+        // и остаток потом списывался в непричастную ячейку.
+        //
+        // Когда сумма пары кратна шагу — а это обычный случай, включая
+        // 1.75+2.25=4 — обе ячейки встают на сетку, как и просил
+        // пользователь. Если же сумма пары дробная (сосед пришёл
+        // дробным из другого зума), на сетку встаёт перетаскиваемая
+        // ячейка, а остаток достаётся соседу: ровнять его силой значило
+        // бы менять длину квадрата.
+        const rIdx = ei + 1;
+        if (rIdx < ec && dragPair.has(rIdx)) {
+          const lEv = nextEvents[ei], rEv = nextEvents[rIdx];
+          const lDen = parseTimeSig(getEventOwnTimeSig(lEv, parentTs)).denominator || 4;
+          const rDen = parseTimeSig(getEventOwnTimeSig(rEv, parentTs)).denominator || 4;
+          // Сумма пары в долях родителя — по исходным span, до жеста.
+          const pairParent = origSpans[ei] * (parentDenom / lDen) + origSpans[rIdx] * (parentDenom / rDen);
+          const lParent = lEv.span * (parentDenom / lDen);
+          const stepP = getResizeStep();
+          const minP = stepP;
+          const lClamped = Math.min(Math.max(lParent, minP), Math.max(minP, pairParent - minP));
+          lEv.span = roundSpan(lClamped * (lDen / parentDenom));
+          rEv.span = roundSpan((pairParent - lClamped) * (rDen / parentDenom));
+        }
+
         // Та же финальная компенсация, что раньше выполнялась внутри
         // live-writeSpans(), но теперь — на временных событиях. Сумма
         // длительностей будущей модели остаётся равной длине квадрата,
@@ -30797,7 +31817,10 @@ function attachResizeHandlers() {
         const diffBeats = visualSum - targetBeats;
         const diff = Math.abs(diffBeats) < 1e-9 ? 0 : diffBeats;
         if (diff !== 0) {
-          const idx = nsp[ei] !== origVisSpans[ei] ? ei : ec - 1;
+          // B-50: остаток списываем внутрь пары у ручки. Прежний запасной
+          // адрес `ec - 1` отправлял его в последнюю ячейку квадрата —
+          // ещё один способ испортить долю, к которой не прикасались.
+          const idx = nsp[ei] !== origVisSpans[ei] ? ei : Math.min(ei + 1, ec - 1);
           const ev = nextEvents[idx];
           const ownDenom = parseTimeSig(getEventOwnTimeSig(ev, parentTs)).denominator || 4;
           const correctionOwn = diff * (ownDenom / parentDenom);
@@ -30857,11 +31880,18 @@ function attachResizeHandlers() {
       }
 
       function updateResizeMetricCountEdges(nsp) {
-        if (!resizeMetricCountEls.length) return;
         const edgeKeys = currentResizeEdgeKeys(nsp);
         resizeMetricCountEls.forEach((count) => {
           count.classList.toggle('is-edge', edgeKeys.has(count.dataset.resizeMetricKey || ''));
         });
+        // 0.170: удар подсказки B-15 над тем же узлом отодвигается вместе
+        // с подписью счёта (просьба пользователя 2026-09-05: «1таита
+        // отъезжает, когда граница проходит по доле — ритм должен
+        // отодвигаться вместе»). Полосы заморожены (0.168), поэтому ключи
+        // узлов стабильны на весь жест; сравнение — тот же resizeMetricNodeKey.
+        const hintSession = rhythmHintSession;
+        if (!hintSession || hintSession.bi !== bi) return;
+        syncRhythmHintLiveEdges(hintSession, edgeKeys);
       }
 
       function updateResizeBoundaryCovers(nsp) {
@@ -31179,6 +32209,18 @@ function attachResizeHandlers() {
         updateResizeBoundaryCovers(nsp);
         updateResizeHiddenTicks(nsp);
         updateResizeMetricCountEdges(nsp);
+        // B-50 (0.175): удары в полосах — по БУДУЩИМ долям. Сюда попадаем
+        // только на смене snapped-сетки (выше стоит гейт по ключу), так
+        // что перестройка полос случается единицы раз за жест, а не в
+        // каждом кадре. Доли считаем тем же buildEventsForVisualSpans,
+        // что исполнит commit, — превью и результат не расходятся.
+        if (rhythmHintSession && rhythmHintSession.bi === bi) {
+          const nextEvents = buildEventsForVisualSpans(nsp);
+          syncRhythmHintCounts(
+            rhythmHintSession,
+            nextEvents.map((ev) => getEventVisualSpanInParentUnits(ev, parentTs))
+          );
+        }
         window.__b31ResizePreviewFrameCount = (window.__b31ResizePreviewFrameCount || 0) + 1;
         return true;
       }
@@ -32669,6 +33711,9 @@ initDemo();
 initTheme();
 initScheme();
 initThemeLongPress();
+// B-64: панель структуры песни. Вешает свои слушатели один раз; сам
+// список строится здесь же и дальше обновляется из render().
+initSongMap();
 document.addEventListener('input', function (e) {
   const input = e.target;
   if (!input.classList.contains('chord-input')) return;
@@ -32767,7 +33812,6 @@ toggleTimeAndBeats();
           id: sq.id,
           repeat: sq.repeat || 1,
           customBeats: sq.customBeats ?? null,
-          strumPattern: sq.strumPattern || null,
           events: sq.events.map((e) => ({
             chord: e.chord,
             span: e.span,
@@ -32914,6 +33958,34 @@ toggleTimeAndBeats();
     1: function migrateV1toV2(song) {
       return { ...song, schemaVersion: 2 };
     },
+    // v2 -> v3 (B-56): триольные ритмы, которые на деле были свингом,
+    // сворачиваем в восьмые + флаг. ЗВУК НЕ МЕНЯЕТСЯ: удары остаются в
+    // тех же точках. Настоящие триоли (занята средняя треть) не трогаем.
+    // Зачем: пока бой записан тройками, ресайз дробной ячейки вынужден
+    // мельчить сетку до sub12 и портит рисунок.
+    2: function migrateV2toV3(song) {
+      const fold = (p) => (p ? foldTripletToSwing(p) || p : p);
+      const sections = Array.isArray(song.sections) ? song.sections.map((sec) => {
+        const next = { ...sec };
+        if (next.strumPattern) next.strumPattern = fold(next.strumPattern);
+        if (Array.isArray(next.squares)) {
+          next.squares = next.squares.map((sq) => {
+            if (!sq || !Array.isArray(sq.events)) return sq;
+            return { ...sq, events: sq.events.map((ev) => (
+              ev && ev.strumPattern ? { ...ev, strumPattern: fold(ev.strumPattern) } : ev
+            )) };
+          });
+        }
+        return next;
+      }) : song.sections;
+      let rhythmPool = song.rhythmPool;
+      if (rhythmPool && rhythmPool.pool) {
+        const pool = {};
+        for (const id of Object.keys(rhythmPool.pool)) pool[id] = fold(rhythmPool.pool[id]);
+        rhythmPool = { ...rhythmPool, pool };
+      }
+      return { ...song, sections, rhythmPool, schemaVersion: 3 };
+    },
   };
 
   function migrateSongData(song) {
@@ -33004,7 +34076,7 @@ toggleTimeAndBeats();
   function asSafeTimeSig(value, fallback) {
     return typeof value === 'string' && ALLOWED_TIME_SIGS.has(value) ? value : fallback;
   }
-  function cloneSafePattern(value) {
+  function cloneSafePattern(value, ts) {
     if (!value || typeof value !== 'object') return null;
     const mode = value.mode === 'pick' ? 'pick' : value.mode === 'strum' ? 'strum' : value.mode === 'mixed' ? 'mixed' : null;
     // 3 — триольное деление (шаффл, блюзовый кач); без него сохранённые
@@ -33023,7 +34095,19 @@ toggleTimeAndBeats();
       });
       return safe.length ? safe : null;
     });
-    return { mode, subdivision, steps };
+    // B-58: триоли в простом чётном размере не поддерживаются (решение
+    // пользователя 2026-09-06: «такие песни не поддерживаются в новой
+    // версии»). Сворачиваем в свинг, если это была свинговая запись,
+    // иначе честно отказываемся от рисунка — молча играть не то, что
+    // записано, хуже.
+    if (subdivision === 3 && ts && !timeSigAllowsTriplets(ts)) {
+      const folded = foldTripletToSwing({ mode, subdivision, steps });
+      if (!folded) return null;
+      return { mode, subdivision: 2, steps: folded.steps, swing: true };
+    }
+    // B-56: свинг из файла — только при двоичном делении и строгом true.
+    const swing = value.swing === true && (subdivision === 2 || subdivision === 4);
+    return swing ? { mode, subdivision, steps, swing: true } : { mode, subdivision, steps };
   }
   function cloneSafeShape(shape) {
     if (!Array.isArray(shape) || shape.length !== 6) return null;
@@ -33067,7 +34151,8 @@ toggleTimeAndBeats();
         timeSig: rawSec.timeSig == null ? null : asSafeTimeSig(rawSec.timeSig, null),
         bpm: rawSec.bpm == null ? null : asSafeInt(rawSec.bpm, CONFIG.DEFAULT_BPM, CONFIG.MIN_BPM, CONFIG.MAX_BPM),
         repeat: asSafeInt(rawSec.repeat, 1, 1, 99),
-        strumPattern: cloneSafePattern(rawSec.strumPattern),
+        strumPattern: cloneSafePattern(rawSec.strumPattern,
+          (rawSec.timeSig == null ? null : asSafeTimeSig(rawSec.timeSig, null)) || globalTimeSig),
         squares: [],
       };
       for (const rawSq of rawSec.squares) {
@@ -33076,7 +34161,9 @@ toggleTimeAndBeats();
           id: idFor(rawSq.id),
           repeat: asSafeInt(rawSq.repeat, 1, 1, 99),
           customBeats: rawSq.customBeats == null ? null : asSafeInt(rawSq.customBeats, 1, 1, SONG_LIMITS.MAX_SPAN * SONG_LIMITS.MAX_EVENTS_PER_SQUARE),
-          strumPattern: cloneSafePattern(rawSq.strumPattern),
+          // B-18 (чистка-4): «рисунок квадрата» отменён — поле
+          // rawSq.strumPattern старых файлов отбрасывается (у пользователя
+          // таких сейвов нет — решение 2026-09-05).
           events: [],
         };
         for (const rawEvent of rawSq.events) {
@@ -33085,7 +34172,9 @@ toggleTimeAndBeats();
             chord: asSafeText(rawEvent.chord, SONG_LIMITS.MAX_TEXT),
             span: asSafeSpan(rawEvent.span, 1, 1 / 16, SONG_LIMITS.MAX_SPAN),
             timeSig: rawEvent.timeSig == null ? null : asSafeTimeSig(rawEvent.timeSig, null),
-            strumPattern: cloneSafePattern(rawEvent.strumPattern),
+            strumPattern: cloneSafePattern(rawEvent.strumPattern,
+              (rawEvent.timeSig == null ? null : asSafeTimeSig(rawEvent.timeSig, null))
+              || sec.timeSig || globalTimeSig),
             // Выбранная аппликатура. Проверяем формат так же строго, как
             // остальное содержимое файла: шесть позиций, каждая — «x»
             // или число лада. Битую строку молча отбрасываем, аккорд
