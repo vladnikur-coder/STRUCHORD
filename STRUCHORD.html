@@ -3474,7 +3474,12 @@ body {
   outline: none;
 }
 .section-card.dragging {
-  opacity: 0.12 !important;
+  /* B-65: было 0.12 — карточка почти пропадала, и на её месте зияла
+     дыра: непонятно, откуда тащишь и куда вернётся, если передумаешь.
+     0.4 — как у строки в панели структуры, где это читается верно
+     (замечание пользователя: «когда просто перетаскиваешь секцию по
+     полю, выглядит не очень»). */
+  opacity: 0.4 !important;
   filter: saturate(0.7);
   transform: scale(1.025) rotate(-1deg);
   box-shadow: var(--shadow-drag);
@@ -3483,17 +3488,23 @@ body {
   z-index: 1000;
   cursor: grabbing;
 }
-.section-card.drag-over::after {
+/* B-65: линия вставки показывает СТОРОНУ. Раньше она всегда рисовалась
+   снизу цели, хотя секция может встать и перед ней — по линии нельзя
+   было понять результат. Теперь как в панели структуры: над целью при
+   движении вверх, под целью при движении вниз. */
+.section-card.drag-over::after,
+.section-card.drag-over-before::after {
   content: '';
   position: absolute;
   left: 18px;
   right: 18px;
-  bottom: -10px;
   height: 5px;
   /* Градиент акцента «звучит сейчас». */
   background: linear-gradient(90deg, rgba(var(--color-accent-warm-rgb), 0.35), var(--color-accent-warm));
   border-radius: var(--border-radius-pill);
 }
+.section-card.drag-over::after { bottom: -10px; }
+.section-card.drag-over-before::after { top: -10px; }
 .section-header {
   display: flex;
   align-items: center;
@@ -9131,7 +9142,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.191</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.192</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28160,19 +28171,29 @@ function attachDragEvents() {
       (e) => {
         e.preventDefault();
         if (draggedItemId === id) return;
-        document.querySelectorAll('.section-card').forEach((c) => c.classList.remove('drag-over'));
-        card.classList.add('drag-over');
+        document.querySelectorAll('.section-card').forEach((c) => {
+          c.classList.remove('drag-over', 'drag-over-before');
+        });
+        // B-65: сторону выбираем по положению курсора внутри карточки —
+        // выше середины значит «встанет перед», ниже «встанет после».
+        // Совпадает с тем, что делает reorderSections, и с поведением
+        // панели структуры.
+        const box = card.getBoundingClientRect();
+        const after = e.clientY > box.top + box.height / 2;
+        card.classList.add(after ? 'drag-over' : 'drag-over-before');
       },
       { signal: sig }
     );
-    card.addEventListener('dragleave', () => card.classList.remove('drag-over'), {
-      signal: sig,
-    });
+    card.addEventListener(
+      'dragleave',
+      () => card.classList.remove('drag-over', 'drag-over-before'),
+      { signal: sig }
+    );
     card.addEventListener(
       'drop',
       (e) => {
         e.preventDefault();
-        card.classList.remove('drag-over');
+        card.classList.remove('drag-over', 'drag-over-before');
         if (draggedItemId !== null && draggedItemId !== id) {
           const dEl = document.querySelector(`.section-card[data-id="${draggedItemId}"]`);
           const tEl = card;
@@ -33220,7 +33241,7 @@ function endDrag() {
   isDragging = false;
   DOM.sectionsContainer.classList.remove('drag-active');
   document.querySelectorAll('.section-card').forEach((c) => {
-    c.classList.remove('dragging', 'drag-over');
+    c.classList.remove('dragging', 'drag-over', 'drag-over-before');
     c.style.transform = '';
   });
 }
