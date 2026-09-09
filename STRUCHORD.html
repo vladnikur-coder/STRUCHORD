@@ -7092,6 +7092,13 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
   cursor: grabbing;
 }
 /* Тултип, который сейчас тащат: следует за курсором. */
+/* B-66: тултип в полёте к доку. Тень и размывка убираются по ходу —
+   предмет «уходит» в панель, а не просто уезжает за край. */
+#fingering-tooltip.is-flying {
+  pointer-events: none;
+  transition: none;
+  z-index: 10001;
+}
 #fingering-tooltip.is-dragging {
   cursor: grabbing;
   opacity: 0.85;
@@ -9142,7 +9149,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.192</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.193</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15557,7 +15564,10 @@ function findNextChordAfter(secId, squareId, eventIndex) {
 }
 
 // Закрепить то, что сейчас показано во всплывающем тултипе.
-function pinFingeringFromTooltip() {
+// opts.skipAppear — гриф встаёт БЕЗ вступительной анимации. Нужен, когда
+// тултип уже прилетел в док сам (B-66): повторный въезд сверху читался
+// бы как второй рывок.
+function pinFingeringFromTooltip(opts = {}) {
   const tip = document.getElementById('fingering-tooltip');
   const w = currentTooltipWrapper || lastTooltipWrapper;
   if (!tip || !w) return false;
@@ -15586,7 +15596,7 @@ function pinFingeringFromTooltip() {
   // между снятием и постановкой перезапускает анимацию при
   // перезакреплении одного грифа на другой ячейке.
   const rowEl = document.getElementById('pinnedRow');
-  if (rowEl) {
+  if (rowEl && !opts.skipAppear) {
     // B-42 v8 (0.163): таймер появления ЖИВЁТ на элементе и гасится
     // перед рестартом. Раньше «голый» setTimeout от ПРОШЛОГО закрепления
     // срезал класс посреди новой анимации: передумал и закрепил обратно
@@ -15799,6 +15809,61 @@ function attachPinDrag() {
     st.overDock = over;
   };
 
+  // B-66: ПЕРЕЛЁТ тултипа в док вместо мгновенной подмены.
+  //
+  // Жалоба пользователя: «анимация при закреплении выглядит слишком
+  // резкой и дёрганой». Причина — два НЕСВЯЗАННЫХ движения: тултип
+  // исчезал мгновенно там, где его отпустили, а гриф отдельно падал в
+  // док сверху (struchord-pin-in-card, translateY(-16px)). Глаз не
+  // связывал их в одно действие и читал как рывок.
+  //
+  // Теперь тултип долетает до дока сам и там передаёт эстафету: гриф
+  // появляется уже на месте посадки, без второго прыжка.
+  const flyTooltipToDock = (st) => {
+    const el = st.el;
+    const bar = st.bar;
+    if (!el || !bar) { pinFingeringFromTooltip(); return; }
+    const from = el.getBoundingClientRect();
+    const to = bar.getBoundingClientRect();
+    if (!from.width || !to.width) { pinFingeringFromTooltip(); return; }
+
+    // Летим в центр дока и одновременно уменьшаемся: тултип крупнее
+    // строки грифа, и без масштаба посадка выглядит как «схлопывание».
+    const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
+    const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
+    const scale = Math.min(1, Math.max(0.35, to.height / Math.max(1, from.height)));
+
+    // Позицию больше не трогаем — двигает анимация. Иначе петля follow
+    // и transform спорили бы за одну и ту же координату.
+    el.classList.remove('is-dragging');
+    el.classList.add('is-flying');
+
+    let done = false;
+    const land = () => {
+      if (done) return;
+      done = true;
+      el.classList.remove('is-flying');
+      el.style.transform = '';
+      // Гриф встаёт БЕЗ вступительной анимации: тултип уже привёз его
+      // на место, повторный въезд сверху и был бы вторым рывком.
+      pinFingeringFromTooltip({ skipAppear: true });
+    };
+
+    const anim = el.animate(
+      [
+        { transform: 'translate(0, 0) scale(1)', opacity: 0.85 },
+        { transform: `translate(${dx}px, ${dy}px) scale(${scale})`, opacity: 0 },
+      ],
+      // Кривая с лёгким разгоном и мягким торможением — предмет
+      // «притягивается» к доку, а не выстреливает.
+      { duration: 260, easing: 'cubic-bezier(.3,.7,.4,1)', fill: 'forwards' }
+    );
+    anim.onfinish = land;
+    // Страховка: если анимации нет (reduced-motion, старый движок) —
+    // не оставляем тултип висеть в воздухе.
+    setTimeout(land, 320);
+  };
+
   const onUp = () => {
     if (!pinDragState) return;
     const st = pinDragState;
@@ -15831,7 +15896,7 @@ function attachPinDrag() {
     }
     if (!st.moved) return;   // это был клик, а не перетаскивание
     if (st.source === 'tooltip') {
-      if (st.overDock) pinFingeringFromTooltip();
+      if (st.overDock) flyTooltipToDock(st);
       else hideFingeringTooltip(false);
     } else if (!st.overDock) {
       // Вытащили закреплённый гриф из панели — открепляем.
