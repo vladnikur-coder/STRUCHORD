@@ -224,6 +224,28 @@ async function dragToDock(w) {
     ok('флаг снимается на посадке', /tooltipFlyingToDock = false;\n      el\.classList\.remove\('is-flying'\)/.test(html));
   }
 
+
+  console.log('=== 7. Панель возвращается плавно, а не вспышкой (0.197) ===');
+  {
+    // Запись экрана 02.41: перелёт уже плавный, но панель ВСЁ ВРЕМЯ
+    // полёта стояла пустой рамкой (~400мс, 12 кадров при 30к/с), а
+    // потом мгновенно наполнялась кнопками. Мигание всей панели и
+    // читалось как «дёрганое закрепление» — сам гриф был ни при чём.
+    //
+    // Класс is-pin-dragging гасит содержимое через opacity: 0. Гашение
+    // должно быть быстрым (подсказка «закрепить» нужна сразу), а
+    // возврат — плавным.
+    const back = html.match(/\.transport-bar > \*:not\(\.transport-dock-hint\):not\(\.pinned-row\)\s*\{\s*transition:\s*opacity\s+([\d.]+)s/);
+    ok('у содержимого панели есть переход прозрачности', !!back, 'правило не найдено');
+    if (back) {
+      const backMs = parseFloat(back[1]) * 1000;
+      ok('возврат заметно плавный (>= 250мс)', backMs >= 250, String(backMs));
+    }
+    const down = html.match(/body\.is-pin-dragging \.transport-bar > \*:not\(\.transport-dock-hint\):not\(\.pinned-row\)\s*\{\s*transition:\s*opacity\s+([\d.]+)s/);
+    ok('гашение при захвате быстрое', !!down && parseFloat(down[1]) * 1000 <= 150,
+       down ? String(parseFloat(down[1]) * 1000) : 'нет правила');
+  }
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
   if (bad) process.exitCode = 1;
 })();
