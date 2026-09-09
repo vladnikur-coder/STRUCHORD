@@ -15673,6 +15673,8 @@ function restorePinnedFingering() {
 // на время жеста замораживаем автоскрытие (флагом body.is-pin-dragging
 // пользуется showFingeringTooltip).
 let pinDragState = null;
+// B-65: id кадра петли сглаживания при перетаскивании тултипа.
+let pinFollowRaf = null;
 
 function attachPinDrag() {
   if (window.__pinDragReady) return;
@@ -15700,10 +15702,62 @@ function attachPinDrag() {
       dy: e.clientY - r.top,
       moved: false,
       startX: e.clientX, startY: e.clientY,
+      // B-65: откуда начинается догоняющее движение — фактическая
+      // позиция элемента на экране в момент захвата.
+      curX: r.left, curY: r.top,
+      tgtX: r.left, tgtY: r.top,
     };
     document.body.classList.add('is-pin-dragging');
     el.setPointerCapture && el.setPointerCapture(e.pointerId);
     e.preventDefault();
+  };
+
+  // B-65: тултип ДОГОНЯЕТ курсор, а не прибит к нему намертво.
+  //
+  // Пользователю понравилось, как ведёт себя нативный снимок браузера
+  // при перетаскивании секций в панели структуры: на резком движении он
+  // отстаёт и мягко подтягивается, отчего у элемента появляется вес.
+  // Здесь тултип таскается вручную (координаты ставятся напрямую), и
+  // раньше он прилипал к курсору без запаздывания.
+  //
+  // Механика: держим ЦЕЛЬ (где курсор) и ТЕКУЩУЮ позицию, каждый кадр
+  // сдвигаем текущую к цели на долю расстояния. Это экспоненциальное
+  // сглаживание: чем дальше отстал — тем быстрее догоняет, у остановки
+  // плавно замирает. Наклон намеренно НЕ добавляем (выбор пользователя:
+  // «просто запаздывание»).
+  const SMOOTH = 0.18; // доля пути за кадр: заметно, но не вязко
+
+  const stopFollow = () => {
+    if (pinFollowRaf) { cancelAnimationFrame(pinFollowRaf); pinFollowRaf = null; }
+  };
+
+  const follow = () => {
+    const st = pinDragState;
+    if (!st || !st.moved) { pinFollowRaf = null; return; }
+    st.curX += (st.tgtX - st.curX) * SMOOTH;
+    st.curY += (st.tgtY - st.curY) * SMOOTH;
+    // У самой цели дотягиваем ровно и останавливаем петлю: иначе
+    // экспоненциальное сглаживание бесконечно приближается, но не
+    // доходит, и элемент замирает в паре пикселей от курсора (замер:
+    // застревал на 547 при цели 550 — на глаз заметно).
+    const rest = Math.abs(st.tgtX - st.curX) + Math.abs(st.tgtY - st.curY);
+    if (rest < 0.5) { st.curX = st.tgtX; st.curY = st.tgtY; }
+    applyPinDragPosition(st);
+    pinFollowRaf = rest < 0.5 ? null : requestAnimationFrame(follow);
+  };
+
+  // Раскладка позиции вынесена отдельно: у 'pinned' своя система
+  // координат (fixed от окна), у тултипа — документная (+scroll).
+  const applyPinDragPosition = (st) => {
+    if (st.source === 'pinned') {
+      st.el.style.position = 'fixed';
+      st.el.style.left = st.curX + 'px';
+      st.el.style.top = st.curY + 'px';
+      st.el.style.transform = 'none';
+    } else {
+      st.el.style.left = (st.curX + (window.scrollX || 0)) + 'px';
+      st.el.style.top = (st.curY + (window.scrollY || 0)) + 'px';
+    }
   };
 
   const onMove = (e) => {
@@ -15717,17 +15771,24 @@ function attachPinDrag() {
       st.el.classList.add('is-dragging');
       if (st.source === 'tooltip') st.el.classList.add('no-move-transition');
     }
-    // B-34 (0.143): тултип absolute (документное пространство) — клиентские
-    // координаты жеста переводим +scroll. Ветка 'pinned' ниже сама ставит
-    // position:fixed и перезаписывает координаты под вьюпорт.
-    st.el.style.left = (e.clientX - st.dx + (window.scrollX || 0)) + 'px';
-    st.el.style.top = (e.clientY - st.dy + (window.scrollY || 0)) + 'px';
-    if (st.source === 'pinned') {
-      // Ряд позиционирован от панели — на время жеста переводим его в
-      // координаты окна, иначе он уехал бы при скролле от исходной точки.
-      st.el.style.position = 'fixed';
-      st.el.style.left = (e.clientX - st.dx) + 'px';
-      st.el.style.transform = 'none';
+    // B-34 (0.143): тултип absolute (документное пространство) —
+    // клиентские координаты жеста переводим +scroll в applyPinDragPosition.
+    //
+    // B-65: сюда пишем только ЦЕЛЬ. Саму позицию двигает петля follow(),
+    // иначе элемент прилипнет к курсору и запаздывания не будет.
+    st.tgtX = e.clientX - st.dx;
+    st.tgtY = e.clientY - st.dy;
+    // Текущая позиция стартует с ФАКТИЧЕСКОГО места элемента, а не с
+    // цели: инициализация `cur = tgt` телепортировала бы его к курсору
+    // на первом же движении, и догонять было бы нечего (замер показал
+    // прыжок 100 -> 550 в один кадр).
+    // Тултипу догонять — эффект по просьбе пользователя; закреплённый
+    // гриф оставляем жёстким (решение: только тултип).
+    if (st.source === 'tooltip') {
+      if (!pinFollowRaf) pinFollowRaf = requestAnimationFrame(follow);
+    } else {
+      st.curX = st.tgtX; st.curY = st.tgtY;
+      applyPinDragPosition(st);
     }
     // Цель — вся панель, с небольшим запасом по краям (12px), чтобы
     // сброс рядом с кромкой тоже засчитывался.
@@ -15741,6 +15802,14 @@ function attachPinDrag() {
   const onUp = () => {
     if (!pinDragState) return;
     const st = pinDragState;
+    // B-65: петля больше не нужна. Позицию доводим до цели сразу, иначе
+    // элемент застынет там, где его застало отпускание, и решение
+    // «попал в док или нет» разойдётся с картинкой.
+    stopFollow();
+    if (st.moved && st.curX != null) {
+      st.curX = st.tgtX; st.curY = st.tgtY;
+      applyPinDragPosition(st);
+    }
     pinDragState = null;
     document.body.classList.remove('is-pin-dragging');
     st.bar.classList.remove('is-drop-target');
