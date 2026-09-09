@@ -255,6 +255,33 @@ const rows = (w) => [...w.document.querySelectorAll('.songmap-item')];
     ok('для первой секции прокрутка не отрицательная', calls[0] >= 0, String(calls[0]));
   }
 
+
+  console.log('=== 13. Корешок с надписью «Структура» ===');
+  {
+    // Просьба пользователя (0.197): вместо безымянной полоски у края —
+    // видимый краешек панели с вертикальной надписью, намекающий, что
+    // её можно вытянуть.
+    const w = boot(police);
+    await sleep(300);
+    const zone = w.document.getElementById('songmapZone');
+    const panel = w.document.getElementById('songmap');
+    ok('на корешке есть надпись', /Структура/.test(zone.textContent), zone.textContent.trim());
+    ok('надпись вертикальная', /writing-mode:\s*vertical/.test(html));
+    ok('корешок выглядит как торец панели (та же подложка)',
+       /\.songmap-zone\s*\{[^}]*background:\s*color-mix/s.test(html));
+    ok('скруглён справа, как выдвижной ящик',
+       /\.songmap-zone\s*\{[^}]*border-radius:\s*0\s+10px/s.test(html));
+    // Дубля заголовка внутри панели быть не должно.
+    ok('заголовок внутри панели убран (не дублируем)',
+       w.document.querySelectorAll('.songmap-head').length === 0);
+    // Корешок прячется, пока панель открыта.
+    zone.dispatchEvent(new w.MouseEvent('mouseenter', { bubbles: true }));
+    ok('при открытии корешок скрыт', zone.classList.contains('is-hidden'));
+    panel.dispatchEvent(new w.MouseEvent('mouseleave', { bubbles: true }));
+    await sleep(320);
+    ok('после закрытия корешок вернулся', !zone.classList.contains('is-hidden'));
+  }
+
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
   if (bad) process.exitCode = 1;
 })();

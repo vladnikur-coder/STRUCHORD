@@ -3296,36 +3296,52 @@ body {
 
 /* Зона-ловушка у левого края: наведение на неё выдвигает панель.
    Узкая (14px), чтобы не воровать клики у содержимого. */
+/* Зона-ловушка у левого края. B-64 (0.197): вместо безымянной полоски —
+   ВИДИМЫЙ КРАЕШЕК панели с вертикальной надписью «Структура» (просьба
+   пользователя). Прежний вариант был намёком ни о чём: цветная полоска
+   не объясняла, что за ней прячется, и о панели надо было догадаться.
+
+   Краешек намеренно выглядит как торец выдвижного ящика: та же
+   подложка и то же скругление справа, что у самой панели, — читается
+   как «её можно вытянуть». */
 .songmap-zone {
   position: fixed;
   left: 0;
-  top: 0;
-  bottom: 0;
-  width: 14px;
-  z-index: 60;
-  /* Полоска-подсказка: без неё зона невидима и о панели не догадаться. */
-  background: linear-gradient(
-    to right,
-    rgba(var(--color-accent-rgb), 0.18),
-    transparent
-  );
-  cursor: pointer;
-}
-.songmap-zone::after {
-  /* Вертикальный «корешок» — намёк, что слева что-то есть. */
-  content: '';
-  position: absolute;
-  left: 3px;
   top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 64px;
-  border-radius: 3px;
-  background: var(--color-accent);
-  opacity: 0.35;
-  transition: opacity 0.2s;
+  translate: 0 -50%;
+  width: 26px;
+  /* Высота по содержимому надписи, но не во весь экран: ярлык-корешок,
+     а не полоса от кромки до кромки. */
+  padding: 18px 0;
+  z-index: 60;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  background: color-mix(in srgb, var(--color-background-primary) 72%, transparent);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border-radius: 0 10px 10px 0;
+  cursor: pointer;
+  transition: width 0.18s ease, opacity 0.18s ease;
 }
-.songmap-zone:hover::after { opacity: 0.7; }
+.songmap-zone-label {
+  /* Снизу вверх — как корешок книги на полке. */
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+  white-space: nowrap;
+  user-select: none;
+  pointer-events: none;
+}
+.songmap-zone:hover { width: 30px; }
+.songmap-zone:hover .songmap-zone-label { color: var(--color-text-secondary); }
+/* Пока панель открыта, корешок не нужен — он бы торчал из-под неё. */
+.songmap-zone.is-hidden { opacity: 0; pointer-events: none; }
 
 .songmap {
   position: fixed;
@@ -9150,15 +9166,16 @@ body.is-timeline.is-playing .timeline-playhead {
   <body>
     <!-- B-64: панель структуры песни. Живёт СНАРУЖИ .container, чтобы не
          сужать рабочую область (860px) — решение пользователя. -->
-    <div class="songmap-zone" id="songmapZone" aria-hidden="true"></div>
+    <div class="songmap-zone" id="songmapZone" aria-hidden="true">
+      <span class="songmap-zone-label">Структура</span>
+    </div>
     <aside class="songmap" id="songmap" aria-label="Структура песни">
-      <div class="songmap-head">Структура</div>
       <div class="songmap-list" id="songmapList"></div>
     </aside>
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.196</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.197</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -29263,10 +29280,15 @@ function initSongMap() {
   const open = () => {
     if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; }
     panel.classList.add('is-open');
+    // Корешок прячем: иначе он торчал бы из-под выехавшей панели.
+    zone.classList.add('is-hidden');
   };
   const scheduleClose = () => {
     if (closeTimer) clearTimeout(closeTimer);
-    closeTimer = setTimeout(() => panel.classList.remove('is-open'), 260);
+    closeTimer = setTimeout(() => {
+      panel.classList.remove('is-open');
+      zone.classList.remove('is-hidden');
+    }, 260);
   };
   zone.addEventListener('mouseenter', open);
   zone.addEventListener('mouseleave', scheduleClose);
