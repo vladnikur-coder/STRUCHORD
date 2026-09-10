@@ -9248,7 +9248,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.202</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.203</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28671,7 +28671,15 @@ function sectionDragFollow() {
 function sectionDragRefreshRects(st) {
   st.rects = [...st.cont.querySelectorAll('.section-card')].map((el) => {
     const r = el.getBoundingClientRect();
-    return { el, top: r.top, bottom: r.bottom, mid: r.top + r.height / 2 };
+    // 0.203: rect берём В РАСКЛАДКЕ, без текущего FLIP-смещения: пока
+    // сосед ещё едет к новому месту, getBoundingClientRect отдаёт его
+    // промежуточную точку, и середина «плавает» — при быстром обратном
+    // махе перескок срабатывал раньше, чем сосед доехал.
+    let dy = 0;
+    const tf = getComputedStyle(el).transform;
+    if (tf && tf !== 'none') { try { dy = new DOMMatrixReadOnly(tf).m42; } catch (err) {} }
+    const top = r.top - dy;
+    return { el, top, bottom: top + r.height, mid: top + r.height / 2 };
   });
   st.rectsDirty = false;
 }
@@ -28715,7 +28723,14 @@ function sectionDragUpdateSlot(st, y) {
     }
   }
   if (!target) return;
-  const movers = st.rects.filter((r) => r.el !== slot).map((r) => ({ el: r.el, top: r.top }));
+  // 0.203: слот тоже едет FLIP'ом. Раньше двигались только соседи (на
+  // высоту слота, ~29px), а сам слот при перескоке высокого соседа
+  // ТЕЛЕПОРТИРОВАЛСЯ на его высоту (200+px). При быстрых махах
+  // вверх-вниз единственный резко прыгающий объект на экране — кольцо
+  // слота; это и читалось как «дёргание», хотя дребезга перестановок
+  // (0.202) уже не было. Замер: 24 перестановки за 6 махов — ровно по
+  // числу пересечений.
+  const movers = st.rects.map((r) => ({ el: r.el, top: r.el.getBoundingClientRect().top }));
   if (before) st.cont.insertBefore(slot, target);
   else st.cont.insertBefore(slot, target.nextSibling);
   // FLIP: с прежней позиции к новой. Уже идущую анимацию соседа
@@ -28723,15 +28738,12 @@ function sectionDragUpdateSlot(st, y) {
   // смещение из активной анимации (иначе при быстрых перестановках
   // сосед дёргается назад в стартовую точку).
   movers.forEach((m) => {
-    const now = m.el.getBoundingClientRect().top;
-    let d = m.top - now;
+    // m.top — ВИЗУАЛЬНЫЙ старт (с текущим FLIP-смещением), now — новая
+    // раскладка без него: снимаем идущую анимацию и продолжаем с места.
     const running = m.el.getAnimations ? m.el.getAnimations().find((a) => a.__sectionShift) : null;
-    if (running) {
-      const cs = getComputedStyle(m.el).transform;
-      const mt = cs && cs !== 'none' ? new DOMMatrixReadOnly(cs) : null;
-      if (mt) d = mt.m42 + (m.top - now);
-      running.cancel();
-    }
+    if (running) running.cancel();
+    const now = m.el.getBoundingClientRect().top;
+    const d = m.top - now;
     if (Math.abs(d) < 0.5) return;
     const anim = m.el.animate(
       [{ transform: `translateY(${d}px)` }, { transform: 'translateY(0)' }],
