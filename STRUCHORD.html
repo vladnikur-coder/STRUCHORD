@@ -3473,38 +3473,80 @@ body {
   cursor: default;
   outline: none;
 }
-.section-card.dragging {
-  /* B-65: было 0.12 — карточка почти пропадала, и на её месте зияла
-     дыра: непонятно, откуда тащишь и куда вернётся, если передумаешь.
-     0.4 — как у строки в панели структуры, где это читается верно
-     (замечание пользователя: «когда просто перетаскиваешь секцию по
-     полю, выглядит не очень»). */
-  opacity: 0.4 !important;
-  filter: saturate(0.7);
-  transform: scale(1.025) rotate(-1deg);
-  box-shadow: var(--shadow-drag);
-  background: var(--color-glass, rgba(255, 255, 255, 0.55));
-  backdrop-filter: blur(8px);
-  z-index: 1000;
+/* B-65 (0.200): перетаскивание секции = ярлык + слот. Правила старого
+   нативного DnD (.dragging с наклоном, линии .drag-over) сняты вместе
+   с ним: секция теперь сворачивается в компактный ярлык и едет за
+   курсором, а на месте остаётся слот высотой с ярлык. */
+.section-card.is-drag-slot,
+.section-card.is-drag-expanding {
+  /* height анимируется инлайном и включает паддинги карточки — иначе
+     слот вышел бы ниже ярлыка на их величину. */
+  box-sizing: border-box;
+}
+.section-card.is-drag-slot {
+  /* Вид пустого слота — пунктирная «тень» ярлыка. Ширина тоже
+     анимируется инлайном (до ширины ярлыка): слот — размером с ярлык,
+     а не полоса во всю строку (спека: «раздвигаются по размеру ярлыка»). */
+  border-radius: var(--border-radius-pill);
+  background: rgba(var(--color-accent-rgb), 0.05);
+  box-shadow: inset 0 0 0 1.5px rgba(var(--color-accent-rgb), 0.32);
+  pointer-events: none;
+  margin-left: 1.25rem;
+  transition: margin-left 260ms cubic-bezier(.25,.8,.35,1);
+}
+.section-card.is-drag-slot > * {
+  opacity: 0;
+  transition: opacity 140ms ease;
+}
+.section-card.is-drag-expanding {
+  pointer-events: none;
+  margin-left: 0;
+  transition: margin-left 320ms cubic-bezier(.25,.8,.35,1);
+}
+.section-card.is-drag-expanding > * {
+  opacity: 1;
+  transition: opacity 220ms ease 80ms;
+}
+/* Ярлык под курсором — родственник строки панели структуры:
+   плашка цвета типа секции, название, бейдж повтора. */
+.section-drag-chip {
+  position: fixed;
+  z-index: 10002;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: var(--border-radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: left, top, transform, opacity;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08);
+  background: var(--color-surface, #fff);
+  color: var(--color-text-primary);
   cursor: grabbing;
 }
-/* B-65: линия вставки показывает СТОРОНУ. Раньше она всегда рисовалась
-   снизу цели, хотя секция может встать и перед ней — по линии нельзя
-   было понять результат. Теперь как в панели структуры: над целью при
-   движении вверх, под целью при движении вниз. */
-.section-card.drag-over::after,
-.section-card.drag-over-before::after {
-  content: '';
-  position: absolute;
-  left: 18px;
-  right: 18px;
-  height: 5px;
-  /* Градиент акцента «звучит сейчас». */
-  background: linear-gradient(90deg, rgba(var(--color-accent-warm-rgb), 0.35), var(--color-accent-warm));
+.section-drag-chip.verse { background: var(--label-verse-bg, #e9f0fb); color: var(--label-verse-text, #1b4f8b); }
+.section-drag-chip.chorus { background: var(--label-chorus-bg, #eeedff); color: var(--label-chorus-text, #3c329b); }
+.section-drag-chip.bridge { background: var(--label-bridge-bg, #e1f5ee); color: var(--label-bridge-text, #0a5e48); }
+.section-drag-chip.intro { background: var(--label-intro-bg, #fef2de); color: var(--label-intro-text, #9b5e1a); }
+.section-drag-chip.outro { background: var(--label-outro-bg, #f7e9e0); color: var(--label-outro-text, #8a3e1e); }
+.section-drag-chip.solo { background: var(--label-solo-bg, #f7e3e9); color: var(--label-solo-text, #8b2a4a); }
+.section-drag-chip.pre-chorus { background: var(--label-prechorus-bg, #ede3f6); color: var(--label-prechorus-text, #5a3290); }
+.section-drag-chip.custom { background: var(--color-tint); }
+.section-drag-chip-repeat {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.12);
   border-radius: var(--border-radius-pill);
+  padding: 1px 6px;
 }
-.section-card.drag-over::after { bottom: -10px; }
-.section-card.drag-over-before::after { top: -10px; }
+/* Вне поля секций — бросок отменит жест; ярлык бледнеет, предупреждая. */
+.section-drag-chip.is-outside { opacity: 0.55 !important; }
+body.is-section-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+body.is-section-dragging .section-header { cursor: grabbing; }
 .section-header {
   display: flex;
   align-items: center;
@@ -9187,7 +9229,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.199</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.200</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28410,6 +28452,75 @@ function attachChordWheelEvents() {
     );
   });
 }
+// ========== ПЕРЕТАСКИВАНИЕ СЕКЦИЙ: ЯРЛЫК + СЛОТ (B-65, 0.200) ==========
+//
+// Спека пользователя (2026-09-10, дословно): «при начале драга секция
+// визуально аккуратно сворачивается в этот ярлык. при отпускании —
+// разворачивается в выбранном месте»; «соседи раздвигаются, открывая
+// пустой слот. Раздвигаются по размеру ярлыка. При отпускании мыши
+// плавно раздвигаются под разворачивающуюся секцию»; «у ярлыка
+// догонялка»; «анимации согласованы, приятны, ничего не ломают, без
+// лагов».
+//
+// Почему НЕ нативный HTML5 DnD (как было до 0.200): браузер рисует
+// снимок сам — ни вид ярлыка, ни запаздывание, ни момент разворота им
+// не управляются; setDragImage даёт статичную картинку без «веса».
+// Поэтому жест — на pointer-событиях, как у тултипа/грифа (B-65/B-67).
+//
+// Устройство:
+//   карточка   — остаётся в потоке и служит СЛОТОМ: её высота
+//                анимируется до высоты ярлыка (сворачивание) и обратно
+//                (разворот); содержимое гаснет/проявляется. Соседи
+//                двигаются сами — потоком, без FLIP-расчётов;
+//   ярлык      — отдельный fixed-элемент #sectionDragChip, вид строки
+//                панели структуры (плашка цвета типа + название + ×N),
+//                едет за курсором с догонялкой 18%/кадр;
+//   слот       — перемещение свёрнутой карточки по DOM (insertBefore)
+//                при пересечении середины соседа; сдвиг соседей —
+//                FLIP transform 220мс, чтобы перестановка не прыгала;
+//   бросок     — ярлык летит к слоту (380мс, кривая B-67), там карточка
+//                разворачивается до полной высоты, ярлык гаснет;
+//                модель — reorderSections в момент броска, затем
+//                requestRender ПОСЛЕ разворота (иначе render перебьёт
+//                анимацию высоты);
+//   отмена     — Esc или бросок вне поля секций: ярлык летит в исходный
+//                слот, карточка возвращается на прежнее место в DOM.
+//
+// Перф: на pointermove — только цель ярлыка, хит-тест по КЭШУ rect'ов
+// карточек (пересчитывается после каждого перемещения слота и по
+// scroll), никаких render()/innerHTML. Автоскролл у кромки окна — свой
+// (нативный DnD давал его даром, pointer-жест — нет).
+let sectionDrag = null;         // состояние текущего жеста
+let sectionDragRaf = 0;         // петля догонялки
+const SECTION_DRAG_SMOOTH = 0.18;
+const SECTION_DRAG_FLY_MS = 380;
+const SECTION_DRAG_FLY_EASE = 'cubic-bezier(.25,.8,.35,1)';
+const SECTION_DRAG_COLLAPSE_MS = 260;
+const SECTION_DRAG_EXPAND_MS = 320;
+const SECTION_DRAG_SHIFT_MS = 220;
+
+function sectionDragChipEl() {
+  let chip = document.getElementById('sectionDragChip');
+  if (!chip) {
+    chip = document.createElement('div');
+    chip.id = 'sectionDragChip';
+    chip.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(chip);
+  }
+  return chip;
+}
+
+// Ярлык собираем из тех же данных, что строка панели структуры
+// (songmapBaseName + LABEL_MAP + повтор), чтобы они выглядели родственно.
+function fillSectionDragChip(chip, sec) {
+  const labelClass = sec.type === 'Custom' ? 'custom' : LABEL_MAP[sec.type] || 'verse';
+  const rep = Math.max(1, sec.repeat || 1);
+  chip.className = 'section-drag-chip ' + labelClass;
+  chip.innerHTML =
+    `<span class="section-drag-chip-name">${escapeHtml(songmapBaseName(sec))}</span>` +
+    (rep > 1 ? `<span class="section-drag-chip-repeat">×${rep}</span>` : '');
+}
+
 function attachDragEvents() {
   const cont = DOM.sectionsContainer;
   document.querySelectorAll('.section-card').forEach((card) => {
@@ -28419,106 +28530,329 @@ function attachDragEvents() {
     const id = parseInt(card.dataset.id);
     const header = card.querySelector('.section-header');
     if (!header) return;
-    header.setAttribute('draggable', 'true');
+    // Нативный DnD выключен: свой жест ниже.
+    header.removeAttribute('draggable');
+    header.addEventListener('dragstart', (e) => e.preventDefault(), { signal: sig });
     header.addEventListener(
-      'dragstart',
+      'pointerdown',
       (e) => {
-        if (longPressTimer) clearTimeout(longPressTimer);
-        startDrag(e, card, id);
-      },
-      { signal: sig }
-    );
-    header.addEventListener('dragend', endDrag, { signal: sig });
-    let tsX = 0,
-      tsY = 0;
-    header.addEventListener(
-      'touchstart',
-      (e) => {
-        tsX = e.touches[0].clientX;
-        tsY = e.touches[0].clientY;
-        longPressTimer = setTimeout(() => {
-          const fe = { dataTransfer: { setData: () => {}, effectAllowed: 'move' } };
-          startDrag(fe, card, id);
-          header.style.opacity = '0.4';
-        }, CONFIG.LONG_PRESS_DELAY);
-      },
-      { signal: sig, passive: true }
-    );
-    header.addEventListener(
-      'touchmove',
-      (e) => {
-        if (!longPressTimer) return;
-        if (
-          Math.abs(e.touches[0].clientX - tsX) > 8 ||
-          Math.abs(e.touches[0].clientY - tsY) > 8
-        ) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
+        if (e.button !== 0 && e.pointerType === 'mouse') return;
+        // Кнопки и поля заголовка — кликаются, а не тащатся.
+        if (e.target.closest('button, input, select, .section-label, .section-mod-badges')) return;
+        if (sectionDrag) return;
+        const pending = {
+          id, card, header, cont,
+          pointerId: e.pointerId,
+          startX: e.clientX, startY: e.clientY,
+          touch: e.pointerType === 'touch',
+          armed: e.pointerType !== 'touch',   // мышь — по порогу; тач — по long-press
+          timer: 0,
+        };
+        if (pending.touch) {
+          pending.timer = setTimeout(() => {
+            pending.armed = true;
+            pending.timer = 0;
+            beginSectionDrag(pending, pending.startX, pending.startY);
+          }, CONFIG.LONG_PRESS_DELAY);
         }
-      },
-      { signal: sig, passive: true }
-    );
-    header.addEventListener(
-      'touchend',
-      () => {
-        if (longPressTimer) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
-        }
-        header.style.opacity = '';
-      },
-      { signal: sig }
-    );
-    card.addEventListener(
-      'dragover',
-      (e) => {
-        e.preventDefault();
-        if (draggedItemId === id) return;
-        document.querySelectorAll('.section-card').forEach((c) => {
-          c.classList.remove('drag-over', 'drag-over-before');
-        });
-        // B-65: сторону выбираем по положению курсора внутри карточки —
-        // выше середины значит «встанет перед», ниже «встанет после».
-        // Совпадает с тем, что делает reorderSections, и с поведением
-        // панели структуры.
-        const box = card.getBoundingClientRect();
-        const after = e.clientY > box.top + box.height / 2;
-        card.classList.add(after ? 'drag-over' : 'drag-over-before');
-      },
-      { signal: sig }
-    );
-    card.addEventListener(
-      'dragleave',
-      () => card.classList.remove('drag-over', 'drag-over-before'),
-      { signal: sig }
-    );
-    card.addEventListener(
-      'drop',
-      (e) => {
-        e.preventDefault();
-        card.classList.remove('drag-over', 'drag-over-before');
-        if (draggedItemId !== null && draggedItemId !== id) {
-          const dEl = document.querySelector(`.section-card[data-id="${draggedItemId}"]`);
-          const tEl = card;
-          // Направление перетаскивания решает, куда именно вставлять:
-          // при движении вниз секция должна встать ПОСЛЕ цели (иначе
-          // при соседнем шаге вниз insertBefore(dEl, tEl) не даст видимых
-          // изменений — dEl и так уже стоит перед tEl), при движении
-          // вверх — ПЕРЕД целью, как и раньше.
-          const di = sections.findIndex((s) => s.id === draggedItemId);
-          const ti = sections.findIndex((s) => s.id === id);
-          const movingDown = di !== -1 && ti !== -1 && di < ti;
-          animateReorder(() => {
-            if (dEl && tEl) cont.insertBefore(dEl, movingDown ? tEl.nextSibling : tEl);
-            reorderSections(draggedItemId, id);
-          });
-          showToast('Секция перемещена');
-        }
-        endDrag();
+        sectionDrag = { pending };
+        try { header.setPointerCapture(e.pointerId); } catch (err) {}
       },
       { signal: sig }
     );
   });
+  if (!window.__sectionDragDocReady) {
+    window.__sectionDragDocReady = true;
+    document.addEventListener('pointermove', onSectionDragMove, { passive: false });
+    document.addEventListener('pointerup', onSectionDragUp);
+    document.addEventListener('pointercancel', onSectionDragCancelEvt);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && sectionDrag && sectionDrag.active) cancelSectionDrag();
+    });
+    window.addEventListener('scroll', () => { if (sectionDrag && sectionDrag.active) sectionDrag.rectsDirty = true; }, { passive: true });
+  }
+}
+
+function beginSectionDrag(p, x, y) {
+  const { card, cont } = p;
+  const sec = sections.find((s) => s.id === p.id);
+  if (!sec) { sectionDrag = null; return; }
+  const chip = sectionDragChipEl();
+  fillSectionDragChip(chip, sec);
+  chip.style.display = 'flex';
+  chip.style.transition = 'none';
+  const chipH = chip.offsetHeight || 32;
+  const chipW = chip.offsetWidth || 160;
+  // Ярлык появляется на месте ЗАГОЛОВКА карточки: там, где взялись.
+  const hr = p.header.getBoundingClientRect();
+  const cr = card.getBoundingClientRect();
+  const startLeft = hr.left;
+  const startTop = hr.top + (hr.height - chipH) / 2;
+  const st = {
+    active: true,
+    id: p.id, card, cont, sec,
+    pointerId: p.pointerId,
+    chip, chipH, chipW,
+    // смещение курсора внутри ярлыка — чтобы он не прыгал под палец
+    dx: Math.max(12, Math.min(chipW - 12, x - startLeft)),
+    dy: chipH / 2,
+    curX: startLeft, curY: startTop,
+    tgtX: startLeft, tgtY: startTop,
+    fullH: cr.height,
+    origNext: card.nextElementSibling,   // для отмены
+    origIndex: sections.indexOf(sec),
+    rects: null, rectsDirty: true,
+    autoScroll: 0, autoRaf: 0,
+    lastX: x, lastY: y,
+  };
+  sectionDrag = st;
+  isDragging = true;   // тултипы аппликатур по mouseover молчат на время жеста
+  document.body.classList.add('is-section-dragging');
+  cont.classList.add('drag-active');
+  // Ярлык стартует чуть «из-под» заголовка — проявляется и подрастает.
+  chip.style.left = startLeft + 'px';
+  chip.style.top = startTop + 'px';
+  chip.style.opacity = '0';
+  chip.style.transform = 'scale(0.92)';
+  void chip.offsetWidth;
+  chip.style.transition = `opacity 180ms ease, transform 220ms ${SECTION_DRAG_FLY_EASE}`;
+  chip.style.opacity = '1';
+  chip.style.transform = 'scale(1)';
+  // Карточка сворачивается до высоты ярлыка: height анимируется у ОДНОЙ
+  // карточки, соседи подтягиваются потоком. Высота фиксируется числом
+  // (auto не анимируется), содержимое гаснет и перестаёт ловить курсор.
+  card.classList.add('is-drag-slot');       // border-box + вид слота
+  card.style.height = cr.height + 'px';      // rect уже с паддингами
+  card.style.width = cr.width + 'px';
+  card.style.overflow = 'hidden';
+  void card.offsetHeight;
+  card.style.transition = `height ${SECTION_DRAG_COLLAPSE_MS}ms ${SECTION_DRAG_FLY_EASE}, width ${SECTION_DRAG_COLLAPSE_MS}ms ${SECTION_DRAG_FLY_EASE}`;
+  card.style.height = chipH + 'px';
+  card.style.width = chipW + 'px';
+  st.fullW = cr.width;
+  st.collapseTimer = setTimeout(() => {
+    st.collapseTimer = 0;
+    st.rectsDirty = true;
+  }, SECTION_DRAG_COLLAPSE_MS + 20);
+  if (!sectionDragRaf) sectionDragRaf = requestAnimationFrame(sectionDragFollow);
+}
+
+function sectionDragFollow() {
+  const st = sectionDrag;
+  if (!st || !st.active) { sectionDragRaf = 0; return; }
+  st.curX += (st.tgtX - st.curX) * SECTION_DRAG_SMOOTH;
+  st.curY += (st.tgtY - st.curY) * SECTION_DRAG_SMOOTH;
+  const rest = Math.abs(st.tgtX - st.curX) + Math.abs(st.tgtY - st.curY);
+  if (rest < 0.5) { st.curX = st.tgtX; st.curY = st.tgtY; }
+  st.chip.style.left = st.curX + 'px';
+  st.chip.style.top = st.curY + 'px';
+  sectionDragRaf = requestAnimationFrame(sectionDragFollow);
+}
+
+function sectionDragRefreshRects(st) {
+  st.rects = [...st.cont.querySelectorAll('.section-card')].map((el) => {
+    const r = el.getBoundingClientRect();
+    return { el, top: r.top, bottom: r.bottom, mid: r.top + r.height / 2 };
+  });
+  st.rectsDirty = false;
+}
+
+// Слот перепрыгивает через соседа, когда курсор пересёк его середину.
+// Соседи, сдвинувшиеся из-за перестановки, едут FLIP-transform'ом.
+function sectionDragUpdateSlot(st, y) {
+  if (st.rectsDirty || !st.rects) sectionDragRefreshRects(st);
+  const slot = st.card;
+  let target = null, before = false;
+  for (const r of st.rects) {
+    if (r.el === slot) continue;
+    if (y < r.mid && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+      // сосед выше слота, курсор над его серединой → слот встаёт ПЕРЕД ним
+      target = r.el; before = true; break;
+    }
+  }
+  if (!target) {
+    for (let i = st.rects.length - 1; i >= 0; i--) {
+      const r = st.rects[i];
+      if (r.el === slot) continue;
+      if (y > r.mid && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING)) {
+        // сосед ниже слота, курсор под его серединой → слот встаёт ПОСЛЕ него
+        target = r.el; before = false; break;
+      }
+    }
+  }
+  if (!target) return;
+  const movers = st.rects.filter((r) => r.el !== slot).map((r) => ({ el: r.el, top: r.top }));
+  if (before) st.cont.insertBefore(slot, target);
+  else st.cont.insertBefore(slot, target.nextSibling);
+  // FLIP: с прежней позиции к новой.
+  movers.forEach((m) => {
+    const now = m.el.getBoundingClientRect().top;
+    const d = m.top - now;
+    if (Math.abs(d) < 0.5) return;
+    m.el.animate(
+      [{ transform: `translateY(${d}px)` }, { transform: 'translateY(0)' }],
+      { duration: SECTION_DRAG_SHIFT_MS, easing: 'cubic-bezier(.22,1,.36,1)' }
+    );
+  });
+  st.rectsDirty = true;
+}
+
+function sectionDragAutoScroll(st) {
+  const EDGE = 56, MAX = 18;
+  const vh = window.innerHeight;
+  let v = 0;
+  if (st.lastY < EDGE) v = -MAX * (1 - st.lastY / EDGE);
+  else if (st.lastY > vh - EDGE) v = MAX * (1 - (vh - st.lastY) / EDGE);
+  st.autoScroll = v;
+  if (v && !st.autoRaf) {
+    const step = () => {
+      const s = sectionDrag;
+      if (!s || !s.active || !s.autoScroll) { if (s) s.autoRaf = 0; return; }
+      window.scrollBy(0, s.autoScroll);
+      s.rectsDirty = true;
+      sectionDragUpdateSlot(s, s.lastY);
+      s.autoRaf = requestAnimationFrame(step);
+    };
+    st.autoRaf = requestAnimationFrame(step);
+  }
+}
+
+function onSectionDragMove(e) {
+  const sd = sectionDrag;
+  if (!sd) return;
+  if (sd.pending) {
+    const p = sd.pending;
+    const dist = Math.hypot(e.clientX - p.startX, e.clientY - p.startY);
+    if (p.touch) {
+      // палец ушёл до long-press — это прокрутка, не жест
+      if (!p.armed && dist > 8) { clearTimeout(p.timer); sectionDrag = null; }
+      return;
+    }
+    if (dist < 5) return;
+    beginSectionDrag(p, e.clientX, e.clientY);
+    return;
+  }
+  if (!sd.active || sd.landing) return;
+  if (e.cancelable) e.preventDefault();
+  sd.lastX = e.clientX; sd.lastY = e.clientY;
+  sd.tgtX = e.clientX - sd.dx;
+  sd.tgtY = e.clientY - sd.dy;
+  if (!sectionDragRaf) sectionDragRaf = requestAnimationFrame(sectionDragFollow);
+  sectionDragUpdateSlot(sd, e.clientY);
+  sectionDragAutoScroll(sd);
+  const cr = sd.cont.getBoundingClientRect();
+  // Поле без размеров (ещё не разложено) — «вне поля» не считаем.
+  sd.outside = cr.width > 0 && cr.height > 0 && (
+    e.clientX < cr.left - 80 || e.clientX > cr.right + 80 ||
+    e.clientY < cr.top - 120 || e.clientY > cr.bottom + 120);
+  sd.chip.classList.toggle('is-outside', !!sd.outside);
+}
+
+function onSectionDragUp(e) {
+  const sd = sectionDrag;
+  if (!sd) return;
+  if (sd.pending) {
+    clearTimeout(sd.pending.timer);
+    sectionDrag = null;      // клик, не жест
+    return;
+  }
+  if (!sd.active || sd.landing) return;
+  if (sd.outside) { cancelSectionDrag(); return; }
+  finishSectionDrag(sd, /*commit*/ true);
+}
+function onSectionDragCancelEvt() {
+  const sd = sectionDrag;
+  if (!sd) return;
+  if (sd.pending) { clearTimeout(sd.pending.timer); sectionDrag = null; return; }
+  if (sd.active && !sd.landing) cancelSectionDrag();
+}
+function cancelSectionDrag() {
+  const sd = sectionDrag;
+  if (!sd || !sd.active || sd.landing) return;
+  // Возвращаем слот на исходное место в DOM (соседи — FLIP).
+  const movers = [...sd.cont.querySelectorAll('.section-card')].filter((el) => el !== sd.card)
+    .map((el) => ({ el, top: el.getBoundingClientRect().top }));
+  sd.cont.insertBefore(sd.card, sd.origNext && sd.origNext.parentNode === sd.cont ? sd.origNext : null);
+  movers.forEach((m) => {
+    const d = m.top - m.el.getBoundingClientRect().top;
+    if (Math.abs(d) < 0.5) return;
+    m.el.animate([{ transform: `translateY(${d}px)` }, { transform: 'translateY(0)' }],
+      { duration: SECTION_DRAG_SHIFT_MS, easing: 'cubic-bezier(.22,1,.36,1)' });
+  });
+  finishSectionDrag(sd, /*commit*/ false);
+}
+
+// Посадка: ярлык летит к слоту, карточка разворачивается под ним,
+// соседи раздвигаются потоком (height-переход одной карточки).
+function finishSectionDrag(sd, commit) {
+  sd.landing = true;
+  sd.autoScroll = 0;
+  if (sectionDragRaf) { cancelAnimationFrame(sectionDragRaf); sectionDragRaf = 0; }
+  if (sd.collapseTimer) { clearTimeout(sd.collapseTimer); sd.collapseTimer = 0; }
+  document.body.classList.remove('is-section-dragging');
+  sd.chip.classList.remove('is-outside');
+  const card = sd.card, chip = sd.chip;
+  // Модель — сразу: порядок секций = порядок карточек в DOM.
+  if (commit) {
+    const order = [...sd.cont.querySelectorAll('.section-card')].map((el) => parseInt(el.dataset.id));
+    const byId = new Map(sections.map((s) => [s.id, s]));
+    const next = order.map((id) => byId.get(id)).filter(Boolean);
+    const changed = next.some((s, i) => s !== sections[i]);
+    if (changed && next.length === sections.length) {
+      sections.splice(0, sections.length, ...next);
+      if (typeof window.scheduleHistorySnapshot === 'function') window.scheduleHistorySnapshot();
+    }
+    sd.changed = changed;
+  }
+  // Куда лететь: заголовок слота (где ярлык «сядет» в карточку).
+  const slotR = card.getBoundingClientRect();
+  const toLeft = slotR.left;
+  const toTop = slotR.top;
+  const dx = toLeft - sd.curX, dy = toTop - sd.curY;
+  chip.style.transition = 'none';
+  let flyAnim = null;
+  if (chip.animate) {
+    flyAnim = chip.animate(
+      [
+        { transform: 'translate(0,0) scale(1)', opacity: 1, offset: 0 },
+        { transform: `translate(${dx * 0.8}px, ${dy * 0.8}px) scale(1)`, opacity: 1, offset: 0.55 },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.98)`, opacity: 0, offset: 1 },
+      ],
+      { duration: SECTION_DRAG_FLY_MS, easing: SECTION_DRAG_FLY_EASE, fill: 'forwards' }
+    );
+  }
+  // Разворот карточки стартует, когда ярлык на подлёте (55% пути): под
+  // гаснущим ярлыком уже растёт секция — движения перекрываются.
+  const expandDelay = Math.round(SECTION_DRAG_FLY_MS * 0.55);
+  setTimeout(() => {
+    card.style.transition = `height ${SECTION_DRAG_EXPAND_MS}ms ${SECTION_DRAG_FLY_EASE}, width ${SECTION_DRAG_EXPAND_MS}ms ${SECTION_DRAG_FLY_EASE}`;
+    card.style.height = sd.fullH + 'px';
+    card.style.width = sd.fullW + 'px';
+    card.classList.remove('is-drag-slot');
+    card.classList.add('is-drag-expanding');
+  }, expandDelay);
+  const done = () => {
+    if (sd.done) return;
+    sd.done = true;
+    try { flyAnim && flyAnim.cancel(); } catch (err) {}
+    chip.style.display = 'none';
+    chip.style.transform = '';
+    chip.style.opacity = '';
+    card.classList.remove('is-drag-slot', 'is-drag-expanding');
+    card.style.height = '';
+    card.style.width = '';
+    card.style.overflow = '';
+    card.style.transition = '';
+    sd.cont.classList.remove('drag-active');
+    isDragging = false;   // тултипы аппликатур снова можно
+    sectionDrag = null;
+    if (commit && sd.changed) {
+      requestRender();
+      if (typeof renderSongMap === 'function') renderSongMap();
+      showToast('Секция перемещена');
+    }
+  };
+  setTimeout(done, expandDelay + SECTION_DRAG_EXPAND_MS + 40);
 }
 function escapeHtml(s) {
   if (!s) return '';
@@ -33513,41 +33847,7 @@ function animateReorder(cb) {
     });
   });
 }
-function startDrag(e, card, id) {
-  if (isDragging) return;
-  isDragging = true;
-  draggedItemId = id;
-  const cont = DOM.sectionsContainer;
-  cont.classList.add('drag-active');
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', id);
-  requestAnimationFrame(() => card.classList.add('dragging'));
-  const ghost = card.cloneNode(true);
-  ghost.style.position = 'absolute';
-  ghost.style.top = '-9999px';
-  ghost.style.left = '-9999px';
-  ghost.style.width = `${card.offsetWidth}px`;
-  ghost.style.opacity = '0.28';
-  ghost.style.background = 'var(--color-glass, rgba(255,255,255,0.35))';
-  ghost.style.backdropFilter = 'blur(10px)';
-  ghost.style.transform = 'rotate(-2deg) scale(1.03)';
-  ghost.style.boxShadow = '0 24px 48px rgba(0,0,0,0.14)';
-  document.body.appendChild(ghost);
-  if (e.dataTransfer.setDragImage)
-    e.dataTransfer.setDragImage(ghost, card.offsetWidth / 2, 24);
-  requestAnimationFrame(() => {
-    if (ghost.parentNode) document.body.removeChild(ghost);
-  });
-}
-function endDrag() {
-  draggedItemId = null;
-  isDragging = false;
-  DOM.sectionsContainer.classList.remove('drag-active');
-  document.querySelectorAll('.section-card').forEach((c) => {
-    c.classList.remove('dragging', 'drag-over', 'drag-over-before');
-    c.style.transform = '';
-  });
-}
+// startDrag/endDrag нативного DnD сняты в 0.200 — см. attachDragEvents (B-65).
 // Шаг сетки долей внутри ячейки.
 //
 // Ячейка лежит в гриде с gap: 2px, и ячейка из N колонок занимает

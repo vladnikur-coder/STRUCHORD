@@ -95,8 +95,11 @@ async function dragFar(w) {
   console.log('=== 4. Наклона нет (решение пользователя) ===');
   {
     ok('в петле нет rotate', !/follow[\s\S]{0,900}rotate\(/.test(html));
-    ok('закреплённый гриф остался жёстким',
-       /source === 'tooltip'[\s\S]{0,200}requestAnimationFrame\(follow\)/.test(html));
+    // B-67 (0.199): решение «гриф жёсткий» отменено пользователем —
+    // закреплённый гриф догоняет так же, как тултип.
+    ok('закреплённый гриф догоняет вместе с тултипом (0.199)',
+       !/source === 'tooltip'[\s\S]{0,200}requestAnimationFrame\(follow\)/.test(html) &&
+       /if \(!pinFollowRaf\) pinFollowRaf = requestAnimationFrame\(follow\);/.test(html));
   }
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');
