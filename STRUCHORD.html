@@ -9248,7 +9248,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.201</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.202</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28681,11 +28681,26 @@ function sectionDragRefreshRects(st) {
 function sectionDragUpdateSlot(st, y) {
   if (st.rectsDirty || !st.rects) sectionDragRefreshRects(st);
   const slot = st.card;
+  // 0.202: ДРЕБЕЗГ. Запись 09.18: при неподвижном курсоре соседняя секция
+  // прыгала вверх-вниз каждые 2–3 кадра. Причина логическая: критерий
+  // «курсор выше середины соседа» проверялся по rect'ам, снятым ПОСЛЕ
+  // перестановки — а после неё сосед сместился на высоту слота, и та же
+  // точка y снова читалась как «перескочить обратно». Пока слот выше
+  // соседа, сосед стоит ниже; переставили — сосед поднялся, курсор
+  // оказался под его серединой → назад. И так по кругу.
+  //
+  // Лекарство — гистерезис: перескакиваем сосед только если курсор
+  // ушёл за его середину С ЗАПАСОМ в половину высоты слота (ровно та
+  // величина, на которую сосед сдвинется после перестановки). Тогда
+  // после перестановки та же точка y уже не удовлетворяет обратному
+  // условию.
+  const slotH = slot.getBoundingClientRect().height || st.chipH;
+  const guard = slotH / 2 + 2;
   let target = null, before = false;
   for (const r of st.rects) {
     if (r.el === slot) continue;
-    if (y < r.mid && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING)) {
-      // сосед выше слота, курсор над его серединой → слот встаёт ПЕРЕД ним
+    if (y < r.mid - guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+      // сосед выше слота, курсор заметно над его серединой → слот встаёт ПЕРЕД ним
       target = r.el; before = true; break;
     }
   }
@@ -28693,8 +28708,8 @@ function sectionDragUpdateSlot(st, y) {
     for (let i = st.rects.length - 1; i >= 0; i--) {
       const r = st.rects[i];
       if (r.el === slot) continue;
-      if (y > r.mid && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING)) {
-        // сосед ниже слота, курсор под его серединой → слот встаёт ПОСЛЕ него
+      if (y > r.mid + guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING)) {
+        // сосед ниже слота, курсор заметно под его серединой → слот встаёт ПОСЛЕ него
         target = r.el; before = false; break;
       }
     }
@@ -28703,15 +28718,26 @@ function sectionDragUpdateSlot(st, y) {
   const movers = st.rects.filter((r) => r.el !== slot).map((r) => ({ el: r.el, top: r.top }));
   if (before) st.cont.insertBefore(slot, target);
   else st.cont.insertBefore(slot, target.nextSibling);
-  // FLIP: с прежней позиции к новой.
+  // FLIP: с прежней позиции к новой. Уже идущую анимацию соседа
+  // ДОГОНЯЕМ, а не перезапускаем с нуля: берём его текущее визуальное
+  // смещение из активной анимации (иначе при быстрых перестановках
+  // сосед дёргается назад в стартовую точку).
   movers.forEach((m) => {
     const now = m.el.getBoundingClientRect().top;
-    const d = m.top - now;
+    let d = m.top - now;
+    const running = m.el.getAnimations ? m.el.getAnimations().find((a) => a.__sectionShift) : null;
+    if (running) {
+      const cs = getComputedStyle(m.el).transform;
+      const mt = cs && cs !== 'none' ? new DOMMatrixReadOnly(cs) : null;
+      if (mt) d = mt.m42 + (m.top - now);
+      running.cancel();
+    }
     if (Math.abs(d) < 0.5) return;
-    m.el.animate(
+    const anim = m.el.animate(
       [{ transform: `translateY(${d}px)` }, { transform: 'translateY(0)' }],
       { duration: SECTION_DRAG_SHIFT_MS, easing: 'cubic-bezier(.22,1,.36,1)' }
     );
+    anim.__sectionShift = true;
   });
   st.rectsDirty = true;
 }
