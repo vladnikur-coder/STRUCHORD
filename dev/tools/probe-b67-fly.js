@@ -109,6 +109,30 @@ const SHOTS = process.argv.includes('--shots');
   }
   await page.evaluate(() => { window.__flyOn = false; });
   const data = await page.evaluate(() => window.__fly);
+
+  // --- Часть 2 (0.199): вынос грифа из дока — догонялка + возврат полётом.
+  await sleep(300);
+  const card0 = await page.$eval('#pinnedRow .pinned-fingering', (t) => { const r = t.getBoundingClientRect(); return { x: r.x, y: r.y, w: r.width, h: r.height }; });
+  await page.mouse.move(card0.x + 20, card0.y + 8);
+  await page.mouse.down();
+  await page.mouse.move(card0.x + 20 + 60, card0.y + 8 + 300, { steps: 2 }); // резкий рывок
+  const lag = [];
+  for (let i = 0; i < 12; i++) {
+    lag.push(await page.$eval('#pinnedRow', (t) => { const r = t.getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y), getComputedStyle(t).opacity]; }));
+    await sleep(16);
+  }
+  console.log('лаг грифа после рывка (x,y,opacity по кадрам):', JSON.stringify(lag));
+  // возвращаем в док
+  await page.mouse.move(bar.x + bar.w / 2, bar.y + bar.h / 2, { steps: 10 });
+  await sleep(400);
+  await page.mouse.up();
+  const back = [];
+  for (let i = 0; i < 28; i++) {
+    back.push(await page.$eval('#pinnedRow', (t) => { const r = t.getBoundingClientRect(); return [Math.round(r.x), Math.round(r.y), t.className, getComputedStyle(t).position]; }));
+    await sleep(16);
+  }
+  console.log('возврат в док (x,y,class,position):'); back.forEach((b) => console.log('  ', JSON.stringify(b)));
+  console.log('pinned после возврата:', await page.evaluate(() => !!pinnedFingering));
   fs.writeFileSync(path.join(OUT, 'b67-fly.json'), JSON.stringify(data, null, 1));
   // Компактная таблица.
   console.log('t\ttipOp\ttipY\ttipH\trowDisp\tcardOp\tcardY\tbtnOp\tpin\tshift\tcardTf');

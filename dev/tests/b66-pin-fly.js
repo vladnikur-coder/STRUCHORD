@@ -146,6 +146,15 @@ async function dragToDock(w) {
     // B-67 (0.198): цель полёта — сама карточка грифа (rect берётся
     // ПОСЛЕ постановки грифа), а не центр панели: иначе тултип усыхал в
     // транспортной строке, а гриф проступал в другом месте — два предмета.
+    // B-67 (0.199): вынос грифа из дока ведёт себя как тултип с ячейки —
+    // догоняет курсор, та же прозрачность, «передумал» = полёт назад.
+    ok('закреплённый гриф тоже догоняет курсор (нет жёсткой ветки для pinned)',
+       !/if \(st\.source === 'tooltip'\) \{\s*if \(!pinFollowRaf\)/.test(html) &&
+       /if \(!pinFollowRaf\) pinFollowRaf = requestAnimationFrame\(follow\);/.test(html));
+    ok('прозрачность тащимого грифа как у тултипа (0.85)',
+       /\.pinned-row\.is-dragging \{[^}]*opacity: 0\.85/.test(html));
+    ok('возврат в док — полётом (flyPinnedBackToDock)',
+       /flyPinnedBackToDock\(st\)/.test(html) && /const flyPinnedBackToDock = /.test(html));
     ok('цель полёта — карточка грифа, снятая после его постановки',
        /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true[^}]*\}\)[\s\S]{0,1600}querySelector\('#pinnedRow \.pinned-fingering'\)[\s\S]{0,400}getBoundingClientRect\(\)/.test(html),
        'тултип летит не туда, где проявится гриф');

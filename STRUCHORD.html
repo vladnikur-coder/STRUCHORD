@@ -7119,8 +7119,15 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
 /* Пока тащат закреплённый ряд — он полупрозрачен, чтобы было видно,
    куда именно он ложится. */
 .pinned-row.is-dragging {
-  opacity: 0.5;
+  /* B-67 (0.199): та же прозрачность, что у тащимого тултипа (0.85) —
+     один предмет, один вес в обоих жестах. Было 0.5. */
+  opacity: 0.85;
   cursor: grabbing;
+}
+/* B-67 (0.199): гриф летит обратно в док после «передумал». Пока летит —
+   не ловит курсор, чтобы полёт не перебивался новым захватом. */
+.pinned-row.is-flying-back {
+  pointer-events: none;
 }
 /* Тултип, который сейчас тащат: следует за курсором. */
 /* B-66: тултип в полёте к доку. Тень и размывка убираются по ходу —
@@ -9180,7 +9187,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.198</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.199</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15769,6 +15776,8 @@ function attachPinDrag() {
     if (!el) return;
     // Жест не должен драться с ещё играющей анимацией появления.
     el.classList.remove('is-appearing');
+    // ...и с обратным полётом в док (B-67, 0.199).
+    try { el.__backAnim && el.__backAnim.cancel(); } catch (err) {}
     const r = el.getBoundingClientRect();
     pinDragState = {
       source, el, bar,
@@ -15856,14 +15865,12 @@ function attachPinDrag() {
     // цели: инициализация `cur = tgt` телепортировала бы его к курсору
     // на первом же движении, и догонять было бы нечего (замер показал
     // прыжок 100 -> 550 в один кадр).
-    // Тултипу догонять — эффект по просьбе пользователя; закреплённый
-    // гриф оставляем жёстким (решение: только тултип).
-    if (st.source === 'tooltip') {
-      if (!pinFollowRaf) pinFollowRaf = requestAnimationFrame(follow);
-    } else {
-      st.curX = st.tgtX; st.curY = st.tgtY;
-      applyPinDragPosition(st);
-    }
+    // B-67 (0.199): догоняет и закреплённый гриф. Раньше (B-65) он был
+    // жёстким — пользователь после приёмки перелёта попросил: «при
+    // откреплении поведение должно быть таким же, как при перетаскивании
+    // с ячейки». Один и тот же предмет в двух жестах не должен весить
+    // по-разному.
+    if (!pinFollowRaf) pinFollowRaf = requestAnimationFrame(follow);
     // Цель — вся панель, с небольшим запасом по краям (12px), чтобы
     // сброс рядом с кромкой тоже засчитывался.
     const dr = st.bar.getBoundingClientRect();
@@ -16021,7 +16028,42 @@ function attachPinDrag() {
     } else if (!st.overDock) {
       // Вытащили закреплённый гриф из панели — открепляем.
       unpinFingering();
+    } else {
+      // B-67 (0.199): передумали и вернули в док — гриф ЛЕТИТ на своё
+      // место, как тултип с ячейки, а не телепортируется. Ряд уже
+      // возвращён в поток (инлайн снят выше), rect цели известен.
+      flyPinnedBackToDock(st);
     }
+  };
+
+  // B-67 (0.199): возврат вынесенного грифа в док — тем же полётом, что
+  // у тултипа (та же кривая и длительность): от места отпускания к
+  // штатной позиции ряда. Ряд уже стоит в потоке; на время полёта
+  // сдвигаем его transform'ом ОБРАТНО в точку сброса и отпускаем к нулю.
+  const flyPinnedBackToDock = (st) => {
+    const el = st.el;
+    if (!el || st.curX == null || !el.animate) return;
+    const home = el.getBoundingClientRect();
+    if (!home.width) return;
+    const dx = st.curX - home.left;
+    const dy = st.curY - home.top;
+    if (Math.abs(dx) + Math.abs(dy) < 1) return;
+    try { el.__backAnim && el.__backAnim.cancel(); } catch (err) {}
+    el.classList.add('is-flying-back');
+    const anim = el.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px)`, opacity: 0.85 },
+        { transform: 'translate(0, 0)', opacity: 1 },
+      ],
+      { duration: 380, easing: 'cubic-bezier(.25,.8,.35,1)' }
+    );
+    el.__backAnim = anim;
+    const done = () => {
+      el.classList.remove('is-flying-back');
+      if (el.__backAnim === anim) el.__backAnim = null;
+    };
+    anim.onfinish = done;
+    anim.oncancel = done;
   };
 
   document.addEventListener('pointerdown', (e) => {
