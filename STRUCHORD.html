@@ -9180,7 +9180,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.197</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.198</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15888,14 +15888,7 @@ function attachPinDrag() {
     const bar = st.bar;
     if (!el || !bar) { tooltipFlyingToDock = false; pinFingeringFromTooltip(); return; }
     const from = el.getBoundingClientRect();
-    const to = bar.getBoundingClientRect();
-    if (!from.width || !to.width) { tooltipFlyingToDock = false; pinFingeringFromTooltip(); return; }
-
-    // Летим в центр дока и одновременно уменьшаемся: тултип крупнее
-    // строки грифа, и без масштаба посадка выглядит как «схлопывание».
-    const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
-    const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
-    const scale = Math.min(1, Math.max(0.35, to.height / Math.max(1, from.height)));
+    if (!from.width) { tooltipFlyingToDock = false; pinFingeringFromTooltip(); return; }
 
     // Позицию больше не трогаем — двигает анимация. Иначе петля follow
     // и transform спорили бы за одну и ту же координату.
@@ -15911,6 +15904,27 @@ function attachPinDrag() {
     // Тултип летит поверх (z-index 10001) и гаснет к концу пути, гриф
     // под ним проявляется — движения перекрываются и читаются как одно.
     pinFingeringFromTooltip({ skipAppear: false, fadeIn: true, keepTooltip: true });
+
+    // B-67 (0.198): цель полёта — КАРТОЧКА ГРИФА, а не центр панели.
+    //
+    // Запись экрана 03.38 (0.197) + зонд dev/tools/probe-b67-fly.js:
+    // тултип летел в середину транспортной строки и ужимался до её
+    // высоты (scale 0.35, 226px -> 56px), а гриф в это же время
+    // проступал СОВСЕМ В ДРУГОМ МЕСТЕ — слева под панелью, в полный рост
+    // (227px, т.е. ровно с тултип). Глаз видел два предмета: один
+    // усыхает в панели, второй возникает ниже. Это и была остаточная
+    // «дёрганость» — не тайминги (0.193–0.197 крутили именно их).
+    //
+    // Гриф уже поставлен строкой выше, его rect известен: летим ровно
+    // туда, где он проявится, масштаб ≈1. Один предмет, одно движение.
+    // Панель — запасная цель на случай, если карточки нет (нет
+    // аппликатуры и т.п.).
+    const card = document.querySelector('#pinnedRow .pinned-fingering');
+    let to = card ? card.getBoundingClientRect() : null;
+    if (!to || !to.width) to = bar.getBoundingClientRect();
+    const dx = to.width ? (to.left + to.width / 2) - (from.left + from.width / 2) : 0;
+    const dy = to.width ? (to.top + to.height / 2) - (from.top + from.height / 2) : 0;
+    const scale = to.width ? Math.min(1.15, Math.max(0.35, to.height / Math.max(1, from.height))) : 1;
 
     let done = false;
     let anim = null;

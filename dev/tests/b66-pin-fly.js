@@ -141,8 +141,14 @@ async function dragToDock(w) {
     ok('inline-стили снимаются через removeProperty',
        /removeProperty\('opacity'\)/.test(html) && /removeProperty\('transform'\)/.test(html));
     ok('гриф ставится ДО полёта, а не после',
-       /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true[^}]*\}\)[\s\S]{0,1600}el\.animate\(/.test(html),
+       /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true[^}]*\}\)[\s\S]{0,3200}el\.animate\(/.test(html),
        'порядок нарушен — док будет пустым во время полёта');
+    // B-67 (0.198): цель полёта — сама карточка грифа (rect берётся
+    // ПОСЛЕ постановки грифа), а не центр панели: иначе тултип усыхал в
+    // транспортной строке, а гриф проступал в другом месте — два предмета.
+    ok('цель полёта — карточка грифа, снятая после его постановки',
+       /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true[^}]*\}\)[\s\S]{0,1600}querySelector\('#pinnedRow \.pinned-fingering'\)[\s\S]{0,400}getBoundingClientRect\(\)/.test(html),
+       'тултип летит не туда, где проявится гриф');
   }
 
 
