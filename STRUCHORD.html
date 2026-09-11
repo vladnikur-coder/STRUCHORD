@@ -9292,7 +9292,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.207</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.208</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28749,6 +28749,10 @@ function sectionDragRefreshRects(st) {
 function sectionDragUpdateSlot(st, y) {
   if (st.rectsDirty || !st.rects) sectionDragRefreshRects(st);
   const slot = st.card;
+  // 0.208: над липкой панелью курсора «нет» — точка хит-теста не выше
+  // её нижней кромки (плюс половина слота, чтобы слот стоял целиком под ней).
+  const topEdge = sectionDragTopEdge();
+  if (topEdge) y = Math.max(y, topEdge + (st.chipH || 32) / 2 + 4);
   // 0.202: ДРЕБЕЗГ. Запись 09.18: при неподвижном курсоре соседняя секция
   // прыгала вверх-вниз каждые 2–3 кадра. Причина логическая: критерий
   // «курсор выше середины соседа» проверялся по rect'ам, снятым ПОСЛЕ
@@ -28814,11 +28818,24 @@ function sectionDragUpdateSlot(st, y) {
   st.rectsDirty = true;
 }
 
+// 0.208 (запись 16.50): верх рабочей области — не кромка окна, а низ
+// ЛИПКОЙ панели транспорта, когда она прилипла. Курсор при перемотке
+// вверх стоит над панелью, слот вставал перед секцией и уезжал ПОД
+// панель — на экране его нет, ярлык висит над панелью: курсор и слот
+// визуально расходятся. Теперь и зона автопрокрутки, и точка хит-теста
+// отсчитываются от низа панели: слот всегда виден, рядом с ярлыком.
+function sectionDragTopEdge() {
+  const bar = document.querySelector('.transport-bar');
+  if (!bar) return 0;
+  const r = bar.getBoundingClientRect();
+  return r.height > 0 && r.top <= 12 ? r.bottom : 0;
+}
 function sectionDragAutoScroll(st) {
   const EDGE = 56, MAX = 18;
   const vh = window.innerHeight;
+  const topEdge = sectionDragTopEdge();
   let v = 0;
-  if (st.lastY < EDGE) v = -MAX * (1 - st.lastY / EDGE);
+  if (st.lastY < topEdge + EDGE) v = -MAX * (1 - Math.max(0, st.lastY - topEdge) / EDGE);
   else if (st.lastY > vh - EDGE) v = MAX * (1 - (vh - st.lastY) / EDGE);
   st.autoScroll = v;
   if (v && !st.autoRaf) {
