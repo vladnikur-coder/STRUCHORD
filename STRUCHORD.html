@@ -9292,7 +9292,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.208</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.209</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28767,11 +28767,20 @@ function sectionDragUpdateSlot(st, y) {
   // после перестановки та же точка y уже не удовлетворяет обратному
   // условию.
   const slotH = slot.getBoundingClientRect().height || st.chipH;
-  const guard = slotH / 2 + 2;
+  // 0.209 (запись 22.35): порог «mid ± slotH/2» был смещён в ПОЗДНЮЮ
+  // сторону на целую высоту слота: ярлык уже над нижней половиной
+  // высокого соседа, а слот всё ещё над ним. Правильный порог — точка,
+  // где слот ПОСЛЕ перестановки ближе к курсору, чем до неё:
+  //   вниз: центр слота сейчас T+s/2, после — T+h+s/2 → порог T+h/2+s/2 = mid − s/2;
+  //   вверх: симметрично mid + s/2.
+  // После перестановки mid соседа сдвигается на s, и обратный порог
+  // приходится РОВНО в ту же точку — дребезга (0.202) нет; 4px — запас
+  // от субпиксельного шума.
+  const guard = slotH / 2 - 4;
   let target = null, before = false;
   for (const r of st.rects) {
     if (r.el === slot) continue;
-    if (y < r.mid - guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+    if (y < r.mid + guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING)) {
       // сосед выше слота, курсор заметно над его серединой → слот встаёт ПЕРЕД ним
       target = r.el; before = true; break;
     }
@@ -28780,7 +28789,7 @@ function sectionDragUpdateSlot(st, y) {
     for (let i = st.rects.length - 1; i >= 0; i--) {
       const r = st.rects[i];
       if (r.el === slot) continue;
-      if (y > r.mid + guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING)) {
+      if (y > r.mid - guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING)) {
         // сосед ниже слота, курсор заметно под его серединой → слот встаёт ПОСЛЕ него
         target = r.el; before = false; break;
       }
