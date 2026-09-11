@@ -3565,10 +3565,6 @@ body {
 /* Вне поля секций — бросок отменит жест; ярлык бледнеет, предупреждая. */
 .section-drag-chip.is-outside { opacity: 0.55 !important; }
 body.is-section-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
-/* 0.207: заголовок секции не выделяется и в покое — иначе Safari
-   начинает выделение на mousedown раньше, чем сработает порог жеста. */
-.section-header { -webkit-user-select: none; user-select: none; }
-.section-header .section-label, .section-header input { -webkit-user-select: text; user-select: text; }
 body.is-section-dragging .section-header { cursor: grabbing; }
 .section-header {
   display: flex;
@@ -9292,7 +9288,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.210</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.211</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28623,20 +28619,6 @@ function attachDragEvents() {
       },
       { signal: sig }
     );
-    // 0.207 (запись 16.50, Safari): вместе с перетаскиванием шло
-    // ВЫДЕЛЕНИЕ ТЕКСТА — вся карточка синела (аккорды, счёт, стрелки боя).
-    // user-select: none на body ставится только по порогу движения, а
-    // WebKit начинает выделение на mousedown — отменяем его в зародыше.
-    // Кнопки/поля заголовка не трогаем: им нужен штатный mousedown.
-    header.addEventListener(
-      'mousedown',
-      (e) => {
-        if (e.button !== 0) return;
-        if (e.target.closest('button, input, select, .section-label, .section-mod-badges')) return;
-        e.preventDefault();
-      },
-      { signal: sig }
-    );
   });
   if (!window.__sectionDragDocReady) {
     window.__sectionDragDocReady = true;
@@ -28685,8 +28667,6 @@ function beginSectionDrag(p, x, y) {
   sectionDrag = st;
   isDragging = true;   // тултипы аппликатур по mouseover молчат на время жеста
   document.body.classList.add('is-section-dragging');
-  // Если выделение всё же успело начаться (тач/long-press) — снимаем.
-  try { const sel = window.getSelection(); if (sel && !sel.isCollapsed) sel.removeAllRanges(); } catch (err) {}
   cont.classList.add('drag-active');
   // Ярлык стартует чуть «из-под» заголовка — проявляется и подрастает.
   chip.style.left = startLeft + 'px';
@@ -28749,10 +28729,6 @@ function sectionDragRefreshRects(st) {
 function sectionDragUpdateSlot(st, y) {
   if (st.rectsDirty || !st.rects) sectionDragRefreshRects(st);
   const slot = st.card;
-  // 0.208: над липкой панелью курсора «нет» — точка хит-теста не выше
-  // её нижней кромки (плюс половина слота, чтобы слот стоял целиком под ней).
-  const topEdge = sectionDragTopEdge();
-  if (topEdge) y = Math.max(y, topEdge + (st.chipH || 32) / 2 + 4);
   // 0.202: ДРЕБЕЗГ. Запись 09.18: при неподвижном курсоре соседняя секция
   // прыгала вверх-вниз каждые 2–3 кадра. Причина логическая: критерий
   // «курсор выше середины соседа» проверялся по rect'ам, снятым ПОСЛЕ
@@ -28767,18 +28743,12 @@ function sectionDragUpdateSlot(st, y) {
   // после перестановки та же точка y уже не удовлетворяет обратному
   // условию.
   const slotH = slot.getBoundingClientRect().height || st.chipH;
-  // 0.210 (по выбору пользователя, записи 16.50/22.35): перескок по
-  // КРАЮ соседа, а не по середине. Вверх: слот встаёт над соседом,
-  // когда ярлык дошёл до его ВЕРХНЕЙ кромки — в момент перескока слот
-  // оказывается ровно под ярлыком (центр слота = y). Вниз — по НИЖНЕЙ
-  // кромке. Слот никогда не убегает вперёд курсора. Обратный порог
-  // после перестановки отстоит на высоту соседа — дребезга нет.
-  const half = slotH / 2;
+  const guard = slotH / 2 + 2;
   let target = null, before = false;
   for (const r of st.rects) {
     if (r.el === slot) continue;
-    if (y <= r.top + half && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING)) {
-      // сосед выше слота, ярлык дошёл до его верхней кромки → слот ПЕРЕД ним
+    if (y < r.mid - guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+      // сосед выше слота, курсор заметно над его серединой → слот встаёт ПЕРЕД ним
       target = r.el; before = true; break;
     }
   }
@@ -28786,8 +28756,8 @@ function sectionDragUpdateSlot(st, y) {
     for (let i = st.rects.length - 1; i >= 0; i--) {
       const r = st.rects[i];
       if (r.el === slot) continue;
-      if (y >= r.bottom - half && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING)) {
-        // сосед ниже слота, ярлык дошёл до его нижней кромки → слот ПОСЛЕ него
+      if (y > r.mid + guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING)) {
+        // сосед ниже слота, курсор заметно под его серединой → слот встаёт ПОСЛЕ него
         target = r.el; before = false; break;
       }
     }
@@ -28824,24 +28794,11 @@ function sectionDragUpdateSlot(st, y) {
   st.rectsDirty = true;
 }
 
-// 0.208 (запись 16.50): верх рабочей области — не кромка окна, а низ
-// ЛИПКОЙ панели транспорта, когда она прилипла. Курсор при перемотке
-// вверх стоит над панелью, слот вставал перед секцией и уезжал ПОД
-// панель — на экране его нет, ярлык висит над панелью: курсор и слот
-// визуально расходятся. Теперь и зона автопрокрутки, и точка хит-теста
-// отсчитываются от низа панели: слот всегда виден, рядом с ярлыком.
-function sectionDragTopEdge() {
-  const bar = document.querySelector('.transport-bar');
-  if (!bar) return 0;
-  const r = bar.getBoundingClientRect();
-  return r.height > 0 && r.top <= 12 ? r.bottom : 0;
-}
 function sectionDragAutoScroll(st) {
   const EDGE = 56, MAX = 18;
   const vh = window.innerHeight;
-  const topEdge = sectionDragTopEdge();
   let v = 0;
-  if (st.lastY < topEdge + EDGE) v = -MAX * (1 - Math.max(0, st.lastY - topEdge) / EDGE);
+  if (st.lastY < EDGE) v = -MAX * (1 - st.lastY / EDGE);
   else if (st.lastY > vh - EDGE) v = MAX * (1 - (vh - st.lastY) / EDGE);
   st.autoScroll = v;
   if (v && !st.autoRaf) {
