@@ -3451,6 +3451,13 @@ body.is-timeline .songmap { display: none !important; }
 }
 /* Перетаскивание: источник бледнеет, цель показывает линию вставки. */
 .songmap-item.is-dragging { opacity: 0.4; }
+/* B-68: пока строку тащат, стекло панели становится глухим — иначе
+   сквозь него виден FLIP карточек в поле. */
+.songmap.is-reordering {
+  background: var(--color-background-primary);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
 .songmap-item.is-drop-before { box-shadow: inset 0 2px 0 var(--color-accent); }
 .songmap-item.is-drop-after { box-shadow: inset 0 -2px 0 var(--color-accent); }
 
@@ -9292,7 +9299,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.212</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.213</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30026,11 +30033,19 @@ function initSongMap() {
     if (!item) return;
     dragId = item.dataset.id;
     item.classList.add('is-dragging');
+    // B-68: тащимая строка становится выделенной — прежнее выделение на
+    // другой строке отвлекало от той, которую двигают.
+    songmapSelect(Number(dragId));
+    // На время перетаскивания панель непрозрачна: сквозь стекло (72% +
+    // blur) просвечивал FLIP-полёт карточки в поле — цветная плашка с
+    // чужим названием, «улетающая к секции».
+    panel.classList.add('is-reordering');
     e.dataTransfer.effectAllowed = 'move';
     try { e.dataTransfer.setData('text/plain', dragId); } catch (err) {}
   });
   list.addEventListener('dragend', () => {
     dragId = null;
+    panel.classList.remove('is-reordering');
     list.querySelectorAll('.songmap-item').forEach((el) => {
       el.classList.remove('is-dragging', 'is-drop-before', 'is-drop-after');
     });
@@ -30054,11 +30069,15 @@ function initSongMap() {
     if (!item || item.dataset.id === dragId) return;
     // Тот же путь, что у перетаскивания карточек в редакторе:
     // animateReorder делает FLIP, reorderSections правит модель.
+    const movedId = Number(dragId);
     animateReorder(() => {
-      reorderSections(Number(dragId), Number(item.dataset.id));
+      reorderSections(movedId, Number(item.dataset.id));
     });
     requestRender();
     renderSongMap();
+    // B-68: после броска выделена перемещённая секция, поле едет к ней.
+    songmapSelect(movedId);
+    songmapJumpTo(movedId);
     showToast('Секция перемещена');
   });
 
