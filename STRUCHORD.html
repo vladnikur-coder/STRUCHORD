@@ -3565,6 +3565,10 @@ body {
 /* Вне поля секций — бросок отменит жест; ярлык бледнеет, предупреждая. */
 .section-drag-chip.is-outside { opacity: 0.55 !important; }
 body.is-section-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+/* 0.207: заголовок секции не выделяется и в покое — иначе Safari
+   начинает выделение на mousedown раньше, чем сработает порог жеста. */
+.section-header { -webkit-user-select: none; user-select: none; }
+.section-header .section-label, .section-header input { -webkit-user-select: text; user-select: text; }
 body.is-section-dragging .section-header { cursor: grabbing; }
 .section-header {
   display: flex;
@@ -9288,7 +9292,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.206</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.207</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28619,6 +28623,20 @@ function attachDragEvents() {
       },
       { signal: sig }
     );
+    // 0.207 (запись 16.50, Safari): вместе с перетаскиванием шло
+    // ВЫДЕЛЕНИЕ ТЕКСТА — вся карточка синела (аккорды, счёт, стрелки боя).
+    // user-select: none на body ставится только по порогу движения, а
+    // WebKit начинает выделение на mousedown — отменяем его в зародыше.
+    // Кнопки/поля заголовка не трогаем: им нужен штатный mousedown.
+    header.addEventListener(
+      'mousedown',
+      (e) => {
+        if (e.button !== 0) return;
+        if (e.target.closest('button, input, select, .section-label, .section-mod-badges')) return;
+        e.preventDefault();
+      },
+      { signal: sig }
+    );
   });
   if (!window.__sectionDragDocReady) {
     window.__sectionDragDocReady = true;
@@ -28667,6 +28685,8 @@ function beginSectionDrag(p, x, y) {
   sectionDrag = st;
   isDragging = true;   // тултипы аппликатур по mouseover молчат на время жеста
   document.body.classList.add('is-section-dragging');
+  // Если выделение всё же успело начаться (тач/long-press) — снимаем.
+  try { const sel = window.getSelection(); if (sel && !sel.isCollapsed) sel.removeAllRanges(); } catch (err) {}
   cont.classList.add('drag-active');
   // Ярлык стартует чуть «из-под» заголовка — проявляется и подрастает.
   chip.style.left = startLeft + 'px';
