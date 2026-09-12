@@ -3450,7 +3450,23 @@ body.is-timeline .songmap { display: none !important; }
   color: var(--color-text-tertiary);
 }
 /* Перетаскивание: источник бледнеет, цель показывает линию вставки. */
-/* B-68 (0.214): стили перетаскивания строк (.is-dragging/.is-drop-*) сняты вместе с функцией. */
+/* B-68 (0.215): перетаскивание строк — слот на месте строки. Рамка
+   проявляется за 120мс, а не ставится в первый кадр; содержимое строки
+   гаснет. Никаких линий вставки: роль указателя играет сам слот. */
+.songmap-item.is-drag-slot {
+  position: relative;
+  pointer-events: none;
+  color: transparent;
+  background: rgba(var(--color-accent-rgb), 0.05) !important;
+  box-shadow: inset 0 0 0 1.5px rgba(var(--color-accent-rgb), 0.32) !important;
+  animation: struchord-slot-in 120ms ease both;
+}
+.songmap-item.is-drag-slot > * { opacity: 0; transition: opacity 100ms ease; }
+.songmap-item.is-drag-landing { animation: none; }
+.songmap-item.is-drag-landing > * { opacity: 1; transition: opacity 180ms ease 60ms; }
+/* Пока тащат — панель не реагирует на ховер строк (плашки под ярлыком отвлекают). */
+.songmap-list.is-dragging-row .songmap-item:not(.is-drag-slot):hover { background: none; color: var(--color-text-tertiary); }
+body.is-songmap-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
 
 /* Узкие экраны: панель перекрыла бы редактор целиком. */
 @media (max-width: 900px) {
@@ -9290,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.214</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.215</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -29871,6 +29887,9 @@ function songmapBaseName(sec) {
 function renderSongMap() {
   const list = document.getElementById('songmapList');
   if (!list) return;
+  // B-68: во время жеста список пересобирать нельзя (пропадут слот и
+  // захват) — откладываем до конца жеста.
+  if (songmapDrag && songmapDrag.active) { songmapDrag.renderPending = true; return; }
   list.innerHTML = '';
   if (!sections.length) {
     const empty = document.createElement('div');
@@ -29980,6 +29999,262 @@ function songmapJumpTo(id) {
   }
 }
 
+// ===== B-68 (0.215): перетаскивание строк панели структуры =====
+let songmapDrag = null;
+let songmapDragRaf = 0;
+
+// Порядок секций по списку id — одной операцией, без пары «источник/цель».
+function applySectionOrder(ids) {
+  const byId = new Map(sections.map((sec) => [sec.id, sec]));
+  const next = [];
+  ids.forEach((id) => { const sec = byId.get(id); if (sec) { next.push(sec); byId.delete(id); } });
+  byId.forEach((sec) => next.push(sec)); // на всякий случай — не потерять никого
+  sections.splice(0, sections.length, ...next);
+}
+
+function songmapRowRects(list) {
+  return [...list.querySelectorAll('.songmap-item')].map((el) => {
+    const r = el.getBoundingClientRect();
+    let dy = 0;
+    const tf = getComputedStyle(el).transform;
+    if (tf && tf !== 'none') { try { dy = new DOMMatrixReadOnly(tf).m42; } catch (err) {} }
+    const top = r.top - dy;
+    return { el, top, mid: top + r.height / 2, h: r.height };
+  });
+}
+
+function songmapDragFlip(list, prevTops) {
+  list.querySelectorAll('.songmap-item').forEach((el) => {
+    const before = prevTops.get(el);
+    if (before == null) return;
+    const running = el.getAnimations ? el.getAnimations().find((a) => a.__songmapShift) : null;
+    if (running) running.cancel();
+    const d = before - el.getBoundingClientRect().top;
+    if (Math.abs(d) < 0.5) return;
+    const anim = el.animate(
+      [{ transform: `translateY(${d}px)` }, { transform: 'translateY(0)' }],
+      { duration: SECTION_DRAG_SHIFT_MS, easing: 'cubic-bezier(.22,1,.36,1)' }
+    );
+    anim.__songmapShift = true;
+  });
+}
+
+function songmapDragUpdateSlot(st, y) {
+  const rects = songmapRowRects(st.list);
+  const slot = st.slot;
+  let target = null, before = false;
+  for (const r of rects) {
+    if (r.el === slot) continue;
+    const slotFollows = !!(r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (slotFollows && y < r.mid) { target = r.el; before = true; break; }
+  }
+  if (!target) {
+    for (let i = rects.length - 1; i >= 0; i--) {
+      const r = rects[i];
+      if (r.el === slot) continue;
+      const slotPrecedes = !!(r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING);
+      if (slotPrecedes && y > r.mid) { target = r.el; before = false; break; }
+    }
+  }
+  if (!target) return;
+  const prevTops = new Map();
+  st.list.querySelectorAll('.songmap-item').forEach((el) => prevTops.set(el, el.getBoundingClientRect().top));
+  if (before) st.list.insertBefore(slot, target);
+  else st.list.insertBefore(slot, target.nextSibling);
+  songmapDragFlip(st.list, prevTops);
+}
+
+function songmapDragFollow() {
+  const st = songmapDrag;
+  if (!st || !st.active || st.landing) { songmapDragRaf = 0; return; }
+  st.curX += (st.tgtX - st.curX) * SECTION_DRAG_SMOOTH;
+  st.curY += (st.tgtY - st.curY) * SECTION_DRAG_SMOOTH;
+  if (Math.abs(st.tgtX - st.curX) + Math.abs(st.tgtY - st.curY) < 0.5) { st.curX = st.tgtX; st.curY = st.tgtY; }
+  st.chip.style.left = st.curX + 'px';
+  st.chip.style.top = st.curY + 'px';
+  songmapDragRaf = requestAnimationFrame(songmapDragFollow);
+}
+
+function songmapDragAutoScroll(st) {
+  const EDGE = 56, MAX = 18;
+  const lr = st.list.getBoundingClientRect();
+  let v = 0;
+  if (st.lastY < lr.top + EDGE) v = -MAX * (1 - Math.max(0, st.lastY - lr.top) / EDGE);
+  else if (st.lastY > lr.bottom - EDGE) v = MAX * (1 - Math.max(0, lr.bottom - st.lastY) / EDGE);
+  st.autoScroll = v;
+  if (v && !st.autoRaf) {
+    const step = () => {
+      const cur = songmapDrag;
+      if (!cur || !cur.active || cur.landing || !cur.autoScroll) { if (cur) cur.autoRaf = 0; return; }
+      const beforeTop = cur.list.scrollTop;
+      cur.list.scrollTop = beforeTop + cur.autoScroll;
+      if (cur.list.scrollTop !== beforeTop) songmapDragUpdateSlot(cur, cur.lastY);
+      cur.autoRaf = requestAnimationFrame(step);
+    };
+    st.autoRaf = requestAnimationFrame(step);
+  }
+}
+
+function beginSongmapDrag(p, x, y) {
+  const { item, list, panel } = p;
+  const sec = sections.find((sx) => sx.id === p.id);
+  if (!sec || !item.isConnected) { songmapDrag = null; return; }
+  const chip = sectionDragChipEl();
+  fillSectionDragChip(chip, sec);
+  chip.style.display = 'flex';
+  chip.style.transition = 'none';
+  chip.style.transform = '';
+  chip.style.opacity = '';
+  const chipH = chip.offsetHeight || 32;
+  const chipW = chip.offsetWidth || 160;
+  const ir = item.getBoundingClientRect();
+  const startLeft = ir.left;
+  const startTop = ir.top + (ir.height - chipH) / 2;
+  const st = {
+    active: true, id: p.id, item, list, panel, chip, chipH, chipW,
+    pointerId: p.pointerId,
+    slot: item,
+    dx: Math.max(12, Math.min(chipW - 12, x - startLeft)), dy: chipH / 2,
+    curX: startLeft, curY: startTop, tgtX: startLeft, tgtY: startTop,
+    lastX: x, lastY: y, outside: false, landing: false, renderPending: false,
+    autoScroll: 0, autoRaf: 0,
+    orderBefore: [...list.querySelectorAll('.songmap-item')].map((el) => Number(el.dataset.id)),
+  };
+  songmapDrag = st;
+  songmapSelect(p.id);
+  item.classList.add('is-drag-slot');
+  item.style.height = ir.height + 'px';
+  list.classList.add('is-dragging-row');
+  document.body.classList.add('is-songmap-dragging');
+  if (panel._songmapHoldOpen) panel._songmapHoldOpen();
+  if (!songmapDragRaf) songmapDragRaf = requestAnimationFrame(songmapDragFollow);
+}
+
+function songmapDragLand(st, commit) {
+  st.landing = true;
+  st.autoScroll = 0;
+  const slot = st.slot;
+  const chip = st.chip;
+  const finish = () => {
+    chip.style.display = 'none';
+    chip.style.transition = 'none';
+    chip.style.transform = '';
+    chip.style.opacity = '';
+    slot.classList.remove('is-drag-slot');
+    slot.style.height = '';
+    st.list.classList.remove('is-dragging-row');
+    document.body.classList.remove('is-songmap-dragging');
+    const ids = [...st.list.querySelectorAll('.songmap-item')].map((el) => Number(el.dataset.id));
+    const changed = commit && ids.join(',') !== st.orderBefore.join(',');
+    songmapDrag = null;
+    if (changed) {
+      animateReorder(() => { applySectionOrder(ids); });
+      requestRender();
+      renderSongMap();
+      songmapSelect(st.id);
+      songmapJumpTo(st.id);
+      showToast('Секция перемещена');
+    } else {
+      if (!commit) {
+        // отмена: вернуть строки в исходный порядок с FLIP
+        const prevTops = new Map();
+        st.list.querySelectorAll('.songmap-item').forEach((el) => prevTops.set(el, el.getBoundingClientRect().top));
+        const byId = new Map([...st.list.querySelectorAll('.songmap-item')].map((el) => [Number(el.dataset.id), el]));
+        st.orderBefore.forEach((id) => { const el = byId.get(id); if (el) st.list.appendChild(el); });
+        songmapDragFlip(st.list, prevTops);
+      }
+      if (st.renderPending) renderSongMap();
+    }
+  };
+  if (!commit) {
+    // отмена: ярлык летит обратно в слот, порядок восстанавливается после
+    const prevTops = new Map();
+    st.list.querySelectorAll('.songmap-item').forEach((el) => prevTops.set(el, el.getBoundingClientRect().top));
+    const byId = new Map([...st.list.querySelectorAll('.songmap-item')].map((el) => [Number(el.dataset.id), el]));
+    st.orderBefore.forEach((id) => { const el = byId.get(id); if (el) st.list.appendChild(el); });
+    songmapDragFlip(st.list, prevTops);
+  }
+  const sr = slot.getBoundingClientRect();
+  const toX = sr.left, toY = sr.top + (sr.height - st.chipH) / 2;
+  const dur = 240;
+  chip.style.transition = `left ${dur}ms ${SECTION_DRAG_FLY_EASE}, top ${dur}ms ${SECTION_DRAG_FLY_EASE}, opacity ${dur}ms ease`;
+  void chip.offsetWidth;
+  chip.style.left = toX + 'px';
+  chip.style.top = toY + 'px';
+  chip.style.opacity = '0';
+  slot.classList.add('is-drag-landing');
+  let done = false;
+  const onEnd = () => { if (done) return; done = true; slot.classList.remove('is-drag-landing'); finish(); };
+  chip.addEventListener('transitionend', onEnd, { once: true });
+  setTimeout(onEnd, dur + 60);
+}
+
+function initSongmapDrag(panel, list) {
+  list.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    const item = e.target.closest('.songmap-item');
+    if (!item || songmapDrag) return;
+    const pending = {
+      id: Number(item.dataset.id), item, list, panel,
+      pointerId: e.pointerId, startX: e.clientX, startY: e.clientY,
+      touch: e.pointerType === 'touch', armed: e.pointerType !== 'touch', timer: 0,
+    };
+    if (pending.touch) {
+      pending.timer = setTimeout(() => {
+        pending.armed = true; pending.timer = 0;
+        item.style.touchAction = 'none';
+        beginSongmapDrag(pending, pending.startX, pending.startY);
+      }, CONFIG.LONG_PRESS_DELAY);
+    }
+    songmapDrag = { pending };
+    try { item.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  // клик после жеста не должен срабатывать как «прыжок»
+  list.addEventListener('click', (e) => {
+    if (list._songmapSuppressClick) { list._songmapSuppressClick = false; e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
+
+  if (window.__songmapDragDocReady) return;
+  window.__songmapDragDocReady = true;
+  document.addEventListener('pointermove', (e) => {
+    const sd = songmapDrag;
+    if (!sd) return;
+    if (sd.pending) {
+      const p = sd.pending;
+      const dist = Math.hypot(e.clientX - p.startX, e.clientY - p.startY);
+      if (p.touch) { if (!p.armed && dist > 8) { clearTimeout(p.timer); songmapDrag = null; } return; }
+      if (dist < 5) return;
+      beginSongmapDrag(p, e.clientX, e.clientY);
+      return;
+    }
+    if (!sd.active || sd.landing) return;
+    if (e.cancelable) e.preventDefault();
+    sd.lastX = e.clientX; sd.lastY = e.clientY;
+    sd.tgtX = e.clientX - sd.dx; sd.tgtY = e.clientY - sd.dy;
+    if (!songmapDragRaf) songmapDragRaf = requestAnimationFrame(songmapDragFollow);
+    songmapDragUpdateSlot(sd, e.clientY);
+    songmapDragAutoScroll(sd);
+    const pr = sd.panel.getBoundingClientRect();
+    sd.outside = e.clientX < pr.left - 40 || e.clientX > pr.right + 40 || e.clientY < pr.top - 40 || e.clientY > pr.bottom + 40;
+    sd.chip.classList.toggle('is-outside', !!sd.outside);
+  }, { passive: false });
+  const up = (cancelled) => {
+    const sd = songmapDrag;
+    if (!sd) return;
+    if (sd.pending) { clearTimeout(sd.pending.timer); songmapDrag = null; return; }
+    if (!sd.active || sd.landing) return;
+    sd.list._songmapSuppressClick = true;
+    setTimeout(() => { sd.list._songmapSuppressClick = false; }, 0);
+    sd.item.style.touchAction = '';
+    songmapDragLand(sd, !cancelled && !sd.outside);
+  };
+  document.addEventListener('pointerup', () => up(false));
+  document.addEventListener('pointercancel', () => up(true));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && songmapDrag && songmapDrag.active && !songmapDrag.landing) up(true);
+  });
+}
+
 function initSongMap() {
   const zone = document.getElementById('songmapZone');
   const panel = document.getElementById('songmap');
@@ -30016,11 +30291,14 @@ function initSongMap() {
     songmapJumpTo(item.dataset.id);
   });
 
-  // B-68 (0.214): перетаскивание строк в панели УДАЛЕНО по решению
-  // пользователя. Нативный DnD давал неуправляемый «полёт назад»
-  // браузерного снимка к уже пересобранному списку (чужая надпись летела
-  // к секции), а полный перевод панели на pointer-жест признан лишним:
-  // порядок меняется перетаскиванием карточек в поле (B-65).
+  // --- Перетаскивание строк (B-68, 0.215) — pointer-жест по
+  // dev/specs/songmap-drag-prompt.md. Нативного DnD нет: его снимок
+  // «летел назад» к уже пересобранному списку. Слот на месте строки,
+  // ярлык поля (.section-drag-chip) с догонялкой, соседи FLIP'ом,
+  // порядок строк во время жеста = будущий порядок песни.
+  panel._songmapHoldOpen = () => { if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; } };
+  initSongmapDrag(panel, list);
+
   // --- Cmd+C / Cmd+V ---
   // Работают ТОЛЬКО при открытой панели и наличии выделения — иначе
   // перехватили бы обычное копирование текста.
