@@ -48,6 +48,9 @@ const ok = (name, cond, extra = '') => { console.log(`   ${cond ? 'ok  ' : 'FAIL
   ok('слот снят', !(await page.$('.songmap-item.is-drag-slot')));
   ok('ярлык скрыт', await page.$eval('#sectionDragChip', (e) => getComputedStyle(e).display === 'none'));
   ok('перемещённая выделена', await page.$eval('.songmap-item[data-id="5"]', (e) => e.classList.contains('is-selected')));
+  await sleep(900);
+  const centered = await page.evaluate(() => { const r = document.querySelector('.section-card[data-id="5"]').getBoundingClientRect(); const c = r.top + r.height / 2; return Math.abs(c - innerHeight / 2); });
+  ok('поле поставило перемещённую по центру (±40px)', centered < 40, 'смещение ' + Math.round(centered));
 
   // 2. Esc — отмена
   b = await rowBox(3);
