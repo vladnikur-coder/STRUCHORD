@@ -9306,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.217</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.218</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28799,6 +28799,11 @@ function sectionDragRefreshRects(st) {
 function sectionDragUpdateSlot(st, y) {
   if (st.rectsDirty || !st.rects) sectionDragRefreshRects(st);
   const slot = st.card;
+  // B-69 (0.218): точка хит-теста не поднимается выше низа панели + полслота
+  // (слот должен целиком помещаться под панелью). Лог Safari: курсор 332,
+  // низ панели 268, слот вставал на 288 — выше, чем курсор может быть.
+  const topEdge = sectionDragTopEdge();
+  if (topEdge) y = Math.max(y, topEdge + (st.chipH || 30) / 2 + 4);
   // 0.202: ДРЕБЕЗГ. Запись 09.18: при неподвижном курсоре соседняя секция
   // прыгала вверх-вниз каждые 2–3 кадра. Причина логическая: критерий
   // «курсор выше середины соседа» проверялся по rect'ам, снятым ПОСЛЕ
@@ -28845,6 +28850,13 @@ function sectionDragUpdateSlot(st, y) {
     rects: st.rects.map((r) => r.el.dataset.id + ':' + Math.round(r.top) + '..' + Math.round(r.bottom)).join(' ') });
   if (before) st.cont.insertBefore(slot, target);
   else st.cont.insertBefore(slot, target.nextSibling);
+  // B-69 (0.218): слот встал под панель — подтягиваем страницу, чтобы он
+  // был виден целиком под ярлыком (только вне автоскролла, иначе спорят).
+  if (topEdge && !st.autoScroll) {
+    const sr = slot.getBoundingClientRect();
+    const need = (topEdge + 8) - sr.top;
+    if (need > 0.5) { window.scrollBy(0, -need); st.rectsDirty = true; }
+  }
   // FLIP: с прежней позиции к новой. Уже идущую анимацию соседа
   // ДОГОНЯЕМ, а не перезапускаем с нуля: берём его текущее визуальное
   // смещение из активной анимации (иначе при быстрых перестановках
@@ -28866,12 +28878,28 @@ function sectionDragUpdateSlot(st, y) {
   st.rectsDirty = true;
 }
 
+// B-69 (0.218, по логу b69-log.json из Safari): верх рабочей зоны —
+// ФАКТИЧЕСКИЙ низ транспортной панели в любом её состоянии. Пока страница
+// доезжает до верха, панель отлипает и её низ уходит с 64 до ~268px; всё,
+// что выше, курсором не достать. 0.208 считала панель только прилипшей
+// (top <= 12) и в момент проблемы не срабатывала.
+function sectionDragTopEdge() {
+  const bar = document.querySelector('.transport-bar');
+  if (!bar) return 0;
+  const r = bar.getBoundingClientRect();
+  return r.height > 0 && r.bottom > 0 ? r.bottom : 0;
+}
 function sectionDragAutoScroll(st) {
   const EDGE = 56, MAX = 18;
   const vh = window.innerHeight;
+  const topEdge = sectionDragTopEdge();
   let v = 0;
-  if (st.lastY < EDGE) v = -MAX * (1 - st.lastY / EDGE);
+  if (st.lastY < topEdge + EDGE) v = -MAX * (1 - Math.max(0, st.lastY - topEdge) / EDGE);
   else if (st.lastY > vh - EDGE) v = MAX * (1 - (vh - st.lastY) / EDGE);
+  // Safari округляет дробный scrollBy вверх (лог: запрошено −743, получено
+  // −891) — шаг целый, чтобы скорость была той, что задумана.
+  v = v < 0 ? Math.ceil(v) : Math.floor(v);
+  if (v === 0 && st.lastY < topEdge + EDGE && st.lastY > topEdge) v = -1;
   st.autoScroll = v;
   if (v && !st.autoRaf) {
     const step = () => {
