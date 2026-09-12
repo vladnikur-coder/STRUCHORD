@@ -9306,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.216</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.217</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -28577,6 +28577,49 @@ function attachChordWheelEvents() {
 // (нативный DnD давал его даром, pointer-жест — нет).
 let sectionDrag = null;         // состояние текущего жеста
 let sectionDragRaf = 0;         // петля догонялки
+
+// ===== B-69: телеметрия жеста (0.217). Включается ТОЛЬКО адресом
+// ?probe=drag; в обычном режиме все вызовы — один if. На каждом кадре
+// пишет курсор, scrollY, положение слота и соседей, transform'ы FLIP и
+// перескоки; после отпускания скачивает b69-log.json. Нужна, чтобы
+// увидеть в Safari, что именно расходится: хит-тест, автоскролл или
+// геометрия карточек.
+const SECTION_DRAG_PROBE = /[?&]probe=drag\b/.test(location.search);
+let sectionDragProbe = null;
+function sectionDragProbeStart(st) {
+  if (!SECTION_DRAG_PROBE) return;
+  sectionDragProbe = { t0: performance.now(), ua: navigator.userAgent, dpr: devicePixelRatio, vh: innerHeight, frames: [], events: [] };
+  const tick = () => {
+    const pr = sectionDragProbe; const sd = sectionDrag;
+    if (!pr || !sd || !sd.active) return;
+    const bar = document.querySelector('.transport-bar');
+    const cards = [...sd.cont.querySelectorAll('.section-card')].map((c) => {
+      const r = c.getBoundingClientRect(); const tf = getComputedStyle(c).transform;
+      let dy = 0; if (tf && tf !== 'none') { try { dy = new DOMMatrixReadOnly(tf).m42; } catch (e) {} }
+      return [c.dataset.id, Math.round(r.top), Math.round(r.height), Math.round(dy), c === sd.card ? 1 : 0];
+    });
+    pr.frames.push({ t: Math.round(performance.now() - pr.t0), y: Math.round(sd.lastY || 0), chipY: Math.round(sd.curY), sy: Math.round(scrollY), auto: +(sd.autoScroll || 0).toFixed(1), dirty: sd.rectsDirty ? 1 : 0, bar: bar ? Math.round(bar.getBoundingClientRect().bottom) : null, cards });
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+function sectionDragProbeEvent(kind, data) {
+  if (!sectionDragProbe) return;
+  sectionDragProbe.events.push(Object.assign({ t: Math.round(performance.now() - sectionDragProbe.t0), kind }, data));
+}
+function sectionDragProbeEnd(reason) {
+  const pr = sectionDragProbe; if (!pr) return;
+  sectionDragProbe = null;
+  pr.reason = reason;
+  try {
+    const blob = new Blob([JSON.stringify(pr)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'b69-log.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (e) { console.log('b69-log', JSON.stringify(pr)); }
+  if (typeof showToast === 'function') showToast('b69-log.json сохранён (' + pr.frames.length + ' кадров)');
+}
 const SECTION_DRAG_SMOOTH = 0.18;
 const SECTION_DRAG_FLY_MS = 380;
 const SECTION_DRAG_FLY_EASE = 'cubic-bezier(.25,.8,.35,1)';
@@ -28720,6 +28763,7 @@ function beginSectionDrag(p, x, y) {
     st.rectsDirty = true;
   }, SECTION_DRAG_COLLAPSE_MS + 20);
   if (!sectionDragRaf) sectionDragRaf = requestAnimationFrame(sectionDragFollow);
+  sectionDragProbeStart(st);
 }
 
 function sectionDragFollow() {
@@ -28797,6 +28841,8 @@ function sectionDragUpdateSlot(st, y) {
   // (0.202) уже не было. Замер: 24 перестановки за 6 махов — ровно по
   // числу пересечений.
   const movers = st.rects.map((r) => ({ el: r.el, top: r.el.getBoundingClientRect().top }));
+  if (SECTION_DRAG_PROBE) sectionDragProbeEvent('swap', { y: Math.round(y), target: target.dataset.id, before, sy: Math.round(scrollY),
+    rects: st.rects.map((r) => r.el.dataset.id + ':' + Math.round(r.top) + '..' + Math.round(r.bottom)).join(' ') });
   if (before) st.cont.insertBefore(slot, target);
   else st.cont.insertBefore(slot, target.nextSibling);
   // FLIP: с прежней позиции к новой. Уже идущую анимацию соседа
@@ -28831,7 +28877,9 @@ function sectionDragAutoScroll(st) {
     const step = () => {
       const s = sectionDrag;
       if (!s || !s.active || !s.autoScroll) { if (s) s.autoRaf = 0; return; }
+      const syBefore = scrollY;
       window.scrollBy(0, s.autoScroll);
+      if (SECTION_DRAG_PROBE) sectionDragProbeEvent('scroll', { req: +s.autoScroll.toFixed(1), got: +(scrollY - syBefore).toFixed(2), sy: Math.round(scrollY) });
       s.rectsDirty = true;
       sectionDragUpdateSlot(s, s.lastY);
       s.autoRaf = requestAnimationFrame(step);
@@ -28908,6 +28956,7 @@ function cancelSectionDrag() {
 // Посадка: ярлык летит к слоту, карточка разворачивается под ним,
 // соседи раздвигаются потоком (height-переход одной карточки).
 function finishSectionDrag(sd, commit) {
+  sectionDragProbeEnd(commit ? 'drop' : 'cancel');
   sd.landing = true;
   sd.autoScroll = 0;
   if (sectionDragRaf) { cancelAnimationFrame(sectionDragRaf); sectionDragRaf = 0; }
