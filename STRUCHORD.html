@@ -9306,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.219</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.220</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32893,9 +32893,10 @@ function attachResizeHandlers() {
         // ширина не изменилась, обязана сохранить span бит-в-бит, даже
         // если он не кратен текущему шагу: иначе один Math.round по всему
         // квадрату ровнял чужие 1.75/2.25 под шаг зума.
-        const dragPair = new Set([ei, ei + 1]);
+        // B-72: с толканием меняться могут и ячейки за парой — берём
+        // все, чья визуальная ширина изменилась; нетронутые — бит-в-бит.
         for (let i = 0; i < ec; i++) {
-          if (nsp[i] === origVisSpans[i] || !dragPair.has(i)) {
+          if (Math.abs(nsp[i] - origVisSpans[i]) < 1e-9) {
             nextEvents[i].span = origSpans[i];
           } else {
             // Изменилась визуальная ширина. Сначала переводим дельту из
@@ -32915,32 +32916,8 @@ function attachResizeHandlers() {
           }
         }
 
-        // B-50: сумма ПАРЫ у ручки неизменна — граница ездит внутри двух
-        // ячеек, длина квадрата от жеста не зависит. Правого соседа
-        // считаем вычитанием, а не отдельным Math.round: два независимых
-        // округления давали разъезд (2+3+1+2.25 = 16.25 при квадрате 16),
-        // и остаток потом списывался в непричастную ячейку.
-        //
-        // Когда сумма пары кратна шагу — а это обычный случай, включая
-        // 1.75+2.25=4 — обе ячейки встают на сетку, как и просил
-        // пользователь. Если же сумма пары дробная (сосед пришёл
-        // дробным из другого зума), на сетку встаёт перетаскиваемая
-        // ячейка, а остаток достаётся соседу: ровнять его силой значило
-        // бы менять длину квадрата.
-        const rIdx = ei + 1;
-        if (rIdx < ec && dragPair.has(rIdx)) {
-          const lEv = nextEvents[ei], rEv = nextEvents[rIdx];
-          const lDen = parseTimeSig(getEventOwnTimeSig(lEv, parentTs)).denominator || 4;
-          const rDen = parseTimeSig(getEventOwnTimeSig(rEv, parentTs)).denominator || 4;
-          // Сумма пары в долях родителя — по исходным span, до жеста.
-          const pairParent = origSpans[ei] * (parentDenom / lDen) + origSpans[rIdx] * (parentDenom / rDen);
-          const lParent = lEv.span * (parentDenom / lDen);
-          // B-71: минимум ячейки — не шаг зума, а «больше нуля» (3в).
-          const minP = 1e-6;
-          const lClamped = Math.min(Math.max(lParent, minP), Math.max(minP, pairParent - minP));
-          lEv.span = roundSpan(lClamped * (lDen / parentDenom));
-          rEv.span = roundSpan((pairParent - lClamped) * (rDen / parentDenom));
-        }
+        // B-50/B-72: суммы держит сама раскладка calcResizeSpans (без
+        // округлений к шагу), отдельная подгонка пары больше не нужна.
 
         // Та же финальная компенсация, что раньше выполнялась внутри
         // live-writeSpans(), но теперь — на временных событиях. Сумма
@@ -33302,42 +33279,79 @@ function attachResizeHandlers() {
       //  3в) длина ячейки — любая > 0: узлы берутся строго внутри пары;
       //  4а) на зуме 150% с «та» первый шаг — ближайшая восьмая.
       // Ячейка ВНУТРИ пары у ручки; сумма пары неизменна (B-50).
+      // B-72 (0.220): ТОЛКАНИЕ. Дойдя до дальнего края соседа, граница не
+      // упирается в стену (B-50), а продолжает путь: сосед фиксируется на
+      // минимальной длине (шаг зума) и его дальняя граница едет вперёд,
+      // забирая у следующей ячейки — и так цепочкой до края квадрата.
+      // Всё, до чего курсор не дошёл, не меняется (контракт B-50); назад —
+      // всё возвращается, потому что раскладка всегда считается от sSp.
+      // Решение пользователя 2026-09-12: «подходит».
       let liveEdgeCols = null;
       function calcResizeSpans(clientX) {
         const nsp = [...sSp];
         if (ei + 1 >= ec) return nsp;
         const stepUnits = getResizeStep();
         const visStep = Math.max(1e-6, stepUnits * (tc / squareUnits));
+        const minCols = visStep;
         const eps = 1e-6;
-        let leftStart = 0;
-        for (let i = 0; i < ei; i++) leftStart += sSp[i];
-        const origEdge = leftStart + sSp[ei];
-        const rightEnd = origEdge + sSp[ei + 1];
+        const ends = []; let acc = 0;
+        for (let i = 0; i < ec; i++) { acc += sSp[i]; ends.push(acc); }
+        const startOf = (i) => (i === 0 ? 0 : ends[i - 1]);
+        const leftStart = startOf(ei);
+        const origEdge = ends[ei];
         const cursor = origEdge + (clientX - sX) / gs;
         if (liveEdgeCols === null) liveEdgeCols = origEdge;
+        const right = cursor >= liveEdgeCols;
         let target;
-        if (cursor >= liveEdgeCols) {
-          // вправо: самый правый узел, до которого курсор уже дошёл
+        if (right) {
           target = Math.floor(cursor / visStep + eps) * visStep;
           if (origEdge <= cursor + eps && origEdge > target) target = origEdge;
         } else {
-          // влево: самый левый узел, до которого курсор уже дошёл
           target = Math.ceil(cursor / visStep - eps) * visStep;
           if (origEdge >= cursor - eps && origEdge < target) target = origEdge;
         }
-        // строго внутри пары: ни одна из двух ячеек не схлопывается в 0
-        const nodeMin = (Math.floor(leftStart / visStep + eps) + 1) * visStep;
-        const nodeMax = (Math.ceil(rightEnd / visStep - eps) - 1) * visStep;
-        if (target <= leftStart + eps) {
-          target = nodeMin < rightEnd - eps ? Math.min(nodeMin, origEdge) : origEdge;
-        } else if (target >= rightEnd - eps) {
-          target = nodeMax > leftStart + eps ? Math.max(nodeMax, origEdge) : origEdge;
+        // Раскладка от узла target: ячейка у ручки со стороны движения
+        // принимает любую длину > 0 (3в); ячейки, которые граница
+        // проехала насквозь, фиксируются на minCols и толкают следующую.
+        // Возвращает null, если не помещается — тогда берём узел ближе.
+        function layout(t) {
+          const out = [...sSp];
+          out[ei] = t - leftStart;
+          out[ei + 1] = ends[ei + 1] - t;
+          if (out[ei] > eps && out[ei + 1] > eps) return out;
+          if (out[ei] <= eps) {
+            // влево: ei схлопнулась — толкаем назад
+            out[ei] = minCols;
+            let pos = t - minCols;
+            for (let j = ei - 1; j >= 0; j--) {
+              const sp = pos - startOf(j);
+              if (sp > eps) { out[j] = sp; pos = startOf(j); return out; }
+              out[j] = minCols; pos -= minCols;
+            }
+            return pos >= -eps ? out : null;
+          }
+          // вправо: сосед схлопнулся — толкаем вперёд
+          out[ei + 1] = minCols;
+          let pos = t + minCols;
+          for (let j = ei + 2; j < ec; j++) {
+            const sp = ends[j] - pos;
+            if (sp > eps) { out[j] = sp; return out; }
+            out[j] = minCols; pos += minCols;
+          }
+          return pos <= tc + eps ? out : null;
         }
-        target = Math.round(target * 1e6) / 1e6;
-        liveEdgeCols = target;
-        nsp[ei] = target - leftStart;
-        nsp[ei + 1] = rightEnd - target;
-        return nsp;
+        let res = layout(target);
+        // не влезло — отступаем по узлам к исходной границе
+        let guard = 0;
+        while (!res && guard++ < 512) {
+          if (Math.abs(target - origEdge) < eps) { res = [...sSp]; break; }
+          target = right ? target - visStep : target + visStep;
+          if ((right && target < origEdge) || (!right && target > origEdge)) target = origEdge;
+          res = layout(target);
+        }
+        if (!res) return nsp;
+        liveEdgeCols = Math.round(target * 1e6) / 1e6;
+        return res.map((v) => Math.round(v * 1e6) / 1e6);
       }
 
       function applyResizePreviewAt(clientX, force) {
