@@ -5,7 +5,7 @@
 const fs = require('fs'), { JSDOM } = require('jsdom');
 const root = __dirname + '/../..';
 const html = fs.readFileSync(root + '/STRUCHORD.html', 'utf8');
-const song = JSON.parse(fs.readFileSync(root + '/uploads/Дешевые Драмы.struchord.json', 'utf8'));
+const song = JSON.parse(fs.readFileSync(root + '/uploads/Дешевые Драмы.struchord-3.json', 'utf8'));
 
 function boot() {
   const dom = new JSDOM(html, { runScripts: 'dangerously', pretendToBeVisual: true, url: 'https://localhost/',

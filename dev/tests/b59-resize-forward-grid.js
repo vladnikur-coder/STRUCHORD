@@ -7,7 +7,7 @@
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const html = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
-const song = JSON.parse(fs.readFileSync(__dirname + '/../../uploads/Дешевые Драмы.struchord.json', 'utf8'));
+const song = JSON.parse(fs.readFileSync(__dirname + '/../../uploads/Дешевые Драмы.struchord-3.json', 'utf8'));
 let bad = 0;
 const ok = (n, c, x) => { console.log(`   ${c ? 'ok  ' : 'FAIL'} ${n}${!c && x ? ' — ' + x : ''}`); if (!c) bad++; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));

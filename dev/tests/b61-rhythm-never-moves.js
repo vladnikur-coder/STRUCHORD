@@ -9,7 +9,7 @@
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const html = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
-const song = JSON.parse(fs.readFileSync(__dirname + '/../../uploads/Дешевые Драмы.struchord.json', 'utf8'));
+const song = JSON.parse(fs.readFileSync(__dirname + '/../../uploads/Дешевые Драмы.struchord-3.json', 'utf8'));
 let bad = 0;
 const ok = (n, c, x) => { console.log(`   ${c ? 'ok  ' : 'FAIL'} ${n}${!c && x ? ' — ' + x : ''}`); if (!c) bad++; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -82,23 +82,14 @@ async function run(dir, handle) {
 }
 
 (async () => {
-  // Третий сценарий (граница G|F, ручка 3) ПОКА ПАДАЕТ и это известно:
-  // там ячейки получают приватный рулон, чьё СОДЕРЖИМОЕ нарезает сшивка,
-  // и рисунок внутри рулона съезжает, хотя позиции уже на узлах. Держим
-  // его в списке намеренно — тест должен показывать правду, а не
-  // обходить незакрытый случай. Остаток записан как B-62.
-  for (const [dir, name, handle] of [[1, 'ВПЕРЁД', 1], [-1, 'НАЗАД', 1], [1, 'другая граница (известный остаток B-62)', 3]]) {
+  // Третий сценарий (граница G|F, ручка 3) когда-то падал (остаток B-62:
+  // приватный рулон сшивки). Проверка 2026-09-12 на фикстуре -3: проходит.
+  // B-62 закрыта, сценарий теперь строгий.
+  for (const [dir, name, handle] of [[1, 'ВПЕРЁД', 1], [-1, 'НАЗАД', 1], [1, 'другая граница G|F (бывший B-62)', 3]]) {
     console.log(`=== ${name} ===`);
     const r = await run(dir, handle);
-    const known = handle === 3;
-    if (known && r.before !== r.after) {
-      console.log('   ЗНАЮ ЗВУК ещё меняется на этой границе (B-62, приватный рулон сшивки)');
-      console.log('      было : ' + r.before);
-      console.log('      стало: ' + r.after);
-    } else {
-      ok('ЗВУК не изменился ни на один удар', r.before === r.after,
-         '\n      было : ' + r.before + '\n      стало: ' + r.after);
-    }
+    ok('ЗВУК не изменился ни на один удар', r.before === r.after,
+       '\n      было : ' + r.before + '\n      стало: ' + r.after);
     ok('подсказка в жесте не сдвинулась', r.hintDown === r.hintDuring,
        '\n      down : ' + r.hintDown + '\n      жест : ' + r.hintDuring);
     ok('аккорды при этом ПЕРЕРАСПРЕДЕЛИЛИСЬ', r.chordsBefore !== r.chordsAfter,
