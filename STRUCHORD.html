@@ -9306,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.218</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.219</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32881,33 +32881,9 @@ function attachResizeHandlers() {
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
       startRhythmHints(s, sq, bi, distribution);
 
-      // B-50 (2026-09-05): место жеста — РОВНО пара у ручки. Раньше цикл
-      // шёл до конца квадрата и, добирая остаток, залезал в дальних
-      // соседей: протяжка границы E|Am роняла ещё и G с 2.25 на 2, хотя
-      // пользователь её не трогал. Дробные доли (законные при зуме с
-      // шагом 0.25 и при импорте) так уничтожались молча и без возврата.
-      // Предел протяжки теперь — размер соседа: дальше стена, а не тихая
-      // перекройка половины квадрата.
-      function dist(sp, fi, ch) {
-        let rem = ch;
-        const nsp = [...sp];
-        const minCell = Math.max(1e-6, getResizeStep() * (tc / squareUnits));
-        const chainEnd = Math.min(ec, fi + 2);
-        for (let i = fi + 1; i < chainEnd && Math.abs(rem) > 1e-6; i++) {
-          if (rem > 0) {
-            const ct = nsp[i] - minCell;
-            const tk = Math.min(rem, ct);
-            nsp[i] -= tk;
-            rem -= tk;
-          } else {
-            const cg = tc - nsp[i];
-            const gv = Math.min(-rem, cg);
-            nsp[i] += gv;
-            rem += gv;
-          }
-        }
-        return { newSpans: nsp, remaining: rem };
-      }
+      // B-50: место жеста — РОВНО пара у ручки (раньше цикл добирал
+      // остаток из дальних соседей). С B-71 пара считается прямо в
+      // calcResizeSpans, отдельный распределитель не нужен.
 
       function buildEventsForVisualSpans(nsp) {
         const parentDenom = parseTimeSig(parentTs).denominator || 4;
@@ -32931,10 +32907,11 @@ function attachResizeHandlers() {
             const ownTs = getEventOwnTimeSig(nextEvents[i], parentTs);
             const ownDenom = parseTimeSig(ownTs).denominator || 4;
             const deltaOwn = deltaParentBeats * (ownDenom / parentDenom);
-            const step = getResizeStep();
-            const raw = origSpans[i] + deltaOwn;
-            const newSpan = Math.max(step, Math.round(raw / step) * step);
-            nextEvents[i].span = roundSpan(newSpan);
+            // B-71: колонки уже стоят на узлах (calcResizeSpans), второе
+            // округление к шагу зума здесь ломало бы правило «граница на
+            // узле»: длина 0.5..2 → 1.5 не кратна шагу 1, а граница на 2 —
+            // ровно узел. Дробные длины законны (решение 3в).
+            nextEvents[i].span = roundSpan(Math.max(1e-6, origSpans[i] + deltaOwn));
           }
         }
 
@@ -32958,8 +32935,8 @@ function attachResizeHandlers() {
           // Сумма пары в долях родителя — по исходным span, до жеста.
           const pairParent = origSpans[ei] * (parentDenom / lDen) + origSpans[rIdx] * (parentDenom / rDen);
           const lParent = lEv.span * (parentDenom / lDen);
-          const stepP = getResizeStep();
-          const minP = stepP;
+          // B-71: минимум ячейки — не шаг зума, а «больше нуля» (3в).
+          const minP = 1e-6;
           const lClamped = Math.min(Math.max(lParent, minP), Math.max(minP, pairParent - minP));
           lEv.span = roundSpan(lClamped * (lDen / parentDenom));
           rEv.span = roundSpan((pairParent - lClamped) * (rDen / parentDenom));
@@ -32981,8 +32958,9 @@ function attachResizeHandlers() {
           const ev = nextEvents[idx];
           const ownDenom = parseTimeSig(getEventOwnTimeSig(ev, parentTs)).denominator || 4;
           const correctionOwn = diff * (ownDenom / parentDenom);
-          const st = getResizeStep();
-          ev.span = roundSpan(Math.max(st, Math.round((ev.span - correctionOwn) / st) * st));
+          // B-71: без округления к шагу — иначе компенсация сама уводила
+          // бы границу с узла.
+          ev.span = roundSpan(Math.max(1e-6, ev.span - correctionOwn));
         }
 
         return nextEvents;
@@ -33311,33 +33289,54 @@ function attachResizeHandlers() {
       let resizeMoveRAF = 0;
       let pendingResizeClientX = sX;
 
+      // B-71 (0.219): граница ячейки ходит по АБСОЛЮТНЫМ узлам сетки зума
+      // (тем же, что засечки и счёт под квадратом), а не шагами от своего
+      // стартового положения. Раньше граница на «и» (1.5) на зуме 100%
+      // шла 2.5 → 3.5 в превью, а коммит потом округлял ДЛИНУ к целым и
+      // ставил её в 3 — то, что показывали, и то, что получалось, не
+      // совпадало. Решения пользователя 2026-09-12:
+      //  1в) граница переходит на узел, когда курсор до него ДОШЁЛ (в
+      //      обе стороны), без опережения и без прыжка от касания ручки;
+      //  2а) исходное дробное положение остаётся узлом, пока жест не
+      //      отпущен — вернуть как было можно;
+      //  3в) длина ячейки — любая > 0: узлы берутся строго внутри пары;
+      //  4а) на зуме 150% с «та» первый шаг — ближайшая восьмая.
+      // Ячейка ВНУТРИ пары у ручки; сумма пары неизменна (B-50).
+      let liveEdgeCols = null;
       function calcResizeSpans(clientX) {
-        const delta = clientX - sX;
-        // Шаг тянем не по целым колонкам, а по текущему шагу зума:
-        // при ×1.5 доступны восьмые, при ×2.5 — шестнадцатые.
-        // visStep — сколько ВИЗУАЛЬНЫХ колонок приходится на один шаг.
+        const nsp = [...sSp];
+        if (ei + 1 >= ec) return nsp;
         const stepUnits = getResizeStep();
         const visStep = Math.max(1e-6, stepUnits * (tc / squareUnits));
-        let sc = Math.round(delta / (gs * visStep)) * visStep;
-        let nsp = [...sSp];
-        // Минимум — один шаг, а не одна целая колонка: иначе восьмую
-        // ячейку было бы не создать.
-        const minSp = visStep;
-        const maxSp = tc - (ec - 1) * minSp;
-        let ns = sSp[ei] + sc;
-        if (ns < minSp) ns = minSp;
-        if (ns > maxSp) ns = maxSp;
-        const ac = ns - sSp[ei];
-        nsp[ei] = ns;
-        if (ac !== 0) {
-          const res = dist(nsp, ei, ac);
-          nsp = res.newSpans;
-          if (res.remaining !== 0) {
-            nsp[ei] -= res.remaining;
-            if (nsp[ei] < minSp) nsp[ei] = minSp;
-            if (nsp[ei] > maxSp) nsp[ei] = maxSp;
-          }
+        const eps = 1e-6;
+        let leftStart = 0;
+        for (let i = 0; i < ei; i++) leftStart += sSp[i];
+        const origEdge = leftStart + sSp[ei];
+        const rightEnd = origEdge + sSp[ei + 1];
+        const cursor = origEdge + (clientX - sX) / gs;
+        if (liveEdgeCols === null) liveEdgeCols = origEdge;
+        let target;
+        if (cursor >= liveEdgeCols) {
+          // вправо: самый правый узел, до которого курсор уже дошёл
+          target = Math.floor(cursor / visStep + eps) * visStep;
+          if (origEdge <= cursor + eps && origEdge > target) target = origEdge;
+        } else {
+          // влево: самый левый узел, до которого курсор уже дошёл
+          target = Math.ceil(cursor / visStep - eps) * visStep;
+          if (origEdge >= cursor - eps && origEdge < target) target = origEdge;
         }
+        // строго внутри пары: ни одна из двух ячеек не схлопывается в 0
+        const nodeMin = (Math.floor(leftStart / visStep + eps) + 1) * visStep;
+        const nodeMax = (Math.ceil(rightEnd / visStep - eps) - 1) * visStep;
+        if (target <= leftStart + eps) {
+          target = nodeMin < rightEnd - eps ? Math.min(nodeMin, origEdge) : origEdge;
+        } else if (target >= rightEnd - eps) {
+          target = nodeMax > leftStart + eps ? Math.max(nodeMax, origEdge) : origEdge;
+        }
+        target = Math.round(target * 1e6) / 1e6;
+        liveEdgeCols = target;
+        nsp[ei] = target - leftStart;
+        nsp[ei + 1] = rightEnd - target;
         return nsp;
       }
 
