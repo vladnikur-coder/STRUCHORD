@@ -9306,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.220</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.221</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -33310,35 +33310,28 @@ function attachResizeHandlers() {
           target = Math.ceil(cursor / visStep - eps) * visStep;
           if (origEdge >= cursor - eps && origEdge < target) target = origEdge;
         }
-        // Раскладка от узла target: ячейка у ручки со стороны движения
-        // принимает любую длину > 0 (3в); ячейки, которые граница
-        // проехала насквозь, фиксируются на minCols и толкают следующую.
-        // Возвращает null, если не помещается — тогда берём узел ближе.
+        // Раскладка от узла target (0.221, пример пользователя:
+        // 2|1.25|1.75|0.5|4|4, первую границу к 7 → 7|0.25|0.75|0.5|1|4).
+        // Каждая ячейка на пути отдаёт ЦЕЛЫЕ шаги зума и оставляет себе
+        // остаток (1.25 → 0.25, 4 → 1, 0.5 не отдаёт ничего): её дальняя
+        // граница сдвигается на кратное шагу и остаётся на той же
+        // дробной позиции сетки. Последняя затронутая ячейка отдаёт
+        // ровно недостающее. Не хватает ёмкости — null, берём узел ближе.
+        const keep = (sp) => sp - visStep * Math.floor((sp - eps) / visStep);
         function layout(t) {
           const out = [...sSp];
-          out[ei] = t - leftStart;
-          out[ei + 1] = ends[ei + 1] - t;
-          if (out[ei] > eps && out[ei + 1] > eps) return out;
-          if (out[ei] <= eps) {
-            // влево: ei схлопнулась — толкаем назад
-            out[ei] = minCols;
-            let pos = t - minCols;
-            for (let j = ei - 1; j >= 0; j--) {
-              const sp = pos - startOf(j);
-              if (sp > eps) { out[j] = sp; pos = startOf(j); return out; }
-              out[j] = minCols; pos -= minCols;
-            }
-            return pos >= -eps ? out : null;
+          const fwd = t > origEdge;           // сторона — по узлу, не по движению курсора
+          let need = Math.abs(t - origEdge);
+          if (need <= eps) return out;
+          if (fwd) out[ei] += need; else out[ei + 1] += need;
+          const from = fwd ? ei + 1 : ei, to = fwd ? ec : -1, dj = fwd ? 1 : -1;
+          for (let j = from; j !== to && need > eps; j += dj) {
+            const cap = Math.max(0, sSp[j] - keep(sSp[j]));
+            const take = Math.min(need, cap);
+            out[j] -= take;
+            need -= take;
           }
-          // вправо: сосед схлопнулся — толкаем вперёд
-          out[ei + 1] = minCols;
-          let pos = t + minCols;
-          for (let j = ei + 2; j < ec; j++) {
-            const sp = ends[j] - pos;
-            if (sp > eps) { out[j] = sp; return out; }
-            out[j] = minCols; pos += minCols;
-          }
-          return pos <= tc + eps ? out : null;
+          return need <= eps ? out : null;
         }
         let res = layout(target);
         // не влезло — отступаем по узлам к исходной границе
