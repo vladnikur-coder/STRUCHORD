@@ -9306,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.221</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.222</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20287,8 +20287,29 @@ function addChordAfter(sid, sqid, ei) {
     showToast('Ячейка уже минимальной длительности');
     return;
   }
-  const half = cs / 2;
-  const oh = cs - half;
+  // B-73 (0.222): точка деления — ближайший к середине узел АБСОЛЮТНОЙ
+  // сетки текущего зума (той же, по которой ходит граница при ресайзе,
+  // B-71). Пользователь 2026-09-12: «ячейка 1.25, жму +, она делится
+  // ровно пополам, между и и та» — 0.625 не лежит ни на одной сетке,
+  // граница получалась бессмысленной, а ритм второй половине не
+  // доставался. Теперь 1.25 на 100% → 1 + 0.25, на 150% → 0.5 + 0.75.
+  // Узла внутри нет (ячейка 1 на 100%) — пополам, как раньше: 0.5 + 0.5.
+  const startOff = squareEventOffsets(sq)[ei] || 0;
+  const stepZ = getResizeStep();
+  const mid = startOff + cs / 2;
+  let cut = cs / 2;
+  {
+    const eps = 1e-9;
+    const lo = Math.floor(mid / stepZ + eps) * stepZ;
+    const hi = Math.ceil(mid / stepZ - eps) * stepZ;
+    const cands = [lo, hi].filter((n) => n > startOff + eps && n < startOff + cs - eps);
+    if (cands.length) {
+      cands.sort((x, y) => Math.abs(x - mid) - Math.abs(y - mid) || x - y);
+      cut = cands[0] - startOff;
+    }
+  }
+  const half = roundSpan(cut);
+  const oh = roundSpan(cs - half);
   // Ритм ячейки РЕЖЕТСЯ вместе с ней — не байтами, а окном (волна-2):
   // обе половины получают ссылку на ТОТ ЖЕ рулон, и их окна становятся
   // ровно своими половинами ленты. Лента не переписывается: суммарный звук
