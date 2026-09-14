@@ -10,7 +10,7 @@
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const html = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
-const song = JSON.parse(fs.readFileSync(__dirname + '/../../uploads/Дешевые Драмы.struchord-3.json', 'utf8'));
+const song = JSON.parse(fs.readFileSync(__dirname + '/../../uploads/Дешевые Драмы.struchord-4.json', 'utf8'));
 let bad = 0;
 const ok = (n, c, x) => { console.log(`   ${c ? 'ok  ' : 'FAIL'} ${n}${!c && x ? ' — ' + x : ''}`); if (!c) bad++; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -95,8 +95,11 @@ async function dragFar(w) {
   console.log('=== 4. Наклона нет (решение пользователя) ===');
   {
     ok('в петле нет rotate', !/follow[\s\S]{0,900}rotate\(/.test(html));
-    ok('закреплённый гриф остался жёстким',
-       /source === 'tooltip'[\s\S]{0,200}requestAnimationFrame\(follow\)/.test(html));
+    // B-67 (0.199): решение «гриф жёсткий» отменено пользователем —
+    // закреплённый гриф догоняет так же, как тултип.
+    ok('закреплённый гриф догоняет вместе с тултипом (0.199)',
+       !/source === 'tooltip'[\s\S]{0,200}requestAnimationFrame\(follow\)/.test(html) &&
+       /if \(!pinFollowRaf\) pinFollowRaf = requestAnimationFrame\(follow\);/.test(html));
   }
 
   console.log(bad ? `\nFAIL: ${bad}` : '\nALL OK');

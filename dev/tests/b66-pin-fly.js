@@ -8,7 +8,7 @@
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const html = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
-const song = JSON.parse(fs.readFileSync(__dirname + '/../../uploads/Дешевые Драмы.struchord-3.json', 'utf8'));
+const song = JSON.parse(fs.readFileSync(__dirname + '/../../uploads/Дешевые Драмы.struchord-4.json', 'utf8'));
 let bad = 0;
 const ok = (n, c, x) => { console.log(`   ${c ? 'ok  ' : 'FAIL'} ${n}${!c && x ? ' — ' + x : ''}`); if (!c) bad++; };
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -141,8 +141,23 @@ async function dragToDock(w) {
     ok('inline-стили снимаются через removeProperty',
        /removeProperty\('opacity'\)/.test(html) && /removeProperty\('transform'\)/.test(html));
     ok('гриф ставится ДО полёта, а не после',
-       /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true[^}]*\}\)[\s\S]{0,1600}el\.animate\(/.test(html),
+       /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true[^}]*\}\)[\s\S]{0,3200}el\.animate\(/.test(html),
        'порядок нарушен — док будет пустым во время полёта');
+    // B-67 (0.198): цель полёта — сама карточка грифа (rect берётся
+    // ПОСЛЕ постановки грифа), а не центр панели: иначе тултип усыхал в
+    // транспортной строке, а гриф проступал в другом месте — два предмета.
+    // B-67 (0.199): вынос грифа из дока ведёт себя как тултип с ячейки —
+    // догоняет курсор, та же прозрачность, «передумал» = полёт назад.
+    ok('закреплённый гриф тоже догоняет курсор (нет жёсткой ветки для pinned)',
+       !/if \(st\.source === 'tooltip'\) \{\s*if \(!pinFollowRaf\)/.test(html) &&
+       /if \(!pinFollowRaf\) pinFollowRaf = requestAnimationFrame\(follow\);/.test(html));
+    ok('прозрачность тащимого грифа как у тултипа (0.85)',
+       /\.pinned-row\.is-dragging \{[^}]*opacity: 0\.85/.test(html));
+    ok('возврат в док — полётом (flyPinnedBackToDock)',
+       /flyPinnedBackToDock\(st\)/.test(html) && /const flyPinnedBackToDock = /.test(html));
+    ok('цель полёта — карточка грифа, снятая после его постановки',
+       /pinFingeringFromTooltip\(\{ skipAppear: false, fadeIn: true[^}]*\}\)[\s\S]{0,1600}querySelector\('#pinnedRow \.pinned-fingering'\)[\s\S]{0,400}getBoundingClientRect\(\)/.test(html),
+       'тултип летит не туда, где проявится гриф');
   }
 
 

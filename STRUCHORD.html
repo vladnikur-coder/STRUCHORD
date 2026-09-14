@@ -3364,6 +3364,10 @@ body {
   overscroll-behavior: contain;
 }
 .songmap.is-open { transform: translateX(0); }
+/* B-70 (0.212): в режиме ленты у неё своя навигация по структуре —
+   выезжающая панель и корешок там лишние (просьба пользователя). */
+body.is-timeline .songmap-zone,
+body.is-timeline .songmap { display: none !important; }
 
 .songmap-list {
   display: flex;
@@ -3446,9 +3450,23 @@ body {
   color: var(--color-text-tertiary);
 }
 /* Перетаскивание: источник бледнеет, цель показывает линию вставки. */
-.songmap-item.is-dragging { opacity: 0.4; }
-.songmap-item.is-drop-before { box-shadow: inset 0 2px 0 var(--color-accent); }
-.songmap-item.is-drop-after { box-shadow: inset 0 -2px 0 var(--color-accent); }
+/* B-68 (0.215): перетаскивание строк — слот на месте строки. Рамка
+   проявляется за 120мс, а не ставится в первый кадр; содержимое строки
+   гаснет. Никаких линий вставки: роль указателя играет сам слот. */
+.songmap-item.is-drag-slot {
+  position: relative;
+  pointer-events: none;
+  color: transparent;
+  background: rgba(var(--color-accent-rgb), 0.05) !important;
+  box-shadow: inset 0 0 0 1.5px rgba(var(--color-accent-rgb), 0.32) !important;
+  animation: struchord-slot-in 120ms ease both;
+}
+.songmap-item.is-drag-slot > * { opacity: 0; transition: opacity 100ms ease; }
+.songmap-item.is-drag-landing { animation: none; }
+.songmap-item.is-drag-landing > * { opacity: 1; transition: opacity 180ms ease 60ms; }
+/* Пока тащат — панель не реагирует на ховер строк (плашки под ярлыком отвлекают). */
+.songmap-list.is-dragging-row .songmap-item:not(.is-drag-slot):hover { background: none; color: var(--color-text-tertiary); }
+body.is-songmap-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
 
 /* Узкие экраны: панель перекрыла бы редактор целиком. */
 @media (max-width: 900px) {
@@ -3473,38 +3491,99 @@ body {
   cursor: default;
   outline: none;
 }
-.section-card.dragging {
-  /* B-65: было 0.12 — карточка почти пропадала, и на её месте зияла
-     дыра: непонятно, откуда тащишь и куда вернётся, если передумаешь.
-     0.4 — как у строки в панели структуры, где это читается верно
-     (замечание пользователя: «когда просто перетаскиваешь секцию по
-     полю, выглядит не очень»). */
-  opacity: 0.4 !important;
-  filter: saturate(0.7);
-  transform: scale(1.025) rotate(-1deg);
-  box-shadow: var(--shadow-drag);
-  background: var(--color-glass, rgba(255, 255, 255, 0.55));
-  backdrop-filter: blur(8px);
-  z-index: 1000;
-  cursor: grabbing;
+/* B-65 (0.200): перетаскивание секции = ярлык + слот. Правила старого
+   нативного DnD (.dragging с наклоном, линии .drag-over) сняты вместе
+   с ним: секция теперь сворачивается в компактный ярлык и едет за
+   курсором, а на месте остаётся слот высотой с ярлык. */
+.section-card.is-drag-slot,
+.section-card.is-drag-expanding {
+  /* height анимируется инлайном и включает паддинги карточки — иначе
+     слот вышел бы ниже ярлыка на их величину. */
+  box-sizing: border-box;
 }
-/* B-65: линия вставки показывает СТОРОНУ. Раньше она всегда рисовалась
-   снизу цели, хотя секция может встать и перед ней — по линии нельзя
-   было понять результат. Теперь как в панели структуры: над целью при
-   движении вверх, под целью при движении вниз. */
-.section-card.drag-over::after,
-.section-card.drag-over-before::after {
+.section-card.is-drag-slot {
+  /* Размер (height/width) анимируется инлайном до размеров ярлыка —
+     слот размером с ярлык, а не полоса во всю строку (спека:
+     «раздвигаются по размеру ярлыка»). */
+  pointer-events: none;
+  margin-left: 1.25rem;
+  border-radius: var(--border-radius-pill);
+  transition: margin-left 260ms cubic-bezier(.25,.8,.35,1);
+}
+/* Шероховатость (запись 09.18, 0.200): рамка и заливка слота ставились
+   в ПЕРВЫЙ же кадр — на секцию во всю ширину. На экране это огромная
+   пустая пилюля, которая потом стягивается. Теперь вид «пустого слота»
+   ПРОЯВЛЯЕТСЯ вместе со стягиванием: рамка — псевдоэлементом с opacity,
+   растущей за то же время, что и сжатие; содержимое гаснет быстро, но
+   не мгновенно. В первый кадр карточка ещё выглядит секцией. */
+.section-card.is-drag-slot::before {
   content: '';
   position: absolute;
-  left: 18px;
-  right: 18px;
-  height: 5px;
-  /* Градиент акцента «звучит сейчас». */
-  background: linear-gradient(90deg, rgba(var(--color-accent-warm-rgb), 0.35), var(--color-accent-warm));
-  border-radius: var(--border-radius-pill);
+  inset: 0;
+  border-radius: inherit;
+  background: rgba(var(--color-accent-rgb), 0.05);
+  box-shadow: inset 0 0 0 1.5px rgba(var(--color-accent-rgb), 0.32);
+  opacity: 0;
+  animation: struchord-slot-in 260ms cubic-bezier(.6,0,.8,.4) both;
+  pointer-events: none;
 }
-.section-card.drag-over::after { bottom: -10px; }
-.section-card.drag-over-before::after { top: -10px; }
+@keyframes struchord-slot-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.section-card.is-drag-slot > * {
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+.section-card.is-drag-expanding {
+  pointer-events: none;
+  margin-left: 0;
+  transition: margin-left 320ms cubic-bezier(.25,.8,.35,1);
+}
+.section-card.is-drag-expanding > * {
+  opacity: 1;
+  transition: opacity 220ms ease 80ms;
+}
+/* Ярлык под курсором — родственник строки панели структуры:
+   плашка цвета типа секции, название, бейдж повтора. */
+.section-drag-chip {
+  position: fixed;
+  z-index: 10002;
+  display: none;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  border-radius: var(--border-radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  white-space: nowrap;
+  pointer-events: none;
+  will-change: left, top, transform, opacity;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.16), 0 1px 3px rgba(0, 0, 0, 0.08);
+  background: var(--color-surface, #fff);
+  color: var(--color-text-primary);
+  cursor: grabbing;
+}
+.section-drag-chip.verse { background: var(--label-verse-bg, #e9f0fb); color: var(--label-verse-text, #1b4f8b); }
+.section-drag-chip.chorus { background: var(--label-chorus-bg, #eeedff); color: var(--label-chorus-text, #3c329b); }
+.section-drag-chip.bridge { background: var(--label-bridge-bg, #e1f5ee); color: var(--label-bridge-text, #0a5e48); }
+.section-drag-chip.intro { background: var(--label-intro-bg, #fef2de); color: var(--label-intro-text, #9b5e1a); }
+.section-drag-chip.outro { background: var(--label-outro-bg, #f7e9e0); color: var(--label-outro-text, #8a3e1e); }
+.section-drag-chip.solo { background: var(--label-solo-bg, #f7e3e9); color: var(--label-solo-text, #8b2a4a); }
+.section-drag-chip.pre-chorus { background: var(--label-prechorus-bg, #ede3f6); color: var(--label-prechorus-text, #5a3290); }
+.section-drag-chip.custom { background: var(--color-tint); }
+.section-drag-chip-repeat {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--color-accent);
+  background: rgba(var(--color-accent-rgb), 0.12);
+  border-radius: var(--border-radius-pill);
+  padding: 1px 6px;
+}
+/* Вне поля секций — бросок отменит жест; ярлык бледнеет, предупреждая. */
+.section-drag-chip.is-outside { opacity: 0.55 !important; }
+body.is-section-dragging { cursor: grabbing; user-select: none; -webkit-user-select: none; }
+body.is-section-dragging .section-header { cursor: grabbing; }
 .section-header {
   display: flex;
   align-items: center;
@@ -7119,8 +7198,15 @@ body.is-pin-dragging .transport-bar.is-drop-target .fingering-dock-frame rect {
 /* Пока тащат закреплённый ряд — он полупрозрачен, чтобы было видно,
    куда именно он ложится. */
 .pinned-row.is-dragging {
-  opacity: 0.5;
+  /* B-67 (0.199): та же прозрачность, что у тащимого тултипа (0.85) —
+     один предмет, один вес в обоих жестах. Было 0.5. */
+  opacity: 0.85;
   cursor: grabbing;
+}
+/* B-67 (0.199): гриф летит обратно в док после «передумал». Пока летит —
+   не ловит курсор, чтобы полёт не перебивался новым захватом. */
+.pinned-row.is-flying-back {
+  pointer-events: none;
 }
 /* Тултип, который сейчас тащат: следует за курсором. */
 /* B-66: тултип в полёте к доку. Тень и размывка убираются по ходу —
@@ -7303,6 +7389,46 @@ body.is-playing .add-square-btn,
 body.is-playing .clone-square-btn {
   opacity: 0 !important;
   pointer-events: none;
+}
+/* 0.204 (B-65): во время перетаскивания секции ряд «добавить /
+   клонировать квадрат» не показываем ни у слота, ни у соседей, над
+   которыми проезжает курсор: он раскрывался на 46px, менял высоту
+   карточки прямо под хит-тестом и мельтешил. Без перехода — чтобы
+   высота не «ехала» отдельно от FLIP. */
+body.is-section-dragging .square-actions-row {
+  max-height: 0 !important;
+  margin-top: 0 !important;
+  transition: none !important;
+}
+body.is-section-dragging .add-square-btn,
+body.is-section-dragging .clone-square-btn {
+  opacity: 0 !important;
+  pointer-events: none;
+  transition: none !important;
+}
+/* 0.205 (B-65, Safari): пока секцию тащат вверх, у карточек ниже слота
+   пропадали счёт «1 та и та» и засечки — на время FLIP-сдвига соседей.
+   В Chromium не воспроизводится (DOM и computed style на месте), это
+   растеризация WebKit: карточка едет через transform-анимацию, а слои
+   у нижней кромки .square-inner (overflow: hidden, элементы высотой
+   1–4px в 1px от края клипа) при дробном смещении не отрисовываются.
+   Лечим стабильными слоями: карточки заранее получают собственный
+   композитный слой на время перетаскивания, а полоски счёта/засечек —
+   свой, чтобы их не перерастеризовывали на каждом кадре. Только на
+   время жеста — постоянный will-change на всех карточках дорог. */
+body.is-section-dragging .section-card {
+  will-change: transform;
+}
+/* 0.206: запись 16.50 (Safari, уже на 0.205) — слои у мелких полосок
+   не помогли: у карточки в движении пропадал счёт ВО ВСЕХ ячейках, и в
+   верхнем ряду тоже. Это известная особенность WebKit: absolute-потомки
+   с z-index внутри клипа overflow:hidden + border-radius не рисуются,
+   пока предок едет через transform. Обход — слой и стековый контекст
+   у самого клипа (.square-inner), а не у его содержимого. */
+body.is-section-dragging .square-inner {
+  isolation: isolate;
+  transform: translateZ(0);
+  -webkit-mask-image: -webkit-radial-gradient(white, black);
 }
 
 .section-card:hover .square-actions-row {
@@ -9180,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.197</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.222</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15769,6 +15895,8 @@ function attachPinDrag() {
     if (!el) return;
     // Жест не должен драться с ещё играющей анимацией появления.
     el.classList.remove('is-appearing');
+    // ...и с обратным полётом в док (B-67, 0.199).
+    try { el.__backAnim && el.__backAnim.cancel(); } catch (err) {}
     const r = el.getBoundingClientRect();
     pinDragState = {
       source, el, bar,
@@ -15856,14 +15984,12 @@ function attachPinDrag() {
     // цели: инициализация `cur = tgt` телепортировала бы его к курсору
     // на первом же движении, и догонять было бы нечего (замер показал
     // прыжок 100 -> 550 в один кадр).
-    // Тултипу догонять — эффект по просьбе пользователя; закреплённый
-    // гриф оставляем жёстким (решение: только тултип).
-    if (st.source === 'tooltip') {
-      if (!pinFollowRaf) pinFollowRaf = requestAnimationFrame(follow);
-    } else {
-      st.curX = st.tgtX; st.curY = st.tgtY;
-      applyPinDragPosition(st);
-    }
+    // B-67 (0.199): догоняет и закреплённый гриф. Раньше (B-65) он был
+    // жёстким — пользователь после приёмки перелёта попросил: «при
+    // откреплении поведение должно быть таким же, как при перетаскивании
+    // с ячейки». Один и тот же предмет в двух жестах не должен весить
+    // по-разному.
+    if (!pinFollowRaf) pinFollowRaf = requestAnimationFrame(follow);
     // Цель — вся панель, с небольшим запасом по краям (12px), чтобы
     // сброс рядом с кромкой тоже засчитывался.
     const dr = st.bar.getBoundingClientRect();
@@ -15888,14 +16014,7 @@ function attachPinDrag() {
     const bar = st.bar;
     if (!el || !bar) { tooltipFlyingToDock = false; pinFingeringFromTooltip(); return; }
     const from = el.getBoundingClientRect();
-    const to = bar.getBoundingClientRect();
-    if (!from.width || !to.width) { tooltipFlyingToDock = false; pinFingeringFromTooltip(); return; }
-
-    // Летим в центр дока и одновременно уменьшаемся: тултип крупнее
-    // строки грифа, и без масштаба посадка выглядит как «схлопывание».
-    const dx = (to.left + to.width / 2) - (from.left + from.width / 2);
-    const dy = (to.top + to.height / 2) - (from.top + from.height / 2);
-    const scale = Math.min(1, Math.max(0.35, to.height / Math.max(1, from.height)));
+    if (!from.width) { tooltipFlyingToDock = false; pinFingeringFromTooltip(); return; }
 
     // Позицию больше не трогаем — двигает анимация. Иначе петля follow
     // и transform спорили бы за одну и ту же координату.
@@ -15911,6 +16030,27 @@ function attachPinDrag() {
     // Тултип летит поверх (z-index 10001) и гаснет к концу пути, гриф
     // под ним проявляется — движения перекрываются и читаются как одно.
     pinFingeringFromTooltip({ skipAppear: false, fadeIn: true, keepTooltip: true });
+
+    // B-67 (0.198): цель полёта — КАРТОЧКА ГРИФА, а не центр панели.
+    //
+    // Запись экрана 03.38 (0.197) + зонд dev/tools/probe-b67-fly.js:
+    // тултип летел в середину транспортной строки и ужимался до её
+    // высоты (scale 0.35, 226px -> 56px), а гриф в это же время
+    // проступал СОВСЕМ В ДРУГОМ МЕСТЕ — слева под панелью, в полный рост
+    // (227px, т.е. ровно с тултип). Глаз видел два предмета: один
+    // усыхает в панели, второй возникает ниже. Это и была остаточная
+    // «дёрганость» — не тайминги (0.193–0.197 крутили именно их).
+    //
+    // Гриф уже поставлен строкой выше, его rect известен: летим ровно
+    // туда, где он проявится, масштаб ≈1. Один предмет, одно движение.
+    // Панель — запасная цель на случай, если карточки нет (нет
+    // аппликатуры и т.п.).
+    const card = document.querySelector('#pinnedRow .pinned-fingering');
+    let to = card ? card.getBoundingClientRect() : null;
+    if (!to || !to.width) to = bar.getBoundingClientRect();
+    const dx = to.width ? (to.left + to.width / 2) - (from.left + from.width / 2) : 0;
+    const dy = to.width ? (to.top + to.height / 2) - (from.top + from.height / 2) : 0;
+    const scale = to.width ? Math.min(1.15, Math.max(0.35, to.height / Math.max(1, from.height))) : 1;
 
     let done = false;
     let anim = null;
@@ -16007,7 +16147,42 @@ function attachPinDrag() {
     } else if (!st.overDock) {
       // Вытащили закреплённый гриф из панели — открепляем.
       unpinFingering();
+    } else {
+      // B-67 (0.199): передумали и вернули в док — гриф ЛЕТИТ на своё
+      // место, как тултип с ячейки, а не телепортируется. Ряд уже
+      // возвращён в поток (инлайн снят выше), rect цели известен.
+      flyPinnedBackToDock(st);
     }
+  };
+
+  // B-67 (0.199): возврат вынесенного грифа в док — тем же полётом, что
+  // у тултипа (та же кривая и длительность): от места отпускания к
+  // штатной позиции ряда. Ряд уже стоит в потоке; на время полёта
+  // сдвигаем его transform'ом ОБРАТНО в точку сброса и отпускаем к нулю.
+  const flyPinnedBackToDock = (st) => {
+    const el = st.el;
+    if (!el || st.curX == null || !el.animate) return;
+    const home = el.getBoundingClientRect();
+    if (!home.width) return;
+    const dx = st.curX - home.left;
+    const dy = st.curY - home.top;
+    if (Math.abs(dx) + Math.abs(dy) < 1) return;
+    try { el.__backAnim && el.__backAnim.cancel(); } catch (err) {}
+    el.classList.add('is-flying-back');
+    const anim = el.animate(
+      [
+        { transform: `translate(${dx}px, ${dy}px)`, opacity: 0.85 },
+        { transform: 'translate(0, 0)', opacity: 1 },
+      ],
+      { duration: 380, easing: 'cubic-bezier(.25,.8,.35,1)' }
+    );
+    el.__backAnim = anim;
+    const done = () => {
+      el.classList.remove('is-flying-back');
+      if (el.__backAnim === anim) el.__backAnim = null;
+    };
+    anim.onfinish = done;
+    anim.oncancel = done;
   };
 
   document.addEventListener('pointerdown', (e) => {
@@ -20112,8 +20287,29 @@ function addChordAfter(sid, sqid, ei) {
     showToast('Ячейка уже минимальной длительности');
     return;
   }
-  const half = cs / 2;
-  const oh = cs - half;
+  // B-73 (0.222): точка деления — ближайший к середине узел АБСОЛЮТНОЙ
+  // сетки текущего зума (той же, по которой ходит граница при ресайзе,
+  // B-71). Пользователь 2026-09-12: «ячейка 1.25, жму +, она делится
+  // ровно пополам, между и и та» — 0.625 не лежит ни на одной сетке,
+  // граница получалась бессмысленной, а ритм второй половине не
+  // доставался. Теперь 1.25 на 100% → 1 + 0.25, на 150% → 0.5 + 0.75.
+  // Узла внутри нет (ячейка 1 на 100%) — пополам, как раньше: 0.5 + 0.5.
+  const startOff = squareEventOffsets(sq)[ei] || 0;
+  const stepZ = getResizeStep();
+  const mid = startOff + cs / 2;
+  let cut = cs / 2;
+  {
+    const eps = 1e-9;
+    const lo = Math.floor(mid / stepZ + eps) * stepZ;
+    const hi = Math.ceil(mid / stepZ - eps) * stepZ;
+    const cands = [lo, hi].filter((n) => n > startOff + eps && n < startOff + cs - eps);
+    if (cands.length) {
+      cands.sort((x, y) => Math.abs(x - mid) - Math.abs(y - mid) || x - y);
+      cut = cands[0] - startOff;
+    }
+  }
+  const half = roundSpan(cut);
+  const oh = roundSpan(cs - half);
   // Ритм ячейки РЕЖЕТСЯ вместе с ней — не байтами, а окном (волна-2):
   // обе половины получают ссылку на ТОТ ЖЕ рулон, и их окна становятся
   // ровно своими половинами ленты. Лента не переписывается: суммарный звук
@@ -27128,6 +27324,14 @@ function startModeAnimation() {
   b.classList.remove('mode-anim');
   void b.offsetWidth;
   b.classList.add('mode-anim');
+  // B-70: если панель структуры была открыта, при уходе в ленту закрываем,
+  // чтобы по возвращении она не висела раскрытой без наведения.
+  if (b.classList.contains('is-timeline')) {
+    const sm = document.getElementById('songmap');
+    const sz = document.getElementById('songmapZone');
+    if (sm) sm.classList.remove('is-open');
+    if (sz) sz.classList.remove('is-hidden');
+  }
   window.clearTimeout(modeAnimTimer);
   modeAnimTimer = window.setTimeout(() => {
     b.classList.remove('mode-anim');
@@ -28354,6 +28558,118 @@ function attachChordWheelEvents() {
     );
   });
 }
+// ========== ПЕРЕТАСКИВАНИЕ СЕКЦИЙ: ЯРЛЫК + СЛОТ (B-65, 0.200) ==========
+//
+// Спека пользователя (2026-09-10, дословно): «при начале драга секция
+// визуально аккуратно сворачивается в этот ярлык. при отпускании —
+// разворачивается в выбранном месте»; «соседи раздвигаются, открывая
+// пустой слот. Раздвигаются по размеру ярлыка. При отпускании мыши
+// плавно раздвигаются под разворачивающуюся секцию»; «у ярлыка
+// догонялка»; «анимации согласованы, приятны, ничего не ломают, без
+// лагов».
+//
+// Почему НЕ нативный HTML5 DnD (как было до 0.200): браузер рисует
+// снимок сам — ни вид ярлыка, ни запаздывание, ни момент разворота им
+// не управляются; setDragImage даёт статичную картинку без «веса».
+// Поэтому жест — на pointer-событиях, как у тултипа/грифа (B-65/B-67).
+//
+// Устройство:
+//   карточка   — остаётся в потоке и служит СЛОТОМ: её высота
+//                анимируется до высоты ярлыка (сворачивание) и обратно
+//                (разворот); содержимое гаснет/проявляется. Соседи
+//                двигаются сами — потоком, без FLIP-расчётов;
+//   ярлык      — отдельный fixed-элемент #sectionDragChip, вид строки
+//                панели структуры (плашка цвета типа + название + ×N),
+//                едет за курсором с догонялкой 18%/кадр;
+//   слот       — перемещение свёрнутой карточки по DOM (insertBefore)
+//                при пересечении середины соседа; сдвиг соседей —
+//                FLIP transform 220мс, чтобы перестановка не прыгала;
+//   бросок     — ярлык летит к слоту (380мс, кривая B-67), там карточка
+//                разворачивается до полной высоты, ярлык гаснет;
+//                модель — reorderSections в момент броска, затем
+//                requestRender ПОСЛЕ разворота (иначе render перебьёт
+//                анимацию высоты);
+//   отмена     — Esc или бросок вне поля секций: ярлык летит в исходный
+//                слот, карточка возвращается на прежнее место в DOM.
+//
+// Перф: на pointermove — только цель ярлыка, хит-тест по КЭШУ rect'ов
+// карточек (пересчитывается после каждого перемещения слота и по
+// scroll), никаких render()/innerHTML. Автоскролл у кромки окна — свой
+// (нативный DnD давал его даром, pointer-жест — нет).
+let sectionDrag = null;         // состояние текущего жеста
+let sectionDragRaf = 0;         // петля догонялки
+
+// ===== B-69: телеметрия жеста (0.217). Включается ТОЛЬКО адресом
+// ?probe=drag; в обычном режиме все вызовы — один if. На каждом кадре
+// пишет курсор, scrollY, положение слота и соседей, transform'ы FLIP и
+// перескоки; после отпускания скачивает b69-log.json. Нужна, чтобы
+// увидеть в Safari, что именно расходится: хит-тест, автоскролл или
+// геометрия карточек.
+const SECTION_DRAG_PROBE = /[?&]probe=drag\b/.test(location.search);
+let sectionDragProbe = null;
+function sectionDragProbeStart(st) {
+  if (!SECTION_DRAG_PROBE) return;
+  sectionDragProbe = { t0: performance.now(), ua: navigator.userAgent, dpr: devicePixelRatio, vh: innerHeight, frames: [], events: [] };
+  const tick = () => {
+    const pr = sectionDragProbe; const sd = sectionDrag;
+    if (!pr || !sd || !sd.active) return;
+    const bar = document.querySelector('.transport-bar');
+    const cards = [...sd.cont.querySelectorAll('.section-card')].map((c) => {
+      const r = c.getBoundingClientRect(); const tf = getComputedStyle(c).transform;
+      let dy = 0; if (tf && tf !== 'none') { try { dy = new DOMMatrixReadOnly(tf).m42; } catch (e) {} }
+      return [c.dataset.id, Math.round(r.top), Math.round(r.height), Math.round(dy), c === sd.card ? 1 : 0];
+    });
+    pr.frames.push({ t: Math.round(performance.now() - pr.t0), y: Math.round(sd.lastY || 0), chipY: Math.round(sd.curY), sy: Math.round(scrollY), auto: +(sd.autoScroll || 0).toFixed(1), dirty: sd.rectsDirty ? 1 : 0, bar: bar ? Math.round(bar.getBoundingClientRect().bottom) : null, cards });
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+}
+function sectionDragProbeEvent(kind, data) {
+  if (!sectionDragProbe) return;
+  sectionDragProbe.events.push(Object.assign({ t: Math.round(performance.now() - sectionDragProbe.t0), kind }, data));
+}
+function sectionDragProbeEnd(reason) {
+  const pr = sectionDragProbe; if (!pr) return;
+  sectionDragProbe = null;
+  pr.reason = reason;
+  try {
+    const blob = new Blob([JSON.stringify(pr)], { type: 'application/json' });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = 'b69-log.json';
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  } catch (e) { console.log('b69-log', JSON.stringify(pr)); }
+  if (typeof showToast === 'function') showToast('b69-log.json сохранён (' + pr.frames.length + ' кадров)');
+}
+const SECTION_DRAG_SMOOTH = 0.18;
+const SECTION_DRAG_FLY_MS = 380;
+const SECTION_DRAG_FLY_EASE = 'cubic-bezier(.25,.8,.35,1)';
+const SECTION_DRAG_COLLAPSE_MS = 260;
+const SECTION_DRAG_EXPAND_MS = 320;
+const SECTION_DRAG_SHIFT_MS = 220;
+
+function sectionDragChipEl() {
+  let chip = document.getElementById('sectionDragChip');
+  if (!chip) {
+    chip = document.createElement('div');
+    chip.id = 'sectionDragChip';
+    chip.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(chip);
+  }
+  return chip;
+}
+
+// Ярлык собираем из тех же данных, что строка панели структуры
+// (songmapBaseName + LABEL_MAP + повтор), чтобы они выглядели родственно.
+function fillSectionDragChip(chip, sec) {
+  const labelClass = sec.type === 'Custom' ? 'custom' : LABEL_MAP[sec.type] || 'verse';
+  const rep = Math.max(1, sec.repeat || 1);
+  chip.className = 'section-drag-chip ' + labelClass;
+  chip.innerHTML =
+    `<span class="section-drag-chip-name">${escapeHtml(songmapBaseName(sec))}</span>` +
+    (rep > 1 ? `<span class="section-drag-chip-repeat">×${rep}</span>` : '');
+}
+
 function attachDragEvents() {
   const cont = DOM.sectionsContainer;
   document.querySelectorAll('.section-card').forEach((card) => {
@@ -28363,106 +28679,401 @@ function attachDragEvents() {
     const id = parseInt(card.dataset.id);
     const header = card.querySelector('.section-header');
     if (!header) return;
-    header.setAttribute('draggable', 'true');
+    // Нативный DnD выключен: свой жест ниже.
+    header.removeAttribute('draggable');
+    header.addEventListener('dragstart', (e) => e.preventDefault(), { signal: sig });
     header.addEventListener(
-      'dragstart',
+      'pointerdown',
       (e) => {
-        if (longPressTimer) clearTimeout(longPressTimer);
-        startDrag(e, card, id);
-      },
-      { signal: sig }
-    );
-    header.addEventListener('dragend', endDrag, { signal: sig });
-    let tsX = 0,
-      tsY = 0;
-    header.addEventListener(
-      'touchstart',
-      (e) => {
-        tsX = e.touches[0].clientX;
-        tsY = e.touches[0].clientY;
-        longPressTimer = setTimeout(() => {
-          const fe = { dataTransfer: { setData: () => {}, effectAllowed: 'move' } };
-          startDrag(fe, card, id);
-          header.style.opacity = '0.4';
-        }, CONFIG.LONG_PRESS_DELAY);
-      },
-      { signal: sig, passive: true }
-    );
-    header.addEventListener(
-      'touchmove',
-      (e) => {
-        if (!longPressTimer) return;
-        if (
-          Math.abs(e.touches[0].clientX - tsX) > 8 ||
-          Math.abs(e.touches[0].clientY - tsY) > 8
-        ) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
+        if (e.button !== 0 && e.pointerType === 'mouse') return;
+        // Кнопки и поля заголовка — кликаются, а не тащатся.
+        if (e.target.closest('button, input, select, .section-label, .section-mod-badges')) return;
+        if (sectionDrag) return;
+        const pending = {
+          id, card, header, cont,
+          pointerId: e.pointerId,
+          startX: e.clientX, startY: e.clientY,
+          touch: e.pointerType === 'touch',
+          armed: e.pointerType !== 'touch',   // мышь — по порогу; тач — по long-press
+          timer: 0,
+        };
+        if (pending.touch) {
+          pending.timer = setTimeout(() => {
+            pending.armed = true;
+            pending.timer = 0;
+            beginSectionDrag(pending, pending.startX, pending.startY);
+          }, CONFIG.LONG_PRESS_DELAY);
         }
-      },
-      { signal: sig, passive: true }
-    );
-    header.addEventListener(
-      'touchend',
-      () => {
-        if (longPressTimer) {
-          clearTimeout(longPressTimer);
-          longPressTimer = null;
-        }
-        header.style.opacity = '';
-      },
-      { signal: sig }
-    );
-    card.addEventListener(
-      'dragover',
-      (e) => {
-        e.preventDefault();
-        if (draggedItemId === id) return;
-        document.querySelectorAll('.section-card').forEach((c) => {
-          c.classList.remove('drag-over', 'drag-over-before');
-        });
-        // B-65: сторону выбираем по положению курсора внутри карточки —
-        // выше середины значит «встанет перед», ниже «встанет после».
-        // Совпадает с тем, что делает reorderSections, и с поведением
-        // панели структуры.
-        const box = card.getBoundingClientRect();
-        const after = e.clientY > box.top + box.height / 2;
-        card.classList.add(after ? 'drag-over' : 'drag-over-before');
-      },
-      { signal: sig }
-    );
-    card.addEventListener(
-      'dragleave',
-      () => card.classList.remove('drag-over', 'drag-over-before'),
-      { signal: sig }
-    );
-    card.addEventListener(
-      'drop',
-      (e) => {
-        e.preventDefault();
-        card.classList.remove('drag-over', 'drag-over-before');
-        if (draggedItemId !== null && draggedItemId !== id) {
-          const dEl = document.querySelector(`.section-card[data-id="${draggedItemId}"]`);
-          const tEl = card;
-          // Направление перетаскивания решает, куда именно вставлять:
-          // при движении вниз секция должна встать ПОСЛЕ цели (иначе
-          // при соседнем шаге вниз insertBefore(dEl, tEl) не даст видимых
-          // изменений — dEl и так уже стоит перед tEl), при движении
-          // вверх — ПЕРЕД целью, как и раньше.
-          const di = sections.findIndex((s) => s.id === draggedItemId);
-          const ti = sections.findIndex((s) => s.id === id);
-          const movingDown = di !== -1 && ti !== -1 && di < ti;
-          animateReorder(() => {
-            if (dEl && tEl) cont.insertBefore(dEl, movingDown ? tEl.nextSibling : tEl);
-            reorderSections(draggedItemId, id);
-          });
-          showToast('Секция перемещена');
-        }
-        endDrag();
+        sectionDrag = { pending };
+        try { header.setPointerCapture(e.pointerId); } catch (err) {}
       },
       { signal: sig }
     );
   });
+  if (!window.__sectionDragDocReady) {
+    window.__sectionDragDocReady = true;
+    document.addEventListener('pointermove', onSectionDragMove, { passive: false });
+    document.addEventListener('pointerup', onSectionDragUp);
+    document.addEventListener('pointercancel', onSectionDragCancelEvt);
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' && sectionDrag && sectionDrag.active) cancelSectionDrag();
+    });
+    window.addEventListener('scroll', () => { if (sectionDrag && sectionDrag.active) sectionDrag.rectsDirty = true; }, { passive: true });
+  }
+}
+
+function beginSectionDrag(p, x, y) {
+  const { card, cont } = p;
+  const sec = sections.find((s) => s.id === p.id);
+  if (!sec) { sectionDrag = null; return; }
+  const chip = sectionDragChipEl();
+  fillSectionDragChip(chip, sec);
+  chip.style.display = 'flex';
+  chip.style.transition = 'none';
+  const chipH = chip.offsetHeight || 32;
+  const chipW = chip.offsetWidth || 160;
+  // Ярлык появляется на месте ЗАГОЛОВКА карточки: там, где взялись.
+  const hr = p.header.getBoundingClientRect();
+  const cr = card.getBoundingClientRect();
+  const startLeft = hr.left;
+  const startTop = hr.top + (hr.height - chipH) / 2;
+  const st = {
+    active: true,
+    id: p.id, card, cont, sec,
+    pointerId: p.pointerId,
+    chip, chipH, chipW,
+    // смещение курсора внутри ярлыка — чтобы он не прыгал под палец
+    dx: Math.max(12, Math.min(chipW - 12, x - startLeft)),
+    dy: chipH / 2,
+    curX: startLeft, curY: startTop,
+    tgtX: startLeft, tgtY: startTop,
+    fullH: cr.height,
+    origNext: card.nextElementSibling,   // для отмены
+    origIndex: sections.indexOf(sec),
+    rects: null, rectsDirty: true,
+    autoScroll: 0, autoRaf: 0,
+    lastX: x, lastY: y,
+  };
+  sectionDrag = st;
+  isDragging = true;   // тултипы аппликатур по mouseover молчат на время жеста
+  document.body.classList.add('is-section-dragging');
+  cont.classList.add('drag-active');
+  // Ярлык стартует чуть «из-под» заголовка — проявляется и подрастает.
+  chip.style.left = startLeft + 'px';
+  chip.style.top = startTop + 'px';
+  chip.style.opacity = '0';
+  chip.style.transform = 'scale(0.92)';
+  void chip.offsetWidth;
+  chip.style.transition = `opacity 180ms ease, transform 220ms ${SECTION_DRAG_FLY_EASE}`;
+  chip.style.opacity = '1';
+  chip.style.transform = 'scale(1)';
+  // Карточка сворачивается до высоты ярлыка: height анимируется у ОДНОЙ
+  // карточки, соседи подтягиваются потоком. Высота фиксируется числом
+  // (auto не анимируется), содержимое гаснет и перестаёт ловить курсор.
+  card.classList.add('is-drag-slot');       // border-box + вид слота
+  card.style.height = cr.height + 'px';      // rect уже с паддингами
+  card.style.width = cr.width + 'px';
+  card.style.overflow = 'hidden';
+  void card.offsetHeight;
+  card.style.transition = `height ${SECTION_DRAG_COLLAPSE_MS}ms ${SECTION_DRAG_FLY_EASE}, width ${SECTION_DRAG_COLLAPSE_MS}ms ${SECTION_DRAG_FLY_EASE}`;
+  card.style.height = chipH + 'px';
+  card.style.width = chipW + 'px';
+  st.fullW = cr.width;
+  st.collapseTimer = setTimeout(() => {
+    st.collapseTimer = 0;
+    st.rectsDirty = true;
+  }, SECTION_DRAG_COLLAPSE_MS + 20);
+  if (!sectionDragRaf) sectionDragRaf = requestAnimationFrame(sectionDragFollow);
+  sectionDragProbeStart(st);
+}
+
+function sectionDragFollow() {
+  const st = sectionDrag;
+  if (!st || !st.active) { sectionDragRaf = 0; return; }
+  st.curX += (st.tgtX - st.curX) * SECTION_DRAG_SMOOTH;
+  st.curY += (st.tgtY - st.curY) * SECTION_DRAG_SMOOTH;
+  const rest = Math.abs(st.tgtX - st.curX) + Math.abs(st.tgtY - st.curY);
+  if (rest < 0.5) { st.curX = st.tgtX; st.curY = st.tgtY; }
+  st.chip.style.left = st.curX + 'px';
+  st.chip.style.top = st.curY + 'px';
+  sectionDragRaf = requestAnimationFrame(sectionDragFollow);
+}
+
+function sectionDragRefreshRects(st) {
+  st.rects = [...st.cont.querySelectorAll('.section-card')].map((el) => {
+    const r = el.getBoundingClientRect();
+    // 0.203: rect берём В РАСКЛАДКЕ, без текущего FLIP-смещения: пока
+    // сосед ещё едет к новому месту, getBoundingClientRect отдаёт его
+    // промежуточную точку, и середина «плавает» — при быстром обратном
+    // махе перескок срабатывал раньше, чем сосед доехал.
+    let dy = 0;
+    const tf = getComputedStyle(el).transform;
+    if (tf && tf !== 'none') { try { dy = new DOMMatrixReadOnly(tf).m42; } catch (err) {} }
+    const top = r.top - dy;
+    return { el, top, bottom: top + r.height, mid: top + r.height / 2 };
+  });
+  st.rectsDirty = false;
+}
+
+// Слот перепрыгивает через соседа, когда курсор пересёк его середину.
+// Соседи, сдвинувшиеся из-за перестановки, едут FLIP-transform'ом.
+function sectionDragUpdateSlot(st, y) {
+  if (st.rectsDirty || !st.rects) sectionDragRefreshRects(st);
+  const slot = st.card;
+  // B-69 (0.218): точка хит-теста не поднимается выше низа панели + полслота
+  // (слот должен целиком помещаться под панелью). Лог Safari: курсор 332,
+  // низ панели 268, слот вставал на 288 — выше, чем курсор может быть.
+  const topEdge = sectionDragTopEdge();
+  if (topEdge) y = Math.max(y, topEdge + (st.chipH || 30) / 2 + 4);
+  // 0.202: ДРЕБЕЗГ. Запись 09.18: при неподвижном курсоре соседняя секция
+  // прыгала вверх-вниз каждые 2–3 кадра. Причина логическая: критерий
+  // «курсор выше середины соседа» проверялся по rect'ам, снятым ПОСЛЕ
+  // перестановки — а после неё сосед сместился на высоту слота, и та же
+  // точка y снова читалась как «перескочить обратно». Пока слот выше
+  // соседа, сосед стоит ниже; переставили — сосед поднялся, курсор
+  // оказался под его серединой → назад. И так по кругу.
+  //
+  // Лекарство — гистерезис: перескакиваем сосед только если курсор
+  // ушёл за его середину С ЗАПАСОМ в половину высоты слота (ровно та
+  // величина, на которую сосед сдвинется после перестановки). Тогда
+  // после перестановки та же точка y уже не удовлетворяет обратному
+  // условию.
+  const slotH = slot.getBoundingClientRect().height || st.chipH;
+  const guard = slotH / 2 + 2;
+  let target = null, before = false;
+  for (const r of st.rects) {
+    if (r.el === slot) continue;
+    if (y < r.mid - guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING)) {
+      // сосед выше слота, курсор заметно над его серединой → слот встаёт ПЕРЕД ним
+      target = r.el; before = true; break;
+    }
+  }
+  if (!target) {
+    for (let i = st.rects.length - 1; i >= 0; i--) {
+      const r = st.rects[i];
+      if (r.el === slot) continue;
+      if (y > r.mid + guard && (r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING)) {
+        // сосед ниже слота, курсор заметно под его серединой → слот встаёт ПОСЛЕ него
+        target = r.el; before = false; break;
+      }
+    }
+  }
+  if (!target) return;
+  // 0.203: слот тоже едет FLIP'ом. Раньше двигались только соседи (на
+  // высоту слота, ~29px), а сам слот при перескоке высокого соседа
+  // ТЕЛЕПОРТИРОВАЛСЯ на его высоту (200+px). При быстрых махах
+  // вверх-вниз единственный резко прыгающий объект на экране — кольцо
+  // слота; это и читалось как «дёргание», хотя дребезга перестановок
+  // (0.202) уже не было. Замер: 24 перестановки за 6 махов — ровно по
+  // числу пересечений.
+  const movers = st.rects.map((r) => ({ el: r.el, top: r.el.getBoundingClientRect().top }));
+  if (SECTION_DRAG_PROBE) sectionDragProbeEvent('swap', { y: Math.round(y), target: target.dataset.id, before, sy: Math.round(scrollY),
+    rects: st.rects.map((r) => r.el.dataset.id + ':' + Math.round(r.top) + '..' + Math.round(r.bottom)).join(' ') });
+  if (before) st.cont.insertBefore(slot, target);
+  else st.cont.insertBefore(slot, target.nextSibling);
+  // B-69 (0.218): слот встал под панель — подтягиваем страницу, чтобы он
+  // был виден целиком под ярлыком (только вне автоскролла, иначе спорят).
+  if (topEdge && !st.autoScroll) {
+    const sr = slot.getBoundingClientRect();
+    const need = (topEdge + 8) - sr.top;
+    if (need > 0.5) { window.scrollBy(0, -need); st.rectsDirty = true; }
+  }
+  // FLIP: с прежней позиции к новой. Уже идущую анимацию соседа
+  // ДОГОНЯЕМ, а не перезапускаем с нуля: берём его текущее визуальное
+  // смещение из активной анимации (иначе при быстрых перестановках
+  // сосед дёргается назад в стартовую точку).
+  movers.forEach((m) => {
+    // m.top — ВИЗУАЛЬНЫЙ старт (с текущим FLIP-смещением), now — новая
+    // раскладка без него: снимаем идущую анимацию и продолжаем с места.
+    const running = m.el.getAnimations ? m.el.getAnimations().find((a) => a.__sectionShift) : null;
+    if (running) running.cancel();
+    const now = m.el.getBoundingClientRect().top;
+    const d = m.top - now;
+    if (Math.abs(d) < 0.5) return;
+    const anim = m.el.animate(
+      [{ transform: `translateY(${d}px)` }, { transform: 'translateY(0)' }],
+      { duration: SECTION_DRAG_SHIFT_MS, easing: 'cubic-bezier(.22,1,.36,1)' }
+    );
+    anim.__sectionShift = true;
+  });
+  st.rectsDirty = true;
+}
+
+// B-69 (0.218, по логу b69-log.json из Safari): верх рабочей зоны —
+// ФАКТИЧЕСКИЙ низ транспортной панели в любом её состоянии. Пока страница
+// доезжает до верха, панель отлипает и её низ уходит с 64 до ~268px; всё,
+// что выше, курсором не достать. 0.208 считала панель только прилипшей
+// (top <= 12) и в момент проблемы не срабатывала.
+function sectionDragTopEdge() {
+  const bar = document.querySelector('.transport-bar');
+  if (!bar) return 0;
+  const r = bar.getBoundingClientRect();
+  return r.height > 0 && r.bottom > 0 ? r.bottom : 0;
+}
+function sectionDragAutoScroll(st) {
+  const EDGE = 56, MAX = 18;
+  const vh = window.innerHeight;
+  const topEdge = sectionDragTopEdge();
+  let v = 0;
+  if (st.lastY < topEdge + EDGE) v = -MAX * (1 - Math.max(0, st.lastY - topEdge) / EDGE);
+  else if (st.lastY > vh - EDGE) v = MAX * (1 - (vh - st.lastY) / EDGE);
+  // Safari округляет дробный scrollBy вверх (лог: запрошено −743, получено
+  // −891) — шаг целый, чтобы скорость была той, что задумана.
+  v = v < 0 ? Math.ceil(v) : Math.floor(v);
+  if (v === 0 && st.lastY < topEdge + EDGE && st.lastY > topEdge) v = -1;
+  st.autoScroll = v;
+  if (v && !st.autoRaf) {
+    const step = () => {
+      const s = sectionDrag;
+      if (!s || !s.active || !s.autoScroll) { if (s) s.autoRaf = 0; return; }
+      const syBefore = scrollY;
+      window.scrollBy(0, s.autoScroll);
+      if (SECTION_DRAG_PROBE) sectionDragProbeEvent('scroll', { req: +s.autoScroll.toFixed(1), got: +(scrollY - syBefore).toFixed(2), sy: Math.round(scrollY) });
+      s.rectsDirty = true;
+      sectionDragUpdateSlot(s, s.lastY);
+      s.autoRaf = requestAnimationFrame(step);
+    };
+    st.autoRaf = requestAnimationFrame(step);
+  }
+}
+
+function onSectionDragMove(e) {
+  const sd = sectionDrag;
+  if (!sd) return;
+  if (sd.pending) {
+    const p = sd.pending;
+    const dist = Math.hypot(e.clientX - p.startX, e.clientY - p.startY);
+    if (p.touch) {
+      // палец ушёл до long-press — это прокрутка, не жест
+      if (!p.armed && dist > 8) { clearTimeout(p.timer); sectionDrag = null; }
+      return;
+    }
+    if (dist < 5) return;
+    beginSectionDrag(p, e.clientX, e.clientY);
+    return;
+  }
+  if (!sd.active || sd.landing) return;
+  if (e.cancelable) e.preventDefault();
+  sd.lastX = e.clientX; sd.lastY = e.clientY;
+  sd.tgtX = e.clientX - sd.dx;
+  sd.tgtY = e.clientY - sd.dy;
+  if (!sectionDragRaf) sectionDragRaf = requestAnimationFrame(sectionDragFollow);
+  sectionDragUpdateSlot(sd, e.clientY);
+  sectionDragAutoScroll(sd);
+  const cr = sd.cont.getBoundingClientRect();
+  // Поле без размеров (ещё не разложено) — «вне поля» не считаем.
+  sd.outside = cr.width > 0 && cr.height > 0 && (
+    e.clientX < cr.left - 80 || e.clientX > cr.right + 80 ||
+    e.clientY < cr.top - 120 || e.clientY > cr.bottom + 120);
+  sd.chip.classList.toggle('is-outside', !!sd.outside);
+}
+
+function onSectionDragUp(e) {
+  const sd = sectionDrag;
+  if (!sd) return;
+  if (sd.pending) {
+    clearTimeout(sd.pending.timer);
+    sectionDrag = null;      // клик, не жест
+    return;
+  }
+  if (!sd.active || sd.landing) return;
+  if (sd.outside) { cancelSectionDrag(); return; }
+  finishSectionDrag(sd, /*commit*/ true);
+}
+function onSectionDragCancelEvt() {
+  const sd = sectionDrag;
+  if (!sd) return;
+  if (sd.pending) { clearTimeout(sd.pending.timer); sectionDrag = null; return; }
+  if (sd.active && !sd.landing) cancelSectionDrag();
+}
+function cancelSectionDrag() {
+  const sd = sectionDrag;
+  if (!sd || !sd.active || sd.landing) return;
+  // Возвращаем слот на исходное место в DOM (соседи — FLIP).
+  const movers = [...sd.cont.querySelectorAll('.section-card')].filter((el) => el !== sd.card)
+    .map((el) => ({ el, top: el.getBoundingClientRect().top }));
+  sd.cont.insertBefore(sd.card, sd.origNext && sd.origNext.parentNode === sd.cont ? sd.origNext : null);
+  movers.forEach((m) => {
+    const d = m.top - m.el.getBoundingClientRect().top;
+    if (Math.abs(d) < 0.5) return;
+    m.el.animate([{ transform: `translateY(${d}px)` }, { transform: 'translateY(0)' }],
+      { duration: SECTION_DRAG_SHIFT_MS, easing: 'cubic-bezier(.22,1,.36,1)' });
+  });
+  finishSectionDrag(sd, /*commit*/ false);
+}
+
+// Посадка: ярлык летит к слоту, карточка разворачивается под ним,
+// соседи раздвигаются потоком (height-переход одной карточки).
+function finishSectionDrag(sd, commit) {
+  sectionDragProbeEnd(commit ? 'drop' : 'cancel');
+  sd.landing = true;
+  sd.autoScroll = 0;
+  if (sectionDragRaf) { cancelAnimationFrame(sectionDragRaf); sectionDragRaf = 0; }
+  if (sd.collapseTimer) { clearTimeout(sd.collapseTimer); sd.collapseTimer = 0; }
+  document.body.classList.remove('is-section-dragging');
+  sd.chip.classList.remove('is-outside');
+  const card = sd.card, chip = sd.chip;
+  // Модель — сразу: порядок секций = порядок карточек в DOM.
+  if (commit) {
+    const order = [...sd.cont.querySelectorAll('.section-card')].map((el) => parseInt(el.dataset.id));
+    const byId = new Map(sections.map((s) => [s.id, s]));
+    const next = order.map((id) => byId.get(id)).filter(Boolean);
+    const changed = next.some((s, i) => s !== sections[i]);
+    if (changed && next.length === sections.length) {
+      sections.splice(0, sections.length, ...next);
+      if (typeof window.scheduleHistorySnapshot === 'function') window.scheduleHistorySnapshot();
+    }
+    sd.changed = changed;
+  }
+  // Куда лететь: заголовок слота (где ярлык «сядет» в карточку).
+  const slotR = card.getBoundingClientRect();
+  const toLeft = slotR.left;
+  const toTop = slotR.top;
+  const dx = toLeft - sd.curX, dy = toTop - sd.curY;
+  chip.style.transition = 'none';
+  let flyAnim = null;
+  if (chip.animate) {
+    flyAnim = chip.animate(
+      [
+        { transform: 'translate(0,0) scale(1)', opacity: 1, offset: 0 },
+        { transform: `translate(${dx * 0.8}px, ${dy * 0.8}px) scale(1)`, opacity: 1, offset: 0.55 },
+        { transform: `translate(${dx}px, ${dy}px) scale(0.98)`, opacity: 0, offset: 1 },
+      ],
+      { duration: SECTION_DRAG_FLY_MS, easing: SECTION_DRAG_FLY_EASE, fill: 'forwards' }
+    );
+  }
+  // Разворот карточки стартует, когда ярлык на подлёте (55% пути): под
+  // гаснущим ярлыком уже растёт секция — движения перекрываются.
+  const expandDelay = Math.round(SECTION_DRAG_FLY_MS * 0.55);
+  setTimeout(() => {
+    card.style.transition = `height ${SECTION_DRAG_EXPAND_MS}ms ${SECTION_DRAG_FLY_EASE}, width ${SECTION_DRAG_EXPAND_MS}ms ${SECTION_DRAG_FLY_EASE}`;
+    card.style.height = sd.fullH + 'px';
+    card.style.width = sd.fullW + 'px';
+    card.classList.remove('is-drag-slot');
+    card.classList.add('is-drag-expanding');
+  }, expandDelay);
+  const done = () => {
+    if (sd.done) return;
+    sd.done = true;
+    try { flyAnim && flyAnim.cancel(); } catch (err) {}
+    chip.style.display = 'none';
+    chip.style.transform = '';
+    chip.style.opacity = '';
+    card.classList.remove('is-drag-slot', 'is-drag-expanding');
+    card.style.height = '';
+    card.style.width = '';
+    card.style.overflow = '';
+    card.style.transition = '';
+    sd.cont.classList.remove('drag-active');
+    isDragging = false;   // тултипы аппликатур снова можно
+    sectionDrag = null;
+    if (commit && sd.changed) {
+      requestRender();
+      if (typeof renderSongMap === 'function') renderSongMap();
+      showToast('Секция перемещена');
+    }
+  };
+  setTimeout(done, expandDelay + SECTION_DRAG_EXPAND_MS + 40);
 }
 function escapeHtml(s) {
   if (!s) return '';
@@ -29374,6 +29985,9 @@ function songmapBaseName(sec) {
 function renderSongMap() {
   const list = document.getElementById('songmapList');
   if (!list) return;
+  // B-68: во время жеста список пересобирать нельзя (пропадут слот и
+  // захват) — откладываем до конца жеста.
+  if (songmapDrag && songmapDrag.active) { songmapDrag.renderPending = true; return; }
   list.innerHTML = '';
   if (!sections.length) {
     const empty = document.createElement('div');
@@ -29409,7 +30023,6 @@ function renderSongMap() {
     item.type = 'button';
     item.className = 'songmap-item ' + labelClass;
     item.dataset.id = sec.id;
-    item.draggable = true;
     if (sec.id === songmapSelectedId) item.classList.add('is-selected');
     if (idx === playbackState.currentSectionIndex) item.classList.add('is-current');
 
@@ -29484,6 +30097,266 @@ function songmapJumpTo(id) {
   }
 }
 
+// ===== B-68 (0.215): перетаскивание строк панели структуры =====
+let songmapDrag = null;
+let songmapDragRaf = 0;
+
+// Порядок секций по списку id — одной операцией, без пары «источник/цель».
+function applySectionOrder(ids) {
+  const byId = new Map(sections.map((sec) => [sec.id, sec]));
+  const next = [];
+  ids.forEach((id) => { const sec = byId.get(id); if (sec) { next.push(sec); byId.delete(id); } });
+  byId.forEach((sec) => next.push(sec)); // на всякий случай — не потерять никого
+  sections.splice(0, sections.length, ...next);
+}
+
+function songmapRowRects(list) {
+  return [...list.querySelectorAll('.songmap-item')].map((el) => {
+    const r = el.getBoundingClientRect();
+    let dy = 0;
+    const tf = getComputedStyle(el).transform;
+    if (tf && tf !== 'none') { try { dy = new DOMMatrixReadOnly(tf).m42; } catch (err) {} }
+    const top = r.top - dy;
+    return { el, top, mid: top + r.height / 2, h: r.height };
+  });
+}
+
+function songmapDragFlip(list, prevTops) {
+  list.querySelectorAll('.songmap-item').forEach((el) => {
+    const before = prevTops.get(el);
+    if (before == null) return;
+    const running = el.getAnimations ? el.getAnimations().find((a) => a.__songmapShift) : null;
+    if (running) running.cancel();
+    const d = before - el.getBoundingClientRect().top;
+    if (Math.abs(d) < 0.5) return;
+    const anim = el.animate(
+      [{ transform: `translateY(${d}px)` }, { transform: 'translateY(0)' }],
+      { duration: SECTION_DRAG_SHIFT_MS, easing: 'cubic-bezier(.22,1,.36,1)' }
+    );
+    anim.__songmapShift = true;
+  });
+}
+
+function songmapDragUpdateSlot(st, y) {
+  const rects = songmapRowRects(st.list);
+  const slot = st.slot;
+  let target = null, before = false;
+  for (const r of rects) {
+    if (r.el === slot) continue;
+    const slotFollows = !!(r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_FOLLOWING);
+    if (slotFollows && y < r.mid) { target = r.el; before = true; break; }
+  }
+  if (!target) {
+    for (let i = rects.length - 1; i >= 0; i--) {
+      const r = rects[i];
+      if (r.el === slot) continue;
+      const slotPrecedes = !!(r.el.compareDocumentPosition(slot) & Node.DOCUMENT_POSITION_PRECEDING);
+      if (slotPrecedes && y > r.mid) { target = r.el; before = false; break; }
+    }
+  }
+  if (!target) return;
+  const prevTops = new Map();
+  st.list.querySelectorAll('.songmap-item').forEach((el) => prevTops.set(el, el.getBoundingClientRect().top));
+  if (before) st.list.insertBefore(slot, target);
+  else st.list.insertBefore(slot, target.nextSibling);
+  songmapDragFlip(st.list, prevTops);
+}
+
+function songmapDragFollow() {
+  const st = songmapDrag;
+  if (!st || !st.active || st.landing) { songmapDragRaf = 0; return; }
+  st.curX += (st.tgtX - st.curX) * SECTION_DRAG_SMOOTH;
+  st.curY += (st.tgtY - st.curY) * SECTION_DRAG_SMOOTH;
+  if (Math.abs(st.tgtX - st.curX) + Math.abs(st.tgtY - st.curY) < 0.5) { st.curX = st.tgtX; st.curY = st.tgtY; }
+  st.chip.style.left = st.curX + 'px';
+  st.chip.style.top = st.curY + 'px';
+  songmapDragRaf = requestAnimationFrame(songmapDragFollow);
+}
+
+function songmapDragAutoScroll(st) {
+  const EDGE = 56, MAX = 18;
+  const lr = st.list.getBoundingClientRect();
+  let v = 0;
+  if (st.lastY < lr.top + EDGE) v = -MAX * (1 - Math.max(0, st.lastY - lr.top) / EDGE);
+  else if (st.lastY > lr.bottom - EDGE) v = MAX * (1 - Math.max(0, lr.bottom - st.lastY) / EDGE);
+  st.autoScroll = v;
+  if (v && !st.autoRaf) {
+    const step = () => {
+      const cur = songmapDrag;
+      if (!cur || !cur.active || cur.landing || !cur.autoScroll) { if (cur) cur.autoRaf = 0; return; }
+      const beforeTop = cur.list.scrollTop;
+      cur.list.scrollTop = beforeTop + cur.autoScroll;
+      if (cur.list.scrollTop !== beforeTop) songmapDragUpdateSlot(cur, cur.lastY);
+      cur.autoRaf = requestAnimationFrame(step);
+    };
+    st.autoRaf = requestAnimationFrame(step);
+  }
+}
+
+function beginSongmapDrag(p, x, y) {
+  const { item, list, panel } = p;
+  const sec = sections.find((sx) => sx.id === p.id);
+  if (!sec || !item.isConnected) { songmapDrag = null; return; }
+  const chip = sectionDragChipEl();
+  fillSectionDragChip(chip, sec);
+  chip.style.display = 'flex';
+  chip.style.transition = 'none';
+  chip.style.transform = '';
+  chip.style.opacity = '';
+  const chipH = chip.offsetHeight || 32;
+  const chipW = chip.offsetWidth || 160;
+  const ir = item.getBoundingClientRect();
+  const startLeft = ir.left;
+  const startTop = ir.top + (ir.height - chipH) / 2;
+  const st = {
+    active: true, id: p.id, item, list, panel, chip, chipH, chipW,
+    pointerId: p.pointerId,
+    slot: item,
+    dx: Math.max(12, Math.min(chipW - 12, x - startLeft)), dy: chipH / 2,
+    curX: startLeft, curY: startTop, tgtX: startLeft, tgtY: startTop,
+    lastX: x, lastY: y, outside: false, landing: false, renderPending: false,
+    autoScroll: 0, autoRaf: 0,
+    orderBefore: [...list.querySelectorAll('.songmap-item')].map((el) => Number(el.dataset.id)),
+  };
+  songmapDrag = st;
+  songmapSelect(p.id);
+  item.classList.add('is-drag-slot');
+  item.style.height = ir.height + 'px';
+  list.classList.add('is-dragging-row');
+  document.body.classList.add('is-songmap-dragging');
+  if (panel._songmapHoldOpen) panel._songmapHoldOpen();
+  if (!songmapDragRaf) songmapDragRaf = requestAnimationFrame(songmapDragFollow);
+}
+
+function songmapDragLand(st, commit) {
+  st.landing = true;
+  st.autoScroll = 0;
+  const slot = st.slot;
+  const chip = st.chip;
+  const finish = () => {
+    chip.style.display = 'none';
+    chip.style.transition = 'none';
+    chip.style.transform = '';
+    chip.style.opacity = '';
+    slot.classList.remove('is-drag-slot');
+    slot.style.height = '';
+    st.list.classList.remove('is-dragging-row');
+    document.body.classList.remove('is-songmap-dragging');
+    const ids = [...st.list.querySelectorAll('.songmap-item')].map((el) => Number(el.dataset.id));
+    const changed = commit && ids.join(',') !== st.orderBefore.join(',');
+    songmapDrag = null;
+    if (changed) {
+      animateReorder(() => { applySectionOrder(ids); });
+      requestRender();
+      renderSongMap();
+      songmapSelect(st.id);
+      // 0.216: прокрутка к секции — ПОСЛЕ перерисовки поля. requestRender
+      // откладывает render() на кадр, и немедленный songmapJumpTo мерил
+      // карточку на СТАРОМ месте — экран вставал не на перемещённую.
+      const jumpId = st.id;
+      requestAnimationFrame(() => requestAnimationFrame(() => songmapJumpTo(jumpId)));
+      showToast('Секция перемещена');
+    } else {
+      if (!commit) {
+        // отмена: вернуть строки в исходный порядок с FLIP
+        const prevTops = new Map();
+        st.list.querySelectorAll('.songmap-item').forEach((el) => prevTops.set(el, el.getBoundingClientRect().top));
+        const byId = new Map([...st.list.querySelectorAll('.songmap-item')].map((el) => [Number(el.dataset.id), el]));
+        st.orderBefore.forEach((id) => { const el = byId.get(id); if (el) st.list.appendChild(el); });
+        songmapDragFlip(st.list, prevTops);
+      }
+      if (st.renderPending) renderSongMap();
+    }
+  };
+  if (!commit) {
+    // отмена: ярлык летит обратно в слот, порядок восстанавливается после
+    const prevTops = new Map();
+    st.list.querySelectorAll('.songmap-item').forEach((el) => prevTops.set(el, el.getBoundingClientRect().top));
+    const byId = new Map([...st.list.querySelectorAll('.songmap-item')].map((el) => [Number(el.dataset.id), el]));
+    st.orderBefore.forEach((id) => { const el = byId.get(id); if (el) st.list.appendChild(el); });
+    songmapDragFlip(st.list, prevTops);
+  }
+  const sr = slot.getBoundingClientRect();
+  const toX = sr.left, toY = sr.top + (sr.height - st.chipH) / 2;
+  const dur = 240;
+  chip.style.transition = `left ${dur}ms ${SECTION_DRAG_FLY_EASE}, top ${dur}ms ${SECTION_DRAG_FLY_EASE}, opacity ${dur}ms ease`;
+  void chip.offsetWidth;
+  chip.style.left = toX + 'px';
+  chip.style.top = toY + 'px';
+  chip.style.opacity = '0';
+  slot.classList.add('is-drag-landing');
+  let done = false;
+  const onEnd = () => { if (done) return; done = true; slot.classList.remove('is-drag-landing'); finish(); };
+  chip.addEventListener('transitionend', onEnd, { once: true });
+  setTimeout(onEnd, dur + 60);
+}
+
+function initSongmapDrag(panel, list) {
+  list.addEventListener('pointerdown', (e) => {
+    if (e.button !== 0 && e.pointerType === 'mouse') return;
+    const item = e.target.closest('.songmap-item');
+    if (!item || songmapDrag) return;
+    const pending = {
+      id: Number(item.dataset.id), item, list, panel,
+      pointerId: e.pointerId, startX: e.clientX, startY: e.clientY,
+      touch: e.pointerType === 'touch', armed: e.pointerType !== 'touch', timer: 0,
+    };
+    if (pending.touch) {
+      pending.timer = setTimeout(() => {
+        pending.armed = true; pending.timer = 0;
+        item.style.touchAction = 'none';
+        beginSongmapDrag(pending, pending.startX, pending.startY);
+      }, CONFIG.LONG_PRESS_DELAY);
+    }
+    songmapDrag = { pending };
+    try { item.setPointerCapture(e.pointerId); } catch (err) {}
+  });
+  // клик после жеста не должен срабатывать как «прыжок»
+  list.addEventListener('click', (e) => {
+    if (list._songmapSuppressClick) { list._songmapSuppressClick = false; e.stopImmediatePropagation(); e.preventDefault(); }
+  }, true);
+
+  if (window.__songmapDragDocReady) return;
+  window.__songmapDragDocReady = true;
+  document.addEventListener('pointermove', (e) => {
+    const sd = songmapDrag;
+    if (!sd) return;
+    if (sd.pending) {
+      const p = sd.pending;
+      const dist = Math.hypot(e.clientX - p.startX, e.clientY - p.startY);
+      if (p.touch) { if (!p.armed && dist > 8) { clearTimeout(p.timer); songmapDrag = null; } return; }
+      if (dist < 5) return;
+      beginSongmapDrag(p, e.clientX, e.clientY);
+      return;
+    }
+    if (!sd.active || sd.landing) return;
+    if (e.cancelable) e.preventDefault();
+    sd.lastX = e.clientX; sd.lastY = e.clientY;
+    sd.tgtX = e.clientX - sd.dx; sd.tgtY = e.clientY - sd.dy;
+    if (!songmapDragRaf) songmapDragRaf = requestAnimationFrame(songmapDragFollow);
+    songmapDragUpdateSlot(sd, e.clientY);
+    songmapDragAutoScroll(sd);
+    const pr = sd.panel.getBoundingClientRect();
+    sd.outside = e.clientX < pr.left - 40 || e.clientX > pr.right + 40 || e.clientY < pr.top - 40 || e.clientY > pr.bottom + 40;
+    sd.chip.classList.toggle('is-outside', !!sd.outside);
+  }, { passive: false });
+  const up = (cancelled) => {
+    const sd = songmapDrag;
+    if (!sd) return;
+    if (sd.pending) { clearTimeout(sd.pending.timer); songmapDrag = null; return; }
+    if (!sd.active || sd.landing) return;
+    sd.list._songmapSuppressClick = true;
+    setTimeout(() => { sd.list._songmapSuppressClick = false; }, 0);
+    sd.item.style.touchAction = '';
+    songmapDragLand(sd, !cancelled && !sd.outside);
+  };
+  document.addEventListener('pointerup', () => up(false));
+  document.addEventListener('pointercancel', () => up(true));
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && songmapDrag && songmapDrag.active && !songmapDrag.landing) up(true);
+  });
+}
+
 function initSongMap() {
   const zone = document.getElementById('songmapZone');
   const panel = document.getElementById('songmap');
@@ -29520,48 +30393,13 @@ function initSongMap() {
     songmapJumpTo(item.dataset.id);
   });
 
-  // --- Перетаскивание: смена порядка ---
-  let dragId = null;
-  list.addEventListener('dragstart', (e) => {
-    const item = e.target.closest('.songmap-item');
-    if (!item) return;
-    dragId = item.dataset.id;
-    item.classList.add('is-dragging');
-    e.dataTransfer.effectAllowed = 'move';
-    try { e.dataTransfer.setData('text/plain', dragId); } catch (err) {}
-  });
-  list.addEventListener('dragend', () => {
-    dragId = null;
-    list.querySelectorAll('.songmap-item').forEach((el) => {
-      el.classList.remove('is-dragging', 'is-drop-before', 'is-drop-after');
-    });
-  });
-  list.addEventListener('dragover', (e) => {
-    if (!dragId) return;
-    e.preventDefault();
-    const item = e.target.closest('.songmap-item');
-    if (!item || item.dataset.id === dragId) return;
-    const box = item.getBoundingClientRect();
-    const after = e.clientY > box.top + box.height / 2;
-    list.querySelectorAll('.songmap-item').forEach((el) => {
-      el.classList.remove('is-drop-before', 'is-drop-after');
-    });
-    item.classList.add(after ? 'is-drop-after' : 'is-drop-before');
-  });
-  list.addEventListener('drop', (e) => {
-    if (!dragId) return;
-    e.preventDefault();
-    const item = e.target.closest('.songmap-item');
-    if (!item || item.dataset.id === dragId) return;
-    // Тот же путь, что у перетаскивания карточек в редакторе:
-    // animateReorder делает FLIP, reorderSections правит модель.
-    animateReorder(() => {
-      reorderSections(Number(dragId), Number(item.dataset.id));
-    });
-    requestRender();
-    renderSongMap();
-    showToast('Секция перемещена');
-  });
+  // --- Перетаскивание строк (B-68, 0.215) — pointer-жест по
+  // dev/specs/songmap-drag-prompt.md. Нативного DnD нет: его снимок
+  // «летел назад» к уже пересобранному списку. Слот на месте строки,
+  // ярлык поля (.section-drag-chip) с догонялкой, соседи FLIP'ом,
+  // порядок строк во время жеста = будущий порядок песни.
+  panel._songmapHoldOpen = () => { if (closeTimer) { clearTimeout(closeTimer); closeTimer = null; } };
+  initSongmapDrag(panel, list);
 
   // --- Cmd+C / Cmd+V ---
   // Работают ТОЛЬКО при открытой панели и наличии выделения — иначе
@@ -32064,33 +32902,9 @@ function attachResizeHandlers() {
       // (кастом — переплывает из верхнего слота, наследуемый — fade in).
       startRhythmHints(s, sq, bi, distribution);
 
-      // B-50 (2026-09-05): место жеста — РОВНО пара у ручки. Раньше цикл
-      // шёл до конца квадрата и, добирая остаток, залезал в дальних
-      // соседей: протяжка границы E|Am роняла ещё и G с 2.25 на 2, хотя
-      // пользователь её не трогал. Дробные доли (законные при зуме с
-      // шагом 0.25 и при импорте) так уничтожались молча и без возврата.
-      // Предел протяжки теперь — размер соседа: дальше стена, а не тихая
-      // перекройка половины квадрата.
-      function dist(sp, fi, ch) {
-        let rem = ch;
-        const nsp = [...sp];
-        const minCell = Math.max(1e-6, getResizeStep() * (tc / squareUnits));
-        const chainEnd = Math.min(ec, fi + 2);
-        for (let i = fi + 1; i < chainEnd && Math.abs(rem) > 1e-6; i++) {
-          if (rem > 0) {
-            const ct = nsp[i] - minCell;
-            const tk = Math.min(rem, ct);
-            nsp[i] -= tk;
-            rem -= tk;
-          } else {
-            const cg = tc - nsp[i];
-            const gv = Math.min(-rem, cg);
-            nsp[i] += gv;
-            rem += gv;
-          }
-        }
-        return { newSpans: nsp, remaining: rem };
-      }
+      // B-50: место жеста — РОВНО пара у ручки (раньше цикл добирал
+      // остаток из дальних соседей). С B-71 пара считается прямо в
+      // calcResizeSpans, отдельный распределитель не нужен.
 
       function buildEventsForVisualSpans(nsp) {
         const parentDenom = parseTimeSig(parentTs).denominator || 4;
@@ -32100,9 +32914,10 @@ function attachResizeHandlers() {
         // ширина не изменилась, обязана сохранить span бит-в-бит, даже
         // если он не кратен текущему шагу: иначе один Math.round по всему
         // квадрату ровнял чужие 1.75/2.25 под шаг зума.
-        const dragPair = new Set([ei, ei + 1]);
+        // B-72: с толканием меняться могут и ячейки за парой — берём
+        // все, чья визуальная ширина изменилась; нетронутые — бит-в-бит.
         for (let i = 0; i < ec; i++) {
-          if (nsp[i] === origVisSpans[i] || !dragPair.has(i)) {
+          if (Math.abs(nsp[i] - origVisSpans[i]) < 1e-9) {
             nextEvents[i].span = origSpans[i];
           } else {
             // Изменилась визуальная ширина. Сначала переводим дельту из
@@ -32114,39 +32929,16 @@ function attachResizeHandlers() {
             const ownTs = getEventOwnTimeSig(nextEvents[i], parentTs);
             const ownDenom = parseTimeSig(ownTs).denominator || 4;
             const deltaOwn = deltaParentBeats * (ownDenom / parentDenom);
-            const step = getResizeStep();
-            const raw = origSpans[i] + deltaOwn;
-            const newSpan = Math.max(step, Math.round(raw / step) * step);
-            nextEvents[i].span = roundSpan(newSpan);
+            // B-71: колонки уже стоят на узлах (calcResizeSpans), второе
+            // округление к шагу зума здесь ломало бы правило «граница на
+            // узле»: длина 0.5..2 → 1.5 не кратна шагу 1, а граница на 2 —
+            // ровно узел. Дробные длины законны (решение 3в).
+            nextEvents[i].span = roundSpan(Math.max(1e-6, origSpans[i] + deltaOwn));
           }
         }
 
-        // B-50: сумма ПАРЫ у ручки неизменна — граница ездит внутри двух
-        // ячеек, длина квадрата от жеста не зависит. Правого соседа
-        // считаем вычитанием, а не отдельным Math.round: два независимых
-        // округления давали разъезд (2+3+1+2.25 = 16.25 при квадрате 16),
-        // и остаток потом списывался в непричастную ячейку.
-        //
-        // Когда сумма пары кратна шагу — а это обычный случай, включая
-        // 1.75+2.25=4 — обе ячейки встают на сетку, как и просил
-        // пользователь. Если же сумма пары дробная (сосед пришёл
-        // дробным из другого зума), на сетку встаёт перетаскиваемая
-        // ячейка, а остаток достаётся соседу: ровнять его силой значило
-        // бы менять длину квадрата.
-        const rIdx = ei + 1;
-        if (rIdx < ec && dragPair.has(rIdx)) {
-          const lEv = nextEvents[ei], rEv = nextEvents[rIdx];
-          const lDen = parseTimeSig(getEventOwnTimeSig(lEv, parentTs)).denominator || 4;
-          const rDen = parseTimeSig(getEventOwnTimeSig(rEv, parentTs)).denominator || 4;
-          // Сумма пары в долях родителя — по исходным span, до жеста.
-          const pairParent = origSpans[ei] * (parentDenom / lDen) + origSpans[rIdx] * (parentDenom / rDen);
-          const lParent = lEv.span * (parentDenom / lDen);
-          const stepP = getResizeStep();
-          const minP = stepP;
-          const lClamped = Math.min(Math.max(lParent, minP), Math.max(minP, pairParent - minP));
-          lEv.span = roundSpan(lClamped * (lDen / parentDenom));
-          rEv.span = roundSpan((pairParent - lClamped) * (rDen / parentDenom));
-        }
+        // B-50/B-72: суммы держит сама раскладка calcResizeSpans (без
+        // округлений к шагу), отдельная подгонка пары больше не нужна.
 
         // Та же финальная компенсация, что раньше выполнялась внутри
         // live-writeSpans(), но теперь — на временных событиях. Сумма
@@ -32164,8 +32956,9 @@ function attachResizeHandlers() {
           const ev = nextEvents[idx];
           const ownDenom = parseTimeSig(getEventOwnTimeSig(ev, parentTs)).denominator || 4;
           const correctionOwn = diff * (ownDenom / parentDenom);
-          const st = getResizeStep();
-          ev.span = roundSpan(Math.max(st, Math.round((ev.span - correctionOwn) / st) * st));
+          // B-71: без округления к шагу — иначе компенсация сама уводила
+          // бы границу с узла.
+          ev.span = roundSpan(Math.max(1e-6, ev.span - correctionOwn));
         }
 
         return nextEvents;
@@ -32494,34 +33287,85 @@ function attachResizeHandlers() {
       let resizeMoveRAF = 0;
       let pendingResizeClientX = sX;
 
+      // B-71 (0.219): граница ячейки ходит по АБСОЛЮТНЫМ узлам сетки зума
+      // (тем же, что засечки и счёт под квадратом), а не шагами от своего
+      // стартового положения. Раньше граница на «и» (1.5) на зуме 100%
+      // шла 2.5 → 3.5 в превью, а коммит потом округлял ДЛИНУ к целым и
+      // ставил её в 3 — то, что показывали, и то, что получалось, не
+      // совпадало. Решения пользователя 2026-09-12:
+      //  1в) граница переходит на узел, когда курсор до него ДОШЁЛ (в
+      //      обе стороны), без опережения и без прыжка от касания ручки;
+      //  2а) исходное дробное положение остаётся узлом, пока жест не
+      //      отпущен — вернуть как было можно;
+      //  3в) длина ячейки — любая > 0: узлы берутся строго внутри пары;
+      //  4а) на зуме 150% с «та» первый шаг — ближайшая восьмая.
+      // Ячейка ВНУТРИ пары у ручки; сумма пары неизменна (B-50).
+      // B-72 (0.220): ТОЛКАНИЕ. Дойдя до дальнего края соседа, граница не
+      // упирается в стену (B-50), а продолжает путь: сосед фиксируется на
+      // минимальной длине (шаг зума) и его дальняя граница едет вперёд,
+      // забирая у следующей ячейки — и так цепочкой до края квадрата.
+      // Всё, до чего курсор не дошёл, не меняется (контракт B-50); назад —
+      // всё возвращается, потому что раскладка всегда считается от sSp.
+      // Решение пользователя 2026-09-12: «подходит».
+      let liveEdgeCols = null;
       function calcResizeSpans(clientX) {
-        const delta = clientX - sX;
-        // Шаг тянем не по целым колонкам, а по текущему шагу зума:
-        // при ×1.5 доступны восьмые, при ×2.5 — шестнадцатые.
-        // visStep — сколько ВИЗУАЛЬНЫХ колонок приходится на один шаг.
+        const nsp = [...sSp];
+        if (ei + 1 >= ec) return nsp;
         const stepUnits = getResizeStep();
         const visStep = Math.max(1e-6, stepUnits * (tc / squareUnits));
-        let sc = Math.round(delta / (gs * visStep)) * visStep;
-        let nsp = [...sSp];
-        // Минимум — один шаг, а не одна целая колонка: иначе восьмую
-        // ячейку было бы не создать.
-        const minSp = visStep;
-        const maxSp = tc - (ec - 1) * minSp;
-        let ns = sSp[ei] + sc;
-        if (ns < minSp) ns = minSp;
-        if (ns > maxSp) ns = maxSp;
-        const ac = ns - sSp[ei];
-        nsp[ei] = ns;
-        if (ac !== 0) {
-          const res = dist(nsp, ei, ac);
-          nsp = res.newSpans;
-          if (res.remaining !== 0) {
-            nsp[ei] -= res.remaining;
-            if (nsp[ei] < minSp) nsp[ei] = minSp;
-            if (nsp[ei] > maxSp) nsp[ei] = maxSp;
-          }
+        const minCols = visStep;
+        const eps = 1e-6;
+        const ends = []; let acc = 0;
+        for (let i = 0; i < ec; i++) { acc += sSp[i]; ends.push(acc); }
+        const startOf = (i) => (i === 0 ? 0 : ends[i - 1]);
+        const leftStart = startOf(ei);
+        const origEdge = ends[ei];
+        const cursor = origEdge + (clientX - sX) / gs;
+        if (liveEdgeCols === null) liveEdgeCols = origEdge;
+        const right = cursor >= liveEdgeCols;
+        let target;
+        if (right) {
+          target = Math.floor(cursor / visStep + eps) * visStep;
+          if (origEdge <= cursor + eps && origEdge > target) target = origEdge;
+        } else {
+          target = Math.ceil(cursor / visStep - eps) * visStep;
+          if (origEdge >= cursor - eps && origEdge < target) target = origEdge;
         }
-        return nsp;
+        // Раскладка от узла target (0.221, пример пользователя:
+        // 2|1.25|1.75|0.5|4|4, первую границу к 7 → 7|0.25|0.75|0.5|1|4).
+        // Каждая ячейка на пути отдаёт ЦЕЛЫЕ шаги зума и оставляет себе
+        // остаток (1.25 → 0.25, 4 → 1, 0.5 не отдаёт ничего): её дальняя
+        // граница сдвигается на кратное шагу и остаётся на той же
+        // дробной позиции сетки. Последняя затронутая ячейка отдаёт
+        // ровно недостающее. Не хватает ёмкости — null, берём узел ближе.
+        const keep = (sp) => sp - visStep * Math.floor((sp - eps) / visStep);
+        function layout(t) {
+          const out = [...sSp];
+          const fwd = t > origEdge;           // сторона — по узлу, не по движению курсора
+          let need = Math.abs(t - origEdge);
+          if (need <= eps) return out;
+          if (fwd) out[ei] += need; else out[ei + 1] += need;
+          const from = fwd ? ei + 1 : ei, to = fwd ? ec : -1, dj = fwd ? 1 : -1;
+          for (let j = from; j !== to && need > eps; j += dj) {
+            const cap = Math.max(0, sSp[j] - keep(sSp[j]));
+            const take = Math.min(need, cap);
+            out[j] -= take;
+            need -= take;
+          }
+          return need <= eps ? out : null;
+        }
+        let res = layout(target);
+        // не влезло — отступаем по узлам к исходной границе
+        let guard = 0;
+        while (!res && guard++ < 512) {
+          if (Math.abs(target - origEdge) < eps) { res = [...sSp]; break; }
+          target = right ? target - visStep : target + visStep;
+          if ((right && target < origEdge) || (!right && target > origEdge)) target = origEdge;
+          res = layout(target);
+        }
+        if (!res) return nsp;
+        liveEdgeCols = Math.round(target * 1e6) / 1e6;
+        return res.map((v) => Math.round(v * 1e6) / 1e6);
       }
 
       function applyResizePreviewAt(clientX, force) {
@@ -33457,41 +34301,7 @@ function animateReorder(cb) {
     });
   });
 }
-function startDrag(e, card, id) {
-  if (isDragging) return;
-  isDragging = true;
-  draggedItemId = id;
-  const cont = DOM.sectionsContainer;
-  cont.classList.add('drag-active');
-  e.dataTransfer.effectAllowed = 'move';
-  e.dataTransfer.setData('text/plain', id);
-  requestAnimationFrame(() => card.classList.add('dragging'));
-  const ghost = card.cloneNode(true);
-  ghost.style.position = 'absolute';
-  ghost.style.top = '-9999px';
-  ghost.style.left = '-9999px';
-  ghost.style.width = `${card.offsetWidth}px`;
-  ghost.style.opacity = '0.28';
-  ghost.style.background = 'var(--color-glass, rgba(255,255,255,0.35))';
-  ghost.style.backdropFilter = 'blur(10px)';
-  ghost.style.transform = 'rotate(-2deg) scale(1.03)';
-  ghost.style.boxShadow = '0 24px 48px rgba(0,0,0,0.14)';
-  document.body.appendChild(ghost);
-  if (e.dataTransfer.setDragImage)
-    e.dataTransfer.setDragImage(ghost, card.offsetWidth / 2, 24);
-  requestAnimationFrame(() => {
-    if (ghost.parentNode) document.body.removeChild(ghost);
-  });
-}
-function endDrag() {
-  draggedItemId = null;
-  isDragging = false;
-  DOM.sectionsContainer.classList.remove('drag-active');
-  document.querySelectorAll('.section-card').forEach((c) => {
-    c.classList.remove('dragging', 'drag-over', 'drag-over-before');
-    c.style.transform = '';
-  });
-}
+// startDrag/endDrag нативного DnD сняты в 0.200 — см. attachDragEvents (B-65).
 // Шаг сетки долей внутри ячейки.
 //
 // Ячейка лежит в гриде с gap: 2px, и ячейка из N колонок занимает

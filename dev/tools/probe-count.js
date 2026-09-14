@@ -1,6 +1,6 @@
 const fs=require('fs'),{JSDOM}=require('jsdom');
 const root=__dirname+'/../..';
-const song=JSON.parse(fs.readFileSync(root+'/uploads/Дешевые Драмы.struchord-3.json','utf8'));
+const song=JSON.parse(fs.readFileSync(root+'/uploads/Дешевые Драмы.struchord-4.json','utf8'));
 const d=new JSDOM(fs.readFileSync(root+'/STRUCHORD.html','utf8'),{runScripts:'dangerously',pretendToBeVisual:true,url:'https://localhost/',beforeParse(w){w.HTMLCanvasElement.prototype.getContext=()=>({font:'',measureText:()=>({width:10}),clearRect(){},beginPath(){},arc(){},fill(){},stroke(){},moveTo(){},lineTo(){},closePath(){},save(){},restore(){},translate(){},rotate(){},fillText(){},strokeText(){},setTransform(){},scale(){},setLineDash(){},createLinearGradient:()=>({addColorStop(){}})});}});
 const w=d.window;w.AudioContext=w.webkitAudioContext=function(){return{currentTime:0,state:'running',resume(){}}};
 w.addEventListener('load',()=>{
