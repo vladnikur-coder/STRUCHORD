@@ -9306,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.222</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.223</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14235,6 +14235,35 @@ window.auditFingeringFallbackCutoff = function (chordName, key) {
 };
 
 // ===================== ОТРИСОВКА АППЛИКАТУР (SVG) =====================
+// B-74: приводит «выключенные баррэ» к Set ладов. Принимает массив
+// ладов, строку «1,3», сам Set или строку формы+флага — всюду в модели
+// флаг хранится массивом ладов (ev.barreOff), но отрисовка терпит любой
+// из этих видов, чтобы вызов не заботился о конвертации.
+function normalizeBarreOffSet(value) {
+  if (!value) return null;
+  if (value instanceof Set) return value.size ? value : null;
+  let arr = null;
+  if (Array.isArray(value)) arr = value;
+  else if (typeof value === 'string') arr = value.split(',');
+  else return null;
+  const out = new Set();
+  for (const raw of arr) {
+    const n = Number(String(raw).trim());
+    if (Number.isInteger(n) && n >= 1 && n <= 24) out.add(n);
+  }
+  return out.size ? out : null;
+}
+
+// B-74: флаг «разжатого баррэ» относится к КОНКРЕТНОЙ форме, стоящей в
+// ячейке (ev.fingering). Возвращаем его, только если рисуемая форма — та
+// самая: иначе при листании вариантов флаг лип бы к чужому хвату.
+function barreOffForEventShape(ev, form) {
+  if (!ev || !Array.isArray(ev.barreOff) || !ev.barreOff.length) return null;
+  const formKey = Array.isArray(form) ? form.join(',') : String(form);
+  if (ev.fingering && ev.fingering !== formKey) return null;
+  return ev.barreOff;
+}
+
 function renderFingeringSVG(fingers, bottomPad, opts) {
   const padTop = 25;
   const stringSpacing = 18,
@@ -14347,8 +14376,15 @@ function renderFingeringSVG(fingers, bottomPad, opts) {
   // detectBarre(shape) здесь был бы менее точным и мог бы солгать.
   const gripForDrawing = analyzeShapeGrip(fingers);
   const drawingBarre = gripForDrawing.chosen ? gripForDrawing.chosen.b : null;
-  const barreStrings = drawingBarre ? new Set(drawingBarre.strings) : new Set();
-  if (drawingBarre) {
+  // B-74: у формы может стоять флаг «это баррэ рисовать отдельными
+  // точками» (выключатель баррэ в редакторе аппликатур, как в Guitar
+  // Pro). opts.barreOff — набор ЛАДОВ, на которых капсулу не рисуем.
+  // Ключ по ладу, а не по струнам: модель хвата всегда выбирает одно
+  // баррэ, и лад однозначно его идентифицирует (см. B-74 в README).
+  const barreOffSet = normalizeBarreOffSet(opts && opts.barreOff);
+  const barreSuppressed = !!(drawingBarre && barreOffSet && barreOffSet.has(drawingBarre.fret));
+  const barreStrings = drawingBarre && !barreSuppressed ? new Set(drawingBarre.strings) : new Set();
+  if (drawingBarre && !barreSuppressed) {
     const y = padTop + (drawingBarre.fret - gridStartFret + 0.5) * fretSpacing;
     const x1 = padLeft + drawingBarre.first * stringSpacing - dotRadius;
     const x2 = padLeft + drawingBarre.last * stringSpacing + dotRadius;
@@ -14590,7 +14626,7 @@ function findEventByPosKey(posKey) {
 }
 
 // Запоминает выбор: и на событии (главное хранилище), и в Map (запасное).
-function setPreferredFingering(posKey, shapeStr, ev) {
+function setPreferredFingering(posKey, shapeStr, ev, barreOff) {
   if (!shapeStr) return;
   // Список вариантов схлопывает формы с одинаковым хватом, но
   // выбранные пользователем оставляет отдельной строкой. Раз состав
@@ -14607,6 +14643,12 @@ function setPreferredFingering(posKey, shapeStr, ev) {
     const suffix = typeof tuningKeySuffix === 'function' ? tuningKeySuffix() : '';
     if (suffix) target.fingeringTuning = suffix;
     else delete target.fingeringTuning;
+    // B-74: флаг «разжатого баррэ» этой ячейки. Пустой массив = баррэ
+    // как обычно, поэтому не держим лишнего поля в модели/файле.
+    if (barreOff !== undefined) {
+      if (Array.isArray(barreOff) && barreOff.length) target.barreOff = [...barreOff];
+      else delete target.barreOff;
+    }
   }
   if (posKey) preferredFingeringByChord.set(posKey, shapeStr);
 }
@@ -15107,7 +15149,16 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     // 30 — исходный запас под сеткой: высота SVG 180px, как было до
     // правок. Кнопки в редакторе стоят ПОД грифом, в этот запас ничего
     // не кладётся.
-    const svg = renderFingeringSVG(shape, 30) || '';
+    // B-74: флаг «разжатого баррэ» живёт на событии и относится к его
+    // выбранной форме. Пока тултип листает варианты, применяем флаг только
+    // к той форме, что реально стоит в ячейке.
+    const barreOffForShape =
+      eventForTooltip &&
+      Array.isArray(eventForTooltip.barreOff) &&
+      eventForTooltip.fingering === shape.join(',')
+        ? eventForTooltip.barreOff
+        : null;
+    const svg = renderFingeringSVG(shape, 30, { barreOff: barreOffForShape }) || '';
 
     // Счётчик — единый с панелью «Сейчас»: «2/5», у своих «1/1(польз.)»,
     // у авто-подстановок «1/164(авто)» — см. fingeringCounterText.
@@ -15647,11 +15698,14 @@ function renderPinnedFingering(chordName, shape) {
   const sec = sections.find((x) => x.id === pinnedFingering.secId);
   const key = sec && sec.key ? sec.key : globalKey;
   let form = shape;
+  const pinnedPosKey = buildFingeringPositionKey(
+    name, key, pinnedFingering.secId, pinnedFingering.squareId, pinnedFingering.eventIndex);
   if (!form) {
-    const posKey = buildFingeringPositionKey(
-      name, key, pinnedFingering.secId, pinnedFingering.squareId, pinnedFingering.eventIndex);
-    form = resolveFingeringShape(name, key, posKey);
+    form = resolveFingeringShape(name, key, pinnedPosKey);
   }
+  // B-74: разжатое баррэ этой ячейки.
+  const pinnedEvent = findEventByPosKey(pinnedPosKey);
+  const pinnedBarreOff = barreOffForEventShape(pinnedEvent, form);
   const content = host.querySelector('.fingering-content');
   const formKey = Array.isArray(form) ? form.join(',') : String(form);
   if (!form) {
@@ -15660,9 +15714,9 @@ function renderPinnedFingering(chordName, shape) {
     updatePinnedShift();
     return;
   }
-  swapFingeringContent(content, name + '|' + formKey,
+  swapFingeringContent(content, name + '|' + formKey + (pinnedBarreOff ? '|bo' + pinnedBarreOff.join('.') : ''),
     `<span class="fingering-chord-name">${renderFingeringChordNameHtml(name)}</span>` +
-    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08 }) || ''}</div>`);
+    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08, barreOff: pinnedBarreOff }) || ''}</div>`);
   updatePinnedShift();
 }
 
@@ -15697,9 +15751,13 @@ function renderPinnedNext(pos) {
     return;
   }
   const formKey = Array.isArray(form) ? form.join(',') : String(form);
-  swapFingeringContent(host.querySelector('.fingering-content'), pos.chord + '|' + formKey,
+  // B-74: разжатое баррэ ячейки «следующего» аккорда.
+  const nextEvent = findEventByPosKey(posKey);
+  const nextBarreOff = barreOffForEventShape(nextEvent, form);
+  swapFingeringContent(host.querySelector('.fingering-content'),
+    pos.chord + '|' + formKey + (nextBarreOff ? '|bo' + nextBarreOff.join('.') : ''),
     `<span class="fingering-chord-name">${renderFingeringChordNameHtml(pos.chord)}</span>` +
-    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08 }) || ''}</div>`);
+    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08, barreOff: nextBarreOff }) || ''}</div>`);
   host.style.display = 'block';
   updatePinnedShift();
   ensurePinnedNextTimer();
@@ -16711,7 +16769,7 @@ function buildChordName(root, intervals) {
   return name;
 }
 
-function createInteractiveFretboard(initialShape, onChange) {
+function createInteractiveFretboard(initialShape, onChange, opts = {}) {
   const width = 140,
     height = 180;
   const padLeft = 36,
@@ -16760,6 +16818,9 @@ function createInteractiveFretboard(initialShape, onChange) {
 
   let shape = [...initialShape];
   let currentIntervals = null;
+  // B-74: лады, у которых баррэ разжато в отдельные точки (выключатель
+  // баррэ, как в Guitar Pro). По каждому баррэ отдельно — ключ по ладу.
+  let barreOff = normalizeBarreOffSet(opts.barreOff) || new Set();
 
   const container = document.createElement('div');
   container.style.position = 'relative';
@@ -16795,6 +16856,22 @@ function createInteractiveFretboard(initialShape, onChange) {
       }
     }
 
+    // B-74: то же баррэ, что рисует превью (renderFingeringSVG), — берём
+    // выбор модели хвата, а не любой повторяющийся лад. Если лад помечен
+    // в barreOff, капсулу не рисуем: струны разойдутся отдельными точками.
+    const editorGrip = analyzeShapeGrip(shape);
+    const editorBarre = editorGrip.chosen ? editorGrip.chosen.b : null;
+    const editorBarreSuppressed = !!(editorBarre && barreOff.has(editorBarre.fret));
+    const editorBarreStrings =
+      editorBarre && !editorBarreSuppressed ? new Set(editorBarre.strings) : new Set();
+    if (editorBarre && !editorBarreSuppressed &&
+        editorBarre.fret >= gridStartFret && editorBarre.fret <= gridStartFret + 4) {
+      const y = padTop + (editorBarre.fret - gridStartFret + 0.5) * fretSpacing;
+      const x1 = padLeft + editorBarre.first * stringSpacing - dotRadius;
+      const x2 = padLeft + editorBarre.last * stringSpacing + dotRadius;
+      svgHTML += `<rect class="fingering-barre" x="${x1}" y="${y - dotRadius}" width="${x2 - x1}" height="${dotRadius * 2}" rx="${dotRadius}" fill="var(--color-ink)"/>`;
+    }
+
     for (let s = 0; s < 6; s++) {
       const val = shape[s];
       const x = padLeft + s * stringSpacing;
@@ -16805,6 +16882,10 @@ function createInteractiveFretboard(initialShape, onChange) {
       } else {
         const fret = parseInt(val);
         if (fret < gridStartFret || fret > gridStartFret + 4) continue;
+        // На струнах невыключенного баррэ отдельную точку не ставим —
+        // капсула уже читается как один палец.
+        const isBarreString = fret === (editorBarre && editorBarre.fret) && editorBarreStrings.has(s);
+        if (isBarreString) continue;
         const y = padTop + (fret - gridStartFret + 0.5) * fretSpacing;
         svgHTML += `<circle cx="${x}" cy="${y}" r="${dotRadius}" fill="var(--color-ink)"/>`;
         if (currentIntervals) {
@@ -16819,6 +16900,7 @@ function createInteractiveFretboard(initialShape, onChange) {
     container.innerHTML = svgHTML;
 
     addClickZones();
+    addBarreToggle(editorBarre, editorBarreSuppressed);
 
     if (gridStartFret > 1) {
       const btnUp = document.createElement('button');
@@ -16934,6 +17016,46 @@ function createInteractiveFretboard(initialShape, onChange) {
     }
   }
 
+  // B-74: выключатель баррэ у самого баррэ (как «разжать баррэ» в Guitar
+  // Pro). Кнопка появляется только когда модель хвата видит баррэ. Нажатие
+  // помечает лад баррэ в barreOff (или снимает пометку) и перерисовывает:
+  // капсула распадается на отдельные точки. Форму пальцев это не меняет —
+  // подбор/линия аппликатуры остаются прежними.
+  function addBarreToggle(editorBarre, suppressed) {
+    if (!editorBarre) return;
+    if (editorBarre.fret < gridStartFret || editorBarre.fret > gridStartFret + 4) return;
+    const rowIdx = editorBarre.fret - gridStartFret;
+    const y = padTop + rowIdx * fretSpacing + fretSpacing / 2;
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.textContent = suppressed ? '⊟' : '⊐';
+    btn.style.position = 'absolute';
+    btn.style.left = padLeft + fretWidth + 8 + 'px';
+    btn.style.top = y - 9 + 'px';
+    btn.style.width = '20px';
+    btn.style.height = '18px';
+    btn.style.fontSize = '11px';
+    btn.style.lineHeight = '1';
+    btn.style.padding = '0';
+    btn.style.cursor = 'pointer';
+    btn.style.borderRadius = '4px';
+    btn.style.border = '1px solid var(--fingering-fret-line, #ccc)';
+    btn.style.background = suppressed ? 'var(--color-surface)' : 'var(--color-ink)';
+    btn.style.color = suppressed ? 'var(--color-ink)' : 'var(--color-surface)';
+    btn.title = suppressed
+      ? `Баррэ на ${editorBarre.fret} ладу разжато — собрать обратно`
+      : `Разжать баррэ на ${editorBarre.fret} ладу (отдельные точки)`;
+    btn.setAttribute('aria-pressed', suppressed ? 'true' : 'false');
+    btn.onclick = (e) => {
+      e.stopPropagation();
+      if (barreOff.has(editorBarre.fret)) barreOff.delete(editorBarre.fret);
+      else barreOff.add(editorBarre.fret);
+      redraw();
+      if (onChange) onChange(shape);
+    };
+    container.appendChild(btn);
+  }
+
   function setIntervals(intervals) {
     currentIntervals = intervals;
     redraw();
@@ -16944,6 +17066,7 @@ function createInteractiveFretboard(initialShape, onChange) {
   function clear() {
     shape = Array(strings).fill('x');
     currentIntervals = null;
+    barreOff = new Set();
     redraw();
     if (onChange) {
       onChange(shape);
@@ -16955,6 +17078,8 @@ function createInteractiveFretboard(initialShape, onChange) {
     setIntervals,
     clear,
     getShape: () => shape,
+    // B-74: массив ладов с разжатым баррэ — модель хранит его так (ev.barreOff).
+    getBarreOff: () => Array.from(barreOff).sort((a, b) => a - b),
   };
 }
 
@@ -16985,6 +17110,9 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
   // новым именем и старой, чужой формой. Замер: так последний Aadd9
   // в Every Breath You Take получил хват D5 (x,5,7,7,x,x, D-A-D).
   let entrySnapshot = null;
+  // B-74: флаг «разжатого баррэ» ячейки, которую открыли. Массив ладов
+  // (ev.barreOff); правим только эту ячейку.
+  let initialBarreOff = null;
   if (!createMode && wrapper) {
     const snapSec = sections.find((x) => x.id === +wrapper.dataset.sec);
     const snapSq = snapSec && (snapSec.squares || []).find((x) => x.id === +wrapper.dataset.square);
@@ -16995,7 +17123,9 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
         chord: snapEv.chord,
         fingering: snapEv.fingering,
         fingeringTuning: snapEv.fingeringTuning,
+        barreOff: Array.isArray(snapEv.barreOff) ? [...snapEv.barreOff] : snapEv.barreOff,
       };
+      if (Array.isArray(snapEv.barreOff)) initialBarreOff = [...snapEv.barreOff];
     }
   }
   if (createMode) {
@@ -17088,6 +17218,11 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
       else back.ev.fingering = back.fingering;
       if (back.fingeringTuning == null) delete back.ev.fingeringTuning;
       else back.ev.fingeringTuning = back.fingeringTuning;
+      // B-74: флаг баррэ на входе только читается; коммитится он лишь при
+      // «Сохранить». Но откат «Переименовать?» всё равно возвращаем к снимку.
+      if (back.barreOff == null || (Array.isArray(back.barreOff) && !back.barreOff.length))
+        delete back.ev.barreOff;
+      else back.ev.barreOff = [...back.barreOff];
       const backSec = +wrapper.dataset.sec,
         backSq = +wrapper.dataset.square,
         backEi = +wrapper.dataset.ei;
@@ -17221,7 +17356,9 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     }
   }
 
-  const fretboardObj = createInteractiveFretboard(currentShape, handleShapeChange);
+  const fretboardObj = createInteractiveFretboard(currentShape, handleShapeChange, {
+    barreOff: initialBarreOff,
+  });
 
   fretboardContainer.appendChild(fretboardObj.container);
 
@@ -17281,7 +17418,7 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
       fingeringCache.clear();
 
       const posKey = posKeyForNew;
-      setPreferredFingering(posKey, currentShape.join(','));
+      setPreferredFingering(posKey, currentShape.join(','), null, fretboardObj.getBarreOff());
       updateCellsDegrees();
 
       const cellWrapper = activeChordInput.closest('.chord-wrapper');
@@ -17343,7 +17480,7 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
             const chordNameNow = input.value.trim();
             const key = activeSectionKey || globalKey;
             const posKey = buildFingeringPositionKey(chordNameNow, key, secId, squareId, eventIndex);
-            setPreferredFingering(posKey, currentShape.join(','));
+            setPreferredFingering(posKey, currentShape.join(','), null, fretboardObj.getBarreOff());
         }
     }
     // Сохранение — это коммит: переименование «Переименовать?»
@@ -18272,10 +18409,21 @@ function transposeAllGlobal(st) {
           // выбор, иначе ячейка показывала бы форму от чужого аккорда.
           if (sq.events[i].fingering) {
             const moved = transposeFingeringShape(sq.events[i].fingering, st);
-            if (moved) sq.events[i].fingering = moved;
-            else {
+            if (moved) {
+              sq.events[i].fingering = moved;
+              // B-74: лады разжатого баррэ едут вместе с формой. Выход за
+              // гриф (лад < 1) — снимаем флаг, как и всю форму ниже.
+              if (Array.isArray(sq.events[i].barreOff)) {
+                const movedBarre = sq.events[i].barreOff
+                  .map((f) => f + st)
+                  .filter((f) => f >= 1 && f <= 24);
+                if (movedBarre.length) sq.events[i].barreOff = movedBarre;
+                else delete sq.events[i].barreOff;
+              }
+            } else {
               delete sq.events[i].fingering;
               delete sq.events[i].fingeringTuning;
+              delete sq.events[i].barreOff;
             }
           }
         }
@@ -18394,6 +18542,8 @@ function cloneSection(id) {
         // считает её выбором из ДРУГОГО строя и не подставляет.
         fingering: e.fingering || null,
         fingeringTuning: e.fingeringTuning || null,
+        // B-74: разжатое баррэ — часть выбранной формы, уносим в клон.
+        barreOff: Array.isArray(e.barreOff) && e.barreOff.length ? [...e.barreOff] : null,
       })),
       customBeats: sq.customBeats ?? null,
     })),
@@ -18536,6 +18686,8 @@ function cloneLastSquare(sid) {
       // она выбрана.
       fingering: e.fingering || null,
       fingeringTuning: e.fingeringTuning || null,
+      // B-74: разжатое баррэ.
+      barreOff: Array.isArray(e.barreOff) && e.barreOff.length ? [...e.barreOff] : null,
     })),
     customBeats: ls.customBeats ?? null,
   };
@@ -18688,6 +18840,8 @@ function migrateEventsForTimeSig(events, oldParentTs, newParentTs) {
       // здесь ПЕРЕСОЗДАЁТСЯ, и без явного переноса выбор терялся —
       // тот же класс дефекта, что раньше был со strumPattern.
       fingering: e.fingering || null,
+      // B-74: разжатое баррэ (лады формы не меняются при смене размера).
+      barreOff: Array.isArray(e.barreOff) && e.barreOff.length ? [...e.barreOff] : null,
     }));
   }
   const ratio = newBpb / oldBpb;
@@ -18719,10 +18873,10 @@ function migrateEventsForTimeSig(events, oldParentTs, newParentTs) {
   if (isExact) {
     return events.map((ev) => {
       if (ev.timeSig) {
-        return { chord: ev.chord, span: ev.span, timeSig: ev.timeSig, strumPattern: ev.strumPattern || null, fingering: ev.fingering || null };
+        return { chord: ev.chord, span: ev.span, timeSig: ev.timeSig, strumPattern: ev.strumPattern || null, fingering: ev.fingering || null, barreOff: Array.isArray(ev.barreOff) && ev.barreOff.length ? [...ev.barreOff] : null };
       }
       const span = Math.max(MIN_MIGRATED_SPAN, roundSpan(ev.span * ratio));
-      return { chord: ev.chord, span, timeSig: null, strumPattern: ev.strumPattern || null, fingering: ev.fingering || null };
+      return { chord: ev.chord, span, timeSig: null, strumPattern: ev.strumPattern || null, fingering: ev.fingering || null, barreOff: Array.isArray(ev.barreOff) && ev.barreOff.length ? [...ev.barreOff] : null };
     });
   }
 
@@ -18739,7 +18893,7 @@ function migrateEventsForTimeSig(events, oldParentTs, newParentTs) {
     let span = Math.round(exact);
     if (span < 1) span = 1;
     carry = exact - span;
-    return { chord: ev.chord, span, timeSig: null, strumPattern: ev.strumPattern || null, fingering: ev.fingering || null };
+    return { chord: ev.chord, span, timeSig: null, strumPattern: ev.strumPattern || null, fingering: ev.fingering || null, barreOff: Array.isArray(ev.barreOff) && ev.barreOff.length ? [...ev.barreOff] : null };
   });
 }
 
@@ -23031,12 +23185,15 @@ function playChord(c, wrapper) {
 function resolveShapeForScheduledChord(c, posCtx) {
   const key = (posCtx && posCtx.key) || getEffectiveKeyForCurrentPosition();
   let shape = null;
+  let barreOff = null;
   if (posCtx) {
     const posKey = buildFingeringPositionKey(c, key, posCtx.secId, posCtx.squareId, posCtx.eventIndex);
     shape = resolveFingeringShape(c, key, posKey);
+    // B-74: разжатое баррэ ячейки — для рисунка на панели ленты.
+    if (shape) barreOff = barreOffForEventShape(findEventByPosKey(posKey), shape);
   }
   if (!shape) shape = resolveFingeringShape(c, key, null);
-  return { shape, key };
+  return { shape, key, barreOff };
 }
 // Сколько реально звенит струна после удара — величина ФИЗИЧЕСКАЯ и от
 // темпа не зависит: на гитаре нота затухает примерно одинаково, просто
@@ -29904,7 +30061,7 @@ function fillTimelinePanel(kind, chord, posCtx) {
   }
   panel.classList.remove('is-empty');
   nameEl.innerHTML = renderChordDisplayHtml(text);
-  const { shape } = resolveShapeForScheduledChord(text, posCtx);
+  const { shape, barreOff } = resolveShapeForScheduledChord(text, posCtx);
   // Меняем ТОЛЬКО рисунок грифа, не трогая строку кнопок «‹ 1/5 › ✎».
   //
   // Раньше здесь стоял голый innerHTML на весь контейнер. При прокрутке
@@ -29920,7 +30077,7 @@ function fillTimelinePanel(kind, chord, posCtx) {
   const bar = fingEl.querySelector('.tl-fing-controls');
   const oldSvg = fingEl.querySelector('svg');
   if (oldSvg) oldSvg.remove();
-  const svgHtml = shape ? renderFingeringSVG(shape) || '' : '';
+  const svgHtml = shape ? renderFingeringSVG(shape, undefined, { barreOff }) || '' : '';
   if (svgHtml) {
     // Гриф должен лежать ПЕРЕД строкой кнопок: она абсолютный слой в
     // запасе под сеткой, но порядок в разметке определяет, что окажется
@@ -34976,6 +35133,11 @@ toggleTimeAndBeats();
             // Строй, при котором форма выбрана. В другом строе выбор
             // отложен: те же лады звучат иначе.
             fingeringTuning: e.fingeringTuning || null,
+            // B-74: разжатое баррэ этой формы (лады). Пусто/нет — баррэ
+            // рисуется как обычно, поле в файл не пишем.
+            ...(Array.isArray(e.barreOff) && e.barreOff.length
+              ? { barreOff: [...e.barreOff] }
+              : {}),
           })),
         })),
       })),
@@ -35223,6 +35385,18 @@ toggleTimeAndBeats();
     return parts.map((v) => v.trim()).join(',');
   }
 
+  // B-74: разжатое баррэ из файла — массив ладов 1..24. Чужой мусор
+  // молча отбрасываем (null): баррэ нарисуется как обычно.
+  function asSafeBarreOff(value) {
+    if (!Array.isArray(value)) return null;
+    const out = [];
+    for (const raw of value) {
+      const n = Number(raw);
+      if (Number.isInteger(n) && n >= 1 && n <= 24 && !out.includes(n)) out.push(n);
+    }
+    return out.length ? out.sort((a, b) => a - b) : null;
+  }
+
   function asSafeTimeSig(value, fallback) {
     return typeof value === 'string' && ALLOWED_TIME_SIGS.has(value) ? value : fallback;
   }
@@ -35337,6 +35511,9 @@ toggleTimeAndBeats();
               /^@([A-G][#b]?-?\d){6}$/.test(rawEvent.fingeringTuning)
                 ? rawEvent.fingeringTuning
                 : null,
+            // B-74: разжатое баррэ. Старые файлы поля не имеют → null →
+            // баррэ авто. Чистим так же строго, как остальное.
+            barreOff: asSafeBarreOff(rawEvent.barreOff),
           });
         }
         sec.squares.push(sq);
