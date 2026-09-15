@@ -35,27 +35,32 @@ function check(name, cond) {
 
 const EXPECTED = [50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300];
 
-// --- 1. Разметка выпадающего списка ---
+// --- 1. Разметка стилизованного (кастомного) списка ---
 const dom = new JSDOM(html);
 const doc = dom.window.document;
-const sel = doc.getElementById('uiScaleSelect');
-check('select #uiScaleSelect существует', !!sel);
-check('это <select>', sel && sel.tagName === 'SELECT');
-const opts = sel ? [...sel.querySelectorAll('option')] : [];
-check('ровно ' + EXPECTED.length + ' вариантов', opts.length === EXPECTED.length);
-const vals = opts.map((o) => +o.value);
-check('значения = ' + EXPECTED.join(','), JSON.stringify(vals) === JSON.stringify(EXPECTED));
+const picker = doc.getElementById('struchord-scale-picker');
+const list = doc.getElementById('scaleList');
+const head = doc.getElementById('scaleHead');
+check('пикер #struchord-scale-picker существует', !!picker);
+check('заголовок #scaleHead зовёт toggleScaleList', head && /toggleScaleList/.test(head.getAttribute('onclick') || ''));
+check('подпись текущего значения #scaleCurrentName есть', !!doc.getElementById('scaleCurrentName'));
+const opts = list ? [...list.querySelectorAll('.scale-item')] : [];
+check('ровно ' + EXPECTED.length + ' пунктов', opts.length === EXPECTED.length);
+const vals = opts.map((o) => +o.dataset.scale);
+check('значения data-scale = ' + EXPECTED.join(','), JSON.stringify(vals) === JSON.stringify(EXPECTED));
 const labels = opts.map((o) => o.textContent.trim());
 check('подписи = ' + EXPECTED.map((p) => p + '%').join(' '),
   JSON.stringify(labels) === JSON.stringify(EXPECTED.map((p) => p + '%')));
-check('onchange зовёт setUiScale', sel && /setUiScale\(this\.value\)/.test(sel.getAttribute('onchange') || ''));
+check('каждый пункт зовёт setUiScale', opts.every((o) => /setUiScale\(\d+\)/.test(o.getAttribute('onclick') || '')));
+check('это НЕ нативный select', !doc.getElementById('uiScaleSelect'));
 check('слайдера больше нет', !doc.getElementById('uiScaleSlider'));
 check('список внутри меню «Тык» (#toolsDropdown)',
-  !!(doc.getElementById('toolsDropdown') && doc.getElementById('toolsDropdown').querySelector('#uiScaleSelect')));
+  !!(doc.getElementById('toolsDropdown') && doc.getElementById('toolsDropdown').querySelector('#scaleList')));
 
 // --- 2. Функции масштаба в коде ---
 check('есть setUiScale', /function setUiScale\(/.test(html));
 check('есть writeUiScale', /function writeUiScale\(/.test(html));
+check('есть toggleScaleList', /function toggleScaleList\(/.test(html));
 check('есть initUiScale', /function initUiScale\(/.test(html));
 check('есть nearestUiScaleOption', /function nearestUiScaleOption\(/.test(html));
 check('initUiScale вызывается на старте', /\n\s*initUiScale\(\);/.test(html));
