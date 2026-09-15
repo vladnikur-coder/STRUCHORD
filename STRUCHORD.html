@@ -9306,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.223</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.224</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -13487,7 +13487,11 @@ function collectFamilyDerivedShapes(chordName, chordNotes, bassNote, dimColor) {
     if (srcMain.slice(srcRootM[1].length).toLowerCase() !== targetExt) return;
     const srcPc = CHROMATIC.indexOf(toSharpNote(srcRootM[1]));
     if (srcPc === -1) return;
-    const srcShape = list[list.length - 1];
+    // B-75: запись может быть парой {shape, barreOff} — берём лады.
+    // Перенос семейной формы работает только по ладам; баррэ доноров не
+    // тащим (перенесённая форма — заготовка, не своя разжатая).
+    const srcShape = ufEntryShape(list[list.length - 1]);
+    if (!srcShape) return;
     // Открытые струны не переносятся (см. шапку функции).
     if (srcShape.some((f) => f !== 'x' && Number(f) === 0)) return;
     // Ближайшее направление сдвига; если форма не влезла в гриф или не
@@ -13585,12 +13589,14 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
   // дают другой аккорд. Проверять их составом бессмысленно — это его
   // собственный выбор, а не заготовка, и «почти подходящую» свою форму
   // подсовывать нельзя. Они не удалены, а ждут возврата строя.
-  const userShapes = (userFingerings.get(buildFingeringChordKey(chordName, key)) || []).map(
-    (shape) => ({
-      shape,
-      method: 'user',
+  // B-75: запись своей формы несёт и состояние баррэ. Форма с баррэ и
+  // та же форма разжатой — два разных варианта (barreOff в идентичности).
+  const userShapes = (userFingerings.get(buildFingeringChordKey(chordName, key)) || [])
+    .map((entry) => {
+      const shape = ufEntryShape(entry);
+      return shape ? { shape, method: 'user', barreOff: ufEntryBarre(entry) } : null;
     })
-  );
+    .filter(Boolean);
   // Семейный перенос (Aadd9 -> Badd9) собирается, только если у ЭТОГО
   // аккорда своих форм нет: иначе точные свои и так первые, а переносы
   // соседей лишь раздували бы список. Метод 'derived' — чтобы
@@ -13875,10 +13881,20 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
   // источников (user -> open -> caged -> ...) сохраняется.
   const gripKey = (shape) =>
     shape.map((f, i) => (f !== 'x' && f !== 0 ? i + ':' + f : '')).filter(Boolean).join(' ');
+  // B-75: хват баррэ и хват разжатого баррэ НЕ схлопываем — это разные
+  // аппликатуры. Состояние баррэ входит в ключ слота, иначе разжатая
+  // своя форма молча слилась бы с обычной того же хвата.
+  const gripKeyBO = (shape, barreOff) => {
+    const bo = canonicalBarreOff(barreOff);
+    return bo ? gripKey(shape) + '~bo' + bo.join('.') : gripKey(shape);
+  };
 
   // Формы, которые пользователь уже где-то выбрал, схлопывать нельзя:
   // resolveFingeringShape ищет их в списке дословно, и пропажа означала
   // бы молчаливый откат к варианту по умолчанию.
+  // B-75: под защитой — КОМПОЗИТНАЯ идентичность (лады + баррэ). Своя
+  // разжатая форма и обычная того же хвата — разные строки, и защищать
+  // надо именно ту, что реально выбрана в ячейке.
   const protectedShapes = new Set();
   (sections || []).forEach((sec) =>
     (sec.squares || []).forEach((sq) =>
@@ -13886,10 +13902,12 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
         // Только формы, выбранные при ТЕКУЩЕМ строе: остальные сейчас
         // всё равно не подставляются, и держать их в списке не нужно.
         if (ev && ev.fingering && (ev.fingeringTuning || '') === tuningKeySuffix()) {
-          protectedShapes.add(ev.fingering);
+          protectedShapes.add(fingeringIdentity(ev.fingering, ev.barreOff));
         }
       })));
-  // Запасное хранилище: ключ помечен строем, чужие пропускаем.
+  // Запасное хранилище: ключ помечен строем, чужие пропускаем. В нём
+  // хранятся только лады (баррэ живёт на событии), поэтому идентичность
+  // здесь без баррэ — обычную форму это и защищает.
   preferredFingeringByChord.forEach((v, k) => {
     const parts = String(k).split('|');
     const keyPart = parts[1] || '';
@@ -13910,14 +13928,20 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
 
   const uniqueShapes = [];
   const uniqueMethods = [];
+  // B-75: третий параллельный массив — состояние баррэ каждого варианта.
+  // Ненулевой только у своих разжатых форм; движется в связке с
+  // methods/shapes при всех перестановках ниже.
+  const uniqueBarreOffs = [];
   const seen = new Set();
   const gripSlot = new Map();   // хват -> индекс в uniqueShapes
-  for (const { shape, method } of allShapes) {
-    const keyStr = shape.join(',');
+  for (const { shape, method, barreOff } of allShapes) {
+    const bo = canonicalBarreOff(barreOff);
+    // Идентичность варианта = лады + баррэ (см. fingeringIdentity).
+    const keyStr = fingeringIdentity(shape, bo);
     if (seen.has(keyStr)) continue;
     seen.add(keyStr);
 
-    const grip = gripKey(shape);
+    const grip = gripKeyBO(shape, bo);
     const slot = gripSlot.get(grip);
     const isProtected = protectedShapes.has(keyStr);
 
@@ -13927,6 +13951,7 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
       if (slot === undefined) gripSlot.set(grip, uniqueShapes.length);
       uniqueShapes.push(shape);
       uniqueMethods.push(method);
+      uniqueBarreOffs.push(bo);
       continue;
     }
 
@@ -13939,8 +13964,10 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
     // позиции оказывался fallback (12.0) вместо caged, хотя блок CAGED
     // ещё не кончился. Позиция принадлежит блоку, а не конкретной форме.
     const prev = uniqueShapes[slot];
-    if (!protectedShapes.has(prev.join(',')) && scoreOf(shape) > scoreOf(prev)) {
+    if (!protectedShapes.has(fingeringIdentity(prev, uniqueBarreOffs[slot])) &&
+        scoreOf(shape) > scoreOf(prev)) {
       uniqueShapes[slot] = shape;
+      uniqueBarreOffs[slot] = bo;
     }
   }
 
@@ -13985,12 +14012,14 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
     const run = uniqueShapes.slice(from, to).map((shape, i) => ({
       shape,
       method: uniqueMethods[from + i],
+      barreOff: uniqueBarreOffs[from + i],
       score: scoreOf(shape),
     }));
     run.sort((a, b) => b.score - a.score);
     run.forEach((t, i) => {
       uniqueShapes[from + i] = t.shape;
       uniqueMethods[from + i] = t.method;
+      uniqueBarreOffs[from + i] = t.barreOff;
     });
   };
   if (bassNote) {
@@ -14073,9 +14102,11 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
   siftOrder.sort((a, b) => siftRank(a) - siftRank(b));
   const siftedShapes = siftOrder.map((i) => uniqueShapes[i]);
   const siftedMethods = siftOrder.map((i) => uniqueMethods[i]);
+  const siftedBarreOffs = siftOrder.map((i) => uniqueBarreOffs[i]);
   for (let i = 0; i < siftedShapes.length; i++) {
     uniqueShapes[i] = siftedShapes[i];
     uniqueMethods[i] = siftedMethods[i];
+    uniqueBarreOffs[i] = siftedBarreOffs[i];
   }
 
   // Разнообразие — витрина внутри product-tier, но НЕ перестановка
@@ -14130,12 +14161,15 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
     if (to - from < 2) return;
     const headShapes = [];
     const headMethods = [];
+    const headBarreOffs = [];
     const headFrames = [];
     const restShapes = [];
     const restMethods = [];
+    const restBarreOffs = [];
     for (let i = from; i < to; i++) {
       const shape = uniqueShapes[i];
       const method = uniqueMethods[i];
+      const barreOff = uniqueBarreOffs[i];
       const frame = famFrame(shape);
       const duplicate =
         headShapes.length < DIVERSIFY_TOP &&
@@ -14143,17 +14177,21 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
       if (!duplicate && headShapes.length < DIVERSIFY_TOP) {
         headShapes.push(shape);
         headMethods.push(method);
+        headBarreOffs.push(barreOff);
         headFrames.push(frame);
       } else {
         restShapes.push(shape);
         restMethods.push(method);
+        restBarreOffs.push(barreOff);
       }
     }
     const shapes = [...headShapes, ...restShapes];
     const methods = [...headMethods, ...restMethods];
+    const barreOffs = [...headBarreOffs, ...restBarreOffs];
     for (let i = from; i < to; i++) {
       uniqueShapes[i] = shapes[i - from];
       uniqueMethods[i] = methods[i - from];
+      uniqueBarreOffs[i] = barreOffs[i - from];
     }
   };
   // После sift один источник может встречаться в нескольких местах
@@ -14206,6 +14244,10 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
   const result = {
     shapes: uniqueShapes,
     methods: uniqueMethods,
+    // B-75: состояние баррэ каждого варианта, параллельно shapes/methods.
+    // null у всех, кроме своих разжатых форм — старые читатели, глядящие
+    // только на shapes/methods, работают как раньше.
+    barreOffs: uniqueBarreOffs,
     diagnostics: autoResult.diagnostics || null,
   };
   result.explain = (index) => {
@@ -14262,6 +14304,57 @@ function barreOffForEventShape(ev, form) {
   const formKey = Array.isArray(form) ? form.join(',') : String(form);
   if (ev.fingering && ev.fingering !== formKey) return null;
   return ev.barreOff;
+}
+
+// B-75: баррэ — ЧАСТЬ идентичности аппликатуры. Форма с баррэ и та же
+// форма с разжатым баррэ — два разных варианта. Приводим флаг к
+// каноничному массиву ладов (отсортирован, без дублей, 1..24), чтобы
+// идентичность и сравнение были однозначны.
+function canonicalBarreOff(value) {
+  const set = normalizeBarreOffSet(value);
+  if (!set) return null;
+  const arr = Array.from(set).sort((a, b) => a - b);
+  return arr.length ? arr : null;
+}
+
+// Каноничный ключ аппликатуры = лады + состояние баррэ. Именно по нему
+// идёт дедуп вариантов, счётчик и сопоставление выбора ячейки. Форма без
+// разжатого баррэ даёт ровно прежнюю строку («1,3,3,2,1,1»), поэтому
+// старые файлы/вызовы совместимы бит-в-бит; разжатая версия получает
+// хвост «~bo1» и живёт отдельной строкой.
+function fingeringIdentity(shape, barreOff) {
+  const base = Array.isArray(shape) ? shape.join(',') : String(shape);
+  const bo = canonicalBarreOff(barreOff);
+  return bo ? base + '~bo' + bo.join('.') : base;
+}
+
+// B-75: запись библиотеки форм (userFingerings) может быть как «голым»
+// массивом ладов (старые файлы, прежний in-memory формат), так и парой
+// {shape, barreOff}. Эти два помощника читают её единообразно, поэтому
+// остальной код не заботится о формате.
+function ufEntryShape(entry) {
+  return Array.isArray(entry) ? entry : entry && entry.shape ? entry.shape : null;
+}
+function ufEntryBarre(entry) {
+  return Array.isArray(entry) ? null : entry ? canonicalBarreOff(entry.barreOff) : null;
+}
+
+// B-75: добавить/обновить свою форму в списке библиотеки. Идентичность
+// записи — лады + баррэ: разжатая версия тех же ладов сохраняется
+// ОТДЕЛЬНОЙ записью. Совпадающая по идентичности запись поднимается в
+// конец (умолчание для новых ячеек — последняя сохранённая). Формат
+// записи всегда новый ({shape, barreOff}); голый массив без баррэ пишем
+// как {shape, barreOff:null} — читатели (ufEntryShape/Barre) поймут оба.
+function upsertUserFingering(list, shape, barreOff) {
+  const bo = canonicalBarreOff(barreOff);
+  const wantId = fingeringIdentity(shape, bo);
+  for (let i = list.length - 1; i >= 0; i--) {
+    if (fingeringIdentity(ufEntryShape(list[i]), ufEntryBarre(list[i])) === wantId) {
+      list.splice(i, 1);
+    }
+  }
+  list.push(bo ? { shape: [...shape], barreOff: bo } : { shape: [...shape], barreOff: null });
+  return list;
 }
 
 function renderFingeringSVG(fingers, bottomPad, opts) {
@@ -14811,9 +14904,19 @@ function resolveFingeringShape(chordName, key, posKey, ev) {
 //   modified/fallback ... «1/164(авто)»
 // Это остаётся верным и после diversity-перестановки верхней части:
 // категории могут быть не непрерывны в массиве.
-function fingeringCounterText(variants, methods, shape) {
-  const keyStr = shape.join(',');
-  const idx = variants.findIndex((v) => v.join(',') === keyStr);
+function fingeringCounterText(variants, methods, shape, barreOffs, barreOff) {
+  // B-75: если известны состояния баррэ вариантов, ищем по КОМПОЗИТНОЙ
+  // идентичности (лады+баррэ) — иначе своя разжатая форма и обычная того
+  // же хвата дали бы один индекс. Без barreOffs (старые вызовы) —
+  // поиск по ладам, поведение прежнее.
+  let idx;
+  if (Array.isArray(barreOffs)) {
+    const wantId = fingeringIdentity(shape, barreOff);
+    idx = variants.findIndex((v, i) => fingeringIdentity(v, barreOffs[i]) === wantId);
+    if (idx === -1) idx = variants.findIndex((v) => v.join(',') === shape.join(','));
+  } else {
+    idx = variants.findIndex((v) => v.join(',') === shape.join(','));
+  }
   if (idx === -1) return '';
   const bucketOf = (m) =>
     m === 'user' || m === 'derived'
@@ -15140,8 +15243,10 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
   const result = window.getFingeringVariants(chordName, key);
   const variants = result ? result.shapes : [];
   const methods = result ? result.methods : [];
+  // B-75: состояния баррэ вариантов, параллельно variants/methods.
+  const barreOffs = result ? result.barreOffs || [] : [];
 
-  const renderContent = (shape) => {
+  const renderContent = (shape, shownBarreOff) => {
     const content = tooltipEl.querySelector('.fingering-content');
     if (!content) return;
 
@@ -15149,22 +15254,24 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     // 30 — исходный запас под сеткой: высота SVG 180px, как было до
     // правок. Кнопки в редакторе стоят ПОД грифом, в этот запас ничего
     // не кладётся.
-    // B-74: флаг «разжатого баррэ» живёт на событии и относится к его
-    // выбранной форме. Пока тултип листает варианты, применяем флаг только
-    // к той форме, что реально стоит в ячейке.
+    // B-75: состояние баррэ показанного варианта. Если передано явно
+    // (листание/выбор) — берём его; иначе (обратная совместимость) флаг
+    // с события, но только для формы, реально стоящей в ячейке.
     const barreOffForShape =
-      eventForTooltip &&
-      Array.isArray(eventForTooltip.barreOff) &&
-      eventForTooltip.fingering === shape.join(',')
-        ? eventForTooltip.barreOff
-        : null;
+      shownBarreOff !== undefined
+        ? shownBarreOff
+        : eventForTooltip &&
+          Array.isArray(eventForTooltip.barreOff) &&
+          eventForTooltip.fingering === shape.join(',')
+          ? eventForTooltip.barreOff
+          : null;
     const svg = renderFingeringSVG(shape, 30, { barreOff: barreOffForShape }) || '';
 
     // Счётчик — единый с панелью «Сейчас»: «2/5», у своих «1/1(польз.)»,
     // у авто-подстановок «1/164(авто)» — см. fingeringCounterText.
     let counterText = '';
     if (hasMultiple) {
-      counterText = fingeringCounterText(variants, methods, shape);
+      counterText = fingeringCounterText(variants, methods, shape, barreOffs, barreOffForShape);
     }
 
     let previewBadge = '';
@@ -15282,19 +15389,30 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
         // закреплённой ячейки — вообще её собственный выбор. Отсчёт от
         // variants[0] делал первое нажатие «вправо» возвратом на уже
         // виденное.
+        // B-75: индекс ищем по КОМПОЗИТНОЙ идентичности (лады+баррэ) —
+        // иначе своя разжатая форма и обычная того же хвата неразличимы.
         const currentShape =
           preferredFingeringByChord.get(cacheKey) ||
           (resolveFingeringShape(chordName, key, cacheKey, eventForTooltip) || variants[0]).join(',');
-        let idx = variants.findIndex((v) => v.join(',') === currentShape);
+        const currentBO =
+          eventForTooltip && eventForTooltip.fingering === currentShape
+            ? eventForTooltip.barreOff
+            : null;
+        const wantId = fingeringIdentity(currentShape, currentBO);
+        let idx = variants.findIndex((v, i) => fingeringIdentity(v, barreOffs[i]) === wantId);
+        if (idx === -1) idx = variants.findIndex((v) => v.join(',') === currentShape);
         if (idx === -1) idx = 0;
 
         if (leftBtn && idx > 0) idx--;
         else if (rightBtn && idx < variants.length - 1) idx++;
 
         const newShape = variants[idx].join(',');
-        setPreferredFingering(cacheKey, newShape);
+        const newBO = barreOffs[idx] || null;
+        // Выбор варианта = лады + баррэ. Пишем оба поля на событие, чтобы
+        // разжатая форма пережила переиндексацию и сохранение.
+        setPreferredFingering(cacheKey, newShape, eventForTooltip || undefined, newBO || []);
         tooltipEl.dataset.currentShape = newShape;
-        renderContent(variants[idx]);
+        renderContent(variants[idx], newBO);
         if (!isPreview) {
           positionMainTooltip(wrapper);
           const previewEl = document.getElementById('preview-tooltip');
@@ -17411,7 +17529,10 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
       // новая пользовательская аппликатура станет для них variants[0].
       pinCurrentFingeringsForChord(finalChord, finalKey, posKeyForNew);
       const userList = userFingerings.get(newCacheKey) || [];
-      userList.push([...currentShape]);
+      // B-75: запись библиотеки = пара {лады, баррэ}. Разжатая версия
+      // формы — отдельная своя аппликатура, поэтому одинаковые лады с
+      // разным баррэ дают разные записи (upsertUserFingering).
+      upsertUserFingering(userList, [...currentShape], fretboardObj.getBarreOff());
       userFingerings.set(newCacheKey, userList);
       // Точечного delete мало: свежая форма меняет семейные производные
       // соседних аккордов (collectFamilyDerivedShapes).
@@ -17458,15 +17579,11 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
         );
         pinCurrentFingeringsForChord(pinChord, pinKey, pinPosKey);
     }
-    if (!renamedDuringEdit && variantIndex < userList.length) {
-        // Перезапись существующей своей формы: поднимаем её в конец —
-        // умолчанием для новых ячеек является ПОСЛЕДНЯЯ сохранённая, и
-        // только что отредактированная — это она.
-        userList.splice(variantIndex, 1);
-        userList.push([...currentShape]);
-    } else {
-        userList.push([...currentShape]);
-    }
+    // B-75: сохранение своей формы = пара {лады, баррэ}. upsert
+    // поднимает совпадающую по КОМПОЗИТНОЙ идентичности запись в конец
+    // (последняя = умолчание для новых ячеек), либо добавляет новую;
+    // разжатая версия тех же ладов — отдельная запись.
+    upsertUserFingering(userList, [...currentShape], fretboardObj.getBarreOff());
     userFingerings.set(targetCacheKey, userList);
     // Точечного delete мало: семейные производные других аккордов
     // (collectFamilyDerivedShapes) построены из прежнего userFingerings.
@@ -23763,6 +23880,7 @@ function updatePausedFingeringControls(pos) {
   const result = window.getFingeringVariants ? window.getFingeringVariants(chord, key) : null;
   const variants = result ? result.shapes : [];
   const methods = result ? result.methods || [] : [];
+  const barreOffs = result ? result.barreOffs || [] : [];
   if (!variants.length) {
     if (bar) bar.remove();
     return;
@@ -23781,7 +23899,13 @@ function updatePausedFingeringControls(pos) {
   const current =
     preferredFingeringByChord.get(posKey) ||
     ((resolveFingeringShape(chord, key, posKey, ev) || [])).join(',');
-  let idx = current ? variants.findIndex((v) => v.join(',') === current) : 0;
+  // B-75: индекс по КОМПОЗИТНОЙ идентичности (лады+баррэ ячейки).
+  const currentBO = ev && ev.fingering === current ? ev.barreOff : null;
+  const wantId = fingeringIdentity(current, currentBO);
+  let idx = current
+    ? variants.findIndex((v, i) => fingeringIdentity(v, barreOffs[i]) === wantId)
+    : 0;
+  if (idx < 0) idx = current ? variants.findIndex((v) => v.join(',') === current) : 0;
   if (idx < 0) idx = 0;
   // Листаем в пределах осмысленных форм: дальше идут авто-подстановки,
   // которые почти не отличаются друг от друга.
@@ -23856,7 +23980,8 @@ function updatePausedFingeringControls(pos) {
         if (next < 0 || next >= limit) return;
         // Выбор закрепляется за КОНКРЕТНЫМ местом в песне (posKey), а не
         // за именем аккорда: тот же Am в другом такте берут иначе.
-        setPreferredFingering(posKey, variants[next].join(','));
+        // B-75: выбор = лады + баррэ варианта.
+        setPreferredFingering(posKey, variants[next].join(','), ev || undefined, barreOffs[next] || []);
         showPausedFingering(timelineActiveCell);
       };
       return btn;
@@ -23870,7 +23995,7 @@ function updatePausedFingeringControls(pos) {
     );
     // Тот же текст, что в тултипе (см. fingeringCounterText): «2/5» у
     // штатных, «1/1(польз.)» у своих, «1/…(авто)» у подстановок.
-    counter.textContent = fingeringCounterText(variants, methods, variants[idx]);
+    counter.textContent = fingeringCounterText(variants, methods, variants[idx], barreOffs, barreOffs[idx]);
     bar.appendChild(counter);
 
     bar.appendChild(navBtn('tooltip-nav-right', 'ti ti-chevron-right', 1, idx >= limit - 1));
@@ -35142,7 +35267,17 @@ toggleTimeAndBeats();
         })),
       })),
       nextId,
-      userFingerings: [...userFingerings.entries()].map(([key, shapes]) => [key, shapes]),
+      // B-75: запись библиотеки может быть парой {shape, barreOff}.
+      // В файл пишем компактно: без баррэ — голым массивом ладов (как
+      // раньше, старые читатели совместимы), с баррэ — объектом.
+      userFingerings: [...userFingerings.entries()].map(([key, list]) => [
+        key,
+        (list || []).map((entry) => {
+          const shape = ufEntryShape(entry);
+          const bo = ufEntryBarre(entry);
+          return bo ? { shape, barreOff: bo } : shape;
+        }),
+      ]),
       // В файл уезжают только ЖИВЫЕ записи карты: позиция обязана
       // существовать и аккорд в ключе — совпадать с событием (сверка
       // внутри findEventByPosKey). Запись, противоречащая форме самого
@@ -35524,7 +35659,27 @@ toggleTimeAndBeats();
     if (Array.isArray(rawSong.userFingerings)) {
       rawSong.userFingerings.slice(0, 500).forEach((entry) => {
         if (!Array.isArray(entry) || typeof entry[0] !== 'string' || !Array.isArray(entry[1])) return;
-        const shapes = entry[1].slice(0, 100).map(cloneSafeShape).filter(Boolean);
+        // B-75: элемент списка — либо голый массив ладов (старый формат),
+        // либо {shape, barreOff}. Санитайзим и то, и другое; форму-мусор
+        // отбрасываем, битый barreOff вычищаем до null (баррэ авто).
+        const shapes = entry[1]
+          .slice(0, 100)
+          .map((raw) => {
+            if (Array.isArray(raw)) {
+              const s = cloneSafeShape(raw);
+              return s ? { shape: s, barreOff: null } : null;
+            }
+            if (raw && typeof raw === 'object') {
+              const s = cloneSafeShape(raw.shape);
+              if (!s) return null;
+              return { shape: s, barreOff: asSafeBarreOff(raw.barreOff) };
+            }
+            return null;
+          })
+          .filter(Boolean)
+          // В памяти без баррэ держим голым массивом (как прежде), с
+          // баррэ — объектом; так остальной код и файл минимально шумят.
+          .map((e) => (e.barreOff ? e : e.shape));
         if (shapes.length) userFingerings.push([entry[0].slice(0, SONG_LIMITS.MAX_TEXT), shapes]);
       });
     }
