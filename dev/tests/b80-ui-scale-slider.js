@@ -35,21 +35,23 @@ function check(name, cond) {
 
 const EXPECTED = [50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300];
 
-// --- 1. Разметка кнопок-вариантов ---
+// --- 1. Разметка выпадающего списка ---
 const dom = new JSDOM(html);
 const doc = dom.window.document;
-const box = doc.getElementById('uiScaleOptions');
-check('контейнер #uiScaleOptions существует', !!box);
-const opts = box ? [...box.querySelectorAll('.scale-opt')] : [];
+const sel = doc.getElementById('uiScaleSelect');
+check('select #uiScaleSelect существует', !!sel);
+check('это <select>', sel && sel.tagName === 'SELECT');
+const opts = sel ? [...sel.querySelectorAll('option')] : [];
 check('ровно ' + EXPECTED.length + ' вариантов', opts.length === EXPECTED.length);
-const labels = opts.map((b) => b.textContent.trim());
+const vals = opts.map((o) => +o.value);
+check('значения = ' + EXPECTED.join(','), JSON.stringify(vals) === JSON.stringify(EXPECTED));
+const labels = opts.map((o) => o.textContent.trim());
 check('подписи = ' + EXPECTED.map((p) => p + '%').join(' '),
   JSON.stringify(labels) === JSON.stringify(EXPECTED.map((p) => p + '%')));
-check('каждая кнопка зовёт setUiScale',
-  opts.every((b) => /setUiScale\(\d+\)/.test(b.getAttribute('onclick') || '')));
+check('onchange зовёт setUiScale', sel && /setUiScale\(this\.value\)/.test(sel.getAttribute('onchange') || ''));
 check('слайдера больше нет', !doc.getElementById('uiScaleSlider'));
-check('варианты внутри меню «Тык» (#toolsDropdown)',
-  !!(doc.getElementById('toolsDropdown') && doc.getElementById('toolsDropdown').querySelector('#uiScaleOptions')));
+check('список внутри меню «Тык» (#toolsDropdown)',
+  !!(doc.getElementById('toolsDropdown') && doc.getElementById('toolsDropdown').querySelector('#uiScaleSelect')));
 
 // --- 2. Функции масштаба в коде ---
 check('есть setUiScale', /function setUiScale\(/.test(html));
