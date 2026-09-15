@@ -40,11 +40,14 @@ const dom = new JSDOM(html);
 const doc = dom.window.document;
 const picker = doc.getElementById('struchord-scale-picker');
 const list = doc.getElementById('scaleList');
-const head = doc.getElementById('scaleHead');
+// Триггер-пилюля (как у «Размер»): pill + всплывающая .meta-pill-list.
+const pill = doc.getElementById('scalePill');
 check('пикер #struchord-scale-picker существует', !!picker);
-check('заголовок #scaleHead зовёт toggleScaleList', head && /toggleScaleList/.test(head.getAttribute('onclick') || ''));
+check('пилюля #scalePill зовёт toggleScaleList', pill && /toggleScaleList/.test(pill.getAttribute('onclick') || ''));
 check('подпись текущего значения #scaleCurrentName есть', !!doc.getElementById('scaleCurrentName'));
-const opts = list ? [...list.querySelectorAll('.scale-item')] : [];
+check('список масштаба использует стиль .meta-pill-list (как «Размер»)',
+  list && list.classList.contains('meta-pill-list'));
+const opts = list ? [...list.querySelectorAll('.meta-pill-item')] : [];
 check('ровно ' + EXPECTED.length + ' пунктов', opts.length === EXPECTED.length);
 const vals = opts.map((o) => +o.dataset.scale);
 check('значения data-scale = ' + EXPECTED.join(','), JSON.stringify(vals) === JSON.stringify(EXPECTED));
