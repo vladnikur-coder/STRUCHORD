@@ -17335,9 +17335,11 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     ? 'Новый аккорд по аппликатуре'
     : `${headingPrefix}<span id="fingering-editor-heading-chord">${escapeHtml(headingChordName)}</span>`;
   const saveLabel = createMode ? 'Добавить аккорд' : 'Сохранить';
-  // B-76: во втором ряду кнопок редактора (только при правке, не при
-  // создании) прячется «Сохранить для всех Am» — раскрывается по
-  // наведению на ряд. Имя аккорда подставляем в подпись.
+  // B-76: «Сохранить для всех Am» — плавающая пилюля НАД кнопкой
+  // «Сохранить», по образцу подсказки «По аппликатуре»
+  // (.manual-input-fingering-btn): тёмная пилюля с хвостиком-стрелкой,
+  // видна сразу (не по наведению), только в режиме правки. Имя аккорда
+  // подставляем в подпись.
   const applyAllLabel = createMode
     ? ''
     : `Сохранить для всех ${escapeHtml(chordName)}`;
@@ -17374,16 +17376,18 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     Стереть
   </button>
 
-  <button id="save-fingering"
-          style="padding:8px 20px;background:var(--color-ink);color:white;border:none;border-radius:20px;cursor:pointer">
-    ${saveLabel}
-  </button>
-
-  ${createMode ? '' : `<button id="save-fingering-all" type="button"
-          title="Применить эту форму ко всем вхождениям аккорда в песне"
-          style="display:none;padding:8px 16px;background:var(--color-neutral-bg);border:1px solid var(--color-border-medium);border-radius:20px;cursor:pointer;font-size:13px;color:var(--color-ink);white-space:nowrap">
-    ${applyAllLabel}
-  </button>`}
+  <span id="save-fingering-wrap" style="position:relative;display:inline-flex">
+    ${createMode ? '' : `<button id="save-fingering-all" type="button"
+            class="manual-input-fingering-btn"
+            title="Применить эту форму ко всем вхождениям аккорда в песне"
+            style="position:absolute;left:50%;top:0;">
+      ${applyAllLabel}
+    </button>`}
+    <button id="save-fingering"
+            style="padding:8px 20px;background:var(--color-ink);color:white;border:none;border-radius:20px;cursor:pointer">
+      ${saveLabel}
+    </button>
+  </span>
 
 </div>
 `;
@@ -17708,18 +17712,13 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     commitEditSave(false);
   };
 
-  // B-76: «Сохранить для всех Am». Раскрывается по наведению на ряд
-  // кнопок (см. actionsRow ниже). Если среди прочих вхождений есть
-  // вручную закреплённые — спрашиваем подтверждение перед перезаписью;
-  // если перекрывать нечего, применяем сразу.
+  // B-76: «Сохранить для всех Am» — плавающая пилюля над «Сохранить»
+  // (класс .manual-input-fingering-btn, как подсказка «По аппликатуре»:
+  // hover-масштаб и хвостик-стрелка живут в CSS). Если среди прочих
+  // вхождений есть вручную закреплённые — спрашиваем подтверждение перед
+  // перезаписью; если перекрывать нечего, применяем сразу.
   const saveAllBtn = document.getElementById('save-fingering-all');
   if (saveAllBtn) {
-    saveAllBtn.addEventListener('mouseenter', () => {
-      saveAllBtn.style.background = 'var(--color-surface-hover)';
-    });
-    saveAllBtn.addEventListener('mouseleave', () => {
-      saveAllBtn.style.background = 'var(--color-neutral-bg)';
-    });
     saveAllBtn.onclick = () => {
       const targetCacheKey = activeCacheKey || cacheKey;
       let pinnedCount = 0;
@@ -17746,21 +17745,6 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
       }
       commitEditSave(true);
     };
-  }
-
-  // B-76: раскрытие «Сохранить для всех» по наведению на ряд кнопок.
-  // Прячем по умолчанию, показываем пока курсор над рядом (или фокус на
-  // самой кнопке — для клавиатуры).
-  const actionsRow = document.getElementById('fingering-editor-actions');
-  if (actionsRow && saveAllBtn) {
-    const showAll = () => { saveAllBtn.style.display = ''; };
-    const hideAll = () => {
-      if (document.activeElement !== saveAllBtn) saveAllBtn.style.display = 'none';
-    };
-    actionsRow.addEventListener('mouseenter', showAll);
-    actionsRow.addEventListener('mouseleave', hideAll);
-    saveAllBtn.addEventListener('focus', showAll);
-    saveAllBtn.addEventListener('blur', hideAll);
   }
 
   document.getElementById('clear-fingering').onclick = () => {
