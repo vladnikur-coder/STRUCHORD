@@ -48,6 +48,17 @@
           // загрузке мелькнёт палитра по умолчанию.
           var scheme = localStorage.getItem('struchord-scheme');
           if (scheme) document.documentElement.setAttribute('data-scheme', scheme);
+          // Масштаб UI (B-80): ставим --ui-scale ДО первой отрисовки,
+          // иначе на кадр мелькнёт дефолтные 125%. Значение в процентах,
+          // шаг 5, клампим 25..300; пусто → остаётся дефолт из :root.
+          var uiScale = localStorage.getItem('struchord-ui-scale');
+          if (uiScale != null) {
+            var p = Math.round(parseFloat(uiScale) / 5) * 5;
+            if (isFinite(p)) {
+              p = Math.max(25, Math.min(300, p));
+              document.documentElement.style.setProperty('--ui-scale', (p / 100).toString());
+            }
+          }
         } catch (e) {
           /* localStorage недоступен (приватный режим и т.п.) — просто остаёмся на светлой теме */
         }
@@ -5246,6 +5257,63 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   outline: 0.125rem solid var(--color-accent);
   outline-offset: 0.125rem;
 }
+/* ---- B-80: ползунок масштаба UI в меню «Тык» ---- */
+.tools-scale {
+  margin-top: 0.25rem;
+  padding: 0.5rem 0.75rem 0.375rem;
+  border-top: 0.0625rem solid var(--color-border-light);
+}
+.tools-scale-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--color-text-secondary);
+  margin-bottom: 0.375rem;
+}
+.tools-scale-value {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--color-accent);
+}
+/* Слайдер стилизуем сами: appearance:none снимает нативный вид,
+   дорожка и бегунок — на CSS-переменных (работает во всех схемах/темах),
+   размеры в rem, чтобы масштабировались тем же токеном. */
+.tools-scale-slider {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 0.25rem;
+  border-radius: 0.125rem;
+  background: var(--color-border-medium);
+  cursor: pointer;
+  margin: 0;
+}
+.tools-scale-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 0.125rem solid var(--color-surface);
+  box-shadow: 0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.tools-scale-slider::-moz-range-thumb {
+  width: 1rem;
+  height: 1rem;
+  border-radius: 50%;
+  background: var(--color-accent);
+  border: 0.125rem solid var(--color-surface);
+  box-shadow: 0 0.0625rem 0.1875rem rgba(0, 0, 0, 0.25);
+  cursor: pointer;
+}
+.tools-scale-slider:focus-visible {
+  outline: 0.125rem solid var(--color-accent);
+  outline-offset: 0.1875rem;
+}
 /* ---- Выбор цветовой схемы в меню «Тык» ---- */
 .tools-scheme {
   margin-top: 0.25rem;
@@ -9621,7 +9689,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.233</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.234</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -9675,6 +9743,28 @@ body.is-timeline.is-playing .timeline-playhead {
     ><input type="checkbox" id="showTimeAndBeats" onchange="toggleTimeAndBeats()"  />
     Расширенный контроль размера</label
   >
+
+  <!-- B-80: ползунок масштаба UI. Пишет в единый токен --ui-scale (B-79),
+       поэтому меняет размер всего интерфейса одним числом; значение
+       хранится в localStorage и применяется до первой отрисовки в раннем
+       inline-скрипте. Зум браузера перемножается поверх. -->
+  <div class="tools-scale" role="group" aria-label="Масштаб интерфейса">
+    <div class="tools-scale-head">
+      <span>Масштаб</span>
+      <span class="tools-scale-value" id="uiScaleValue">125%</span>
+    </div>
+    <input
+      type="range"
+      id="uiScaleSlider"
+      class="tools-scale-slider"
+      min="25"
+      max="300"
+      step="5"
+      value="125"
+      aria-label="Масштаб интерфейса в процентах"
+      oninput="onUiScaleInput(this.value)"
+    />
+  </div>
 
           <div class="tools-scheme" id="struchord-scheme-picker">
             <button type="button" class="tools-label--head scheme-head" id="schemeHead" aria-expanded="false" aria-controls="schemeList" onclick="toggleSchemeList()" title="Показать список схем"><span>Цветовая схема</span><span class="scheme-head-right"><span class="scheme-head-current" id="schemeCurrentName">Дефолт</span><i class="ti ti-chevron-down"></i></span></button>
@@ -27820,6 +27910,53 @@ function initTheme() {
   applyThemeIcon(getCurrentTheme());
 }
 
+// ========== МАСШТАБ ИНТЕРФЕЙСА (B-80) ==========
+// Одна ручка — токен --ui-scale (B-79): rem всей вёрстки считается от
+// корневого font-size = 100% × scale, поэтому размер интерфейса меняется
+// одним числом, без zoom (координаты drag/тултипов остаются 1:1).
+const UI_SCALE_DEFAULT = 125; // проценты, дефолт волны B-79
+const UI_SCALE_MIN = 25;
+const UI_SCALE_MAX = 300;
+function clampUiScale(pct) {
+  pct = Math.round(Number(pct) / 5) * 5; // шаг 5%
+  if (!isFinite(pct)) pct = UI_SCALE_DEFAULT;
+  return Math.max(UI_SCALE_MIN, Math.min(UI_SCALE_MAX, pct));
+}
+// Применяет масштаб к корню (пишет --ui-scale как долю) и обновляет
+// подпись значения. Модель/DOM не трогает — только CSS-переменную.
+function applyUiScale(pct, opts) {
+  const p = clampUiScale(pct);
+  document.documentElement.style.setProperty('--ui-scale', (p / 100).toString());
+  const val = document.getElementById('uiScaleValue');
+  if (val) val.textContent = p + '%';
+  const slider = document.getElementById('uiScaleSlider');
+  if (slider && !(opts && opts.fromSlider) && +slider.value !== p) slider.value = p;
+  return p;
+}
+// oninput слайдера — вживую при перетаскивании; в localStorage пишем тут
+// же (запись копеечная, значение целое).
+function onUiScaleInput(pct) {
+  const p = applyUiScale(pct, { fromSlider: true });
+  try {
+    localStorage.setItem('struchord-ui-scale', String(p));
+  } catch (e) {
+    // localStorage недоступен — масштаб не переживёт перезагрузку
+  }
+}
+// Стартовая синхронизация: раскладку масштаба ставит ранний inline-скрипт
+// в <head> (до первой отрисовки, чтобы не мелькал дефолт); здесь только
+// подтягиваем ползунок и подпись под уже применённое значение.
+function initUiScale() {
+  let saved = null;
+  try {
+    saved = localStorage.getItem('struchord-ui-scale');
+  } catch (e) {
+    /* недоступно */
+  }
+  const p = saved != null ? clampUiScale(saved) : UI_SCALE_DEFAULT;
+  applyUiScale(p);
+}
+
 // ========== ЦВЕТОВЫЕ СХЕМЫ ==========
 // Схема — это НАБОР ПЕРЕМЕННЫХ поверх базовой палитры, а не замена
 // светлой/тёмной темы: обе оси независимы. Пустой id означает
@@ -35575,6 +35712,7 @@ document.addEventListener('keydown', (e) => {
 initDemo();
 initTheme();
 initScheme();
+initUiScale();
 initThemeLongPress();
 // B-64: панель структуры. Слушатели вешаются один раз, дальше список
 // обновляется из render().
