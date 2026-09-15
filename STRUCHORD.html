@@ -9306,7 +9306,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.224</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.225</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14676,6 +14676,62 @@ function pinCurrentFingeringsForChord(chordName, key, exceptPosKey) {
   });
 }
 
+// B-76: «Сохранить для всех Am» — ОБРАТНАЯ операция к pin выше. Вместо
+// того чтобы защищать прочие вхождения аккорда от смены умолчания, здесь
+// мы НАМЕРЕННО прописываем одну и ту же форму (лады + баррэ, B-75) во все
+// вхождения этого имени во всей песне. Перекрывает и вручную выбранные
+// ячейки тоже — на то и «для ВСЕХ».
+//
+// Ключ (тональность) не отсекаем — как и pin: одно имя аккорда с одной
+// формой ладов звучит одинаково, а seмейный перенос и так завязан на
+// имя. Строй проставит setPreferredFingering (текущий), песня одного
+// строя.
+function applyFingeringToAllOccurrences(chordName, key, shapeStr, barreOff, exceptPosKey) {
+  const target = String(chordName || '').trim();
+  if (!target || !shapeStr) return 0;
+  let n = 0;
+  (sections || []).forEach((sec) => {
+    const secKey = sec.key ? sec.key : globalKey;
+    (sec.squares || []).forEach((sq) => {
+      (sq.events || []).forEach((ev, ei) => {
+        if (String(ev.chord || '').trim() !== target) return;
+        const posKey = buildFingeringPositionKey(target, secKey, sec.id, sq.id, ei);
+        if (posKey === exceptPosKey) return; // редактируемую ячейку пишем отдельно
+        // ev передаём явно — как в pin: поиск по позиционному ключу в
+        // момент переиндексации мог бы вернуть соседа.
+        setPreferredFingering(posKey, shapeStr, ev, barreOff);
+        n++;
+      });
+    });
+  });
+  return n;
+}
+
+// B-76: сколько ДРУГИХ вхождений аккорда сейчас имеют РУЧНОЙ выбор формы
+// (форма на событии в текущем строе или запись в карте выбора). Именно
+// их «Сохранить для всех» перезапишет — поэтому окно подтверждения
+// показываем, только когда это число > 0 (иначе перекрывать нечего).
+function countPinnedOccurrences(chordName, key, exceptPosKey) {
+  const target = String(chordName || '').trim();
+  if (!target) return 0;
+  const suffix = typeof tuningKeySuffix === 'function' ? tuningKeySuffix() : '';
+  let n = 0;
+  (sections || []).forEach((sec) => {
+    const secKey = sec.key ? sec.key : globalKey;
+    (sec.squares || []).forEach((sq) => {
+      (sq.events || []).forEach((ev, ei) => {
+        if (String(ev.chord || '').trim() !== target) return;
+        const posKey = buildFingeringPositionKey(target, secKey, sec.id, sq.id, ei);
+        if (posKey === exceptPosKey) return;
+        const pinnedOnEvent = ev.fingering && (ev.fingeringTuning || '') === suffix;
+        const pinnedInMap = preferredFingeringByChord.has(posKey);
+        if (pinnedOnEvent || pinnedInMap) n++;
+      });
+    });
+  });
+  return n;
+}
+
 // ---- Выбранная аппликатура хранится НА САМОМ СОБЫТИИ ----
 //
 // Раньше выбор жил только в preferredFingeringByChord под ключом
@@ -17279,6 +17335,12 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     ? 'Новый аккорд по аппликатуре'
     : `${headingPrefix}<span id="fingering-editor-heading-chord">${escapeHtml(headingChordName)}</span>`;
   const saveLabel = createMode ? 'Добавить аккорд' : 'Сохранить';
+  // B-76: во втором ряду кнопок редактора (только при правке, не при
+  // создании) прячется «Сохранить для всех Am» — раскрывается по
+  // наведению на ряд. Имя аккорда подставляем в подпись.
+  const applyAllLabel = createMode
+    ? ''
+    : `Сохранить для всех ${escapeHtml(chordName)}`;
 
   modal.innerHTML = `
 <h3 style="margin:0 0 0.5rem;font-size:18px">
@@ -17300,7 +17362,7 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
   </button>
 </div>
 
-<div style="display:flex;gap:8px;justify-content:center;margin-top:0.5rem">
+<div id="fingering-editor-actions" style="display:flex;gap:8px;justify-content:center;align-items:center;flex-wrap:wrap;margin-top:0.5rem">
 
   <button id="cancel-fingering"
           style="padding:8px 20px;background:var(--color-neutral-bg);border:1px solid var(--color-border-medium);border-radius:20px;cursor:pointer">
@@ -17316,6 +17378,12 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
           style="padding:8px 20px;background:var(--color-ink);color:white;border:none;border-radius:20px;cursor:pointer">
     ${saveLabel}
   </button>
+
+  ${createMode ? '' : `<button id="save-fingering-all" type="button"
+          title="Применить эту форму ко всем вхождениям аккорда в песне"
+          style="display:none;padding:8px 16px;background:var(--color-neutral-bg);border:1px solid var(--color-border-medium);border-radius:20px;cursor:pointer;font-size:13px;color:var(--color-ink);white-space:nowrap">
+    ${applyAllLabel}
+  </button>`}
 
 </div>
 `;
@@ -17486,6 +17554,93 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     applyBtn.onclick = () => applyDetectedNameToCell();
   }
 
+  // B-76: тело сохранения в режиме ПРАВКИ вынесено в функцию, чтобы обе
+  // кнопки («Сохранить» и «Сохранить для всех») делили одну логику.
+  // applyToAll=true после обычного сохранения прописывает ту же форму
+  // (лады + баррэ) во ВСЕ вхождения аккорда в песне (перекрывает и
+  // вручную закреплённые — на то и «для всех»).
+  function commitEditSave(applyToAll) {
+    // Если ячейку переименовали кнопкой "Переименовать" в этом сеансе
+    // редактирования, форма — это НОВАЯ аппликатура для НОВОГО имени
+    // аккорда: сохраняем её как отдельный пользовательский вариант под
+    // activeCacheKey, а не перезаписываем variantIndex-ю форму старого
+    // аккорда (эти индексы относятся к разным аккордам и не связаны).
+    const targetCacheKey = activeCacheKey || cacheKey;
+    let userList = userFingerings.get(targetCacheKey) || [];
+    // Фиксация текущих форм остальных вхождений нужна ВСЕГДА, а не
+    // только при добавлении: умолчанием для новых ячеек служит
+    // последняя сохранённая своя форма (см. resolveFingeringShape), и
+    // ПЕРЕЗАПИСЬ существующей подменяет её так же, как добавление
+    // новой. Без pin'а остальные вхождения молча перескочили бы на
+    // только что отредактированный хват. При applyToAll pin всё равно
+    // безвреден: applyFingeringToAllOccurrences ниже перекроет всё.
+    let allChord = null,
+      allKey = null,
+      allPosKey = null;
+    if (wrapper) {
+        // Ключ имеет вид «аккорд|тональность» плюс подпись строя
+        // («@DADGBE4…») у нестандартного. Подпись отрезаем: позиционный
+        // ключ ячейки строем не помечается, его определяет сама песня.
+        const sepIdx = targetCacheKey.lastIndexOf('|');
+        const pinChord = targetCacheKey.slice(0, sepIdx);
+        const pinKey = targetCacheKey.slice(sepIdx + 1).split('@')[0];
+        const pinPosKey = buildFingeringPositionKey(
+            pinChord,
+            pinKey,
+            +wrapper.dataset.sec,
+            +wrapper.dataset.square,
+            +wrapper.dataset.ei
+        );
+        pinCurrentFingeringsForChord(pinChord, pinKey, pinPosKey);
+        allChord = pinChord;
+        allKey = pinKey;
+        allPosKey = pinPosKey;
+    }
+    // B-75: сохранение своей формы = пара {лады, баррэ}. upsert
+    // поднимает совпадающую по КОМПОЗИТНОЙ идентичности запись в конец
+    // (последняя = умолчание для новых ячеек), либо добавляет новую;
+    // разжатая версия тех же ладов — отдельная запись.
+    upsertUserFingering(userList, [...currentShape], fretboardObj.getBarreOff());
+    userFingerings.set(targetCacheKey, userList);
+    // Точечного delete мало: семейные производные других аккордов
+    // (collectFamilyDerivedShapes) построены из прежнего userFingerings.
+    fingeringCache.clear();
+    if (wrapper) {
+        const input = wrapper.querySelector('.chord-input');
+        if (input) {
+            const secId = +wrapper.dataset.sec;
+            const squareId = +wrapper.dataset.square;
+            const eventIndex = +wrapper.dataset.ei;
+            const chordNameNow = input.value.trim();
+            const key = activeSectionKey || globalKey;
+            const posKey = buildFingeringPositionKey(chordNameNow, key, secId, squareId, eventIndex);
+            setPreferredFingering(posKey, currentShape.join(','), null, fretboardObj.getBarreOff());
+        }
+    }
+    // B-76: массовое применение. После обычного сохранения прописываем
+    // ту же ПОЛНУЮ форму (лады + баррэ) во все прочие вхождения аккорда.
+    if (applyToAll && allChord) {
+      applyFingeringToAllOccurrences(
+        allChord,
+        allKey,
+        currentShape.join(','),
+        fretboardObj.getBarreOff(),
+        allPosKey
+      );
+      updateCellsDegrees();
+    }
+    // Сохранение — это коммит: переименование «Переименовать?»
+    // зафиксировано вместе с новой формой, откатывать нечего.
+    renamedDuringEdit = false;
+    closeFingeringEditor();
+    if (wrapper) {
+        const input = wrapper.querySelector('.chord-input');
+        if (input && input.value.trim()) {
+            showFingeringTooltip(input.value.trim(), wrapper);
+        }
+    }
+  }
+
   document.getElementById('save-fingering').onclick = () => {
     if (createMode) {
       const analysis = analyzeFingeringShape(currentShape);
@@ -17550,67 +17705,63 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
       return;
     }
 
-    // Если ячейку переименовали кнопкой "Переименовать" в этом сеансе
-    // редактирования, форма — это НОВАЯ аппликатура для НОВОГО имени
-    // аккорда: сохраняем её как отдельный пользовательский вариант под
-    // activeCacheKey, а не перезаписываем variantIndex-ю форму старого
-    // аккорда (эти индексы относятся к разным аккордам и не связаны).
-    const targetCacheKey = activeCacheKey || cacheKey;
-    let userList = userFingerings.get(targetCacheKey) || [];
-    // Фиксация текущих форм остальных вхождений нужна ВСЕГДА, а не
-    // только при добавлении: умолчанием для новых ячеек служит
-    // последняя сохранённая своя форма (см. resolveFingeringShape), и
-    // ПЕРЕЗАПИСЬ существующей подменяет её так же, как добавление
-    // новой. Без pin'а остальные вхождения молча перескочили бы на
-    // только что отредактированный хват.
-    if (wrapper) {
-        // Ключ имеет вид «аккорд|тональность» плюс подпись строя
-        // («@DADGBE4…») у нестандартного. Подпись отрезаем: позиционный
-        // ключ ячейки строем не помечается, его определяет сама песня.
+    commitEditSave(false);
+  };
+
+  // B-76: «Сохранить для всех Am». Раскрывается по наведению на ряд
+  // кнопок (см. actionsRow ниже). Если среди прочих вхождений есть
+  // вручную закреплённые — спрашиваем подтверждение перед перезаписью;
+  // если перекрывать нечего, применяем сразу.
+  const saveAllBtn = document.getElementById('save-fingering-all');
+  if (saveAllBtn) {
+    saveAllBtn.addEventListener('mouseenter', () => {
+      saveAllBtn.style.background = 'var(--color-surface-hover)';
+    });
+    saveAllBtn.addEventListener('mouseleave', () => {
+      saveAllBtn.style.background = 'var(--color-neutral-bg)';
+    });
+    saveAllBtn.onclick = () => {
+      const targetCacheKey = activeCacheKey || cacheKey;
+      let pinnedCount = 0;
+      if (wrapper && targetCacheKey) {
         const sepIdx = targetCacheKey.lastIndexOf('|');
-        const pinChord = targetCacheKey.slice(0, sepIdx);
-        const pinKey = targetCacheKey.slice(sepIdx + 1).split('@')[0];
-        const pinPosKey = buildFingeringPositionKey(
-            pinChord,
-            pinKey,
-            +wrapper.dataset.sec,
-            +wrapper.dataset.square,
-            +wrapper.dataset.ei
+        const cChord = targetCacheKey.slice(0, sepIdx);
+        const cKey = targetCacheKey.slice(sepIdx + 1).split('@')[0];
+        const cPosKey = buildFingeringPositionKey(
+          cChord, cKey,
+          +wrapper.dataset.sec, +wrapper.dataset.square, +wrapper.dataset.ei
         );
-        pinCurrentFingeringsForChord(pinChord, pinKey, pinPosKey);
-    }
-    // B-75: сохранение своей формы = пара {лады, баррэ}. upsert
-    // поднимает совпадающую по КОМПОЗИТНОЙ идентичности запись в конец
-    // (последняя = умолчание для новых ячеек), либо добавляет новую;
-    // разжатая версия тех же ладов — отдельная запись.
-    upsertUserFingering(userList, [...currentShape], fretboardObj.getBarreOff());
-    userFingerings.set(targetCacheKey, userList);
-    // Точечного delete мало: семейные производные других аккордов
-    // (collectFamilyDerivedShapes) построены из прежнего userFingerings.
-    fingeringCache.clear();
-    if (wrapper) {
-        const input = wrapper.querySelector('.chord-input');
-        if (input) {
-            const secId = +wrapper.dataset.sec;
-            const squareId = +wrapper.dataset.square;
-            const eventIndex = +wrapper.dataset.ei;
-            const chordNameNow = input.value.trim();
-            const key = activeSectionKey || globalKey;
-            const posKey = buildFingeringPositionKey(chordNameNow, key, secId, squareId, eventIndex);
-            setPreferredFingering(posKey, currentShape.join(','), null, fretboardObj.getBarreOff());
-        }
-    }
-    // Сохранение — это коммит: переименование «Переименовать?»
-    // зафиксировано вместе с новой формой, откатывать нечего.
-    renamedDuringEdit = false;
-    closeFingeringEditor();
-    if (wrapper) {
-        const input = wrapper.querySelector('.chord-input');
-        if (input && input.value.trim()) {
-            showFingeringTooltip(input.value.trim(), wrapper);
-        }
-    }
-};
+        pinnedCount = countPinnedOccurrences(cChord, cKey, cPosKey);
+      }
+      // Окно — ТОЛЬКО когда есть что перекрывать (вручную выбранные
+      // ячейки). Иначе применяем молча.
+      if (pinnedCount > 0) {
+        const nm = (chordName || '').trim();
+        const word =
+          pinnedCount % 10 === 1 && pinnedCount % 100 !== 11 ? 'ячейке' : 'ячейках';
+        if (!window.confirm(
+          `В песне есть ${pinnedCount} ${word} «${nm}» с вручную выбранной аппликатурой. ` +
+          `Перезаписать её этой формой во всех вхождениях «${nm}»?`
+        )) return;
+      }
+      commitEditSave(true);
+    };
+  }
+
+  // B-76: раскрытие «Сохранить для всех» по наведению на ряд кнопок.
+  // Прячем по умолчанию, показываем пока курсор над рядом (или фокус на
+  // самой кнопке — для клавиатуры).
+  const actionsRow = document.getElementById('fingering-editor-actions');
+  if (actionsRow && saveAllBtn) {
+    const showAll = () => { saveAllBtn.style.display = ''; };
+    const hideAll = () => {
+      if (document.activeElement !== saveAllBtn) saveAllBtn.style.display = 'none';
+    };
+    actionsRow.addEventListener('mouseenter', showAll);
+    actionsRow.addEventListener('mouseleave', hideAll);
+    saveAllBtn.addEventListener('focus', showAll);
+    saveAllBtn.addEventListener('blur', hideAll);
+  }
 
   document.getElementById('clear-fingering').onclick = () => {
     fretboardObj.clear();
