@@ -67,8 +67,11 @@ function inStyle(off) {
 const rules = [
   {
     cat: 'font-size',
-    // font-size: 22px  /  font-size:13px  — в инлайн-стилях и JS-строках
-    re: /font-size:\s*([0-9]*\.?[0-9]+)px/gi,
+    // Размер шрифта в px — двумя синтаксисами:
+    //   CSS:       font-size: 22px  /  font-size:13px   (инлайн-стили, cssText)
+    //   JS camel:  .style.fontSize = '13px'  /  fontSize:'12px'
+    // Второй раньше пропускался — иконки/кнопки, заданные из JS, оставались мелкими.
+    re: /(?:font-size:\s*|fontSize\s*[:=]\s*['"`]?)([0-9]*\.?[0-9]+)px/gi,
   },
   {
     cat: 'svg-size',
