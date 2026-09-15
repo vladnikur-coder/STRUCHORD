@@ -1,13 +1,18 @@
 #!/usr/bin/env node
 /*
- * b80-ui-scale-slider.js — регрессии ползунка масштаба UI (волна B-80).
+ * b80-ui-scale-slider.js — регрессии выбора масштаба UI (волна B-80).
  *
- * Слайдер в меню «Тык» пишет в единый токен --ui-scale (B-79). Проверяем:
- *  - разметка слайдера на месте с диапазоном 25..300, шаг 5, дефолт 125;
- *  - функции масштаба присутствуют и клампят/округляют к шагу правильно;
+ * Масштаб выбирается из фиксированных вариантов (кнопки в меню «Тык»),
+ * которые пишут в единый токен --ui-scale (B-79). Слайдер отвергнут:
+ * контрол внутри масштабируемого меню давал петлю drag↔масштаб.
+ *
+ * Проверяем:
+ *  - набор кнопок-вариантов на месте (50..300, ровно заданный список);
+ *  - функции масштаба присутствуют, nearestUiScaleOption округляет к
+ *    ближайшему варианту (миграция старых произвольных значений);
  *  - ранний inline-скрипт в <head> читает struchord-ui-scale и ставит
- *    --ui-scale ДО первой отрисовки (иначе мелькнёт дефолт);
- *  - initUiScale/onUiScaleInput завязаны на localStorage-ключ.
+ *    --ui-scale ДО первой отрисовки;
+ *  - initUiScale/setUiScale завязаны на localStorage-ключ.
  */
 const fs = require('fs');
 const path = require('path');
@@ -28,66 +33,63 @@ function check(name, cond) {
   }
 }
 
-// --- 1. Разметка слайдера ---
+const EXPECTED = [50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300];
+
+// --- 1. Разметка кнопок-вариантов ---
 const dom = new JSDOM(html);
 const doc = dom.window.document;
-const slider = doc.getElementById('uiScaleSlider');
-const value = doc.getElementById('uiScaleValue');
-check('слайдер #uiScaleSlider существует', !!slider);
-check('подпись #uiScaleValue существует', !!value);
-check('type=range', slider && slider.getAttribute('type') === 'range');
-check('min=25', slider && slider.getAttribute('min') === '25');
-check('max=300', slider && slider.getAttribute('max') === '300');
-check('step=5', slider && slider.getAttribute('step') === '5');
-check('value=125 (дефолт B-79)', slider && slider.getAttribute('value') === '125');
-check('подпись стартово 125%', value && value.textContent.trim() === '125%');
-check('oninput → onUiScaleInput', slider && /onUiScaleInput/.test(slider.getAttribute('oninput') || ''));
-check('слайдер внутри меню «Тык» (#toolsDropdown)',
-  !!(doc.getElementById('toolsDropdown') && doc.getElementById('toolsDropdown').querySelector('#uiScaleSlider')));
+const box = doc.getElementById('uiScaleOptions');
+check('контейнер #uiScaleOptions существует', !!box);
+const opts = box ? [...box.querySelectorAll('.scale-opt')] : [];
+check('ровно ' + EXPECTED.length + ' вариантов', opts.length === EXPECTED.length);
+const labels = opts.map((b) => b.textContent.trim());
+check('подписи = ' + EXPECTED.map((p) => p + '%').join(' '),
+  JSON.stringify(labels) === JSON.stringify(EXPECTED.map((p) => p + '%')));
+check('каждая кнопка зовёт setUiScale',
+  opts.every((b) => /setUiScale\(\d+\)/.test(b.getAttribute('onclick') || '')));
+check('слайдера больше нет', !doc.getElementById('uiScaleSlider'));
+check('варианты внутри меню «Тык» (#toolsDropdown)',
+  !!(doc.getElementById('toolsDropdown') && doc.getElementById('toolsDropdown').querySelector('#uiScaleOptions')));
 
 // --- 2. Функции масштаба в коде ---
-check('есть applyUiScale', /function applyUiScale\(/.test(html));
-check('есть onUiScaleInput', /function onUiScaleInput\(/.test(html));
+check('есть setUiScale', /function setUiScale\(/.test(html));
+check('есть writeUiScale', /function writeUiScale\(/.test(html));
 check('есть initUiScale', /function initUiScale\(/.test(html));
-check('есть clampUiScale', /function clampUiScale\(/.test(html));
+check('есть nearestUiScaleOption', /function nearestUiScaleOption\(/.test(html));
 check('initUiScale вызывается на старте', /\n\s*initUiScale\(\);/.test(html));
 check('ключ localStorage struchord-ui-scale', /struchord-ui-scale/.test(html));
 
-// --- 3. Логика клампа/шага (извлекаем чистые функции) ---
-const m = html.match(/const UI_SCALE_DEFAULT[\s\S]*?function clampUiScale[\s\S]*?\n}/);
-check('блок clampUiScale извлекается', !!m);
+// --- 3. nearestUiScaleOption: округление к ближайшему варианту ---
+const m = html.match(/const UI_SCALE_OPTIONS[\s\S]*?function nearestUiScaleOption[\s\S]*?\n}/);
+check('блок nearestUiScaleOption извлекается', !!m);
 if (m) {
+  const UI_SCALE_DEFAULT = 125;
   // eslint-disable-next-line no-eval
   eval(m[0]);
   const cases = [
-    [125, 125], [132, 130], [133, 135], [24, 25], [25, 25],
-    [301, 300], [300, 300], [0, 25], [NaN, 125], [48, 50],
+    [125, 125], [120, 115], [130, 125], [60, 50], [90, 85],
+    [999, 300], [10, 50], [NaN, 125], [163, 175], [225, 200],
   ];
-  let allClamp = true;
+  let all = true;
   for (const [inp, exp] of cases) {
     // eslint-disable-next-line no-undef
-    if (clampUiScale(inp) !== exp) {
-      allClamp = false;
-      console.error('   кламп ' + inp + ' -> ' + clampUiScale(inp) + ', ожид ' + exp);
+    const got = nearestUiScaleOption(inp);
+    if (got !== exp) {
+      all = false;
+      console.error('   ' + inp + ' -> ' + got + ', ожид ' + exp);
     }
   }
-  check('clampUiScale: диапазон 25..300 и шаг 5', allClamp);
+  check('nearestUiScaleOption: ближайший вариант', all);
 }
 
 // --- 4. Ранний inline-скрипт ставит --ui-scale ДО отрисовки ---
-// Скрипт в <head> читает localStorage синхронно при парсинге. Симулируем
-// сохранённые 200% и проверяем, что --ui-scale стал 2 сразу после парса.
 const store = { 'struchord-ui-scale': '200' };
-// Тихая консоль: основное приложение при запуске в jsdom спотыкается на
-// requestAnimationFrame/AudioContext (браузерные API) — нам это не важно,
-// нужен только результат раннего head-скрипта. Шум глушим.
 const { VirtualConsole } = require('jsdom');
-const vc = new VirtualConsole(); // без .sendTo — ошибки никуда не идут
+const vc = new VirtualConsole(); // шум приложения в jsdom глушим
 const dom2 = new JSDOM(html, {
   runScripts: 'dangerously',
   virtualConsole: vc,
   beforeParse(win) {
-    // Подменяем localStorage ДО выполнения любых скриптов.
     Object.defineProperty(win, 'localStorage', {
       configurable: true,
       value: {
@@ -96,9 +98,6 @@ const dom2 = new JSDOM(html, {
         removeItem: (k) => { delete store[k]; },
       },
     });
-    // Гасим падение основного приложения на отсутствующем AudioContext и т.п.:
-    // ранний head-скрипт от них не зависит, а дальнейшие ошибки нам не важны
-    // для этой проверки — заглушим console.error шумовых исключений.
   },
 });
 const earlyScale = dom2.window.document.documentElement.style.getPropertyValue('--ui-scale');
