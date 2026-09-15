@@ -5199,6 +5199,15 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   display: none;
   z-index: 100;
   min-width: 12.5rem;
+  /* Контр-масштаб при перетаскивании ползунка (B-80) растёт от точки
+     привязки меню — правый верх (right:0; top:100%), иначе меню поедет
+     вбок. */
+  transform-origin: top right;
+}
+/* На время перетаскивания ползунка меню замораживается контр-трансформом
+   мгновенно, без transition — иначе размер догонял бы курсор с задержкой. */
+.tools-dropdown.is-ui-scaling {
+  transition: none;
 }
 .tools-dropdown.open {
   display: block;
@@ -9689,7 +9698,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.234</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.235</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -27922,21 +27931,71 @@ function clampUiScale(pct) {
   if (!isFinite(pct)) pct = UI_SCALE_DEFAULT;
   return Math.max(UI_SCALE_MIN, Math.min(UI_SCALE_MAX, pct));
 }
-// Применяет масштаб к корню (пишет --ui-scale как долю) и обновляет
-// подпись значения. Модель/DOM не трогает — только CSS-переменную.
-function applyUiScale(pct, opts) {
-  const p = clampUiScale(pct);
+// Состояние перетаскивания ползунка.
+let uiScaleDragBase = null; // доля --ui-scale в момент захвата
+let uiScaleRaf = 0; // id отложенного кадра
+let uiScalePending = null; // проценты, ждущие применения на кадре
+// Пишет --ui-scale в корень (доля) + обновляет подпись/ползунок.
+// Тяжёлого ничего: одна CSS-переменная, reflow отдаёт браузер.
+function writeUiScale(p, opts) {
   document.documentElement.style.setProperty('--ui-scale', (p / 100).toString());
   const val = document.getElementById('uiScaleValue');
   if (val) val.textContent = p + '%';
   const slider = document.getElementById('uiScaleSlider');
   if (slider && !(opts && opts.fromSlider) && +slider.value !== p) slider.value = p;
+  // Пока тянем ползунок — КОНТР-масштабируем само меню «Тык», чтобы оно
+  // (и ползунок под курсором) НЕ меняли размер: иначе бегунок убегает от
+  // мыши (петля «контрол масштаба меняет свой размер») — это и давало
+  // «скачки». Остальная страница масштабируется вживую, эффект виден.
+  if (uiScaleDragBase != null) {
+    const dd = document.getElementById('toolsDropdown');
+    if (dd) dd.style.transform = 'scale(' + uiScaleDragBase / (p / 100) + ')';
+  }
+}
+// Внешний вызов (init) — применяет сразу.
+function applyUiScale(pct, opts) {
+  const p = clampUiScale(pct);
+  writeUiScale(p, opts);
   return p;
 }
-// oninput слайдера — вживую при перетаскивании; в localStorage пишем тут
-// же (запись копеечная, значение целое).
+// oninput ползунка: throttle через rAF (один reflow на кадр, не на каждый
+// пиксель) — это снимает лаги на больших песнях. В localStorage НЕ пишем
+// на каждом шаге: запись отложена до отпускания (onUiScaleCommit).
 function onUiScaleInput(pct) {
-  const p = applyUiScale(pct, { fromSlider: true });
+  uiScalePending = clampUiScale(pct);
+  if (uiScaleDragBase == null) {
+    // Первое движение — запоминаем базовую долю для контр-масштаба меню
+    // и помечаем меню «не анимировать переходы» на время жеста.
+    const cur = parseFloat(
+      getComputedStyle(document.documentElement).getPropertyValue('--ui-scale')
+    );
+    uiScaleDragBase = isFinite(cur) && cur > 0 ? cur : UI_SCALE_DEFAULT / 100;
+    const dd = document.getElementById('toolsDropdown');
+    if (dd) dd.classList.add('is-ui-scaling');
+  }
+  if (uiScaleRaf) return;
+  uiScaleRaf = requestAnimationFrame(() => {
+    uiScaleRaf = 0;
+    if (uiScalePending != null) writeUiScale(uiScalePending, { fromSlider: true });
+  });
+}
+// Отпускание ползунка (change / pointerup / blur): снимаем заморозку меню,
+// применяем финальное значение начисто и один раз пишем в localStorage.
+function onUiScaleCommit() {
+  if (uiScaleRaf) {
+    cancelAnimationFrame(uiScaleRaf);
+    uiScaleRaf = 0;
+  }
+  uiScaleDragBase = null;
+  const slider = document.getElementById('uiScaleSlider');
+  const p = clampUiScale(slider ? slider.value : uiScalePending);
+  uiScalePending = null;
+  const dd = document.getElementById('toolsDropdown');
+  if (dd) {
+    dd.classList.remove('is-ui-scaling');
+    dd.style.transform = ''; // меню снова в естественном (уже новом) размере
+  }
+  writeUiScale(p); // финальная чистовая раскладка
   try {
     localStorage.setItem('struchord-ui-scale', String(p));
   } catch (e) {
@@ -27945,7 +28004,8 @@ function onUiScaleInput(pct) {
 }
 // Стартовая синхронизация: раскладку масштаба ставит ранний inline-скрипт
 // в <head> (до первой отрисовки, чтобы не мелькал дефолт); здесь только
-// подтягиваем ползунок и подпись под уже применённое значение.
+// подтягиваем ползунок и подпись под уже применённое значение и вешаем
+// commit-обработчики на отпускание.
 function initUiScale() {
   let saved = null;
   try {
@@ -27955,6 +28015,13 @@ function initUiScale() {
   }
   const p = saved != null ? clampUiScale(saved) : UI_SCALE_DEFAULT;
   applyUiScale(p);
+  const slider = document.getElementById('uiScaleSlider');
+  if (slider) {
+    // change — мышь/тач отпустили; pointerup/blur — страховка на краях.
+    slider.addEventListener('change', onUiScaleCommit);
+    slider.addEventListener('pointerup', onUiScaleCommit);
+    slider.addEventListener('blur', onUiScaleCommit);
+  }
 }
 
 // ========== ЦВЕТОВЫЕ СХЕМЫ ==========
