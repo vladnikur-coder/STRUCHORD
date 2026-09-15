@@ -3023,6 +3023,18 @@ html.theme-transition * {
   margin: 0;
   padding: 0;
 }
+/* B-79: базовый масштаб интерфейса 125%. Раньше всё было мелким и
+   приходилось вручную ставить 125% в браузере. `zoom` (а не
+   transform: scale) даёт настоящий reflow. ВАЖНО: под zoom координаты
+   курсора (clientX/Y) и getBoundingClientRect живут в экранном
+   пространстве, а style.left плавающего элемента — в его ЛОКАЛЬНОМ
+   (экран / zoom). Поэтому JS, который позиционирует fixed/absolute
+   оверлеи по координатам курсора, делит присваиваемое значение на
+   currentCSSZoom элемента (см. uiZoomOf). Зум браузера перемножается:
+   80% в браузере вернёт ровно 100%. */
+html {
+  zoom: 1.25;
+}
 body {
   font-family: var(--font-sans);
   /* Не плоская заливка: мягкое свечение от центра — лист лежит на
@@ -9547,7 +9559,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 22px; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.226</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.227</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -11591,6 +11603,17 @@ let timelineHitEls = new Map();
 // чтобы нарисовать виджет боя вместо карандашика редактирования у ОСНОВНОГО
 // (не превью) тултипа, пока идёт воспроизведение.
 let currentPlayingStrumPattern = null;
+// B-79: коэффициент CSS-zoom, действующий на элемент (произведение zoom
+// всех предков). Под zoom координаты курсора и getBoundingClientRect —
+// в экранном пространстве, а style.left/top элемента — в его локальном
+// (экран / zoom). Чтобы поставить fixed/absolute-оверлей ПОД курсор,
+// присваиваемое значение делим на этот коэффициент.
+// currentCSSZoom — родной API (Chrome 128+, Safari 18+); для старых
+// браузеров и там, где zoom всегда 1, откат на 1 безвреден.
+function uiZoomOf(el) {
+  const z = el && el.currentCSSZoom;
+  return (typeof z === 'number' && z > 0) ? z : 1;
+}
 const CONFIG = {
   MAX_SQUARES_PER_SECTION: 16,
   MIN_BPM: 40,
@@ -29388,8 +29411,11 @@ function beginSectionDrag(p, x, y) {
   document.body.classList.add('is-section-dragging');
   cont.classList.add('drag-active');
   // Ярлык стартует чуть «из-под» заголовка — проявляется и подрастает.
-  chip.style.left = startLeft + 'px';
-  chip.style.top = startTop + 'px';
+  // startLeft/Top — из getBoundingClientRect (экранное пространство под
+  // zoom); ярлык fixed, его left/top — в локальном → делим на zoom.
+  const chipZ = uiZoomOf(chip);
+  chip.style.left = startLeft / chipZ + 'px';
+  chip.style.top = startTop / chipZ + 'px';
   chip.style.opacity = '0';
   chip.style.transform = 'scale(0.92)';
   void chip.offsetWidth;
@@ -29423,8 +29449,9 @@ function sectionDragFollow() {
   st.curY += (st.tgtY - st.curY) * SECTION_DRAG_SMOOTH;
   const rest = Math.abs(st.tgtX - st.curX) + Math.abs(st.tgtY - st.curY);
   if (rest < 0.5) { st.curX = st.tgtX; st.curY = st.tgtY; }
-  st.chip.style.left = st.curX + 'px';
-  st.chip.style.top = st.curY + 'px';
+  const z = uiZoomOf(st.chip);
+  st.chip.style.left = st.curX / z + 'px';
+  st.chip.style.top = st.curY / z + 'px';
   sectionDragRaf = requestAnimationFrame(sectionDragFollow);
 }
 
