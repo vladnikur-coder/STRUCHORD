@@ -14925,14 +14925,18 @@ function computeFingersForShape(shape, customFingers, barreOff) {
     const out = new Array(6).fill(null);
     let hasCustom = false;
     for (let s = 0; s < 6; s++) {
-      if (shape[s] === 'x') out[s] = 'x';
-      else if (shape[s] === 0) out[s] = 0;
-      else if (customFingers[s] != null) {
-        out[s] = customFingers[s];
+      if (shape[s] === 'x') {
+        out[s] = 'x';
+      } else if (shape[s] === 0 || shape[s] === '0') {
+        out[s] = 0;
+      } else if (customFingers[s] != null && customFingers[s] !== 'x' && customFingers[s] !== 0 && customFingers[s] !== '0') {
+        out[s] = typeof customFingers[s] === 'string' && customFingers[s].toUpperCase() === 'T'
+          ? 'T'
+          : Number(customFingers[s]) || customFingers[s];
         hasCustom = true;
       }
     }
-    if (hasCustom && out.every((v, s) => shape[s] === 'x' || shape[s] === 0 || v != null)) {
+    if (hasCustom && out.every((v, s) => shape[s] === 'x' || shape[s] === 0 || shape[s] === '0' || v != null)) {
       return out;
     }
   }
@@ -14942,15 +14946,16 @@ function computeFingersForShape(shape, customFingers, barreOff) {
   for (let s = 0; s < 6; s++) {
     const f = shape[s];
     if (f === 'x') result[s] = 'x';
-    else if (f === 0) result[s] = 0;
+    else if (f === 0 || f === '0') result[s] = 0;
     else fretted.push({ s, fret: Number(f) });
   }
   if (!fretted.length) return result;
 
   const grip = typeof analyzeShapeGrip === 'function' ? analyzeShapeGrip(shape) : null;
   const barre = grip && grip.chosen ? grip.chosen.b : null;
+  const barreSuppressed = barre && barreOff && normalizeBarreOffSet(barreOff) && normalizeBarreOffSet(barreOff).has(barre.fret);
 
-  if (barre) {
+  if (barre && !barreSuppressed) {
     for (const s of barre.strings) {
       if (Number(shape[s]) === Number(barre.fret)) {
         result[s] = 1;
@@ -14958,11 +14963,9 @@ function computeFingersForShape(shape, customFingers, barreOff) {
     }
   }
 
-  const barreStrings = barre ? new Set(barre.strings) : new Set();
+  const barreStrings = (barre && !barreSuppressed) ? new Set(barre.strings) : new Set();
   const remaining = fretted.filter((v) => !barreStrings.has(v.s) || Number(shape[v.s]) !== Number(barre ? barre.fret : -1));
   if (!remaining.length) return result;
-
-  const availFingers = barre ? [2, 3, 4] : [1, 2, 3, 4];
 
   // Group by fret
   const fretGroups = new Map();
@@ -14971,6 +14974,43 @@ function computeFingersForShape(shape, customFingers, barreOff) {
     fretGroups.get(r.fret).push(r);
   }
   const fretKeys = [...fretGroups.keys()].sort((a, b) => a - b);
+
+  // Баррэ-позиции: пальцы распределяются анатомически относительно порожка/лада баррэ
+  if (barre && !barreSuppressed) {
+    const bFret = Number(barre.fret);
+    for (const f of fretKeys) {
+      const delta = f - bFret;
+      const group = fretGroups.get(f);
+      group.sort((a, b) => a.s - b.s);
+      if (delta === 1) {
+        for (const item of group) result[item.s] = 2;
+      } else if (delta === 2) {
+        if (group.length === 1) {
+          result[group[0].s] = 3;
+        } else if (group.length === 2) {
+          result[group[0].s] = 3;
+          result[group[1].s] = 4;
+        } else {
+          group.forEach((item, i) => { result[item.s] = i === 0 ? 2 : (i === 1 ? 3 : 4); });
+        }
+      } else if (delta >= 3) {
+        for (const item of group) result[item.s] = 4;
+      } else {
+        for (const item of group) result[item.s] = 2;
+      }
+    }
+
+    if (customFingers && Array.isArray(customFingers)) {
+      for (let s = 0; s < 6; s++) {
+        if (customFingers[s] != null && customFingers[s] !== 'x' && customFingers[s] !== 0 && customFingers[s] !== '0') {
+          result[s] = typeof customFingers[s] === 'string' && customFingers[s].toUpperCase() === 'T'
+            ? 'T'
+            : Number(customFingers[s]) || customFingers[s];
+        }
+      }
+    }
+    return result;
+  }
 
   // Check for wedge / D-chord shape: e.g. D [x, x, 0, 2, 3, 2]
   if (!barre && remaining.length === 3 && fretKeys.length === 2 && fretKeys[0] + 1 === fretKeys[1]) {
@@ -14993,14 +15033,13 @@ function computeFingersForShape(shape, customFingers, barreOff) {
     return result;
   }
 
+  const availFingers = [1, 2, 3, 4];
   let fingerIdx = 0;
   for (const f of fretKeys) {
     const group = fretGroups.get(f);
     group.sort((a, b) => a.s - b.s);
     for (const item of group) {
-      if (customFingers && customFingers[item.s] != null) {
-        result[item.s] = customFingers[item.s];
-      } else if (fingerIdx < availFingers.length) {
+      if (fingerIdx < availFingers.length) {
         result[item.s] = availFingers[fingerIdx++];
       } else {
         result[item.s] = 4;
@@ -15011,6 +15050,16 @@ function computeFingersForShape(shape, customFingers, barreOff) {
   if (grip && grip.chosen && grip.chosen.usesThumb && shape[0] !== 'x' && shape[0] !== 0) {
     if (!customFingers || customFingers[0] == null) {
       result[0] = 'T';
+    }
+  }
+
+  if (customFingers && Array.isArray(customFingers)) {
+    for (let s = 0; s < 6; s++) {
+      if (customFingers[s] != null && customFingers[s] !== 'x' && customFingers[s] !== 0 && customFingers[s] !== '0') {
+        result[s] = typeof customFingers[s] === 'string' && customFingers[s].toUpperCase() === 'T'
+          ? 'T'
+          : Number(customFingers[s]) || customFingers[s];
+      }
     }
   }
 
