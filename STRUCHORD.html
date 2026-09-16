@@ -6666,6 +6666,31 @@ body:not(.is-timeline) .fing-string.is-vibrating {
   font-weight: 600;
   white-space: nowrap;
 }
+.fe-ambiguous-pills {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.375rem;
+}
+.fe-pill-choice {
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.5rem;
+  border: 0.0625rem solid var(--color-border-medium);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.fe-pill-choice:hover {
+  background: var(--color-surface-hover);
+  color: var(--color-text-primary);
+}
+.fe-pill-choice.is-selected {
+  background: var(--color-accent);
+  color: var(--color-surface);
+  border-color: var(--color-accent);
+}
 .fe-rename-btn {
   padding: 0.25rem 0.75rem;
   border-radius: 0.75rem;
@@ -9834,7 +9859,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.245</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.246</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -17499,8 +17524,15 @@ function normalizeChordSpelling(chordName, key) {
     .replace(/\/C#/, '/Db')
     .replace(/\/F#/, '/Gb');
 }
-function analyzeFingeringShape(shape) {
-  // Разбор «что за аккорд нарисован на грифе» тоже зависит от строя.
+function circleOfFifthsDist(semitoneA, semitoneB) {
+  const circleA = (semitoneA * 7) % 12;
+  const circleB = (semitoneB * 7) % 12;
+  const diff = Math.abs(circleA - circleB);
+  return Math.min(diff, 12 - diff);
+}
+
+function analyzeFingeringShape(shape, context = {}) {
+  // Разбор «что за аккорд нарисован на грифе» зависит от строя и контекста (B-81).
   const stringNotes = songStringNotes();
   const chromatic = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
@@ -17514,7 +17546,9 @@ function analyzeFingeringShape(shape) {
     const note = chromatic[noteIdx];
     notesWithStrings.push({ string: s, fret: val, note });
   }
-  if (notesWithStrings.length < 2) return { chordName: '?', rootNote: null, intervals: null };
+  if (notesWithStrings.length < 2) {
+    return { chordName: '?', reason: 'too_few_notes', rootNote: null, intervals: null };
+  }
 
   const uniqueNotes = [];
   for (const n of notesWithStrings) {
@@ -17522,6 +17556,7 @@ function analyzeFingeringShape(shape) {
   }
 
   const candidates = [];
+  const bassNote = notesWithStrings[0].note;
 
   for (const rootNote of uniqueNotes) {
     const rootIdx = chromatic.indexOf(rootNote);
@@ -17533,13 +17568,11 @@ function analyzeFingeringShape(shape) {
     if (!intervals.includes(0)) continue;
 
     const chordName = buildChordName(rootNote, intervals);
-
     if (chordName === '?') continue;
-
-    const bassNote = notesWithStrings[0].note;
 
     let score = 0;
 
+    // 1. Акустический базовый балл
     if (chordName.endsWith('maj7') || chordName.endsWith('7') || chordName.endsWith('m7')) {
       score += 95;
     } else if (chordName.endsWith('9') || chordName.endsWith('m9')) {
@@ -17550,8 +17583,10 @@ function analyzeFingeringShape(shape) {
       score += 80;
     } else if (chordName.includes('aug') || chordName.includes('dim')) {
       score += 60;
+    } else if (chordName.includes('(no3')) {
+      score += 70; // Явная отдельная корзина для аккордов без терции
     } else {
-      score += 100;
+      score += 100; // Трезвучие / Power / Sus
     }
 
     if (bassNote === rootNote) {
@@ -17561,8 +17596,80 @@ function analyzeFingeringShape(shape) {
     }
 
     const rootCount = notesWithStrings.filter((n) => n.note === rootNote).length;
-
     score += rootCount * 2;
+
+    const rootLowestString = Math.min(
+      ...notesWithStrings.filter((n) => n.note === rootNote).map((n) => n.string)
+    );
+
+    // 2. Слой 1: Имя текущей ячейки (hintedChordName)
+    if (context && context.hintedChordName) {
+      const parsedHint =
+        typeof parseChordForKeyDetection === 'function'
+          ? parseChordForKeyDetection(context.hintedChordName)
+          : null;
+      if (parsedHint) {
+        const normRoot = FLAT_TO_SHARP[rootNote] || rootNote;
+        if (normRoot === parsedHint.root) {
+          score += 50;
+          const cleanName = chordName.split('/')[0];
+          const cleanHint = context.hintedChordName.split('/')[0];
+          if (cleanName === cleanHint || cleanName.toLowerCase() === cleanHint.toLowerCase()) {
+            score += 20;
+          }
+        }
+      }
+    }
+
+    // 3. Слой 2: Тональность песни/секции (snapshot на момент открытия)
+    const activeKey = context.key;
+    let tonicIdx = -1;
+    if (activeKey) {
+      const isMinor = activeKey.endsWith('m') && !activeKey.startsWith('maj');
+      const tonicRaw = isMinor ? activeKey.slice(0, -1) : activeKey;
+      const tonic = FLAT_TO_SHARP[tonicRaw] || tonicRaw;
+      tonicIdx = chromatic.indexOf(tonic);
+      const normRoot = FLAT_TO_SHARP[rootNote] || rootNote;
+      const rIdx = chromatic.indexOf(normRoot);
+
+      if (tonicIdx !== -1 && rIdx !== -1) {
+        const degreeSemitones = (rIdx - tonicIdx + 12) % 12;
+        if (!isMinor) {
+          if (degreeSemitones === 0 || degreeSemitones === 7) {
+            score += 25; // Тоника / Доминанта
+          } else if ([2, 4, 5, 9, 11].includes(degreeSemitones)) {
+            score += 15; // Диатоническая ступень
+          }
+        } else {
+          if (degreeSemitones === 0 || degreeSemitones === 7) {
+            score += 25; // Тоника / Доминанта
+          } else if ([2, 3, 5, 8, 10, 11].includes(degreeSemitones)) {
+            score += 15; // Диатоническая ступень
+          }
+        }
+      }
+    }
+
+    // 4. Слой 3: Предыдущий аккорд (гармоническое движение / каденция)
+    if (context && context.prevChordName) {
+      const prevParsed =
+        typeof parseChordForKeyDetection === 'function'
+          ? parseChordForKeyDetection(context.prevChordName)
+          : null;
+      if (prevParsed) {
+        const prevRootIdx = chromatic.indexOf(prevParsed.root);
+        const normRoot = FLAT_TO_SHARP[rootNote] || rootNote;
+        const rIdx = chromatic.indexOf(normRoot);
+        if (prevRootIdx !== -1 && rIdx !== -1) {
+          const motion = (rIdx - prevRootIdx + 12) % 12;
+          if (motion === 5 || motion === 7) {
+            score += 30; // Кварто-квинтовое разрешение
+          } else if (motion === 1 || motion === 2 || motion === 10 || motion === 11) {
+            score += 10; // Пошаговое движение
+          }
+        }
+      }
+    }
 
     candidates.push({
       rootNote,
@@ -17570,25 +17677,41 @@ function analyzeFingeringShape(shape) {
       chordName,
       score,
       rootIdx,
+      rootLowestString,
     });
   }
 
+  // Детерминированный tie-break (струна баса + близость к тонике по кругу квинт)
   if (candidates.length > 0) {
-    candidates.sort((a, b) => b.score - a.score);
+    const activeKey = context && context.key;
+    let tonicIdx = -1;
+    if (activeKey) {
+      const isMinor = activeKey.endsWith('m') && !activeKey.startsWith('maj');
+      const tonicRaw = isMinor ? activeKey.slice(0, -1) : activeKey;
+      const tonic = FLAT_TO_SHARP[tonicRaw] || tonicRaw;
+      tonicIdx = chromatic.indexOf(tonic);
+    }
+
+    candidates.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      if (a.rootLowestString !== b.rootLowestString) return a.rootLowestString - b.rootLowestString;
+      if (activeKey && tonicIdx !== -1) {
+        const distA = circleOfFifthsDist(a.rootIdx, tonicIdx);
+        const distB = circleOfFifthsDist(b.rootIdx, tonicIdx);
+        if (distA !== distB) return distA - distB;
+      }
+      return a.chordName.length - b.chordName.length;
+    });
 
     const best = candidates[0];
-
     let finalChordName = best.chordName;
-
     if (best.bassNote !== best.rootNote) {
       finalChordName += '/' + best.bassNote;
     }
 
     const intervalMap = notesWithStrings.map((n) => {
       const idx = chromatic.indexOf(n.note);
-
       const semitone = (idx - best.rootIdx + 12) % 12;
-
       const intervalNames = {
         0: '1',
         1: '♭2',
@@ -17610,7 +17733,6 @@ function analyzeFingeringShape(shape) {
         20: '♭13',
         21: '13',
       };
-
       return {
         string: n.string,
         fret: n.fret,
@@ -17618,16 +17740,115 @@ function analyzeFingeringShape(shape) {
       };
     });
 
-    const currentKey = activeSectionKey || globalKey;
+    const targetKey = (context && context.key) || activeSectionKey || globalKey;
+    const formattedChordName = normalizeChordSpelling(finalChordName, targetKey);
+
+    // Проверка неоднозначности (AMBIGUITY_THRESHOLD = 15)
+    let ambiguous = false;
+    let altCandidate = null;
+    if (candidates.length >= 2) {
+      const diff = candidates[0].score - candidates[1].score;
+      if (diff <= 15 && candidates[0].chordName !== candidates[1].chordName) {
+        ambiguous = true;
+        let altFinal = candidates[1].chordName;
+        if (candidates[1].bassNote !== candidates[1].rootNote) {
+          altFinal += '/' + candidates[1].bassNote;
+        }
+        const altIntervals = notesWithStrings.map((n) => {
+          const idx = chromatic.indexOf(n.note);
+          const semitone = (idx - candidates[1].rootIdx + 12) % 12;
+          const intervalNames = {
+            0: '1',
+            1: '♭2',
+            2: '2',
+            3: '♭3',
+            4: '3',
+            5: '4',
+            6: '♭5',
+            7: '5',
+            8: '♯5',
+            9: '6',
+            10: '♭7',
+            11: '7',
+            13: '♭9',
+            14: '9',
+            15: '♯9',
+            17: '11',
+            18: '♯11',
+            20: '♭13',
+            21: '13',
+          };
+          return {
+            string: n.string,
+            fret: n.fret,
+            interval: intervalNames[semitone] || '?',
+          };
+        });
+        altCandidate = {
+          chordName: normalizeChordSpelling(altFinal, targetKey),
+          rootNote: candidates[1].rootNote,
+          score: candidates[1].score,
+          intervals: altIntervals,
+        };
+      }
+    }
 
     return {
-      chordName: normalizeChordSpelling(finalChordName, activeSectionKey || globalKey),
+      chordName: formattedChordName,
       rootNote: best.rootNote,
       intervals: intervalMap,
+      ambiguous,
+      altCandidate,
+      candidates,
     };
   }
 
-  const bassNote = notesWithStrings[0].note;
+  // Fallback Уровень 2: 1-нотное исключение / ближайший сосед («Похоже на X (+нота Y)»)
+  const targetKey = (context && context.key) || activeSectionKey || globalKey;
+  if (uniqueNotes.length >= 3) {
+    for (const omitNote of uniqueNotes) {
+      const subset = uniqueNotes.filter((n) => n !== omitNote);
+      for (const rNote of subset) {
+        const rIdx = chromatic.indexOf(rNote);
+        const subIntervals = subset
+          .map((n) => (chromatic.indexOf(n) - rIdx + 12) % 12)
+          .sort((a, b) => a - b);
+        if (!subIntervals.includes(0)) continue;
+        const subName = buildChordName(rNote, subIntervals);
+        if (subName !== '?') {
+          const formattedSub = normalizeChordSpelling(subName, targetKey);
+          const intervalMap = notesWithStrings.map((n) => {
+            const idx = chromatic.indexOf(n.note);
+            const semitone = (idx - rIdx + 12) % 12;
+            const intervalNames = {
+              0: '1',
+              1: '♭2',
+              2: '2',
+              3: '♭3',
+              4: '3',
+              5: '4',
+              6: '♭5',
+              7: '5',
+              8: '♯5',
+              9: '6',
+              10: '♭7',
+              11: '7',
+            };
+            return { string: n.string, fret: n.fret, interval: intervalNames[semitone] || '?' };
+          });
+          return {
+            chordName: '?',
+            reason: 'near_match',
+            suggestion: { baseChord: formattedSub, extraNote: omitNote },
+            rootNote: null,
+            intervals: intervalMap,
+          };
+        }
+      }
+    }
+  }
+
+  // Fallback Уровень 3: Нераспознанная гармония
   const intervalMap = notesWithStrings.map((n) => {
     const idx = chromatic.indexOf(n.note);
     const rootIdx = chromatic.indexOf(bassNote);
@@ -17648,38 +17869,74 @@ function analyzeFingeringShape(shape) {
     };
     return { string: n.string, fret: n.fret, interval: intervalNames[semitone] || '?' };
   });
-  return { chordName: '?', rootNote: null, intervals: intervalMap };
+
+  const notesList = notesWithStrings.map((n) => n.note).join('–');
+  return {
+    chordName: '?',
+    reason: 'unrecognized_harmony',
+    notesList,
+    rootNote: null,
+    intervals: intervalMap,
+  };
 }
 
 function buildChordName(root, intervals) {
   if (!intervals.includes(0)) return '?';
   const has = (s) => intervals.includes(s);
 
+  // 1. Sus2 / Sus4 (требуют чистую квинту 7)
   if (has(2) && has(7) && !has(3) && !has(4)) {
     if (has(10)) return root + '7sus2';
+    if (has(11)) return root + 'maj7sus2';
     return root + 'sus2';
   }
 
   if (has(5) && has(7) && !has(3) && !has(4)) {
     if (has(10)) return root + '7sus4';
+    if (has(11)) return root + 'maj7sus4';
     return root + 'sus4';
   }
 
-  if (has(7) && !has(3) && !has(4) && !has(2) && !has(5)) {
+  // 2. Power chord (C5)
+  if (
+    has(7) &&
+    !has(3) &&
+    !has(4) &&
+    !has(2) &&
+    !has(5) &&
+    !has(10) &&
+    !has(11) &&
+    !has(9) &&
+    !has(1)
+  ) {
     return root + '5';
   }
 
+  // 3. Определение quality (с учётом опущенной квинты)
   let quality = null;
-
-  if (has(4) && has(7)) quality = '';
-  else if (has(3) && has(7)) quality = 'm';
+  if (has(4) && has(3) && has(10)) quality = ''; // Hendrix chord (7#9)
+  else if (has(4) && !has(3) && !has(6) && !has(8)) quality = '';
+  else if (has(3) && !has(4) && !has(6) && !has(8)) quality = 'm';
   else if (has(4) && has(8)) quality = 'aug';
   else if (has(3) && has(6)) quality = 'dim';
+  else if (has(4) && has(6) && !has(3)) quality = ''; // 7b5
+
+  // 4. Опущенная терция (no3) — только если есть септима/секста/девятка
+  if (quality === null && !has(3) && !has(4)) {
+    const no5 = !has(7);
+    const omission = no5 ? '(no3,no5)' : '(no3)';
+    if (has(11)) return root + 'maj7' + omission;
+    if (has(10)) return root + '7' + omission;
+    if (has(9)) return root + '6' + omission;
+    if (has(2) && has(10)) return root + '9' + omission;
+    return '?';
+  }
 
   if (quality === null) return '?';
 
   let name = root + quality;
   let hasSeventh = false;
+  let hasSixth = false;
 
   if (has(11)) {
     if (quality === 'm') name = root + 'm(maj7)';
@@ -17694,105 +17951,57 @@ function buildChordName(root, intervals) {
     else if (quality === 'aug') name = root + 'aug7';
     hasSeventh = true;
   } else if (has(9) && !has(10) && !has(11)) {
-    if (quality === '') name = root + '6';
-    else if (quality === 'm') name = root + 'm6';
-    hasSeventh = true;
+    hasSixth = true;
   }
 
   if (has(3) && has(6) && has(9)) {
     name = root + 'dim7';
     hasSeventh = true;
+    hasSixth = false;
   }
-
-  const extensions = [];
-  const alterations = [];
 
   const has9 = has(14) || has(2);
-  if (has9) {
-    if (hasSeventh) {
-      extensions.push('9');
-    } else {
-      extensions.push('add9');
+  const has11 = has(17) || (has(5) && hasSeventh);
+  const has13 = has(21) || (has(9) && (has(10) || has(11)));
+
+  if (has(10) && has9 && !has11 && !has13 && !has(3)) {
+    name = quality === '' ? root + '9' : (quality === 'm' ? root + 'm9' : name);
+  } else if (has(10) && has11 && !has13) {
+    name = quality === '' ? root + '11' : (quality === 'm' ? root + 'm11' : name);
+  } else if (has(10) && has13) {
+    name = quality === '' ? root + '13' : (quality === 'm' ? root + 'm13' : name);
+  } else if (has(11) && has9 && !has11 && !has13) {
+    name = quality === '' ? root + 'maj9' : (quality === 'm' ? root + 'm(maj9)' : name);
+  } else if (has(11) && has11 && !has13) {
+    name = quality === '' ? root + 'maj11' : (quality === 'm' ? root + 'm(maj11)' : name);
+  } else if (has(11) && has13) {
+    name = quality === '' ? root + 'maj13' : (quality === 'm' ? root + 'm(maj13)' : name);
+  } else if (!hasSeventh) {
+    if (hasSixth && has9) {
+      name = quality === '' ? root + '6/9' : root + 'm6/9';
+    } else if (hasSixth) {
+      name = quality === '' ? root + '6' : root + 'm6';
+    } else if (has9) {
+      name = root + quality + 'add9';
+    } else if (has(5)) {
+      name = root + quality + 'add11';
     }
   }
-  const has11 = has(17);
-  if (has11) {
-    if (!hasSeventh) extensions.push('add11');
-    else extensions.push('11');
-  }
 
-  if (has(21)) extensions.push('13');
-
-  if (has(6) && quality !== 'dim' && !has(3)) alterations.push('♭5');
-  if (has(8) && quality !== 'aug' && !has(4)) alterations.push('♯5');
-  if (has(13)) alterations.push('♭9');
-  if (has(15)) alterations.push('♯9');
+  // Alterations
+  const alterations = [];
+  if (has(6) && quality !== 'dim' && quality !== 'm7♭5' && !name.includes('dim'))
+    alterations.push('♭5');
+  if (has(8) && quality !== 'aug' && !name.includes('aug')) alterations.push('♯5');
+  if (has(13) || has(1)) alterations.push('♭9');
+  if (has(15) || (has(3) && quality === '' && has(4))) alterations.push('♯9');
   if (has(18)) alterations.push('♯11');
   if (has(20)) alterations.push('♭13');
 
-  let suffix = extensions.join('');
   if (alterations.length > 0) {
-    suffix += (suffix ? ',' : '') + alterations.join(',');
+    name += '(' + alterations.join(',') + ')';
   }
 
-  if (suffix) {
-    if (hasSeventh) {
-      name += suffix;
-    } else {
-      name = root + quality + suffix;
-    }
-  }
-
-  if (has(10) && has9 && !has11 && !has(21)) {
-    if (quality === '') name = root + '9';
-    else if (quality === 'm') name = root + 'm9';
-  }
-  if (has(10) && has11 && !has(21)) {
-    if (quality === '') name = root + '11';
-    else if (quality === 'm') name = root + 'm11';
-  }
-  if (has(10) && has(21)) {
-    if (quality === '') name = root + '13';
-    else if (quality === 'm') name = root + 'm13';
-  }
-  if (has(11) && has9 && !has11 && !has(21)) {
-    if (quality === '') {
-      name = root + 'maj9';
-    }
-
-    if (quality === 'm') {
-      name = root + 'm(maj9)';
-    }
-  }
-
-  if (has(11) && has11 && !has(21)) {
-    if (quality === '') {
-      name = root + 'maj11';
-    }
-
-    if (quality === 'm') {
-      name = root + 'm(maj11)';
-    }
-  }
-
-  if (has(11) && has(21)) {
-    if (quality === '') {
-      name = root + 'maj13';
-    }
-
-    if (quality === 'm') {
-      name = root + 'm(maj13)';
-    }
-  }
-  if (has(9) && has9 && !has(10) && !has(11)) {
-    if (quality === '') {
-      name = root + '6/9';
-    }
-
-    if (quality === 'm') {
-      name = root + 'm6/9';
-    }
-  }
   return name;
 }
 
@@ -18565,30 +18774,122 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     handleShapeChange(currentShape);
   }
 
+  const initialSnapshotKey = activeSectionKey || globalKey;
+
+  function getPreviousChordName() {
+    if (createMode || !wrapper) return null;
+    const sid = +wrapper.dataset.sec,
+      sqid = +wrapper.dataset.square,
+      ei = +wrapper.dataset.ei;
+    const secIdx = sections.findIndex((s) => s.id === sid);
+    if (secIdx === -1) return null;
+    const sec = sections[secIdx];
+    const sqIdx = sec.squares.findIndex((q) => q.id === sqid);
+    if (sqIdx === -1) return null;
+    const sq = sec.squares[sqIdx];
+    if (ei > 0 && sq.events[ei - 1] && sq.events[ei - 1].chord) {
+      return sq.events[ei - 1].chord;
+    }
+    if (sqIdx > 0) {
+      const prevSq = sec.squares[sqIdx - 1];
+      for (let i = prevSq.events.length - 1; i >= 0; i--) {
+        if (prevSq.events[i] && prevSq.events[i].chord) return prevSq.events[i].chord;
+      }
+    }
+    if (secIdx > 0) {
+      const prevSec = sections[secIdx - 1];
+      for (let q = prevSec.squares.length - 1; q >= 0; q--) {
+        const pSq = prevSec.squares[q];
+        for (let i = pSq.events.length - 1; i >= 0; i--) {
+          if (pSq.events[i] && pSq.events[i].chord) return pSq.events[i].chord;
+        }
+      }
+    }
+    return null;
+  }
+  const initialPrevChord = getPreviousChordName();
+
+  function updateRenameButton(detectedName) {
+    if (!applyBtn) return;
+    const hasValidAnalysis = !!detectedName && detectedName !== '?';
+    let needsRename = false;
+    if (!createMode && wrapper && hasValidAnalysis) {
+      // Сравниваем распознанное по грифу имя с тем, что СЕЙЧАС стоит в
+      // ячейке (а не с тем, что было на момент открытия редактора) —
+      // чтобы после уже сделанного переименования кнопка сразу же
+      // исчезла, даже если пользователь продолжает двигать пальцы.
+      const detectedDisplay = normalizeChordCase(expandChordName(detectedName));
+      const currentInput = wrapper.querySelector('.chord-input');
+      const currentChord = currentInput ? currentInput.value.trim() : chordName;
+      needsRename = detectedDisplay !== currentChord;
+    }
+    applyBtn.style.display = needsRename ? 'inline-block' : 'none';
+  }
+
   function handleShapeChange(newShape) {
     currentShape = newShape;
 
-    const analysis = analyzeFingeringShape(currentShape);
+    const context = {
+      hintedChordName: activeChordName || chordName,
+      key: initialSnapshotKey,
+      prevChordName: initialPrevChord,
+    };
+    const analysis = analyzeFingeringShape(currentShape, context);
 
-    analysisDiv.textContent = analysis.chordName;
-    analysisDiv.style.color = 'var(--color-text-primary)';
     lastDetectedChordName = analysis.chordName;
 
-    if (applyBtn) {
-      const hasValidAnalysis = !!analysis.chordName && analysis.chordName !== '?';
-      let needsRename = false;
-      if (!createMode && wrapper && hasValidAnalysis) {
-        // Сравниваем распознанное по грифу имя с тем, что СЕЙЧАС стоит в
-        // ячейке (а не с тем, что было на момент открытия редактора) —
-        // чтобы после уже сделанного переименования кнопка сразу же
-        // исчезла, даже если пользователь продолжает двигать пальцы.
-        const detectedDisplay = normalizeChordCase(expandChordName(analysis.chordName));
-        const currentInput = wrapper.querySelector('.chord-input');
-        const currentChord = currentInput ? currentInput.value.trim() : chordName;
-        needsRename = detectedDisplay !== currentChord;
+    if (analysis.chordName === '?') {
+      analysisDiv.style.color = 'var(--color-text-tertiary)';
+      if (analysis.reason === 'too_few_notes') {
+        analysisDiv.textContent = 'Зажмите хотя бы 2 струны';
+      } else if (analysis.reason === 'near_match' && analysis.suggestion) {
+        analysisDiv.textContent = `Похоже на ${analysis.suggestion.baseChord} (+${analysis.suggestion.extraNote})`;
+      } else {
+        analysisDiv.textContent = analysis.notesList ? `${analysis.notesList} — не определяется` : '?';
       }
-      applyBtn.style.display = needsRename ? 'inline-block' : 'none';
+    } else if (analysis.ambiguous && analysis.altCandidate) {
+      analysisDiv.style.color = 'var(--color-text-primary)';
+      analysisDiv.innerHTML = '';
+      const pillsWrap = document.createElement('div');
+      pillsWrap.className = 'fe-ambiguous-pills';
+
+      const p1 = document.createElement('button');
+      p1.type = 'button';
+      p1.className = 'fe-pill-choice is-selected';
+      p1.textContent = analysis.chordName;
+
+      const slash = document.createElement('span');
+      slash.style.opacity = '0.5';
+      slash.textContent = '/';
+
+      const p2 = document.createElement('button');
+      p2.type = 'button';
+      p2.className = 'fe-pill-choice';
+      p2.textContent = analysis.altCandidate.chordName;
+
+      const selectCandidate = (chosenName, chosenIntervals, activeBtn, inactiveBtn) => {
+        lastDetectedChordName = chosenName;
+        activeBtn.classList.add('is-selected');
+        inactiveBtn.classList.remove('is-selected');
+        if (fretboardObj && chosenIntervals) {
+          fretboardObj.setIntervals(chosenIntervals);
+        }
+        updateRenameButton(chosenName);
+      };
+
+      p1.onclick = () => selectCandidate(analysis.chordName, analysis.intervals, p1, p2);
+      p2.onclick = () => selectCandidate(analysis.altCandidate.chordName, analysis.altCandidate.intervals, p2, p1);
+
+      pillsWrap.appendChild(p1);
+      pillsWrap.appendChild(slash);
+      pillsWrap.appendChild(p2);
+      analysisDiv.appendChild(pillsWrap);
+    } else {
+      analysisDiv.textContent = analysis.chordName;
+      analysisDiv.style.color = 'var(--color-text-primary)';
     }
+
+    updateRenameButton(lastDetectedChordName);
 
     if (analysis.intervals) {
       fretboardObj.setIntervals(analysis.intervals);
@@ -18738,8 +19039,12 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
 
   document.getElementById('save-fingering').onclick = () => {
     if (createMode) {
-      const analysis = analyzeFingeringShape(currentShape);
-      if (!analysis.chordName || analysis.chordName === '?') {
+      const analysis = analyzeFingeringShape(currentShape, {
+        key: initialSnapshotKey,
+        prevChordName: initialPrevChord,
+      });
+      const chosenName = lastDetectedChordName || analysis.chordName;
+      if (!chosenName || chosenName === '?') {
         analysisDiv.style.color = 'var(--color-danger, #b3261e)';
         return;
       }
@@ -18747,7 +19052,7 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
         closeFingeringEditor();
         return;
       }
-      const fullChord = expandChordName(analysis.chordName);
+      const fullChord = expandChordName(chosenName);
       const displayChord = normalizeChordCase(fullChord);
 
       const sid = +activeChordInput.dataset.sec,
