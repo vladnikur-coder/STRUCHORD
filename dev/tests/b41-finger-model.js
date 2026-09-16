@@ -177,5 +177,28 @@ const evObj = { chord: 'Am', fingering: 'x,0,2,2,1,0', fingers: ['x', 0, 2, 4, 1
 check('fingersForEventShape для совпадающей формы', w.eval("fingersForEventShape")({ chord: 'Am', fingering: 'x,0,2,2,1,0', fingers: ['x', 0, 2, 4, 1, 0] }, ['x', 0, 2, 2, 1, 0]), ['x', 0, 2, 4, 1, 0]);
 check('fingersForEventShape для несовпадающей формы дает null', w.eval("fingersForEventShape")({ chord: 'Am', fingering: 'x,0,2,2,1,0', fingers: ['x', 0, 2, 4, 1, 0] }, [5, 7, 7, 5, 5, 5]), null);
 
+console.log('\n=== 8. createInteractiveFretboard (ЛКМ ставит/убирает ноту, ПКМ меняет палец) ===');
+let lastShape = null, lastFingers = null;
+const fb = w.createInteractiveFretboard(['x', 0, 2, 2, 1, 0], (shape, fingers) => {
+  lastShape = shape;
+  lastFingers = fingers;
+});
+const zones = fb.container.querySelectorAll('div');
+// Первая зона струн (6 зон сверху: 0..5), затем зоны ладов (5 ладов * 6 струн = 30 зон: 6..35)
+// На ладу 2 (fret idx 1), струна 3 (индекс 2, '2' лад): zone index = 6 + 1 * 6 + 2 = 14
+const noteZoneString3Fret2 = zones[6 + 1 * 6 + 2];
+
+// 1. ЛКМ по уже стоящей ноте -> убирает ноту (становится 'x')
+noteZoneString3Fret2.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+check('ЛКМ по зажатой ноте убирает её (x)', lastShape[2], 'x');
+
+// 2. ЛКМ по пустой ноте -> ставит ноту (становится 2)
+noteZoneString3Fret2.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+check('ЛКМ по пустой ноте ставит её (2)', lastShape[2], 2);
+
+// 3. ПКМ (contextmenu) по стоящей ноте -> циклически переключает палец
+noteZoneString3Fret2.dispatchEvent(new w.MouseEvent('contextmenu', { bubbles: true }));
+checkTrue('ПКМ по зажатой ноте задает кастомный палец', lastFingers && lastFingers[2] !== null);
+
 console.log(`\nИТОГО: пройдено ${pass}, провалено ${failed}`);
 if (failed > 0) process.exit(1);
