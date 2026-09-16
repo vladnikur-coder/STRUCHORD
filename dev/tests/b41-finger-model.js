@@ -228,6 +228,32 @@ const toggleBtnsAfter = fbBb.container.querySelectorAll('.fe-barre-toggle');
 toggleBtnsAfter[0].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
 checkTrue('После повторного клика лад 3 уходит из barreOff', !fbBb.getBarreOff().includes(3));
 
+// 5. Протягивание мыши: создание баррэ и повторное протягивание для снятия
+let dragTestShape = null;
+const fbDrag = w.createInteractiveFretboard(['x', 'x', 'x', 'x', 'x', 'x'], (s) => { dragTestShape = s; });
+const dragZones = fbDrag.container.querySelectorAll('div');
+// Зоны лада 1: index 6..11 (струны 0..5)
+const z0 = dragZones[6]; // струна 0, лад 1
+const z1 = dragZones[7]; // струна 1, лад 1
+const z2 = dragZones[8]; // струна 2, лад 1
+// Протягивание: mousedown на z0 -> mouseenter на z1 -> mouseenter на z2 -> mouseup
+z0.dispatchEvent(new w.MouseEvent('mousedown', { bubbles: true, button: 0 }));
+z1.dispatchEvent(new w.MouseEvent('mouseenter', { bubbles: true }));
+z2.dispatchEvent(new w.MouseEvent('mouseenter', { bubbles: true }));
+w.dispatchEvent(new w.MouseEvent('mouseup', { bubbles: true }));
+checkTrue('Протягивание по струнам 0, 1, 2 зажало их на 1 ладу', dragTestShape && dragTestShape[0] === 1 && dragTestShape[1] === 1 && dragTestShape[2] === 1);
+
+// Повторное протягивание по тем же зажатым струнам -> снимает ноты
+const dragZones2 = fbDrag.container.querySelectorAll('div');
+const z0_after = dragZones2[6];
+const z1_after = dragZones2[7];
+const z2_after = dragZones2[8];
+z0_after.dispatchEvent(new w.MouseEvent('mousedown', { bubbles: true, button: 0 }));
+z1_after.dispatchEvent(new w.MouseEvent('mouseenter', { bubbles: true }));
+z2_after.dispatchEvent(new w.MouseEvent('mouseenter', { bubbles: true }));
+w.dispatchEvent(new w.MouseEvent('mouseup', { bubbles: true }));
+checkTrue('Повторное протягивание по зажатым струнам убрало ноты (x)', dragTestShape && dragTestShape[0] === 'x' && dragTestShape[1] === 'x' && dragTestShape[2] === 'x');
+
 console.log('\n=== 9. detectAllBarres (строгое непрерывное баррэ без дырок) ===');
 const barres3xx333 = w.eval("detectAllBarres")([3, 'x', 'x', 3, 3, 3]);
 check('3xx333: найдено ровно 1 баррэ', barres3xx333.length, 1);

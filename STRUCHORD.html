@@ -18083,14 +18083,19 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
     const effectiveFingers = getEffectiveFingers();
     let isDragging = false;
     let dragFret = null;
+    let dragMode = 'set';
     let draggedStrings = new Set();
     let dragMoved = false;
 
     const onGlobalMouseUp = () => {
       if (isDragging) {
-        if (dragMoved && dragFret !== null && draggedStrings.size >= 2) {
-          manualBarreFret = dragFret;
-          barreOff.delete(dragFret);
+        if (dragMoved && dragFret !== null) {
+          if (dragMode === 'set' && draggedStrings.size >= 2) {
+            manualBarreFret = dragFret;
+            barreOff.delete(dragFret);
+          } else if (dragMode === 'erase') {
+            if (manualBarreFret === dragFret) manualBarreFret = null;
+          }
           redraw();
           if (onChange) onChange(shape, getFingers());
         }
@@ -18119,12 +18124,13 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
         zone.style.cursor = 'pointer';
         const isFretted = shape[s] === actualFret;
         zone.title = isFretted
-          ? `Лад ${actualFret}, струна ${s + 1} (ЛКМ — убрать ноту, протягивание — баррэ, ПКМ — сменить палец)`
-          : `Лад ${actualFret}, струна ${s + 1} (ЛКМ — зажать лад, протягивание — баррэ)`;
+          ? `Лад ${actualFret}, струна ${s + 1} (ЛКМ — убрать ноту, протягивание — убрать баррэ, ПКМ — сменить палец)`
+          : `Лад ${actualFret}, струна ${s + 1} (ЛКМ — зажать лад, протягивание — создать баррэ)`;
         zone.addEventListener('mousedown', (e) => {
           if (e.button !== 0) return;
           isDragging = true;
           dragFret = actualFret;
+          dragMode = shape[s] === actualFret ? 'erase' : 'set';
           draggedStrings.clear();
           draggedStrings.add(s);
           dragMoved = false;
@@ -18132,14 +18138,31 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
         zone.addEventListener('mouseenter', (e) => {
           if (isDragging && dragFret === actualFret) {
             dragMoved = true;
+            if (draggedStrings.size === 1) {
+              const startS = [...draggedStrings][0];
+              const newShape = [...shape];
+              if (dragMode === 'erase') {
+                if (newShape[startS] === actualFret) newShape[startS] = 'x';
+              } else {
+                newShape[startS] = actualFret;
+              }
+              manualFingers[startS] = null;
+              shape = newShape;
+            }
             draggedStrings.add(s);
             const newShape = [...shape];
-            newShape[s] = actualFret;
+            if (dragMode === 'erase') {
+              if (newShape[s] === actualFret) newShape[s] = 'x';
+            } else {
+              newShape[s] = actualFret;
+            }
             manualFingers[s] = null;
             shape = newShape;
-            if (draggedStrings.size >= 2) {
+            if (dragMode === 'set' && draggedStrings.size >= 2) {
               manualBarreFret = actualFret;
               barreOff.delete(actualFret);
+            } else if (dragMode === 'erase') {
+              if (manualBarreFret === actualFret) manualBarreFret = null;
             }
             redraw();
             if (onChange) onChange(shape, getFingers());
