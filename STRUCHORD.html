@@ -17848,6 +17848,7 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
   // B-74: лады, у которых баррэ разжато в отдельные точки (выключатель
   // баррэ, как в Guitar Pro). По каждому баррэ отдельно — ключ по ладу.
   let barreOff = normalizeBarreOffSet(opts.barreOff) || new Set();
+  let manualBarreFret = null;
 
   // B-41: кастомная раскладка пальцев (1..4, T или null для авто-расчёта)
   let manualFingers = Array(strings).fill(null);
@@ -17927,11 +17928,19 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
       }
     }
 
-    // B-74: то же баррэ, что рисует превью (renderFingeringSVG), — берём
-    // выбор модели хвата, а не любой повторяющийся лад. Если лад помечен
-    // в barreOff, капсулу не рисуем: струны разойдутся отдельными точками.
-    const editorGrip = analyzeShapeGrip(shape);
-    const editorBarre = editorGrip.chosen ? editorGrip.chosen.b : null;
+    // B-74 / B-41: то же баррэ, что рисует превью (renderFingeringSVG), — берём
+    // выбор модели хвата или явно включённое пользователем баррэ (manualBarreFret).
+    // Если лад помечен в barreOff, капсулу не рисуем: струны разойдутся отдельными точками.
+    const allBarreCandidates = detectAllBarres(shape);
+    let editorBarre = null;
+    if (manualBarreFret !== null) {
+      editorBarre = allBarreCandidates.find((c) => c.fret === manualBarreFret) || null;
+      if (!editorBarre) manualBarreFret = null;
+    }
+    if (!editorBarre) {
+      const editorGrip = analyzeShapeGrip(shape);
+      editorBarre = editorGrip.chosen ? editorGrip.chosen.b : null;
+    }
     const editorBarreSuppressed = !!(editorBarre && barreOff.has(editorBarre.fret));
     const editorBarreStrings =
       editorBarre && !editorBarreSuppressed ? new Set(editorBarre.strings) : new Set();
@@ -17997,8 +18006,8 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
     svgHTML += `</svg>`;
     container.innerHTML = svgHTML;
 
-    addClickZones();
-    addBarreToggle(editorBarre, editorBarreSuppressed);
+    addClickZones(editorBarre, editorBarreSuppressed, editorBarreStrings);
+    addBarreToggles(editorBarre, editorBarreSuppressed);
 
     // Шевроны сдвига окна ладов — центрированы над/под колонкой номеров ладов,
     // чтобы не перекрывать клик-зоны открытых струн (класс .fe-shift с transform translateX(-50%)).
@@ -18044,7 +18053,7 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
     }
   }
 
-  function addClickZones() {
+  function addClickZones(editorBarre, editorBarreSuppressed, editorBarreStrings) {
     for (let s = 0; s < strings; s++) {
       const x = padLeft + s * stringSpacing - stringSpacing / 2;
       const zone = document.createElement('div');
@@ -18072,6 +18081,29 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
     }
 
     const effectiveFingers = getEffectiveFingers();
+    let isDragging = false;
+    let dragFret = null;
+    let draggedStrings = new Set();
+    let dragMoved = false;
+
+    const onGlobalMouseUp = () => {
+      if (isDragging) {
+        if (dragMoved && dragFret !== null && draggedStrings.size >= 2) {
+          manualBarreFret = dragFret;
+          barreOff.delete(dragFret);
+          redraw();
+          if (onChange) onChange(shape, getFingers());
+        }
+        isDragging = false;
+        dragFret = null;
+        draggedStrings.clear();
+        dragMoved = false;
+      }
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('mouseup', onGlobalMouseUp);
+    }
+
     for (let f = 0; f < frets; f++) {
       const actualFret = gridStartFret + f;
       const yStart = padTop + f * fretSpacing;
@@ -18087,9 +18119,34 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
         zone.style.cursor = 'pointer';
         const isFretted = shape[s] === actualFret;
         zone.title = isFretted
-          ? `Лад ${actualFret}, струна ${s + 1} (ЛКМ — убрать ноту, ПКМ — сменить палец)`
-          : `Лад ${actualFret}, струна ${s + 1} (ЛКМ — зажать лад)`;
+          ? `Лад ${actualFret}, струна ${s + 1} (ЛКМ — убрать ноту, протягивание — баррэ, ПКМ — сменить палец)`
+          : `Лад ${actualFret}, струна ${s + 1} (ЛКМ — зажать лад, протягивание — баррэ)`;
+        zone.addEventListener('mousedown', (e) => {
+          if (e.button !== 0) return;
+          isDragging = true;
+          dragFret = actualFret;
+          draggedStrings.clear();
+          draggedStrings.add(s);
+          dragMoved = false;
+        });
+        zone.addEventListener('mouseenter', (e) => {
+          if (isDragging && dragFret === actualFret) {
+            dragMoved = true;
+            draggedStrings.add(s);
+            const newShape = [...shape];
+            newShape[s] = actualFret;
+            manualFingers[s] = null;
+            shape = newShape;
+            if (draggedStrings.size >= 2) {
+              manualBarreFret = actualFret;
+              barreOff.delete(actualFret);
+            }
+            redraw();
+            if (onChange) onChange(shape, getFingers());
+          }
+        });
         zone.addEventListener('click', (e) => {
+          if (dragMoved) return;
           e.stopPropagation();
           const newShape = [...shape];
           if (newShape[s] === actualFret) {
@@ -18111,14 +18168,22 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
             const cycle = ['1', '2', '3', '4', 'T'];
             const cur = effectiveFingers[s] || '1';
             const curIdx = cycle.indexOf(String(cur));
+            let nextVal = null;
             if (manualFingers[s] === null) {
-              manualFingers[s] = cycle[(curIdx + 1) % cycle.length];
+              nextVal = cycle[(curIdx + 1) % cycle.length];
             } else if (manualFingers[s] === 'T') {
-              manualFingers[s] = null;
+              nextVal = null;
             } else if (curIdx >= 0 && curIdx < cycle.length - 1) {
-              manualFingers[s] = cycle[curIdx + 1];
+              nextVal = cycle[curIdx + 1];
             } else {
-              manualFingers[s] = '1';
+              nextVal = '1';
+            }
+            if (editorBarre && !editorBarreSuppressed && actualFret === editorBarre.fret && editorBarreStrings.has(s)) {
+              for (const bs of editorBarre.strings) {
+                manualFingers[bs] = nextVal;
+              }
+            } else {
+              manualFingers[s] = nextVal;
             }
             redraw();
             if (onChange) onChange(shape, getFingers());
@@ -18129,39 +18194,42 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
     }
   }
 
-  // B-74: выключатель баррэ у самого баррэ (как «разжать баррэ» в Guitar
-  // Pro). Кнопка появляется только когда модель хвата видит баррэ. Нажатие
-  // помечает лад баррэ в barreOff (или снимает пометку) и перерисовывает:
-  // капсула распадается на отдельные точки. Форму пальцев это не меняет —
-  // подбор/линия аппликатуры остаются прежними.
-  function addBarreToggle(editorBarre, suppressed) {
-    if (!editorBarre) return;
-    if (editorBarre.fret < gridStartFret || editorBarre.fret > gridStartFret + 4) return;
-    const rowIdx = editorBarre.fret - gridStartFret;
-    const y = padTop + rowIdx * fretSpacing + fretSpacing / 2;
-    const btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'fe-barre-toggle';
-    // B-78: значок = текущее состояние баррэ. Целая планка = баррэ
-    // зажато; три отдельные точки = разжато (suppressed). Рисуем SVG, а
-    // не глиф шрифта: набор Tabler здесь урезан, символа баррэ в нём нет.
-    btn.innerHTML = suppressed
-      ? '<svg viewBox="0 0 16 16" width="0.8125rem" height="0.8125rem" aria-hidden="true"><circle cx="3.5" cy="8" r="1.8" fill="currentColor"/><circle cx="8" cy="8" r="1.8" fill="currentColor"/><circle cx="12.5" cy="8" r="1.8" fill="currentColor"/></svg>'
-      : '<svg viewBox="0 0 16 16" width="0.8125rem" height="0.8125rem" aria-hidden="true"><rect x="1.5" y="6.2" width="13" height="3.6" rx="1.8" fill="currentColor"/></svg>';
-    btn.style.left = REM(padLeft + fretWidth + 10);
-    btn.style.top = REM(y - 11);
-    btn.title = suppressed
-      ? `Баррэ на ${editorBarre.fret} ладу разжато — собрать обратно`
-      : `Разжать баррэ на ${editorBarre.fret} ладу (отдельные точки)`;
-    btn.setAttribute('aria-pressed', suppressed ? 'true' : 'false');
-    btn.onclick = (e) => {
-      e.stopPropagation();
-      if (barreOff.has(editorBarre.fret)) barreOff.delete(editorBarre.fret);
-      else barreOff.add(editorBarre.fret);
-      redraw();
-      if (onChange) onChange(shape, getFingers());
-    };
-    container.appendChild(btn);
+  // B-74 / B-41: тумблеры баррэ у каждого подходящего лада с >=2 смежными струнами.
+  // Позволяет как распустить активное баррэ на точки, так и вручную включить
+  // баррэ на любом ладу с несколькими зажатыми нотами.
+  function addBarreToggles(activeBarre, activeSuppressed) {
+    const allCandidates = detectAllBarres(shape);
+    for (const cand of allCandidates) {
+      if (cand.fret < gridStartFret || cand.fret > gridStartFret + 4) continue;
+      const rowIdx = cand.fret - gridStartFret;
+      const y = padTop + rowIdx * fretSpacing + fretSpacing / 2;
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'fe-barre-toggle';
+
+      const isActiveBarre = activeBarre && activeBarre.fret === cand.fret && !activeSuppressed;
+      btn.innerHTML = isActiveBarre
+        ? '<svg viewBox="0 0 16 16" width="0.8125rem" height="0.8125rem" aria-hidden="true"><circle cx="3.5" cy="8" r="1.8" fill="currentColor"/><circle cx="8" cy="8" r="1.8" fill="currentColor"/><circle cx="12.5" cy="8" r="1.8" fill="currentColor"/></svg>'
+        : '<svg viewBox="0 0 16 16" width="0.8125rem" height="0.8125rem" aria-hidden="true"><rect x="1.5" y="6.2" width="13" height="3.6" rx="1.8" fill="currentColor"/></svg>';
+      btn.style.left = REM(padLeft + fretWidth + 10);
+      btn.style.top = REM(y - 11);
+      btn.title = isActiveBarre
+        ? `Разжать баррэ на ${cand.fret} ладу (отдельные точки)`
+        : `Объединить ноты на ${cand.fret} ладу в баррэ`;
+      btn.setAttribute('aria-pressed', isActiveBarre ? 'true' : 'false');
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        if (isActiveBarre) {
+          barreOff.add(cand.fret);
+        } else {
+          barreOff.delete(cand.fret);
+          manualBarreFret = cand.fret;
+        }
+        redraw();
+        if (onChange) onChange(shape, getFingers());
+      };
+      container.appendChild(btn);
+    }
   }
 
   function setIntervals(intervals) {
@@ -18175,6 +18243,7 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
     shape = Array(strings).fill('x');
     currentIntervals = null;
     barreOff = new Set();
+    manualBarreFret = null;
     manualFingers = Array(strings).fill(null);
     redraw();
     if (onChange) {

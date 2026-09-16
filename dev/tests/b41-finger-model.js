@@ -216,6 +216,18 @@ check('ЛКМ по пустой ноте ставит её (2)', lastShape[2], 2
 noteZoneString3Fret2.dispatchEvent(new w.MouseEvent('contextmenu', { bubbles: true }));
 checkTrue('ПКМ по зажатой ноте задает кастомный палец', lastFingers && lastFingers[2] !== null);
 
+// 4. Ручное переключение баррэ через кнопку fe-barre-toggle
+const fbBb = w.createInteractiveFretboard(['x', 1, 3, 3, 3, 'x'], () => {});
+const toggleBtns = fbBb.container.querySelectorAll('.fe-barre-toggle');
+checkTrue('Кнопка баррэ присутствует для лада 3', toggleBtns.length >= 1);
+// Нажатие на кнопку разжимает баррэ на 3 ладу
+toggleBtns[0].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+checkTrue('После клика лад 3 попадает в barreOff', fbBb.getBarreOff().includes(3));
+// Повторный клик собирает баррэ обратно
+const toggleBtnsAfter = fbBb.container.querySelectorAll('.fe-barre-toggle');
+toggleBtnsAfter[0].dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+checkTrue('После повторного клика лад 3 уходит из barreOff', !fbBb.getBarreOff().includes(3));
+
 console.log('\n=== 9. detectAllBarres (строгое непрерывное баррэ без дырок) ===');
 const barres3xx333 = w.eval("detectAllBarres")([3, 'x', 'x', 3, 3, 3]);
 check('3xx333: найдено ровно 1 баррэ', barres3xx333.length, 1);
