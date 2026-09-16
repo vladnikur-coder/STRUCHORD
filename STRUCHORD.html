@@ -9847,6 +9847,11 @@ body.is-timeline.is-playing .timeline-playhead {
   >
 
   <label class="tools-label"
+    ><input type="checkbox" id="showFingers" onchange="toggleFingersVisibility()" />
+    Отображать номера пальцев</label
+  >
+
+  <label class="tools-label"
     ><input type="checkbox" id="showTimeAndBeats" onchange="toggleTimeAndBeats()"  />
     Расширенный контроль размера</label
   >
@@ -12023,43 +12028,10 @@ const FINGERING_WEIGHTS = {
 // нескольких струнах подряд. Другие пальцы могут при этом добавлять ноты
 // НА ТОМ ЖЕ участке струн, но на более высоких ладах (это нормальная техника,
 // а не "сломанное барре"). Барре невозможно, если внутри диапазона есть
-// открытая струна или струна с ладом НИЖЕ f — такую струну барре бы тоже
-// придавило, so it can't stay open/lower.
+// открытая струна, струна с ладом НИЖЕ f или заглушенная струна ('x') —
+// палец баррэ плоский и прижимает все струны под собой непрерывно.
 // Возвращает лучший вариант барре (максимум струн, реально прижатых пальцем)
 // или null, если барре не подходит.
-function detectBarre(shape) {
-  let best = null;
-  for (let f = 1; f <= 15; f++) {
-    const idxs = [];
-    for (let s = 0; s < 6; s++) if (shape[s] === f) idxs.push(s);
-    if (idxs.length < 2) continue;
-    const first = idxs[0];
-    const last = idxs[idxs.length - 1];
-    let valid = true;
-    for (let s = first; s <= last; s++) {
-      const val = shape[s];
-      if (val === 'x') continue; // струну внутри барре можно приглушить самим пальцем
-      if (val === 0 || val < f) {
-        valid = false; // открытая или более низкая струна внутри диапазона — барре невозможно
-        break;
-      }
-    }
-    if (!valid) continue;
-    const coveredStrings = idxs.length; // сколько струн реально лежат на пальце барре
-    if (!best || coveredStrings > best.coveredStrings) {
-      best = { fret: f, first, last, coveredStrings, strings: new Set(idxs) };
-    }
-  }
-  return best;
-}
-
-// ---------- Все кандидаты барре (не только самый широкий) ----------
-// detectBarre выше отдаёт один «лучший». Для назначения пальцев нужен
-// перебор: иногда оптимально взять барре у́же, а остаток раздать
-// пальцам. Критерий валидности тот же: диапазон струн подряд на ладу f,
-// внутри — ничего ниже f и ни одной открытой (барре их придавил бы).
-// Двухструнных кандидатов отдаём тоже, но analyzeShapeGrip берёт их
-// только когда нобаррэ-чтение неиграбельно (гейта там, волна-8).
 function detectAllBarres(shape) {
   const out = [];
   let maxFret = 0;
@@ -12068,23 +12040,52 @@ function detectAllBarres(shape) {
     if (f !== 'x' && f !== 0 && f > maxFret) maxFret = f;
   }
   for (let f = 1; f <= maxFret; f++) {
-    const idxs = [];
-    for (let s = 0; s < 6; s++) if (shape[s] === f) idxs.push(s);
-    if (idxs.length < 2) continue;
-    const first = idxs[0];
-    const last = idxs[idxs.length - 1];
-    let valid = true;
-    for (let s = first; s <= last; s++) {
-      const v = shape[s];
-      if (v === 'x') continue;
-      if (v === 0 || v < f) {
-        valid = false;
-        break;
+    let segStart = null;
+    for (let s = 0; s <= 6; s++) {
+      const val = s < 6 ? shape[s] : 'x';
+      const isValidOnFret = s < 6 && val !== 'x' && val !== 0 && val >= f;
+      if (isValidOnFret) {
+        if (segStart === null) segStart = s;
+      } else {
+        if (segStart !== null) {
+          const segEnd = s - 1;
+          const idxs = [];
+          for (let k = segStart; k <= segEnd; k++) {
+            if (shape[k] === f) idxs.push(k);
+          }
+          if (idxs.length >= 2) {
+            const first = idxs[0];
+            const last = idxs[idxs.length - 1];
+            let valid = true;
+            for (let k = first; k <= last; k++) {
+              const v = shape[k];
+              if (v === 'x' || v === 0 || v < f) {
+                valid = false;
+                break;
+              }
+            }
+            if (valid) {
+              out.push({ fret: f, first, last, coveredStrings: idxs.length, strings: idxs });
+            }
+          }
+          segStart = null;
+        }
       }
     }
-    if (valid) out.push({ fret: f, first, last, coveredStrings: idxs.length, strings: idxs });
   }
   return out;
+}
+
+function detectBarre(shape) {
+  const all = detectAllBarres(shape);
+  if (!all.length) return null;
+  let best = all[0];
+  for (let i = 1; i < all.length; i++) {
+    if (all[i].coveredStrings > best.coveredStrings) {
+      best = all[i];
+    }
+  }
+  return { fret: best.fret, first: best.first, last: best.last, coveredStrings: best.coveredStrings, strings: new Set(best.strings) };
 }
 
 // ---------- Анатомия хвата: назначение пальцев и играбельность ----------
@@ -15210,7 +15211,15 @@ function renderFingeringSVG(fingers, bottomPad, opts) {
   const barreOffSet = normalizeBarreOffSet(opts && opts.barreOff);
   const barreSuppressed = !!(drawingBarre && barreOffSet && barreOffSet.has(drawingBarre.fret));
   const barreStrings = drawingBarre && !barreSuppressed ? new Set(drawingBarre.strings) : new Set();
-  const placement = computeFingersForShape(fingers, opts && opts.customFingers, opts && opts.barreOff);
+  const shouldShowFingers =
+    opts && opts.showFingers !== undefined
+      ? !!opts.showFingers
+      : (typeof document !== 'undefined' && document.getElementById('showFingers')
+          ? document.getElementById('showFingers').checked
+          : false);
+  const placement = shouldShowFingers
+    ? computeFingersForShape(fingers, opts && opts.customFingers, opts && opts.barreOff)
+    : null;
 
   if (drawingBarre && !barreSuppressed) {
     const y = padTop + (drawingBarre.fret - gridStartFret + 0.5) * fretSpacing;
@@ -15220,9 +15229,11 @@ function renderFingeringSVG(fingers, bottomPad, opts) {
     // точки не рисуем: цельная плашка читается как один указательный
     // палец, а не как несколько независимых нажатий.
     svg += `<rect class="fingering-barre" data-fret="${drawingBarre.fret}" data-first-string="${drawingBarre.first}" data-last-string="${drawingBarre.last}" x="${x1}" y="${y - dotRadius}" width="${x2 - x1}" height="${dotRadius * 2}" rx="${dotRadius}" fill="var(--color-ink)"/>`;
-    const barreFinger = (placement && placement[drawingBarre.first]) || 1;
-    if (barreFinger && barreFinger !== 'x' && barreFinger !== 0) {
-      svg += `<text x="${padLeft + drawingBarre.first * stringSpacing}" y="${y + 3}" text-anchor="middle" font-size="8.5" fill="var(--color-surface)" font-weight="bold" pointer-events="none">${barreFinger}</text>`;
+    if (shouldShowFingers) {
+      const barreFinger = (placement && placement[drawingBarre.first]) || 1;
+      if (barreFinger && barreFinger !== 'x' && barreFinger !== 0) {
+        svg += `<text x="${padLeft + drawingBarre.first * stringSpacing}" y="${y + 3}" text-anchor="middle" font-size="8.5" fill="var(--color-surface)" font-weight="bold" pointer-events="none">${barreFinger}</text>`;
+      }
     }
   }
 
@@ -15240,9 +15251,11 @@ function renderFingeringSVG(fingers, bottomPad, opts) {
       if (!isBarreString) {
         const y = padTop + (fret - gridStartFret + 0.5) * fretSpacing;
         svg += `<circle cx="${x}" cy="${y}" r="${dotRadius}" fill="var(--color-ink)"/>`;
-        const fNum = placement ? placement[s] : null;
-        if (fNum && fNum !== 'x' && fNum !== 0) {
-          svg += `<text x="${x}" y="${y + 3}" text-anchor="middle" font-size="8.5" fill="var(--color-surface)" font-weight="bold" pointer-events="none">${fNum}</text>`;
+        if (shouldShowFingers) {
+          const fNum = placement ? placement[s] : null;
+          if (fNum && fNum !== 'x' && fNum !== 0) {
+            svg += `<text x="${x}" y="${y + 3}" text-anchor="middle" font-size="8.5" fill="var(--color-surface)" font-weight="bold" pointer-events="none">${fNum}</text>`;
+          }
         }
       }
     }
@@ -17754,6 +17767,7 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
 
   let shape = [...initialShape];
   let currentIntervals = null;
+  let displayMode = opts.displayMode || ((typeof document !== 'undefined' && document.getElementById('showFingers')?.checked) ? 'fingers' : 'intervals');
   // B-74: лады, у которых баррэ разжато в отдельные точки (выключатель
   // баррэ, как в Guitar Pro). По каждому баррэ отдельно — ключ по ладу.
   let barreOff = normalizeBarreOffSet(opts.barreOff) || new Set();
@@ -17851,8 +17865,16 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
       const x1 = padLeft + editorBarre.first * stringSpacing - dotRadius;
       const x2 = padLeft + editorBarre.last * stringSpacing + dotRadius;
       svgHTML += `<rect class="fingering-barre" x="${x1}" y="${y - dotRadius}" width="${x2 - x1}" height="${dotRadius * 2}" rx="${dotRadius}" fill="var(--color-ink)"/>`;
-      const barreFinger = effectiveFingers[editorBarre.first] || '1';
-      svgHTML += `<text x="${(x1 + x2) / 2}" y="${y + 3.5}" text-anchor="middle" font-size="9" font-weight="700" fill="var(--color-surface)">${barreFinger}</text>`;
+      let barreLabel = '';
+      if (displayMode === 'intervals' && currentIntervals) {
+        const intervalData = currentIntervals.find((iv) => iv.string === editorBarre.first);
+        if (intervalData && intervalData.interval) barreLabel = intervalData.interval;
+      } else if (displayMode === 'fingers') {
+        barreLabel = effectiveFingers[editorBarre.first] || '1';
+      }
+      if (barreLabel) {
+        svgHTML += `<text x="${(x1 + x2) / 2}" y="${y + 3.5}" text-anchor="middle" font-size="9" font-weight="700" fill="var(--color-surface)">${barreLabel}</text>`;
+      }
     }
 
     for (let s = 0; s < 6; s++) {
@@ -17872,9 +17894,16 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
         if (isBarreString) continue;
         const y = padTop + (fret - gridStartFret + 0.5) * fretSpacing;
         svgHTML += `<circle cx="${x}" cy="${y}" r="${dotRadius}" fill="var(--color-ink)"/>`;
-        const fingerLabel = effectiveFingers[s];
-        if (fingerLabel && fingerLabel !== 'x' && fingerLabel !== '0') {
-          svgHTML += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9" font-weight="700" fill="var(--color-surface)">${fingerLabel}</text>`;
+        let dotLabel = '';
+        if (displayMode === 'intervals' && currentIntervals) {
+          const intervalData = currentIntervals.find((iv) => iv.string === s);
+          if (intervalData && intervalData.interval) dotLabel = intervalData.interval;
+        } else if (displayMode === 'fingers') {
+          const fingerLabel = effectiveFingers[s];
+          if (fingerLabel && fingerLabel !== 'x' && fingerLabel !== '0') dotLabel = fingerLabel;
+        }
+        if (dotLabel) {
+          svgHTML += `<text x="${x}" y="${y + 3.5}" text-anchor="middle" font-size="9" font-weight="700" fill="var(--color-surface)">${dotLabel}</text>`;
         }
       }
     }
@@ -18066,9 +18095,20 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
     }
   }
 
+  function setDisplayMode(mode) {
+    displayMode = mode;
+    redraw();
+  }
+
+  function getDisplayMode() {
+    return displayMode;
+  }
+
   return {
     container,
     setIntervals,
+    setDisplayMode,
+    getDisplayMode,
     clear,
     getShape: () => shape,
     // B-74: массив ладов с разжатым баррэ — модель хранит его так (ev.barreOff).
@@ -18182,6 +18222,11 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
           title="Переименовать эту ячейку в распознанный аккорд"
           style="display:none;">
     Переименовать?
+  </button>
+  <button id="fe-view-mode-toggle" type="button" class="fe-rename-btn"
+          title="Переключить отображение в точках: Пальцы / Ступени"
+          style="display:none;">
+    <span id="fe-view-mode-label">Пальцы</span>
   </button>
 </div>
 
@@ -18375,6 +18420,25 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
 
   if (applyBtn) {
     applyBtn.onclick = () => applyDetectedNameToCell();
+  }
+
+  const viewModeToggleBtn = document.getElementById('fe-view-mode-toggle');
+  const viewModeLabel = document.getElementById('fe-view-mode-label');
+  const fingersEnabled = typeof document !== 'undefined' && document.getElementById('showFingers') && document.getElementById('showFingers').checked;
+
+  if (viewModeToggleBtn) {
+    if (fingersEnabled) {
+      viewModeToggleBtn.style.display = 'inline-block';
+      let currentMode = fretboardObj.getDisplayMode ? fretboardObj.getDisplayMode() : 'fingers';
+      if (viewModeLabel) viewModeLabel.textContent = currentMode === 'fingers' ? 'Пальцы' : 'Ступени';
+      viewModeToggleBtn.onclick = () => {
+        const nextMode = fretboardObj.getDisplayMode() === 'fingers' ? 'intervals' : 'fingers';
+        fretboardObj.setDisplayMode(nextMode);
+        if (viewModeLabel) viewModeLabel.textContent = nextMode === 'fingers' ? 'Пальцы' : 'Ступени';
+      };
+    } else {
+      viewModeToggleBtn.style.display = 'none';
+    }
   }
 
   // B-76: тело сохранения в режиме ПРАВКИ вынесено в функцию, чтобы обе
@@ -29852,6 +29916,25 @@ function toggleFingering() {
     lastTooltipWrapper = null;
   }
 }
+function toggleFingersVisibility() {
+  const show = document.getElementById('showFingers')?.checked || false;
+  try {
+    localStorage.setItem('struchord_show_fingers', show ? '1' : '0');
+  } catch (e) {}
+  if (typeof renderPinnedFingering === 'function') renderPinnedFingering();
+  if (typeof renderPinnedNext === 'function' && typeof lastPinnedNextPos !== 'undefined') renderPinnedNext(lastPinnedNextPos);
+  if (typeof showPausedFingering === 'function' && timelineActiveCell) showPausedFingering(timelineActiveCell);
+  if (typeof renderTimeline === 'function' && timelineMode) renderTimeline();
+}
+function initFingersVisibility() {
+  try {
+    const saved = localStorage.getItem('struchord_show_fingers');
+    const el = document.getElementById('showFingers');
+    if (el) {
+      el.checked = saved === '1';
+    }
+  } catch (e) {}
+}
 function toggleTimeAndBeats() {
   const show = document.getElementById('showTimeAndBeats').checked;
   const container = document.getElementById('sectionsContainer');
@@ -36464,6 +36547,7 @@ initDemo();
 initTheme();
 initScheme();
 initUiScale();
+initFingersVisibility();
 initThemeLongPress();
 // B-64: панель структуры. Слушатели вешаются один раз, дальше список
 // обновляется из render().

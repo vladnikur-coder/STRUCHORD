@@ -10712,6 +10712,6 @@ inline-скрипт и перемножение с зумом браузера �
 6. **Тестовый стенд:** `dev/tests/b41-finger-model.js` (25 проверок ALL OK).
 
 Версия 0.245 (`struchord-v245`), sha256
-`915ae94df03cb3c6b964b267a31495394ca4e832bfac145f1e826829a47290a4`,
-размер 1944229. Тест `dev/tests/b41-finger-model.js` (30/0) — зелёный.
+`2bd41bf765151611fc6527ed9d8fa3f81b8d2b4c515f48677eb0b8e770419eee`,
+размер 1947129. Тест `dev/tests/b41-finger-model.js` (37/0) — зелёный.
 

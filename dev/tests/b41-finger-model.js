@@ -87,15 +87,15 @@ const fCustomAm = w.computeFingersForShape(['x', 0, 2, 2, 1, 0], customAm);
 check('Am с кастомным 4-м пальцем', fCustomAm, ['x', 0, 2, 4, 1, 0]);
 
 console.log('\n=== 4. renderFingeringSVG (отрисовка пальцев в SVG) ===');
-const svgAm = w.renderFingeringSVG(['x', 0, 2, 2, 1, 0], 30);
+const svgAm = w.renderFingeringSVG(['x', 0, 2, 2, 1, 0], 30, { showFingers: true });
 checkTrue('SVG содержит метку пальца 1', svgAm.includes('>1<'));
 checkTrue('SVG содержит метку пальца 2', svgAm.includes('>2<'));
 checkTrue('SVG содержит метку пальца 3', svgAm.includes('>3<'));
 
-const svgBarreF = w.renderFingeringSVG([1, 3, 3, 2, 1, 1], 30);
+const svgBarreF = w.renderFingeringSVG([1, 3, 3, 2, 1, 1], 30, { showFingers: true });
 checkTrue('SVG для баррэ F содержит капсулу с пальцем 1', svgBarreF.includes('class="fingering-barre"') && svgBarreF.includes('>1<'));
 
-const svgCustomAm = w.renderFingeringSVG(['x', 0, 2, 2, 1, 0], 30, { customFingers: customAm });
+const svgCustomAm = w.renderFingeringSVG(['x', 0, 2, 2, 1, 0], 30, { showFingers: true, customFingers: customAm });
 checkTrue('SVG с кастомными пальцами отображает палец 4', svgCustomAm.includes('>4<'));
 
 console.log('\n=== 5. upsertUserFingering / ufEntryFingers ===');
@@ -199,6 +199,28 @@ check('ЛКМ по пустой ноте ставит её (2)', lastShape[2], 2
 // 3. ПКМ (contextmenu) по стоящей ноте -> циклически переключает палец
 noteZoneString3Fret2.dispatchEvent(new w.MouseEvent('contextmenu', { bubbles: true }));
 checkTrue('ПКМ по зажатой ноте задает кастомный палец', lastFingers && lastFingers[2] !== null);
+
+console.log('\n=== 9. detectAllBarres (строгое непрерывное баррэ без дырок) ===');
+const barres3xx333 = w.eval("detectAllBarres")([3, 'x', 'x', 3, 3, 3]);
+check('3xx333: найдено ровно 1 баррэ', barres3xx333.length, 1);
+check('3xx333: баррэ покрывает только струны 3..5 (не захватывает 6-ю через x)', [barres3xx333[0].first, barres3xx333[0].last], [3, 5]);
+
+const barresF = w.eval("detectAllBarres")([1, 3, 3, 2, 1, 1]);
+check('F (133211): полное баррэ на 1 ладу от струны 0 до 5', [barresF[0].first, barresF[0].last], [0, 5]);
+
+console.log('\n=== 10. showFingers и displayMode (переключение видимости и ступеней) ===');
+const svgNoFingers = w.renderFingeringSVG(['x', 0, 2, 2, 1, 0], 30, { showFingers: false });
+checkTrue('SVG при showFingers=false не содержит цифр пальцев', !svgNoFingers.includes('>1<') && !svgNoFingers.includes('>2<'));
+
+const svgWithFingers = w.renderFingeringSVG(['x', 0, 2, 2, 1, 0], 30, { showFingers: true });
+checkTrue('SVG при showFingers=true содержит цифры пальцев', svgWithFingers.includes('>1<') && svgWithFingers.includes('>2<'));
+
+fb.setDisplayMode('intervals');
+fb.setIntervals([{ string: 4, interval: '1' }, { string: 3, interval: '5' }, { string: 2, interval: 'b3' }]);
+checkTrue('Интерактивный гриф в режиме intervals отображает ступени', fb.container.innerHTML.includes('>b3<'));
+
+fb.setDisplayMode('fingers');
+checkTrue('Интерактивный гриф в режиме fingers отображает пальцы', fb.container.innerHTML.includes('>1<') || fb.container.innerHTML.includes('>2<'));
 
 console.log(`\nИТОГО: пройдено ${pass}, провалено ${failed}`);
 if (failed > 0) process.exit(1);
