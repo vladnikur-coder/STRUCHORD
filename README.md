@@ -10736,7 +10736,7 @@ inline-скрипт и перемножение с зумом браузера �
 - **Тестовый стенд:** `dev/tests/b81-chord-recognition.js` (49 проверок ALL OK).
 
 Версия 0.246 (`struchord-v246`), sha256
-`8ae844236f6c888293388787bf571900e47e1d9f701ab38620ad0b1d832782ec`,
-размер 1970049. Тест `dev/tests/b81-chord-recognition.js` (49/0), `dev/tests/b41-finger-model.js` (51/0) — зелёные.
+`18b975b90591b2fc9d6f306aa9db94d2298cbc7ef88da7e6de4866838cbdc9e0`,
+размер 1970606. Тест `dev/tests/b81-chord-recognition.js` (49/0), `dev/tests/b41-finger-model.js` (54/0) — зелёные.
 
 

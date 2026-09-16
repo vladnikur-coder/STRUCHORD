@@ -278,6 +278,21 @@ fb.setIntervals([{ string: 5, interval: '5' }, { string: 4, interval: '1' }, { s
 checkTrue('Интерактивный гриф в режиме intervals отображает ступени', fb.container.innerHTML.includes('>b3<'));
 checkTrue('Интерактивный гриф в режиме intervals отображает ступени на открытых струнах', fb.container.innerHTML.includes('>1<') && fb.container.innerHTML.includes('>5<'));
 
+// Тест отображения ступеней на струнах баррэ (F major)
+const fbFBarre = w.createInteractiveFretboard([1, 3, 3, 2, 1, 1], () => {}, { displayMode: 'intervals' });
+fbFBarre.setIntervals([
+  { string: 0, fret: 1, interval: '1' },
+  { string: 1, fret: 3, interval: '5' },
+  { string: 2, fret: 3, interval: '1' },
+  { string: 3, fret: 2, interval: '3' },
+  { string: 4, fret: 1, interval: '5' },
+  { string: 5, fret: 1, interval: '1' },
+]);
+const fSvgHtml = fbFBarre.container.querySelector('svg').innerHTML;
+checkTrue('Баррэ отображает ступень 1 на 6-й струне (x=40)', fSvgHtml.includes('x="40"') && fSvgHtml.includes('>1<'));
+checkTrue('Баррэ отображает ступень 5 на 2-й струне (x=128)', fSvgHtml.includes('x="128"') && fSvgHtml.includes('>5<'));
+checkTrue('Баррэ отображает ступень 1 на 1-й струне (x=150)', fSvgHtml.includes('x="150"') && fSvgHtml.includes('>1<'));
+
 fb.setDisplayMode('fingers');
 checkTrue('Интерактивный гриф в режиме fingers отображает пальцы', fb.container.innerHTML.includes('>1<') || fb.container.innerHTML.includes('>2<'));
 
