@@ -15083,6 +15083,9 @@ function computeFingersForShape(shape, customFingers, barreOff) {
   if (barre && !barreSuppressed) {
     const bFret = Number(barre.fret);
     const barreFinger = barre.finger || (barre.fret === grip.minFret ? 1 : 3);
+    const hasDelta1 = fretKeys.some((f) => f - bFret === 1);
+    const hasDelta3Plus = fretKeys.some((f) => f - bFret >= 3);
+
     for (const f of fretKeys) {
       const delta = f - bFret;
       const group = fretGroups.get(f);
@@ -15096,8 +15099,14 @@ function computeFingersForShape(shape, customFingers, barreOff) {
         if (group.length === 1) {
           result[group[0].s] = 3;
         } else if (group.length === 2) {
-          result[group[0].s] = 3;
-          result[group[1].s] = 4;
+          if (!hasDelta1 && hasDelta3Plus) {
+            // Формы вроде [6, 5, 5, 3, 3, 3]: лад 5 зажимается пальцами 3 и 2, оставляя палец 4 для 6 лада
+            result[group[0].s] = 3;
+            result[group[1].s] = 2;
+          } else {
+            result[group[0].s] = 3;
+            result[group[1].s] = 4;
+          }
         } else {
           group.forEach((item, i) => { result[item.s] = i === 0 ? 2 : (i === 1 ? 3 : 4); });
         }
@@ -15167,6 +15176,25 @@ function computeFingersForShape(shape, customFingers, barreOff) {
         result[s] = typeof customFingers[s] === 'string' && customFingers[s].toUpperCase() === 'T'
           ? 'T'
           : Number(customFingers[s]) || customFingers[s];
+      }
+    }
+  }
+
+  // Страховка от анатомических коллизий: один палец (2..4) не может физически прижимать разные лады.
+  if (!customFingers || !customFingers.some((v) => v != null && v !== 'x' && v !== 0 && v !== '0')) {
+    const fingerToFrets = new Map();
+    for (let s = 0; s < 6; s++) {
+      const fn = result[s];
+      const fr = Number(shape[s]);
+      if (fn != null && fn !== 'x' && fn !== 0 && fn !== '0' && fn !== 'T' && !isNaN(fr)) {
+        if (!fingerToFrets.has(fn)) fingerToFrets.set(fn, new Set());
+        fingerToFrets.get(fn).add(fr);
+      }
+    }
+    for (const [fn, frets] of fingerToFrets.entries()) {
+      if (fn !== 1 && frets.size > 1) {
+        // Коллизия обнаружена: палец дублируется на разных ладах
+        return null;
       }
     }
   }
