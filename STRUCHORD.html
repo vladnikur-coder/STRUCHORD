@@ -9796,7 +9796,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.243</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.244</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -18469,13 +18469,18 @@ function detectKeyFromChords() {
   const dom7Weights = new Map(); // root -> взвешенная длительность доминантсептаккордов на этом корне
   const bassWeights = new Map(); // root, звучащий в басу (с учётом слэш-аккордов) -> взвешенная длительность
   let total = 0;
+  const chordSeq = [];
   let firstChord = null;
   let lastChord = null;
 
-  for (const s of sections) {
+  for (let si = 0; si < sections.length; si++) {
+    const s = sections[si];
     const parentTs = s.timeSig || globalTimeSig;
-    for (const sq of s.squares) {
-      for (const e of sq.events) {
+    let sectionChordCount = 0;
+    for (let sqi = 0; sqi < (s.squares || []).length; sqi++) {
+      const sq = s.squares[sqi];
+      for (let ei = 0; ei < (sq.events || []).length; ei++) {
+        const e = sq.events[ei];
         if (!e.chord || !e.chord.trim()) continue;
         const parsed = parseChordForKeyDetection(e.chord);
         if (!parsed) continue;
@@ -18484,6 +18489,14 @@ function detectKeyFromChords() {
 
         if (!firstChord) firstChord = parsed;
         lastChord = parsed;
+
+        chordSeq.push({
+          ...parsed,
+          dur: w,
+          sectionIndex: si,
+          isSectionStart: sectionChordCount === 0,
+        });
+        sectionChordCount++;
 
         bassWeights.set(parsed.bassRoot, (bassWeights.get(parsed.bassRoot) || 0) + w);
         if (parsed.isDominant7) dom7Weights.set(parsed.root, (dom7Weights.get(parsed.root) || 0) + w);
@@ -18500,10 +18513,31 @@ function detectKeyFromChords() {
   }
   if (total === 0 && !firstChord) return null;
 
-  // Бонус за каденцию (первый/последний аккорд = тоника) масштабируется по
+  for (let i = 0; i < chordSeq.length; i++) {
+    chordSeq[i].isSectionEnd = (i === chordSeq.length - 1 || chordSeq[i + 1].sectionIndex !== chordSeq[i].sectionIndex);
+  }
+
+  // Схлопываем подряд идущие одинаковые аккорды для гармонического анализа цепочек
+  const harmonicSteps = [];
+  for (let i = 0; i < chordSeq.length; i++) {
+    const cur = chordSeq[i];
+    if (harmonicSteps.length === 0) {
+      harmonicSteps.push({ ...cur, totalDur: cur.dur, count: 1 });
+    } else {
+      const prev = harmonicSteps[harmonicSteps.length - 1];
+      if (prev.root === cur.root && prev.quality === cur.quality && prev.isDominant7 === cur.isDominant7) {
+        prev.totalDur += cur.dur;
+        prev.count++;
+        if (cur.isSectionEnd) prev.isSectionEnd = true;
+      } else {
+        harmonicSteps.push({ ...cur, totalDur: cur.dur, count: 1 });
+      }
+    }
+  }
+
+  // Бонус за каденцию (первый/последний аккорд = тоника) и переходы масштабируется по
   // объёму материала (в долях): на паре аккордов этот сигнал ненадёжен и не
-  // должен перевешивать более сильное диатоническое совпадение у другого
-  // кандидата.
+  // должен перевешивать более сильное диатоническое совпадение у другого кандидата.
   const cadenceScale = Math.min(1, total / 16);
   const firstBonusW = 4.5 * cadenceScale;
   const lastBonusW = 6.3 * cadenceScale;
@@ -18556,6 +18590,131 @@ function detectKeyFromChords() {
       ) {
         score += lastBonusW;
       }
+
+      // === B-28: ОЦЕНКА ГАРМОНИЧЕСКИХ КАДЕНЦИЙ И ЦЕПОЧЕК ПЕРЕХОДОВ ===
+      let cadenceScore = 0;
+
+      // Бонус за аккорд-тонику в начале секций (сильная конструктивная позиция)
+      for (const step of harmonicSteps) {
+        if (step.isSectionStart && step.root === tonicSharp) {
+          const matchQuality = step.quality && (step.quality === 'maj') === tpl.tonicMajor;
+          cadenceScore += matchQuality ? 3.0 : 1.5;
+        }
+      }
+
+      // Биграммы переходов (двухаккордовые цепочки)
+      for (let i = 0; i < harmonicSteps.length - 1; i++) {
+        const a = harmonicSteps[i];
+        const b = harmonicSteps[i + 1];
+        const rootAIdx = CHROMATIC.indexOf(a.root);
+        const rootBIdx = CHROMATIC.indexOf(b.root);
+        if (rootAIdx < 0 || rootBIdx < 0) continue;
+        const intA = (rootAIdx - root + 12) % 12;
+        const intB = (rootBIdx - root + 12) % 12;
+
+        if (tpl.tonicMajor) {
+          // Мажорные каденции
+          if (intA === 7 && intB === 0) {
+            // V -> I (автентический оборот)
+            cadenceScore += a.isDominant7 ? 6.0 : (a.quality === 'maj' ? 5.0 : 2.0);
+          } else if (intA === 5 && intB === 0) {
+            // IV -> I (плагальный оборот)
+            cadenceScore += (a.quality === 'maj' ? 3.5 : 2.0);
+          } else if ((intA === 5 || intA === 2) && intB === 7) {
+            // IV -> V или ii -> V (подготовка доминанты)
+            cadenceScore += 2.5;
+          } else if (intA === 7 && intB === 9) {
+            // V -> vi (прерванная каденция)
+            cadenceScore += 2.0;
+          } else if (intA === 0 && (intB === 7 || intB === 5)) {
+            // I -> V или I -> IV
+            cadenceScore += 2.0;
+          } else if (intA === 9 && intB === 5) {
+            // vi -> IV
+            cadenceScore += 2.0;
+          }
+        } else {
+          // Минорные каденции
+          if (intA === 7 && intB === 0) {
+            // V -> i / v -> i (автентический оборот в миноре)
+            cadenceScore += a.isDominant7 ? 6.5 : (a.quality === 'maj' ? 5.5 : 3.5);
+          } else if (intA === 10 && intB === 0) {
+            // bVII -> i (эолийский каданс: G -> Am)
+            cadenceScore += (a.quality === 'maj' ? 4.5 : 2.5);
+          } else if (intA === 5 && intB === 0) {
+            // iv -> i или IV -> i (плагальный / дорийский оборот)
+            cadenceScore += (a.quality === 'maj' ? 4.0 : 3.0);
+          } else if (intA === 8 && intB === 10) {
+            // VI -> bVII (F -> G в Am)
+            cadenceScore += 3.0;
+          } else if (intA === 8 && intB === 7) {
+            // VI -> V (F -> E в Am)
+            cadenceScore += 2.5;
+          } else if (intA === 5 && intB === 7) {
+            // iv -> V (Dm -> E в Am)
+            cadenceScore += 2.5;
+          } else if (intA === 7 && intB === 8) {
+            // V -> VI (E -> F прерванная в Am)
+            cadenceScore += 2.0;
+          } else if (intA === 0 && intB === 8) {
+            // i -> VI (Am -> F)
+            cadenceScore += 2.5;
+          } else if (intA === 0 && intB === 5) {
+            // i -> iv (Am -> Dm)
+            cadenceScore += 2.0;
+          } else if (intA === 8 && intB === 3) {
+            // VI -> III (F -> C в Am)
+            cadenceScore += 2.0;
+          } else if (intA === 3 && intB === 10) {
+            // III -> bVII (C -> G в Am)
+            cadenceScore += 2.0;
+          }
+        }
+      }
+
+      // Триграммы переходов (трёхаккордовые цепочки)
+      for (let i = 0; i < harmonicSteps.length - 2; i++) {
+        const a = harmonicSteps[i];
+        const b = harmonicSteps[i + 1];
+        const c = harmonicSteps[i + 2];
+        const rootAIdx = CHROMATIC.indexOf(a.root);
+        const rootBIdx = CHROMATIC.indexOf(b.root);
+        const rootCIdx = CHROMATIC.indexOf(c.root);
+        if (rootAIdx < 0 || rootBIdx < 0 || rootCIdx < 0) continue;
+        const intA = (rootAIdx - root + 12) % 12;
+        const intB = (rootBIdx - root + 12) % 12;
+        const intC = (rootCIdx - root + 12) % 12;
+
+        if (tpl.tonicMajor) {
+          if (intA === 2 && intB === 7 && intC === 0) {
+            // ii -> V -> I (Dm -> G -> C)
+            cadenceScore += 4.0;
+          } else if (intA === 5 && intB === 7 && intC === 0) {
+            // IV -> V -> I (F -> G -> C)
+            cadenceScore += 4.0;
+          } else if (intA === 9 && intB === 5 && intC === 0) {
+            // vi -> IV -> I (Am -> F -> C)
+            cadenceScore += 2.5;
+          }
+        } else {
+          if (intA === 2 && intB === 7 && intC === 0) {
+            // ii° -> V -> i (Bm7b5 -> E -> Am)
+            cadenceScore += 4.5;
+          } else if (intA === 5 && intB === 7 && intC === 0) {
+            // iv -> V -> i (Dm -> E -> Am)
+            cadenceScore += 4.0;
+          } else if (intA === 8 && intB === 10 && intC === 0) {
+            // VI -> bVII -> i (F -> G -> Am)
+            cadenceScore += 4.5;
+          } else if (intA === 0 && intB === 8 && intC === 3) {
+            // i -> VI -> III (Am -> F -> C)
+            cadenceScore += 2.5;
+          }
+        }
+      }
+
+      score += cadenceScore * cadenceScale;
+
       if (!best || score > best.score) best = { score, root, isMinor: isMinorTonic };
     }
   }
@@ -18570,6 +18729,8 @@ function detectKeyFromChords() {
 
   return canonicalKeyFromRoot(CHROMATIC[best.root], best.isMinor);
 }
+window.detectKeyFromChords = detectKeyFromChords;
+window.parseChordForKeyDetection = parseChordForKeyDetection;
 
 function updateAutoKeyBadge() {
   const opt = document.getElementById('autoKeyOption');
