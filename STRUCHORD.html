@@ -15025,6 +15025,11 @@ function computeFingersForShape(shape, customFingers, barreOff) {
   if (!fretted.length) return result;
 
   const grip = typeof analyzeShapeGrip === 'function' ? analyzeShapeGrip(shape) : null;
+  // Если алгоритм не может найти анатомически допустимую расстановку пальцев (бан / неиграбельно)
+  // и нет кастомного перекрытия — возвращаем null (точки рисуются просто чёрными кружками).
+  if (grip && (grip.ban || !grip.chosen || !grip.chosen.assignment)) {
+    return null;
+  }
   const barre = grip && grip.chosen ? grip.chosen.b : null;
   const barreSuppressed = barre && barreOff && normalizeBarreOffSet(barreOff) && normalizeBarreOffSet(barreOff).has(barre.fret);
 
@@ -15307,7 +15312,7 @@ function renderFingeringSVG(fingers, bottomPad, opts) {
     // палец, а не как несколько независимых нажатий.
     svg += `<rect class="fingering-barre" data-fret="${drawingBarre.fret}" data-first-string="${drawingBarre.first}" data-last-string="${drawingBarre.last}" x="${x1}" y="${y - dotRadius}" width="${x2 - x1}" height="${dotRadius * 2}" rx="${dotRadius}" fill="var(--color-ink)"/>`;
     if (shouldShowFingers) {
-      const barreFinger = (placement && placement[drawingBarre.first]) || 1;
+      const barreFinger = placement ? placement[drawingBarre.first] : null;
       if (barreFinger && barreFinger !== 'x' && barreFinger !== 0) {
         svg += `<text x="${padLeft + drawingBarre.first * stringSpacing}" y="${y + 3}" text-anchor="middle" font-size="8.5" fill="var(--color-surface)" font-weight="bold" pointer-events="none">${barreFinger}</text>`;
       }
@@ -17873,8 +17878,10 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
         result[s] = '0';
       } else if (manualFingers[s] !== null) {
         result[s] = manualFingers[s];
+      } else if (computed && computed[s] != null && computed[s] !== 'x' && computed[s] !== 0 && computed[s] !== '0') {
+        result[s] = computed[s];
       } else {
-        result[s] = computed && computed[s] ? computed[s] : '1';
+        result[s] = null;
       }
     }
     return result;

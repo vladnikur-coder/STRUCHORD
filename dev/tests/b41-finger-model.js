@@ -277,5 +277,15 @@ checkTrue('Интерактивный гриф в режиме intervals ото�
 fb.setDisplayMode('fingers');
 checkTrue('Интерактивный гриф в режиме fingers отображает пальцы', fb.container.innerHTML.includes('>1<') || fb.container.innerHTML.includes('>2<'));
 
+console.log('\n=== 11. Неиграбельные / нераспознанные формы (fallback к черным точкам) ===');
+const unplayableShape = [1, 7, 8, 9, 10, 11]; // разброс 10 ладов (spread ban)
+check('computeFingersForShape для неиграбельной формы возвращает null', w.computeFingersForShape(unplayableShape), null);
+
+const svgUnplayable = w.renderFingeringSVG(unplayableShape, 30, { showFingers: true });
+checkTrue('SVG для нераспознанной формы рисует точки без цифр пальцев', !svgUnplayable.includes('>1<') && !svgUnplayable.includes('>2<') && svgUnplayable.includes('fill="var(--color-ink)"'));
+
+const fbUnplayable = w.createInteractiveFretboard(unplayableShape, () => {}, { displayMode: 'fingers' });
+checkTrue('Интерактивный гриф для нераспознанной формы рисует точки без цифр', !fbUnplayable.container.querySelector('svg').innerHTML.includes('>1<') && !fbUnplayable.container.querySelector('svg').innerHTML.includes('>2<'));
+
 console.log(`\nИТОГО: пройдено ${pass}, провалено ${failed}`);
 if (failed > 0) process.exit(1);
