@@ -1,18 +1,19 @@
 #!/usr/bin/env node
 /*
- * b80-ui-scale-slider.js — регрессии выбора масштаба UI (волна B-80).
+ * b80-ui-scale-slider.js — регрессии регулятора масштаба UI (волна B-80).
  *
- * Масштаб выбирается из фиксированных вариантов (кнопки в меню «Тык»),
- * которые пишут в единый токен --ui-scale (B-79). Слайдер отвергнут:
- * контрол внутри масштабируемого меню давал петлю drag↔масштаб.
+ * Масштаб задаётся кнопками «− NNN% +» (шаг 5%) в меню «Тык», которые
+ * пишут в единый токен --ui-scale (B-79). Слайдер отвергнут (петля
+ * drag↔масштаб внутри масштабируемого меню); список фиксированных
+ * вариантов заменён по просьбе на шаговый регулятор.
  *
  * Проверяем:
- *  - набор кнопок-вариантов на месте (50..300, ровно заданный список);
- *  - функции масштаба присутствуют, nearestUiScaleOption округляет к
- *    ближайшему варианту (миграция старых произвольных значений);
+ *  - разметка регулятора на месте (кнопки −/+, подпись значения);
+ *  - функции масштаба присутствуют; clampUiScale приводит к шагу 5% и
+ *    границам 25..300; stepUiScale двигает на шаг; кнопки гаснут у краёв;
  *  - ранний inline-скрипт в <head> читает struchord-ui-scale и ставит
  *    --ui-scale ДО первой отрисовки;
- *  - initUiScale/setUiScale завязаны на localStorage-ключ.
+ *  - setUiScale/stepUiScale завязаны на localStorage-ключ.
  */
 const fs = require('fs');
 const path = require('path');
@@ -33,69 +34,105 @@ function check(name, cond) {
   }
 }
 
-const EXPECTED = [50, 75, 85, 100, 115, 125, 150, 175, 200, 250, 300];
-
-// --- 1. Разметка стилизованного (кастомного) списка ---
+// --- 1. Разметка шагового регулятора ---
 const dom = new JSDOM(html);
 const doc = dom.window.document;
 const picker = doc.getElementById('struchord-scale-picker');
-const list = doc.getElementById('scaleList');
-const head = doc.getElementById('scaleHead');
+const minus = doc.getElementById('scaleMinus');
+const plus = doc.getElementById('scalePlus');
+const value = doc.getElementById('scaleCurrentName');
 check('пикер #struchord-scale-picker существует', !!picker);
-check('заголовок #scaleHead зовёт toggleScaleList', head && /toggleScaleList/.test(head.getAttribute('onclick') || ''));
-check('подпись текущего значения #scaleCurrentName есть', !!doc.getElementById('scaleCurrentName'));
-const opts = list ? [...list.querySelectorAll('.scale-item')] : [];
-check('ровно ' + EXPECTED.length + ' пунктов', opts.length === EXPECTED.length);
-const vals = opts.map((o) => +o.dataset.scale);
-check('значения data-scale = ' + EXPECTED.join(','), JSON.stringify(vals) === JSON.stringify(EXPECTED));
-const labels = opts.map((o) => o.textContent.trim());
-check('подписи = ' + EXPECTED.map((p) => p + '%').join(' '),
-  JSON.stringify(labels) === JSON.stringify(EXPECTED.map((p) => p + '%')));
-check('каждый пункт зовёт setUiScale', opts.every((o) => /setUiScale\(\d+\)/.test(o.getAttribute('onclick') || '')));
+check('кнопка «−» #scaleMinus зовёт stepUiScale(-1)',
+  minus && /stepUiScale\(-1\)/.test(minus.getAttribute('onclick') || ''));
+check('кнопка «+» #scalePlus зовёт stepUiScale(1)',
+  plus && /stepUiScale\(1\)/.test(plus.getAttribute('onclick') || ''));
+check('подпись текущего значения #scaleCurrentName есть', !!value);
+check('стартовая подпись 125%', value && value.textContent.trim() === '125%');
+check('старого списка вариантов больше нет', !doc.getElementById('scaleList'));
+check('старого заголовка-раскрывашки больше нет', !doc.getElementById('scaleHead'));
 check('это НЕ нативный select', !doc.getElementById('uiScaleSelect'));
-check('слайдера больше нет', !doc.getElementById('uiScaleSlider'));
-check('список внутри меню «Тык» (#toolsDropdown)',
-  !!(doc.getElementById('toolsDropdown') && doc.getElementById('toolsDropdown').querySelector('#scaleList')));
+check('слайдера нет', !doc.getElementById('uiScaleSlider'));
+check('регулятор внутри меню «Тык» (#toolsDropdown)',
+  !!(doc.getElementById('toolsDropdown') &&
+     doc.getElementById('toolsDropdown').querySelector('#struchord-scale-picker')));
 
 // --- 2. Функции масштаба в коде ---
-check('есть setUiScale', /function setUiScale\(/.test(html));
+check('есть clampUiScale', /function clampUiScale\(/.test(html));
+check('есть currentUiScale', /function currentUiScale\(/.test(html));
 check('есть writeUiScale', /function writeUiScale\(/.test(html));
-check('есть toggleScaleList', /function toggleScaleList\(/.test(html));
+check('есть setUiScale', /function setUiScale\(/.test(html));
+check('есть stepUiScale', /function stepUiScale\(/.test(html));
 check('есть initUiScale', /function initUiScale\(/.test(html));
-check('есть nearestUiScaleOption', /function nearestUiScaleOption\(/.test(html));
 check('initUiScale вызывается на старте', /\n\s*initUiScale\(\);/.test(html));
 check('ключ localStorage struchord-ui-scale', /struchord-ui-scale/.test(html));
+check('шаг 5%', /const UI_SCALE_STEP = 5;/.test(html));
+check('границы 25..300', /const UI_SCALE_MIN = 25;/.test(html) && /const UI_SCALE_MAX = 300;/.test(html));
 
-// --- 3. nearestUiScaleOption: округление к ближайшему варианту ---
-const m = html.match(/const UI_SCALE_OPTIONS[\s\S]*?function nearestUiScaleOption[\s\S]*?\n}/);
-check('блок nearestUiScaleOption извлекается', !!m);
+// --- 3. clampUiScale: сетка шага 5% и границы 25..300 ---
+const m = html.match(/const UI_SCALE_STEP[\s\S]*?function clampUiScale[\s\S]*?\n}/);
+check('блок clampUiScale извлекается', !!m);
 if (m) {
   const UI_SCALE_DEFAULT = 125;
   // eslint-disable-next-line no-eval
   eval(m[0]);
   const cases = [
-    [125, 125], [120, 115], [130, 125], [60, 50], [90, 85],
-    [999, 300], [10, 50], [NaN, 125], [163, 175], [225, 200],
+    [125, 125], [123, 125], [122, 120], [127, 125], [128, 130],
+    [999, 300], [10, 25], [NaN, 125], [163, 165], [22, 25], [303, 300],
   ];
   let all = true;
   for (const [inp, exp] of cases) {
     // eslint-disable-next-line no-undef
-    const got = nearestUiScaleOption(inp);
+    const got = clampUiScale(inp);
     if (got !== exp) {
       all = false;
       console.error('   ' + inp + ' -> ' + got + ', ожид ' + exp);
     }
   }
-  check('nearestUiScaleOption: ближайший вариант', all);
+  check('clampUiScale: шаг 5% и границы', all);
 }
 
-// --- 4. Ранний inline-скрипт ставит --ui-scale ДО отрисовки ---
-const store = { 'struchord-ui-scale': '200' };
+// --- 4. Живой шаг ±5% и гашение кнопок на краях ---
+const store4 = {};
 const { VirtualConsole } = require('jsdom');
-const vc = new VirtualConsole(); // шум приложения в jsdom глушим
+const domLive = new JSDOM(html, {
+  runScripts: 'dangerously',
+  virtualConsole: new VirtualConsole(),
+  beforeParse(win) {
+    Object.defineProperty(win, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (k) => (store4[k] != null ? store4[k] : null),
+        setItem: (k, v) => { store4[k] = String(v); },
+        removeItem: (k) => { delete store4[k]; },
+      },
+    });
+  },
+});
+const w = domLive.window;
+const d = w.document;
+const readPct = () => Math.round(parseFloat(d.documentElement.style.getPropertyValue('--ui-scale')) * 100);
+w.setUiScale(125);
+check('setUiScale(125) → 125%', readPct() === 125);
+w.stepUiScale(1);
+check('+ шаг: 125 → 130', readPct() === 130 && d.getElementById('scaleCurrentName').textContent === '130%');
+w.stepUiScale(-1);
+check('− шаг: 130 → 125', readPct() === 125);
+check('пишет в localStorage', store4['struchord-ui-scale'] === '125');
+w.setUiScale(300);
+check('на максимуме кнопка «+» погашена', d.getElementById('scalePlus').disabled === true);
+check('на максимуме кнопка «−» активна', d.getElementById('scaleMinus').disabled === false);
+w.stepUiScale(1);
+check('«+» на максимуме не превышает 300', readPct() === 300);
+w.setUiScale(25);
+check('на минимуме кнопка «−» погашена', d.getElementById('scaleMinus').disabled === true);
+w.stepUiScale(-1);
+check('«−» на минимуме не опускается ниже 25', readPct() === 25);
+
+// --- 5. Ранний inline-скрипт ставит --ui-scale ДО отрисовки ---
+const store = { 'struchord-ui-scale': '200' };
 const dom2 = new JSDOM(html, {
   runScripts: 'dangerously',
-  virtualConsole: vc,
+  virtualConsole: new VirtualConsole(),
   beforeParse(win) {
     Object.defineProperty(win, 'localStorage', {
       configurable: true,
