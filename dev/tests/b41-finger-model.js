@@ -216,8 +216,9 @@ const svgWithFingers = w.renderFingeringSVG(['x', 0, 2, 2, 1, 0], 30, { showFing
 checkTrue('SVG при showFingers=true содержит цифры пальцев', svgWithFingers.includes('>1<') && svgWithFingers.includes('>2<'));
 
 fb.setDisplayMode('intervals');
-fb.setIntervals([{ string: 4, interval: '1' }, { string: 3, interval: '5' }, { string: 2, interval: 'b3' }]);
+fb.setIntervals([{ string: 5, interval: '5' }, { string: 4, interval: '1' }, { string: 3, interval: '5' }, { string: 2, interval: 'b3' }, { string: 1, interval: '1' }]);
 checkTrue('Интерактивный гриф в режиме intervals отображает ступени', fb.container.innerHTML.includes('>b3<'));
+checkTrue('Интерактивный гриф в режиме intervals отображает ступени на открытых струнах', fb.container.innerHTML.includes('>1<') && fb.container.innerHTML.includes('>5<'));
 
 fb.setDisplayMode('fingers');
 checkTrue('Интерактивный гриф в режиме fingers отображает пальцы', fb.container.innerHTML.includes('>1<') || fb.container.innerHTML.includes('>2<'));
