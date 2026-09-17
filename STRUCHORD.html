@@ -9934,7 +9934,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.248</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.249</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15828,9 +15828,6 @@ function setEventChord(ev, newChord, posCtx, keepShape) {
 // (например, нераспознанное имя аккорда) — тогда аудио-движок откатится
 // на теоретические тона аккорда.
 function resolveFingeringShape(chordName, key, posKey, ev) {
-  const result = window.getFingeringVariants ? window.getFingeringVariants(chordName, key) : null;
-  const variants = result ? result.shapes : [];
-  if (!variants.length) return null;
   // Сначала — выбор, записанный на самом событии: он переживает
   // переиндексацию ячеек и смену тональности.
   const target = ev || findEventByPosKey(posKey);
@@ -15842,48 +15839,41 @@ function resolveFingeringShape(chordName, key, posKey, ev) {
   const sameTuning = !target || (target.fingeringTuning || '') === suffix;
   const onEvent = sameTuning && target && target.fingering;
   if (onEvent) {
-    const found = variants.find((v) => v.join(',') === onEvent);
-    if (found) return found;
-    // Формы нет в списке — она могла быть схлопнута как повтор хвата.
-    // Выбор от этого не перестаёт быть действительным: разбираем строку.
-    // Но «как есть» возвращаем ТОЛЬКО форму, принадлежащую этому аккорду
-    // (проверка та же, что у движка подбора): схлопнутые дубли держатся
-    // за совпадение прижатых нот и проходят, а форма, записанная на
-    // событие чужим аккордом (см. setEventChord до этой правки), — нет:
-    // считаем, что выбора нет. Иначе чужой хват молча показывался,
-    // игрался и легализовывался pinCurrentFingeringsForChord под новым
-    // именем — так в Every Breath You Take последний Aadd9 получил
-    // аппликатуру D5.
-    const parsed = onEvent.split(',').map((v) => (v.trim() === 'x' ? 'x' : Number(v)));
-    if (parsed.length === 6 && parsed.every((v) => v === 'x' || Number.isFinite(v))) {
-      const main = chordName.split('/')[0].trim();
-      const chordNotes = getChordNotes(main, getKeyStyle(key)) || [];
-      if (!chordNotes.length) {
-        // Аккорд движку неизвестен — в списке только рисованные формы
-        // пользователя, валидировать нечем; не отбираем.
-        return parsed;
-      }
-      // У слэш-аккорда бас — часть имени, проверяем и его; без слэша
-      // достаточно «нет чужих нот» (инверсии не отсеять: они легальны).
-      const bassNote = chordName.includes('/') ? chordName.split('/')[1].trim() : null;
-      // dim: голый pin может нести канонический ♭♭7-гриф — разрешаем.
-      if (shapeMatchesChord(parsed, chordNotes, bassNote, dimColorPc(main))) {
+    if (Array.isArray(onEvent) && onEvent.length === 6 && onEvent.every((v) => v === 'x' || Number.isFinite(v))) {
+      return onEvent;
+    }
+    if (typeof onEvent === 'string') {
+      const parsed = onEvent.split(',').map((v) => (v.trim() === 'x' ? 'x' : Number(v)));
+      if (parsed.length === 6 && parsed.every((v) => v === 'x' || Number.isFinite(v))) {
         return parsed;
       }
     }
   }
+
+  const result = window.getFingeringVariants ? window.getFingeringVariants(chordName, key) : null;
+  const variants = result ? result.shapes : [];
+
   if (posKey) {
     const preferred = preferredFingeringByChord.get(posKey);
     if (preferred) {
-      const found = variants.find((v) => v.join(',') === preferred);
-      // resolveFingeringShape — ЧИСТОЕ ЧТЕНИЕ: её дёргают тултип, рендер
-      // и аудио-планировщик. Запись target.fingering отсюда по
-      // позиционному ключу клала форму на ячейку, которая под этим
-      // индексом оказалась позже (с другим аккордом). Пишет на событие
-      // только setPreferredFingering; запасной путь остаётся запасным.
-      if (found) return found;
+      if (variants && variants.length) {
+        const found = variants.find((v) => v.join(',') === preferred);
+        if (found) return found;
+      }
+      if (Array.isArray(preferred) && preferred.length === 6 && preferred.every((v) => v === 'x' || Number.isFinite(v))) {
+        return preferred;
+      }
+      if (typeof preferred === 'string') {
+        const parsed = preferred.split(',').map((v) => (v.trim() === 'x' ? 'x' : Number(v)));
+        if (parsed.length === 6 && parsed.every((v) => v === 'x' || Number.isFinite(v))) {
+          return parsed;
+        }
+      }
     }
   }
+
+  if (!variants || !variants.length) return null;
+
   // ---- УМОЛЧАНИЕ: ПОСЛЕДНЯЯ СВОЯ ФОРМА ----
   //
   // Сохранённая пользователем аппликатура становится умолчанием для
@@ -18737,10 +18727,26 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     // подставляться в стандартном строе — там она звучит иначе.
     cacheKey = buildFingeringChordKey(chordName, key);
     activeCacheKey = cacheKey;
-    const result = window.getFingeringVariants(chordName, key);
+    const result = window.getFingeringVariants ? window.getFingeringVariants(chordName, key) : null;
     const variants = result ? result.shapes : [];
-    if (!variants || !variants[variantIndex]) return;
-    currentShape = [...variants[variantIndex]];
+    if (entrySnapshot && entrySnapshot.fingering) {
+      const raw = entrySnapshot.fingering;
+      const parsed = Array.isArray(raw)
+        ? raw
+        : (typeof raw === 'string' ? raw.split(',').map((v) => (v.trim() === 'x' ? 'x' : Number(v))) : null);
+      if (parsed && parsed.length === 6 && parsed.every((v) => v === 'x' || Number.isFinite(v))) {
+        currentShape = [...parsed];
+      }
+    }
+    if (!currentShape) {
+      if (variants && variants[variantIndex]) {
+        currentShape = [...variants[variantIndex]];
+      } else if (variants && variants.length > 0) {
+        currentShape = [...variants[0]];
+      } else {
+        currentShape = Array(6).fill('x');
+      }
+    }
     if (!initialFingers) {
       const userList = userFingerings.get(cacheKey) || [];
       const matchUf = userList.find((entry) => ufEntryShape(entry) && ufEntryShape(entry).join(',') === currentShape.join(','));
@@ -19205,9 +19211,12 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
             const squareId = +wrapper.dataset.square;
             const eventIndex = +wrapper.dataset.ei;
             const chordNameNow = input.value.trim();
-            const key = activeSectionKey || globalKey;
-            const posKey = buildFingeringPositionKey(chordNameNow, key, secId, squareId, eventIndex);
-            setPreferredFingering(posKey, currentShape.join(','), null, fretboardObj.getBarreOff(), fretboardObj.getFingers());
+            const sec = sections.find((s) => s.id === secId);
+            const keyNow = sec && sec.key ? sec.key : globalKey;
+            const sq = sec && sec.squares && sec.squares.find((q) => q.id === squareId);
+            const ev = sq && sq.events && sq.events[eventIndex];
+            const posKey = buildFingeringPositionKey(chordNameNow, keyNow, secId, squareId, eventIndex);
+            setPreferredFingering(posKey, currentShape.join(','), ev, fretboardObj.getBarreOff(), fretboardObj.getFingers());
         }
     }
     // B-76: массовое применение. После обычного сохранения прописываем
@@ -19291,7 +19300,7 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     fingeringCache.clear();
 
     const posKey = posKeyForNew;
-    setPreferredFingering(posKey, currentShape.join(','), null, fretboardObj.getBarreOff(), fretboardObj.getFingers());
+    setPreferredFingering(posKey, currentShape.join(','), sq && sq.events ? sq.events[ei] : null, fretboardObj.getBarreOff(), fretboardObj.getFingers());
     updateCellsDegrees();
 
     const cellWrapper = targetInput.closest('.chord-wrapper');
