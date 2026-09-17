@@ -9936,7 +9936,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.251</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.252</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10597,6 +10597,101 @@ let isResizing = false,
   processingKeyChange = false,
   manualInputOnly = false;
 let activeSectionKey = null;
+
+// ========== B-24 (СТУПЕНЬ 1): ЕДИНЫЙ STORE ПЕСНИ ==========
+//
+// Зачем. До этой волны модель песни (массив sections и мета-скаляры
+// globalKey / keyMode / globalTimeSig) правилась напрямую в ~20 местах
+// файла, и каждая правка держалась на дисциплине автора: сам вызови
+// scheduleHistorySnapshot, сам не забудь requestRender. Одна забытая
+// строка — и правка выпадает из истории (Ctrl+Z её не отменит) либо не
+// показывается. Store закрывает это ОДНОЙ точкой входа: мутация модели
+// возможна только через songStore.dispatch, а подписчики срабатывают
+// сами. Ступень 1 сознательно узкая — см. журнал README, волна B-24.
+//
+// Устройство.
+//   songStore.dispatch(label, mutator)
+//     — label:   строка-метка команды вида 'section/add' (для лога);
+//     — mutator: функция, которая правит модель (глобалы видны ей
+//                напрямую: они и остаются каноническим хранилищем,
+//                125+ мест чтения не трогаем);
+//     — после мутатора: метка пишется в кольцевой лог (100 записей),
+//                оповещаются подписчики.
+//
+// ПОДПИСКЧИК СТУПЕНИ 1 — ПЛАНИРОВЩИК ИСТОРИИ, И ТОЛЬКО ОН.
+// Dispatch НЕ вызывает render() и requestRender() сам. Причины:
+//   1) Порядок rAF-кадров в FLIP-потоках (посадка drag-ярлыка,
+//      animateReorder) выверен годами правок — сдвиг requestRender
+//      хотя бы на пару операторов раньше меняет очерёдность кадров
+//      и рискует визуальными регрессиями, которые не ловятся тестами.
+//   2) requestRender уже коалесцирует вызовы (B-27) и сам сводит
+//      историю и рендер в один кадр — дублировать его роль незачем.
+// Поэтому каждый существующий requestRender остаётся на своём месте,
+// а перевод рендера в подписчики — отдельная ступень 2, когда
+// render() будет делиться на подсистемы.
+//
+// История правок (снапшоты песни, 60 шагов, дебаунс 400 мс) не меняется
+// форматом вообще — снимок «всегда верен» (см. урок в README о том,
+// почему не обратные операции). Подписчик-планировщик дебаунсится сам,
+// поэтому повторные уведомления безвредны: серия dispatch внутри одного
+// жеста схлопнется в один шаг истории, как и раньше.
+//
+// НЕ через dispatch идут (осознанно, это не правки песни):
+//   - стартовые присваивания при инициализации (умолчания '4/4' и т.п.);
+//   - временная модуляция globalKey во время воспроизведения секции
+//     со своей тональностью (playback ставит и снимает его сам);
+//   - глубокие правки ячеек (ev/sq) — их миграция в dispatch
+//     относится к следующим ступеням, см. журнал.
+const songStore = (function () {
+  const LOG_LIMIT = 100;
+  const log = [];
+  const subscribers = new Set();
+
+  function dispatch(label, mutator) {
+    if (typeof mutator !== 'function') return undefined;
+    const result = mutator();
+    log.push({ label: String(label), t: Date.now() });
+    if (log.length > LOG_LIMIT) log.shift();
+    notifySubscribers();
+    return result;
+  }
+
+  function notifySubscribers() {
+    subscribers.forEach((fn) => {
+      try {
+        fn();
+      } catch (err) {
+        // Подписчик не имеет права ронять правку: ошибка логируется,
+        // остальные подписчики всё равно получают уведомление.
+        console.error('[songStore] подписчик упал:', err);
+      }
+    });
+  }
+
+  function subscribe(fn) {
+    if (typeof fn !== 'function') return null;
+    subscribers.add(fn);
+    return () => subscribers.delete(fn);
+  }
+
+  // Кольцевой лог последних команд — телеметрия для отладки
+  // («кто последний менял модель?»): window.songStore.log().
+  function getLog() {
+    return log.slice();
+  }
+
+  // Единственный подписчик ступени 1 — планировщик истории правок.
+  // Резолвим его НА КАЖДЫЙ вызов: модуль истории определяется позже по
+  // файлу (IIFE хранилища), на момент создания Store его ещё нет.
+  subscribe(function scheduleHistoryViaStore() {
+    if (typeof window.scheduleHistorySnapshot === 'function') {
+      window.scheduleHistorySnapshot();
+    }
+  });
+
+  return { dispatch, subscribe, log: getLog };
+})();
+window.songStore = songStore;
 
 // ========== МОДЕЛЬ РАЗМЕРА (TIME SIGNATURE) ==========
 // timeSig по-прежнему хранится и передаётся как строка "N/D" — это нужно
@@ -19956,22 +20051,29 @@ function updateAutoKeyBadge() {
 // Переключает тональность без транспонирования аккордов (аналогично действию
 // «Поменять только тональность»), сохраняя сдвиги модуляций у секций.
 function applyKeyChangeOnly(newGlobalKey, oldGlobalKey) {
-  for (const s of sections) {
-    if (s.key) {
-      let shift = s.shift;
-      if (shift === undefined || shift === null) shift = getRawSemitonesBetween(oldGlobalKey, s.key);
-      s.key = getKeyByShift(newGlobalKey, shift);
-      s.shift = shift;
+  songStore.dispatch('key/change-only', () => {
+    for (const s of sections) {
+      if (s.key) {
+        let shift = s.shift;
+        if (shift === undefined || shift === null) shift = getRawSemitonesBetween(oldGlobalKey, s.key);
+        s.key = getKeyByShift(newGlobalKey, shift);
+        s.shift = shift;
+      }
     }
-  }
-  globalKey = newGlobalKey;
-  applyEnharmonicCorrectionToAll();
+    globalKey = newGlobalKey;
+    applyEnharmonicCorrectionToAll();
+  });
 }
 
 // Включает авторежим: определяет тональность по текущим аккордам (или
 // оставляет 'C', если аккордов ещё нет) и сразу её проставляет.
 function switchToAutoKeyMode() {
-  keyMode = 'auto';
+  // Вложенный dispatch: внешний фиксирует смену режима, внутренний
+  // (applyKeyChangeOnly) — саму перестановку тональностей. Дебаунс
+  // истории схлопнет их в один шаг.
+  songStore.dispatch('key/mode-auto', () => {
+    keyMode = 'auto';
+  });
   const oldGlobalKey = globalKey;
   const detected = detectKeyFromChords() || oldGlobalKey || 'C';
   applyKeyChangeOnly(detected, oldGlobalKey);
@@ -20527,6 +20629,7 @@ function transposeAllGlobal(st) {
   let ni = (idx + st + sorted.length) % sorted.length;
   let nk = sorted[ni];
   DOM.rootKey.value = nk;
+  songStore.dispatch('song/transpose', () => {
   for (const s of sections)
     for (const sq of s.squares)
       for (let i = 0; i < sq.events.length; i++)
@@ -20564,6 +20667,7 @@ function transposeAllGlobal(st) {
   }
   globalKey = nk;
   applyEnharmonicCorrectionToAll();
+  });
   requestRender();
   if (DOM.chordWheelModal.classList.contains('open') && activeChordInput) {
     const secId = +activeChordInput.dataset.sec;
@@ -20577,6 +20681,7 @@ function transposeAllGlobal(st) {
 }
 // ---------- секции ----------
 function addSection(type) {
+  songStore.dispatch('section/add', () => {
   sections.push({
     id: nextId++,
     type,
@@ -20594,12 +20699,14 @@ function addSection(type) {
       },
     ],
   });
+  });
   requestRender();
 }
 function addCustomSection() {
   let n = prompt('Введите название секции:', 'Новая секция');
   if (!n?.trim()) return;
   n = n.trim();
+  songStore.dispatch('section/add-custom', () => {
   sections.push({
     id: nextId++,
     type: 'Custom',
@@ -20607,7 +20714,7 @@ function addCustomSection() {
     key: null,
     timeSig: null,
     repeat: 1,
-    bpm: null, 
+    bpm: null,
     squares: [
       {
         id: nextId++,
@@ -20616,6 +20723,7 @@ function addCustomSection() {
         customBeats: null,
       },
     ],
+  });
   });
   requestRender();
   showToast(`Секция "${n}" добавлена`);
@@ -20679,6 +20787,10 @@ function cloneSection(id) {
     })),
   };
   const idx = sections.findIndex((s) => s.id === id);
+  // Splice и копии рулонов — ОДНА команда: история обязана откатывать
+  // их вместе, иначе шаг «отменить клонирование» оставлял бы осиротевшие
+  // рулоны в пуле.
+  songStore.dispatch('section/clone', () => {
   sections.splice(idx + 1, 0, cl);
   // Волна-4: ритм клона — КОПИИ рулонов оригинала на новых ключах
   // (структурный клон встроенных рисунков выше почти всегда находит
@@ -20696,6 +20808,7 @@ function cloneSection(id) {
       songRhythmRolls.sectionRolls.set(cl.id, nid);
     }
   }
+  });
   requestRender();
   const nm = orig.type === 'Custom' ? orig.customName : LABEL_RU[orig.type] || orig.type;
   showToast(`Секция "${nm}" склонирована`);
@@ -21132,6 +21245,7 @@ function getEffectiveBpm(section) {
 }
 function onGlobalTimeSigChange() {
   const oldTimeSig = globalTimeSig;
+  songStore.dispatch('song/timesig', () => {
   globalTimeSig = DOM.globalTimeSig.value;
   updateCachedMeasuresForTimeSig(globalTimeSig);
 
@@ -21149,6 +21263,7 @@ function onGlobalTimeSigChange() {
   }
 
   dropRhythmStorage();
+  });
   requestRender();
   updateMetronomeUIForTimeSig(globalTimeSig);
   showToast('Глобальный размер изменён');
@@ -29851,6 +29966,7 @@ function showToast(msg) {
 function clearAll() {
   if (confirm('Удалить всё?')) {
     cancelRhythmHints();
+    songStore.dispatch('song/clear', () => {
     sections = [];
     nextId = 1;
     // B-29: при сбросе обязательно чистим пул рулонов. Иначе nextId
@@ -29868,6 +29984,7 @@ function clearAll() {
     DOM.globalTimeSig.value = '4/4';
     globalTimeSig = '4/4';
     previousKey = 'C';
+    });
     stopPlayback();
     requestRender();
     // Песня очищена: сравнивать не с чем, иначе пустой экран считался бы
@@ -29890,6 +30007,8 @@ function clearAll() {
   }
 }
 function initDemo() {
+  // Стартовая инициализация (вызывается один раз при загрузке), не правка
+  // песни — идёт мимо dispatch (см. контракт Store в комментарии к нему).
   sections = [];
   nextId = 1;
   validateStrumPresets(); // самопроверка таблицы пресетов (см. STRUM_PRESETS)
@@ -29973,7 +30092,9 @@ function onKeyChange() {
   }
 
   // Пользователь выбрал конкретную ноту — выходим из авторежима как обычно.
-  keyMode = 'manual';
+  songStore.dispatch('key/mode-manual', () => {
+    keyMode = 'manual';
+  });
   updateAutoKeyBadge();
 
   const newGlobalKey = selected;
@@ -29981,8 +30102,10 @@ function onKeyChange() {
   const oldIsMinor = oldGlobalKey.endsWith('m');
   const newIsMinor = newGlobalKey.endsWith('m');
   if (oldIsMinor !== newIsMinor) {
+    songStore.dispatch('key/change', () => {
     globalKey = newGlobalKey;
     applyEnharmonicCorrectionToAll();
+    });
     requestRender();
     drawWheel();
     updateCellsDegrees();
@@ -29992,8 +30115,10 @@ function onKeyChange() {
     return;
   }
   if (!hasAnyChords()) {
+    songStore.dispatch('key/change', () => {
     globalKey = newGlobalKey;
     applyEnharmonicCorrectionToAll();
+    });
     requestRender();
     drawWheel();
     updateCellsDegrees();
@@ -30004,6 +30129,7 @@ function onKeyChange() {
     if (action === 'transpose') {
       const semitones = getSemitonesBetween(oldGlobalKey, newGlobalKey);
       if (semitones !== 0) {
+        songStore.dispatch('key/transpose', () => {
         for (const s of sections)
           for (const sq of s.squares)
             for (let i = 0; i < sq.events.length; i++)
@@ -30018,13 +30144,16 @@ function onKeyChange() {
         }
         globalKey = newGlobalKey;
         applyEnharmonicCorrectionToAll();
+        });
         requestRender();
         showToast(
           `Транспонировано на ${semitones > 0 ? '+' : ''}${semitones} полутон${Math.abs(semitones) !== 1 ? 'а' : ''}`
         );
       } else {
+        songStore.dispatch('key/change', () => {
         globalKey = newGlobalKey;
         applyEnharmonicCorrectionToAll();
+        });
         requestRender();
       }
     } else if (action === 'changeOnly') {
@@ -30035,8 +30164,10 @@ function onKeyChange() {
       );
     } else {
       DOM.rootKey.value = oldGlobalKey;
+      songStore.dispatch('key/revert', () => {
       globalKey = oldGlobalKey;
       applyEnharmonicCorrectionToAll();
+      });
       requestRender();
     }
     drawWheel();
@@ -31538,8 +31669,13 @@ function finishSectionDrag(sd, commit) {
     const next = order.map((id) => byId.get(id)).filter(Boolean);
     const changed = next.some((s, i) => s !== sections[i]);
     if (changed && next.length === sections.length) {
-      sections.splice(0, sections.length, ...next);
-      if (typeof window.scheduleHistorySnapshot === 'function') window.scheduleHistorySnapshot();
+      // Тихая для рендера правка: DOM уже переставлен жестом, полный
+      // render() здесь перебил бы анимацию посадки — он позовётся сам
+      // в done() после разворота карточки. Store пишет историю, рендер
+      // не трогает (подписчик ступени 1 — только планировщик истории).
+      songStore.dispatch('section/reorder-field', () => {
+        sections.splice(0, sections.length, ...next);
+      });
     }
     sd.changed = changed;
   }
@@ -32621,11 +32757,15 @@ let songmapDragRaf = 0;
 
 // Порядок секций по списку id — одной операцией, без пары «источник/цель».
 function applySectionOrder(ids) {
-  const byId = new Map(sections.map((sec) => [sec.id, sec]));
-  const next = [];
-  ids.forEach((id) => { const sec = byId.get(id); if (sec) { next.push(sec); byId.delete(id); } });
-  byId.forEach((sec) => next.push(sec)); // на всякий случай — не потерять никого
-  sections.splice(0, sections.length, ...next);
+  // Панель уже переставила свои строки, поле секций перерисует
+  // последующий requestRender — dispatch здесь пишет только историю.
+  songStore.dispatch('section/reorder-songmap', () => {
+    const byId = new Map(sections.map((sec) => [sec.id, sec]));
+    const next = [];
+    ids.forEach((id) => { const sec = byId.get(id); if (sec) { next.push(sec); byId.delete(id); } });
+    byId.forEach((sec) => next.push(sec)); // на всякий случай — не потерять никого
+    sections.splice(0, sections.length, ...next);
+  });
 }
 
 function songmapRowRects(list) {
@@ -32951,9 +33091,11 @@ function initSongMap() {
         const from = sections.findIndex((x) => x.id === added.id);
         const target = sections.findIndex((x) => x.id === songmapSelectedId);
         if (from !== -1 && target !== -1) {
-          const [moved] = sections.splice(from, 1);
-          const t2 = sections.findIndex((x) => x.id === songmapSelectedId);
-          sections.splice(t2 + 1, 0, moved);
+          songStore.dispatch('songmap/paste-move', () => {
+            const [moved] = sections.splice(from, 1);
+            const t2 = sections.findIndex((x) => x.id === songmapSelectedId);
+            sections.splice(t2 + 1, 0, moved);
+          });
         }
       }
       requestRender();
@@ -37989,6 +38131,14 @@ toggleTimeAndBeats();
 
   // ---------- ОБЩАЯ ФУНКЦИЯ ЗАГРУЗКИ (из объекта) ----------
   function loadSongFromObject(song) {
+    // Загрузка песни — ОДНА команда Store: и импорт файла, и открытие из
+    // хранилища, и восстановление снимка истории проходят через этот
+    // dispatch. При отмене/повторе historyRestoring уже выставлен, и
+    // подписчик-планировщик не запишет восстановление как новую правку.
+    return songStore.dispatch('song/load', () => loadSongFromObjectInner(song));
+  }
+
+  function loadSongFromObjectInner(song) {
     if (!song || !Array.isArray(song.sections)) {
       showToast('Неверный формат данных');
       return false;
