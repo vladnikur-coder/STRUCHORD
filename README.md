@@ -10824,6 +10824,22 @@ inline-скрипт и перемножение с зумом браузера �
 `c6ff5f5c76efc592bedb7de3eb9aa8b58f5b7f86c2b0c352d6a923e10e7809c7`,
 размер 1980796. Все тесты `dev/tests/b85-finger-model-db6-collision.js` (15/0), `dev/tests/b84-fingering-persistence.js` (16/0), `dev/tests/b83-custom-chord-name-prompt.js` (16/0), `dev/tests/b82-problem-notes-warning.js` (18/0), `dev/tests/b81-chord-recognition.js` (49/0), `dev/tests/b41-finger-model.js` (54/0) — зелёные (168/0).
 
+---
+
+### Волна B-77 (2026-09-17) — Гармонизация кнопок редактора аппликатур и подпись «Очистить»
+
+В соответствии с правилом R8 проведён допрос и завершена гармонизация кнопок модалки редактора аппликатур:
+- **Замена подписи «Стереть» на «Очистить»:**
+  - Кнопка `#clear-fingering` получила точную нейтрально-терминологическую подпись «Очистить».
+- **Строгое соответствие CSS-переменным и семантике палитры:**
+  - Исключены любые захардкоженные цвета кнопок (`#486d48`), все стили используют системные токены: деструктивная кнопка `.fe-btn--danger` (`var(--color-danger-bg)`, `var(--color-danger-border)`, `var(--color-danger)`), главная кнопка `.fe-btn--primary` (`var(--color-ink)`, `var(--color-surface)`), нейтральная отмена `.fe-btn--ghost` (`var(--color-border-medium)`, `var(--color-text-secondary)`), плавающая «Сохранить для всех» (`var(--color-accent)`).
+  - Стили корректно следуют за всеми 15 цветовыми темами оформления и тёмным режимом.
+- **Тестовый стенд:** `dev/tests/b77-fingering-editor-button-styles.js` (22 проверки ALL OK).
+
+Версия 0.251 (`struchord-v251`), sha256
+`8991abeba099efebc63d4fe119a840b27f47515356257dcd793672e56bbf5511`,
+размер 1980883. Все тесты (190/0) — зелёные.
+
 
 
 
