@@ -149,11 +149,11 @@ const analysisDiv = w.document.getElementById('chord-analysis');
 const clearBtn = w.document.getElementById('clear-fingering');
 if (clearBtn) clearBtn.click();
 const fbZones = w.document.getElementById('fingering-editor-fretboard').querySelectorAll('div');
-// String 2 fret 2, String 3 fret 2, String 4 fret 1, String 5 fret 0
-fbZones[14].click();
+// String 2 fret 2 (zone 15), String 3 fret 2 (zone 16), String 4 fret 1 (zone 11), String 5 open (zone 6)
 fbZones[15].click();
-fbZones[10].click();
-fbZones[5].click();
+fbZones[16].click();
+fbZones[11].click();
+fbZones[6].click();
 
 const pills = analysisDiv.querySelectorAll('.fe-pill-choice');
 checkTrue('В UI модалки отрендерились 2 пилюли выбора', pills.length >= 2);
