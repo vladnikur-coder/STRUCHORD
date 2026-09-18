@@ -175,6 +175,54 @@ w.addEventListener('load', async () => {
   ok('addSection завершается рендером (свой вызов + подписчик Store)', c2.reqRender >= 1, 'reqRender=' + c2.reqRender);
   ok('render выполнен через rAF', c2.render >= 1, 'render=' + c2.render);
 
-  console.log(`\n${bad ? 'СБОЕВ: ' + bad : 'ALL OK — ' + 'Store ступени 2 работает по контракту'}`);
+  // --- 10. ступень 3: глубокие сеттеры — команды Store (все тихие) ---
+  console.log('=== 10. ступень 3: сеттеры пишут команды ===');
+  w.eval(`
+    globalTimeSig = '4/4';
+    sections = [{ id: 1, type: 'Verse', customName: null, key: null, timeSig: null, bpm: 0,
+      repeat: 1, strumPattern: null, squares: [
+        { id: 2, repeat: 1, customBeats: null, strumPattern: null, events: [
+          { chord: 'C', span: 4, timeSig: null, strumPattern: null },
+          { chord: 'G', span: 4, timeSig: null, strumPattern: null },
+        ]},
+      ]
+    }];
+    render();
+    0`);
+  // Лог кольцевой (100 записей) и уже насыщен секцией 3 — длина не
+  // растёт, поэтому сравниваем КОЛИЧЕСТВО конкретной метки до/после.
+  const cmd = (lbl, fn) => {
+    const n0 = w.songStore.log().filter((e) => e.label === lbl).length;
+    fn();
+    return w.songStore.log().filter((e) => e.label === lbl).length > n0;
+  };
+  ok('setSectionKey → section/key', cmd('section/key', () => w.setSectionKey(1, 'G')));
+  ok('setSectionBpm → section/bpm', cmd('section/bpm', () => w.setSectionBpm(1, 140)));
+  ok('setSectionRepeat → section/repeat', cmd('section/repeat', () => w.setSectionRepeat(1, 2)));
+  ok('renameSection → section/rename', cmd('section/rename', () => w.renameSection(1, 'Куплет 1')));
+  ok('setSquareRepeat → square/repeat', cmd('square/repeat', () => w.setSquareRepeat(1, 2, 2)));
+  ok('addSquare → square/add', cmd('square/add', () => w.addSquare(1)));
+  ok('cloneLastSquare → square/clone', cmd('square/clone', () => w.cloneLastSquare(1)));
+  ok('addChordAfter → cell/add', cmd('cell/add', () => w.addChordAfter(1, 2, 0)));
+  ok('removeChordAt → cell/remove', cmd('cell/remove', () => w.removeChordAt(1, 2, 0)));
+  ok('changeChordSpanDirect → cell/span', cmd('cell/span', () => w.changeChordSpanDirect(1, 2, 0, 2)));
+  ok('setEventTimeSig → cell/timesig', cmd('cell/timesig', () => w.setEventTimeSig(1, 2, 0, '3/4')));
+  ok('setEventChord → cell/chord', cmd('cell/chord', () => w.setEventChord(w.eval('sections[0].squares[0].events[0]'), 'Dm', {})));
+  ok('setSectionTimeSig → section/timesig', cmd('section/timesig', () => w.setSectionTimeSig(1, '3/4')));
+  ok('removeSquare → square/remove', cmd('square/remove', () => w.removeSquare(1, 3)));
+  ok('removeSection → section/remove', cmd('section/remove', () => w.removeSection(1)));
+
+  // --- 11. гард вложенности: один notify на составной сценарий ---
+  console.log('=== 11. вложенные команды ===');
+  let seen = [];
+  const offNested = w.songStore.subscribe((cmd) => { seen.push(cmd && cmd.label); });
+  w.songStore.dispatch('test/outer', () => {
+    w.songStore.dispatch('test/inner', () => {});
+  });
+  ok('вложенная команда пишет метку в лог', w.songStore.log().some((e) => e.label === 'test/inner'));
+  ok('подписчики оповещены ОДИН раз — внешней командой', seen.length === 1 && seen[0] === 'test/outer', JSON.stringify(seen));
+  offNested();
+
+  console.log(`\n${bad ? 'СБОЕВ: ' + bad : 'ALL OK — ' + 'Store ступени 3 работает по контракту'}`);
   process.exit(bad ? 1 : 0);
 });

@@ -9936,7 +9936,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.254</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.255</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10648,26 +10648,46 @@ let activeSectionKey = null;
 // поэтому повторные уведомления безвредны: серия dispatch внутри одного
 // жеста схлопнется в один шаг истории, как и раньше.
 //
-// НЕ через dispatch идут (осознанно, это не правки песни):
+// НЕ через dispatch идут (осознанно):
 //   - стартовые присваивания при инициализации (умолчания '4/4' и т.п.);
 //   - временная модуляция globalKey во время воспроизведения секции
 //     со своей тональностью (playback ставит и снимает его сам);
-//   - глубокие правки ячеек (ev/sq) — их миграция в dispatch
-//     относится к следующим ступеням, см. журнал.
+//   - механика рулонов ритма B-20/23: пин-хирургия ev.strumPattern и
+//     пул songRhythmRolls (runtime-состояние, не модель сохранения) —
+//     сшивка/поглощение слишком тонкие, чтобы крутить их ради меток;
+//   - sanitizeSongData — целиком внутри команды song/load.
+// Ступень 3 (0.255) перевела в команды все 18 сеттеров модели:
+// section/rename|remove|key|timesig|bpm|repeat,
+// square/add|remove|clone|repeat|beats|resize-spans|resize-reslice,
+// cell/add|remove|span|timesig|chord — все тихие (DOM-sync B-25
+// остаётся на потоках), история — через подписчика Store.
 const songStore = (function () {
   const LOG_LIMIT = 100;
   const log = [];
   const subscribers = new Set();
+  let dispatchDepth = 0;
 
   function dispatch(label, mutator, opts) {
     if (typeof mutator !== 'function') return undefined;
-    const result = mutator();
+    // Гард вложенности: команда внутри мутатора другой команды (составной
+    // сценарий) пишет метку в лог, но НЕ оповещает подписчиков — право
+    // уведомления принадлежит внешней команде, когда её мутация целиком
+    // завершена. Иначе история и рендер увидели бы промежуточное
+    // состояние.
+    const outermost = dispatchDepth === 0;
+    dispatchDepth++;
+    let result;
+    try {
+      result = mutator();
+    } finally {
+      dispatchDepth--;
+    }
     // Объект команды передаётся каждому подписчику: рендеру нужно
     // видеть quiet, истории и логу хватает метки.
     const command = { label: String(label), quiet: !!(opts && opts.quiet) };
     log.push({ label: command.label, t: Date.now() });
     if (log.length > LOG_LIMIT) log.shift();
-    notifySubscribers(command);
+    if (outermost) notifySubscribers(command);
     return result;
   }
 
@@ -15933,12 +15953,14 @@ function dropPreferredFingeringsAt(secId, sqId, ei) {
 function setEventChord(ev, newChord, posCtx, keepShape) {
   if (!ev) return false;
   if (String(ev.chord || '').trim() === String(newChord || '').trim()) return false;
-  if (!keepShape) {
-    delete ev.fingering;
-    delete ev.fingeringTuning;
-    if (posCtx) dropPreferredFingeringsAt(posCtx.secId, posCtx.sqId, posCtx.ei);
-  }
-  ev.chord = newChord;
+  songStore.dispatch('cell/chord', () => {
+    if (!keepShape) {
+      delete ev.fingering;
+      delete ev.fingeringTuning;
+      if (posCtx) dropPreferredFingeringsAt(posCtx.secId, posCtx.sqId, posCtx.ei);
+    }
+    ev.chord = newChord;
+  }, { quiet: true });
   // Ворота едины для всех путей появления имени — ручной ввод, колесо,
   // «Переименовать?» в редакторе, добавление по аппликатуре — поэтому
   // обучение кнопок расширений колеса живёт здесь, а не развешано по
@@ -20769,17 +20791,21 @@ function addCustomSection() {
 function renameSection(sid, nn) {
   const s = sections.find((s) => s.id === sid);
   if (!s) return;
-  if (s.type === 'Custom') s.customName = nn;
-  else {
-    s.type = 'Custom';
-    s.customName = nn;
-  }
+  songStore.dispatch('section/rename', () => {
+    if (s.type === 'Custom') s.customName = nn;
+    else {
+      s.type = 'Custom';
+      s.customName = nn;
+    }
+  }, { quiet: true });
   // B-25: меняется только label в заголовке секции.
   if (!syncSectionHeaderDom(s)) requestRender();
   showToast(`Секция переименована в "${nn}"`);
 }
 function removeSection(id) {
-  sections = sections.filter((s) => s.id !== id);
+  songStore.dispatch('section/remove', () => {
+    sections = sections.filter((s) => s.id !== id);
+  }, { quiet: true });
   requestRender();
 }
 function clonePlainData(value) {
@@ -20880,7 +20906,9 @@ function setSectionKey(sid, nk) {
     }
     nk = resolvedKey;
   }
-  s.key = nk || null;
+  songStore.dispatch('section/key', () => {
+    s.key = nk || null;
+  }, { quiet: true });
   // B-25: тональность секции меняет бейдж и ступени, не структуру DOM.
   if (!syncSectionHeaderDom(s)) requestRender();
   updateCellsDegrees();
@@ -20900,19 +20928,23 @@ function setSectionTimeSig(sid, nts) {
   const newTimeSig = nts || globalTimeSig;
 
   // Обновляем размер секции (если равен глобальному – сбрасываем в null)
-  s.timeSig = nts === globalTimeSig ? null : nts;
+  // и перестраиваем её квадраты — одной командой: подписчики (история)
+  // должны видеть итог, а не промежуточное состояние миграции.
+  songStore.dispatch('section/timesig', () => {
+    s.timeSig = nts === globalTimeSig ? null : nts;
 
-  // Рисунок боя самой секции — тоже под новый размер.
-  if (s.strumPattern) {
-    s.strumPattern = migratePatternForTimeSig(s.strumPattern, oldTimeSig, newTimeSig);
-  }
+    // Рисунок боя самой секции — тоже под новый размер.
+    if (s.strumPattern) {
+      s.strumPattern = migratePatternForTimeSig(s.strumPattern, oldTimeSig, newTimeSig);
+    }
 
-  // Перестраиваем квадраты под новый размер, СОХРАНЯЯ уже введённые
-  // аккорды — вместо стирания events подстраиваем их длительности под
-  // новый размер (см. migrateSquareForTimeSig).
-  for (const sq of s.squares) {
-    migrateSquareForTimeSig(sq, oldTimeSig, newTimeSig);
-  }
+    // Перестраиваем квадраты под новый размер, СОХРАНЯЯ уже введённые
+    // аккорды — вместо стирания events подстраиваем их длительности под
+    // новый размер (см. migrateSquareForTimeSig).
+    for (const sq of s.squares) {
+      migrateSquareForTimeSig(sq, oldTimeSig, newTimeSig);
+    }
+  }, { quiet: true });
 
   // B-25: размер секции мигрирует её квадраты, но не требует полной
   // пересборки документа: обновляем header + squares-list этой секции.
@@ -20930,23 +20962,27 @@ function addSquare(sid) {
   const s = sections.find((s) => s.id === sid);
   if (!s || s.squares.length >= CONFIG.MAX_SQUARES_PER_SECTION) return;
   const refBeats = getGridUnitsPerBar(s.timeSig || globalTimeSig);
-  s.squares.push({
-    id: nextId++,
-    repeat: 1,
-    events: [
-      { chord: '', span: refBeats, timeSig: null },
-      { chord: '', span: refBeats, timeSig: null },
-      { chord: '', span: refBeats, timeSig: null },
-      { chord: '', span: refBeats, timeSig: null },
-    ],
-    customBeats: refBeats * 4,
-  });
+  songStore.dispatch('square/add', () => {
+    s.squares.push({
+      id: nextId++,
+      repeat: 1,
+      events: [
+        { chord: '', span: refBeats, timeSig: null },
+        { chord: '', span: refBeats, timeSig: null },
+        { chord: '', span: refBeats, timeSig: null },
+        { chord: '', span: refBeats, timeSig: null },
+      ],
+      customBeats: refBeats * 4,
+    });
+  }, { quiet: true });
   if (!rerenderSectionSquaresDom(s)) requestRender();
 }
 function removeSquare(sid, sqid) {
   const s = sections.find((s) => s.id === sid);
   if (!s) return;
-  s.squares = s.squares.filter((sq) => sq.id !== sqid);
+  songStore.dispatch('square/remove', () => {
+    s.squares = s.squares.filter((sq) => sq.id !== sqid);
+  }, { quiet: true });
   if (keyMode === 'auto') refreshAutoDetectedKey();
   if (!rerenderSectionSquaresDom(s)) requestRender();
 }
@@ -20974,7 +21010,9 @@ function cloneLastSquare(sid) {
     })),
     customBeats: ls.customBeats ?? null,
   };
-  s.squares.push(ns);
+  songStore.dispatch('square/clone', () => {
+    s.squares.push(ns);
+  }, { quiet: true });
   // Волна-4: ссылки и рулоны последнего квадрата — копиями на новый id.
   if (songRhythmRolls) cloneSquareRhythmRolls(songRhythmRolls, sid, ls.id, sid, ns.id);
   if (keyMode === 'auto') refreshAutoDetectedKey();
@@ -20986,7 +21024,9 @@ function setSectionRepeat(sectionId, count) {
   const old = sec.repeat || 1;
   count = Math.max(1, Math.min(99, count));
   if (count === old) return;
-  sec.repeat = count;
+  songStore.dispatch('section/repeat', () => {
+    sec.repeat = count;
+  }, { quiet: true });
   // B-25: повтор секции меняет только repeat-row в списке квадратов этой
   // секции и таймлайн; весь документ не пересобираем.
   if (!rerenderSectionSquaresDom(sec)) requestRender();
@@ -21002,7 +21042,9 @@ function setSquareRepeat(sectionId, squareId, count) {
   const old = sq.repeat || 1;
   count = Math.max(1, Math.min(99, count));
   if (count === old) return;
-  sq.repeat = count;
+  songStore.dispatch('square/repeat', () => {
+    sq.repeat = count;
+  }, { quiet: true });
   // B-25: повтор квадрата — прямое обновление его бейджа, без render.
   if (!syncSquareRepeatDom(sec, sq)) requestRender();
   if (count === 1) showToast('Повтор квадрата убран');
@@ -21014,7 +21056,9 @@ function setSectionBpm(sectionId, bpm) {
   if (bpm !== null) {
     bpm = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, parseInt(bpm) || CONFIG.DEFAULT_BPM));
   }
-  sec.bpm = bpm || null;
+  songStore.dispatch('section/bpm', () => {
+    sec.bpm = bpm || null;
+  }, { quiet: true });
   // B-25: BPM секции — это только бейдж в шапке секции и таймлайн.
   if (!syncSectionBpmBadge(sec)) requestRender();
   if (bpm) showToast(`BPM секции: ${bpm}`);
@@ -21029,11 +21073,13 @@ function setSquareCustomBeats(sid, sqid, beats) {
   const beatsPerBar = getGridUnitsPerBar(parentTs);
   const defaultBeats = beatsPerBar * 4; // 4 такта – состояние «по умолчанию»
 
-  if (beats === defaultBeats) {
-    sq.customBeats = null;
-  } else {
-    sq.customBeats = beats;
-  }
+  songStore.dispatch('square/beats', () => {
+    if (beats === defaultBeats) {
+      sq.customBeats = null;
+    } else {
+      sq.customBeats = beats;
+    }
+  }, { quiet: true });
 
   let events = sq.events;
   let currentSum = events.reduce((sum, e) => sum + getEventSpanInParentUnits(e, parentTs), 0);
@@ -22794,16 +22840,18 @@ function addChordAfter(sid, sqid, ei) {
       cutAt - s0 >= 1 && s0 + need - cutAt >= 1 &&
       s0 >= 0 && s0 + need <= roll.steps.length;
   }
-  sq.events[ei].span = half;
-  // Новая половина — тот же кусок такта, значит и тот же собственный
-  // timeSig, что у исходной ячейки (иначе она молча "переехала" бы на
-  // родительский размер и звучала бы иначе, чем ожидалось).
-  sq.events.splice(ei + 1, 0, {
-    chord: '',
-    span: oh,
-    timeSig: srcEvent.timeSig || null,
-    strumPattern: null,
-  });
+  songStore.dispatch('cell/add', () => {
+    sq.events[ei].span = half;
+    // Новая половина — тот же кусок такта, значит и тот же собственный
+    // timeSig, что у исходной ячейки (иначе она молча "переехала" бы на
+    // родительский размер и звучала бы иначе, чем ожидалось).
+    sq.events.splice(ei + 1, 0, {
+      chord: '',
+      span: oh,
+      timeSig: srcEvent.timeSig || null,
+      strumPattern: null,
+    });
+  }, { quiet: true });
   if (st) {
     shiftSquareRhythmRefs(st, sid, sqid, ei + 1, +1);
     if (splitOnRoll) {
@@ -22901,21 +22949,35 @@ function removeChordAt(sid, sqid, ei) {
       if (anyHit) adoptTape = sewn;
     }
   }
-  sq.events.splice(ei, 1);
-  if (st) {
-    st.refs.delete(rhythmRefKey(sid, sqid, ei));
-    shiftSquareRhythmRefs(st, sid, sqid, ei + 1, -1);
-  }
+  // Командное окно «удалить ячейку»: splice, сдвиг ссылок рулонов и
+  // поглощение времени соседом — одна команда, чтобы история видела итог
+  // жеста целиком. Рулонные правки внутри окна синхронны и подписчикам
+  // не видны; пин-хирургия B-20/23 (ниже, ev.strumPattern) остаётся вне
+  // команды — механика рулонов ритма в миграции не участвует.
+  songStore.dispatch('cell/remove', () => {
+    sq.events.splice(ei, 1);
+    if (st) {
+      st.refs.delete(rhythmRefKey(sid, sqid, ei));
+      shiftSquareRhythmRefs(st, sid, sqid, ei + 1, -1);
+    }
+    if (sq.events.length > 0) {
+      // Соседняя ячейка, поглощающая освободившееся время, может иметь свой
+      // timeSig — переводим освобождавшуюся длительность в ЕЁ единицы (по
+      // правилу "такт есть такт"), а не складываем сырые span напрямую.
+      const targetIndex =
+        ei > 0 && ei - 1 < sq.events.length ? ei - 1 : ei < sq.events.length ? ei : 0;
+      const target = sq.events[targetIndex];
+      const targetOwnTs = getEventOwnTimeSig(target, parentTs);
+      const addedOwnUnits = convertSpanBetweenTimeSigs(removedParentUnits, parentTs, targetOwnTs);
+      target.span += addedOwnUnits;
+    }
+  }, { quiet: true });
   if (sq.events.length > 0) {
-    // Соседняя ячейка, поглощающая освободившееся время, может иметь свой
-    // timeSig — переводим освобождавшуюся длительность в ЕЁ единицы (по
-    // правилу "такт есть такт"), а не складываем сырые span напрямую.
+    // Поглотитель для пин-хирургии ниже: те же координаты, что в команде
+    // (чистые чтения живой модели — после splice индексы уже финальные).
     const targetIndex =
       ei > 0 && ei - 1 < sq.events.length ? ei - 1 : ei < sq.events.length ? ei : 0;
     const target = sq.events[targetIndex];
-    const targetOwnTs = getEventOwnTimeSig(target, parentTs);
-    const addedOwnUnits = convertSpanBetweenTimeSigs(removedParentUnits, parentTs, targetOwnTs);
-    target.span += addedOwnUnits;
     // Оффсеты ячеек после удалённой не сдвинулись (поглотитель полностью
     // вобрал её время), так что окна остальных не меняются; поглотителю
     // достаётся лента на всю новую долю, а рулон, оставшийся в одном окне,
@@ -23138,17 +23200,20 @@ function changeChordSpanDirect(sectionId, squareId, eventIndex, newSpan) {
 
   // Меняем только эту ячейку. newSpan — в СОБСТВЕННЫХ единицах события
   // (тех, что показаны в меню рядом с текущим значением).
-  events[eventIndex].span = newSpan;
+  let total = 0; // итоговая длина квадрата — тосту ниже нужна и вне команды
+  songStore.dispatch('cell/span', () => {
+    events[eventIndex].span = newSpan;
 
-  // Гарантируем, что все span >= 1
-  for (let i = 0; i < events.length; i++) {
-    if (events[i].span < 1) events[i].span = 1;
-  }
+    // Гарантируем, что все span >= 1
+    for (let i = 0; i < events.length; i++) {
+      if (events[i].span < 1) events[i].span = 1;
+    }
 
-  // Пересчитываем общую длину квадрата — customBeats всегда в единицах
-  // РОДИТЕЛЯ, поэтому суммируем parent-эквиваленты, а не сырые span.
-  const total = events.reduce((sum, e) => sum + getEventSpanInParentUnits(e, parentTs), 0);
-  sq.customBeats = total;
+    // Пересчитываем общую длину квадрата — customBeats всегда в единицах
+    // РОДИТЕЛЯ, поэтому суммируем parent-эквиваленты, а не сырые span.
+    total = events.reduce((sum, e) => sum + getEventSpanInParentUnits(e, parentTs), 0);
+    sq.customBeats = total;
+  }, { quiet: true });
 
   // B-20: окно при новых долях могло совпасть с боем секции.
   settleSquareRhythmWithFacade(sec, sq);
@@ -23173,16 +23238,18 @@ function setEventTimeSig(sectionId, squareId, eventIndex, newTimeSig) {
   // ТАКТА, что и раньше (целый такт остаётся целым тактом, половина —
   // половиной), а не ту же длительность в секундах. Округляем и
   // подстраховываемся минимумом в 1 единицу.
-  if (targetTimeSig !== oldOwnTimeSig) {
-    const converted = Math.round(convertSpanBetweenTimeSigs(ev.span, oldOwnTimeSig, targetTimeSig));
-    ev.span = Math.max(1, converted);
-  }
-  // Если новый размер совпадает с родительским, сохраняем null
-  if (newTimeSig === parentTimeSig) {
-    ev.timeSig = null;
-  } else {
-    ev.timeSig = newTimeSig;
-  }
+  songStore.dispatch('cell/timesig', () => {
+    if (targetTimeSig !== oldOwnTimeSig) {
+      const converted = Math.round(convertSpanBetweenTimeSigs(ev.span, oldOwnTimeSig, targetTimeSig));
+      ev.span = Math.max(1, converted);
+    }
+    // Если новый размер совпадает с родительским, сохраняем null
+    if (newTimeSig === parentTimeSig) {
+      ev.timeSig = null;
+    } else {
+      ev.timeSig = newTimeSig;
+    }
+  }, { quiet: true });
   // B-20: окно в новых единицах размера могло совпасть с боем секции.
   settleSquareRhythmWithFacade(sec, sq);
   // B-25: смена размера события не добавляет/удаляет ячейки, поэтому
@@ -36199,25 +36266,33 @@ function attachResizeHandlers() {
         // остаётся поверх до локальной синхронизации DOM, чтобы старые
         // подписи внутри ячеек не мигнули в неправильных местах.
         bi.classList.remove('is-snap-resize-animated');
-        commitVisualSpans(finalSpans);
+        // Команда «растяжка границ»: фиксированные span-ы + финальная сверка
+        // длины + перерез общего ритма — одна команда для истории. Тихая:
+        // ниже локальная синхронизация с reverse-анимацией B-15 (полный
+        // render здесь — та самая гонка из комментария ниже).
+        songStore.dispatch('square/resize-spans', () => {
+          commitVisualSpans(finalSpans);
 
-        // Финальная сверка длины квадрата. Обе величины — в ДОЛЯХ:
-        // раньше сумма долей сравнивалась с числом колонок tc, и на
-        // квадрате с дробными ячейками (32 колонки против 16 долей)
-        // условие срабатывало всегда, раздувая последнюю ячейку.
-        const csBeats = sq.events.reduce(
-          (sm, ev) => sm + getEventVisualSpanInParentUnits(ev, parentTs), 0);
-        const targetBeatsUp = colsToBeats(tc);
-        if (Math.abs(csBeats - targetBeatsUp) > 1e-9) {
-          const last = sq.events[sq.events.length - 1];
-          const diffOwnUnits = convertVisualParentUnitsToEventSpan(
-            targetBeatsUp - csBeats, last, parentTs);
-          const st = getResizeStep();
-          last.span = roundSpan(Math.max(st, Math.round((last.span + diffOwnUnits) / st) * st));
-        }
+          // Финальная сверка длины квадрата. Обе величины — в ДОЛЯХ:
+          // раньше сумма долей сравнивалась с числом колонок tc, и на
+          // квадрате с дробными ячейками (32 колонки против 16 долей)
+          // условие срабатывало всегда, раздувая последнюю ячейку.
+          const csBeats = sq.events.reduce(
+            (sm, ev) => sm + getEventVisualSpanInParentUnits(ev, parentTs), 0);
+          const targetBeatsUp = colsToBeats(tc);
+          if (Math.abs(csBeats - targetBeatsUp) > 1e-9) {
+            const last = sq.events[sq.events.length - 1];
+            const diffOwnUnits = convertVisualParentUnitsToEventSpan(
+              targetBeatsUp - csBeats, last, parentTs);
+            const st = getResizeStep();
+            last.span = roundSpan(Math.max(st, Math.round((last.span + diffOwnUnits) / st) * st));
+          }
+        }, { quiet: true });
         // Финальная сверка длины могла сдвинуть последнюю ячейку —
         // перерезаем общий ритм ещё раз по итоговым долям.
-        resliceSharedRhythmsInSquare(sq, parentTs, s, ei, origSpans);
+        songStore.dispatch('square/resize-reslice', () => {
+          resliceSharedRhythmsInSquare(sq, parentTs, s, ei, origSpans);
+        }, { quiet: true });
         // Волна-5 (link_transient): жест окончен — временная сшивка пары
         // растворяется в два приватных рулона, ячейки снова независимы.
         dissolveSewnRhythmPair(songRhythmRolls, s, sq, ei);
@@ -38798,6 +38873,22 @@ toggleTimeAndBeats();
         + ' viewport=' + innerWidth + 'x' + innerHeight
         + ' theme=' + (document.body.dataset.theme || document.documentElement.dataset.theme || 'default')
         + ' ver=' + ((document.querySelector('.app-title span') || {}).textContent || '?');
+      var lines = ['=== B-31 DIFF (кадр2 до отпускания -> кадр3 после) ===', env];
+      var d = diff(held, fin);
+      lines.push(d.length ? d.join('\n') : 'РАЗЛИЧИЙ НЕТ: кадр 2 == кадр 3');
+      var text = lines.join('\n');
+      console.log(text);
+      var pre = document.createElement('pre');
+      pre.textContent = text;
+      pre.style.cssText = 'position:fixed;right:8px;bottom:8px;z-index:99999;max-width:420px;max-height:45vh;overflow:auto;margin:0;padding:10px;background:#1e1e22;color:#e8e8e8;font:11px/1.45 monospace;border-radius:8px;box-shadow:0 4px 24px rgba(0,0,0,.4);white-space:pre-wrap';
+      document.body.appendChild(pre);
+      if (navigator.clipboard) navigator.clipboard.writeText(text).catch(function () {});
+    }, 900);
+  }, true);
+})();
+</script>
+</body>
+</html>nt || '?');
       var lines = ['=== B-31 DIFF (кадр2 до отпускания -> кадр3 после) ===', env];
       var d = diff(held, fin);
       lines.push(d.length ? d.join('\n') : 'РАЗЛИЧИЙ НЕТ: кадр 2 == кадр 3');
