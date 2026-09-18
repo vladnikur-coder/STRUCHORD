@@ -5,8 +5,11 @@
 //      модели песни; метка пишется в кольцевой лог (100 записей).
 //   2. Единственный подписчик — планировщик истории (дебаунс 400 мс):
 //      любая команда сама попадает в undo/redo, без ручных вызовов.
-//   3. Dispatch НЕ вызывает render/requestRender сам — все существующие
-//      точки рендера остаются на своих местах (FLIP-потоки не трогаем).
+//   3. СТУПЕНЬ 2: dispatch сам зовёт requestRender (подписчик рендера);
+//      render остаётся в rAF-кадре (B-27), тихие команды {quiet:true}
+//      рендер пропускают (FLIP-потоки посадки drag зовут его сами),
+//      история пишется всегда. Прямые вызовы requestRender у
+//      непомигрированных потоков остаются на местах.
 //   4. Подписчик не имеет права ронять правку: ошибка логируется,
 //      остальные подписчики получают уведомление.
 //   5. Мигрированные потоки (addSection, cloneSection, applySectionOrder,
@@ -63,8 +66,8 @@ w.addEventListener('load', async () => {
   ok('лог обрезан до 100 записей', w.songStore.log().length === 100);
   ok('в логе остались ПОСЛЕДНИЕ метки', w.songStore.log()[0].label === 'test/flood-30');
 
-  // --- 4. dispatch не рендерит сам (контракт ступени 1) ---
-  console.log('=== 4. dispatch не дергает рендер ===');
+  // --- 4. контракт ступени 2: dispatch планирует рендер, render — в кадре ---
+  console.log('=== 4. авто-рендер и quiet ===');
   const c1 = w.eval(`(() => {
     window.__c1 = { render: 0, reqRender: 0, hist: 0 };
     const origRender = window.render;
@@ -78,10 +81,19 @@ w.addEventListener('load', async () => {
   await sleep(80); // дренируем отложенные кадры загрузки страницы
   c1.render = c1.reqRender = c1.hist = 0;
   w.songStore.dispatch('test/silent', () => {});
-  // Проверяем СИНХРОННО: rAF-рендер успел бы сработать только между await'ами.
-  ok('render не вызван', c1.render === 0, 'render=' + c1.render);
-  ok('requestRender не вызван', c1.reqRender === 0, 'reqRender=' + c1.reqRender);
+  // СИНХРОННО: рендер только ЗАПЛАНИРОВАН (rAF), сам render() — в кадре.
+  ok('requestRender вызван подписчиком рендера', c1.reqRender === 1, 'reqRender=' + c1.reqRender);
+  ok('render синхронно не вызван', c1.render === 0, 'render=' + c1.render);
   ok('планировщик истории вызван', c1.hist >= 1, 'hist=' + c1.hist);
+  await sleep(80); // кадр отработал
+  ok('render отработал в следующем кадре', c1.render >= 1, 'render=' + c1.render);
+  c1.render = c1.reqRender = c1.hist = 0;
+  // Тихая команда: рендер пропускает, история — нет.
+  w.songStore.dispatch('test/quiet', () => {}, { quiet: true });
+  ok('тихая команда: requestRender не вызван', c1.reqRender === 0, 'reqRender=' + c1.reqRender);
+  ok('тихая команда: история пишется', c1.hist >= 1, 'hist=' + c1.hist);
+  await sleep(80);
+  ok('тихая команда: render не сработал', c1.render === 0, 'render=' + c1.render);
 
   // --- 5. подписки: уведомление, отписка, изоляция ошибок ---
   console.log('=== 5. подписки ===');
@@ -160,9 +172,9 @@ w.addEventListener('load', async () => {
   const c2 = w.eval(`window.__c1`);
   w.addSection('Bridge');
   await sleep(50);
-  ok('addSection зовёт requestRender ровно один раз', c2.reqRender >= 1, 'reqRender=' + c2.reqRender);
+  ok('addSection завершается рендером (свой вызов + подписчик Store)', c2.reqRender >= 1, 'reqRender=' + c2.reqRender);
   ok('render выполнен через rAF', c2.render >= 1, 'render=' + c2.render);
 
-  console.log(`\n${bad ? 'СБОЕВ: ' + bad : 'ALL OK — ' + 'Store ступени 1 работает по контракту'}`);
+  console.log(`\n${bad ? 'СБОЕВ: ' + bad : 'ALL OK — ' + 'Store ступени 2 работает по контракту'}`);
   process.exit(bad ? 1 : 0);
 });

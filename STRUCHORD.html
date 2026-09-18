@@ -9936,7 +9936,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.253</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.254</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10615,20 +10615,32 @@ let activeSectionKey = null;
 //     — mutator: функция, которая правит модель (глобалы видны ей
 //                напрямую: они и остаются каноническим хранилищем,
 //                125+ мест чтения не трогаем);
+//     — opts:    { quiet: true } — тихая команда: рендер пропускает
+//                её (см. ниже), история и лог пишутся как обычно;
 //     — после мутатора: метка пишется в кольцевой лог (100 записей),
-//                оповещаются подписчики.
+//                оповещаются подписчики (каждому передаётся объект
+//                команды { label, quiet }).
 //
-// ПОДПИСКЧИК СТУПЕНИ 1 — ПЛАНИРОВЩИК ИСТОРИИ, И ТОЛЬКО ОН.
-// Dispatch НЕ вызывает render() и requestRender() сам. Причины:
-//   1) Порядок rAF-кадров в FLIP-потоках (посадка drag-ярлыка,
-//      animateReorder) выверен годами правок — сдвиг requestRender
-//      хотя бы на пару операторов раньше меняет очерёдность кадров
-//      и рискует визуальными регрессиями, которые не ловятся тестами.
-//   2) requestRender уже коалесцирует вызовы (B-27) и сам сводит
-//      историю и рендер в один кадр — дублировать его роль незачем.
-// Поэтому каждый существующий requestRender остаётся на своём месте,
-// а перевод рендера в подписчики — отдельная ступень 2, когда
-// render() будет делиться на подсистемы.
+// ПОДПИСЧИКИ: СТУПЕНЬ 1 — ПЛАНИРОВЩИК ИСТОРИИ, СТУПЕНЬ 2 — РЕНДЕР.
+//   1) История (дебаунс 400 мс, формат снимков не менялся): тихая
+//      команда НЕ освобождает от истории — drag-перестановки обязаны
+//      попадать в Ctrl+Z.
+//   2) Рендер (ступень 2): dispatch сам зовёт requestRender — класс
+//      багов «изменил модель, забыл перерисовать» закрыт для команд
+//      Store. Повторные уведомления безвредны: B-27 коалесцирует всё
+//      в один кадр, а requestRender изнутри render() гасится гардами
+//      needsRender/renderDepth (вложенный dispatch вида
+//      refreshAutoDetectedKey → key/change-only не плодит кадры).
+//   ИСКЛЮЧЕНИЕ — ТИХИЕ КОМАНДЫ ({ quiet: true }). Два FLIP-потока —
+//   посадка drag-ярлыка (section/reorder-field) и reorder-анимация
+//   (section/reorder-songmap) — правят модель, пока DOM ещё
+//   анимируется: render() в этот момент снёс бы анимацию и сдвинул
+//   очерёдность rAF-кадров, выверенную годами правок. Эти команды
+//   рендер пропускает; их потоки зовут render сами, когда DOM готов.
+//   Существующие ~40 прямых вызовов requestRender остаются на местах:
+//   глубокие правки ячеек (ev/sq) ещё не мигрированы в команды (это
+//   следующие ступени), а для команд Store повторы съедает
+//   коалесцирование B-27 — один кадр, как и раньше.
 //
 // История правок (снапшоты песни, 60 шагов, дебаунс 400 мс) не меняется
 // форматом вообще — снимок «всегда верен» (см. урок в README о том,
@@ -10647,19 +10659,22 @@ const songStore = (function () {
   const log = [];
   const subscribers = new Set();
 
-  function dispatch(label, mutator) {
+  function dispatch(label, mutator, opts) {
     if (typeof mutator !== 'function') return undefined;
     const result = mutator();
-    log.push({ label: String(label), t: Date.now() });
+    // Объект команды передаётся каждому подписчику: рендеру нужно
+    // видеть quiet, истории и логу хватает метки.
+    const command = { label: String(label), quiet: !!(opts && opts.quiet) };
+    log.push({ label: command.label, t: Date.now() });
     if (log.length > LOG_LIMIT) log.shift();
-    notifySubscribers();
+    notifySubscribers(command);
     return result;
   }
 
-  function notifySubscribers() {
+  function notifySubscribers(command) {
     subscribers.forEach((fn) => {
       try {
-        fn();
+        fn(command);
       } catch (err) {
         // Подписчик не имеет права ронять правку: ошибка логируется,
         // остальные подписчики всё равно получают уведомление.
@@ -10680,13 +10695,24 @@ const songStore = (function () {
     return log.slice();
   }
 
-  // Единственный подписчик ступени 1 — планировщик истории правок.
-  // Резолвим его НА КАЖДЫЙ вызов: модуль истории определяется позже по
-  // файлу (IIFE хранилища), на момент создания Store его ещё нет.
+  // Подписчик ступени 1 — планировщик истории правок. Резолвим его
+  // НА КАЖДЫЙ вызов: модуль истории определяется позже по файлу (IIFE
+  // хранилища), на момент создания Store его ещё нет. Тихие команды
+  // историей НЕ пропускаются: drag-перестановки обязаны попадать в Ctrl+Z.
   subscribe(function scheduleHistoryViaStore() {
     if (typeof window.scheduleHistorySnapshot === 'function') {
       window.scheduleHistorySnapshot();
     }
+  });
+
+  // Подписчик ступени 2 — рендер. Команды Store обновляют экран сами;
+  // идентификатор requestRender резолвится через window на момент
+  // вызова (объявление хойстится, до первой команды все модули уже
+  // определены). Тихие команды пропускаются — их FLIP-потоки зовут
+  // render сами (см. комментарий блока Store выше).
+  subscribe(function renderViaStore(command) {
+    if (command && command.quiet) return;
+    requestRender();
   });
 
   return { dispatch, subscribe, log: getLog };
@@ -20050,7 +20076,11 @@ function updateAutoKeyBadge() {
 
 // Переключает тональность без транспонирования аккордов (аналогично действию
 // «Поменять только тональность»), сохраняя сдвиги модуляций у секций.
-function applyKeyChangeOnly(newGlobalKey, oldGlobalKey) {
+// opts пробрасывается в songStore.dispatch: { quiet: true } — производная
+// смена тональности в авто-режиме (см. refreshAutoDetectedKey), когда
+// первичная правка уже синхронизирована локально и её settle-анимация
+// ещё играет — полный рендер здесь снёс бы её (репро — B-31.4).
+function applyKeyChangeOnly(newGlobalKey, oldGlobalKey, opts) {
   songStore.dispatch('key/change-only', () => {
     for (const s of sections) {
       if (s.key) {
@@ -20062,7 +20092,7 @@ function applyKeyChangeOnly(newGlobalKey, oldGlobalKey) {
     }
     globalKey = newGlobalKey;
     applyEnharmonicCorrectionToAll();
-  });
+  }, opts);
 }
 
 // Включает авторежим: определяет тональность по текущим аккордам (или
@@ -20094,7 +20124,15 @@ function refreshAutoDetectedKey() {
   const detected = detectKeyFromChords();
   if (detected && detected !== globalKey) {
     const oldGlobalKey = globalKey;
-    applyKeyChangeOnly(detected, oldGlobalKey);
+    // Тихая команда: это ПРОИЗВОДНАЯ смена тональности — состав аккордов
+    // только что поменяла первичная правка, которая уже обновила свою
+    // часть DOM локально (B-25) и, возможно, ещё играет settle-анимацию
+    // (коммит правого края, B-31). Полный рендер здесь был бы повторной
+    // работой либо сносом анимации; очередной полный render() подхватит
+    // новую тональность сам (refreshAutoDetectedKey — его первый слой).
+    // История пишется и для тихих команд, дебаунс схлопывает смену
+    // тональности в один шаг с первичной правкой.
+    applyKeyChangeOnly(detected, oldGlobalKey, { quiet: true });
     autoDetectedKey = detected;
   }
   DOM.rootKey.value = 'auto';
@@ -31671,11 +31709,11 @@ function finishSectionDrag(sd, commit) {
     if (changed && next.length === sections.length) {
       // Тихая для рендера правка: DOM уже переставлен жестом, полный
       // render() здесь перебил бы анимацию посадки — он позовётся сам
-      // в done() после разворота карточки. Store пишет историю, рендер
-      // не трогает (подписчик ступени 1 — только планировщик истории).
+      // в done() после разворота карточки. Store пишет историю (тихие
+      // команды её не пропускают), рендер пропускает (quiet, ступень 2).
       songStore.dispatch('section/reorder-field', () => {
         sections.splice(0, sections.length, ...next);
-      });
+      }, { quiet: true });
     }
     sd.changed = changed;
   }
@@ -32758,14 +32796,15 @@ let songmapDragRaf = 0;
 // Порядок секций по списку id — одной операцией, без пары «источник/цель».
 function applySectionOrder(ids) {
   // Панель уже переставила свои строки, поле секций перерисует
-  // последующий requestRender — dispatch здесь пишет только историю.
+  // последующий requestRender — dispatch здесь пишет историю, а рендер
+  // пропускает (quiet): иначе он опередил бы reorder-анимацию кадром.
   songStore.dispatch('section/reorder-songmap', () => {
     const byId = new Map(sections.map((sec) => [sec.id, sec]));
     const next = [];
     ids.forEach((id) => { const sec = byId.get(id); if (sec) { next.push(sec); byId.delete(id); } });
     byId.forEach((sec) => next.push(sec)); // на всякий случай — не потерять никого
     sections.splice(0, sections.length, ...next);
-  });
+  }, { quiet: true });
 }
 
 function songmapRowRects(list) {
@@ -33778,8 +33817,42 @@ function toggleTimelineMode(force) {
 }
 
 function render() {
+  // Оркестратор ступени 2: три подсистемных слоя, вызываемых всегда
+  // вместе (выборочности нет сознательно — почти любая правка модели
+  // затрагивает сетку, а «протухший» слой обошёлся бы дороже; см.
+  // журнал README, волна B-24 ступень 2). Порядок важен: мета-слой
+  // может перелейблить тональность (refreshAutoDetectedKey), от которой
+  // зависят ступени в ячейках сетки.
+  //
+  // renderDepth защищает и ПРЯМЫЕ вызовы render(): слой меты может
+  // выполнить команду Store (смена тональности в авто-режиме), и
+  // подписчик рендера не должен планировать хвостовой кадр — прямой
+  // render() уже отражает смену, а лишний кадр через 16 мс стреляет
+  // посреди начатого сразу после этого жеста (репро — B-31.8).
+  renderDepth++;
+  try {
+    renderMetaLayer();
+    renderSectionsGrid();
+    renderDependentLayers();
+  } finally {
+    renderDepth--;
+  }
+}
+
+// Мета-слой: авто-тональность и мета-пилюли (название, BPM, размер).
+// Первый в кадре: его побочный эффект (смена globalKey в авто-режиме)
+// должна увидеть сетка ниже.
+function renderMetaLayer() {
   refreshAutoDetectedKey();
   syncMetaPills();
+}
+
+// Слой сетки секций — ядро рендера: полная пересборка карточек во
+// фрагмент, сохранение прокрутки, подмена DOM без переходов (см.
+// body.is-rerendering), возврат прокрутки, навешивание жестов и
+// синхронизация превью боя. B-25 оставил точечные правки ячеек мимо
+// этого слоя (sync*Dom) — сюда приходят только структурные правки.
+function renderSectionsGrid() {
   const container = DOM.sectionsContainer;
   const fragment = document.createDocumentFragment();
   strumPreviewStepEls.clear();
@@ -34114,6 +34187,12 @@ function render() {
   attachEditLabelEvents();
   attachSquareResizeHandlers();
   updateCellsDegrees();
+}
+
+// Зависимые слои: лента времени (в активном режиме) и карта песни.
+// Строятся из той же модели, что и сетка, поэтому идут следом за ней
+// в каждом кадре рендера.
+function renderDependentLayers() {
   // Лента строится из той же модели, поэтому любая правка в редакторе
   // должна её обновить. Пересобираем только когда режим активен: иначе
   // это лишняя работа на каждом нажатии клавиши в редакторе.
