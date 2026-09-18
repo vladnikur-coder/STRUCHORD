@@ -20,7 +20,15 @@ const ok = (name, cond, extra = '') => { console.log(`   ${cond ? 'ok  ' : 'FAIL
     render(); renderSongMap();
     document.getElementById('songmap').classList.add('is-open');
   });
-  await sleep(300);
+  // Панель выезжает transform-переходом: в headless-средах он идёт
+  // заметно дольше 300 мс, и замер строк на лету давал координаты
+  // за экраном — жест бил мимо. Ждём фактической усадки панели
+  // (край у левого борта), а не фиксированную паузу (B-86).
+  await page.waitForFunction(
+    () => document.getElementById('songmap').getBoundingClientRect().x > -1,
+    { timeout: 8000 }
+  ).catch(() => {});
+  await sleep(80);
   const rowBox = (id) => page.$eval(`.songmap-item[data-id="${id}"]`, (e) => { const r = e.getBoundingClientRect(); return { x: r.x + r.width / 2, y: r.y + r.height / 2, h: r.height }; });
   const panelOrder = () => page.evaluate(() => [...document.querySelectorAll('.songmap-item')].map((e) => e.dataset.id).join(''));
   const modelOrder = () => page.evaluate(() => sections.map((s) => s.id).join(''));
@@ -37,7 +45,13 @@ const ok = (name, cond, extra = '') => { console.log(`   ${cond ? 'ok  ' : 'FAIL
   ok('строка стала слотом', await page.$eval('.songmap-item[data-id="5"]', (e) => e.classList.contains('is-drag-slot')));
   ok('ярлык виден и с именем', await page.$eval('#sectionDragChip', (e) => getComputedStyle(e).display === 'flex' && /Аутро|Outro/.test(e.textContent)));
   ok('тащимая выделена', await page.$eval('.songmap-item[data-id="5"]', (e) => e.classList.contains('is-selected')));
-  for (let y = b.y; y >= b2.y - 4; y -= 6) { await page.mouse.move(b.x + 6, y); await sleep(12); }
+  // Тащим до полосы МЕЖДУ строками 1 и 2: курсор на 4px ниже середины
+  // строки 1. Старая граница «b2.y - 4» при шаге 6 и высотах строк другой
+  // среды (другие метрики шрифта) оставляла последнюю итерацию НИЖЕ
+  // середины строки 2 — перескок по правилу «курсор дошёл до середины»
+  // не срабатывал, и 5 садилась между 2 и 3 (B-86).
+  const b1 = await rowBox(1);
+  for (let y = b.y; y >= b1.y + 4; y -= 6) { await page.mouse.move(b.x + 6, y); await sleep(12); }
   await sleep(300);
   ok('во время жеста порядок в панели 15234', (await panelOrder()) === '15234', await panelOrder());
   ok('модель ещё не тронута', (await modelOrder()) === '12345');

@@ -12,7 +12,8 @@ const w=dom.window;
 w.AudioContext=w.webkitAudioContext=function(){return{currentTime:0,state:'running',resume(){}};};
 let bad=0;
 const ok=(n,c,x)=>{console.log(`   ${c?'ok  ':'FAIL'} ${n}${!c&&x?' — '+x:''}`);if(!c)bad++;};
-const px=v=>parseFloat(v)||0;
+// B-79 перевела размеры из px в rem: 1rem = 16 логических px.
+const px=v=>String(v||'').trim().endsWith('rem')?parseFloat(v)*16:(parseFloat(v)||0);
 
 w.addEventListener('load',()=>{
   const d=w.document;

@@ -409,8 +409,8 @@ w.addEventListener('load', async () => {
     !!(hit4 && d.querySelector(`.resize-count-cell .chord-count.is-edge[data-resize-metric-key="${hit4.dataset.hintNodeKey}"]`)
       || !d.querySelector('.resize-metric-overlay')), // overlay ставится на первом move
     'нет совпадения ключей');
-  ok('поза edge у удара — тот же +2px без центрирования, что у подписи (CSS)',
-    /\.rhythm-hint-hit\.is-live-edge\s*\{[^}]*transform:\s*translateX\(2px\)/.test(fs.readFileSync(file, 'utf8')));
+  ok('поза edge у удара — тот же +2px (0.125rem) без центрирования, что у подписи (CSS)',
+    /\.rhythm-hint-hit\.is-live-edge\s*\{[^}]*transform:\s*translateX\(0\.125rem\)/.test(fs.readFileSync(file, 'utf8')));
   firePointerMove(200); // граница уходит вправо на узел третьего удара
   await sleep(60);
   const liveNow = hitsAll.filter((h) => h.classList.contains('is-live-edge'));
@@ -592,8 +592,8 @@ w.addEventListener('load', async () => {
   const cssText = fs.readFileSync(file, 'utf8');
   ok('.rhythm-hint: transition по opacity И transform',
     /\.rhythm-hint\s*\{[^}]*transition:\s*opacity[^}]*transform/.test(cssText));
-  ok('.rhythm-hint-hit: базовая линия над счётом (bottom: 20px)',
-    /\.rhythm-hint-hit\s*\{[^}]*bottom:\s*20px/.test(cssText));
+  ok('.rhythm-hint-hit: базовая линия над счётом (bottom: 1.25rem)',
+    /\.rhythm-hint-hit\s*\{[^}]*bottom:\s*1\.25rem/.test(cssText));
   ok('.rhythm-hints: pointer-events none (клики достаются ячейкам)',
     /\.rhythm-hints\s*\{[^}]*pointer-events:\s*none/.test(cssText));
   ok('.event-strum-preview: плавное гашение за время подсказки',

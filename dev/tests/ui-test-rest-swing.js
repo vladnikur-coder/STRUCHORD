@@ -55,10 +55,12 @@ w.addEventListener('load',()=>{
   const css=[...d.querySelectorAll('style')].map(s=>s.textContent).join('');
   ok('есть правило rest-down', /\.strum-step\.rest\.rest-down\.strum-step-active/.test(css));
   ok('есть правило rest-up', /\.strum-step\.rest\.rest-up\.strum-step-active/.test(css));
-  const m=css.match(/\.strum-step\.rest\.rest-down\.strum-step-active\s*\{[^}]*translateY\(([\d.]+)px\)/);
-  const restShift=m?parseFloat(m[1]):null;
-  const m2=css.match(/\.strum-step\.down\.strum-step-active\s*\{[^}]*translateY\(([\d.]+)px\)/);
-  const downShift=m2?parseFloat(m2[1]):null;
+  // B-79: смещения в rem — нормализуем к px (1rem = 16 логических px).
+  const shiftOf = (m) => (m ? (m[2] === 'rem' ? parseFloat(m[1]) * 16 : parseFloat(m[1])) : null);
+  const m=css.match(/\.strum-step\.rest\.rest-down\.strum-step-active\s*\{[^}]*translateY\(([\d.]+)(px|rem)\)/);
+  const restShift=shiftOf(m);
+  const m2=css.match(/\.strum-step\.down\.strum-step-active\s*\{[^}]*translateY\(([\d.]+)(px|rem)\)/);
+  const downShift=shiftOf(m2);
   console.log('      смещение паузы '+restShift+'px против удара '+downShift+'px');
   ok('амплитуда паузы меньше', restShift<downShift, `${restShift} vs ${downShift}`);
   ok('но не нулевая', restShift>0);

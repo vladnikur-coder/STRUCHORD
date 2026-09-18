@@ -78,22 +78,22 @@ w.addEventListener('load', async () => {
   ok('карточка без transform (раскладка честная)', !/transform\s*:/.test(cardRule));
   ok('карточка без transition темы (артефакты WebKit)', !/transition\s*:/.test(cardRule));
   const nextRule = (css.match(/(^|\n)\.pinned-next\s*\{[^}]*\}/) || [''])[0];
-  ok('превью — стекло 55% + blur 10px, без transform и transition',
-    /55%, transparent/.test(nextRule) && /blur\(10px\)/.test(nextRule) &&
+  ok('превью — стекло 55% + blur 0.625rem (=10px), без transform и transition',
+    /55%, transparent/.test(nextRule) && /blur\(0\.625rem\)/.test(nextRule) &&
     !/transform\s*:/.test(nextRule) && !/transition\s*:/.test(nextRule));
   ok('переплывание анимирует КАРТОЧКИ, а не ряд (WebKit backdrop)',
     /\.pinned-row\.is-appearing \.pinned-fingering/.test(css) &&
     /\.pinned-row\.is-dissolving \.pinned-next/.test(css) &&
     !/\.pinned-row\.is-appearing\s*\{[^}]*animation/.test(css));
-  ok('переплывание ярче: blur 14px, подъём 16px',
+  ok('переплывание ярче: blur 0.875rem (=14px), подъём -1rem (=16px)',
     /struchord-pin-in-card/.test(css) && /struchord-pin-out-card/.test(css) &&
-    /blur\(14px\)/.test(css) && /translateY\(-16px\)/.test(css));
+    /blur\(0\.875rem\)/.test(css) && /translateY\(-1rem\)/.test(css));
   ok('длительности 0.42/0.34 синхронизированы с JS',
     /0\.42s/.test(css) && /0\.34s/.test(css));
   const prevTipRule = (css.match(/(^|\n)#preview-tooltip\s*\{[^}]*\}/) || [''])[0];
   ok('всплывающее превью — такое же стекло (55% + blur + пунктир)',
-    /55%, transparent/.test(prevTipRule) && /blur\(10px\)/.test(prevTipRule) &&
-    /2px dashed/.test(prevTipRule), prevTipRule.slice(0, 100));
+    /55%, transparent/.test(prevTipRule) && /blur\(0\.625rem\)/.test(prevTipRule) &&
+    /0\.125rem dashed/.test(prevTipRule), prevTipRule.slice(0, 100));
   const prevStyle = d.getElementById('preview-tooltip').getAttribute('style');
   ok('у превью-тултипа нет инлайн-фона/непрозрачности',
     !/background/.test(prevStyle) && !/opacity/.test(prevStyle), prevStyle);
@@ -112,8 +112,8 @@ w.addEventListener('load', async () => {
   ok('плашка отсутствует ГЛОБАЛЬНО (любой рендер грифа)',
     !anySvg.includes('var(--color-surface)'),
     anySvg.slice(0, 120));
-  ok('SVG карточки крупнее базы (атрибуты ×1.08)',
-    cardSvg && +cardSvg.getAttribute('width') > 124 && +cardSvg.getAttribute('height') > 174,
+  ok('SVG карточки крупнее базы (атрибуты ×1.08, rem→px)',
+    cardSvg && parseFloat(cardSvg.getAttribute('width')) * 16 > 124 && parseFloat(cardSvg.getAttribute('height')) * 16 > 174,
     cardSvg && cardSvg.getAttribute('width') + '×' + cardSvg.getAttribute('height'));
   ok('viewBox прежний (пропорции честные)',
     cardSvg && cardSvg.getAttribute('viewBox').split(' ').slice(2).map(Number).reduce((a, b) => a + b, 0) > 0);
