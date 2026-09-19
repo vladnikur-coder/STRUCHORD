@@ -40,8 +40,8 @@ check(src.includes('transition: opacity 2s ease'), 'туча плавно поя
 check(src.includes("setAttribute('popover', 'manual')"), 'молния поднимается в нативный top layer');
 check(src.includes('storm-lightning-filament-a') && src.includes('storm-lightning-filament-b'), 'у молнии есть две объёмные жилы');
 check(!src.includes('id="stormImpactVariant"'), 'временный выбор эффектов удалён после приёмки');
-check(src.includes('randomBetween(r.left + insetX'), 'точка удара выбирается внутри цели');
-check(src.includes('playStormAmbience'), 'после тучи включается ветер или далёкий гром');
+check(src.includes('(r.width - insetX * 2) * weightedX'), 'взвешенная точка удара остаётся внутри цели');
+check(!src.includes('playStormAmbience'), 'ветер и далёкий гром накопления удалены');
 check(src.includes('cloudOnlyMs = 2000 + randomBetween(300, 1000)'), 'заряд начинается после тучи и случайной тишины');
 check(src.includes('pauseStormSurprise') && src.includes('resumeStormSurprise'), 'смена вкладки ставит событие на паузу');
 check(src.includes("getComputedStyle(cur).cursor === 'pointer'"), 'перехватываются кликабельные элементы с pointer-курсором');
@@ -58,8 +58,11 @@ check(src.includes('const branches = [branchAt'), 'ответвления рас
 check(!src.includes('storm-impact-spark'), 'непринятый веер искр остаётся удалён');
 check(src.includes('playStormChargeBed'), 'заряд имеет отдельный слой гула и статики');
 check(src.includes('[54, 57.5]'), 'низкий гул образован живым биением частот');
-check(src.includes('noise.loop = true'), 'шуршащая статика звучит непрерывным слоем');
+check(!src.includes('noise.loop = true'), 'шуршащая статика удалена');
 check(src.includes('Math.random() < 0.18'), 'изредка возникает дуга между соседними контролами');
 check(src.includes('170 - charge * 120'), 'искры и щелчки учащаются по мере накопления');
-check(src.includes('stroke: #f9fbff'), 'в светлой теме искра имеет белое ядро');
+check(src.includes('stroke: #e8fbff'), 'в светлой теме искра имеет электрически-голубое ядро');
+check(src.includes('weightedX = (Math.random() + Math.random()) / 2'), 'точка удара случайна с тяготением к центру');
+check(new Set(src.match(/storm-impact-ray-\d+/g) || []).size === 6, 'место контакта подчёркивают 6 коротких лучей');
+check(!src.includes('function playStormAmbience'), 'атмосферный звуковой слой удалён из кода');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);

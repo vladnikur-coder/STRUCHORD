@@ -9989,6 +9989,12 @@ body.storm-screen-shake { animation: storm-screen-shake 720ms cubic-bezier(.2,.8
   transform-box: fill-box; transform-origin: center;
 }
 .storm-impact-bloom.is-active { animation: storm-impact-bloom 760ms cubic-bezier(.12,.72,.2,1) both; }
+.storm-impact-ray {
+  fill: none; stroke: #eefaff; stroke-width: 1.55; stroke-linecap: round;
+  opacity: 0; filter: drop-shadow(0 0 0.25rem rgba(68,174,255,.95));
+  stroke-dasharray: 28; stroke-dashoffset: 28;
+}
+.storm-impact-ray.is-active { animation: storm-impact-ray 420ms ease-out both; }
 .storm-impact-blackout { fill: rgba(4,5,15,.92); opacity: 0; }
 .storm-impact-blackout.is-active { animation: storm-impact-blackout 240ms steps(1,end) both; }
 .storm-lightning-main { stroke-width: 3.3; opacity: 0; stroke: #fff; }
@@ -9998,10 +10004,10 @@ body.storm-screen-shake { animation: storm-screen-shake 720ms cubic-bezier(.2,.8
 .storm-lightning-svg.is-striking .storm-lightning-filament { opacity: 0.82; }
 .storm-lightning-svg.is-striking .storm-lightning-branch { opacity: 0.9; }
 .storm-charge-glint {
-  stroke: #f9fbff;
+  stroke: #e8fbff;
   stroke-width: 2.15;
   opacity: 0;
-  filter: drop-shadow(0 0 0.16rem rgba(28, 91, 224, 1)) drop-shadow(0 0 0.48rem rgba(45, 105, 246, 0.95));
+  filter: drop-shadow(0 0 0.16rem rgba(0, 148, 255, 1)) drop-shadow(0 0 0.52rem rgba(31, 174, 255, 0.98));
 }
 html[data-theme='dark'] .storm-charge-glint {
   stroke: #d9e1ff;
@@ -10033,6 +10039,11 @@ html[data-theme='dark'] .storm-charge-glint {
   9% { opacity: 1; transform: scale(.3); }
   46% { opacity: .82; transform: scale(1); }
   100% { opacity: 0; transform: scale(1.28); }
+}
+@keyframes storm-impact-ray {
+  0% { opacity: 0; stroke-dashoffset: 28; }
+  12% { opacity: 1; }
+  100% { opacity: 0; stroke-dashoffset: 0; }
 }
 @keyframes storm-impact-blackout {
   0%, 24% { opacity: .94; }
@@ -10081,7 +10092,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.278</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.279</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30332,6 +30343,12 @@ function ensureStormLayer() {
     '<defs><clipPath id="storm-impact-clip"><rect class="storm-impact-clip-rect"></rect></clipPath></defs>' +
     '<rect class="storm-impact-blackout"></rect>' +
     '<circle class="storm-impact-bloom" clip-path="url(#storm-impact-clip)"></circle>' +
+    '<path class="storm-impact-ray storm-impact-ray-0"></path>' +
+    '<path class="storm-impact-ray storm-impact-ray-1"></path>' +
+    '<path class="storm-impact-ray storm-impact-ray-2"></path>' +
+    '<path class="storm-impact-ray storm-impact-ray-3"></path>' +
+    '<path class="storm-impact-ray storm-impact-ray-4"></path>' +
+    '<path class="storm-impact-ray storm-impact-ray-5"></path>' +
     '<path class="storm-lightning-filament storm-lightning-filament-a"></path>' +
     '<path class="storm-lightning-main"></path>' +
     '<path class="storm-lightning-filament storm-lightning-filament-b"></path>' +
@@ -30486,39 +30503,6 @@ function playStormCrackle() {
   src.buffer = buffer; src.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
   src.start(now); src.stop(now + 0.08);
 }
-function playStormAmbience() {
-  stopStormAmbience();
-  const ctx = getAudioContext();
-  if (!ctx || ctx.state !== 'running' || playbackState.isPlaying || stormPaused) return;
-  const now = ctx.currentTime;
-  const wind = Math.random() < 0.5;
-  const duration = wind ? 2.4 : 3.2;
-  const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  let brown = 0;
-  for (let i = 0; i < data.length; i++) {
-    const t = i / ctx.sampleRate;
-    brown = brown * (wind ? 0.97 : 0.994) + (Math.random() * 2 - 1) * (wind ? 0.11 : 0.035);
-    if (wind) data[i] = brown * (0.62 + 0.28 * Math.sin(t * 2.7) + 0.1 * Math.sin(t * 7.1));
-    else {
-      const attack = Math.min(1, t / 0.35);
-      data[i] = brown * attack * Math.exp(-t * 0.75) * (0.8 + 0.2 * Math.sin(t * 11));
-    }
-  }
-  const src = ctx.createBufferSource();
-  const filter = ctx.createBiquadFilter();
-  const gain = ctx.createGain();
-  filter.type = wind ? 'bandpass' : 'lowpass';
-  filter.frequency.value = wind ? 520 : 260; filter.Q.value = wind ? 0.55 : 0.8;
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(wind ? 0.022 : 0.038, now + (wind ? 0.35 : 0.7));
-  gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
-  src.buffer = buffer; src.loop = wind;
-  src.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
-  src.start(now);
-  if (!wind) src.stop(now + duration);
-  stormAmbientNodes.push(src, filter, gain);
-}
 function playStormChargeBed() {
   const ctx = getAudioContext();
   if (!ctx || ctx.state !== 'running' || playbackState.isPlaying || stormPaused) return;
@@ -30533,23 +30517,9 @@ function playStormChargeBed() {
     osc.connect(gain); gain.connect(ctx.destination); osc.start(now);
     stormAmbientNodes.push(osc, gain);
   });
-  // Шуршащая статика отдельным бесконечным шумовым слоем.
-  const duration = 2;
-  const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
-  const data = buffer.getChannelData(0);
-  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
-  const noise = ctx.createBufferSource();
-  const band = ctx.createBiquadFilter();
-  const gain = ctx.createGain();
-  noise.buffer = buffer; noise.loop = true;
-  band.type = 'bandpass'; band.frequency.value = 1850; band.Q.value = 0.42;
-  gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.009, now + 1.1);
-  noise.connect(band); band.connect(gain); gain.connect(ctx.destination); noise.start(now);
-  stormAmbientNodes.push(noise, band, gain);
+
 }
 function playStormSoundscape() {
-  playStormAmbience();
   playStormChargeBed();
 }
 function playStormThunder() {
@@ -30698,9 +30668,13 @@ function autoStrikeStorm() {
 function lightningPathTo(target) {
   const r = target.getBoundingClientRect();
   const insetX = Math.min(8, r.width * 0.2), insetY = Math.min(8, r.height * 0.2);
+  // Среднее двух случайных чисел даёт мягкое треугольное распределение:
+  // попадание остаётся живым, но тяготеет к центру и редко липнет к краю.
+  const weightedX = (Math.random() + Math.random()) / 2;
+  const weightedY = (Math.random() + Math.random()) / 2;
   const end = {
-    x: randomBetween(r.left + insetX, r.right - insetX),
-    y: randomBetween(r.top + insetY, r.bottom - insetY)
+    x: r.left + insetX + (r.width - insetX * 2) * weightedX,
+    y: r.top + insetY + (r.height - insetY * 2) * weightedY
   };
   const start = { x: Math.max(12, Math.min(innerWidth - 12, end.x + randomBetween(-110, 110))), y: -8 };
   const pts = [start];
@@ -30757,11 +30731,22 @@ function strikeStormControl(target) {
   bloom.setAttribute('cx', paths.end.x); bloom.setAttribute('cy', paths.end.y); bloom.setAttribute('r', radiusOut);
   blackout.setAttribute('x', 0); blackout.setAttribute('y', 0);
   blackout.setAttribute('width', innerWidth); blackout.setAttribute('height', innerHeight);
+  const impactRays = Array.from(svg.querySelectorAll('.storm-impact-ray'));
+  impactRays.forEach((ray, i) => {
+    const angle = Math.PI * 2 * i / impactRays.length + randomBetween(-0.2, 0.2);
+    const length = randomBetween(10, 23);
+    const ex = paths.end.x + Math.cos(angle) * length;
+    const ey = paths.end.y + Math.sin(angle) * length;
+    ray.setAttribute('d', `M${paths.end.x.toFixed(1)} ${paths.end.y.toFixed(1)} L${ex.toFixed(1)} ${ey.toFixed(1)}`);
+    ray.style.animationDelay = `${Math.round(randomBetween(0, 45))}ms`;
+    ray.classList.remove('is-active');
+  });
   [bloom, blackout].forEach(el => el.classList.remove('is-active'));
   void svg.getBoundingClientRect();
-  // Финальный выбранный вариант B-66.1: микрозатмение и bloom цели.
+  // Финальный вариант: микрозатмение, bloom и короткие лучи контакта.
   bloom.classList.add('is-active');
   blackout.classList.add('is-active');
+  impactRays.forEach(ray => ray.classList.add('is-active'));
   svg.classList.remove('is-striking'); void svg.getBoundingClientRect(); svg.classList.add('is-striking');
   target.classList.remove('storm-struck-control'); void target.getBoundingClientRect(); target.classList.add('storm-struck-control');
   document.body.classList.remove('storm-screen-shake'); void document.body.getBoundingClientRect(); document.body.classList.add('storm-screen-shake');
@@ -30773,6 +30758,7 @@ function strikeStormControl(target) {
   queueStormTimer(() => {
     svg.classList.remove('is-striking');
     [bloom, blackout].forEach(el => el.classList.remove('is-active'));
+    impactRays.forEach(ray => ray.classList.remove('is-active'));
     if (layer.hasAttribute('popover') && layer.matches(':popover-open')) { try { layer.hidePopover(); } catch (e) {} }
     document.body.classList.remove('storm-screen-shake');
     stormSurprisePhase = 'idle';
@@ -30789,7 +30775,7 @@ function cancelStormSurprise() {
     const svg = stormLayer.querySelector('.storm-lightning-svg');
     if (svg) {
       svg.classList.remove('is-striking');
-      svg.querySelectorAll('.storm-impact-bloom, .storm-impact-blackout').forEach(el => el.classList.remove('is-active'));
+      svg.querySelectorAll('.storm-impact-bloom, .storm-impact-blackout, .storm-impact-ray').forEach(el => el.classList.remove('is-active'));
     }
   }
   if (stormLayer && stormLayer.hasAttribute('popover') && stormLayer.matches(':popover-open')) {
