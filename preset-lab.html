@@ -221,6 +221,8 @@ let globalTimeSig = '4/4';
 
 const STRING_OPEN_FREQ = [82.4069, 110.0, 146.8324, 195.9977, 246.9417, 329.6276];
 
+const NO_TRIPLET_TIME_SIGS = new Set(['2/4', '4/4', '8/8']);
+
 const pluckBufferCache = new Map();
 
 let guitarDryBus = null,
@@ -841,6 +843,10 @@ function isCompoundMeter(ts) {
   return denominator === 8 && numerator >= 6 && numerator % 3 === 0;
 }
 
+function timeSigAllowsTriplets(ts) {
+  return !NO_TRIPLET_TIME_SIGS.has(String(ts || ''));
+}
+
 // Нормализация шага перебора: возвращает массив «сущностей» — номеров
 // струн 1..6 и/или басовых токенов. Токены СОХРАНЯЮТСЯ (в отличие от
 // прежней версии, которая понимала только числа) — их разворачивает уже
@@ -969,6 +975,9 @@ function buildPatternFromPreset(preset, gridUnits, chordName, key) {
 function isPresetCompatible(preset, ts, gridUnits) {
   const base = preset && preset.base;
   if (!gridUnits || !base || gridUnits % base !== 0) return false;
+  // B-58: триольные пресеты не предлагаем в простых чётных размерах —
+  // кнопки «3» там нет, и такой ритм было бы нечем отредактировать.
+  if ((preset.subdivision || 1) === 3 && !timeSigAllowsTriplets(ts)) return false;
   if (!isCompoundMeter(ts)) return true;
   // Составной размер: рисунок в одну долю универсален, длинный —
   // должен уважать группировку по три.
@@ -1014,6 +1023,8 @@ function patternsEqual(a, b) {
   if (!a || !b) return false;
   if (a.mode !== b.mode) return false;
   if ((a.subdivision || 1) !== (b.subdivision || 1)) return false;
+  // B-56: одинаковый рисунок с качем и без — РАЗНЫЕ ритмы.
+  if (!!a.swing !== !!b.swing) return false;
   const as = a.steps || [];
   const bs = b.steps || [];
   if (as.length !== bs.length) return false;
@@ -1136,24 +1147,6 @@ const STRUM_PRESETS = [
     steps: ['D', null, 'D', 'U', 'D', null],
   },
   {
-    id: 'shuffle',
-    name: 'Шаффл',
-    hint: 'Перед нами лежит голубой эльдорадо...',
-    mode: 'strum',
-    base: 2,
-    subdivision: 3,
-    steps: ['D', null, null, 'U', null, 'U'],
-  },
-  {
-    id: 'six-shuffle',
-    name: '6-ка Шаффл',
-    hint: 'Мы так любим дешёвые драмы...',
-    mode: 'strum',
-    base: 4,
-    subdivision: 3,
-    steps: ['D', null, null, 'D', null, 'U', null, null, 'U', 'D', null, 'U'],
-  },
-  {
     id: 'pick-four',
     name: 'Четвёрка',
     hint: 'Ой-ё-ри-я-ри-ё',
@@ -1185,8 +1178,10 @@ const STRUM_PRESETS = [
     name: 'Романс',
     hint: 'Как здорово, что все мы здесь...',
     mode: 'pick',
-    base: 2,
-    subdivision: 3,
+    // 0.257: вальсовая метрика 3/4 (правка пользователя) — «Как здорово…»
+    // трёхдольная; было base 2 / sub 3 (6/8-триольная развёртка).
+    base: 3,
+    subdivision: 2,
     steps: [['B'], [1, 2, 3], [1, 2, 3], ['A'], [1, 2, 3], [1, 2, 3]],
   },
 ];

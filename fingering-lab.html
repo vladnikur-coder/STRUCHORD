@@ -2024,48 +2024,27 @@ function checkFormValidity(shape, requiredNotes, bassNote, chromatic, stringNote
   return true;
 }
 
+function detectBarre(shape) {
+  const all = detectAllBarres(shape);
+  if (!all.length) return null;
+  let best = all[0];
+  for (let i = 1; i < all.length; i++) {
+    if (all[i].coveredStrings > best.coveredStrings) {
+      best = all[i];
+    }
+  }
+  return { fret: best.fret, first: best.first, last: best.last, coveredStrings: best.coveredStrings, strings: new Set(best.strings) };
+}
+
 // ---------- Определение реального барре ----------
 // Барре — это один палец (обычно указательный), прижимающий лад f сразу на
 // нескольких струнах подряд. Другие пальцы могут при этом добавлять ноты
 // НА ТОМ ЖЕ участке струн, но на более высоких ладах (это нормальная техника,
 // а не "сломанное барре"). Барре невозможно, если внутри диапазона есть
-// открытая струна или струна с ладом НИЖЕ f — такую струну барре бы тоже
-// придавило, so it can't stay open/lower.
+// открытая струна, струна с ладом НИЖЕ f или заглушенная струна ('x') —
+// палец баррэ плоский и прижимает все струны под собой непрерывно.
 // Возвращает лучший вариант барре (максимум струн, реально прижатых пальцем)
 // или null, если барре не подходит.
-function detectBarre(shape) {
-  let best = null;
-  for (let f = 1; f <= 15; f++) {
-    const idxs = [];
-    for (let s = 0; s < 6; s++) if (shape[s] === f) idxs.push(s);
-    if (idxs.length < 2) continue;
-    const first = idxs[0];
-    const last = idxs[idxs.length - 1];
-    let valid = true;
-    for (let s = first; s <= last; s++) {
-      const val = shape[s];
-      if (val === 'x') continue; // струну внутри барре можно приглушить самим пальцем
-      if (val === 0 || val < f) {
-        valid = false; // открытая или более низкая струна внутри диапазона — барре невозможно
-        break;
-      }
-    }
-    if (!valid) continue;
-    const coveredStrings = idxs.length; // сколько струн реально лежат на пальце барре
-    if (!best || coveredStrings > best.coveredStrings) {
-      best = { fret: f, first, last, coveredStrings, strings: new Set(idxs) };
-    }
-  }
-  return best;
-}
-
-// ---------- Все кандидаты барре (не только самый широкий) ----------
-// detectBarre выше отдаёт один «лучший». Для назначения пальцев нужен
-// перебор: иногда оптимально взять барре у́же, а остаток раздать
-// пальцам. Критерий валидности тот же: диапазон струн подряд на ладу f,
-// внутри — ничего ниже f и ни одной открытой (барре их придавил бы).
-// Двухструнных кандидатов отдаём тоже, но analyzeShapeGrip берёт их
-// только когда нобаррэ-чтение неиграбельно (гейта там, волна-8).
 function detectAllBarres(shape) {
   const out = [];
   let maxFret = 0;
@@ -2074,21 +2053,38 @@ function detectAllBarres(shape) {
     if (f !== 'x' && f !== 0 && f > maxFret) maxFret = f;
   }
   for (let f = 1; f <= maxFret; f++) {
-    const idxs = [];
-    for (let s = 0; s < 6; s++) if (shape[s] === f) idxs.push(s);
-    if (idxs.length < 2) continue;
-    const first = idxs[0];
-    const last = idxs[idxs.length - 1];
-    let valid = true;
-    for (let s = first; s <= last; s++) {
-      const v = shape[s];
-      if (v === 'x') continue;
-      if (v === 0 || v < f) {
-        valid = false;
-        break;
+    let segStart = null;
+    for (let s = 0; s <= 6; s++) {
+      const val = s < 6 ? shape[s] : 'x';
+      const isValidOnFret = s < 6 && val !== 'x' && val !== 0 && val >= f;
+      if (isValidOnFret) {
+        if (segStart === null) segStart = s;
+      } else {
+        if (segStart !== null) {
+          const segEnd = s - 1;
+          const idxs = [];
+          for (let k = segStart; k <= segEnd; k++) {
+            if (shape[k] === f) idxs.push(k);
+          }
+          if (idxs.length >= 2) {
+            const first = idxs[0];
+            const last = idxs[idxs.length - 1];
+            let valid = true;
+            for (let k = first; k <= last; k++) {
+              const v = shape[k];
+              if (v === 'x' || v === 0 || v < f) {
+                valid = false;
+                break;
+              }
+            }
+            if (valid) {
+              out.push({ fret: f, first, last, coveredStrings: idxs.length, strings: idxs });
+            }
+          }
+          segStart = null;
+        }
       }
     }
-    if (valid) out.push({ fret: f, first, last, coveredStrings: idxs.length, strings: idxs });
   }
   return out;
 }
@@ -2137,6 +2133,28 @@ function detectAllBarres(shape) {
 // Перебор мал: максимум четыре независимых прогона и 4! перестановок.
 // Поэтому здесь точный перебор лучше жадного правила «прогон = палец».
 function solveFingerAssignment(barre, sourceRuns, shape) {
+  // Если баррэ находится на более высоком ладу, чем базовая нота (например,
+  // безымянное мини-баррэ 3 пальцем на 3 ладу в A-форме x,1,3,3,3,x):
+  if (barre && sourceRuns.some((r) => r.fret < barre.fret)) {
+    const lowerRuns = sourceRuns.filter((r) => r.fret < barre.fret);
+    const higherRuns = sourceRuns.filter((r) => r.fret > barre.fret);
+    if (lowerRuns.length === 1 && higherRuns.length === 0) {
+      const delta = barre.fret - lowerRuns[0].fret;
+      if (delta >= 1 && delta <= 3) {
+        const barreFinger = 1 + delta; // delta 2 -> палец 3 (безымянный), delta 1 -> 2, delta 3 -> 4
+        return {
+          barre: { ...barre, finger: barreFinger },
+          runs: [{ ...lowerRuns[0], finger: 1 }],
+          thumb: null,
+          fingers: 2,
+          usesThumb: false,
+          cost: 0,
+        };
+      }
+    }
+    return null;
+  }
+
   const baseRuns = sourceRuns.map((r) => ({ fret: r.fret, strings: [...r.strings] }));
   const canUseThumb = shape[0] !== 'x' && shape[0] !== 0 && !(barre && barre.first === 0);
   const options = [{ runs: baseRuns, usesThumb: false }];
@@ -2364,12 +2382,24 @@ function analyzeShapeGrip(shape) {
 
     let fail = false;
     if (b) {
+      if (runs.some((r) => r.fret < b.fret)) {
+        const lower = runs.filter((r) => r.fret < b.fret);
+        const higher = runs.filter((r) => r.fret > b.fret);
+        const delta = b.fret - (lower[0] ? lower[0].fret : 0);
+        if (!(lower.length === 1 && higher.length === 0 && delta >= 1 && delta <= 3)) {
+          fail = true;
+        }
+      }
       for (const r of runs) {
         // Прогон целиком к басам от зоны баррэ: выше лада баррэ
         // больше чем на 1 — не достать (5,2,2,2,2,0 → лад 5 при баррэ 2).
+        // Исключение: компактные C-образные мини-баррэ на тонких струнах (b.first >= 2),
+        // где пальцы 3 и 4 естественно дотягиваются до ладов b+2, b+3 на басовых струнах.
         if (r.strings[r.strings.length - 1] < b.first && r.fret > b.fret + 1) {
-          fail = true;
-          break;
+          if (!(b.first >= 2 && grip.maxFret - grip.minFret <= 3)) {
+            fail = true;
+            break;
+          }
         }
       }
       if (!fail) {
@@ -2558,6 +2588,281 @@ function shapeMissingDefiningTones(shape, chordNotes, rootNote) {
     if (iv !== 0 && iv !== 7) return true;
   }
   return false;
+}
+
+// B-41: проверка и очистка массива номеров пальцев (1..4, 'T', 0, 'x', null)
+function asSafeFingers(raw) {
+  if (!Array.isArray(raw) || raw.length !== 6) return null;
+  const out = [];
+  let hasAny = false;
+  for (const v of raw) {
+    if (v === null || v === undefined) {
+      out.push(null);
+    } else if (v === 'x' || v === 'X') {
+      out.push('x');
+    } else if (v === 0 || v === '0') {
+      out.push(0);
+    } else if (v === 1 || v === 2 || v === 3 || v === 4 || v === '1' || v === '2' || v === '3' || v === '4') {
+      out.push(Number(v));
+      hasAny = true;
+    } else if (v === 'T' || v === 't') {
+      out.push('T');
+      hasAny = true;
+    } else {
+      return null;
+    }
+  }
+  return hasAny ? out : null;
+}
+
+// B-75: баррэ — ЧАСТЬ идентичности аппликатуры. Форма с баррэ и та же
+// форма с разжатым баррэ — два разных варианта. Приводим флаг к
+// каноничному массиву ладов (отсортирован, без дублей, 1..24), чтобы
+// идентичность и сравнение были однозначны.
+function canonicalBarreOff(value) {
+  const set = normalizeBarreOffSet(value);
+  if (!set) return null;
+  const arr = Array.from(set).sort((a, b) => a - b);
+  return arr.length ? arr : null;
+}
+
+// ===================== ОТРИСОВКА АППЛИКАТУР (SVG) =====================
+// B-74: приводит «выключенные баррэ» к Set ладов. Принимает массив
+// ладов, строку «1,3», сам Set или строку формы+флага — всюду в модели
+// флаг хранится массивом ладов (ev.barreOff), но отрисовка терпит любой
+// из этих видов, чтобы вызов не заботился о конвертации.
+function normalizeBarreOffSet(value) {
+  if (!value) return null;
+  if (value instanceof Set) return value.size ? value : null;
+  let arr = null;
+  if (Array.isArray(value)) arr = value;
+  else if (typeof value === 'string') arr = value.split(',');
+  else return null;
+  const out = new Set();
+  for (const raw of arr) {
+    const n = Number(String(raw).trim());
+    if (Number.isInteger(n) && n >= 1 && n <= 24) out.add(n);
+  }
+  return out.size ? out : null;
+}
+
+// B-41: расчёт номеров пальцев (1..4, T) для формы ладов.
+// Если передан customFingers — кастомные назначения перекрывают авто-расчёт.
+function computeFingersForShape(shape, customFingers, barreOff) {
+  if (customFingers && Array.isArray(customFingers) && customFingers.length === 6) {
+    const out = new Array(6).fill(null);
+    let hasCustom = false;
+    for (let s = 0; s < 6; s++) {
+      if (shape[s] === 'x') {
+        out[s] = 'x';
+      } else if (shape[s] === 0 || shape[s] === '0') {
+        out[s] = 0;
+      } else if (customFingers[s] != null && customFingers[s] !== 'x' && customFingers[s] !== 0 && customFingers[s] !== '0') {
+        out[s] = typeof customFingers[s] === 'string' && customFingers[s].toUpperCase() === 'T'
+          ? 'T'
+          : Number(customFingers[s]) || customFingers[s];
+        hasCustom = true;
+      }
+    }
+    if (hasCustom && out.every((v, s) => shape[s] === 'x' || shape[s] === 0 || shape[s] === '0' || v != null)) {
+      return out;
+    }
+  }
+
+  const result = new Array(6).fill(null);
+  const fretted = [];
+  for (let s = 0; s < 6; s++) {
+    const f = shape[s];
+    if (f === 'x') result[s] = 'x';
+    else if (f === 0 || f === '0') result[s] = 0;
+    else fretted.push({ s, fret: Number(f) });
+  }
+  if (!fretted.length) return result;
+
+  const grip = typeof analyzeShapeGrip === 'function' ? analyzeShapeGrip(shape) : null;
+  // Если алгоритм не может найти анатомически допустимую расстановку пальцев (бан / неиграбельно)
+  // и нет кастомного перекрытия — возвращаем null (точки рисуются просто чёрными кружками).
+  if (grip && (grip.ban || !grip.chosen || !grip.chosen.assignment)) {
+    return null;
+  }
+  const barre = grip && grip.chosen ? grip.chosen.b : null;
+  const barreSuppressed = barre && barreOff && normalizeBarreOffSet(barreOff) && normalizeBarreOffSet(barreOff).has(barre.fret);
+
+  if (barre && !barreSuppressed) {
+    const barreFinger = barre.finger || (barre.fret === grip.minFret ? 1 : 3);
+    for (const s of barre.strings) {
+      if (Number(shape[s]) === Number(barre.fret)) {
+        result[s] = barreFinger;
+      }
+    }
+  }
+
+  const barreStrings = (barre && !barreSuppressed) ? new Set(barre.strings) : new Set();
+  const remaining = fretted.filter((v) => !barreStrings.has(v.s) || Number(shape[v.s]) !== Number(barre ? barre.fret : -1));
+  if (!remaining.length) return result;
+
+  // Group by fret
+  const fretGroups = new Map();
+  for (const r of remaining) {
+    if (!fretGroups.has(r.fret)) fretGroups.set(r.fret, []);
+    fretGroups.get(r.fret).push(r);
+  }
+  const fretKeys = [...fretGroups.keys()].sort((a, b) => a - b);
+
+  // Баррэ-позиции: пальцы распределяются анатомически относительно порожка/лада баррэ
+  if (barre && !barreSuppressed) {
+    const bFret = Number(barre.fret);
+    const barreFinger = barre.finger || (barre.fret === grip.minFret ? 1 : 3);
+    const hasDelta1 = fretKeys.some((f) => f - bFret === 1);
+    const hasDelta3Plus = fretKeys.some((f) => f - bFret >= 3);
+
+    for (const f of fretKeys) {
+      const delta = f - bFret;
+      const group = fretGroups.get(f);
+      group.sort((a, b) => a.s - b.s);
+
+      if (delta < 0) {
+        for (const item of group) result[item.s] = 1;
+      } else if (delta === 1) {
+        for (const item of group) result[item.s] = barreFinger === 1 ? 2 : 4;
+      } else if (delta === 2) {
+        if (group.length === 1) {
+          result[group[0].s] = 3;
+        } else if (group.length === 2) {
+          if (!hasDelta1 && hasDelta3Plus) {
+            // Формы вроде [6, 5, 5, 3, 3, 3]: лад 5 зажимается пальцами 3 и 2, оставляя палец 4 для 6 лада
+            result[group[0].s] = 3;
+            result[group[1].s] = 2;
+          } else if (hasDelta3Plus) {
+            // Формы с надстройкой на +3 (например [8, 10, 10, 9, 8, 12]) -> мини-баррэ 3 пальцем на 10 ладу, 4 палец для 12 лада
+            result[group[0].s] = 3;
+            result[group[1].s] = 3;
+          } else {
+            // Классическое F major / Bm / F#m баррэ: пальцы 3 и 4
+            result[group[0].s] = 3;
+            result[group[1].s] = 4;
+          }
+        } else if (group.length === 3) {
+          if (hasDelta1) {
+            // B-85: Db6 [9, 11, 11, 10, 11, 9] -> палец 2 на delta=1 (10 лад, 3 струна),
+            // смежные 5 и 4 струны берутся пальцем 3 (мини-баррэ), 2 струна — пальцем 4
+            result[group[0].s] = 3;
+            result[group[1].s] = 3;
+            result[group[2].s] = 4;
+          } else {
+            result[group[0].s] = 2;
+            result[group[1].s] = 3;
+            result[group[2].s] = 4;
+          }
+        } else {
+          group.forEach((item, i) => { result[item.s] = hasDelta1 ? (i < 2 ? 3 : 4) : (i === 0 ? 2 : (i === 1 ? 3 : 4)); });
+        }
+      } else if (delta >= 3) {
+        for (const item of group) result[item.s] = 4;
+      } else {
+        // delta === 0 (струны на том же ладу за пределами планки баррэ, например [8, 10, x, 9, 8, 8])
+        for (const item of group) result[item.s] = 2;
+      }
+    }
+  } else {
+    // B-85: Последовательный анатомический расчет для открытых и non-barre форм
+    let nextFinger = 1;
+    for (const f of fretKeys) {
+      const group = fretGroups.get(f);
+      group.sort((a, b) => a.s - b.s);
+      if (group.length === 1) {
+        result[group[0].s] = Math.min(4, nextFinger++);
+      } else if (group.length === 2) {
+        if (nextFinger <= 3) {
+          result[group[0].s] = nextFinger++;
+          result[group[1].s] = Math.min(4, nextFinger++);
+        } else {
+          result[group[0].s] = 4;
+          result[group[1].s] = 4;
+        }
+      } else if (group.length === 3) {
+        if (nextFinger <= 2) {
+          result[group[0].s] = nextFinger++;
+          result[group[1].s] = nextFinger++;
+          result[group[2].s] = Math.min(4, nextFinger++);
+        } else {
+          result[group[0].s] = nextFinger;
+          result[group[1].s] = nextFinger;
+          result[group[2].s] = nextFinger;
+          nextFinger++;
+        }
+      } else {
+        for (const item of group) {
+          result[item.s] = Math.min(4, nextFinger);
+        }
+        nextFinger++;
+      }
+    }
+  }
+
+  if (grip && grip.chosen && grip.chosen.usesThumb && shape[0] !== 'x' && shape[0] !== 0) {
+    if (!customFingers || customFingers[0] == null) {
+      result[0] = 'T';
+    }
+  }
+
+  if (customFingers && Array.isArray(customFingers)) {
+    for (let s = 0; s < 6; s++) {
+      if (customFingers[s] != null && customFingers[s] !== 'x' && customFingers[s] !== 0 && customFingers[s] !== '0') {
+        result[s] = typeof customFingers[s] === 'string' && customFingers[s].toUpperCase() === 'T'
+          ? 'T'
+          : Number(customFingers[s]) || customFingers[s];
+      }
+    }
+  }
+
+  // Страховка от анатомических коллизий: один палец (2..4) не может физически прижимать разные лады.
+  if (!customFingers || !customFingers.some((v) => v != null && v !== 'x' && v !== 0 && v !== '0')) {
+    const fingerToFrets = new Map();
+    for (let s = 0; s < 6; s++) {
+      const fn = result[s];
+      const fr = Number(shape[s]);
+      if (fn != null && fn !== 'x' && fn !== 0 && fn !== '0' && fn !== 'T' && !isNaN(fr)) {
+        if (!fingerToFrets.has(fn)) fingerToFrets.set(fn, new Set());
+        fingerToFrets.get(fn).add(fr);
+      }
+    }
+    for (const [fn, frets] of fingerToFrets.entries()) {
+      if (fn !== 1 && frets.size > 1) {
+        // Коллизия обнаружена: палец дублируется на разных ладах
+        return null;
+      }
+    }
+  }
+
+  return result;
+}
+
+// Каноничный ключ аппликатуры = лады + состояние баррэ. Именно по нему
+// идёт дедуп вариантов, счётчик и сопоставление выбора ячейки. Форма без
+// разжатого баррэ даёт ровно прежнюю строку («1,3,3,2,1,1»), поэтому
+// старые файлы/вызовы совместимы бит-в-бит; разжатая версия получает
+// хвост «~bo1» и живёт отдельной строкой.
+function fingeringIdentity(shape, barreOff) {
+  const base = Array.isArray(shape) ? shape.join(',') : String(shape);
+  const bo = canonicalBarreOff(barreOff);
+  return bo ? base + '~bo' + bo.join('.') : base;
+}
+
+// B-75: запись библиотеки форм (userFingerings) может быть как «голым»
+// массивом ладов (старые файлы, прежний in-memory формат), так и парой
+// {shape, barreOff} или объектом с полем fingers (B-41). Эти помощники
+// читают её единообразно, поэтому остальной код не заботится о формате.
+function ufEntryShape(entry) {
+  return Array.isArray(entry) ? entry : entry && entry.shape ? entry.shape : null;
+}
+
+function ufEntryBarre(entry) {
+  return Array.isArray(entry) ? null : entry ? canonicalBarreOff(entry.barreOff) : null;
+}
+
+function ufEntryFingers(entry) {
+  return Array.isArray(entry) ? null : entry ? asSafeFingers(entry.fingers) : null;
 }
 
 function detectBaseChordType(suffix) {
@@ -3228,7 +3533,11 @@ function collectFamilyDerivedShapes(chordName, chordNotes, bassNote, dimColor) {
     if (srcMain.slice(srcRootM[1].length).toLowerCase() !== targetExt) return;
     const srcPc = CHROMATIC.indexOf(toSharpNote(srcRootM[1]));
     if (srcPc === -1) return;
-    const srcShape = list[list.length - 1];
+    // B-75: запись может быть парой {shape, barreOff} — берём лады.
+    // Перенос семейной формы работает только по ладам; баррэ доноров не
+    // тащим (перенесённая форма — заготовка, не своя разжатая).
+    const srcShape = ufEntryShape(list[list.length - 1]);
+    if (!srcShape) return;
     // Открытые струны не переносятся (см. шапку функции).
     if (srcShape.some((f) => f !== 'x' && Number(f) === 0)) return;
     // Ближайшее направление сдвига; если форма не влезла в гриф или не
@@ -3302,12 +3611,15 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
   // дают другой аккорд. Проверять их составом бессмысленно — это его
   // собственный выбор, а не заготовка, и «почти подходящую» свою форму
   // подсовывать нельзя. Они не удалены, а ждут возврата строя.
-  const userShapes = (userFingerings.get(buildFingeringChordKey(chordName, key)) || []).map(
-    (shape) => ({
-      shape,
-      method: 'user',
+  // B-75: запись своей формы несёт и состояние баррэ. Форма с баррэ и
+  // та же форма разжатой — два разных варианта (barreOff в идентичности).
+  // B-41: также может нести кастомную раскладку пальцев (fingers).
+  const userShapes = (userFingerings.get(buildFingeringChordKey(chordName, key)) || [])
+    .map((entry) => {
+      const shape = ufEntryShape(entry);
+      return shape ? { shape, method: 'user', barreOff: ufEntryBarre(entry), fingers: ufEntryFingers(entry) } : null;
     })
-  );
+    .filter(Boolean);
   // Семейный перенос (Aadd9 -> Badd9) собирается, только если у ЭТОГО
   // аккорда своих форм нет: иначе точные свои и так первые, а переносы
   // соседей лишь раздували бы список. Метод 'derived' — чтобы
@@ -3592,10 +3904,20 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
   // источников (user -> open -> caged -> ...) сохраняется.
   const gripKey = (shape) =>
     shape.map((f, i) => (f !== 'x' && f !== 0 ? i + ':' + f : '')).filter(Boolean).join(' ');
+  // B-75: хват баррэ и хват разжатого баррэ НЕ схлопываем — это разные
+  // аппликатуры. Состояние баррэ входит в ключ слота, иначе разжатая
+  // своя форма молча слилась бы с обычной того же хвата.
+  const gripKeyBO = (shape, barreOff) => {
+    const bo = canonicalBarreOff(barreOff);
+    return bo ? gripKey(shape) + '~bo' + bo.join('.') : gripKey(shape);
+  };
 
   // Формы, которые пользователь уже где-то выбрал, схлопывать нельзя:
   // resolveFingeringShape ищет их в списке дословно, и пропажа означала
   // бы молчаливый откат к варианту по умолчанию.
+  // B-75: под защитой — КОМПОЗИТНАЯ идентичность (лады + баррэ). Своя
+  // разжатая форма и обычная того же хвата — разные строки, и защищать
+  // надо именно ту, что реально выбрана в ячейке.
   const protectedShapes = new Set();
   (sections || []).forEach((sec) =>
     (sec.squares || []).forEach((sq) =>
@@ -3603,10 +3925,12 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
         // Только формы, выбранные при ТЕКУЩЕМ строе: остальные сейчас
         // всё равно не подставляются, и держать их в списке не нужно.
         if (ev && ev.fingering && (ev.fingeringTuning || '') === tuningKeySuffix()) {
-          protectedShapes.add(ev.fingering);
+          protectedShapes.add(fingeringIdentity(ev.fingering, ev.barreOff));
         }
       })));
-  // Запасное хранилище: ключ помечен строем, чужие пропускаем.
+  // Запасное хранилище: ключ помечен строем, чужие пропускаем. В нём
+  // хранятся только лады (баррэ живёт на событии), поэтому идентичность
+  // здесь без баррэ — обычную форму это и защищает.
   preferredFingeringByChord.forEach((v, k) => {
     const parts = String(k).split('|');
     const keyPart = parts[1] || '';
@@ -3627,14 +3951,23 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
 
   const uniqueShapes = [];
   const uniqueMethods = [];
+  // B-75: третий параллельный массив — состояние баррэ каждого варианта.
+  // Ненулевой только у своих разжатых форм; движется в связке с
+  // methods/shapes при всех перестановках ниже.
+  const uniqueBarreOffs = [];
+  // B-41: четвёртый параллельный массив — кастомная раскладка пальцев (null если авто).
+  const uniqueFingers = [];
   const seen = new Set();
   const gripSlot = new Map();   // хват -> индекс в uniqueShapes
-  for (const { shape, method } of allShapes) {
-    const keyStr = shape.join(',');
+  for (const { shape, method, barreOff, fingers } of allShapes) {
+    const bo = canonicalBarreOff(barreOff);
+    const fg = asSafeFingers(fingers);
+    // Идентичность варианта = лады + баррэ (см. fingeringIdentity).
+    const keyStr = fingeringIdentity(shape, bo);
     if (seen.has(keyStr)) continue;
     seen.add(keyStr);
 
-    const grip = gripKey(shape);
+    const grip = gripKeyBO(shape, bo);
     const slot = gripSlot.get(grip);
     const isProtected = protectedShapes.has(keyStr);
 
@@ -3644,6 +3977,8 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
       if (slot === undefined) gripSlot.set(grip, uniqueShapes.length);
       uniqueShapes.push(shape);
       uniqueMethods.push(method);
+      uniqueBarreOffs.push(bo);
+      uniqueFingers.push(fg);
       continue;
     }
 
@@ -3656,8 +3991,11 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
     // позиции оказывался fallback (12.0) вместо caged, хотя блок CAGED
     // ещё не кончился. Позиция принадлежит блоку, а не конкретной форме.
     const prev = uniqueShapes[slot];
-    if (!protectedShapes.has(prev.join(',')) && scoreOf(shape) > scoreOf(prev)) {
+    if (!protectedShapes.has(fingeringIdentity(prev, uniqueBarreOffs[slot])) &&
+        scoreOf(shape) > scoreOf(prev)) {
       uniqueShapes[slot] = shape;
+      uniqueBarreOffs[slot] = bo;
+      uniqueFingers[slot] = fg;
     }
   }
 
@@ -3702,12 +4040,16 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
     const run = uniqueShapes.slice(from, to).map((shape, i) => ({
       shape,
       method: uniqueMethods[from + i],
+      barreOff: uniqueBarreOffs[from + i],
+      fingers: uniqueFingers[from + i],
       score: scoreOf(shape),
     }));
     run.sort((a, b) => b.score - a.score);
     run.forEach((t, i) => {
       uniqueShapes[from + i] = t.shape;
       uniqueMethods[from + i] = t.method;
+      uniqueBarreOffs[from + i] = t.barreOff;
+      uniqueFingers[from + i] = t.fingers;
     });
   };
   if (bassNote) {
@@ -3790,9 +4132,13 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
   siftOrder.sort((a, b) => siftRank(a) - siftRank(b));
   const siftedShapes = siftOrder.map((i) => uniqueShapes[i]);
   const siftedMethods = siftOrder.map((i) => uniqueMethods[i]);
+  const siftedBarreOffs = siftOrder.map((i) => uniqueBarreOffs[i]);
+  const siftedFingers = siftOrder.map((i) => uniqueFingers[i]);
   for (let i = 0; i < siftedShapes.length; i++) {
     uniqueShapes[i] = siftedShapes[i];
     uniqueMethods[i] = siftedMethods[i];
+    uniqueBarreOffs[i] = siftedBarreOffs[i];
+    uniqueFingers[i] = siftedFingers[i];
   }
 
   // Разнообразие — витрина внутри product-tier, но НЕ перестановка
@@ -3847,12 +4193,18 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
     if (to - from < 2) return;
     const headShapes = [];
     const headMethods = [];
+    const headBarreOffs = [];
+    const headFingers = [];
     const headFrames = [];
     const restShapes = [];
     const restMethods = [];
+    const restBarreOffs = [];
+    const restFingers = [];
     for (let i = from; i < to; i++) {
       const shape = uniqueShapes[i];
       const method = uniqueMethods[i];
+      const barreOff = uniqueBarreOffs[i];
+      const fingers = uniqueFingers[i];
       const frame = famFrame(shape);
       const duplicate =
         headShapes.length < DIVERSIFY_TOP &&
@@ -3860,17 +4212,25 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
       if (!duplicate && headShapes.length < DIVERSIFY_TOP) {
         headShapes.push(shape);
         headMethods.push(method);
+        headBarreOffs.push(barreOff);
+        headFingers.push(fingers);
         headFrames.push(frame);
       } else {
         restShapes.push(shape);
         restMethods.push(method);
+        restBarreOffs.push(barreOff);
+        restFingers.push(fingers);
       }
     }
     const shapes = [...headShapes, ...restShapes];
     const methods = [...headMethods, ...restMethods];
+    const barreOffs = [...headBarreOffs, ...restBarreOffs];
+    const fingers = [...headFingers, ...restFingers];
     for (let i = from; i < to; i++) {
       uniqueShapes[i] = shapes[i - from];
       uniqueMethods[i] = methods[i - from];
+      uniqueBarreOffs[i] = barreOffs[i - from];
+      uniqueFingers[i] = fingers[i - from];
     }
   };
   // После sift один источник может встречаться в нескольких местах
@@ -3923,6 +4283,12 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
   const result = {
     shapes: uniqueShapes,
     methods: uniqueMethods,
+    // B-75: состояние баррэ каждого варианта, параллельно shapes/methods.
+    // null у всех, кроме своих разжатых форм — старые читатели, глядящие
+    // только на shapes/methods, работают как раньше.
+    barreOffs: uniqueBarreOffs,
+    // B-41: кастомная раскладка пальцев каждого варианта (null если авто).
+    fingers: uniqueFingers,
     diagnostics: autoResult.diagnostics || null,
   };
   result.explain = (index) => {
@@ -3950,9 +4316,19 @@ function generateFingeringVariants(chordName, key, prevChordName = null) {
 //   modified/fallback ... «1/164(авто)»
 // Это остаётся верным и после diversity-перестановки верхней части:
 // категории могут быть не непрерывны в массиве.
-function fingeringCounterText(variants, methods, shape) {
-  const keyStr = shape.join(',');
-  const idx = variants.findIndex((v) => v.join(',') === keyStr);
+function fingeringCounterText(variants, methods, shape, barreOffs, barreOff) {
+  // B-75: если известны состояния баррэ вариантов, ищем по КОМПОЗИТНОЙ
+  // идентичности (лады+баррэ) — иначе своя разжатая форма и обычная того
+  // же хвата дали бы один индекс. Без barreOffs (старые вызовы) —
+  // поиск по ладам, поведение прежнее.
+  let idx;
+  if (Array.isArray(barreOffs)) {
+    const wantId = fingeringIdentity(shape, barreOff);
+    idx = variants.findIndex((v, i) => fingeringIdentity(v, barreOffs[i]) === wantId);
+    if (idx === -1) idx = variants.findIndex((v) => v.join(',') === shape.join(','));
+  } else {
+    idx = variants.findIndex((v) => v.join(',') === shape.join(','));
+  }
   if (idx === -1) return '';
   const bucketOf = (m) =>
     m === 'user' || m === 'derived'
@@ -3976,8 +4352,7 @@ function fingeringCounterText(variants, methods, shape) {
   return `${pos}/${total}${tag}`;
 }
 
-// ===================== ОТРИСОВКА АППЛИКАТУР (SVG) =====================
-function renderFingeringSVG(fingers, bottomPad) {
+function renderFingeringSVG(fingers, bottomPad, opts) {
   const padTop = 25;
   const stringSpacing = 18,
     fretSpacing = 25,
@@ -4047,8 +4422,21 @@ function renderFingeringSVG(fingers, bottomPad) {
   const padLeft = indicatorFret !== null ? 30 : 14;
   const width = padLeft + fretWidth + padRight;
 
-  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
-  svg += `<rect width="100%" height="100%" fill="var(--color-surface)" rx="8"/>`;
+  // B-42 v5 (0.160): opts — { scale }. scale умножает width/height
+  // АТРИБУТАМИ (viewBox прежний) — «чуть крупнее» честной раскладкой,
+  // без transform (transform не двигает flex и глушит backdrop-filter
+  // в WebKit). Внутренняя плашка грифа УДАЛЕНА глобально (просьба
+  // пользователя: «не только при закреплении фон должен быть
+  // прозрачным»): каждый контейнер красит свой фон сам — тултип
+  // (.fingering-tooltip, поверхность + радиус + тень), панель ленты
+  // (.tl-panel, --tl-panel-bg), карточки закрепа; рисунок грифа больше
+  // не приносит с собой непрозрачную коробку (в стекле превью и на
+  // полупрозрачном превью-тултипе она была видна как пятно).
+  const scale = opts && opts.scale ? opts.scale : 1;
+  // B-79: размеры грифа в rem (÷16), чтобы диаграмма росла вместе с
+  // базовым масштабом UI (html font-size:125%). viewBox остаётся в px —
+  // внутренняя геометрия не трогается, тянется только итоговый размер.
+  let svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${((width * scale) / 16).toFixed(4)}rem" height="${((height * scale) / 16).toFixed(4)}rem" viewBox="0 0 ${width} ${height}">`;
 
   for (let f = 0; f <= frets; f++) {
     const actualFret = gridStartFret + f;
@@ -4079,8 +4467,25 @@ function renderFingeringSVG(fingers, bottomPad) {
   // detectBarre(shape) здесь был бы менее точным и мог бы солгать.
   const gripForDrawing = analyzeShapeGrip(fingers);
   const drawingBarre = gripForDrawing.chosen ? gripForDrawing.chosen.b : null;
-  const barreStrings = drawingBarre ? new Set(drawingBarre.strings) : new Set();
-  if (drawingBarre) {
+  // B-74: у формы может стоять флаг «это баррэ рисовать отдельными
+  // точками» (выключатель баррэ в редакторе аппликатур, как в Guitar
+  // Pro). opts.barreOff — набор ЛАДОВ, на которых капсулу не рисуем.
+  // Ключ по ладу, а не по струнам: модель хвата всегда выбирает одно
+  // баррэ, и лад однозначно его идентифицирует (см. B-74 в README).
+  const barreOffSet = normalizeBarreOffSet(opts && opts.barreOff);
+  const barreSuppressed = !!(drawingBarre && barreOffSet && barreOffSet.has(drawingBarre.fret));
+  const barreStrings = drawingBarre && !barreSuppressed ? new Set(drawingBarre.strings) : new Set();
+  const shouldShowFingers =
+    opts && opts.showFingers !== undefined
+      ? !!opts.showFingers
+      : (typeof document !== 'undefined' && document.getElementById('showFingers')
+          ? document.getElementById('showFingers').checked
+          : false);
+  const placement = shouldShowFingers
+    ? computeFingersForShape(fingers, opts && opts.customFingers, opts && opts.barreOff)
+    : null;
+
+  if (drawingBarre && !barreSuppressed) {
     const y = padTop + (drawingBarre.fret - gridStartFret + 0.5) * fretSpacing;
     const x1 = padLeft + drawingBarre.first * stringSpacing - dotRadius;
     const x2 = padLeft + drawingBarre.last * stringSpacing + dotRadius;
@@ -4088,6 +4493,12 @@ function renderFingeringSVG(fingers, bottomPad) {
     // точки не рисуем: цельная плашка читается как один указательный
     // палец, а не как несколько независимых нажатий.
     svg += `<rect class="fingering-barre" data-fret="${drawingBarre.fret}" data-first-string="${drawingBarre.first}" data-last-string="${drawingBarre.last}" x="${x1}" y="${y - dotRadius}" width="${x2 - x1}" height="${dotRadius * 2}" rx="${dotRadius}" fill="var(--color-ink)"/>`;
+    if (shouldShowFingers) {
+      const barreFinger = placement ? placement[drawingBarre.first] : null;
+      if (barreFinger && barreFinger !== 'x' && barreFinger !== 0) {
+        svg += `<text x="${(x1 + x2) / 2}" y="${y + 3}" text-anchor="middle" font-size="8.5" fill="var(--color-surface)" font-weight="bold" pointer-events="none">${barreFinger}</text>`;
+      }
+    }
   }
 
   for (let s = 0; s < 6; s++) {
@@ -4104,6 +4515,12 @@ function renderFingeringSVG(fingers, bottomPad) {
       if (!isBarreString) {
         const y = padTop + (fret - gridStartFret + 0.5) * fretSpacing;
         svg += `<circle cx="${x}" cy="${y}" r="${dotRadius}" fill="var(--color-ink)"/>`;
+        if (shouldShowFingers) {
+          const fNum = placement ? placement[s] : null;
+          if (fNum && fNum !== 'x' && fNum !== 0) {
+            svg += `<text x="${x}" y="${y + 3}" text-anchor="middle" font-size="8.5" fill="var(--color-surface)" font-weight="bold" pointer-events="none">${fNum}</text>`;
+          }
+        }
       }
     }
   }
@@ -4112,252 +4529,7 @@ function renderFingeringSVG(fingers, bottomPad) {
   return svg;
 }
 
-function createInteractiveFretboard(initialShape, onChange) {
-  const width = 140,
-    height = 180;
-  const padLeft = 36,
-    padTop = 30;
-  const stringSpacing = 18,
-    fretSpacing = 25,
-    strings = 6,
-    frets = 5,
-    dotRadius = 6;
-  const fretWidth = (strings - 1) * stringSpacing;
-  const btnLeft = padLeft - 30;
-
-  let minFret = 99,
-    maxFret = 0;
-  for (let s = 0; s < 6; s++) {
-    const val = initialShape[s];
-    if (val !== 'x' && val !== 0) {
-      const fret = parseInt(val);
-      if (fret < minFret) minFret = fret;
-      if (fret > maxFret) maxFret = fret;
-    }
-  }
-
-  let gridStartFret;
-  const spread = maxFret - minFret;
-
-  // Та же логика, что в renderFingeringSVG, — иначе редактор и превью
-  // показывают РАЗНОЕ. Форма F#madd9 = 2,4,6,2,x,x (лады 2..6): превью
-  // сдвигало сетку и подписывало «2fr», а редактор оставался от порожка
-  // и нота шестого лада в него просто не попадала — в редакторе
-  // открывалась обрезанная аппликатура, на три точки вместо четырёх.
-  //
-  // От порожка рисуем, только если верхняя нота туда влезает.
-  const fitsFromNut = maxFret <= frets;
-  if (maxFret === 0 || (minFret <= 2 && fitsFromNut)) {
-    gridStartFret = 1;
-  } else if (spread === 4) {
-    gridStartFret = minFret;
-  } else {
-    gridStartFret = minFret - 1;
-  }
-  // Страховка на широкие формы: сетка обязана вместить верхнюю ноту.
-  if (maxFret > 0 && maxFret - gridStartFret >= frets) {
-    gridStartFret = Math.max(1, maxFret - frets + 1);
-  }
-
-  let shape = [...initialShape];
-  let currentIntervals = null;
-
-  const container = document.createElement('div');
-  container.style.position = 'relative';
-  container.style.width = width + 'px';
-  container.style.height = height + 'px';
-  container.style.margin = '0 auto';
-
-  function redraw() {
-    container.innerHTML = '';
-
-    let svgHTML = `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}" viewBox="0 0 ${width} ${height}">`;
-    svgHTML += `<rect width="100%" height="100%" fill="var(--color-surface)" rx="8"/>`;
-
-    for (let f = 0; f <= frets; f++) {
-      const y = padTop + f * fretSpacing;
-      if (f === 0 && gridStartFret === 1) {
-        svgHTML += `<line x1="${padLeft}" y1="${y}" x2="${padLeft + fretWidth}" y2="${y}" stroke="var(--fingering-nut-line)" stroke-width="3"/>`;
-      } else {
-        svgHTML += `<line x1="${padLeft}" y1="${y}" x2="${padLeft + fretWidth}" y2="${y}" stroke="var(--fingering-fret-line)" stroke-width="1"/>`;
-      }
-    }
-
-    for (let s = 0; s < strings; s++) {
-      const x = padLeft + s * stringSpacing;
-      svgHTML += `<line x1="${x}" y1="${padTop}" x2="${x}" y2="${padTop + frets * fretSpacing}" stroke="var(--fingering-string-line)" stroke-width="1.5"/>`;
-    }
-
-    if (gridStartFret > 1) {
-      for (let f = 0; f < frets; f++) {
-        const fretNumber = gridStartFret + f;
-        const y = padTop + f * fretSpacing + 0.5 * fretSpacing + 4;
-        svgHTML += `<text x="${padLeft - 12}" y="${y}" text-anchor="end" font-size="11" fill="var(--fingering-fret-number)">${fretNumber}</text>`;
-      }
-    }
-
-    for (let s = 0; s < 6; s++) {
-      const val = shape[s];
-      const x = padLeft + s * stringSpacing;
-      if (val === 'x') {
-        svgHTML += `<text x="${x}" y="${padTop - 6}" text-anchor="middle" font-size="14" fill="var(--color-danger)" font-weight="bold">✕</text>`;
-      } else if (val === 0) {
-        svgHTML += `<circle cx="${x}" cy="${padTop - 6}" r="4" fill="none" stroke="var(--fingering-open-marker)" stroke-width="1.5"/>`;
-      } else {
-        const fret = parseInt(val);
-        if (fret < gridStartFret || fret > gridStartFret + 4) continue;
-        const y = padTop + (fret - gridStartFret + 0.5) * fretSpacing;
-        svgHTML += `<circle cx="${x}" cy="${y}" r="${dotRadius}" fill="var(--color-ink)"/>`;
-        if (currentIntervals) {
-          const intervalData = currentIntervals.find((iv) => iv.string === s);
-          if (intervalData && intervalData.interval) {
-            svgHTML += `<text x="${x}" y="${y + 4}" text-anchor="middle" font-size="8" fill="white" font-weight="bold">${intervalData.interval}</text>`;
-          }
-        }
-      }
-    }
-    svgHTML += `</svg>`;
-    container.innerHTML = svgHTML;
-
-    addClickZones();
-
-    if (gridStartFret > 1) {
-      const btnUp = document.createElement('button');
-      btnUp.textContent = '▲';
-      btnUp.style.position = 'absolute';
-      btnUp.style.left = btnLeft + 'px';
-      btnUp.style.top = padTop - 14 + 'px';
-      btnUp.style.width = '20px';
-      btnUp.style.height = '16px';
-      btnUp.style.fontSize = '10px';
-      btnUp.style.lineHeight = '1';
-      btnUp.style.background = 'none';
-      btnUp.style.border = '1px solid #ccc';
-      btnUp.style.borderRadius = '4px';
-      btnUp.style.cursor = 'pointer';
-      btnUp.style.padding = '0';
-      btnUp.title = 'Показать более низкие лады';
-      btnUp.onclick = (e) => {
-        e.stopPropagation();
-        const newShape = shape.map((v) => (v !== 'x' && v !== 0 ? v - 1 : v));
-        if (newShape.some((v) => v !== 'x' && v !== 0 && v < 0)) return;
-        shape = newShape;
-        gridStartFret--;
-        redraw();
-        if (onChange) onChange(shape);
-      };
-      container.appendChild(btnUp);
-    }
-
-    if (gridStartFret < 12) {
-      const btnDown = document.createElement('button');
-      btnDown.textContent = '▼';
-      btnDown.style.position = 'absolute';
-      btnDown.style.left = btnLeft + 'px';
-      btnDown.style.top = padTop + frets * fretSpacing + 2 + 'px';
-      btnDown.style.width = '20px';
-      btnDown.style.height = '16px';
-      btnDown.style.fontSize = '10px';
-      btnDown.style.lineHeight = '1';
-      btnDown.style.background = 'none';
-      btnDown.style.border = '1px solid #ccc';
-      btnDown.style.borderRadius = '4px';
-      btnDown.style.cursor = 'pointer';
-      btnDown.style.padding = '0';
-      btnDown.title = 'Показать более высокие лады';
-      btnDown.onclick = (e) => {
-        e.stopPropagation();
-        const newShape = shape.map((v) => (v !== 'x' && v !== 0 ? v + 1 : v));
-        if (newShape.some((v) => v !== 'x' && v !== 0 && v > 16)) return;
-        shape = newShape;
-        gridStartFret++;
-        redraw();
-        if (onChange) onChange(shape);
-      };
-      container.appendChild(btnDown);
-    }
-  }
-
-  function addClickZones() {
-    for (let s = 0; s < strings; s++) {
-      const x = padLeft + s * stringSpacing - stringSpacing / 2;
-      const zone = document.createElement('div');
-      zone.style.position = 'absolute';
-      zone.style.left = x + 'px';
-      zone.style.top = '0px';
-      zone.style.width = stringSpacing + 'px';
-      zone.style.height = padTop - 4 + 'px';
-      zone.style.cursor = 'pointer';
-      zone.title = 'Открытая струна / заглушить';
-      zone.addEventListener('click', (e) => {
-        e.stopPropagation();
-        const newShape = [...shape];
-        if (newShape[s] === 0) {
-          newShape[s] = 'x';
-        } else {
-          newShape[s] = 0;
-        }
-        shape = newShape;
-        redraw();
-        if (onChange) onChange(newShape);
-      });
-      container.appendChild(zone);
-    }
-
-    for (let f = 0; f < frets; f++) {
-      const actualFret = gridStartFret + f;
-      const yStart = padTop + f * fretSpacing;
-      const yEnd = yStart + fretSpacing;
-      for (let s = 0; s < strings; s++) {
-        const x = padLeft + s * stringSpacing - stringSpacing / 2;
-        const zone = document.createElement('div');
-        zone.style.position = 'absolute';
-        zone.style.left = x + 'px';
-        zone.style.top = yStart + 'px';
-        zone.style.width = stringSpacing + 'px';
-        zone.style.height = yEnd - yStart + 'px';
-        zone.style.cursor = 'pointer';
-        zone.title = `Лад ${actualFret}, струна ${s + 1}`;
-        zone.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const newShape = [...shape];
-          if (newShape[s] === actualFret) {
-            newShape[s] = 'x';
-          } else {
-            newShape[s] = actualFret;
-          }
-          shape = newShape;
-          redraw();
-          if (onChange) onChange(newShape);
-        });
-        container.appendChild(zone);
-      }
-    }
-  }
-
-  function setIntervals(intervals) {
-    currentIntervals = intervals;
-    redraw();
-  }
-
-  redraw();
-
-  function clear() {
-    shape = Array(strings).fill('x');
-    currentIntervals = null;
-    redraw();
-    if (onChange) {
-      onChange(shape);
-    }
-  }
-
-  return {
-    container,
-    setIntervals,
-    clear,
-    getShape: () => shape,
-  };
-}
+function createInteractiveFretboard(initialShape, onChange, opts = {}
 
 function getAudioContext() {
   if (!audioCtx) {
