@@ -3116,18 +3116,29 @@ body {
 .top-bar {
   margin-bottom: 1.5rem;
 }
-.song-title {
-  width: 100%;
-  font-size: 1.75rem;
-  font-weight: 600;
-  border: none;
-  background: transparent;
-  outline: none;
-  border-bottom: 0.125rem solid var(--color-border-light);
-  padding-bottom: 0.625rem;
+.song-identity {
+  display: flex; align-items: baseline; gap: 0.55rem;
+  width: 100%; border-bottom: 0.125rem solid var(--color-border-light);
+  padding-bottom: 0.625rem; color: var(--color-text-secondary);
 }
-.song-title:focus {
-  border-bottom-color: var(--color-accent);
+.song-identity-field {
+  min-width: 0; flex: 1 1 50%; font-size: 1.75rem; font-weight: 560;
+  color: var(--color-text-secondary); border: none; background: transparent;
+  outline: none; padding: 0;
+}
+.song-identity-field::placeholder { color: var(--color-text-tertiary); opacity: .82; }
+.song-identity-separator { flex: 0 0 auto; color: var(--color-text-tertiary); }
+.song-identity:focus-within { border-bottom-color: var(--color-accent); }
+.legacy-metadata-fields { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; margin:1rem 0; }
+.legacy-metadata-fields label { display:flex; flex-direction:column; gap:.35rem; color:var(--color-text-secondary); font-size:.75rem; }
+.legacy-metadata-fields input { width:100%; border:1px solid var(--color-border-medium); border-radius:.55rem; padding:.55rem .65rem; color:var(--color-ink); background:var(--color-surface); }
+.strum-modal-actions { display:flex; justify-content:flex-end; gap:.625rem; margin-top:1rem; }
+.strum-modal-actions button { border:1px solid var(--color-border-medium); border-radius:.55rem; padding:.55rem .9rem; color:var(--color-text-primary); background:var(--color-surface); cursor:pointer; }
+.strum-modal-actions button.primary { color:#fff; border-color:var(--color-accent); background:var(--color-accent); }
+@media (max-width: 38rem) {
+  .song-identity { flex-wrap: wrap; }
+  .song-identity-field { flex-basis: calc(50% - 1rem); font-size: 1.375rem; }
+  .legacy-metadata-fields { grid-template-columns:1fr; }
 }
 .meta-row {
   display: flex;
@@ -10092,7 +10103,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.279</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.280</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10199,7 +10210,11 @@ html[data-theme='dark'] .storm-charge-glint {
         </div>
       </div>
       <div class="top-bar">
-        <input class="song-title" id="songTitle" placeholder="Название песни..." />
+        <div class="song-identity" aria-label="Исполнитель и название песни">
+          <input class="song-identity-field song-artist" id="songArtist" placeholder="Исполнитель..." aria-label="Исполнитель" />
+          <span class="song-identity-separator" aria-hidden="true">-</span>
+          <input class="song-identity-field song-title" id="songTitle" placeholder="Название..." aria-label="Название песни" />
+        </div>
       </div>
       <div class="meta-row">
         <span class="meta-label">Тональность</span>
@@ -10459,12 +10474,11 @@ html[data-theme='dark'] .storm-charge-glint {
              редактируемый селектор размера, а во время игры менять
              размер нечего — это правка структуры песни. -->
         <div class="tl-song-bar">
-          <input
-            class="tl-song-title"
-            id="tlSongTitle"
-            placeholder="Название песни..."
-            aria-label="Название песни"
-          />
+          <div class="song-identity tl-song-identity">
+            <input class="tl-song-title song-identity-field" id="tlSongArtist" placeholder="Исполнитель..." aria-label="Исполнитель" />
+            <span class="song-identity-separator" aria-hidden="true">-</span>
+            <input class="tl-song-title song-identity-field" id="tlSongTitle" placeholder="Название..." aria-label="Название песни" />
+          </div>
           <div class="tl-song-meta">
             <span class="tl-meta-item">
               <span class="tl-meta-label">Тональность</span>
@@ -12344,7 +12358,7 @@ const CONFIG = {
 // Версия схемы данных сохранённой/экспортированной песни.
 // Увеличивайте при любом несовместимом изменении структуры sections/squares/events
 // и добавляйте соответствующую миграцию в SONG_MIGRATIONS ниже.
-const SONG_SCHEMA_VERSION = 3;
+const SONG_SCHEMA_VERSION = 4;
 const FINGERING_WEIGHTS = {
   // ===== Система удобства аппликатур (2026-08-13, переработана) =====
   //
@@ -13066,6 +13080,9 @@ window.isEtalonGrip = isEtalonGrip;
 const DOM = {
   get sectionsContainer() {
     return document.getElementById('sectionsContainer');
+  },
+  get songArtist() {
+    return document.getElementById('songArtist');
   },
   get songTitle() {
     return document.getElementById('songTitle');
@@ -30989,6 +31006,7 @@ function clearAll() {
     // снова выдаёт 1/2, старые refs вида "1:2:0" попадают в новую пустую
     // песню и ячейка внезапно получает старый кастомный ритм.
     resetRhythmStorage();
+    DOM.songArtist.value = '';
     DOM.songTitle.value = '';
     DOM.notesArea.value = '';
     DOM.bpmInput.value = CONFIG.DEFAULT_BPM;
@@ -34518,9 +34536,11 @@ function attachTimelinePanelReposition() {
 // аппликатур, транспонирование, автоопределение тональности) работает
 // без дублирования, и режимы не могут разъехаться.
 function syncTimelineSongBar() {
+  const artist = document.getElementById('tlSongArtist');
   const title = document.getElementById('tlSongTitle');
   const key = document.getElementById('tlRootKey');
   const ts = document.getElementById('tlTimeSig');
+  if (artist && DOM.songArtist) artist.value = DOM.songArtist.value;
   if (title && DOM.songTitle) title.value = DOM.songTitle.value;
   if (ts) ts.textContent = globalTimeSig || (DOM.globalTimeSig && DOM.globalTimeSig.value) || '4/4';
   if (key && DOM.rootKey) {
@@ -34659,14 +34679,16 @@ function attachTimelineWheelZoom() {
 function attachTimelineSongBar() {
   if (window.__tlSongBarReady) return;
   window.__tlSongBarReady = true;
+  const artist = document.getElementById('tlSongArtist');
   const title = document.getElementById('tlSongTitle');
   const key = document.getElementById('tlRootKey');
+  if (artist && DOM.songArtist) {
+    artist.addEventListener('input', () => { DOM.songArtist.value = artist.value; });
+    DOM.songArtist.addEventListener('input', () => { artist.value = DOM.songArtist.value; });
+  }
   if (title && DOM.songTitle) {
-    title.addEventListener('input', () => {
-      DOM.songTitle.value = title.value;
-      // input у названия ничего не пересчитывает — просто держим
-      // оригинал в актуальном состоянии, сохранение читает его.
-    });
+    title.addEventListener('input', () => { DOM.songTitle.value = title.value; });
+    DOM.songTitle.addEventListener('input', () => { title.value = DOM.songTitle.value; });
   }
   if (key && DOM.rootKey) {
     key.addEventListener('change', () => {
@@ -38612,6 +38634,28 @@ toggleTimeAndBeats();
   // ---------- ЕДИНАЯ СЕРИАЛИЗАЦИЯ ----------
   // LocalStorage и экспорт обязаны получать один и тот же формат: это
   // исключает «тихую» потерю полей при развитии модели песни.
+  function cleanSongMetaText(value) { return String(value == null ? '' : value).trim().slice(0, SONG_LIMITS.MAX_TEXT); }
+  function currentSongMetadata() {
+    return { artist: cleanSongMetaText(DOM.songArtist && DOM.songArtist.value), title: cleanSongMetaText(DOM.songTitle && DOM.songTitle.value) };
+  }
+  function songMetadataOf(song) {
+    const m = song && song.metadata && typeof song.metadata === 'object' ? song.metadata : null;
+    return { artist: cleanSongMetaText(m && m.artist), title: cleanSongMetaText(m && m.title) };
+  }
+  function songDisplayName(songOrMeta) {
+    const m = songOrMeta && ('artist' in songOrMeta || 'title' in songOrMeta) ? songOrMeta : songMetadataOf(songOrMeta);
+    return m.artist && m.title ? `${m.artist} - ${m.title}` : (m.title || m.artist || 'Без названия');
+  }
+  function songLibraryName(song) {
+    if (song && song.metadata) return songDisplayName(song);
+    return cleanSongMetaText(song && song.name) || 'Без названия';
+  }
+  function splitLegacySongName(name) {
+    const value = cleanSongMetaText(name);
+    const match = value.match(/^(.+?)\s+(?:—|-)\s+(.+)$/);
+    return match ? { artist: match[1].trim(), title: match[2].trim() } : { artist: '', title: value };
+  }
+
   function serializeCurrentSong() {
     // Волна-4: сейв пишет пул рулонов (поле rhythmPool), а не копии окон
     // на ячейках. Перед сериализацией всасываем легаси-вкрапления
@@ -38624,7 +38668,7 @@ toggleTimeAndBeats();
     }
     return {
       schemaVersion: SONG_SCHEMA_VERSION,
-      name: DOM.songTitle.value.trim() || 'Без названия',
+      metadata: currentSongMetadata(),
       bpm: parseInt(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM,
       globalKey,
       keyMode,
@@ -38756,7 +38800,7 @@ toggleTimeAndBeats();
         (sq.events || []).some((ev) => (ev.chord || '').trim() !== '')
       )
     );
-    const hasName = (DOM.songTitle.value || '').trim() !== '';
+    const hasName = (DOM.songArtist.value || '').trim() !== '' || (DOM.songTitle.value || '').trim() !== '';
     const hasNotes = (DOM.notesArea.value || '').trim() !== '';
     return !hasChords && !hasName && !hasNotes;
   }
@@ -38785,10 +38829,10 @@ toggleTimeAndBeats();
   // ---------- СОХРАНЕНИЕ ТЕКУЩЕЙ ПЕСНИ ----------
   window.saveCurrentSong = function () {
     const songData = serializeCurrentSong();
-    const name = songData.name;
+    const name = songDisplayName(songData.metadata);
 
     let songs = listSongs();
-    const existingIndex = songs.findIndex((s) => s.name === name);
+    const existingIndex = songs.findIndex((s) => songLibraryName(s) === name);
     if (existingIndex !== -1) {
       const confirmed = window.confirm(
         `Песня "${name}" уже сохранена. Перезаписать её текущей версией?`
@@ -38853,6 +38897,10 @@ toggleTimeAndBeats();
         rhythmPool = { ...rhythmPool, pool };
       }
       return { ...song, sections, rhythmPool, schemaVersion: 3 };
+    },
+    3: function migrateV3toV4(song) {
+      // B-87: metadata заполняется через явный диалог ДО миграции.
+      return { ...song, schemaVersion: 4 };
     },
   };
 
@@ -39135,7 +39183,11 @@ toggleTimeAndBeats();
     }
     return {
       schemaVersion: SONG_SCHEMA_VERSION,
-      name: asSafeText(rawSong.name, SONG_LIMITS.MAX_TEXT),
+      name: asSafeText(rawSong.name, SONG_LIMITS.MAX_TEXT), // legacy — только для диалога B-87
+      metadata: rawSong.metadata && typeof rawSong.metadata === 'object' ? {
+        artist: asSafeText(rawSong.metadata.artist, SONG_LIMITS.MAX_TEXT),
+        title: asSafeText(rawSong.metadata.title, SONG_LIMITS.MAX_TEXT),
+      } : null,
       bpm: asSafeInt(rawSong.bpm, CONFIG.DEFAULT_BPM, CONFIG.MIN_BPM, CONFIG.MAX_BPM),
       globalKey,
       keyMode: rawSong.keyMode === 'auto' ? 'auto' : 'manual',
@@ -39158,12 +39210,47 @@ toggleTimeAndBeats();
     };
   }
 
+  // ---------- B-87: ЯВНАЯ МИГРАЦИЯ СТАРОГО name ----------
+  function requestLegacyMetadata(song, proceed) {
+    const suggested = splitLegacySongName(song && song.name);
+    const overlay = document.createElement('div');
+    overlay.className = 'strum-modal-overlay legacy-metadata-overlay';
+    overlay.innerHTML = `<div class="strum-modal-content" role="dialog" aria-modal="true" aria-labelledby="legacyMetadataTitle">
+      <h3 id="legacyMetadataTitle">Разделить данные песни</h3>
+      <p style="color:var(--color-text-secondary);margin:.5rem 0;">Проверьте исполнителя и название старой песни.</p>
+      <div class="legacy-metadata-fields">
+        <label>Исполнитель<input id="legacyArtist" maxlength="${SONG_LIMITS.MAX_TEXT}"></label>
+        <label>Название<input id="legacyTitle" maxlength="${SONG_LIMITS.MAX_TEXT}"></label>
+      </div>
+      <div class="strum-modal-actions"><button type="button" id="legacyMetadataCancel">Отмена</button><button type="button" class="primary" id="legacyMetadataConfirm">Продолжить</button></div>
+    </div>`;
+    document.body.appendChild(overlay);
+    const artist = overlay.querySelector('#legacyArtist'), title = overlay.querySelector('#legacyTitle');
+    artist.value = suggested.artist; title.value = suggested.title;
+    let finished = false;
+    const finish = (confirmed) => {
+      if (finished) return; finished = true;
+      const metadata = confirmed ? { artist: cleanSongMetaText(artist.value), title: cleanSongMetaText(title.value) } : { artist: '', title: cleanSongMetaText(song.name) };
+      overlay.remove(); proceed({ ...song, metadata, __metadataResolved: true });
+    };
+    overlay.querySelector('#legacyMetadataConfirm').onclick = () => finish(true);
+    overlay.querySelector('#legacyMetadataCancel').onclick = () => finish(false);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) finish(false); });
+    overlay.addEventListener('keydown', (e) => { if (e.key === 'Escape') finish(false); else if (e.key === 'Enter') finish(true); });
+    requestAnimationFrame(() => artist.focus());
+  }
+
   // ---------- ОБЩАЯ ФУНКЦИЯ ЗАГРУЗКИ (из объекта) ----------
-  function loadSongFromObject(song) {
-    // Загрузка песни — ОДНА команда Store: и импорт файла, и открытие из
-    // хранилища, и восстановление снимка истории проходят через этот
-    // dispatch. При отмене/повторе historyRestoring уже выставлен, и
-    // подписчик-планировщик не запишет восстановление как новую правку.
+  function loadSongFromObject(song, afterAsyncLoad) {
+    if (song && !song.metadata && !song.__metadataResolved && typeof song.name === 'string') {
+      // Сначала безопасно загружаем старую строку как title: документ не
+      // блокируется модалкой и отмена ничего не теряет. Затем предлагаем
+      // уточнить разбиение; подтверждение повторно применяет только metadata.
+      const fallback = { ...song, metadata: { artist: '', title: cleanSongMetaText(song.name) }, __metadataResolved: true };
+      const ok = songStore.dispatch('song/load', () => loadSongFromObjectInner(fallback));
+      if (ok) requestLegacyMetadata(song, (resolved) => loadSongFromObject(resolved));
+      return ok;
+    }
     return songStore.dispatch('song/load', () => loadSongFromObjectInner(song));
   }
 
@@ -39179,7 +39266,9 @@ toggleTimeAndBeats();
       return false;
     }
 
-    DOM.songTitle.value = song.name || '';
+    const loadedMeta = songMetadataOf(song);
+    DOM.songArtist.value = loadedMeta.artist;
+    DOM.songTitle.value = loadedMeta.title;
     DOM.bpmInput.value = song.bpm || CONFIG.DEFAULT_BPM;
     globalKey = song.globalKey || 'C';
     keyMode = song.keyMode === 'auto' ? 'auto' : 'manual';
@@ -39296,18 +39385,15 @@ toggleTimeAndBeats();
       return;
     }
     const song = songs[index];
-    if (loadSongFromObject(song)) {
-      markSongSaved();
-      window.resetHistory();
-      showToast(`Песня "${song.name}" загружена`);
-    }
+    const done = (loaded) => { markSongSaved(); window.resetHistory(); showToast(`Песня "${songLibraryName(loaded || song)}" загружена`); };
+    if (loadSongFromObject(song, done)) done(song);
   };
 
   // ---------- УДАЛЕНИЕ ПЕСНИ ----------
   window.deleteSong = function (index) {
     const songs = listSongs();
     if (index < 0 || index >= songs.length) return;
-    const name = songs[index].name;
+    const name = songLibraryName(songs[index]);
     songs.splice(index, 1);
     if (saveSongsToStorage(songs)) {
       showToast(`Песня "${name}" удалена`);
@@ -39328,11 +39414,11 @@ toggleTimeAndBeats();
         listHtml += `
           <li style="display:flex;align-items:center;justify-content:space-between;padding:0.625rem;border-bottom:0.0625rem solid #eee;">
             <div style="flex:1;cursor:pointer;" onclick="loadSong(${idx})">
-              <strong>${escapeHtml(song.name)}</strong>
+              <strong>${escapeHtml(songLibraryName(song))}</strong>
               <div style="font-size:0.75rem;color:var(--color-text-secondary);">${escapeHtml(song.globalKey)} · ${sectionCount} секц. · ${date}</div>
             </div>
             <button onclick="event.stopPropagation(); deleteSong(${idx});"
-                    style="background:none;border:none;color:var(--color-danger);font-size:1.125rem;cursor:pointer;" title="Удалить" aria-label="Удалить песню ${escapeHtml(song.name)}"><i class="ti ti-x"></i></button>
+                    style="background:none;border:none;color:var(--color-danger);font-size:1.125rem;cursor:pointer;" title="Удалить" aria-label="Удалить песню ${escapeHtml(songLibraryName(song))}"><i class="ti ti-x"></i></button>
           </li>`;
       });
     }
@@ -39427,7 +39513,8 @@ toggleTimeAndBeats();
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = (songData.name || 'песня') + '.struchord.json';
+    const fileBase = songDisplayName(songData.metadata).replace(/[\/:*?"<>|]+/g, '_');
+    a.download = fileBase + '.struchord.json';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -39442,11 +39529,8 @@ toggleTimeAndBeats();
     reader.onload = (e) => {
       try {
         const data = JSON.parse(e.target.result);
-        if (loadSongFromObject(data)) {
-          markSongSaved();
-          window.resetHistory();
-          showToast(`Песня "${data.name || 'Без названия'}" импортирована`);
-        }
+        const done = (loaded) => { markSongSaved(); window.resetHistory(); showToast(`Песня "${songLibraryName(loaded || data)}" импортирована`); };
+        if (loadSongFromObject(data, done)) done(data);
       } catch (err) {
         showToast('Ошибка чтения файла: ' + err.message);
       }
