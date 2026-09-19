@@ -9962,18 +9962,45 @@ body.is-timeline.is-playing .timeline-playhead {
 .storm-surprise-layer.is-glint { opacity: 1; background: rgba(43, 58, 135, 0.25); }
 .storm-lightning-svg {
   position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible;
-  opacity: 0; filter: drop-shadow(0 0 0.375rem rgba(150, 176, 255, 0.95));
+  opacity: 1;
 }
-.storm-lightning-svg.is-striking { animation: storm-bolt-flash 520ms steps(1, end) both; }
-.storm-lightning-main, .storm-lightning-branch {
+.storm-lightning-svg.is-striking {
+  animation: storm-bolt-flash 720ms steps(1, end) both;
+  filter: drop-shadow(0 0 0.9rem rgba(126, 158, 255, 1)) drop-shadow(0 0 1.8rem rgba(218, 226, 255, 0.9));
+}
+body.storm-screen-shake { animation: storm-screen-shake 720ms cubic-bezier(.2,.8,.25,1) both; }
+.storm-lightning-main, .storm-lightning-branch, .storm-charge-glint {
   fill: none; stroke: #eef3ff; stroke-linecap: round; stroke-linejoin: round;
 }
-.storm-lightning-main { stroke-width: 2.6; }
-.storm-lightning-branch { stroke-width: 1.35; opacity: 0.82; }
+.storm-lightning-main { stroke-width: 5.5; opacity: 0; }
+.storm-lightning-branch { stroke-width: 3; opacity: 0; }
+.storm-lightning-svg.is-striking .storm-lightning-main { opacity: 1; }
+.storm-lightning-svg.is-striking .storm-lightning-branch { opacity: 0.92; }
+.storm-charge-glint {
+  stroke: #b9c9ff;
+  stroke-width: 1.8;
+  opacity: 0;
+  filter: drop-shadow(0 0 0.45rem rgba(132, 161, 255, 0.95));
+}
+.storm-charge-glint.is-visible { animation: storm-charge-spark 240ms ease-out both; }
 .storm-struck-control { animation: storm-control-strike 680ms ease-out both !important; }
+@keyframes storm-charge-spark {
+  0% { opacity: 0; stroke-dashoffset: 34; }
+  18%, 48% { opacity: 1; }
+  100% { opacity: 0; stroke-dashoffset: 0; }
+}
 @keyframes storm-bolt-flash {
-  0%, 13%, 31% { opacity: 1; }
-  8%, 22%, 100% { opacity: 0; }
+  0%, 13%, 31%, 47% { opacity: 1; }
+  8%, 22%, 40%, 100% { opacity: 0; }
+}
+@keyframes storm-screen-shake {
+  0%, 100% { transform: translate3d(0,0,0) rotate(0); }
+  8% { transform: translate3d(-0.65rem,0.25rem,0) rotate(-0.35deg); }
+  17% { transform: translate3d(0.55rem,-0.3rem,0) rotate(0.3deg); }
+  28% { transform: translate3d(-0.38rem,0.22rem,0) rotate(-0.2deg); }
+  42% { transform: translate3d(0.28rem,-0.14rem,0) rotate(0.13deg); }
+  58% { transform: translate3d(-0.16rem,0.1rem,0) rotate(-0.08deg); }
+  76% { transform: translate3d(0.08rem,-0.04rem,0) rotate(0.03deg); }
 }
 @keyframes storm-control-strike {
   0%, 20%, 42% { filter: brightness(2.2) saturate(0.35) drop-shadow(0 0 0.5rem #b8c9ff); }
@@ -10013,7 +10040,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.265</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.266</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -17231,7 +17258,7 @@ function pinFingeringFromTooltip(opts = {}) {
     rowEl.__fadeTimer = setTimeout(() => {
       rowEl.__fadeTimer = 0;
       rowEl.classList.remove('is-fading-in');
-    }, 520);
+    }, 720);
   } else if (rowEl && !opts.skipAppear) {
     // B-42 v8 (0.163): таймер появления ЖИВЁТ на элементе и гасится
     // перед рестартом. Раньше «голый» setTimeout от ПРОШЛОГО закрепления
@@ -30251,6 +30278,7 @@ function ensureStormLayer() {
   stormLayer.className = 'storm-surprise-layer';
   stormLayer.setAttribute('aria-hidden', 'true');
   stormLayer.innerHTML = '<svg class="storm-lightning-svg" aria-hidden="true">' +
+    '<path class="storm-charge-glint"></path>' +
     '<path class="storm-lightning-main"></path>' +
     '<path class="storm-lightning-branch"></path></svg>';
   document.body.appendChild(stormLayer);
@@ -30300,6 +30328,15 @@ function initSchemeSurprises() {
     if (document.hidden) cancelStormSurprise();
     else resetSchemeSurpriseSchedule();
   });
+  // Web Audio разрешает звук только после жеста пользователя. Создаём и
+  // пробуждаем контекст на первом жесте, а не в момент случайной искры.
+  const unlockStormAudio = () => {
+    if (!schemeSurprisesEnabled) return;
+    getAudioContext();
+    resumeAudioContext();
+  };
+  document.addEventListener('pointerdown', unlockStormAudio, { capture: true, passive: true });
+  document.addEventListener('keydown', unlockStormAudio, { capture: true });
   resetSchemeSurpriseSchedule();
 }
 function toggleSchemeSurprises() {
@@ -30332,31 +30369,45 @@ function playStormThunder() {
   const ctx = getAudioContext();
   if (!ctx || ctx.state !== 'running' || playbackState.isPlaying) return;
   const now = ctx.currentTime;
-  const duration = 1.35;
+  const duration = 3.6;
   const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
   const data = buffer.getChannelData(0);
   let brown = 0;
   for (let i = 0; i < data.length; i++) {
-    brown = brown * 0.985 + (Math.random() * 2 - 1) * 0.08;
     const t = i / ctx.sampleRate;
-    data[i] = brown * Math.exp(-t * 2.8) + (Math.random() * 2 - 1) * 0.12 * Math.exp(-t * 12);
+    brown = brown * 0.992 + (Math.random() * 2 - 1) * 0.055;
+    // Первый удар и три неровных далёких раската.
+    const roll = Math.exp(-t * 1.15) +
+      0.52 * Math.exp(-Math.max(0, t - 0.72) * 2.2) * (t > 0.72) +
+      0.34 * Math.exp(-Math.max(0, t - 1.55) * 2.4) * (t > 1.55) +
+      0.2 * Math.exp(-Math.max(0, t - 2.35) * 2.8) * (t > 2.35);
+    data[i] = brown * roll + (Math.random() * 2 - 1) * 0.16 * Math.exp(-t * 18);
   }
   const src = ctx.createBufferSource();
   const low = ctx.createBiquadFilter();
   const gain = ctx.createGain();
-  low.type = 'lowpass'; low.frequency.value = 620;
+  low.type = 'lowpass'; low.frequency.value = 760; low.Q.value = 0.7;
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.16, now + 0.012);
+  gain.gain.exponentialRampToValueAtTime(0.23, now + 0.014);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + duration);
   src.buffer = buffer; src.connect(low); low.connect(gain); gain.connect(ctx.destination);
   src.start(now); src.stop(now + duration);
 }
 function stormGlint() {
-  if (stormSurprisePhase !== 'charging') return;
+  if (stormSurprisePhase !== 'charging' && stormSurprisePhase !== 'armed') return;
   const layer = ensureStormLayer();
-  layer.classList.add('is-glint');
-  playStormCrackle();
-  setTimeout(() => layer.classList.remove('is-glint'), 95);
+  const candidates = Array.from(document.querySelectorAll(STORM_CONTROL_SELECTOR)).filter(isStormTargetVisible);
+  const target = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : null;
+  const r = target ? target.getBoundingClientRect() : { left: innerWidth/2, top: innerHeight/2, width: 1, height: 1 };
+  const x = r.left + r.width/2 + randomBetween(-Math.max(12, r.width*.65), Math.max(12, r.width*.65));
+  const y = r.top + r.height/2 + randomBetween(-Math.max(10, r.height*.8), Math.max(10, r.height*.8));
+  const spark = layer.querySelector('.storm-charge-glint');
+  const side = Math.random() < .5 ? -1 : 1;
+  spark.setAttribute('d', `M${x.toFixed(1)} ${y.toFixed(1)} l${(side*8).toFixed(1)} -6 l${(side*-4).toFixed(1)} -7 l${(side*10).toFixed(1)} -7`);
+  spark.setAttribute('stroke-dasharray', '34');
+  spark.classList.remove('is-visible'); void spark.getBoundingClientRect(); spark.classList.add('is-visible');
+  if (Math.random() < 0.82) playStormCrackle();
+  stormChargeTimers.push(setTimeout(stormGlint, randomBetween(140, 340)));
 }
 function startStormSurprise() {
   if (!stormCanStart()) return;
@@ -30365,10 +30416,9 @@ function startStormSurprise() {
   const layer = ensureStormLayer();
   layer.className = 'storm-surprise-layer is-charging';
   const chargeMs = randomBetween(3000, 5000);
-  const glints = 2 + Math.floor(Math.random() * 3);
-  for (let i = 0; i < glints; i++) {
-    stormChargeTimers.push(setTimeout(stormGlint, chargeMs * (0.22 + i * 0.58 / Math.max(1, glints - 1))));
-  }
+  // Частые маленькие искры прыгают возле контролов и заранее намекают,
+  // что именно интерфейс станет проводником будущего разряда.
+  stormChargeTimers.push(setTimeout(stormGlint, 120));
   stormChargeTimers.push(setTimeout(() => {
     if (stormSurprisePhase !== 'charging') return;
     stormSurprisePhase = 'armed';
@@ -30427,16 +30477,18 @@ function strikeStormControl(target) {
   svg.querySelector('.storm-lightning-branch').setAttribute('d', paths.branch);
   svg.classList.remove('is-striking'); void svg.getBoundingClientRect(); svg.classList.add('is-striking');
   target.classList.remove('storm-struck-control'); void target.getBoundingClientRect(); target.classList.add('storm-struck-control');
+  document.body.classList.remove('storm-screen-shake'); void document.body.getBoundingClientRect(); document.body.classList.add('storm-screen-shake');
   playStormThunder();
   setTimeout(() => {
     layer.classList.remove('is-charging', 'is-armed', 'is-glint');
     target.classList.remove('storm-struck-control');
-  }, 520);
+  }, 720);
   stormChargeTimers.push(setTimeout(() => {
     svg.classList.remove('is-striking');
+    document.body.classList.remove('storm-screen-shake');
     stormSurprisePhase = 'idle';
     resetSchemeSurpriseSchedule();
-  }, 1450));
+  }, 3800));
 }
 function cancelStormSurprise() {
   clearStormTimers();
@@ -30446,6 +30498,7 @@ function cancelStormSurprise() {
     const svg = stormLayer.querySelector('.storm-lightning-svg');
     if (svg) svg.classList.remove('is-striking');
   }
+  document.body && document.body.classList.remove('storm-screen-shake');
   document.querySelectorAll('.storm-struck-control').forEach(el => el.classList.remove('storm-struck-control'));
 }
 function interceptStormClick(e) {
