@@ -39,7 +39,7 @@ check(src.includes('const rolls = ['), 'гром собран из нескол�
 check(src.includes('transition: opacity 2s ease'), 'туча плавно появляется и рассеивается за 2 секунды');
 check(src.includes("setAttribute('popover', 'manual')"), 'молния поднимается в нативный top layer');
 check(src.includes('storm-lightning-filament-a') && src.includes('storm-lightning-filament-b'), 'у молнии есть две объёмные жилы');
-check((src.match(/storm-impact-spark-\d+/g) || []).length >= 12, 'в верхнем слое подготовлен веер из 12 искр');
+check(new Set(src.match(/storm-impact-spark-\d+/g) || []).size === 6, 'вспышку сопровождают ровно 6 коротких искр');
 check(src.includes('randomBetween(r.left + insetX'), 'точка удара выбирается внутри цели');
 check(src.includes('playStormAmbience'), 'после тучи включается ветер или далёкий гром');
 check(src.includes('cloudOnlyMs = 2000 + randomBetween(300, 1000)'), 'заряд начинается после тучи и случайной тишины');
@@ -49,4 +49,7 @@ check(src.includes("layer.className = 'storm-surprise-layer';") && src.includes(
 check(src.includes('storm-control-jolt'), 'сама цель получает короткий световой толчок');
 check(src.includes('impactSparks.forEach'), 'искры строятся из точной точки контакта');
 check(!src.includes('storm-target-glow'), 'тяжёлая контурная glow-рамка полностью удалена');
+check(src.includes('storm-impact-bloom'), 'мягкий bloom возвращён как главный эффект');
+check(src.includes("bloom.setAttribute('rx'"), 'bloom повторяет реальное скругление цели');
+check(src.includes('@keyframes storm-impact-bloom'), 'вспышка имеет основной и слабый повторный импульс');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);
