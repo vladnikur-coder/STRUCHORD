@@ -49,5 +49,8 @@ check(src.includes("layer.className = 'storm-surprise-layer';") && src.includes(
 check(src.includes('storm-control-strike'), 'объект получает прежнюю яркую электрическую реакцию');
 check(src.includes("glow.setAttribute('rx'"), 'вспышка повторяет скругление цели');
 check(src.includes('@keyframes storm-target-glow'), 'вспышка пульсирует несколькими импульсами');
+check(src.includes('drop-shadow(0 0 2.2rem'), 'молния имеет насыщенный трёхслойный glow');
+check(src.includes('storm-lightning-branch-c'), 'у молнии три видимых ответвления');
+check(src.includes('const branches = [branchAt'), 'ответвления распределены вдоль разряда');
 check(!src.includes('storm-impact-bloom') && !src.includes('storm-impact-spark'), 'непринятые bloom и веер искр удалены');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);
