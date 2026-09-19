@@ -29,9 +29,11 @@ check(src.includes('storm-charge-glint'), 'маленькие искры име�
 check(/randomBetween\(60, 150\)/.test(src), 'искры и треск идут очень часто');
 check(src.includes('filter(isStormTargetVisible)'), 'искры располагаются возле видимых контролов');
 check(src.includes('storm-screen-shake'), 'удар встряхивает экран');
-check(/const duration = 3\.6/.test(src), 'гром имеет длинный раскат 3,6 секунды');
+check(/const duration = 5\.2/.test(src), 'гром имеет длинный раскат 5,2 секунды');
 check(src.includes('unlockStormAudio'), 'звук пробуждается пользовательским жестом');
 check(src.includes("'.chord-wrapper'"), 'ячейки входят в цели молнии');
 check(src.includes('linear-gradient(to bottom'), 'туча затемняет только верх экрана');
 check(!src.includes('mix-blend-mode: multiply'), 'режим смешивания не прячет белую молнию');
+check(src.includes("html[data-theme='dark'] .storm-charge-glint"), 'искры контрастны отдельно в светлой и тёмной теме');
+check(src.includes('const rolls = ['), 'гром собран из нескольких самостоятельных раскатов');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);
