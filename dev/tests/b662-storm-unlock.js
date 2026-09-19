@@ -11,7 +11,7 @@ ok(src.includes("title: '220 вольт'"),'заголовок ачивки то
 ok(src.includes('СЕКРЕТ НАЙДЕН'),'есть согласованный kicker');
 ok(src.includes('storm-achievement-outline'),'рамка рисуется линией');
 ok(src.includes('storm-achievement-bolt'),'есть минималистичная молния');
-ok(src.includes('storm-achievement-trace'),'есть трассировка контура');
+ok(src.includes('storm-achievement-trace'),'есть трассировка рамки и значка');
 ok(src.includes('playStormAchievementChime'),'есть тихий отдельный сигнал');
 ok(src.includes("new Audio('./uploads/220.mp3')"),'подключён загруженный звук ачивки');
 ok(src.includes('[0.28, .78, 1.42, 2.18, 3.12]'),'рисование сопровождают электрические пробои');
