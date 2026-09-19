@@ -48,6 +48,8 @@
           // загрузке мелькнёт палитра по умолчанию.
           var scheme = localStorage.getItem('struchord-scheme');
           if (scheme) document.documentElement.setAttribute('data-scheme', scheme);
+          var capsuleStyle = localStorage.getItem('struchord-capsule-style');
+          if (capsuleStyle) document.documentElement.setAttribute('data-capsule-style', capsuleStyle);
           // Масштаб UI (B-80): ставим --ui-scale ДО первой отрисовки,
           // иначе на кадр мелькнёт дефолтные 125%. Значение в процентах,
           // шаг 5, клампим 25..300; пусто → остаётся дефолт из :root.
@@ -3143,6 +3145,28 @@ body {
   flex: 0 0 auto;
   color: var(--color-text-tertiary);
   font-size: 1.1rem;
+}
+/* B-87: временная витрина вариантов — пользователь оставит один. */
+html[data-capsule-style="outline"] .song-identity-field {
+  background: transparent; border-color: var(--color-border-medium); box-shadow: none;
+}
+html[data-capsule-style="joined"] .song-identity { gap: 0.18em; }
+html[data-capsule-style="joined"] .song-identity-field:first-child { border-radius: 999px 0.65rem 0.65rem 999px; }
+html[data-capsule-style="joined"] .song-identity-field:last-child { border-radius: 0.65rem 999px 999px 0.65rem; }
+html[data-capsule-style="joined"] .song-identity-separator { color: var(--color-accent); font-weight: 700; }
+html[data-capsule-style="floating"] .song-identity-field {
+  background: var(--color-surface); border-color: color-mix(in srgb, var(--color-border-light) 65%, transparent);
+  box-shadow: 0 0.18rem 0.55rem color-mix(in srgb, var(--color-text-primary) 11%, transparent), inset 0 1px rgba(255,255,255,.28);
+}
+html[data-capsule-style="accent"] .song-identity-field {
+  border-color: transparent; border-bottom-color: color-mix(in srgb, var(--color-accent) 55%, var(--color-border-light));
+  border-radius: 0.75rem 0.75rem 0.45rem 0.45rem; box-shadow: inset 0 -0.08rem color-mix(in srgb, var(--color-accent) 25%, transparent);
+}
+html[data-capsule-style="glass"] .song-identity-field {
+  background: color-mix(in srgb, var(--color-surface) 68%, transparent);
+  border-color: color-mix(in srgb, var(--color-border-medium) 60%, transparent);
+  box-shadow: inset 0 1px rgba(255,255,255,.32), 0 0.15rem 0.5rem color-mix(in srgb, var(--color-text-primary) 8%, transparent);
+  backdrop-filter: blur(0.65rem); -webkit-backdrop-filter: blur(0.65rem);
 }
 .legacy-metadata-fields { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; margin:1rem 0; }
 .legacy-metadata-fields label { display:flex; flex-direction:column; gap:.35rem; color:var(--color-text-secondary); font-size:.75rem; }
@@ -10129,7 +10153,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.284</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.285</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10210,6 +10234,18 @@ html[data-theme='dark'] .storm-charge-glint {
               aria-label="Увеличить масштаб на 5%" title="Увеличить масштаб на 5%"><i class="ti ti-plus"></i></button>
     </span>
   </div>
+
+  <label class="tools-label capsule-style-setting" for="capsuleStyleSelect">
+    <span>Капсулы песни</span>
+    <select id="capsuleStyleSelect" onchange="applyCapsuleStyle(this.value)" aria-label="Стиль капсул исполнителя и названия">
+      <option value="matte">Мягкий матовый</option>
+      <option value="outline">Тонкий контур</option>
+      <option value="joined">Связанная пара</option>
+      <option value="floating">Воздушные чипы</option>
+      <option value="accent">С акцентной линией</option>
+      <option value="glass">Компактное стекло</option>
+    </select>
+  </label>
 
           <div class="tools-scheme" id="struchord-scheme-picker">
             <button type="button" class="tools-label--head scheme-head" id="schemeHead" aria-expanded="false" aria-controls="schemeList" onclick="toggleSchemeList()" title="Показать список схем"><span>Цветовая схема</span><span class="scheme-head-right"><span class="scheme-head-current" id="schemeCurrentName">Дефолт</span><i class="ti ti-chevron-down"></i></span></button>
@@ -30269,6 +30305,21 @@ function initUiScale() {
   writeUiScale(p);
 }
 
+// B-87: временный выбор шести вариантов капсул на приёмку.
+const CAPSULE_STYLES = new Set(['matte', 'outline', 'joined', 'floating', 'accent', 'glass']);
+function applyCapsuleStyle(id) {
+  const value = CAPSULE_STYLES.has(id) ? id : 'matte';
+  document.documentElement.setAttribute('data-capsule-style', value);
+  const select = document.getElementById('capsuleStyleSelect');
+  if (select) select.value = value;
+  try { localStorage.setItem('struchord-capsule-style', value); } catch (e) { /* недоступно */ }
+}
+function initCapsuleStyle() {
+  let value = document.documentElement.getAttribute('data-capsule-style') || 'matte';
+  if (!CAPSULE_STYLES.has(value)) value = 'matte';
+  applyCapsuleStyle(value);
+}
+
 // ========== ЦВЕТОВЫЕ СХЕМЫ ==========
 // Схема — это НАБОР ПЕРЕМЕННЫХ поверх базовой палитры, а не замена
 // светлой/тёмной темы: обе оси независимы. Пустой id означает
@@ -38634,6 +38685,7 @@ initDemo();
 initTheme();
 initScheme();
 initUiScale();
+initCapsuleStyle();
 initFingersVisibility();
 initThemeLongPress();
 initSchemeSurprises();
