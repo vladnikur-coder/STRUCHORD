@@ -39,7 +39,7 @@ check(src.includes('const rolls = ['), 'гром собран из нескол�
 check(src.includes('transition: opacity 2s ease'), 'туча плавно появляется и рассеивается за 2 секунды');
 check(src.includes("setAttribute('popover', 'manual')"), 'молния поднимается в нативный top layer');
 check(src.includes('storm-lightning-filament-a') && src.includes('storm-lightning-filament-b'), 'у молнии есть две объёмные жилы');
-check(src.includes('id="stormImpactVariant"'), 'в меню есть временный выбор четырёх эффектов');
+check(!src.includes('id="stormImpactVariant"'), 'временный выбор эффектов удалён после приёмки');
 check(src.includes('randomBetween(r.left + insetX'), 'точка удара выбирается внутри цели');
 check(src.includes('playStormAmbience'), 'после тучи включается ветер или далёкий гром');
 check(src.includes('cloudOnlyMs = 2000 + randomBetween(300, 1000)'), 'заряд начинается после тучи и случайной тишины');
@@ -48,9 +48,9 @@ check(src.includes("getComputedStyle(cur).cursor === 'pointer'"), 'перехв�
 check(src.includes("layer.className = 'storm-surprise-layer';") && src.includes('void layer.getBoundingClientRect();'), 'перед затемнением зафиксирован прозрачный кадр');
 check(src.includes('storm-control-strike'), 'объект получает световой толчок без обводки');
 check(src.includes('storm-impact-bloom'), 'bloom рождается в точке удара');
-check(src.includes('storm-impact-wave') && src.includes('storm-impact-afterimage'), 'реализованы волна и отпечаток');
-check(src.includes('storm-impact-chromatic') && src.includes('storm-impact-blackout'), 'реализованы хроматика и затмение');
-check(src.includes('stormImpactVariant =') && !src.includes('struchord-storm-impact'), 'тестовый выбор хранится только в сеансе');
+check(src.includes('storm-impact-blackout'), 'оставлен принятый эффект затмения');
+check(!src.includes('storm-impact-wave') && !src.includes('storm-impact-afterimage') && !src.includes('storm-impact-chromatic'), 'три проигравших эффекта удалены');
+check(!src.includes('stormImpactVariant'), 'сессионная тестовая настройка удалена');
 check(!src.includes('storm-target-glow'), 'геометрическая обводка цели удалена');
 check(src.includes('drop-shadow(0 0 2.2rem'), 'молния имеет насыщенный трёхслойный glow');
 check(src.includes('storm-lightning-branch-c'), 'у молнии три видимых ответвления');
