@@ -33,6 +33,6 @@ ok(src.includes('DOM.songArtist.value = artist.value'), 'лента синхро
 ok(src.includes('@media (max-width: 38rem)'), 'пара адаптируется на узком экране');
 ok(src.includes('function fitSongArtistField'), 'дефис следует за умной шириной исполнителя');
 ok(src.includes('id="capsuleStyleSelect"'), 'выбор стиля доступен в настройках');
-ok(src.includes("const CAPSULE_STYLES = new Set(['matte', 'outline', 'joined', 'floating', 'accent', 'glass'])"), 'доступны шесть вариантов капсул');
+ok(src.includes("const CAPSULE_STYLES = new Set(['editorial', 'duet', 'frame', 'ribbon', 'bold', 'minimal'])"), 'доступны шесть вариантов капсул');
 ok(src.includes("struchord-capsule-style"), 'выбор стиля сохраняется локально');
 console.log(`\nALL OK — ${n} проверок B-87.`);
