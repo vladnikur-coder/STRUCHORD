@@ -1,0 +1,32 @@
+#!/usr/bin/env node
+/* B-66.2 — скрытая активация «Грозы» особой песней. */
+const fs=require('fs'), path=require('path');
+const src=fs.readFileSync(path.join(__dirname,'..','..','STRUCHORD.html'),'utf8');
+const song=JSON.parse(fs.readFileSync(path.join(__dirname,'..','..','uploads','Дима Билан - Молния.struchord.json'),'utf8'));
+let n=0; function ok(v,m){if(!v)throw new Error('ПРОВАЛ: '+m); console.log('OK:',m); n++;}
+ok(song.metadata.artist==='Дима Билан'&&song.metadata.title==='Молния','встроена правильная песня');
+ok(/^scd1\.[a-f0-9.]+/.test(song.documentSeal),'песня несёт неприметную подпись');
+ok(src.includes("'scd1.8d2f71c4e9a63b05.220': { id: '220-volts'"),'подпись сопоставлена ачивке');
+ok(src.includes("title: '220 вольт'"),'заголовок ачивки точный');
+ok(src.includes('СЕКРЕТ НАЙДЕН'),'есть согласованный kicker');
+ok(src.includes('storm-achievement-outline'),'рамка рисуется линией');
+ok(src.includes('storm-achievement-bolt'),'есть минималистичная молния');
+ok(src.includes('storm-achievement-trace'),'есть трассировка контура');
+ok(src.includes('playStormAchievementChime'),'есть тихий отдельный сигнал');
+ok(src.includes("if (!stormReducedMotion() && stormCanStart()) startStormSurprise()"),'ачивка переходит в первый заряд');
+ok(src.includes('4 * 60 * 1000')&&src.includes('12 * 60 * 1000'),'повторы через 4–12 минут');
+ok(src.includes("localStorage.getItem(STORM_UNLOCK_KEY) === '1'"),'разблокировка постоянна');
+ok(src.includes('stormSeenAchievements = new Set'),'ачивки учитываются отдельно');
+ok(src.includes("maybeUnlockStormSecret('scheme')"),'ручной выбор Грозы проверяет секрет');
+ok((src.match(/maybeUnlockStormSecret\('song'\)/g)||[]).length>=2,'загрузка и импорт проверяют секрет');
+ok(src.includes('documentSeal: asSafeText(rawSong.documentSeal'),'подпись проходит санитайзер');
+ok(src.includes("...(currentSongSeal ? { documentSeal: currentSongSeal } : {})"),'подпись переживает сохранение');
+ok(src.includes('id="stormSecretControl" hidden'),'переключатель скрыт до открытия');
+ok(src.includes('role="switch"')&&src.includes('toggleStormSecret()'),'в строке Грозы есть доступный тумблер');
+ok(!src.includes('id="schemeSurprises"'),'старый общий пункт удалён');
+ok(src.includes('resetStormSecretForTesting'),'есть временный полный сброс');
+ok(src.includes("localStorage.removeItem(STORM_UNLOCK_KEY)"),'сброс забывает разблокировку');
+ok(src.includes('stormReducedMotion()'),'учтено уменьшение движения');
+ok(src.includes('.storm-achievement.is-visible .storm-achievement-outline')&&src.includes('animation:none'),'reduced motion отключает трассировку');
+ok(src.includes("item.querySelector('.storm-secret-control')?.remove()"),'быстрый список не клонирует switch с ID');
+console.log(`\nALL OK — ${n} проверок B-66.2.`);

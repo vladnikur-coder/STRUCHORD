@@ -5,9 +5,9 @@ const path = require('path');
 const src = fs.readFileSync(path.join(__dirname, '..', '..', 'STRUCHORD.html'), 'utf8');
 let ok = 0;
 function check(cond, msg) { if (!cond) throw new Error('ПРОВАЛ: ' + msg); console.log('OK:', msg); ok++; }
-check(src.includes('id="schemeSurprises"'), 'общий выключатель неожиданностей есть в меню');
-check(src.includes("SCHEME_SURPRISES_KEY = 'struchord-scheme-surprises'"), 'настройка имеет постоянный ключ');
-check(/STORM_WAIT_MIN_MS\s*=\s*10000/.test(src) && /STORM_WAIT_MAX_MS\s*=\s*20000/.test(src), 'частый интервал приёмки 10–20 секунд');
+check(src.includes('id="stormSecretSwitch"'), 'у разблокированной Грозы есть локальный выключатель');
+check(src.includes("STORM_ENABLED_KEY = 'struchord-storm-enabled'"), 'локальная настройка имеет постоянный ключ');
+check(src.includes('STORM_WAIT_MIN_MS = 4 * 60 * 1000') && src.includes('STORM_WAIT_MAX_MS = 12 * 60 * 1000'), 'финальный интервал 4–12 минут');
 check(src.includes("activeSchemeId() === 'storm'"), 'событие ограничено схемой «Гроза»');
 check(src.includes("document.visibilityState === 'visible'"), 'скрытая вкладка исключена');
 check(src.includes('!stormReducedMotion()'), 'prefers-reduced-motion учитывается в воротах');
@@ -23,7 +23,7 @@ check(src.includes("stroke: #eef3ff"), 'видимая молния имеет �
 check(src.includes('playStormCrackle()') && src.includes('playStormThunder()'), 'заряд и удар имеют разные звуки');
 check(src.includes("pointer-events: none"), 'атмосферный слой не блокирует интерфейс');
 check(src.includes('@media (prefers-reduced-motion: reduce)'), 'CSS также гасит эффект доступности');
-check(src.includes("localStorage.setItem(SCHEME_SURPRISES_KEY"), 'выключатель сохраняется');
+check(src.includes("localStorage.setItem(STORM_ENABLED_KEY"), 'локальный выключатель сохраняется');
 check(src.includes("resetSchemeSurpriseSchedule(); // B-66"), 'смена схемы пересобирает таймер');
 check(src.includes('storm-charge-glint'), 'маленькие искры имеют отдельный SVG-путь');
 check(src.includes("stormSurprisePhase === 'armed' ? 38"), 'готовый заряд трещит плотно до удара');
