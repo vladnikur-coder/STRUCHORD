@@ -3117,25 +3117,33 @@ body {
   margin-bottom: 1.5rem;
 }
 .song-identity {
-  display: flex; align-items: baseline; gap: 0.25em;
-  width: 100%; border-bottom: 0.125rem solid var(--color-border-light);
-  padding-bottom: 0.625rem; color: var(--color-text-secondary);
+  display: flex; align-items: center; gap: 0.3em;
+  width: 100%; color: var(--color-text-secondary);
 }
 .song-identity-field {
-  min-width: 0; flex: 1 1 auto; font-size: 1.75rem; font-weight: 560;
-  color: var(--color-text-secondary); border: none; background: transparent;
-  outline: none; padding: 0;
-}
-/* Исполнитель занимает ровно ширину текста (или плейсхолдера): дефис
-   остаётся рядом с ним, а не висит посередине свободной строки. */
-.song-identity .song-artist,
-.song-identity #tlSongArtist {
-  flex: 0 1 auto;
-  width: var(--identity-artist-width, 13ch);
+  box-sizing: content-box;
+  min-width: 2ch; max-width: min(38vw, 28rem); flex: 0 1 auto;
+  width: var(--identity-field-width, 10ch);
+  font-size: 1.25rem; font-weight: 560; line-height: 1.2;
+  color: var(--color-text-secondary);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  background: var(--color-neutral-bg);
+  outline: none;
+  padding: 0.42em 0.72em;
+  transition: border-color 120ms ease, box-shadow 120ms ease, background 120ms ease;
 }
 .song-identity-field::placeholder { color: var(--color-text-tertiary); opacity: .82; }
-.song-identity-separator { flex: 0 0 auto; color: var(--color-text-tertiary); }
-.song-identity:focus-within { border-bottom-color: var(--color-accent); }
+.song-identity-field:focus {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+  box-shadow: 0 0 0 0.16rem color-mix(in srgb, var(--color-accent) 18%, transparent);
+}
+.song-identity-separator {
+  flex: 0 0 auto;
+  color: var(--color-text-tertiary);
+  font-size: 1.1rem;
+}
 .legacy-metadata-fields { display:grid; grid-template-columns:1fr 1fr; gap:.75rem; margin:1rem 0; }
 .legacy-metadata-fields label { display:flex; flex-direction:column; gap:.35rem; color:var(--color-text-secondary); font-size:.75rem; }
 .legacy-metadata-fields input { width:100%; border:1px solid var(--color-border-medium); border-radius:.55rem; padding:.55rem .65rem; color:var(--color-ink); background:var(--color-surface); }
@@ -3144,7 +3152,7 @@ body {
 .strum-modal-actions button.primary { color:#fff; border-color:var(--color-accent); background:var(--color-accent); }
 @media (max-width: 38rem) {
   .song-identity { flex-wrap: wrap; }
-  .song-identity-field { flex-basis: calc(50% - 1rem); font-size: 1.375rem; }
+  .song-identity-field { max-width: calc(100vw - 5rem); font-size: 1.125rem; }
   .legacy-metadata-fields { grid-template-columns:1fr; }
 }
 .meta-row {
@@ -8265,6 +8273,17 @@ body.is-timeline .container {
   font-weight: 700;
   color: var(--color-text-primary);
 }
+
+.tl-song-identity { flex: 0 1 auto; width: auto; }
+.tl-song-identity .song-identity-field {
+  flex: 0 1 auto;
+  width: var(--identity-field-width, 10ch);
+  border: 1px solid var(--color-border-light);
+  border-radius: 999px;
+  background: var(--color-neutral-bg);
+  padding: 0.42em 0.72em;
+  font-size: 1.125rem;
+}
 .tl-song-title::placeholder {
   color: var(--color-text-tertiary);
   font-weight: 500;
@@ -10110,7 +10129,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.283</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.284</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -34552,7 +34571,7 @@ function fitSongArtistField(input) {
   const context = canvas.getContext('2d');
   context.font = style.font || `${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
   const width = Math.ceil(context.measureText(text).width) + 2;
-  input.style.setProperty('--identity-artist-width', `${width}px`);
+  input.style.setProperty('--identity-field-width', `${width}px`);
 }
 
 function syncTimelineSongBar() {
@@ -34565,7 +34584,11 @@ function syncTimelineSongBar() {
     fitSongArtistField(artist);
     fitSongArtistField(DOM.songArtist);
   }
-  if (title && DOM.songTitle) title.value = DOM.songTitle.value;
+  if (title && DOM.songTitle) {
+    title.value = DOM.songTitle.value;
+    fitSongArtistField(title);
+    fitSongArtistField(DOM.songTitle);
+  }
   if (ts) ts.textContent = globalTimeSig || (DOM.globalTimeSig && DOM.globalTimeSig.value) || '4/4';
   if (key && DOM.rootKey) {
     // Список тональностей копируем из оригинального селектора: там он
@@ -34721,8 +34744,15 @@ function attachTimelineSongBar() {
     fitSongArtistField(DOM.songArtist);
   }
   if (title && DOM.songTitle) {
-    title.addEventListener('input', () => { DOM.songTitle.value = title.value; });
-    DOM.songTitle.addEventListener('input', () => { title.value = DOM.songTitle.value; });
+    title.addEventListener('input', () => {
+      DOM.songTitle.value = title.value;
+      fitSongArtistField(title); fitSongArtistField(DOM.songTitle);
+    });
+    DOM.songTitle.addEventListener('input', () => {
+      title.value = DOM.songTitle.value;
+      fitSongArtistField(DOM.songTitle); fitSongArtistField(title);
+    });
+    fitSongArtistField(title); fitSongArtistField(DOM.songTitle);
   }
   if (key && DOM.rootKey) {
     key.addEventListener('change', () => {
@@ -39304,6 +39334,7 @@ toggleTimeAndBeats();
     DOM.songArtist.value = loadedMeta.artist;
     DOM.songTitle.value = loadedMeta.title;
     fitSongArtistField(DOM.songArtist);
+    fitSongArtistField(DOM.songTitle);
     DOM.bpmInput.value = song.bpm || CONFIG.DEFAULT_BPM;
     globalKey = song.globalKey || 'C';
     keyMode = song.keyMode === 'auto' ? 'auto' : 'manual';
