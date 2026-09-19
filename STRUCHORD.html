@@ -10071,7 +10071,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.270</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.271</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30563,7 +30563,12 @@ function startStormSurprise() {
   clearStormTimers();
   stormSurprisePhase = 'charging';
   const layer = showStormTopLayer();
-  layer.className = 'storm-surprise-layer is-charging';
+  // Popover только что вошёл в top layer. Сначала браузер обязан
+  // зафиксировать кадр opacity:0, иначе первый показ и класс charging
+  // склеиваются в одну отрисовку и двухсекундный transition не виден.
+  layer.className = 'storm-surprise-layer';
+  void layer.getBoundingClientRect();
+  layer.classList.add('is-charging');
   const cloudOnlyMs = 2000 + randomBetween(300, 1000);
   const chargeMs = cloudOnlyMs + randomBetween(3000, 5000);
   // Сначала 2 секунды только сгущается туча, затем короткая случайная
@@ -30653,6 +30658,15 @@ function strikeStormControl(target) {
   glow.setAttribute('y', targetRect.top);
   glow.setAttribute('width', targetRect.width);
   glow.setAttribute('height', targetRect.height);
+  // SVG-вспышка повторяет реальную форму цели: круглая кнопка остаётся
+  // кругом, пилюля — пилюлей, карточка получает свой радиус, а не
+  // универсальный квадрат поверх любого объекта.
+  const radiusCss = getComputedStyle(target).borderTopLeftRadius || '0';
+  const radius = radiusCss.includes('%')
+    ? Math.min(targetRect.width, targetRect.height) * parseFloat(radiusCss) / 100
+    : parseFloat(radiusCss) || 0;
+  glow.setAttribute('rx', Math.min(radius, targetRect.width / 2));
+  glow.setAttribute('ry', Math.min(radius, targetRect.height / 2));
   glow.classList.remove('is-visible'); void glow.getBoundingClientRect(); glow.classList.add('is-visible');
   svg.classList.remove('is-striking'); void svg.getBoundingClientRect(); svg.classList.add('is-striking');
   target.classList.remove('storm-struck-control'); void target.getBoundingClientRect(); target.classList.add('storm-struck-control');

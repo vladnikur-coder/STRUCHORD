@@ -45,4 +45,7 @@ check(src.includes('playStormAmbience'), 'после тучи включаетс
 check(src.includes('cloudOnlyMs = 2000 + randomBetween(300, 1000)'), 'заряд начинается после тучи и случайной тишины');
 check(src.includes('pauseStormSurprise') && src.includes('resumeStormSurprise'), 'смена вкладки ставит событие на паузу');
 check(src.includes("getComputedStyle(cur).cursor === 'pointer'"), 'перехватываются кликабельные элементы с pointer-курсором');
+check(src.includes("layer.className = 'storm-surprise-layer';") && src.includes('void layer.getBoundingClientRect();'), 'перед затемнением зафиксирован прозрачный кадр');
+check(src.includes("getComputedStyle(target).borderTopLeftRadius"), 'glow считывает радиус реального объекта');
+check(src.includes("glow.setAttribute('rx'"), 'SVG-вспышка повторяет скругление цели');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);
