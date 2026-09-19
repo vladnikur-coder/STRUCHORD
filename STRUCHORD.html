@@ -3719,6 +3719,15 @@ body.is-section-dragging .section-header { cursor: grabbing; }
   cursor: pointer;
   transition: 0.1s;
 }
+/* B-43: заметка секции — нейтральная плашка, размер по тексту. */
+.section-badge--note {
+  background: var(--color-background-secondary);
+  color: var(--color-text-secondary);
+  font-style: italic;
+  font-weight: 400;
+  white-space: normal;
+  max-width: 100%;
+}
 .section-badge:hover {
   background: var(--color-tint-hover);
 }
@@ -9920,7 +9929,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.258</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.259</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20730,6 +20739,7 @@ function addSection(type) {
     id: nextId++,
     type,
     customName: null,
+    note: null,         // B-43: заметка у названия секции
     key: null,
     timeSig: null,
     bpm: null,          // ← новое поле
@@ -20805,6 +20815,7 @@ function cloneSection(id) {
     id: nextId++,
     type: orig.type,
     customName: orig.customName,
+    note: orig.note || null,
     key: orig.key,
     bpm: orig.bpm,
     timeSig: orig.timeSig,
@@ -21047,6 +21058,37 @@ function setSectionBpm(sectionId, bpm) {
   if (!syncSectionBpmBadge(sec)) requestRender();
   if (bpm) showToast(`BPM секции: ${bpm}`);
   else showToast('Секция использует глобальный BPM');
+}
+// ===== B-43: заметка секции =====
+// Подсказка по динамике, темпу и нюансам игры — текстовая плашка в
+// шапке карточки, ПОСЛЕДНЯЯ после остальных бейджей; размер плашки —
+// по тексту. Вход: меню «три точки» → «Заметка», либо клик по плашке.
+const SECTION_NOTE_MAX = 200;
+function setSectionNote(sectionId, note) {
+  const sec = sections.find(s => s.id === sectionId);
+  if (!sec) return;
+  const v = note == null ? '' : String(note).trim().slice(0, SECTION_NOTE_MAX);
+  const next = v || null;
+  if (sec.note === next) return;
+  songStore.dispatch('section/note', () => {
+    sec.note = next;
+  }, { quiet: true });
+  // Бейдж живёт в шапке — перестраиваем только её (B-25), без
+  // полного rerender ленты.
+  if (!syncSectionHeaderDom(sec)) requestRender();
+  showToast(next ? 'Заметка секции сохранена' : 'Заметка секции удалена');
+}
+function makeSectionNoteBadge(sec) {
+  const badge = document.createElement('span');
+  badge.className = 'section-badge section-badge--note';
+  badge.textContent = sec.note;
+  badge.title = 'Заметка секции — нажмите, чтобы изменить';
+  badge.onclick = (e) => {
+    e.stopPropagation();
+    const t = prompt('Заметка секции (динамика, темп, нюансы игры; пусто — удалить):', sec.note || '');
+    if (t !== null) setSectionNote(sec.id, t);
+  };
+  return badge;
 }
 function setSquareCustomBeats(sid, sqid, beats) {
   const s = sections.find((s) => s.id === sid);
@@ -30325,10 +30367,22 @@ function showSectionSettingsMenu(event, sectionId) {
   strumItem.onkeydown = (e) => {
     if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); strumItem.onclick(); }
   };
+  const noteItem = document.createElement('div');
+  noteItem.textContent = 'Заметка';
+  noteItem.setAttribute('role', 'menuitem');
+  noteItem.setAttribute('tabindex', '0');
+  noteItem.onclick = () => {
+    const sec = sections.find(s => s.id === sectionId);
+    const t = prompt('Заметка секции (динамика, темп, нюансы игры; пусто — удалить):', (sec && sec.note) || '');
+    if (t !== null) setSectionNote(sectionId, t);
+    menu.remove();
+  };
+  noteItem.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); noteItem.onclick(); } };
   menu.appendChild(bpmItem);
   menu.appendChild(modItem);
   menu.appendChild(timeItem);
   menu.appendChild(strumItem);
+  menu.appendChild(noteItem);
   document.body.appendChild(menu);
   const mr = menu.getBoundingClientRect();
   const br = btn.getBoundingClientRect();
@@ -34096,6 +34150,8 @@ function renderSectionsGrid() {
       badgesDiv.appendChild(strumWrap);
       strumPreviewStepEls.set(sec.id, Array.from(preview.querySelectorAll('.strum-step')));
     }
+    // B-43: заметка секции — последняя плашка шапки.
+    if (sec.note) badgesDiv.appendChild(makeSectionNoteBadge(sec));
     // Старый бейдж повтора секции в заголовке больше не добавляется
     const settingsBtn = div.querySelector('.section-settings-btn');
     settingsBtn.onclick = (e) => {
@@ -35418,6 +35474,8 @@ function syncSectionHeaderDom(sec) {
     badgesDiv.appendChild(wrap);
     strumPreviewStepEls.set(sec.id, Array.from(preview.querySelectorAll('.strum-step')));
   }
+  // B-43: заметка — последняя плашка (та же позиция, что в полной сборке).
+  if (sec.note) badgesDiv.appendChild(makeSectionNoteBadge(sec));
 
   attachEditLabelEvents();
   if (window.scheduleHistorySnapshot) window.scheduleHistorySnapshot();
@@ -37652,6 +37710,7 @@ toggleTimeAndBeats();
         id: sec.id,
         type: sec.type,
         customName: sec.customName || null,
+        note: sec.note || null,
         key: sec.key || null,
         shift: sec.shift ?? null,
         timeSig: sec.timeSig || null,
@@ -38035,6 +38094,7 @@ toggleTimeAndBeats();
         id: idFor(rawSec.id),
         type,
         customName: type === 'Custom' ? asSafeText(rawSec.customName, SONG_LIMITS.MAX_TEXT) || 'Кастом' : null,
+        note: rawSec.note == null ? null : (asSafeText(rawSec.note, SONG_LIMITS.MAX_TEXT) || null),
         key: validKeys.has(rawSec.key) && rawSec.key !== 'auto' ? rawSec.key : null,
         shift: rawSec.shift == null ? null : asSafeInt(rawSec.shift, 0, -11, 11),
         timeSig: rawSec.timeSig == null ? null : asSafeTimeSig(rawSec.timeSig, null),
