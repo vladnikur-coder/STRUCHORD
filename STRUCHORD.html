@@ -10230,7 +10230,7 @@ html:not([data-theme='dark']) .storm-achievement-spark { fill:#fff9b8; stroke:#a
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.296</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.297</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30453,16 +30453,39 @@ function persistStormSecret() {
   } catch (e) {}
 }
 function playStormAchievementChime() {
+  // Загруженный пользователем слой — смысловой центр ачивки. HTMLAudio
+  // выбран намеренно: браузер декодирует mp3 сам, а SW держит его офлайн.
+  const sample = new Audio('./uploads/220.mp3');
+  sample.volume = 0.72;
+  sample.play().catch(() => { /* звук мог быть запрещён до пользовательского жеста */ });
+
   const ctx = getAudioContext();
   if (!ctx || ctx.state !== 'running') return;
   const now = ctx.currentTime;
+  // Прежний чистый двухнотный сигнал оставляем тихим входным акцентом.
   [0, .09].forEach((delay, i) => {
     const osc = ctx.createOscillator(), gain = ctx.createGain();
     osc.type = 'sine'; osc.frequency.setValueAtTime(i ? 880 : 660, now + delay);
     gain.gain.setValueAtTime(.0001, now + delay);
-    gain.gain.exponentialRampToValueAtTime(.045, now + delay + .018);
+    gain.gain.exponentialRampToValueAtTime(.026, now + delay + .018);
     gain.gain.exponentialRampToValueAtTime(.0001, now + delay + .28);
     osc.connect(gain); gain.connect(ctx.destination); osc.start(now + delay); osc.stop(now + delay + .3);
+  });
+  // Короткие полосовые пробои сопровождают рисование молнии, рамки и букв.
+  [0.28, .78, 1.42, 2.18, 3.12].forEach((delay, i) => {
+    const duration = .045 + i * .012;
+    const frames = Math.max(1, Math.floor(ctx.sampleRate * duration));
+    const buffer = ctx.createBuffer(1, frames, ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let j = 0; j < frames; j++) data[j] = (Math.random() * 2 - 1) * (1 - j / frames);
+    const source = ctx.createBufferSource(), filter = ctx.createBiquadFilter(), gain = ctx.createGain();
+    source.buffer = buffer; filter.type = 'bandpass';
+    filter.frequency.setValueAtTime(1850 + i * 430, now + delay); filter.Q.value = 2.8;
+    gain.gain.setValueAtTime(.0001, now + delay);
+    gain.gain.exponentialRampToValueAtTime(.055, now + delay + .006);
+    gain.gain.exponentialRampToValueAtTime(.0001, now + delay + duration);
+    source.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
+    source.start(now + delay); source.stop(now + delay + duration + .01);
   });
 }
 function showStormAchievement(achievement) {

@@ -13,6 +13,8 @@ ok(src.includes('storm-achievement-outline'),'рамка рисуется лин
 ok(src.includes('storm-achievement-bolt'),'есть минималистичная молния');
 ok(src.includes('storm-achievement-trace'),'есть трассировка контура');
 ok(src.includes('playStormAchievementChime'),'есть тихий отдельный сигнал');
+ok(src.includes("new Audio('./uploads/220.mp3')"),'подключён загруженный звук ачивки');
+ok(src.includes('[0.28, .78, 1.42, 2.18, 3.12]'),'рисование сопровождают электрические пробои');
 ok(src.includes("if (!stormReducedMotion() && stormCanStart()) startStormSurprise()"),'ачивка переходит в первый заряд');
 ok(src.includes('4 * 60 * 1000')&&src.includes('12 * 60 * 1000'),'повторы через 4–12 минут');
 ok(src.includes("localStorage.getItem(STORM_UNLOCK_KEY) === '1'"),'разблокировка постоянна');
