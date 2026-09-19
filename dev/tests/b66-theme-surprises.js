@@ -7,7 +7,7 @@ let ok = 0;
 function check(cond, msg) { if (!cond) throw new Error('ПРОВАЛ: ' + msg); console.log('OK:', msg); ok++; }
 check(src.includes('id="stormSecretSwitch"'), 'у разблокированной Грозы есть локальный выключатель');
 check(src.includes("STORM_ENABLED_KEY = 'struchord-storm-enabled'"), 'локальная настройка имеет постоянный ключ');
-check(src.includes('STORM_WAIT_MIN_MS = 4 * 60 * 1000') && src.includes('STORM_WAIT_MAX_MS = 12 * 60 * 1000'), 'финальный интервал 4–12 минут');
+check(src.includes('STORM_WAIT_MIN_MS = 3 * 60 * 1000') && src.includes('STORM_WAIT_MAX_MS = 7 * 60 * 1000'), 'финальный интервал 3–7 минут');
 check(src.includes("activeSchemeId() === 'storm'"), 'событие ограничено схемой «Гроза»');
 check(src.includes("document.visibilityState === 'visible'"), 'скрытая вкладка исключена');
 check(src.includes('!stormReducedMotion()'), 'prefers-reduced-motion учитывается в воротах');

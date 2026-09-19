@@ -16,7 +16,7 @@ ok(src.includes('playStormAchievementChime'),'есть тихий отдельн
 ok(src.includes("new Audio('./uploads/220.mp3')"),'подключён загруженный звук ачивки');
 ok(src.includes('[0.28, .78, 1.42, 2.18, 3.12]'),'рисование сопровождают электрические пробои');
 ok(src.includes("if (!stormReducedMotion() && stormCanStart()) startStormSurprise()"),'ачивка переходит в первый заряд');
-ok(src.includes('4 * 60 * 1000')&&src.includes('12 * 60 * 1000'),'повторы через 4–12 минут');
+ok(src.includes('3 * 60 * 1000')&&src.includes('7 * 60 * 1000'),'повторы через 3–7 минут');
 ok(src.includes("localStorage.getItem(STORM_UNLOCK_KEY) === '1'"),'разблокировка постоянна');
 ok(src.includes('stormSeenAchievements = new Set'),'ачивки учитываются отдельно');
 ok(src.includes("maybeUnlockStormSecret('scheme')"),'ручной выбор Грозы проверяет секрет');
