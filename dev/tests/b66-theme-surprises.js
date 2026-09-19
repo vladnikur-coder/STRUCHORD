@@ -7,7 +7,7 @@ let ok = 0;
 function check(cond, msg) { if (!cond) throw new Error('ПРОВАЛ: ' + msg); console.log('OK:', msg); ok++; }
 check(src.includes('id="schemeSurprises"'), 'общий выключатель неожиданностей есть в меню');
 check(src.includes("SCHEME_SURPRISES_KEY = 'struchord-scheme-surprises'"), 'настройка имеет постоянный ключ');
-check(/STORM_WAIT_MIN_MS\s*=\s*30000/.test(src) && /STORM_WAIT_MAX_MS\s*=\s*120000/.test(src), 'частый интервал разработки 30–120 секунд');
+check(/STORM_WAIT_MIN_MS\s*=\s*10000/.test(src) && /STORM_WAIT_MAX_MS\s*=\s*20000/.test(src), 'частый интервал приёмки 10–20 секунд');
 check(src.includes("activeSchemeId() === 'storm'"), 'событие ограничено схемой «Гроза»');
 check(src.includes("document.visibilityState === 'visible'"), 'скрытая вкладка исключена');
 check(src.includes('!stormReducedMotion()'), 'prefers-reduced-motion учитывается в воротах');
