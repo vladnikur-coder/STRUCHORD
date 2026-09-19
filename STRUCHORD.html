@@ -8265,6 +8265,13 @@ body.is-timeline .container {
   text-transform: uppercase;
   color: var(--color-text-tertiary);
 }
+/* 0.262: шапка ленты — точка отсчёта для её выпадающего списка
+   тональностей (аналог .meta-row в редакторе). */
+.tl-song-meta {
+  position: relative;
+}
+/* Нативный select ленты скрыт (meta-select-native); стиль оставлен на
+   случай отката. */
 .tl-key-select {
   border: 0.0625rem solid var(--color-border-medium);
   border-radius: 0.625rem;
@@ -9965,7 +9972,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.261</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.262</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10332,10 +10339,20 @@ body.is-timeline.is-playing .timeline-playhead {
             aria-label="Название песни"
           />
           <div class="tl-song-meta">
-            <label class="tl-meta-item">
+            <span class="tl-meta-item">
               <span class="tl-meta-label">Тональность</span>
-              <select class="tl-key-select" id="tlRootKey" aria-label="Тональность"></select>
-            </label>
+              <!-- 0.262: тональность на ленте — пилюля, как в редакторе
+                   (B-80): нативный select остаётся скрытым источником
+                   истины, syncTimelineSongBar копирует в него опции
+                   редактора. -->
+              <select class="tl-key-select meta-select-native" id="tlRootKey" aria-label="Тональность"></select>
+              <button class="meta-pill meta-pill--tl" id="tlKeyPill" onclick="toggleMetaPicker('tlKey')"
+                      aria-haspopup="listbox" aria-expanded="false" title="Тональность">
+                <span id="tlKeyPillName"></span>
+                <i class="ti ti-chevron-down"></i>
+              </button>
+              <div class="meta-pill-list" id="tlKeyPickerList" role="listbox" aria-label="Тональность" hidden></div>
+            </span>
             <span class="tl-meta-item">
               <span class="tl-meta-label">Размер</span>
               <span class="tl-meta-value" id="tlTimeSig">4/4</span>
@@ -20950,6 +20967,84 @@ function setSectionKey(sid, nk) {
     if (DOM.chordWheelModal.classList.contains('open')) drawWheel();
   }
 }
+// ===== 0.262: модуляция секции — по-настоящему =====
+// Раньше −/+ ставили sec.key/sec.shift и рисовали плашку: аккорды внутри
+// секции не менялись, бейдж отставал на шаг (sec.shift писался ПОСЛЕ
+// синхронизации шапки), а в авто-режиме тональности база расчёта уезжала
+// (автоопределение перезаписывало globalKey по составу аккордов). Теперь
+// одна команда: ключ, сдвиг, транспонирование аккордов и выбранных форм;
+// явная модуляция выключает авто-режим — иначе он пересчитал бы базу по
+// уже транспонированным аккордам секции.
+function setSectionModulation(sectionId, shift) {
+  const sec = sections.find(s => s.id === sectionId);
+  if (!sec) return;
+  const prevShift = sec.shift != null ? sec.shift
+    : (sec.key ? getRawSemitonesBetween(globalKey, sec.key) : 0);
+  const delta = shift - prevShift;
+  const newKey = shift === 0 ? null : getKeyByShift(globalKey, shift);
+  if (newKey !== null) {
+    if (globalKey.endsWith('m') !== newKey.endsWith('m')) {
+      showToast('Нельзя сменить лад (мажор ↔ минор)');
+      return;
+    }
+    const validKeys = [...DOM.rootKey.options].map((o) => o.value);
+    if (!resolveValidKey(newKey, validKeys)) {
+      showToast('Такая тональность недоступна');
+      return;
+    }
+  }
+  if (keyMode === 'auto' && delta !== 0) {
+    // Явная модуляция — управление тональностью переходит к пользователю.
+    songStore.dispatch('key/mode-manual', () => {
+      keyMode = 'manual';
+    });
+    DOM.rootKey.value = globalKey;
+    updateAutoKeyBadge();
+  }
+  songStore.dispatch('section/modulation', () => {
+    sec.key = newKey;
+    sec.shift = shift === 0 ? null : shift;
+    if (delta !== 0) {
+      for (const sq of sec.squares)
+        for (const ev of sq.events)
+          if (ev.chord && ev.chord.trim() !== '') {
+            ev.chord = transposeChord(ev.chord, delta);
+            // Выбранную форму двигаем по грифу вместе с аккордом (как
+            // transposeAllGlobal): нельзя — снимаем выбор.
+            if (ev.fingering) {
+              const moved = transposeFingeringShape(ev.fingering, delta);
+              if (moved) {
+                ev.fingering = moved;
+                // B-74: лады разжатого баррэ едут вместе с формой.
+                if (Array.isArray(ev.barreOff)) {
+                  const movedBarre = ev.barreOff
+                    .map((f) => f + delta)
+                    .filter((f) => f >= 1 && f <= 24);
+                  if (movedBarre.length) ev.barreOff = movedBarre;
+                  else delete ev.barreOff;
+                }
+              } else {
+                delete ev.fingering;
+                delete ev.fingeringTuning;
+                delete ev.barreOff;
+              }
+            }
+          }
+    }
+  }, { quiet: true });
+  fingeringCache.clear();
+  preferredFingeringByChord.clear();
+  // Шапка (бейдж со СВЕЖИМ сдвигом) + квадраты (аккорды) + ступени.
+  if (!syncSectionHeaderDom(sec)) requestRender();
+  else rerenderSectionSquaresDom(sec);
+  updateCellsDegrees();
+  if (timelineMode) {
+    renderTimeline();
+    syncTimelineSongBar();
+  }
+  if (shift === 0) showToast('Модуляция снята, аккорды секции возвращены');
+  else showToast(`Модуляция ${shift > 0 ? '+' : ''}${shift}: аккорды секции транспонированы`);
+}
 function setSectionTimeSig(sid, nts) {
   const s = sections.find((s) => s.id === sid);
   if (!s) return;
@@ -24854,6 +24949,8 @@ document.addEventListener('click', (e) => {
 const META_PICKERS = {
   key: { pill: 'keyPill', list: 'keyPickerList', name: 'keyPillName', select: 'rootKey' },
   timeSig: { pill: 'timeSigPill', list: 'timeSigPickerList', name: 'timeSigPillName', select: 'globalTimeSig' },
+  // 0.262: тональность на ленте — тот же механизм, свой скрытый select.
+  tlKey: { pill: 'tlKeyPill', list: 'tlKeyPickerList', name: 'tlKeyPillName', select: 'tlRootKey' },
 };
 // Читаемая подпись для значения тональности (пункт «auto» показывает
 // актуальный текст с бейджем «(авто)» из #autoKeyOption).
@@ -24921,7 +25018,7 @@ function toggleMetaPicker(kind, force) {
   btn.classList.toggle('is-open', show);
   if (show) {
     // Ставим список под пилюлю (как у строя): смещение от начала панели.
-    const bar = btn.closest('.meta-row');
+    const bar = btn.closest('.meta-row, .tl-song-meta');
     if (bar) {
       const barRect = bar.getBoundingClientRect();
       const pillRect = btn.getBoundingClientRect();
@@ -24952,6 +25049,10 @@ function syncMetaPills() {
   const tsSel = document.getElementById('globalTimeSig');
   const tsName = document.getElementById('timeSigPillName');
   if (tsSel && tsName) tsName.textContent = tsSel.value;
+  // 0.262: лента. Значение в tlRootKey гонит syncTimelineSongBar.
+  const tlKeySel = document.getElementById('tlRootKey');
+  const tlKeyName = document.getElementById('tlKeyPillName');
+  if (tlKeySel && tlKeyName) tlKeyName.textContent = metaKeyLabel(tlKeySel, tlKeySel.value);
   // Если открыт список тональности — обновим и подпись пункта «auto»
   // (его текст меняется на лету: «C (авто)»).
   const keyList = document.getElementById('keyPickerList');
@@ -30536,8 +30637,7 @@ function showSectionModulationControls(sectionId) {
   resetBtn.textContent = '✕';
   resetBtn.className = 'modulation-round-btn reset-btn';
   resetBtn.onclick = () => {
-    sec.shift = null;
-    setSectionKey(sectionId, null);
+    setSectionModulation(sectionId, 0); // 0.262: снимает модуляцию и возвращает аккорды
     panel.remove();
   };
   panel.appendChild(resetBtn);
@@ -30586,14 +30686,9 @@ function showSectionModulationControls(sectionId) {
   };
   setTimeout(() => document.addEventListener('click', closeHandler), 0);
   function applyShift(shift) {
-    if (shift === 0) {
-      setSectionKey(sectionId, null);
-      sec.shift = null;
-    } else {
-      const newKey = getKeyByShift(globalKey, shift);
-      setSectionKey(sectionId, newKey);
-      sec.shift = shift;
-    }
+    // 0.262: одна команда — ключ, сдвиг и транспонирование аккордов
+    // секции (раньше — только плашка, и бейдж отставал на шаг).
+    setSectionModulation(sectionId, shift);
     updateDisplay();
   }
 }
@@ -33759,6 +33854,10 @@ function syncTimelineSongBar() {
     }
     key.value = DOM.rootKey.value;
   }
+  // 0.262: подпись пилюли тональности. syncMetaPills() обычно гонится
+  // из renderMetaLayer, но render() редактора в режиме ленты не зовётся —
+  // обновляем здесь, при каждом синке шапки ленты.
+  syncMetaPills();
 }
 
 // Ручная поправка масштаба поверх автомасштаба по темпу.
