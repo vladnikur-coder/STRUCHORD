@@ -18,8 +18,8 @@ w.addEventListener('load',()=>{
   console.log('=== 1. Пресеты на месте и валидны ===');
   ok('validateStrumPresets без замечаний', w.eval('validateStrumPresets().length')===0,
      w.eval('JSON.stringify(validateStrumPresets())'));
-  ok('shuffle загружен', w.eval("!!STRUM_PRESETS.find(p=>p.id==='shuffle')"));
-  ok('six-shuffle загружен', w.eval("!!STRUM_PRESETS.find(p=>p.id==='six-shuffle')"));
+  // 0.257: готовые пресеты shuffle/six-shuffle удалены (правка пользователя);
+  // свинг остался функцией редактора — его и проверяет остальной тест.
 
   console.log('\n=== 2. Кнопка «3» в редакторе ===');
   w.eval("addSection('Verse'); render();");
@@ -76,7 +76,8 @@ w.addEventListener('load',()=>{
 
   console.log('\n=== 7. Шаффл совместим с размерами ===');
   const compat=w.eval(`(function(){
-    const p=STRUM_PRESETS.find(x=>x.id==='six-shuffle');
+    const p={ id:'six-shuffle', mode:'strum', base:4, subdivision:2, swing:true,
+      steps:['D',null,'D','U',null,'U','D','U'] }; // форма бывшего пресета
     return JSON.stringify(['4/4','3/4','12/8'].map(ts=>ts+':'+(isPresetCompatible(p,ts,getGridUnitsPerBar(ts))?'да':'нет')));
   })()`);
   console.log('      ', compat);

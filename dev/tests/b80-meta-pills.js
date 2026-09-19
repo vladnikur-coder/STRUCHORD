@@ -58,7 +58,9 @@ check('списки изначально скрыты (hidden)',
 check('CSS .meta-select-native присутствует', /\.meta-select-native\s*\{/.test(html));
 check('CSS .meta-pill присутствует', /\.meta-pill\s*\{/.test(html));
 check('CSS .meta-pill-list присутствует', /\.meta-pill-list\s*\{/.test(html));
-check('render() зовёт syncMetaPills()', /function render\(\)\s*\{[\s\S]{0,120}syncMetaPills\(\)/.test(html));
+check('render() зовёт слой меты (renderMetaLayer → syncMetaPills)',
+  /function render\(\)\s*\{[\s\S]{0,1600}renderMetaLayer\(\)/.test(html) &&
+  /function renderMetaLayer\(\)\s*\{[\s\S]{0,200}syncMetaPills\(\)/.test(html));
 
 // --- 2. Вырезаем блок функций пилюль и исполняем его в мини-DOM ---
 const start = html.indexOf('const META_PICKERS = {');

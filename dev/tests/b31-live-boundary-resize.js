@@ -192,7 +192,7 @@ w.addEventListener('load', async () => {
     evl(`return Array.from(document.querySelectorAll('.resize-count-cell .chord-count.is-edge')).map(n => n.textContent).join('|')`));
   ok('edge-отступ счёта во время resize плавный и transform-only',
     /\.resize-metric-overlay \.resize-count-cell \.chord-count \{[\s\S]*transition:\s*transform 0\.12s/.test(fs.readFileSync(file, 'utf8'))
-      && /\.resize-metric-overlay \.resize-count-cell \.chord-count\.is-edge \{[\s\S]*transform:\s*translateX\(2px\)/.test(fs.readFileSync(file, 'utf8')),
+      && /\.resize-metric-overlay \.resize-count-cell \.chord-count\.is-edge \{[\s\S]*transform:\s*translateX\(0\.125rem\)/.test(fs.readFileSync(file, 'utf8')),
     'no smooth transform edge offset');
   ok('засечка под текущей границей плавно скрывается в реальном времени',
     evl(`return !!document.querySelector('.resize-frozen-tick.is-hidden')`)

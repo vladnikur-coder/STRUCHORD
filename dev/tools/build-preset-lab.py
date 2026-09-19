@@ -32,6 +32,7 @@ OUT_FRET = ROOT / "fingering-lab.html"
 # тексту объявления — вырезается весь блок целиком).
 DECLS = [
     r"const STRING_OPEN_FREQ = \[[^\]]*\];",
+    r"const NO_TRIPLET_TIME_SIGS = new Set\(\[[^\]]*\]\);",
     r"const pluckBufferCache = new Map\(\);",
     r"let guitarDryBus = null,[\s\S]*?guitarMasterGain = null;",
     r"const PICK_BASS_TOKEN = '.';",
@@ -61,7 +62,7 @@ FUNCS = [
     "normalizeChordCase",
     # ритм-сетка и пресеты
     "getGridUnitDurationSeconds", "parseTimeSig", "getGridUnitsPerBar",
-    "isCompoundMeter", "normalizePickStep", "isPickBassToken",
+    "isCompoundMeter", "timeSigAllowsTriplets", "normalizePickStep", "isPickBassToken",
     "pickStepSortValue", "pickTokenLabel", "getBassStringsForShape",
     "resolvePickStepStrings", "buildPatternFromPreset", "isPresetCompatible",
     "findRepeatUnit", "patternsEqual", "resamplePatternSteps",
@@ -110,6 +111,9 @@ FRET_FUNCS = [
     "dimColorPc", "scoreShape", "checkFormValidity", "detectBarre",
     "detectAllBarres", "solveFingerAssignment", "analyzeShapeGrip", "isEtalonGrip",
     "shapeMissingDefiningTones",
+    "asSafeFingers", "canonicalBarreOff", "normalizeBarreOffSet",
+    "computeFingersForShape", "fingeringIdentity",
+    "ufEntryShape", "ufEntryBarre", "ufEntryFingers",
     "detectBaseChordType",
     "tryCagedVariants", "tryModifiedCagedVariants", "_generateCoreVariants",
     "collectFamilyDerivedShapes", "generateFingeringVariants",

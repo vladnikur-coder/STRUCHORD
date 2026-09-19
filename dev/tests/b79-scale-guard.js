@@ -21,7 +21,7 @@ const counts = JSON.parse(out);
 
 const LIMITS = {
   'font-size': 0,  // все размеры шрифта/иконок должны быть в rem
-  'svg-size': 0,   // все <svg> должны задавать размер в em
+  'svg-size': 0,   // все <svg> должны задавать размер в rem (атрибут или style)
 };
 
 let failed = 0;
