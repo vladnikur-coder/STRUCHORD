@@ -30,4 +30,5 @@ ok(src.includes('DOM.songTitle.value = loadedMeta.title'), 'загрузка с�
 ok(src.includes('artist.value = DOM.songArtist.value'), 'редактор синхронизируется с лентой');
 ok(src.includes('DOM.songArtist.value = artist.value'), 'лента синхронизируется с редактором');
 ok(src.includes('@media (max-width: 38rem)'), 'пара адаптируется на узком экране');
+ok(src.includes('function fitSongArtistField'), 'дефис следует за умной шириной исполнителя');
 console.log(`\nALL OK — ${n} проверок B-87.`);

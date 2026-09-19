@@ -3122,9 +3122,16 @@ body {
   padding-bottom: 0.625rem; color: var(--color-text-secondary);
 }
 .song-identity-field {
-  min-width: 0; flex: 1 1 50%; font-size: 1.75rem; font-weight: 560;
+  min-width: 0; flex: 1 1 auto; font-size: 1.75rem; font-weight: 560;
   color: var(--color-text-secondary); border: none; background: transparent;
   outline: none; padding: 0;
+}
+/* Исполнитель занимает ровно ширину текста (или плейсхолдера): дефис
+   остаётся рядом с ним, а не висит посередине свободной строки. */
+.song-identity .song-artist,
+.song-identity #tlSongArtist {
+  flex: 0 1 auto;
+  width: var(--identity-artist-width, 13ch);
 }
 .song-identity-field::placeholder { color: var(--color-text-tertiary); opacity: .82; }
 .song-identity-separator { flex: 0 0 auto; color: var(--color-text-tertiary); }
@@ -10103,7 +10110,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.280</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.281</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -34535,12 +34542,25 @@ function attachTimelinePanelReposition() {
 // вызываем его штатный обработчик — так вся логика (пересчёт
 // аппликатур, транспонирование, автоопределение тональности) работает
 // без дублирования, и режимы не могут разъехаться.
+function fitSongArtistField(input) {
+  if (!input) return;
+  const text = input.value.trim();
+  // Пока поле пустое, сохраняем место под полный плейсхолдер. После ввода
+  // ширина следует за текстом, поэтому дефис визуально стоит сразу за именем.
+  const chars = text ? Math.min(36, Math.max(2, Array.from(text).length + 0.5)) : 13;
+  input.style.setProperty('--identity-artist-width', `${chars}ch`);
+}
+
 function syncTimelineSongBar() {
   const artist = document.getElementById('tlSongArtist');
   const title = document.getElementById('tlSongTitle');
   const key = document.getElementById('tlRootKey');
   const ts = document.getElementById('tlTimeSig');
-  if (artist && DOM.songArtist) artist.value = DOM.songArtist.value;
+  if (artist && DOM.songArtist) {
+    artist.value = DOM.songArtist.value;
+    fitSongArtistField(artist);
+    fitSongArtistField(DOM.songArtist);
+  }
   if (title && DOM.songTitle) title.value = DOM.songTitle.value;
   if (ts) ts.textContent = globalTimeSig || (DOM.globalTimeSig && DOM.globalTimeSig.value) || '4/4';
   if (key && DOM.rootKey) {
@@ -34683,8 +34703,18 @@ function attachTimelineSongBar() {
   const title = document.getElementById('tlSongTitle');
   const key = document.getElementById('tlRootKey');
   if (artist && DOM.songArtist) {
-    artist.addEventListener('input', () => { DOM.songArtist.value = artist.value; });
-    DOM.songArtist.addEventListener('input', () => { artist.value = DOM.songArtist.value; });
+    artist.addEventListener('input', () => {
+      DOM.songArtist.value = artist.value;
+      fitSongArtistField(artist);
+      fitSongArtistField(DOM.songArtist);
+    });
+    DOM.songArtist.addEventListener('input', () => {
+      artist.value = DOM.songArtist.value;
+      fitSongArtistField(DOM.songArtist);
+      fitSongArtistField(artist);
+    });
+    fitSongArtistField(artist);
+    fitSongArtistField(DOM.songArtist);
   }
   if (title && DOM.songTitle) {
     title.addEventListener('input', () => { DOM.songTitle.value = title.value; });
@@ -39269,6 +39299,7 @@ toggleTimeAndBeats();
     const loadedMeta = songMetadataOf(song);
     DOM.songArtist.value = loadedMeta.artist;
     DOM.songTitle.value = loadedMeta.title;
+    fitSongArtistField(DOM.songArtist);
     DOM.bpmInput.value = song.bpm || CONFIG.DEFAULT_BPM;
     globalKey = song.globalKey || 'C';
     keyMode = song.keyMode === 'auto' ? 'auto' : 'manual';
