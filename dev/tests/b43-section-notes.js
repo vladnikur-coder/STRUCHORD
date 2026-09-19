@@ -79,7 +79,14 @@ w.addEventListener('load', async () => {
   ok('плашка стала инпутом', !!inp);
   ok('инпут несёт текущий текст', inp && inp.value === 'Тут вступает соло');
   ok('ширина инпута — по содержимому (ch)', inp && /ch$/.test(inp.style.width), inp && inp.style.width);
+  ok('шрифт инпута = шрифту плашки', inp && inp.style.fontSize === '0.75rem', inp && inp.style.fontSize);
+  const w0 = inp && parseFloat(inp.style.width);
+  inp.value = 'Очень длинная новая заметка про динамику и темп';
+  inp.dispatchEvent(new w.Event('input', { bubbles: true }));
+  ok('инпут растёт при печатании', parseFloat(inp.style.width) > w0,
+     w0 + ' → ' + parseFloat(inp.style.width));
   inp.value = 'Соло на две доли позже';
+  inp.dispatchEvent(new w.Event('input', { bubbles: true }));
   press(inp, 'Enter');
   ok('Enter сохранил текст', noteOf(0) === 'Соло на две доли позже', JSON.stringify(noteOf(0)));
   ok('плашка вернулась с новым текстом', noteBadge() && noteBadge().textContent === 'Соло на две доли позже');
