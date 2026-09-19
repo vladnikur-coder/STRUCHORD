@@ -20,6 +20,7 @@ ok(src.includes('3 * 60 * 1000')&&src.includes('7 * 60 * 1000'),'повторы 
 ok(src.includes("localStorage.getItem(STORM_UNLOCK_KEY) === '1'"),'разблокировка постоянна');
 ok(src.includes('stormSeenAchievements = new Set'),'ачивки учитываются отдельно');
 ok(src.includes("maybeUnlockStormSecret('scheme')"),'ручной выбор Грозы проверяет секрет');
+ok(src.includes('stormSeenAchievements.has(achievement.id)')&&src.includes('requestAnimationFrame(() =>'),'повторное совпадение сразу запускает эффект без ачивки');
 ok((src.match(/maybeUnlockStormSecret\('song'\)/g)||[]).length>=2,'загрузка и импорт проверяют секрет');
 ok(src.includes('documentSeal: asSafeText(rawSong.documentSeal'),'подпись проходит санитайзер');
 ok(src.includes("...(currentSongSeal ? { documentSeal: currentSongSeal } : {})"),'подпись переживает сохранение');
