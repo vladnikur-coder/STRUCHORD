@@ -5,7 +5,8 @@ const path = require('path');
 const src = fs.readFileSync(path.join(__dirname, '..', '..', 'STRUCHORD.html'), 'utf8');
 let n=0; function ok(v,m){ if(!v) throw new Error('ПРОВАЛ: '+m); console.log('OK:',m); n++; }
 ok(src.includes('id="songArtist"') && src.includes('id="songTitle"'), 'редактор имеет два независимых поля');
-ok(src.includes('Исполнитель...</') || src.includes('placeholder="Исполнитель..."'), 'есть плейсхолдер исполнителя');
+ok(src.includes('placeholder="Исполнитель"'), 'есть лаконичный плейсхолдер исполнителя');
+ok(src.includes('placeholder="Название"'), 'есть лаконичный плейсхолдер названия');
 ok(src.includes('song-identity-separator'), 'между полями есть дефис');
 ok(src.includes('id="tlSongArtist"') && src.includes('id="tlSongTitle"'), 'лента имеет ту же пару полей');
 ok(src.includes('metadata: currentSongMetadata()'), 'сохранение пишет объект metadata');
