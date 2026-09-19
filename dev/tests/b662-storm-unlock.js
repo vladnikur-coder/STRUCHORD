@@ -28,5 +28,5 @@ ok(src.includes('resetStormSecretForTesting'),'есть временный по�
 ok(src.includes("localStorage.removeItem(STORM_UNLOCK_KEY)"),'сброс забывает разблокировку');
 ok(src.includes('stormReducedMotion()'),'учтено уменьшение движения');
 ok(src.includes('.storm-achievement.is-visible .storm-achievement-outline')&&src.includes('animation:none'),'reduced motion отключает трассировку');
-ok(src.includes("item.querySelector('.storm-secret-control')?.remove()"),'быстрый список не клонирует switch с ID');
+ok(src.includes("secretControl.removeAttribute('id')") && src.includes("secretSwitch.onclick"),'быстрый список получает рабочий switch без дублирования ID');
 console.log(`\nALL OK — ${n} проверок B-66.2.`);
