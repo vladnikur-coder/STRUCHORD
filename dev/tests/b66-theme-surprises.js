@@ -39,13 +39,14 @@ check(src.includes('const rolls = ['), 'гром собран из нескол�
 check(src.includes('transition: opacity 2s ease'), 'туча плавно появляется и рассеивается за 2 секунды');
 check(src.includes("setAttribute('popover', 'manual')"), 'молния поднимается в нативный top layer');
 check(src.includes('storm-lightning-filament-a') && src.includes('storm-lightning-filament-b'), 'у молнии есть две объёмные жилы');
-check(src.includes('storm-target-glow'), 'вспышка цели рисуется в том же верхнем слое');
+check((src.match(/storm-impact-spark-\d+/g) || []).length >= 12, 'в верхнем слое подготовлен веер из 12 искр');
 check(src.includes('randomBetween(r.left + insetX'), 'точка удара выбирается внутри цели');
 check(src.includes('playStormAmbience'), 'после тучи включается ветер или далёкий гром');
 check(src.includes('cloudOnlyMs = 2000 + randomBetween(300, 1000)'), 'заряд начинается после тучи и случайной тишины');
 check(src.includes('pauseStormSurprise') && src.includes('resumeStormSurprise'), 'смена вкладки ставит событие на паузу');
 check(src.includes("getComputedStyle(cur).cursor === 'pointer'"), 'перехватываются кликабельные элементы с pointer-курсором');
 check(src.includes("layer.className = 'storm-surprise-layer';") && src.includes('void layer.getBoundingClientRect();'), 'перед затемнением зафиксирован прозрачный кадр');
-check(src.includes("getComputedStyle(target).borderTopLeftRadius"), 'glow считывает радиус реального объекта');
-check(src.includes("glow.setAttribute('rx'"), 'SVG-вспышка повторяет скругление цели');
+check(src.includes('storm-control-jolt'), 'сама цель получает короткий световой толчок');
+check(src.includes('impactSparks.forEach'), 'искры строятся из точной точки контакта');
+check(!src.includes('storm-target-glow'), 'тяжёлая контурная glow-рамка полностью удалена');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);
