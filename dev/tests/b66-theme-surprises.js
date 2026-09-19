@@ -26,9 +26,12 @@ check(src.includes('@media (prefers-reduced-motion: reduce)'), 'CSS также �
 check(src.includes("localStorage.setItem(SCHEME_SURPRISES_KEY"), 'выключатель сохраняется');
 check(src.includes("resetSchemeSurpriseSchedule(); // B-66"), 'смена схемы пересобирает таймер');
 check(src.includes('storm-charge-glint'), 'маленькие искры имеют отдельный SVG-путь');
-check(/randomBetween\(140, 340\)/.test(src), 'искры и треск идут часто');
+check(/randomBetween\(60, 150\)/.test(src), 'искры и треск идут очень часто');
 check(src.includes('filter(isStormTargetVisible)'), 'искры располагаются возле видимых контролов');
 check(src.includes('storm-screen-shake'), 'удар встряхивает экран');
 check(/const duration = 3\.6/.test(src), 'гром имеет длинный раскат 3,6 секунды');
 check(src.includes('unlockStormAudio'), 'звук пробуждается пользовательским жестом');
+check(src.includes("'.chord-wrapper'"), 'ячейки входят в цели молнии');
+check(src.includes('linear-gradient(to bottom'), 'туча затемняет только верх экрана');
+check(!src.includes('mix-blend-mode: multiply'), 'режим смешивания не прячет белую молнию');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);
