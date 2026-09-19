@@ -37,4 +37,12 @@ check(!src.includes('mix-blend-mode: multiply'), 'режим смешивани�
 check(src.includes("html[data-theme='dark'] .storm-charge-glint"), 'искры контрастны отдельно в светлой и тёмной теме');
 check(src.includes('const rolls = ['), 'гром собран из нескольких самостоятельных раскатов');
 check(src.includes('transition: opacity 2s ease'), 'туча плавно появляется и рассеивается за 2 секунды');
+check(src.includes("setAttribute('popover', 'manual')"), 'молния поднимается в нативный top layer');
+check(src.includes('storm-lightning-filament-a') && src.includes('storm-lightning-filament-b'), 'у молнии есть две объёмные жилы');
+check(src.includes('storm-target-glow'), 'вспышка цели рисуется в том же верхнем слое');
+check(src.includes('randomBetween(r.left + insetX'), 'точка удара выбирается внутри цели');
+check(src.includes('playStormAmbience'), 'после тучи включается ветер или далёкий гром');
+check(src.includes('cloudOnlyMs = 2000 + randomBetween(300, 1000)'), 'заряд начинается после тучи и случайной тишины');
+check(src.includes('pauseStormSurprise') && src.includes('resumeStormSurprise'), 'смена вкладки ставит событие на паузу');
+check(src.includes("getComputedStyle(cur).cursor === 'pointer'"), 'перехватываются кликабельные элементы с pointer-курсором');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);
