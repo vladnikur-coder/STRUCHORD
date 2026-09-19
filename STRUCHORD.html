@@ -3728,6 +3728,39 @@ body.is-section-dragging .section-header { cursor: grabbing; }
   white-space: normal;
   max-width: 100%;
 }
+/* 0.260: inline-правка плашек (заметка, BPM) — ввод в самой плашке. */
+.badge-inline-input {
+  font-family: inherit;
+  font-size: 0.625rem;
+  font-weight: 500;
+  padding: 0.125rem 0.5rem;
+  border-radius: var(--border-radius-pill);
+  border: 0.0625rem solid var(--color-border-medium);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  outline: none;
+}
+/* 0.260: плашки BPM/заметки на ленте — та же роль, что у бейджей
+   редактора; липнут к левому краю вместе с заголовком (tl-section-head
+   > span — sticky). */
+.tl-badge {
+  font-size: 0.625rem;
+  font-weight: 500;
+  border-radius: var(--border-radius-pill);
+  padding: 0.0625rem 0.4375rem;
+  cursor: pointer;
+  background: var(--color-tint);
+  color: var(--color-accent);
+}
+.tl-badge--note {
+  background: var(--color-background-secondary);
+  color: var(--color-text-secondary);
+  font-style: italic;
+  font-weight: 400;
+  max-width: 22rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
 .section-badge:hover {
   background: var(--color-tint-hover);
 }
@@ -9929,7 +9962,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.259</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.260</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21074,8 +21107,14 @@ function setSectionNote(sectionId, note) {
     sec.note = next;
   }, { quiet: true });
   // Бейдж живёт в шапке — перестраиваем только её (B-25), без
-  // полного rerender ленты.
-  if (!syncSectionHeaderDom(sec)) requestRender();
+  // полного rerender ленты. На ленте (0.260) плашка тоже видна —
+  // обновляем и её.
+  const okSync = syncSectionHeaderDom(sec);
+  if (okSync && timelineMode) {
+    renderTimeline();
+    syncTimelineSongBar();
+  }
+  if (!okSync) requestRender();
   showToast(next ? 'Заметка секции сохранена' : 'Заметка секции удалена');
 }
 function makeSectionNoteBadge(sec) {
@@ -21085,10 +21124,81 @@ function makeSectionNoteBadge(sec) {
   badge.title = 'Заметка секции — нажмите, чтобы изменить';
   badge.onclick = (e) => {
     e.stopPropagation();
-    const t = prompt('Заметка секции (динамика, темп, нюансы игры; пусто — удалить):', sec.note || '');
-    if (t !== null) setSectionNote(sec.id, t);
+    editSectionNoteInline(sec);
   };
   return badge;
+}
+
+// ===== 0.260: inline-правка плашек (просьба пользователя) =====
+// Ввод — прямо в плашке, без отдельного окна: клик → плашка становится
+// инпутом; Enter/потеря фокуса — сохранить, Esc — отменить. Работает и
+// в редакторе, и на ленте (плашки 0.260 там тоже видны).
+function editBadgeTextInput(badge, opts) {
+  const inp = document.createElement('input');
+  inp.type = 'text';
+  inp.className = 'badge-inline-input';
+  inp.value = opts.value == null ? '' : String(opts.value);
+  // Ширина инпута — по содержимому, как и сама плашка.
+  inp.style.width = Math.max(opts.minCh || 6, Math.min(opts.maxCh || 60, inp.value.length + 3)) + 'ch';
+  badge.replaceWith(inp);
+  inp.focus();
+  inp.select();
+  let done = false;
+  const finish = (commit) => {
+    if (done) return;
+    done = true;
+    const v = inp.value;
+    inp.remove();
+    if (commit) opts.commit(v);
+    else if (opts.cancel) opts.cancel();
+  };
+  inp.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+    else if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+  });
+  inp.addEventListener('blur', () => finish(true));
+  inp.addEventListener('click', (ev) => ev.stopPropagation());
+}
+function editSectionNoteInline(sec) {
+  if (!sec) return;
+  const badges = document.querySelector(`.section-card[data-id="${sec.id}"] .section-mod-badges`);
+  if (!badges) return;
+  let badge = badges.querySelector('.section-badge--note');
+  if (!badge) {
+    // Заметки ещё нет — создаём переходную пустую плашку и сразу в правку.
+    badge = makeSectionNoteBadge(sec);
+    badge.textContent = '';
+    badges.appendChild(badge);
+  }
+  editBadgeTextInput(badge, {
+    value: sec.note || '',
+    maxCh: 80,
+    commit: (v) => setSectionNote(sec.id, v),
+    cancel: () => syncSectionHeaderDom(sec),
+  });
+}
+function editSectionBpmInline(sec) {
+  if (!sec) return;
+  const badges = document.querySelector(`.section-card[data-id="${sec.id}"] .section-mod-badges`);
+  if (!badges) return;
+  const globalBpm = parseInt(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
+  let badge = badges.querySelector('.section-badge--bpm');
+  if (!badge) {
+    // BPM секции = глобальному: даём правку с текущего глобального.
+    badge = document.createElement('span');
+    badge.className = 'section-badge section-badge--bpm';
+    badge.textContent = `${globalBpm} BPM`;
+    badges.appendChild(badge);
+  }
+  editBadgeTextInput(badge, {
+    value: String(sec.bpm || globalBpm),
+    minCh: 5, maxCh: 8,
+    commit: (v) => {
+      const n = parseInt(v);
+      setSectionBpm(sec.id, (isNaN(n) || n <= 0) ? null : n);
+    },
+    cancel: () => syncSectionHeaderDom(sec),
+  });
 }
 function setSquareCustomBeats(sid, sqid, beats) {
   const s = sections.find((s) => s.id === sid);
@@ -30344,13 +30454,7 @@ function showSectionSettingsMenu(event, sectionId) {
   bpmItem.setAttribute('tabindex', '0');
   bpmItem.onclick = () => {
     const sec = sections.find(s => s.id === sectionId);
-    const currentBpm = sec.bpm || parseInt(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
-    const newBpm = prompt('Введите BPM для этой секции (0 или пусто – глобальный):', currentBpm);
-    if (newBpm !== null) {
-      const val = parseInt(newBpm);
-      if (isNaN(val) || val <= 0) setSectionBpm(sectionId, null);
-      else setSectionBpm(sectionId, val);
-    }
+    if (sec) editSectionBpmInline(sec); // 0.260: правка в самой плашке
     menu.remove();
   };
   bpmItem.onkeydown = (e) => {
@@ -30373,8 +30477,7 @@ function showSectionSettingsMenu(event, sectionId) {
   noteItem.setAttribute('tabindex', '0');
   noteItem.onclick = () => {
     const sec = sections.find(s => s.id === sectionId);
-    const t = prompt('Заметка секции (динамика, темп, нюансы игры; пусто — удалить):', (sec && sec.note) || '');
-    if (t !== null) setSectionNote(sectionId, t);
+    if (sec) editSectionNoteInline(sec); // 0.260: правка в самой плашке
     menu.remove();
   };
   noteItem.onkeydown = (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); noteItem.onclick(); } };
@@ -32283,16 +32386,51 @@ function renderTimeline() {
         secRepeat > 1 ? `${label} ${secPass + 1}/${secRepeat}` : label;
       head.appendChild(nameEl);
       // Свой BPM/размер влияют на то, что слышно, поэтому идут в
-      // заголовок: на ленте бейджей секции нет. Повтор сюда больше не
-      // пишем — он теперь виден буквально, самой длиной ленты.
+      // заголовок. Повтор сюда больше не пишем — он теперь виден
+      // буквально, самой длиной ленты. 0.260: BPM и заметка — плашками
+      // (как в редакторе), кликабельны и редактируются на месте.
       const bits = [];
       if (sec.timeSig && sec.timeSig !== globalTimeSig) bits.push(sec.timeSig);
-      if (sec.bpm) bits.push(sec.bpm + ' BPM');
       if (bits.length) {
         const meta = document.createElement('span');
         meta.className = 'tl-section-meta';
         meta.textContent = bits.join(' · ');
         head.appendChild(meta);
+      }
+      if (sec.bpm) {
+        const b = document.createElement('span');
+        b.className = 'tl-badge tl-badge--bpm';
+        b.textContent = `${sec.bpm} BPM`;
+        b.title = 'BPM секции — нажмите, чтобы изменить';
+        b.onclick = (e) => {
+          e.stopPropagation();
+          editBadgeTextInput(b, {
+            value: String(sec.bpm),
+            minCh: 5, maxCh: 8,
+            commit: (v) => {
+              const n = parseInt(v);
+              setSectionBpm(sec.id, (isNaN(n) || n <= 0) ? null : n);
+            },
+            cancel: () => { renderTimeline(); syncTimelineSongBar(); },
+          });
+        };
+        head.appendChild(b);
+      }
+      if (sec.note) {
+        const nb = document.createElement('span');
+        nb.className = 'tl-badge tl-badge--note';
+        nb.textContent = sec.note;
+        nb.title = `${sec.note} — нажмите, чтобы изменить`;
+        nb.onclick = (e) => {
+          e.stopPropagation();
+          editBadgeTextInput(nb, {
+            value: sec.note,
+            maxCh: 80,
+            commit: (v) => setSectionNote(sec.id, v),
+            cancel: () => { renderTimeline(); syncTimelineSongBar(); },
+          });
+        };
+        head.appendChild(nb);
       }
       secEl.appendChild(head);
 
@@ -35448,12 +35586,7 @@ function syncSectionHeaderDom(sec) {
     bpmBadge.title = `BPM секции: ${sec.bpm}`;
     bpmBadge.onclick = (e) => {
       e.stopPropagation();
-      const newBpm = prompt('BPM секции (0 или пусто – глобальный):', sec.bpm);
-      if (newBpm !== null) {
-        const val = parseInt(newBpm);
-        if (isNaN(val) || val <= 0) setSectionBpm(sec.id, null);
-        else setSectionBpm(sec.id, val);
-      }
+      editSectionBpmInline(sec); // 0.260: правка в самой плашке
     };
     badgesDiv.appendChild(bpmBadge);
   }
