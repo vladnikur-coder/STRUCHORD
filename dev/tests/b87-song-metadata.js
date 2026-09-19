@@ -32,6 +32,7 @@ ok(src.includes('artist.value = DOM.songArtist.value'), 'редактор син
 ok(src.includes('DOM.songArtist.value = artist.value'), 'лента синхронизируется с редактором');
 ok(src.includes('@media (max-width: 38rem)'), 'пара адаптируется на узком экране');
 ok(src.includes('function fitSongArtistField'), 'дефис следует за умной шириной исполнителя');
+ok(src.includes('fitSongArtistField(DOM.songArtist)') && src.includes('fitSongArtistField(DOM.songTitle)'), 'очистка пересчитывает обе типографские ширины');
 ok(src.includes('width: fit-content') && src.includes('.song-identity:focus-within'), 'выбран общий типографский underline');
 ok(!src.includes('capsuleStyleSelect'), 'временный выбор вариантов удалён');
 console.log(`\nALL OK — ${n} проверок B-87.`);
