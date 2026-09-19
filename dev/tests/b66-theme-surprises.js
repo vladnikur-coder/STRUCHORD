@@ -36,4 +36,5 @@ check(src.includes('linear-gradient(to bottom'), 'туча затемняет т
 check(!src.includes('mix-blend-mode: multiply'), 'режим смешивания не прячет белую молнию');
 check(src.includes("html[data-theme='dark'] .storm-charge-glint"), 'искры контрастны отдельно в светлой и тёмной теме');
 check(src.includes('const rolls = ['), 'гром собран из нескольких самостоятельных раскатов');
+check(src.includes('transition: opacity 2s ease'), 'туча плавно появляется и рассеивается за 2 секунды');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);
