@@ -5167,6 +5167,14 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 /* ---- B-80: стилизованные пилюли тональности и размера ---- */
 /* Нативные select оставлены как источник истины, но скрыты с экрана
    (не display:none — часть логики читает их геометрию/значение). */
+/* 0.263: счётчик модуляций рядом с пилюлей тональности — тихая
+   подпись, при нуле модуляций элемент скрыт. */
+.meta-mod-count {
+  color: var(--color-text-secondary);
+  font-size: 0.75rem;
+  font-weight: 500;
+  white-space: nowrap;
+}
 .meta-select-native {
   position: absolute;
   width: 0.0625rem;
@@ -9972,7 +9980,7 @@ body.is-timeline.is-playing .timeline-playhead {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.262</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.263</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10119,6 +10127,8 @@ body.is-timeline.is-playing .timeline-playhead {
           <i class="ti ti-chevron-down"></i>
         </button>
         <div class="meta-pill-list" id="keyPickerList" role="listbox" aria-label="Тональность" hidden></div>
+        <!-- 0.263: сколько секций песни модулировано; без модуляций скрыт. -->
+        <span class="meta-mod-count" id="modCount" hidden></span>
         <button class="transpose-btn" onclick="transposeAllGlobal(-1)" aria-label="Транспонировать на полтона вниз"><i class="ti ti-minus"></i></button>
         <button class="transpose-btn" onclick="transposeAllGlobal(1)" aria-label="Транспонировать на полтона вверх">+</button>
         <span class="meta-label">Размер</span>
@@ -10352,6 +10362,7 @@ body.is-timeline.is-playing .timeline-playhead {
                 <i class="ti ti-chevron-down"></i>
               </button>
               <div class="meta-pill-list" id="tlKeyPickerList" role="listbox" aria-label="Тональность" hidden></div>
+              <span class="meta-mod-count" id="tlModCount" hidden></span>
             </span>
             <span class="tl-meta-item">
               <span class="tl-meta-label">Размер</span>
@@ -20452,23 +20463,31 @@ function correctChordName(c, ks) {
 }
 function applyEnharmonicCorrectionToAll() {
   let ch = false;
-  for (const s of sections) {
-    const sectionKey = s.key ? s.key : globalKey;
-    const sectionKeyStyle = getKeyStyle(sectionKey);
-    for (const sq of s.squares)
-      for (let i = 0; i < sq.events.length; i++) {
-        const orig = sq.events[i].chord;
-        if (orig && orig.trim()) {
-          const corr = correctChordName(orig, sectionKeyStyle);
-          if (corr !== orig) {
-            sq.events[i].chord = corr;
-            ch = true;
-            migrateFingeringChordName(orig, corr, sectionKey, s.id, sq.id, i);
-          }
+  for (const s of sections) ch = applyEnharmonicCorrectionToSection(s) || ch;
+  if (ch) requestRender();
+}
+// 0.263: секционный вариант — написание ВСЕХ аккордов секции под стиль
+// ЕЁ тональности (sec.key || globalKey). Выдран из ToAll для модуляции:
+// transposeChord сохраняет старое написание каждого аккорда, и после
+// модуляции в кросс-стилевую тональность (диезная песня → бемольная
+// секция, например C → −4 → Ab) секция показывала диезы.
+function applyEnharmonicCorrectionToSection(s) {
+  let ch = false;
+  const sectionKey = s.key ? s.key : globalKey;
+  const sectionKeyStyle = getKeyStyle(sectionKey);
+  for (const sq of s.squares)
+    for (let i = 0; i < sq.events.length; i++) {
+      const orig = sq.events[i].chord;
+      if (orig && orig.trim()) {
+        const corr = correctChordName(orig, sectionKeyStyle);
+        if (corr !== orig) {
+          sq.events[i].chord = corr;
+          ch = true;
+          migrateFingeringChordName(orig, corr, sectionKey, s.id, sq.id, i);
         }
       }
-  }
-  if (ch) requestRender();
+    }
+  return ch;
 }
 // Переносит сохранённые пользователем аппликатуры и выбранный вариант со
 // старого написания имени аккорда (например, G#) на новое (Ab). Без этого
@@ -20788,12 +20807,17 @@ function transposeAllGlobal(st) {
 // ---------- секции ----------
 function addSection(type) {
   songStore.dispatch('section/add', () => {
+  // 0.263: новая секция наследует статус модуляции соседа СВЕРХУ —
+  // снапшот-копия (не живая связь): перетаскивание и правки соседа
+  // на неё больше не влияют, существующие секции не меняются.
+  const prev = sections[sections.length - 1];
   sections.push({
     id: nextId++,
     type,
     customName: null,
     note: null,         // B-43: заметка у названия секции
-    key: null,
+    key: prev ? prev.key || null : null,
+    shift: prev ? prev.shift ?? null : null,
     timeSig: null,
     bpm: null,          // ← новое поле
     repeat: 1,
@@ -20814,11 +20838,13 @@ function addCustomSection() {
   if (!n?.trim()) return;
   n = n.trim();
   songStore.dispatch('section/add-custom', () => {
+  const prev = sections[sections.length - 1]; // 0.263: как addSection
   sections.push({
     id: nextId++,
     type: 'Custom',
     customName: n,
-    key: null,
+    key: prev ? prev.key || null : null,
+    shift: prev ? prev.shift ?? null : null,
     timeSig: null,
     repeat: 1,
     bpm: null,
@@ -20870,6 +20896,7 @@ function cloneSection(id) {
     customName: orig.customName,
     note: orig.note || null,
     key: orig.key,
+    shift: orig.shift ?? null, // 0.263: клон терял сдвиг модуляции
     bpm: orig.bpm,
     timeSig: orig.timeSig,
     repeat: orig.repeat || 1,
@@ -20981,14 +21008,19 @@ function setSectionModulation(sectionId, shift) {
   const prevShift = sec.shift != null ? sec.shift
     : (sec.key ? getRawSemitonesBetween(globalKey, sec.key) : 0);
   const delta = shift - prevShift;
-  const newKey = shift === 0 ? null : getKeyByShift(globalKey, shift);
+  let newKey = shift === 0 ? null : getKeyByShift(globalKey, shift);
   if (newKey !== null) {
     if (globalKey.endsWith('m') !== newKey.endsWith('m')) {
       showToast('Нельзя сменить лад (мажор ↔ минор)');
       return;
     }
     const validKeys = [...DOM.rootKey.options].map((o) => o.value);
-    if (!resolveValidKey(newKey, validKeys)) {
+    // 0.263: пишем ВАЛИДИРОВАННЫЙ ключ. resolveValidKey мапнит кросс-
+    // стилевые написания в доступные тональности (G# → Ab): раньше
+    // проверка была, а в sec.key ложился сырой G# — вне списка, без
+    // стиля бемолей.
+    newKey = resolveValidKey(newKey, validKeys);
+    if (!newKey) {
       showToast('Такая тональность недоступна');
       return;
     }
@@ -21031,6 +21063,9 @@ function setSectionModulation(sectionId, shift) {
             }
           }
     }
+    // 0.263: написание всех аккордов секции — под стиль НОВОЙ тональности
+    // (внутри команды, чтобы undo откатил всё атомарно).
+    applyEnharmonicCorrectionToSection(sec);
   }, { quiet: true });
   fingeringCache.clear();
   preferredFingeringByChord.clear();
@@ -25039,6 +25074,27 @@ function toggleMetaPicker(kind, force) {
   }
 }
 window.toggleMetaPicker = toggleMetaPicker;
+// 0.263: счётчик модуляций в песне — сколько секций со своим ключом.
+// «Тональность Bm (2 модуляции)» в редакторе и на ленте; при нуле скрыт.
+function syncModulationCount() {
+  const n = sections.filter((s) => s.key).length;
+  const word = n % 10 === 1 && n % 100 !== 11 ? 'модуляция'
+    : [2, 3, 4].includes(n % 10) && ![12, 13, 14].includes(n % 100) ? 'модуляции'
+    : 'модуляций';
+  for (const id of ['modCount', 'tlModCount']) {
+    const el = document.getElementById(id);
+    if (!el) continue;
+    if (n > 0) {
+      el.textContent = `(${n} ${word})`;
+      el.hidden = false;
+    } else {
+      el.textContent = '';
+      el.hidden = true;
+    }
+  }
+}
+window.syncModulationCount = syncModulationCount;
+
 // Гонит подписи пилюль из значений скрытых select. Дёшево (только текст),
 // зовётся из render() — поэтому транспонирование, авто-ключ, загрузка и
 // сброс отражаются без правок в их коде.
@@ -33858,6 +33914,7 @@ function syncTimelineSongBar() {
   // из renderMetaLayer, но render() редактора в режиме ленты не зовётся —
   // обновляем здесь, при каждом синке шапки ленты.
   syncMetaPills();
+  syncModulationCount(); // 0.263: счётчик модуляций
 }
 
 // Ручная поправка масштаба поверх автомасштаба по темпу.
@@ -34131,6 +34188,7 @@ function render() {
 function renderMetaLayer() {
   refreshAutoDetectedKey();
   syncMetaPills();
+  syncModulationCount(); // 0.263: счётчик модуляций
 }
 
 // Слой сетки секций — ядро рендера: полная пересборка карточек во
