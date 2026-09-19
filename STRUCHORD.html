@@ -9998,10 +9998,10 @@ body.storm-screen-shake { animation: storm-screen-shake 720ms cubic-bezier(.2,.8
 .storm-lightning-svg.is-striking .storm-lightning-filament { opacity: 0.82; }
 .storm-lightning-svg.is-striking .storm-lightning-branch { opacity: 0.9; }
 .storm-charge-glint {
-  stroke: #493ab8;
-  stroke-width: 2.7;
+  stroke: #f9fbff;
+  stroke-width: 2.15;
   opacity: 0;
-  filter: drop-shadow(0 0 0.3rem rgba(73, 58, 184, 1)) drop-shadow(0 0 0.7rem rgba(103, 126, 255, 0.9));
+  filter: drop-shadow(0 0 0.16rem rgba(28, 91, 224, 1)) drop-shadow(0 0 0.48rem rgba(45, 105, 246, 0.95));
 }
 html[data-theme='dark'] .storm-charge-glint {
   stroke: #d9e1ff;
@@ -10081,7 +10081,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.277</span></span>
+        <span class="app-title">STRUCHORD <span>· ver 0.278</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30302,6 +30302,8 @@ let stormScheduleRemaining = 0;
 let stormPaused = false;
 let stormAmbientNodes = [];
 let stormChargeActive = false;
+let stormChargeStartedAt = 0;
+let stormChargeBuildMs = 4000;
 let stormSurprisePhase = 'idle'; // idle | charging | armed | striking
 let stormLayer = null;
 
@@ -30450,7 +30452,7 @@ function resumeStormSurprise() {
       rec.fn();
     }, rec.remaining);
   });
-  if (stormChargeActive && (stormSurprisePhase === 'charging' || stormSurprisePhase === 'armed') && pending.length) playStormAmbience();
+  if (stormChargeActive && (stormSurprisePhase === 'charging' || stormSurprisePhase === 'armed') && pending.length) playStormSoundscape();
 }
 function toggleSchemeSurprises() {
   const box = document.getElementById('schemeSurprises');
@@ -30459,6 +30461,11 @@ function toggleSchemeSurprises() {
   catch (e) { /* настройка останется только до перезагрузки */ }
   if (!schemeSurprisesEnabled) cancelStormSurprise();
   else resetSchemeSurpriseSchedule();
+}
+function stormChargeProgress() {
+  if (stormSurprisePhase === 'armed') return 1;
+  if (!stormChargeActive || !stormChargeStartedAt) return 0;
+  return Math.max(0, Math.min(1, (performance.now() - stormChargeStartedAt) / stormChargeBuildMs));
 }
 function playStormCrackle() {
   const ctx = getAudioContext();
@@ -30471,9 +30478,10 @@ function playStormCrackle() {
   const src = ctx.createBufferSource();
   const filter = ctx.createBiquadFilter();
   const gain = ctx.createGain();
-  filter.type = 'bandpass'; filter.frequency.value = randomBetween(1600, 3100); filter.Q.value = 1.8;
+  const charge = stormChargeProgress();
+  filter.type = 'bandpass'; filter.frequency.value = randomBetween(1550, 2800 + charge * 1900); filter.Q.value = 1.6 + charge * 1.1;
   gain.gain.setValueAtTime(0.0001, now);
-  gain.gain.exponentialRampToValueAtTime(0.035, now + 0.004);
+  gain.gain.exponentialRampToValueAtTime(0.025 + charge * 0.032, now + 0.004);
   gain.gain.exponentialRampToValueAtTime(0.0001, now + 0.07);
   src.buffer = buffer; src.connect(filter); filter.connect(gain); gain.connect(ctx.destination);
   src.start(now); src.stop(now + 0.08);
@@ -30510,6 +30518,39 @@ function playStormAmbience() {
   src.start(now);
   if (!wind) src.stop(now + duration);
   stormAmbientNodes.push(src, filter, gain);
+}
+function playStormChargeBed() {
+  const ctx = getAudioContext();
+  if (!ctx || ctx.state !== 'running' || playbackState.isPlaying || stormPaused) return;
+  const now = ctx.currentTime;
+  // Низкий высоковольтный гул: две близкие частоты дают живое биение.
+  [54, 57.5].forEach((freq, i) => {
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.type = i ? 'triangle' : 'sine'; osc.frequency.value = freq;
+    gain.gain.setValueAtTime(0.0001, now);
+    gain.gain.exponentialRampToValueAtTime(i ? 0.008 : 0.012, now + 0.8);
+    osc.connect(gain); gain.connect(ctx.destination); osc.start(now);
+    stormAmbientNodes.push(osc, gain);
+  });
+  // Шуршащая статика отдельным бесконечным шумовым слоем.
+  const duration = 2;
+  const buffer = ctx.createBuffer(1, Math.floor(ctx.sampleRate * duration), ctx.sampleRate);
+  const data = buffer.getChannelData(0);
+  for (let i = 0; i < data.length; i++) data[i] = Math.random() * 2 - 1;
+  const noise = ctx.createBufferSource();
+  const band = ctx.createBiquadFilter();
+  const gain = ctx.createGain();
+  noise.buffer = buffer; noise.loop = true;
+  band.type = 'bandpass'; band.frequency.value = 1850; band.Q.value = 0.42;
+  gain.gain.setValueAtTime(0.0001, now);
+  gain.gain.exponentialRampToValueAtTime(0.009, now + 1.1);
+  noise.connect(band); band.connect(gain); gain.connect(ctx.destination); noise.start(now);
+  stormAmbientNodes.push(noise, band, gain);
+}
+function playStormSoundscape() {
+  playStormAmbience();
+  playStormChargeBed();
 }
 function playStormThunder() {
   const ctx = getAudioContext();
@@ -30562,15 +30603,36 @@ function stormGlint() {
   const candidates = Array.from(document.querySelectorAll(STORM_CONTROL_SELECTOR)).filter(isStormTargetVisible);
   const target = candidates.length ? candidates[Math.floor(Math.random() * candidates.length)] : null;
   const r = target ? target.getBoundingClientRect() : { left: innerWidth/2, top: innerHeight/2, width: 1, height: 1 };
-  const x = r.left + r.width/2 + randomBetween(-Math.max(12, r.width*.65), Math.max(12, r.width*.65));
-  const y = r.top + r.height/2 + randomBetween(-Math.max(10, r.height*.8), Math.max(10, r.height*.8));
   const spark = layer.querySelector('.storm-charge-glint');
-  const side = Math.random() < .5 ? -1 : 1;
-  spark.setAttribute('d', `M${x.toFixed(1)} ${y.toFixed(1)} l${(side*8).toFixed(1)} -6 l${(side*-4).toFixed(1)} -7 l${(side*10).toFixed(1)} -7`);
-  spark.setAttribute('stroke-dasharray', '34');
+  let d;
+  // Изредка заряд реально перепрыгивает между двумя соседними контролами.
+  if (target && candidates.length > 1 && Math.random() < 0.18) {
+    const x1 = r.left + r.width/2, y1 = r.top + r.height/2;
+    const neighbor = candidates.filter(el => el !== target).sort((a, b) => {
+      const ar=a.getBoundingClientRect(), br=b.getBoundingClientRect();
+      return Math.hypot(ar.left+ar.width/2-x1, ar.top+ar.height/2-y1) - Math.hypot(br.left+br.width/2-x1, br.top+br.height/2-y1);
+    })[0];
+    const nr = neighbor.getBoundingClientRect();
+    const x2 = nr.left + nr.width/2, y2 = nr.top + nr.height/2;
+    const mx = (x1+x2)/2 + randomBetween(-9,9), my = (y1+y2)/2 + randomBetween(-9,9);
+    d = `M${x1.toFixed(1)} ${y1.toFixed(1)} L${mx.toFixed(1)} ${my.toFixed(1)} L${x2.toFixed(1)} ${y2.toFixed(1)}`;
+    spark.setAttribute('stroke-dasharray', String(Math.max(34, Math.hypot(x2-x1,y2-y1))));
+  } else {
+    const x = r.left + r.width/2 + randomBetween(-Math.max(12, r.width*.65), Math.max(12, r.width*.65));
+    const y = r.top + r.height/2 + randomBetween(-Math.max(10, r.height*.8), Math.max(10, r.height*.8));
+    const side = Math.random() < .5 ? -1 : 1;
+    d = `M${x.toFixed(1)} ${y.toFixed(1)} l${(side*7).toFixed(1)} -5 l${(side*-3).toFixed(1)} -6 l${(side*8).toFixed(1)} -6`;
+    spark.setAttribute('stroke-dasharray', '30');
+  }
+  spark.setAttribute('d', d);
   spark.classList.remove('is-visible'); void spark.getBoundingClientRect(); spark.classList.add('is-visible');
-  if (Math.random() < 0.82) playStormCrackle();
-  queueStormTimer(stormGlint, randomBetween(60, 150));
+  if (Math.random() < 0.9) playStormCrackle();
+  // От спокойного начала к почти непрерывному треску; после готовности
+  // заряд остаётся плотным до самого удара, как выбрал пользователь.
+  const charge = stormChargeProgress();
+  const min = stormSurprisePhase === 'armed' ? 38 : 170 - charge * 120;
+  const max = stormSurprisePhase === 'armed' ? 90 : 360 - charge * 245;
+  queueStormTimer(stormGlint, randomBetween(min, max));
 }
 function startStormSurprise() {
   if (!stormCanStart()) return;
@@ -30587,7 +30649,13 @@ function startStormSurprise() {
   const chargeMs = cloudOnlyMs + randomBetween(3000, 5000);
   // Сначала 2 секунды только сгущается туча, затем короткая случайная
   // тишина; искры, треск и атмосфера подключаются после неё.
-  queueStormTimer(() => { stormChargeActive = true; playStormAmbience(); stormGlint(); }, cloudOnlyMs);
+  queueStormTimer(() => {
+    stormChargeActive = true;
+    stormChargeStartedAt = performance.now();
+    stormChargeBuildMs = chargeMs - cloudOnlyMs;
+    playStormSoundscape();
+    stormGlint();
+  }, cloudOnlyMs);
   // Частые маленькие искры прыгают возле контролов и заранее намекают,
   // что именно интерфейс станет проводником будущего разряда.
   queueStormTimer(() => {
@@ -30662,6 +30730,7 @@ function strikeStormControl(target) {
   if (stormSurprisePhase !== 'armed' || !isStormTargetVisible(target)) return;
   stormSurprisePhase = 'striking';
   stormChargeActive = false;
+  stormChargeStartedAt = 0;
   clearStormTimers();
   const layer = ensureStormLayer();
   const svg = layer.querySelector('.storm-lightning-svg');
@@ -30714,6 +30783,7 @@ function cancelStormSurprise() {
   clearStormTimers();
   stormSurprisePhase = 'idle';
   stormChargeActive = false;
+  stormChargeStartedAt = 0;
   if (stormLayer) {
     stormLayer.className = 'storm-surprise-layer';
     const svg = stormLayer.querySelector('.storm-lightning-svg');

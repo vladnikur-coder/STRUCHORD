@@ -26,7 +26,7 @@ check(src.includes('@media (prefers-reduced-motion: reduce)'), 'CSS также �
 check(src.includes("localStorage.setItem(SCHEME_SURPRISES_KEY"), 'выключатель сохраняется');
 check(src.includes("resetSchemeSurpriseSchedule(); // B-66"), 'смена схемы пересобирает таймер');
 check(src.includes('storm-charge-glint'), 'маленькие искры имеют отдельный SVG-путь');
-check(/randomBetween\(60, 150\)/.test(src), 'искры и треск идут очень часто');
+check(src.includes("stormSurprisePhase === 'armed' ? 38"), 'готовый заряд трещит плотно до удара');
 check(src.includes('filter(isStormTargetVisible)'), 'искры располагаются возле видимых контролов');
 check(src.includes('storm-screen-shake'), 'удар встряхивает экран');
 check(/const duration = 5\.2/.test(src), 'гром имеет длинный раскат 5,2 секунды');
@@ -56,4 +56,10 @@ check(src.includes('drop-shadow(0 0 2.2rem'), 'молния имеет насы�
 check(src.includes('storm-lightning-branch-c'), 'у молнии три видимых ответвления');
 check(src.includes('const branches = [branchAt'), 'ответвления распределены вдоль разряда');
 check(!src.includes('storm-impact-spark'), 'непринятый веер искр остаётся удалён');
+check(src.includes('playStormChargeBed'), 'заряд имеет отдельный слой гула и статики');
+check(src.includes('[54, 57.5]'), 'низкий гул образован живым биением частот');
+check(src.includes('noise.loop = true'), 'шуршащая статика звучит непрерывным слоем');
+check(src.includes('Math.random() < 0.18'), 'изредка возникает дуга между соседними контролами');
+check(src.includes('170 - charge * 120'), 'искры и щелчки учащаются по мере накопления');
+check(src.includes('stroke: #f9fbff'), 'в светлой теме искра имеет белое ядро');
 console.log(`\nALL OK — ${ok} проверок B-66.1.`);
