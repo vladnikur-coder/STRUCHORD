@@ -14,7 +14,7 @@ ok(src.includes('storm-achievement-bolt'),'есть минималистична
 ok(src.includes('storm-achievement-trace'),'есть трассировка рамки и значка');
 ok(src.includes('playStormAchievementChime'),'есть тихий отдельный сигнал');
 ok(src.includes("new Audio('./uploads/220.mp3')"),'подключён загруженный звук ачивки');
-ok(src.includes('[0.28, .78, 1.42, 2.18, 3.12]'),'рисование сопровождают электрические пробои');
+ok(src.includes('classic:[.28,.78,1.42,2.18,3.12]'),'рисование сопровождают электрические пробои');
 ok(src.includes("if (!stormReducedMotion() && stormCanStart()) startStormSurprise()"),'ачивка переходит в первый заряд');
 ok(src.includes('3 * 60 * 1000')&&src.includes('7 * 60 * 1000'),'повторы через 3–7 минут');
 ok(src.includes("localStorage.getItem(STORM_UNLOCK_KEY) === '1'"),'разблокировка постоянна');
@@ -31,6 +31,18 @@ ok(src.includes('resetStormSecretForTesting'),'есть временный по�
 ok(!src.includes('id="stormSecretReset"'),'отладочный сброс убран из пользовательского меню');
 ok(src.includes('id="devPanelTrigger"'),'у заголовка есть trigger долгого нажатия');
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
+ok(src.includes("root:[entry('ti-volume','Звук'"),'в корне dev-палитры есть папка Звук');
+ok(src.includes("entry('ti-award','Ачивки'"),'в корне dev-палитры есть папка Ачивки');
+ok(src.includes("achievements:[entry('ti-bolt','220 вольт'"),'220 вольт оформлена подпапкой ачивок');
+ok(src.includes("entry('ti-cloud-bolt','Гроза'"),'Гроза — подпапка 220 вольт');
+ok(src.includes("devPreviewAchievementStyle('classic')"),'текущая карточка оставлена эталоном');
+ok(src.includes("devPreviewAchievementStyle('neon')"),'есть неоновая вывеска');
+ok(src.includes("devPreviewAchievementStyle('meter')"),'есть электрощиток');
+ok(src.includes("devPreviewAchievementStyle('coin')"),'есть игровой жетон');
+ok(src.includes("devPreviewAchievementStyle('signature')"),'есть электрическая подпись');
+ok(src.includes("devPreviewAchievementStyle('storm')"),'есть окно грозы');
+ok(src.includes("devPreviewAchievementStyle('system')"),'есть системный unlock');
+ok(src.includes('const crackleMap={classic:'),'звук синхронизируется отдельно для каждого визуала');
 ok(!src.includes('УДАЛИТЬ ПЕРЕД РЕЛИЗОМ'),'dev-палитра закреплена как постоянная');
 ok(!src.includes('devTitleClicks'),'логика тройного клика полностью удалена');
 ok(src.includes("document.addEventListener('pointerdown'")&&src.includes("closest('#devPanelTrigger')"),'долгое нажатие ловится глобально в capture-фазе');
