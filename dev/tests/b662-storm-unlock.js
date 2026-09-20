@@ -31,6 +31,7 @@ ok(src.includes('resetStormSecretForTesting'),'есть временный по�
 ok(!src.includes('id="stormSecretReset"'),'отладочный сброс убран из пользовательского меню');
 ok(src.includes('id="devPanelTrigger"'),'у заголовка есть trigger долгого нажатия');
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
+ok(!src.includes('УДАЛИТЬ ПЕРЕД РЕЛИЗОМ'),'dev-палитра закреплена как постоянная');
 ok(!src.includes('devTitleClicks'),'логика тройного клика полностью удалена');
 ok(src.includes("document.addEventListener('pointerdown'")&&src.includes("closest('#devPanelTrigger')"),'долгое нажатие ловится глобально в capture-фазе');
 ok(src.includes("document.addEventListener('pointerdown'")&&src.includes('1100'),'долгое нажатие открывает палитру на touch');
