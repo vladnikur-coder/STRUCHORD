@@ -17,11 +17,11 @@ ok(src.includes("new Audio('./uploads/220.mp3')"),'подключён загру
 ok(src.includes('[.2,.62,1.04,1.48,2.1]'),'щиток сопровождают синхронные электрические пробои');
 ok(src.includes("if (startStormAfter && !stormReducedMotion() && stormCanStart()) startStormSurprise()"),'старый сценарий может перейти в первый заряд только по явному флагу');
 ok(src.includes('function openDynamoPrototype'),'есть dev-прототип ручной динамо-машины');
-ok(src.includes('const DYNAMO_VARIANTS')&&(src.match(/title:'/g)||[]).length>=12,'есть витрина из 12 конструкций динамо-машины');
+ok(src.includes('const DYNAMO_VARIANTS')&&['suitcase','bicycle','lever','cord','rack','contacts'].every(id=>src.includes(id+':{title:')),'есть шесть самостоятельных конструкций генератора');
 ok(src.includes("'dynamo-visuals':Object.entries(DYNAMO_VARIANTS)"),'варианты доступны в отдельной dev-папке');
-ok(src.includes("role=\"slider\"")&&src.includes("aria-valuemax=\"220\""),'ручка динамо доступна как slider до 220 V');
-ok(src.includes("state.crank.addEventListener('pointermove'")&&src.includes("state.crank.addEventListener('keydown'"),'есть круговой drag и клавиатурная альтернатива');
-ok(src.includes('state.spin*=')&&src.includes('state.voltage=Math.max(0,state.voltage-dt'),'есть инерция и спад напряжения');
+ok(src.includes("role=\"slider\"")&&src.includes("setAttribute('aria-valuemax','220')"),'каждый механизм доступен как slider до 220 V');
+ok(src.includes("state.control.addEventListener('pointermove'")&&src.includes("state.control.addEventListener('keydown'"),'у разных механизмов есть drag и клавиатурная альтернатива');
+ok(src.includes("mode==='lever'")&&src.includes("mode==='cord'")&&src.includes("mode==='rack'")&&src.includes("mode==='contacts'"),'механизмы используют разную физику набора напряжения');
 ok(src.includes('finishDynamoScene')&&src.includes("showStormAchievement({id:'220-volts',title:'220 вольт'},false)"),'220 V восстанавливают экран и показывают щиток без Грозы');
 ok(src.includes('startDynamoAudio')&&src.includes('playDynamoContactor'),'есть механико-электрический звук и контактор');
 ok(src.includes('3 * 60 * 1000')&&src.includes('7 * 60 * 1000'),'повторы через 3–7 минут');
