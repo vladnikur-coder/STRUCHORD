@@ -31,6 +31,8 @@ ok(src.includes('resetStormSecretForTesting'),'есть временный по�
 ok(!src.includes('id="stormSecretReset"'),'отладочный сброс убран из пользовательского меню');
 ok(src.includes('id="devPanelTrigger"'),'у заголовка есть trigger долгого нажатия');
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
+ok(src.includes('setInterval(refreshDevPaletteState,250)'),'состояние и таймер обновляются в реальном времени');
+ok(src.includes('clearInterval(devPaletteRefreshTimer)'),'live-таймер очищается при закрытии');
 ok(src.includes("root:[entry('ti-volume','Звук'"),'в корне dev-палитры есть папка Звук');
 ok(src.includes("entry('ti-award','Ачивки'"),'в корне dev-палитры есть папка Ачивки');
 ok(src.includes("achievements:[entry('ti-bolt','220 вольт'"),'220 вольт оформлена подпапкой ачивок');

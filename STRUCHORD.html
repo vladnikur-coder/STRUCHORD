@@ -10199,7 +10199,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title" id="devPanelTrigger">STRUCHORD <span>· ver 0.315</span></span>
+        <span class="app-title" id="devPanelTrigger">STRUCHORD <span>· ver 0.316</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30508,6 +30508,7 @@ function initScheme() {
 
 // ========== СКРЫТАЯ DEV-ПАЛИТРА (ПОСТОЯННЫЙ ИНСТРУМЕНТ ДИАГНОСТИКИ) ==========
 let devTitleHoldTimer = null;
+let devPaletteRefreshTimer = null;
 let devAchievementStyle = 'classic';
 function devStormStateRows() {
   // Не используем helpers сериализации: они живут в отдельном замыкании
@@ -30528,7 +30529,18 @@ function devStormStateRows() {
     ['Audio error', audioRecoveryLastError || '—']
   ];
 }
-function closeDevPalette() { document.querySelector('.dev-palette-overlay')?.remove(); }
+function refreshDevPaletteState() {
+  const values = new Map(devStormStateRows());
+  document.querySelectorAll('.dev-palette-state [data-dev-state-key]').forEach(row => {
+    const key = row.dataset.devStateKey;
+    row.textContent = `${key}: ${values.get(key) ?? '—'}`;
+    row.title = row.textContent;
+  });
+}
+function closeDevPalette() {
+  clearInterval(devPaletteRefreshTimer); devPaletteRefreshTimer = null;
+  document.querySelector('.dev-palette-overlay')?.remove();
+}
 function setStormDevReady() {
   stormUnlocked = true; schemeSurprisesEnabled = true;
   document.documentElement.setAttribute('data-scheme', 'storm');
@@ -30573,7 +30585,7 @@ function openDevPalette() {
   const close=document.createElement('button'); close.className='dev-palette-close'; close.type='button'; close.innerHTML='<i class="ti ti-x"></i>'; close.onclick=closeDevPalette;
   head.append(icon,search,close);
   const state=document.createElement('div'); state.className='dev-palette-state';
-  devStormStateRows().forEach(([key,value])=>{const row=document.createElement('span'); row.textContent=`${key}: ${value}`; row.title=row.textContent; state.appendChild(row);});
+  devStormStateRows().forEach(([key,value])=>{const row=document.createElement('span'); row.dataset.devStateKey=key; row.textContent=`${key}: ${value}`; row.title=row.textContent; state.appendChild(row);});
   const list=document.createElement('div'); list.className='dev-palette-list';
   let folderPath=[];
   const entry=(iconName,title,desc,action,folder)=>({iconName,title,desc,action,folder});
@@ -30603,6 +30615,8 @@ function openDevPalette() {
   search.addEventListener('input',()=>{const q=search.value.trim().toLowerCase();list.querySelectorAll('.dev-command').forEach(btn=>{btn.hidden=q&&!btn.dataset.search.includes(q);});});
   renderFolder();
   panel.append(head,state,list); overlay.appendChild(panel); document.body.appendChild(overlay);
+  clearInterval(devPaletteRefreshTimer);
+  devPaletteRefreshTimer=setInterval(refreshDevPaletteState,250);
   overlay.addEventListener('click',event=>{if(event.target===overlay)closeDevPalette();});
   requestAnimationFrame(()=>search.focus());
 }
