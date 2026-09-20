@@ -36,6 +36,9 @@ ok(src.includes("achievements:[entry('ti-bolt','220 вольт'")&&src.includes(
 ok(src.includes("achievement-style-meter")&&src.includes('achievement-meter'),'выбран единственный визуал Электрощиток 220 V');
 ok(!src.includes('devPreviewAchievementStyle'),'временный выбор визуалов удалён');
 ok(!src.includes('DYNAMO_VARIANTS')&&!src.includes('openDynamoPrototype'),'непринятая витрина динамо полностью удалена');
+ok(src.includes('function openVoltageGeneratorPrototype'),'есть единственный упрощённый генератор');
+ok(src.includes('voltage-generator-scene')&&src.includes('vg-crank'),'есть цельный корпус, вольтметр и крупная ручка');
+ok(src.includes("showStormAchievement({id:'220-volts',title:'220 вольт'},false)"),'после 220 V показывается щиток без Грозы');
 ok(src.includes('setInterval(refreshDevPaletteState,250)'),'состояние и таймер обновляются в реальном времени');
 ok(src.includes('clearInterval(devPaletteRefreshTimer)'),'live-таймер очищается при закрытии');
 ok(!src.includes('УДАЛИТЬ ПЕРЕД РЕЛИЗОМ'),'dev-палитра закреплена как постоянная');
