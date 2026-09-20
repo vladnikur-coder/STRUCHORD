@@ -29,7 +29,7 @@ ok(src.includes('role="switch"')&&src.includes('toggleStormSecret()'),'в стр
 ok(!src.includes('id="schemeSurprises"'),'старый общий пункт удалён');
 ok(src.includes('resetStormSecretForTesting'),'есть временный полный сброс');
 ok(!src.includes('id="stormSecretReset"'),'отладочный сброс убран из пользовательского меню');
-ok(src.includes('id="devPanelTrigger"'),'у заголовка есть trigger долгого нажатия');
+ok(src.includes('id="devPanelTrigger"'),'у номера версии есть dev-trigger');
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
 ok(src.includes('setInterval(refreshDevPaletteState,250)'),'состояние и таймер обновляются в реальном времени');
 ok(src.includes('clearInterval(devPaletteRefreshTimer)'),'live-таймер очищается при закрытии');
@@ -47,8 +47,8 @@ ok(src.includes("devPreviewAchievementStyle('system')"),'есть системн
 ok(src.includes('const crackleMap={classic:'),'звук синхронизируется отдельно для каждого визуала');
 ok(!src.includes('УДАЛИТЬ ПЕРЕД РЕЛИЗОМ'),'dev-палитра закреплена как постоянная');
 ok(!src.includes('devTitleClicks'),'логика тройного клика полностью удалена');
-ok(src.includes("document.addEventListener('pointerdown'")&&src.includes("closest('#devPanelTrigger')"),'долгое нажатие ловится глобально в capture-фазе');
-ok(src.includes("document.addEventListener('pointerdown'")&&src.includes('1100'),'долгое нажатие открывает палитру на touch');
+ok(src.includes("trigger.addEventListener('click'"),'палитра открывается одиночным кликом по версии');
+ok(!src.includes('devTitleHoldTimer'),'логика долгого нажатия полностью удалена');
 ok(src.includes('event.shiftKey')&&src.includes("event.code==='KeyD'"),'есть Cmd/Ctrl+Shift+D без Alt');
 ok(src.includes('devShowStormAchievement')&&src.includes('devStartStormCharge'),'есть ачивка и ручной заряд');
 ok(src.includes('devArmStormNow')&&src.includes('devStrikeStormNow'),'есть вооружение и принудительный удар');
