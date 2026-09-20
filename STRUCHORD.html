@@ -10163,7 +10163,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title" id="devPanelTrigger">STRUCHORD <span>· ver 0.312</span></span>
+        <span class="app-title" id="devPanelTrigger">STRUCHORD <span>· ver 0.313</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10791,6 +10791,11 @@ html[data-theme='dark'] .storm-charge-glint {
      let tapTimes = [],
   tapTimeout = null,
   audioCtx = null,
+  audioContextGeneration = 0,
+  audioRecoveryPending = false,
+  audioRecoveryLastError = '',
+  audioBlurStartedAt = 0,
+  audioLastBlurDurationMs = 0,
   activeOscillators = new Set(),
   metronomeGainNode = null,
   metronomeVolume = 0.8,
@@ -24373,12 +24378,15 @@ function getAudioContext() {
   if (!audioCtx)
     try {
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+      audioContextGeneration++;
       // Safari умеет уводить контекст в 'interrupted' — состояние, которого
       // нет в спецификации Web Audio и которое САМО НЕ ВОССТАНАВЛИВАЕТСЯ.
       // Следим за сменой состояния, чтобы поднять его при первой
       // возможности, а не ждать перезагрузки страницы.
       audioCtx.onstatechange = () => {
-        if (audioCtx && audioCtx.state === 'interrupted') resumeAudioContext();
+        if (!audioCtx) return;
+        if (audioCtx.state === 'interrupted') requestAudioResume('statechange');
+        else if (audioCtx.state === 'closed') audioRecoveryPending = true;
       };
     } catch (e) {
       return null;
@@ -24419,13 +24427,104 @@ window.resumeAudioContext = resumeAudioContext;
 // Возврат на вкладку — самый частый момент, когда надо чинить звук.
 // Заодно ловим focus: Safari на macOS отдаёт visibilitychange не всегда,
 // например при переключении между окнами того же приложения.
+function requestAudioResume(reason) {
+  // Focus сам по себе не должен создавать заблокированный autoplay-контекст.
+  // Если звук ещё ни разу не использовался, восстанавливать нечего.
+  const ctx = audioCtx;
+  if (!ctx) return;
+  if (ctx.state === 'running') { audioRecoveryPending = false; return; }
+  try {
+    const result = ctx.resume();
+    Promise.resolve(result).then(() => {
+      if (ctx === audioCtx && ctx.state === 'running') audioRecoveryPending = false;
+      else audioRecoveryPending = true;
+    }).catch((error) => {
+      audioRecoveryLastError = `${reason}: ${error && error.message ? error.message : error}`;
+      audioRecoveryPending = true;
+    });
+    setTimeout(() => { if (ctx === audioCtx && ctx.state !== 'running') audioRecoveryPending = true; }, 450);
+  } catch (error) {
+    audioRecoveryLastError = `${reason}: ${error && error.message ? error.message : error}`;
+    audioRecoveryPending = true;
+  }
+}
+function reconnectTunerAfterAudioRecovery(ctx) {
+  if (!tunerState || !tunerState.stream) return;
+  cancelAnimationFrame(tunerState.raf);
+  try { tunerState.source.disconnect(); } catch (e) {}
+  try {
+    const source = ctx.createMediaStreamSource(tunerState.stream);
+    const analyser = ctx.createAnalyser();
+    analyser.fftSize = 4096; analyser.smoothingTimeConstant = 0;
+    source.connect(analyser);
+    tunerState.source = source; tunerState.analyser = analyser;
+    tunerState.buf = new Float32Array(analyser.fftSize);
+    tunerState.history = []; tunerState.silentFrames = 0; tunerState.lastAt = 0;
+    tunerLoop();
+  } catch (error) {
+    audioRecoveryLastError = `tuner: ${error && error.message ? error.message : error}`;
+  }
+}
+function hardRecoverAudioContext(reason, force) {
+  if (playbackState && playbackState.isPlaying && !force) {
+    audioRecoveryPending = true;
+    return false;
+  }
+  const previous = audioCtx;
+  const tunerWasActive = !!tunerState;
+  stopAllAudio(); stopMetronomeScheduler();
+  metronomeGainNode = null;
+  guitarDryBus = null; guitarWetBus = null; guitarBodyConvolver = null; guitarMasterGain = null;
+  pluckBufferCache.clear();
+  audioCtx = null;
+  if (previous && previous.state !== 'closed') {
+    try { const closing = previous.close(); if (closing && closing.catch) closing.catch(() => {}); } catch (e) {}
+  }
+  const fresh = getAudioContext();
+  if (!fresh) { audioRecoveryLastError = `${reason}: новый AudioContext недоступен`; audioRecoveryPending = true; return false; }
+  audioRecoveryPending = false; audioRecoveryLastError = '';
+  resumeAudioContext();
+  if (tunerWasActive) reconnectTunerAfterAudioRecovery(fresh);
+  return true;
+}
+function audioPreflightForGesture() {
+  const ctx = getAudioContext();
+  if (!ctx) return null;
+  if (audioRecoveryPending || ctx.state === 'closed') {
+    if (!hardRecoverAudioContext('preflight', false)) return ctx;
+    return audioCtx;
+  }
+  if (ctx.state !== 'running') requestAudioResume('preflight');
+  return audioCtx;
+}
+function playAudioRecoveryTestTone() {
+  const ctx = audioPreflightForGesture(); if (!ctx) return;
+  const osc=ctx.createOscillator(), gain=ctx.createGain(), now=ctx.currentTime;
+  osc.frequency.value=523.25; gain.gain.setValueAtTime(.0001,now);
+  gain.gain.exponentialRampToValueAtTime(.05,now+.015); gain.gain.exponentialRampToValueAtTime(.0001,now+.22);
+  osc.connect(gain); gain.connect(ctx.destination); osc.start(now); osc.stop(now+.24);
+}
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'visible') resumeAudioContext();
+  if (document.visibilityState === 'hidden') audioBlurStartedAt = performance.now();
+  else {
+    audioLastBlurDurationMs = audioBlurStartedAt ? performance.now() - audioBlurStartedAt : 0;
+    audioBlurStartedAt = 0; requestAudioResume('visibility');
+  }
 });
-window.addEventListener('focus', resumeAudioContext);
-// Любое касание/клик — законный жест пользователя, под ним resume()
-// разрешён гарантированно. Слушатели пассивные и не мешают прокрутке.
-document.addEventListener('pointerdown', resumeAudioContext, { passive: true, capture: true });
+window.addEventListener('blur', () => { if (!audioBlurStartedAt) audioBlurStartedAt = performance.now(); });
+window.addEventListener('focus', () => {
+  audioLastBlurDurationMs = audioBlurStartedAt ? performance.now() - audioBlurStartedAt : audioLastBlurDurationMs;
+  audioBlurStartedAt = 0; requestAudioResume('focus');
+});
+// Первый жест после неудачного resume имеет право пересоздать контекст.
+document.addEventListener('pointerdown', () => {
+  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) hardRecoverAudioContext('pointer', false);
+  else requestAudioResume('pointer');
+}, { passive: true, capture: true });
+document.addEventListener('keydown', () => {
+  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) hardRecoverAudioContext('keyboard', false);
+  else requestAudioResume('keyboard');
+}, { capture: true });
 
 // ===================== ТЮНЕР =====================
 //
@@ -26326,6 +26425,9 @@ function playAll() {
   // начала песни, как было.
   const from = timelineMode ? consumeTimelineStartPosition() : null;
 
+  // Пользовательский Play — последняя безопасная точка восстановления до
+  // планирования нот. Во время уже идущего такта контекст не пересоздаём.
+  audioPreflightForGesture();
   playbackState.isPlaying = true;
   setPlaybackBodyClass(true);
   // Масштаб под игру подбираем автоматически.
@@ -30379,10 +30481,14 @@ function devStormStateRows() {
   const remaining = stormSurpriseTimer && stormScheduleDue
     ? Math.max(0, Math.ceil((stormScheduleDue - performance.now()) / 1000)) + ' c' : '—';
   return [
-    ['Версия', '0.311'], ['Схема', activeSchemeId() || 'Дефолт'],
+    ['Версия', document.querySelector('.app-title span')?.textContent.replace('· ver','').trim() || '—'], ['Схема', activeSchemeId() || 'Дефолт'],
     ['Песня', songName], ['Seal', currentSongSeal || '—'],
     ['Unlock', stormUnlocked ? 'да' : 'нет'], ['Тумблер', schemeSurprisesEnabled ? 'вкл' : 'выкл'],
-    ['Фаза', stormSurprisePhase], ['До события', remaining]
+    ['Фаза', stormSurprisePhase], ['До события', remaining],
+    ['Audio', audioCtx ? audioCtx.state : 'не создан'], ['Audio Hz', audioCtx ? audioCtx.sampleRate : '—'],
+    ['Audio time', audioCtx ? audioCtx.currentTime.toFixed(2) : '—'], ['Audio gen', audioContextGeneration],
+    ['Blur', audioLastBlurDurationMs ? Math.round(audioLastBlurDurationMs/1000)+' c' : '—'], ['Recovery', audioRecoveryPending ? 'ожидает жест' : 'готов'],
+    ['Audio error', audioRecoveryLastError || '—']
   ];
 }
 function closeDevPalette() { document.querySelector('.dev-palette-overlay')?.remove(); }
@@ -30429,6 +30535,8 @@ function openDevPalette() {
   devStormStateRows().forEach(([key,value])=>{const row=document.createElement('span'); row.textContent=`${key}: ${value}`; row.title=row.textContent; state.appendChild(row);});
   const list=document.createElement('div'); list.className='dev-palette-list';
   const commands=[
+    ['ti-volume','Восстановить звук','Пересоздать AudioContext и переподключить аудиограф',()=>{closeDevPalette();hardRecoverAudioContext('dev',true);}],
+    ['ti-music','Тестовый тон','Короткая нота для проверки физического выхода',()=>{closeDevPalette();playAudioRecoveryTestTone();}],
     ['ti-refresh','Полный сброс «220 вольт»','Забыть unlock, ачивки, таймер и заряд',()=>{closeDevPalette();resetStormSecretForTesting();}],
     ['ti-award','Ачивка → заряд','Полный первый сценарий со звуком',devShowStormAchievement],
     ['ti-cloud-bolt','Запустить заряд','Начать обычное накопление прямо сейчас',devStartStormCharge],

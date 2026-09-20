@@ -12,7 +12,7 @@ dom.window.addEventListener('load',()=>{
   setTimeout(()=>{
     if(runtimeError) throw runtimeError;
     if(!d.querySelector('.dev-palette-overlay')) throw new Error('ПРОВАЛ: палитра не открылась по Cmd+Shift+D');
-    if(!d.querySelector('.dev-palette-state')?.textContent.includes('Версия: 0.311')) throw new Error('ПРОВАЛ: диагностика не построилась');
+    if(!d.querySelector('.dev-palette-state')?.textContent.includes('Версия: 0.313')) throw new Error('ПРОВАЛ: диагностика не построилась');
     console.log('ALL OK — dev-палитра реально открывается и строит диагностику.');
     dom.window.close();
   },40);

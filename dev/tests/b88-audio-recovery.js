@@ -1,0 +1,34 @@
+#!/usr/bin/env node
+const fs=require('fs'),path=require('path');
+const src=fs.readFileSync(path.join(__dirname,'..','..','STRUCHORD.html'),'utf8');
+let n=0;function ok(v,m){if(!v)throw new Error('ПРОВАЛ: '+m);console.log('OK:',m);n++;}
+ok(src.includes('audioContextGeneration = 0'),'считаются поколения AudioContext');
+ok(src.includes('audioRecoveryPending = false'),'есть флаг отложенного восстановления');
+ok(src.includes('audioRecoveryLastError'),'сохраняется последняя ошибка');
+ok(src.includes('audioBlurStartedAt'),'измеряется уход приложения в фон');
+ok(src.includes('audioContextGeneration++'),'новый контекст увеличивает поколение');
+ok(src.includes("audioCtx.state === 'interrupted'"),'Safari interrupted отслеживается');
+ok(src.includes("audioCtx.state === 'closed'"),'закрытый контекст отслеживается');
+ok(src.includes('function requestAudioResume'),'есть мягкая ступень resume');
+ok(src.includes("requestAudioResume('visibility')"),'возврат видимости пробуждает звук');
+ok(src.includes("requestAudioResume('focus')"),'focus пробуждает звук');
+ok(src.includes('450'),'неудачный resume получает срок проверки');
+ok(src.includes('function hardRecoverAudioContext'),'есть жёсткая ступень восстановления');
+ok(src.includes('playbackState.isPlaying && !force'),'автоматика не пересоздаёт контекст во время Play');
+ok(src.includes('stopAllAudio(); stopMetronomeScheduler();'),'старые голоса и метроном останавливаются');
+ok(src.includes('guitarDryBus = null')&&src.includes('guitarMasterGain = null'),'гитарный аудиограф сбрасывается');
+ok(src.includes('metronomeGainNode = null'),'метрономная шина сбрасывается');
+ok(src.includes('pluckBufferCache.clear()'),'буферный кэш очищается');
+ok(src.includes('previous.close()'),'старый контекст закрывается');
+ok(src.includes('function reconnectTunerAfterAudioRecovery'),'тюнер переподключается');
+ok(src.includes('createMediaStreamSource(tunerState.stream)'),'поток тюнера переиспользуется без нового permission');
+ok(src.includes('function audioPreflightForGesture'),'есть preflight перед звуком');
+ok(src.includes("hardRecoverAudioContext('preflight'"),'preflight выполняет pending recovery');
+ok(src.includes("hardRecoverAudioContext('pointer'"),'жёсткое восстановление привязано к жесту');
+ok(src.includes("hardRecoverAudioContext('keyboard'"),'клавиатурный жест тоже восстанавливает звук');
+ok(src.includes("['Audio', audioCtx ? audioCtx.state"),'state виден в dev-палитре');
+ok(src.includes("['Audio gen', audioContextGeneration]"),'generation виден в dev-палитре');
+ok(src.includes("['Audio error', audioRecoveryLastError"),'ошибка видна в dev-палитре');
+ok(src.includes("'Восстановить звук'"),'есть ручная команда recovery');
+ok(src.includes("'Тестовый тон'"),'есть физическая проверка выхода');
+console.log(`\nALL OK — ${n} проверок B-88.`);
