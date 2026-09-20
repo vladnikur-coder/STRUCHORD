@@ -8,10 +8,10 @@ const dom=new JSDOM(html,{runScripts:'dangerously',pretendToBeVisual:true,url:'h
 dom.window.addEventListener('error',e=>{runtimeError=e.error||new Error(e.message);});
 dom.window.addEventListener('load',()=>{
   const w=dom.window,d=w.document,trigger=d.getElementById('devPanelTrigger');
-  for(let i=0;i<3;i++) trigger.dispatchEvent(new w.MouseEvent('pointerup',{bubbles:true}));
+  d.dispatchEvent(new w.KeyboardEvent('keydown',{bubbles:true,metaKey:true,shiftKey:true,code:'KeyD'}));
   setTimeout(()=>{
     if(runtimeError) throw runtimeError;
-    if(!d.querySelector('.dev-palette-overlay')) throw new Error('ПРОВАЛ: палитра не открылась после тройного нажатия');
+    if(!d.querySelector('.dev-palette-overlay')) throw new Error('ПРОВАЛ: палитра не открылась по Cmd+Shift+D');
     if(!d.querySelector('.dev-palette-state')?.textContent.includes('Версия: 0.311')) throw new Error('ПРОВАЛ: диагностика не построилась');
     console.log('ALL OK — dev-палитра реально открывается и строит диагностику.');
     dom.window.close();

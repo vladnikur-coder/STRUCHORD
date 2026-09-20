@@ -29,10 +29,10 @@ ok(src.includes('role="switch"')&&src.includes('toggleStormSecret()'),'в стр
 ok(!src.includes('id="schemeSurprises"'),'старый общий пункт удалён');
 ok(src.includes('resetStormSecretForTesting'),'есть временный полный сброс');
 ok(!src.includes('id="stormSecretReset"'),'отладочный сброс убран из пользовательского меню');
-ok(src.includes('id="devPanelTrigger"'),'у версии есть скрытый тройной trigger');
+ok(src.includes('id="devPanelTrigger"'),'у заголовка есть trigger долгого нажатия');
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
-ok(src.includes('devTitleClicks>=3'),'палитра открывается тройным кликом');
-ok(src.includes("document.addEventListener('pointerup'")&&src.includes("closest('#devPanelTrigger')"),'тройной trigger ловится глобально в capture-фазе');
+ok(!src.includes('devTitleClicks'),'логика тройного клика полностью удалена');
+ok(src.includes("document.addEventListener('pointerdown'")&&src.includes("closest('#devPanelTrigger')"),'долгое нажатие ловится глобально в capture-фазе');
 ok(src.includes("document.addEventListener('pointerdown'")&&src.includes('1100'),'долгое нажатие открывает палитру на touch');
 ok(src.includes('event.shiftKey')&&src.includes("event.code==='KeyD'"),'есть Cmd/Ctrl+Shift+D без Alt');
 ok(src.includes('devShowStormAchievement')&&src.includes('devStartStormCharge'),'есть ачивка и ручной заряд');
