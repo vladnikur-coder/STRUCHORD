@@ -28,6 +28,13 @@ ok(src.includes('id="stormSecretControl" hidden'),'переключатель с
 ok(src.includes('role="switch"')&&src.includes('toggleStormSecret()'),'в строке Грозы есть доступный тумблер');
 ok(!src.includes('id="schemeSurprises"'),'старый общий пункт удалён');
 ok(src.includes('resetStormSecretForTesting'),'есть временный полный сброс');
+ok(!src.includes('id="stormSecretReset"'),'отладочный сброс убран из пользовательского меню');
+ok(src.includes('id="devPanelTrigger"'),'у версии есть скрытый тройной trigger');
+ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
+ok(src.includes('devTitleClicks>=3'),'палитра открывается тройным кликом');
+ok(src.includes('innerWidth<=608'),'на мобильном палитра недоступна');
+ok(src.includes('devShowStormAchievement')&&src.includes('devStartStormCharge'),'есть ачивка и ручной заряд');
+ok(src.includes('devArmStormNow')&&src.includes('devStrikeStormNow'),'есть вооружение и принудительный удар');
 ok(src.includes("localStorage.removeItem(STORM_UNLOCK_KEY)"),'сброс забывает разблокировку');
 ok(src.includes('stormReducedMotion()'),'учтено уменьшение движения');
 ok(src.includes('.storm-achievement.is-visible .storm-achievement-outline')&&src.includes('animation:none'),'reduced motion отключает трассировку');

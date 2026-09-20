@@ -10098,6 +10098,22 @@ html[data-theme='dark'] .storm-charge-glint {
 .storm-mini-switch > span { width:.75rem; height:.75rem; border-radius:50%; background:var(--color-surface); box-shadow:0 1px 3px rgba(0,0,0,.2); transform:translateX(0); transition:transform 160ms ease; }
 .storm-mini-switch[aria-checked="true"] { background:var(--color-accent); }
 .storm-mini-switch[aria-checked="true"] > span { transform:translateX(.8rem); }
+.dev-palette-overlay { position:fixed; inset:0; z-index:2147483646; display:grid; place-items:start center; padding-top:min(14vh,7rem); background:rgba(8,10,18,.48); backdrop-filter:blur(.22rem); }
+.dev-palette { width:min(38rem,calc(100vw - 2rem)); max-height:min(72vh,42rem); overflow:auto; border:1px solid color-mix(in srgb,var(--color-border-medium) 72%,transparent); border-radius:1rem; background:var(--color-surface); color:var(--color-text-primary); box-shadow:0 1.2rem 3.5rem rgba(0,0,0,.3); }
+.dev-palette-head { display:flex; align-items:center; gap:.65rem; padding:.8rem 1rem; border-bottom:1px solid var(--color-border-light); }
+.dev-palette-head i { color:var(--color-accent); }
+.dev-palette-search { flex:1; min-width:0; border:0; outline:0; background:transparent; color:var(--color-text-primary); font:inherit; font-size:1rem; }
+.dev-palette-close { border:0; background:transparent; color:var(--color-text-tertiary); cursor:pointer; font-size:1.1rem; }
+.dev-palette-state { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.35rem .9rem; padding:.75rem 1rem; background:var(--color-background-secondary); font:500 .72rem/1.35 ui-monospace,SFMono-Regular,Consolas,monospace; color:var(--color-text-secondary); }
+.dev-palette-state span { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.dev-palette-list { display:grid; gap:.35rem; padding:.65rem; }
+.dev-command { display:flex; align-items:center; gap:.75rem; width:100%; border:0; border-radius:.7rem; padding:.72rem .8rem; text-align:left; color:var(--color-text-primary); background:transparent; cursor:pointer; }
+.dev-command:hover,.dev-command:focus-visible { outline:0; background:var(--color-tint); }
+.dev-command i { width:1.25rem; color:var(--color-accent); font-size:1.05rem; }
+.dev-command small { display:block; margin-top:.12rem; color:var(--color-text-tertiary); }
+.dev-command[hidden] { display:none; }
+@media (max-width:38rem) { .dev-palette-overlay { display:none !important; } }
+
 .storm-achievement { position:fixed; z-index:2147483647; top:1.4rem; left:50%; width:min(28rem,calc(100vw - 2rem)); transform:translate(-50%,-1rem); opacity:0; pointer-events:none; color:var(--color-text-primary); }
 .storm-achievement-card { position:relative; overflow:hidden; display:grid; grid-template-columns:3.25rem 1fr; align-items:center; gap:.9rem; padding:.9rem 1.1rem; border-radius:.85rem; background:color-mix(in srgb,var(--color-surface) 92%,transparent); box-shadow:0 .7rem 2.2rem rgba(10,12,28,.22); backdrop-filter:blur(.75rem); }
 .storm-achievement-outline { position:absolute; inset:0; width:100%; height:100%; fill:none; stroke:var(--color-accent); stroke-width:1.5; stroke-dasharray:1; stroke-dashoffset:1; }
@@ -10149,7 +10165,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span>· ver 0.306</span></span>
+        <span class="app-title" id="devPanelTrigger">STRUCHORD <span>· ver 0.307</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10225,10 +10241,6 @@ html[data-theme='dark'] .storm-charge-glint {
               aria-label="Увеличить масштаб на 5%" title="Увеличить масштаб на 5%"><i class="ti ti-plus"></i></button>
     </span>
   </div>
-
-  <button type="button" class="tools-label storm-reset-btn" id="stormSecretReset" hidden onclick="resetStormSecretForTesting()">
-    <i class="ti ti-refresh"></i> Сбросить «220 вольт»
-  </button>
 
           <div class="tools-scheme" id="struchord-scheme-picker">
             <button type="button" class="tools-label--head scheme-head" id="schemeHead" aria-expanded="false" aria-controls="schemeList" onclick="toggleSchemeList()" title="Показать список схем"><span>Цветовая схема</span><span class="scheme-head-right"><span class="scheme-head-current" id="schemeCurrentName">Дефолт</span><i class="ti ti-chevron-down"></i></span></button>
@@ -30358,6 +30370,82 @@ function initScheme() {
 
 
 
+// ========== ВРЕМЕННАЯ DEV-ПАЛИТРА (УДАЛИТЬ ПЕРЕД РЕЛИЗОМ B-66.2) ==========
+let devTitleClicks = 0;
+let devTitleClickTimer = null;
+function devStormStateRows() {
+  const meta = currentSongMetadata();
+  const remaining = stormSurpriseTimer && stormScheduleDue
+    ? Math.max(0, Math.ceil((stormScheduleDue - performance.now()) / 1000)) + ' c' : '—';
+  return [
+    ['Версия', '0.307'], ['Схема', activeSchemeId() || 'Дефолт'],
+    ['Песня', songDisplayName(meta)], ['Seal', currentSongSeal || '—'],
+    ['Unlock', stormUnlocked ? 'да' : 'нет'], ['Тумблер', schemeSurprisesEnabled ? 'вкл' : 'выкл'],
+    ['Фаза', stormSurprisePhase], ['До события', remaining]
+  ];
+}
+function closeDevPalette() { document.querySelector('.dev-palette-overlay')?.remove(); }
+function setStormDevReady() {
+  stormUnlocked = true; schemeSurprisesEnabled = true;
+  document.documentElement.setAttribute('data-scheme', 'storm');
+  try { localStorage.setItem('struchord-scheme', 'storm'); } catch (e) {}
+  markSchemeItem('storm'); persistStormSecret(); updateStormSecretUI();
+}
+function devShowStormAchievement() {
+  closeDevPalette(); cancelStormSurprise(); setStormDevReady();
+  showStormAchievement({ id:'220-volts', title:'220 вольт' });
+}
+function devStartStormCharge() {
+  closeDevPalette(); cancelStormSurprise(); setStormDevReady();
+  requestAnimationFrame(() => { if (stormCanStart()) startStormSurprise(); });
+}
+function devArmStormNow() {
+  closeDevPalette(); cancelStormSurprise(); setStormDevReady();
+  const layer = showStormTopLayer();
+  stormSurprisePhase = 'armed'; stormChargeActive = true; stormChargeStartedAt = performance.now() - stormChargeBuildMs;
+  layer.className = 'storm-surprise-layer is-armed';
+}
+function devStrikeStormNow() {
+  closeDevPalette(); cancelStormSurprise(); setStormDevReady();
+  const layer = showStormTopLayer();
+  stormSurprisePhase = 'armed'; stormChargeActive = true;
+  layer.className = 'storm-surprise-layer is-armed';
+  const cx=innerWidth/2, cy=innerHeight/2;
+  const targets=Array.from(document.querySelectorAll(STORM_CONTROL_SELECTOR)).filter(isStormTargetVisible);
+  targets.sort((a,b)=>{const ar=a.getBoundingClientRect(),br=b.getBoundingClientRect();return Math.hypot(ar.left+ar.width/2-cx,ar.top+ar.height/2-cy)-Math.hypot(br.left+br.width/2-cx,br.top+br.height/2-cy);});
+  if (targets[0]) strikeStormControl(targets[0]); else cancelStormSurprise();
+}
+function openDevPalette() {
+  if (innerWidth <= 608 || document.querySelector('.dev-palette-overlay')) return;
+  const overlay=document.createElement('div'); overlay.className='dev-palette-overlay';
+  const panel=document.createElement('section'); panel.className='dev-palette'; panel.setAttribute('role','dialog'); panel.setAttribute('aria-modal','true'); panel.setAttribute('aria-label','Панель разработчика');
+  const head=document.createElement('div'); head.className='dev-palette-head';
+  const icon=document.createElement('i'); icon.className='ti ti-terminal-2';
+  const search=document.createElement('input'); search.className='dev-palette-search'; search.placeholder='Команда разработчика…'; search.setAttribute('aria-label','Поиск команды');
+  const close=document.createElement('button'); close.className='dev-palette-close'; close.type='button'; close.innerHTML='<i class="ti ti-x"></i>'; close.onclick=closeDevPalette;
+  head.append(icon,search,close);
+  const state=document.createElement('div'); state.className='dev-palette-state';
+  devStormStateRows().forEach(([key,value])=>{const row=document.createElement('span'); row.textContent=`${key}: ${value}`; row.title=row.textContent; state.appendChild(row);});
+  const list=document.createElement('div'); list.className='dev-palette-list';
+  const commands=[
+    ['ti-refresh','Полный сброс «220 вольт»','Забыть unlock, ачивки, таймер и заряд',()=>{closeDevPalette();resetStormSecretForTesting();}],
+    ['ti-award','Ачивка → заряд','Полный первый сценарий со звуком',devShowStormAchievement],
+    ['ti-cloud-bolt','Запустить заряд','Начать обычное накопление прямо сейчас',devStartStormCharge],
+    ['ti-bolt','Вооружить молнию','Перейти к ожиданию клика без накопления',devArmStormNow],
+    ['ti-target','Принудительный удар','Сразу ударить в ближайший к центру контрол',devStrikeStormNow]
+  ];
+  commands.forEach(([iconName,title,desc,action])=>{const btn=document.createElement('button');btn.type='button';btn.className='dev-command';btn.dataset.search=(title+' '+desc).toLowerCase();const i=document.createElement('i');i.className='ti '+iconName;const text=document.createElement('span');const strong=document.createElement('strong');strong.textContent=title;const small=document.createElement('small');small.textContent=desc;text.append(strong,small);btn.append(i,text);btn.onclick=action;list.appendChild(btn);});
+  search.addEventListener('input',()=>{const q=search.value.trim().toLowerCase();list.querySelectorAll('.dev-command').forEach(btn=>{btn.hidden=q&&!btn.dataset.search.includes(q);});});
+  panel.append(head,state,list); overlay.appendChild(panel); document.body.appendChild(overlay);
+  overlay.addEventListener('click',event=>{if(event.target===overlay)closeDevPalette();});
+  requestAnimationFrame(()=>search.focus());
+}
+function attachDevPaletteTrigger() {
+  const trigger=document.getElementById('devPanelTrigger'); if(!trigger)return;
+  trigger.addEventListener('click',()=>{if(innerWidth<=608)return;devTitleClicks++;clearTimeout(devTitleClickTimer);devTitleClickTimer=setTimeout(()=>{devTitleClicks=0;},650);if(devTitleClicks>=3){devTitleClicks=0;openDevPalette();}});
+  document.addEventListener('keydown',event=>{if(event.key==='Escape')closeDevPalette();});
+}
+
 // ========== B-66.2: СЕКРЕТНЫЕ ПЕСНИ И АЧИВКИ «ГРОЗЫ» ==========
 const STORM_SEALS = Object.freeze({
   'scd1.8d2f71c4e9a63b05.220': { id: '220-volts', title: '220 вольт' }
@@ -30635,12 +30723,10 @@ function resumeStormSurprise() {
   if (stormChargeActive && (stormSurprisePhase === 'charging' || stormSurprisePhase === 'armed') && pending.length) playStormSoundscape();
 }
 function updateStormSecretUI() {
-  const reset = document.getElementById('stormSecretReset');
   document.querySelectorAll('.storm-secret-control').forEach(control => { control.hidden = !stormUnlocked; });
   document.querySelectorAll('.storm-mini-switch').forEach(toggle => {
     toggle.setAttribute('aria-checked', schemeSurprisesEnabled ? 'true' : 'false');
   });
-  if (reset) reset.hidden = !stormUnlocked;
 }
 function toggleStormSecret() {
   if (!stormUnlocked) return;
@@ -38800,6 +38886,7 @@ initUiScale();
 initFingersVisibility();
 initThemeLongPress();
 initSchemeSurprises();
+attachDevPaletteTrigger();
 // B-64: панель структуры. Слушатели вешаются один раз, дальше список
 // обновляется из render().
 initSongMap();
