@@ -32,7 +32,7 @@ ok(!src.includes('id="stormSecretReset"'),'отладочный сброс уб�
 ok(src.includes('id="devPanelTrigger"'),'у версии есть скрытый тройной trigger');
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
 ok(src.includes('devTitleClicks>=3'),'палитра открывается тройным кликом');
-ok(src.includes('innerWidth<=608'),'на мобильном палитра недоступна');
+ok(src.includes("matchMedia('(pointer: fine)')"),'палитра доступна только с точным указателем');
 ok(src.includes('devShowStormAchievement')&&src.includes('devStartStormCharge'),'есть ачивка и ручной заряд');
 ok(src.includes('devArmStormNow')&&src.includes('devStrikeStormNow'),'есть вооружение и принудительный удар');
 ok(src.includes("localStorage.removeItem(STORM_UNLOCK_KEY)"),'сброс забывает разблокировку');
