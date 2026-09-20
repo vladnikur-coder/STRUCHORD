@@ -10,8 +10,8 @@ ok(src.includes("'scd1.8d2f71c4e9a63b05.220': { id: '220-volts'"),'подпис�
 ok(src.includes("title: '220 вольт'"),'заголовок ачивки точный');
 ok(src.includes('СЕКРЕТ НАЙДЕН'),'есть согласованный kicker');
 ok(src.includes('.storm-achievement-outline { display:none; }'),'у щитка нет лишней контурной рамки');
-ok(src.includes('storm-achievement-bolt'),'есть минималистичная молния');
-ok(src.includes('storm-achievement-trace'),'значок молнии анимирован');
+ok(src.includes('storm-achievement-warning-bg')&&src.includes('storm-achievement-warning-bolt'),'есть нарисованный знак высокого напряжения');
+ok(src.includes('storm-achievement-sign-in')&&src.includes('storm-achievement-flash'),'предупреждающий знак появляется и подсвечивается');
 ok(src.includes('playStormAchievementChime'),'есть тихий отдельный сигнал');
 ok(src.includes("new Audio('./uploads/220.mp3')"),'подключён загруженный звук ачивки');
 ok(src.includes('[.2,.62,1.04,1.48,2.1]'),'щиток сопровождают синхронные электрические пробои');
