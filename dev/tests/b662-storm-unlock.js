@@ -33,6 +33,8 @@ ok(src.includes('id="devPanelTrigger"'),'у версии есть скрытый
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
 ok(src.includes('devTitleClicks>=3'),'палитра открывается тройным кликом');
 ok(src.includes("document.addEventListener('pointerup'")&&src.includes("closest('#devPanelTrigger')"),'тройной trigger ловится глобально в capture-фазе');
+ok(src.includes("document.addEventListener('pointerdown'")&&src.includes('1100'),'долгое нажатие открывает палитру на touch');
+ok(src.includes('event.shiftKey')&&src.includes("event.code==='KeyD'"),'есть Cmd/Ctrl+Shift+D без Alt');
 ok(src.includes('devShowStormAchievement')&&src.includes('devStartStormCharge'),'есть ачивка и ручной заряд');
 ok(src.includes('devArmStormNow')&&src.includes('devStrikeStormNow'),'есть вооружение и принудительный удар');
 ok(src.includes("localStorage.removeItem(STORM_UNLOCK_KEY)"),'сброс забывает разблокировку');
