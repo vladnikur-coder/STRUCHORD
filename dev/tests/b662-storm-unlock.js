@@ -16,14 +16,6 @@ ok(src.includes('playStormAchievementChime'),'есть тихий отдельн
 ok(src.includes("new Audio('./uploads/220.mp3')"),'подключён загруженный звук ачивки');
 ok(src.includes('[.2,.62,1.04,1.48,2.1]'),'щиток сопровождают синхронные электрические пробои');
 ok(src.includes("if (startStormAfter && !stormReducedMotion() && stormCanStart()) startStormSurprise()"),'старый сценарий может перейти в первый заряд только по явному флагу');
-ok(src.includes('function openDynamoPrototype'),'есть dev-прототип ручной динамо-машины');
-ok(src.includes('const DYNAMO_VARIANTS')&&['suitcase','bicycle','lever','cord','rack','contacts'].every(id=>src.includes(id+':{title:')),'есть шесть самостоятельных конструкций генератора');
-ok(src.includes("'dynamo-visuals':Object.entries(DYNAMO_VARIANTS)"),'варианты доступны в отдельной dev-папке');
-ok(src.includes("role=\"slider\"")&&src.includes("setAttribute('aria-valuemax','220')"),'каждый механизм доступен как slider до 220 V');
-ok(src.includes("state.control.addEventListener('pointermove'")&&src.includes("state.control.addEventListener('keydown'"),'у разных механизмов есть drag и клавиатурная альтернатива');
-ok(src.includes("mode==='lever'")&&src.includes("mode==='cord'")&&src.includes("mode==='rack'")&&src.includes("mode==='contacts'"),'механизмы используют разную физику набора напряжения');
-ok(src.includes('finishDynamoScene')&&src.includes("showStormAchievement({id:'220-volts',title:'220 вольт'},false)"),'220 V восстанавливают экран и показывают щиток без Грозы');
-ok(src.includes('startDynamoAudio')&&src.includes('playDynamoContactor'),'есть механико-электрический звук и контактор');
 ok(src.includes('3 * 60 * 1000')&&src.includes('7 * 60 * 1000'),'повторы через 3–7 минут');
 ok(src.includes("localStorage.getItem(STORM_UNLOCK_KEY) === '1'"),'разблокировка постоянна');
 ok(src.includes('stormSeenAchievements = new Set'),'ачивки учитываются отдельно');
@@ -43,6 +35,7 @@ ok(src.includes("root:[entry('ti-volume','Звук'")&&src.includes("entry('ti-a
 ok(src.includes("achievements:[entry('ti-bolt','220 вольт'")&&src.includes("entry('ti-cloud-bolt','Грохочет гром'")&&src.includes("thunder:[entry('ti-cloud-bolt','Гроза'"),'220 вольт и будущая «Грохочет гром» разведены по отдельным папкам');
 ok(src.includes("achievement-style-meter")&&src.includes('achievement-meter'),'выбран единственный визуал Электрощиток 220 V');
 ok(!src.includes('devPreviewAchievementStyle'),'временный выбор визуалов удалён');
+ok(!src.includes('DYNAMO_VARIANTS')&&!src.includes('openDynamoPrototype'),'непринятая витрина динамо полностью удалена');
 ok(src.includes('setInterval(refreshDevPaletteState,250)'),'состояние и таймер обновляются в реальном времени');
 ok(src.includes('clearInterval(devPaletteRefreshTimer)'),'live-таймер очищается при закрытии');
 ok(!src.includes('УДАЛИТЬ ПЕРЕД РЕЛИЗОМ'),'dev-палитра закреплена как постоянная');
