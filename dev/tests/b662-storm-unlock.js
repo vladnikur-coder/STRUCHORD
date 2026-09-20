@@ -15,7 +15,13 @@ ok(src.includes('storm-achievement-sign-in')&&src.includes('storm-achievement-fl
 ok(src.includes('playStormAchievementChime'),'есть тихий отдельный сигнал');
 ok(src.includes("new Audio('./uploads/220.mp3')"),'подключён загруженный звук ачивки');
 ok(src.includes('[.2,.62,1.04,1.48,2.1]'),'щиток сопровождают синхронные электрические пробои');
-ok(src.includes("if (!stormReducedMotion() && stormCanStart()) startStormSurprise()"),'ачивка переходит в первый заряд');
+ok(src.includes("if (startStormAfter && !stormReducedMotion() && stormCanStart()) startStormSurprise()"),'старый сценарий может перейти в первый заряд только по явному флагу');
+ok(src.includes('function openDynamoPrototype'),'есть dev-прототип ручной динамо-машины');
+ok(src.includes("role=\"slider\"")&&src.includes("aria-valuemax=\"220\""),'ручка динамо доступна как slider до 220 V');
+ok(src.includes("state.crank.addEventListener('pointermove'")&&src.includes("state.crank.addEventListener('keydown'"),'есть круговой drag и клавиатурная альтернатива');
+ok(src.includes('state.spin*=')&&src.includes('state.voltage=Math.max(0,state.voltage-dt'),'есть инерция и спад напряжения');
+ok(src.includes('finishDynamoScene')&&src.includes("showStormAchievement({id:'220-volts',title:'220 вольт'},false)"),'220 V восстанавливают экран и показывают щиток без Грозы');
+ok(src.includes('startDynamoAudio')&&src.includes('playDynamoContactor'),'есть механико-электрический звук и контактор');
 ok(src.includes('3 * 60 * 1000')&&src.includes('7 * 60 * 1000'),'повторы через 3–7 минут');
 ok(src.includes("localStorage.getItem(STORM_UNLOCK_KEY) === '1'"),'разблокировка постоянна');
 ok(src.includes('stormSeenAchievements = new Set'),'ачивки учитываются отдельно');
@@ -32,7 +38,7 @@ ok(!src.includes('id="stormSecretReset"'),'отладочный сброс уб�
 ok(src.includes('id="devPanelTrigger"'),'у номера версии есть dev-trigger');
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
 ok(src.includes("root:[entry('ti-volume','Звук'")&&src.includes("entry('ti-award','Ачивки'"),'dev-палитра разделена на Звук и Ачивки');
-ok(src.includes("achievements:[entry('ti-bolt','220 вольт'")&&src.includes("'220':[entry('ti-cloud-bolt','Гроза'"),'Гроза вложена в Ачивки → 220 вольт');
+ok(src.includes("achievements:[entry('ti-bolt','220 вольт'")&&src.includes("entry('ti-cloud-bolt','Грохочет гром'")&&src.includes("thunder:[entry('ti-cloud-bolt','Гроза'"),'220 вольт и будущая «Грохочет гром» разведены по отдельным папкам');
 ok(src.includes("achievement-style-meter")&&src.includes('achievement-meter'),'выбран единственный визуал Электрощиток 220 V');
 ok(!src.includes('devPreviewAchievementStyle'),'временный выбор визуалов удалён');
 ok(src.includes('setInterval(refreshDevPaletteState,250)'),'состояние и таймер обновляются в реальном времени');
