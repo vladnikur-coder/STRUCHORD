@@ -17,6 +17,8 @@ ok(src.includes("new Audio('./uploads/220.mp3')"),'подключён загру
 ok(src.includes('[.2,.62,1.04,1.48,2.1]'),'щиток сопровождают синхронные электрические пробои');
 ok(src.includes("if (startStormAfter && !stormReducedMotion() && stormCanStart()) startStormSurprise()"),'старый сценарий может перейти в первый заряд только по явному флагу');
 ok(src.includes('function openDynamoPrototype'),'есть dev-прототип ручной динамо-машины');
+ok(src.includes('const DYNAMO_VARIANTS')&&(src.match(/title:'/g)||[]).length>=12,'есть витрина из 12 конструкций динамо-машины');
+ok(src.includes("'dynamo-visuals':Object.entries(DYNAMO_VARIANTS)"),'варианты доступны в отдельной dev-папке');
 ok(src.includes("role=\"slider\"")&&src.includes("aria-valuemax=\"220\""),'ручка динамо доступна как slider до 220 V');
 ok(src.includes("state.crank.addEventListener('pointermove'")&&src.includes("state.crank.addEventListener('keydown'"),'есть круговой drag и клавиатурная альтернатива');
 ok(src.includes('state.spin*=')&&src.includes('state.voltage=Math.max(0,state.voltage-dt'),'есть инерция и спад напряжения');
