@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* B-89 / 0.336 — Safari wheel accumulator, единая цель и проход через 220. */
+/* B-89 / 0.337 — Safari wheel accumulator, калибровка 12 px и проход через 220. */
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const html = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
@@ -49,7 +49,7 @@ w.addEventListener('load', async () => {
 
     console.log('=== 1. Синхронная Safari-серия не теряется в snap ===');
     reset(120);
-    for (let i = 0; i < 10; i++) wheel(8);
+    for (let i = 0; i < 10; i++) wheel(12);
     await sleep(170);
     ok(input.value === '130', '10 быстрых дистанций дают 120 → 130', input.value);
     ok(center() === '130', 'центр барабана доехал до общей цели', center());
@@ -63,7 +63,7 @@ w.addEventListener('load', async () => {
     for (let i = 0; i < 4; i++) wheel(-1);
     await sleep(300);
     ok(input.value === '120' && committed() === 120, 'равные встречные остатки не создают ложного шага');
-    for (let i = 0; i < 8; i++) wheel(-1);
+    for (let i = 0; i < 12; i++) wheel(-1);
     await sleep(300);
     ok(input.value === '119' && committed() === 119, 'после погашения полный обратный путь даёт −1');
 
@@ -76,18 +76,18 @@ w.addEventListener('load', async () => {
     await sleep(300);
     ok(input.value === '126', 'Shift ускоряет дискретный тик до +5', input.value);
     reset(298);
-    for (let i = 0; i < 5; i++) wheel(8);
+    for (let i = 0; i < 5; i++) wheel(12);
     await sleep(300);
     ok(input.value === '300' && center() === '300' && committed() === 300, 'верхняя граница 300 едина для цели, центра и commit');
     reset(42);
-    for (let i = 0; i < 5; i++) wheel(-8);
+    for (let i = 0; i < 5; i++) wheel(-12);
     await sleep(300);
     ok(input.value === '40' && center() === '40' && committed() === 40, 'нижняя граница 40 едина для цели, центра и commit');
 
     console.log('=== 4. Проход через 220 запускает сцену только после остановки ===');
     reset(219);
     w.eval('currentSongSeal = LIGHTNING_SONG_SEAL');
-    for (let i = 0; i < 5; i++) wheel(8); // логическая цель 224
+    for (let i = 0; i < 5; i++) wheel(12); // логическая цель 224
     await sleep(170);
     ok(input.value === '224' && !w.eval('powerGeneratorState'), 'на ходу видна цель 224, но сцена ещё не стартовала');
     await sleep(150);
@@ -96,7 +96,7 @@ w.addEventListener('load', async () => {
     ok(state && state.unlockAchievement, 'проход 219 → 224 через 220 запускает production-генератор');
 
     reset(221);
-    for (let i = 0; i < 5; i++) wheel(-8); // логическая цель 216
+    for (let i = 0; i < 5; i++) wheel(-12); // логическая цель 216
     await sleep(320);
     state = w.eval('powerGeneratorState');
     ok(input.value === '216' && state && state.unlockAchievement, 'обратный проход 221 → 216 также считается');

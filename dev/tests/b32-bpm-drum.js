@@ -1,4 +1,4 @@
-// B-32 + B-89 (0.336): барабан BPM и регрессии исходного контракта.
+// B-32 + B-89 (0.337): барабан BPM и регрессии исходного контракта.
 // Направление: колесо ВНИЗ (deltaY>0) = лента вверх = темп ВВЕРХ.
 // Дискретная мышь даёт шаг, Safari-трекпад накапливает дистанцию.
 const fs = require('fs');
@@ -55,9 +55,9 @@ const isOpen = () => { const q = pop(); return !!q && q.classList.contains('is-o
   for (let i = 0; i < 5; i++) { wheelField(100); await sleep(60); }
   await sleep(500);
   ok('после 5 тиков — 125', input.value === '125', input.value);
-  wheelField(8); // мелкая трекпадная дельта — тоже один шаг, как раньше
+  wheelField(12); // откалиброванная трекпадная дистанция = один шаг
   await sleep(320);
-  ok('мелкая дельта (8px) — тоже +1 → 126', input.value === '126', input.value);
+  ok('дельта порога (12px) даёт +1 → 126', input.value === '126', input.value);
 
   console.log('=== 4. Клавиши при открытом барабане ===');
   key('PageUp');
