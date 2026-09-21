@@ -10146,7 +10146,7 @@ html[data-theme='dark'] .storm-charge-glint {
 .storm-achievement-warning { filter:drop-shadow(0 .12rem .08rem rgba(45,39,23,.28)); }
 @keyframes achievement-meter { from{transform:scaleX(.03)} to{transform:scaleX(1)} }
 
-/* B-66.2 / 0.334: dev-прототип ручного генератора. Сцена целиком
+/* B-66.2 / 0.335: ручной генератор. Сцена целиком
    композитная: во время жеста меняются только transform, CSS-переменные и
    SVG-атрибуты; модель песни и основной render() не затрагиваются. */
 .power-generator-scene {
@@ -10286,7 +10286,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.334</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.335</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -24146,6 +24146,7 @@ function tapTempo() {
       DOM.bpmInput.value = clamped;
       showToast(`BPM: ${clamped}`);
       if (playbackState.isPlaying) restartPlaybackFromCurrentPosition();
+      maybeUnlockPowerAchievementFromBpm(clamped);
     }
   }
 }
@@ -30808,11 +30809,18 @@ function initScheme() {
 
 
 
-// ========== B-66.2 / 0.334: DEV-ПРОТОТИП РУЧНОГО ГЕНЕРАТОРА ==========
-// Production-триггер намеренно не подключён: сначала живая визуальная
-// приёмка. Сцена доступна только из «Ачивки → 220 вольт» dev-палитры.
+// ========== B-66.2 / 0.335: РУЧНОЙ ГЕНЕРАТОР «220 ВОЛЬТ» ==========
+// Production-триггер: подписанная «Дима Билан — Молния» уже открыта,
+// пользователь вручную подтверждает глобальный BPM 220. Схема не важна.
 const POWER_GENERATOR_TURNS = 12;
+const POWER_GENERATOR_IDLE_DELAY_MS = 1000;
+const POWER_GENERATOR_DECAY_VPS = 15;
+const POWER_GENERATOR_STOP_SPEED = .015;
+const POWER_GENERATOR_KEY = 'struchord-achievement-220-v1';
+const SECRET_ROUTING_MIGRATION_KEY = 'struchord-secret-routing-v335';
+const LIGHTNING_SONG_SEAL = 'scd1.8d2f71c4e9a63b05.220';
 let powerGeneratorState = null;
+let powerAchievementSeen = false;
 
 function powerGeneratorDialTicks() {
   let out = '';
@@ -31013,7 +31021,11 @@ function updatePowerGeneratorFeedback(now) {
   const audio = state.audio;
   if (!audio || audio.ctx.state === 'closed') return;
   const audioNow = audio.ctx.currentTime;
-  const targetGain = speed > .012 ? .003 + speed * .018 + power * .004 : .0001;
+  // Механический слой следует скорости, тихий электрический остаток —
+  // фактическому напряжению и гаснет вместе с утечкой до 0 V.
+  const targetGain = speed > .012
+    ? .003 + speed * .018 + power * .004
+    : (power > .002 ? .0006 + power * .004 : .0001);
   setPowerGeneratorAudioParam(audio.master.gain, targetGain, audioNow, .035);
   setPowerGeneratorAudioParam(audio.hum.frequency, 42 + speed * 58 + power * 9, audioNow, .03);
   setPowerGeneratorAudioParam(audio.harmonic.frequency, 84 + speed * 116 + power * 18, audioNow, .03);
@@ -31043,9 +31055,16 @@ function rotatePowerGenerator(deltaRad) {
   // Слишком большой скачок означает, что указатель пересёк центр ручки:
   // такой кадр игнорируем, чтобы напряжение нельзя было накрутить телепортом.
   const delta = Math.max(-.9, Math.min(.9, deltaRad));
+  const turnDelta = Math.abs(delta) / (Math.PI * 2);
   state.angle += delta * 180 / Math.PI;
-  state.turns += Math.abs(delta) / (Math.PI * 2);
-  state.storedVoltage = Math.min(205, state.turns / POWER_GENERATOR_TURNS * 205);
+  if (turnDelta > .0001) {
+    // Напряжение теперь является настоящим накопителем: после утечки новый
+    // поворот продолжает с текущего значения, а не возвращает старый пик из
+    // вечного счётчика оборотов.
+    state.storedVoltage = Math.min(205, state.storedVoltage + turnDelta / POWER_GENERATOR_TURNS * 205);
+    state.turns = state.storedVoltage / 205 * POWER_GENERATOR_TURNS;
+    state.idleStartedAt = null;
+  }
   state.crank.setAttribute('transform', `rotate(${state.angle.toFixed(2)} 556 235)`);
 }
 
@@ -31065,19 +31084,53 @@ function updatePowerGeneratorGauge(forceVoltage) {
   if (voltage >= 219.5 && state.turns >= POWER_GENERATOR_TURNS * .86) completePowerGeneratorPrototype();
 }
 
+function updatePowerGeneratorDecay(state, now, dt) {
+  if (!state || state.phase !== 'ready') return;
+  if (Math.abs(state.angularVelocity) > POWER_GENERATOR_STOP_SPEED) {
+    state.idleStartedAt = null;
+    return;
+  }
+  state.angularVelocity = 0;
+  if (state.idleStartedAt == null) {
+    state.idleStartedAt = now;
+    return;
+  }
+  if (now - state.idleStartedAt < POWER_GENERATOR_IDLE_DELAY_MS || state.storedVoltage <= 0) return;
+  state.storedVoltage = Math.max(0, state.storedVoltage - POWER_GENERATOR_DECAY_VPS * dt);
+  state.turns = state.storedVoltage / 205 * POWER_GENERATOR_TURNS;
+}
+
 function tickPowerGenerator(now) {
   const state = powerGeneratorState;
   if (!state) return;
   const dt = Math.min(.05, Math.max(0, (now - state.lastFrame) / 1000 || 0));
   state.lastFrame = now;
-  if (state.phase === 'ready' && !state.dragging && Math.abs(state.angularVelocity) > .015) {
+  if (state.phase === 'ready' && state.dragging && now - state.lastPointerTime > 120) {
+    // Удержание неподвижной ручки — тоже бездействие. Скорость гасим без
+    // дополнительного поворота, после чего запускается секундная пауза.
+    state.angularVelocity *= Math.pow(.075, dt);
+  }
+  if (state.phase === 'ready' && !state.dragging && Math.abs(state.angularVelocity) > POWER_GENERATOR_STOP_SPEED) {
     rotatePowerGenerator(state.angularVelocity * dt);
     state.angularVelocity *= Math.pow(.075, dt);
-    if (Math.abs(state.angularVelocity) < .015) state.angularVelocity = 0;
   }
+  updatePowerGeneratorDecay(state, now, dt);
   updatePowerGeneratorGauge();
   updatePowerGeneratorFeedback(now);
   state.raf = requestAnimationFrame(tickPowerGenerator);
+}
+
+function rememberPowerAchievement() {
+  powerAchievementSeen = true;
+  try { localStorage.setItem(POWER_GENERATOR_KEY, '1'); } catch (e) {}
+}
+
+function maybeUnlockPowerAchievementFromBpm(value) {
+  const bpm = parseInt(value, 10);
+  if (bpm !== 220 || currentSongSeal !== LIGHTNING_SONG_SEAL) return false;
+  if (powerAchievementSeen || powerGeneratorState) return false;
+  startPowerGeneratorPrototype({ unlockAchievement: true });
+  return true;
 }
 
 function completePowerGeneratorPrototype() {
@@ -31088,6 +31141,7 @@ function completePowerGeneratorPrototype() {
   state.angularVelocity = 0;
   state.scene.classList.remove('is-cranking');
   state.scene.classList.add('is-powered');
+  if (state.unlockAchievement) rememberPowerAchievement();
   updatePowerGeneratorGauge(220);
   updatePowerGeneratorFeedback(performance.now());
   playPowerGeneratorCompletionSound(state);
@@ -31102,7 +31156,7 @@ function beginPowerGeneratorRestore() {
   // Плашка возникает уже во время зонального включения. Её принятый
   // 220.mp3 остаётся отдельной кульминацией после короткого звука контактора.
   const reduced = stormReducedMotion();
-  queuePowerGeneratorStep(() => showStormAchievement({ id:'220-volts', title:'220 вольт' }), reduced ? 0 : 620);
+  queuePowerGeneratorStep(() => showStormAchievement({ id:'220-volts', title:'220 вольт' }, false), reduced ? 0 : 620);
   queuePowerGeneratorStep(() => clearPowerGeneratorPrototype(false), reduced ? 120 : 2700);
 }
 
@@ -31157,11 +31211,13 @@ function bindPowerGeneratorControls(state) {
   });
 }
 
-function startPowerGeneratorPrototype() {
+function startPowerGeneratorPrototype(options = null) {
   closeDevPalette();
   clearPowerGeneratorPrototype(false);
+  // Сцены не накладываются друг на друга, но генератор больше не выдаёт
+  // stormUnlocked и не включает схему «Гроза».
   cancelStormSurprise();
-  setStormDevReady();
+  const unlockAchievement = !!(options && options.unlockAchievement === true);
   const scene = document.createElement('div');
   scene.className = 'power-generator-scene';
   scene.innerHTML = powerGeneratorMarkup();
@@ -31177,8 +31233,10 @@ function startPowerGeneratorPrototype() {
     voltage: scene.querySelector('[data-generator-voltage]'),
     stepButton: scene.querySelector('.power-generator-step'),
     phase: 'failure', angle: 0, turns: 0, storedVoltage: 0, currentVoltage: 0,
-    angularVelocity: 0, dragging: false, lastFrame: performance.now(),
-    timers: new Set(), raf: 0, audio: null, previousFocus: document.activeElement
+    angularVelocity: 0, dragging: false, idleStartedAt: null,
+    lastPointerTime: performance.now(), lastFrame: performance.now(),
+    timers: new Set(), raf: 0, audio: null,
+    unlockAchievement, previousFocus: document.activeElement
   };
   bindPowerGeneratorControls(state);
   requestAnimationFrame(() => scene.classList.add('is-failing'));
@@ -31210,7 +31268,8 @@ function devStormStateRows() {
   return [
     ['Версия', document.querySelector('.app-title span')?.textContent.replace('· ver','').trim() || '—'], ['Схема', activeSchemeId() || 'Дефолт'],
     ['Песня', songName], ['Seal', currentSongSeal || '—'],
-    ['Unlock', stormUnlocked ? 'да' : 'нет'], ['Тумблер', schemeSurprisesEnabled ? 'вкл' : 'выкл'],
+    ['220', powerAchievementSeen ? 'получена' : 'нет'],
+    ['Гроза unlock', stormUnlocked ? 'да' : 'нет'], ['Тумблер', schemeSurprisesEnabled ? 'вкл' : 'выкл'],
     ['Фаза', stormSurprisePhase], ['До события', remaining],
     ['Audio', audioCtx ? audioCtx.state : 'не создан'], ['Audio Hz', audioCtx ? audioCtx.sampleRate : '—'],
     ['Audio time', audioCtx ? audioCtx.currentTime.toFixed(2) : '—'], ['Audio gen', audioContextGeneration],
@@ -31236,10 +31295,6 @@ function setStormDevReady() {
   document.documentElement.setAttribute('data-scheme', 'storm');
   try { localStorage.setItem('struchord-scheme', 'storm'); } catch (e) {}
   markSchemeItem('storm'); persistStormSecret(); updateStormSecretUI();
-}
-function devShowStormAchievement() {
-  closeDevPalette(); cancelStormSurprise(); setStormDevReady();
-  showStormAchievement({ id:'220-volts', title:'220 вольт' });
 }
 function devStartStormCharge() {
   closeDevPalette(); cancelStormSurprise(); setStormDevReady();
@@ -31279,10 +31334,10 @@ function openDevPalette() {
     root:[entry('ti-player-play','Звук','Recovery, тест физического выхода',null,'sound'),entry('ti-award','Ачивки','Секреты и визуальные варианты',null,'achievements')],
     sound:[entry('ti-repeat','Восстановить звук','Пересоздать AudioContext и переподключить аудиограф',()=>{closeDevPalette();hardRecoverAudioContext('dev',true);}),entry('ti-player-play','Тест Web Audio','Короткая синтетическая нота через AudioContext',()=>{closeDevPalette();playAudioRecoveryTestTone();}),entry('ti-player-play','Тест HTMLAudio','Тот же физический выход через 220.mp3, без Web Audio',()=>{closeDevPalette();playAudioMediaElementTest();}),entry('ti-clipboard-copy','Журнал звука','События Safari сохраняются даже после перезапуска',null,'audio-report')],
     'audio-report':[entry('ti-folder-open','Просмотреть отчёт','Текущее состояние и последние 200 аудиособытий',openAudioDiagnosticReport),entry('ti-clipboard-copy','Копировать отчёт','Скопировать JSON для разбора',()=>{closeDevPalette();copyAudioDiagnosticReport();}),entry('ti-trash','Очистить журнал','Удалить сохранённую диагностику',()=>{closeDevPalette();clearAudioDiagnosticLog();showToast('Аудиожурнал очищен');})],
-    achievements:[entry('ti-bolt','220 вольт','Щиток принят, новый эффект проектируется',null,'220'),entry('ti-cloud-bolt','Грохочет гром','Будущая ачивка: полный эффект Грозы',null,'thunder')],
-    '220':[entry('ti-repeat','Ручной генератор','Dev-прототип: погасить экран и восстановить 220 V',startPowerGeneratorPrototype),entry('ti-trash','Полный сброс «220 вольт»','Забыть unlock и ачивку',()=>{closeDevPalette();resetStormSecretForTesting();})],
-    thunder:[entry('ti-cloud-bolt','Гроза','Ачивка, заряд, вооружение и удар',null,'storm')],
-    storm:[entry('ti-award','Ачивка → заряд','Выбранный визуал, звук и первый заряд',devShowStormAchievement),entry('ti-cloud-bolt','Запустить заряд','Начать обычное накопление прямо сейчас',devStartStormCharge),entry('ti-bolt','Вооружить молнию','Перейти к ожиданию клика без накопления',devArmStormNow),entry('ti-target','Принудительный удар','Сразу ударить в ближайший к центру контрол',devStrikeStormNow)]
+    achievements:[entry('ti-bolt','220 вольт','Молния + глобальный BPM 220, без unlock Грозы',null,'220'),entry('ti-cloud-bolt','Грохочет гром','Будущая отдельная ачивка полного эффекта Грозы',null,'thunder')],
+    '220':[entry('ti-repeat','Ручной генератор','Dev-прототип: погасить экран и восстановить 220 V',startPowerGeneratorPrototype),entry('ti-trash','Сбросить «220 вольт»','Забыть только эту ачивку',()=>{closeDevPalette();resetPowerAchievementForTesting();})],
+    thunder:[entry('ti-cloud-bolt','Гроза','Dev-инструменты эффекта без production-ачивки',null,'storm')],
+    storm:[entry('ti-cloud-bolt','Разблокировать и запустить заряд','Dev-доступ к эффекту до волны B-66.3',devStartStormCharge),entry('ti-bolt','Вооружить молнию','Перейти к ожиданию клика без накопления',devArmStormNow),entry('ti-target','Принудительный удар','Сразу ударить в ближайший к центру контрол',devStrikeStormNow),entry('ti-trash','Сбросить «Грозу»','Удалить только dev-разблокировку эффекта',()=>{closeDevPalette();resetStormSecretForTesting();})]
   };
   const renderFolder=()=>{
     list.innerHTML=''; const key=folderPath.at(-1)||'root';
@@ -31316,12 +31371,9 @@ function attachDevPaletteTrigger() {
 
 
 
-// ========== B-66.2: СЕКРЕТНЫЕ ПЕСНИ И АЧИВКИ «ГРОЗЫ» ==========
-const STORM_SEALS = Object.freeze({
-  'scd1.8d2f71c4e9a63b05.220': { id: '220-volts', title: '220 вольт' }
-});
+// ========== B-66.2: ПОДПИСАННЫЕ ПЕСНИ И НЕЗАВИСИМЫЕ АЧИВКИ ==========
+const SIGNED_SECRET_SONG_SEALS = new Set([LIGHTNING_SONG_SEAL]);
 let currentSongSeal = '';
-function currentStormAchievement() { return STORM_SEALS[currentSongSeal] || null; }
 function persistStormSecret() {
   try {
     localStorage.setItem(STORM_UNLOCK_KEY, stormUnlocked ? '1' : '0');
@@ -31387,24 +31439,11 @@ function showStormAchievement(achievement, startStormAfter = true) {
   }, 4100);
 }
 function maybeUnlockStormSecret(source) {
-  if (source !== 'song' && source !== 'scheme') return;
-  if (activeSchemeId() !== 'storm') return;
-  const achievement = currentStormAchievement();
-  if (!achievement) return;
-  if (stormSeenAchievements.has(achievement.id)) {
-    // Повторное явное совпадение той же песни и «Грозы» — сразу новый
-    // заряд, но без повторной ачивки и её отдельного звука.
-    if (!stormUnlocked || !schemeSurprisesEnabled || stormReducedMotion()) return;
-    cancelStormSurprise();
-    requestAnimationFrame(() => {
-      if (stormCanStart()) startStormSurprise();
-      else scheduleSchemeSurprise(1000);
-    });
-    return;
-  }
-  stormUnlocked = true; schemeSurprisesEnabled = true;
-  stormSeenAchievements.add(achievement.id); persistStormSecret(); updateStormSecretUI();
-  cancelStormSurprise(); showStormAchievement(achievement);
+  // B-66.3 зарезервировала условие «подписанная Молния + схема Гроза»
+  // для отдельной ачивки «Грохочет гром». До её собственной приёмки
+  // production-маршрут намеренно ничего не разблокирует и не запускает.
+  void source;
+  return false;
 }
 
 // ========== B-66.1: МИКРО-СОБЫТИЕ СХЕМЫ «ГРОЗА» ==========
@@ -31529,12 +31568,28 @@ function resetSchemeSurpriseSchedule() {
     scheduleSchemeSurprise();
   }
 }
-function initSchemeSurprises() {
+function migrateSecretRoutingV335() {
   try {
+    if (localStorage.getItem(SECRET_ROUTING_MIGRATION_KEY) === '1') return;
+    // Старое условие смешивало «220 вольт» и unlock «Грозы». По решению
+    // пользователя оба результата отзываются один раз: 220 можно честно
+    // получить заново через BPM, а Грозу позже откроет только B-66.3.
+    localStorage.removeItem(STORM_UNLOCK_KEY);
+    localStorage.removeItem(STORM_ENABLED_KEY);
+    localStorage.removeItem(STORM_ACHIEVEMENTS_KEY);
+    localStorage.removeItem(POWER_GENERATOR_KEY);
+    localStorage.setItem(SECRET_ROUTING_MIGRATION_KEY, '1');
+  } catch (e) {}
+}
+function initSchemeSurprises() {
+  migrateSecretRoutingV335();
+  try {
+    powerAchievementSeen = localStorage.getItem(POWER_GENERATOR_KEY) === '1';
     stormUnlocked = localStorage.getItem(STORM_UNLOCK_KEY) === '1';
     schemeSurprisesEnabled = stormUnlocked && localStorage.getItem(STORM_ENABLED_KEY) !== '0';
     stormSeenAchievements = new Set(JSON.parse(localStorage.getItem(STORM_ACHIEVEMENTS_KEY) || '[]'));
   } catch (e) {
+    powerAchievementSeen = false;
     stormUnlocked = false; schemeSurprisesEnabled = false; stormSeenAchievements = new Set();
   }
   updateStormSecretUI();
@@ -31610,6 +31665,14 @@ function handleStormSwitchKey(event) {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault(); event.stopPropagation(); toggleStormSecret();
 }
+function resetPowerAchievementForTesting() {
+  clearPowerGeneratorPrototype(false);
+  clearTimeout(stormAchievementTimer);
+  document.querySelector('.storm-achievement')?.remove();
+  powerAchievementSeen = false;
+  try { localStorage.removeItem(POWER_GENERATOR_KEY); } catch (e) {}
+  showToast('«220 вольт» сброшено');
+}
 function resetStormSecretForTesting() {
   cancelStormSurprise(); clearTimeout(stormAchievementTimer);
   stormUnlocked = false; schemeSurprisesEnabled = false; stormSeenAchievements.clear();
@@ -31617,7 +31680,7 @@ function resetStormSecretForTesting() {
     localStorage.removeItem(STORM_UNLOCK_KEY); localStorage.removeItem(STORM_ENABLED_KEY);
     localStorage.removeItem(STORM_ACHIEVEMENTS_KEY);
   } catch (e) {}
-  updateStormSecretUI(); showToast('«220 вольт» сброшено');
+  updateStormSecretUI(); showToast('«Гроза» сброшена');
 }
 function stormChargeProgress() {
   if (stormSurprisePhase === 'armed') return 1;
@@ -39229,6 +39292,9 @@ function applyBpmChange() {
     restartPlaybackFromCurrentPosition();
     showToast(`BPM изменён на ${v}, воспроизведение продолжено`);
   }
+  // Только этот пользовательский commit BPM открывает production-сцену.
+  // Простая загрузка файла со значением 220 сюда не попадает.
+  maybeUnlockPowerAchievementFromBpm(v);
 }
 DOM.bpmInput.addEventListener('change', applyBpmChange);
 
@@ -40452,7 +40518,7 @@ toggleTimeAndBeats();
       return false;
     }
 
-    currentSongSeal = STORM_SEALS[song.documentSeal] ? song.documentSeal : '';
+    currentSongSeal = SIGNED_SECRET_SONG_SEALS.has(song.documentSeal) ? song.documentSeal : '';
     const loadedMeta = songMetadataOf(song);
     DOM.songArtist.value = loadedMeta.artist;
     DOM.songTitle.value = loadedMeta.title;
