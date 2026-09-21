@@ -31,7 +31,7 @@ ok(src.includes('resetStormSecretForTesting'),'есть временный по�
 ok(!src.includes('id="stormSecretReset"'),'отладочный сброс убран из пользовательского меню');
 ok(src.includes('id="devPanelTrigger"'),'у номера версии есть dev-trigger');
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
-ok(src.includes("root:[entry('ti-volume','Звук'")&&src.includes("entry('ti-award','Ачивки'"),'dev-палитра разделена на Звук и Ачивки');
+ok(src.includes("root:[entry('ti-player-play','Звук'")&&src.includes("entry('ti-award','Ачивки'"),'dev-палитра разделена на Звук и Ачивки');
 ok(src.includes("achievements:[entry('ti-bolt','220 вольт'")&&src.includes("entry('ti-cloud-bolt','Грохочет гром'")&&src.includes("thunder:[entry('ti-cloud-bolt','Гроза'"),'220 вольт и будущая «Грохочет гром» разведены по отдельным папкам');
 ok(src.includes("achievement-style-meter")&&src.includes('achievement-meter'),'выбран единственный визуал Электрощиток 220 V');
 ok(!src.includes('devPreviewAchievementStyle'),'временный выбор визуалов удалён');

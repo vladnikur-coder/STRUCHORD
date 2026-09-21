@@ -10112,6 +10112,15 @@ html[data-theme='dark'] .storm-charge-glint {
 .dev-command i { width:1.25rem; color:var(--color-accent); font-size:1.05rem; }
 .dev-command small { display:block; margin-top:.12rem; color:var(--color-text-tertiary); }
 .dev-command[hidden] { display:none; }
+.audio-diagnostic-overlay { position:fixed; inset:0; z-index:2147483647; display:grid; place-items:center; padding:1rem; background:rgba(8,10,18,.62); backdrop-filter:blur(.25rem); }
+.audio-diagnostic-card { width:min(52rem,calc(100vw - 2rem)); max-height:min(86vh,48rem); display:grid; grid-template-rows:auto minmax(12rem,1fr) auto; overflow:hidden; border:1px solid var(--color-border-medium); border-radius:1rem; background:var(--color-surface); color:var(--color-text-primary); box-shadow:0 1.2rem 3.5rem rgba(0,0,0,.38); }
+.audio-diagnostic-head { display:flex; align-items:center; gap:.65rem; padding:.85rem 1rem; border-bottom:1px solid var(--color-border-light); }
+.audio-diagnostic-head strong { flex:1; }
+.audio-diagnostic-report { width:100%; min-height:18rem; resize:none; border:0; outline:0; padding:1rem; background:var(--color-background-secondary); color:var(--color-text-secondary); font:500 .72rem/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; tab-size:2; }
+.audio-diagnostic-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.5rem; padding:.75rem 1rem; border-top:1px solid var(--color-border-light); }
+.audio-diagnostic-actions button { border:1px solid var(--color-border-medium); border-radius:.65rem; padding:.55rem .8rem; background:var(--color-surface); color:var(--color-text-primary); cursor:pointer; font:inherit; }
+.audio-diagnostic-actions button:hover,.audio-diagnostic-actions button:focus-visible { outline:0; background:var(--color-tint); }
+.audio-diagnostic-actions .is-danger { color:var(--color-danger); }
 .storm-achievement { position:fixed; z-index:2147483647; top:1.4rem; left:50%; width:min(28rem,calc(100vw - 2rem)); transform:translate(-50%,-1rem); opacity:0; pointer-events:none; color:var(--color-text-primary); }
 .storm-achievement-card { position:relative; overflow:hidden; display:grid; grid-template-columns:3.25rem 1fr; align-items:center; gap:.9rem; padding:.9rem 1.1rem; border-radius:.85rem; background:color-mix(in srgb,var(--color-surface) 92%,transparent); box-shadow:0 .7rem 2.2rem rgba(10,12,28,.22); backdrop-filter:blur(.75rem); }
 .storm-achievement-outline { position:absolute; inset:0; width:100%; height:100%; fill:none; stroke:var(--color-accent); stroke-width:1.5; stroke-dasharray:1; stroke-dashoffset:1; }
@@ -10268,7 +10277,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.332</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.333</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -24479,21 +24488,167 @@ function clearActiveHighlight() {
     window._previewTimeout = null;
   }
 }
+// B-88 / 0.333: постоянный диагностический журнал. Он намеренно НЕ чинит
+// аудио сам: задача итерации — поймать реальное состояние Safari до того,
+// как перезапуск браузера уничтожит улику.
+const AUDIO_DIAGNOSTIC_KEY = 'struchord-audio-diagnostics-v1';
+const AUDIO_DIAGNOSTIC_LIMIT = 200;
+const audioDiagnosticSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+let audioDiagnosticLog = [];
+let audioDiagnosticMedia = null;
+
+function loadAudioDiagnosticLog() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(AUDIO_DIAGNOSTIC_KEY) || '[]');
+    audioDiagnosticLog = Array.isArray(parsed) ? parsed.slice(-AUDIO_DIAGNOSTIC_LIMIT) : [];
+  } catch (e) {
+    audioDiagnosticLog = [];
+  }
+}
+function audioDiagnosticContextSnapshot(ctx) {
+  const out = {};
+  if (!ctx) return { state: 'none' };
+  try { out.state = String(ctx.state); } catch (e) { out.state = 'unreadable'; }
+  try { out.sampleRate = ctx.sampleRate || null; } catch (e) {}
+  try { out.currentTime = Number(ctx.currentTime.toFixed(3)); } catch (e) {}
+  try { if (Number.isFinite(ctx.baseLatency)) out.baseLatency = Number(ctx.baseLatency.toFixed(4)); } catch (e) {}
+  try { if (Number.isFinite(ctx.outputLatency)) out.outputLatency = Number(ctx.outputLatency.toFixed(4)); } catch (e) {}
+  return out;
+}
+function recordAudioDiagnostic(type, details) {
+  // Асинхронный close() старого контекста может завершиться уже во время
+  // выгрузки страницы; журнал не должен сам породить ошибку при teardown.
+  const doc = typeof document !== 'undefined' && document ? document : null;
+  const nav = typeof navigator !== 'undefined' && navigator ? navigator : null;
+  const activation = nav ? nav.userActivation : null;
+  const audioSession = nav ? nav.audioSession : null;
+  const entry = {
+    at: new Date().toISOString(),
+    session: audioDiagnosticSessionId,
+    type,
+    visibility: doc ? doc.visibilityState : 'detached',
+    generation: audioContextGeneration,
+    context: audioDiagnosticContextSnapshot(audioCtx),
+    userActive: activation ? !!activation.isActive : null,
+    userEverActive: activation ? !!activation.hasBeenActive : null,
+    ...(audioSession ? { audioSession: { type: audioSession.type || null, state: audioSession.state || null } } : {}),
+    ...(details || {})
+  };
+  audioDiagnosticLog.push(entry);
+  if (audioDiagnosticLog.length > AUDIO_DIAGNOSTIC_LIMIT) {
+    audioDiagnosticLog.splice(0, audioDiagnosticLog.length - AUDIO_DIAGNOSTIC_LIMIT);
+  }
+  try { localStorage.setItem(AUDIO_DIAGNOSTIC_KEY, JSON.stringify(audioDiagnosticLog)); } catch (e) {}
+  return entry;
+}
+function audioDiagnosticReport() {
+  return JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    version: document.querySelector('.app-title span')?.textContent.replace('· ver', '').trim() || '—',
+    browser: navigator.userAgent,
+    language: navigator.language,
+    current: {
+      visibility: document.visibilityState,
+      generation: audioContextGeneration,
+      pending: audioRecoveryPending,
+      lastError: audioRecoveryLastError || null,
+      blurMs: Math.round(audioLastBlurDurationMs || 0),
+      context: audioDiagnosticContextSnapshot(audioCtx)
+    },
+    events: audioDiagnosticLog
+  }, null, 2);
+}
+function clearAudioDiagnosticLog() {
+  audioDiagnosticLog = [];
+  try { localStorage.removeItem(AUDIO_DIAGNOSTIC_KEY); } catch (e) {}
+}
+async function copyAudioDiagnosticReport() {
+  const text = audioDiagnosticReport();
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+    else throw new Error('clipboard unavailable');
+  } catch (e) {
+    const field = document.createElement('textarea');
+    field.value = text; field.setAttribute('readonly', '');
+    field.style.position = 'fixed'; field.style.left = '-9999rem';
+    document.body.appendChild(field); field.select();
+    try { document.execCommand('copy'); } catch (copyError) {}
+    field.remove();
+  }
+  showToast('Аудиоотчёт скопирован');
+}
+function closeAudioDiagnosticReport() {
+  document.querySelector('.audio-diagnostic-overlay')?.remove();
+}
+function openAudioDiagnosticReport() {
+  closeDevPalette(); closeAudioDiagnosticReport();
+  const overlay = document.createElement('div'); overlay.className = 'audio-diagnostic-overlay';
+  const card = document.createElement('section'); card.className = 'audio-diagnostic-card';
+  card.setAttribute('role', 'dialog'); card.setAttribute('aria-modal', 'true'); card.setAttribute('aria-label', 'Журнал диагностики звука');
+  const head = document.createElement('div'); head.className = 'audio-diagnostic-head';
+  const icon = document.createElement('i'); icon.className = 'ti ti-player-play';
+  const title = document.createElement('strong'); title.textContent = 'Диагностика звука';
+  const close = document.createElement('button'); close.type = 'button'; close.className = 'dev-palette-close'; close.innerHTML = '<i class="ti ti-x"></i>'; close.onclick = closeAudioDiagnosticReport;
+  head.append(icon, title, close);
+  const report = document.createElement('textarea'); report.className = 'audio-diagnostic-report'; report.readOnly = true; report.value = audioDiagnosticReport(); report.setAttribute('aria-label', 'Аудиоотчёт');
+  const actions = document.createElement('div'); actions.className = 'audio-diagnostic-actions';
+  const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Копировать'; copy.onclick = copyAudioDiagnosticReport;
+  const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'is-danger'; clear.textContent = 'Очистить';
+  clear.onclick = () => { clearAudioDiagnosticLog(); report.value = audioDiagnosticReport(); showToast('Аудиожурнал очищен'); };
+  const done = document.createElement('button'); done.type = 'button'; done.textContent = 'Закрыть'; done.onclick = closeAudioDiagnosticReport;
+  actions.append(clear, copy, done); card.append(head, report, actions); overlay.appendChild(card); document.body.appendChild(overlay);
+  overlay.addEventListener('click', event => { if (event.target === overlay) closeAudioDiagnosticReport(); });
+  requestAnimationFrame(() => report.focus());
+}
+function playAudioMediaElementTest() {
+  if (audioDiagnosticMedia) {
+    try { audioDiagnosticMedia.pause(); } catch (e) {}
+    audioDiagnosticMedia = null;
+  }
+  const sample = new Audio('./uploads/220.mp3');
+  audioDiagnosticMedia = sample; sample.volume = 0.24;
+  recordAudioDiagnostic('media-test-requested');
+  ['play', 'playing', 'waiting', 'stalled', 'ended', 'error'].forEach(name => {
+    sample.addEventListener(name, () => {
+      recordAudioDiagnostic(`media-test-${name}`, name === 'error' ? { mediaError: sample.error ? sample.error.code : null } : null);
+      if (name === 'ended' || name === 'error') audioDiagnosticMedia = null;
+    }, { once: name === 'ended' || name === 'error' });
+  });
+  const started = sample.play();
+  if (started && typeof started.catch === 'function') started.catch(error => {
+    recordAudioDiagnostic('media-test-rejected', { message: error && error.message ? error.message : String(error) });
+  });
+}
+
+loadAudioDiagnosticLog();
+recordAudioDiagnostic('page-init');
+
 function getAudioContext() {
   if (!audioCtx)
     try {
+      recordAudioDiagnostic('context-create-requested');
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       audioContextGeneration++;
+      const watchedContext = audioCtx;
+      const watchedGeneration = audioContextGeneration;
+      recordAudioDiagnostic('context-created', { watchedGeneration });
       // Safari умеет уводить контекст в 'interrupted' — состояние, которого
       // нет в спецификации Web Audio и которое САМО НЕ ВОССТАНАВЛИВАЕТСЯ.
       // Следим за сменой состояния, чтобы поднять его при первой
       // возможности, а не ждать перезагрузки страницы.
       audioCtx.onstatechange = () => {
+        recordAudioDiagnostic('context-statechange', {
+          watchedGeneration,
+          watchedIsCurrent: watchedContext === audioCtx,
+          watchedContext: audioDiagnosticContextSnapshot(watchedContext)
+        });
         if (!audioCtx) return;
         if (audioCtx.state === 'interrupted') requestAudioResume('statechange');
         else if (audioCtx.state === 'closed') audioRecoveryPending = true;
       };
     } catch (e) {
+      audioRecoveryLastError = `create: ${e && e.message ? e.message : e}`;
+      recordAudioDiagnostic('context-create-error', { message: audioRecoveryLastError });
       return null;
     }
   return audioCtx;
@@ -24515,16 +24670,27 @@ function getAudioContext() {
 // changes to "interrupted" and needs to be resumed».
 function resumeAudioContext() {
   const ctx = audioCtx;
-  if (!ctx) return;
-  if (ctx.state === 'running' || ctx.state === 'closed') return;
+  if (!ctx) { recordAudioDiagnostic('resume-skipped-no-context'); return; }
+  if (ctx.state === 'running' || ctx.state === 'closed') {
+    if (ctx.state === 'closed') recordAudioDiagnostic('resume-skipped-closed');
+    return;
+  }
+  recordAudioDiagnostic('resume-requested', { path: 'direct' });
+  let settled = false;
   try {
     const r = ctx.resume();
     // Safari умеет НЕ разрешать промис, если resume() вызван вне
-    // обработчика пользовательского жеста. Глушим отказ, чтобы он не
-    // всплывал необработанным исключением.
-    if (r && typeof r.catch === 'function') r.catch(() => {});
+    // обработчика пользовательского жеста. Поведение не меняем, но теперь
+    // исход промиса остаётся в журнале даже после перезапуска браузера.
+    if (r && typeof r.then === 'function') {
+      r.then(() => { settled = true; recordAudioDiagnostic('resume-resolved', { path: 'direct', resultState: ctx.state }); })
+        .catch(error => { settled = true; recordAudioDiagnostic('resume-rejected', { path: 'direct', message: error && error.message ? error.message : String(error) }); });
+      setTimeout(() => {
+        if (!settled) recordAudioDiagnostic('resume-promise-pending', { path: 'direct', resultState: ctx.state, stillCurrent: ctx === audioCtx });
+      }, 1500);
+    }
   } catch (e) {
-    /* контекст мог быть закрыт — повторять нечего */
+    recordAudioDiagnostic('resume-threw', { path: 'direct', message: e && e.message ? e.message : String(e) });
   }
 }
 window.resumeAudioContext = resumeAudioContext;
@@ -24538,19 +24704,31 @@ function requestAudioResume(reason) {
   const ctx = audioCtx;
   if (!ctx) return;
   if (ctx.state === 'running') { audioRecoveryPending = false; return; }
+  recordAudioDiagnostic('resume-requested', { path: 'manager', reason, before: audioDiagnosticContextSnapshot(ctx) });
+  let settled = false;
   try {
     const result = ctx.resume();
     Promise.resolve(result).then(() => {
+      settled = true;
       if (ctx === audioCtx && ctx.state === 'running') audioRecoveryPending = false;
       else audioRecoveryPending = true;
+      recordAudioDiagnostic('resume-resolved', { path: 'manager', reason, resultState: ctx.state, stillCurrent: ctx === audioCtx });
     }).catch((error) => {
+      settled = true;
       audioRecoveryLastError = `${reason}: ${error && error.message ? error.message : error}`;
       audioRecoveryPending = true;
+      recordAudioDiagnostic('resume-rejected', { path: 'manager', reason, message: audioRecoveryLastError });
     });
-    setTimeout(() => { if (ctx === audioCtx && ctx.state !== 'running') audioRecoveryPending = true; }, 450);
+    setTimeout(() => {
+      if (ctx === audioCtx && ctx.state !== 'running') audioRecoveryPending = true;
+      recordAudioDiagnostic(settled ? 'resume-check' : 'resume-promise-pending', {
+        path: 'manager', reason, resultState: ctx.state, stillCurrent: ctx === audioCtx
+      });
+    }, 450);
   } catch (error) {
     audioRecoveryLastError = `${reason}: ${error && error.message ? error.message : error}`;
     audioRecoveryPending = true;
+    recordAudioDiagnostic('resume-threw', { path: 'manager', reason, message: audioRecoveryLastError });
   }
 }
 function reconnectTunerAfterAudioRecovery(ctx) {
@@ -24571,11 +24749,14 @@ function reconnectTunerAfterAudioRecovery(ctx) {
   }
 }
 function hardRecoverAudioContext(reason, force) {
+  recordAudioDiagnostic('hard-recovery-started', { reason, force: !!force, previous: audioDiagnosticContextSnapshot(audioCtx) });
   if (playbackState && playbackState.isPlaying && !force) {
     audioRecoveryPending = true;
+    recordAudioDiagnostic('hard-recovery-blocked-playing', { reason });
     return false;
   }
   const previous = audioCtx;
+  const previousGeneration = audioContextGeneration;
   const tunerWasActive = !!tunerState;
   stopAllAudio(); stopMetronomeScheduler();
   metronomeGainNode = null;
@@ -24583,19 +24764,37 @@ function hardRecoverAudioContext(reason, force) {
   pluckBufferCache.clear();
   audioCtx = null;
   if (previous && previous.state !== 'closed') {
-    try { const closing = previous.close(); if (closing && closing.catch) closing.catch(() => {}); } catch (e) {}
+    try {
+      const closing = previous.close();
+      recordAudioDiagnostic('context-close-requested', { previousGeneration, previous: audioDiagnosticContextSnapshot(previous) });
+      if (closing && typeof closing.then === 'function') {
+        closing.then(() => recordAudioDiagnostic('context-close-resolved', { previousGeneration, previous: audioDiagnosticContextSnapshot(previous) }))
+          .catch(error => recordAudioDiagnostic('context-close-rejected', { previousGeneration, message: error && error.message ? error.message : String(error) }));
+      }
+    } catch (e) {
+      recordAudioDiagnostic('context-close-threw', { previousGeneration, message: e && e.message ? e.message : String(e) });
+    }
   }
   const fresh = getAudioContext();
-  if (!fresh) { audioRecoveryLastError = `${reason}: новый AudioContext недоступен`; audioRecoveryPending = true; return false; }
+  if (!fresh) {
+    audioRecoveryLastError = `${reason}: новый AudioContext недоступен`; audioRecoveryPending = true;
+    recordAudioDiagnostic('hard-recovery-failed', { reason, message: audioRecoveryLastError });
+    return false;
+  }
   audioRecoveryPending = false; audioRecoveryLastError = '';
   resumeAudioContext();
   if (tunerWasActive) reconnectTunerAfterAudioRecovery(fresh);
+  recordAudioDiagnostic('hard-recovery-finished', {
+    reason, previousGeneration, freshGeneration: audioContextGeneration,
+    fresh: audioDiagnosticContextSnapshot(fresh), tunerWasActive
+  });
   return true;
 }
 function audioPreflightForGesture() {
   const ctx = getAudioContext();
-  if (!ctx) return null;
+  if (!ctx) { recordAudioDiagnostic('preflight-no-context'); return null; }
   if (audioRecoveryPending || ctx.state === 'closed') {
+    recordAudioDiagnostic('preflight-hard-recovery', { pending: audioRecoveryPending, before: audioDiagnosticContextSnapshot(ctx) });
     if (!hardRecoverAudioContext('preflight', false)) return ctx;
     return audioCtx;
   }
@@ -24603,32 +24802,56 @@ function audioPreflightForGesture() {
   return audioCtx;
 }
 function playAudioRecoveryTestTone() {
-  const ctx = audioPreflightForGesture(); if (!ctx) return;
-  const osc=ctx.createOscillator(), gain=ctx.createGain(), now=ctx.currentTime;
-  osc.frequency.value=523.25; gain.gain.setValueAtTime(.0001,now);
-  gain.gain.exponentialRampToValueAtTime(.05,now+.015); gain.gain.exponentialRampToValueAtTime(.0001,now+.22);
-  osc.connect(gain); gain.connect(ctx.destination); osc.start(now); osc.stop(now+.24);
+  const ctx = audioPreflightForGesture();
+  if (!ctx) { recordAudioDiagnostic('webaudio-test-aborted'); return; }
+  try {
+    const osc=ctx.createOscillator(), gain=ctx.createGain(), now=ctx.currentTime;
+    recordAudioDiagnostic('webaudio-test-scheduled', { scheduledAt: Number(now.toFixed(3)) });
+    osc.frequency.value=523.25; gain.gain.setValueAtTime(.0001,now);
+    gain.gain.exponentialRampToValueAtTime(.05,now+.015); gain.gain.exponentialRampToValueAtTime(.0001,now+.22);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.onended=()=>recordAudioDiagnostic('webaudio-test-ended', { endedAt: Number(ctx.currentTime.toFixed(3)), sameContext: ctx === audioCtx });
+    osc.start(now); osc.stop(now+.24);
+  } catch (error) {
+    audioRecoveryLastError = `test-tone: ${error && error.message ? error.message : error}`;
+    recordAudioDiagnostic('webaudio-test-error', { message: audioRecoveryLastError });
+  }
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') audioBlurStartedAt = performance.now();
-  else {
+  if (document.visibilityState === 'hidden') {
+    audioBlurStartedAt = performance.now();
+    recordAudioDiagnostic('visibility-hidden');
+  } else {
     audioLastBlurDurationMs = audioBlurStartedAt ? performance.now() - audioBlurStartedAt : 0;
-    audioBlurStartedAt = 0; requestAudioResume('visibility');
+    audioBlurStartedAt = 0;
+    recordAudioDiagnostic('visibility-visible', { hiddenMs: Math.round(audioLastBlurDurationMs) });
+    requestAudioResume('visibility');
   }
 });
-window.addEventListener('blur', () => { if (!audioBlurStartedAt) audioBlurStartedAt = performance.now(); });
+window.addEventListener('blur', () => {
+  if (!audioBlurStartedAt) audioBlurStartedAt = performance.now();
+  recordAudioDiagnostic('window-blur');
+});
 window.addEventListener('focus', () => {
   audioLastBlurDurationMs = audioBlurStartedAt ? performance.now() - audioBlurStartedAt : audioLastBlurDurationMs;
-  audioBlurStartedAt = 0; requestAudioResume('focus');
+  audioBlurStartedAt = 0;
+  recordAudioDiagnostic('window-focus', { hiddenMs: Math.round(audioLastBlurDurationMs || 0) });
+  requestAudioResume('focus');
 });
+window.addEventListener('pagehide', event => recordAudioDiagnostic('pagehide', { persisted: !!event.persisted }));
+window.addEventListener('pageshow', event => recordAudioDiagnostic('pageshow', { persisted: !!event.persisted }));
 // Первый жест после неудачного resume имеет право пересоздать контекст.
 document.addEventListener('pointerdown', () => {
-  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) hardRecoverAudioContext('pointer', false);
-  else requestAudioResume('pointer');
+  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) {
+    recordAudioDiagnostic('pending-recovery-gesture', { kind: 'pointer' });
+    hardRecoverAudioContext('pointer', false);
+  } else requestAudioResume('pointer');
 }, { passive: true, capture: true });
 document.addEventListener('keydown', () => {
-  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) hardRecoverAudioContext('keyboard', false);
-  else requestAudioResume('keyboard');
+  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) {
+    recordAudioDiagnostic('pending-recovery-gesture', { kind: 'keyboard' });
+    hardRecoverAudioContext('keyboard', false);
+  } else requestAudioResume('keyboard');
 }, { capture: true });
 
 // ===================== ТЮНЕР =====================
@@ -30831,7 +31054,8 @@ function devStormStateRows() {
     ['Audio', audioCtx ? audioCtx.state : 'не создан'], ['Audio Hz', audioCtx ? audioCtx.sampleRate : '—'],
     ['Audio time', audioCtx ? audioCtx.currentTime.toFixed(2) : '—'], ['Audio gen', audioContextGeneration],
     ['Blur', audioLastBlurDurationMs ? Math.round(audioLastBlurDurationMs/1000)+' c' : '—'], ['Recovery', audioRecoveryPending ? 'ожидает жест' : 'готов'],
-    ['Audio error', audioRecoveryLastError || '—']
+    ['Audio error', audioRecoveryLastError || '—'],
+    ['Audio log', audioDiagnosticLog.length ? `${audioDiagnosticLog.length} · ${audioDiagnosticLog.at(-1).type}` : 'пусто']
   ];
 }
 function refreshDevPaletteState() {
@@ -30891,8 +31115,9 @@ function openDevPalette() {
   let folderPath=[];
   const entry=(iconName,title,desc,action,folder)=>({iconName,title,desc,action,folder});
   const folders={
-    root:[entry('ti-volume','Звук','Recovery, тест физического выхода',null,'sound'),entry('ti-award','Ачивки','Секреты и визуальные варианты',null,'achievements')],
-    sound:[entry('ti-volume','Восстановить звук','Пересоздать AudioContext и переподключить аудиограф',()=>{closeDevPalette();hardRecoverAudioContext('dev',true);}),entry('ti-music','Тестовый тон','Короткая нота для проверки физического выхода',()=>{closeDevPalette();playAudioRecoveryTestTone();})],
+    root:[entry('ti-player-play','Звук','Recovery, тест физического выхода',null,'sound'),entry('ti-award','Ачивки','Секреты и визуальные варианты',null,'achievements')],
+    sound:[entry('ti-repeat','Восстановить звук','Пересоздать AudioContext и переподключить аудиограф',()=>{closeDevPalette();hardRecoverAudioContext('dev',true);}),entry('ti-player-play','Тест Web Audio','Короткая синтетическая нота через AudioContext',()=>{closeDevPalette();playAudioRecoveryTestTone();}),entry('ti-player-play','Тест HTMLAudio','Тот же физический выход через 220.mp3, без Web Audio',()=>{closeDevPalette();playAudioMediaElementTest();}),entry('ti-clipboard-copy','Журнал звука','События Safari сохраняются даже после перезапуска',null,'audio-report')],
+    'audio-report':[entry('ti-folder-open','Просмотреть отчёт','Текущее состояние и последние 200 аудиособытий',openAudioDiagnosticReport),entry('ti-clipboard-copy','Копировать отчёт','Скопировать JSON для разбора',()=>{closeDevPalette();copyAudioDiagnosticReport();}),entry('ti-trash','Очистить журнал','Удалить сохранённую диагностику',()=>{closeDevPalette();clearAudioDiagnosticLog();showToast('Аудиожурнал очищен');})],
     achievements:[entry('ti-bolt','220 вольт','Щиток принят, новый эффект проектируется',null,'220'),entry('ti-cloud-bolt','Грохочет гром','Будущая ачивка: полный эффект Грозы',null,'thunder')],
     '220':[entry('ti-repeat','Ручной генератор','Dev-прототип: погасить экран и восстановить 220 V',startPowerGeneratorPrototype),entry('ti-trash','Полный сброс «220 вольт»','Забыть unlock и ачивку',()=>{closeDevPalette();resetStormSecretForTesting();})],
     thunder:[entry('ti-cloud-bolt','Гроза','Ачивка, заряд, вооружение и удар',null,'storm')],
@@ -30920,7 +31145,7 @@ function attachDevPaletteTrigger() {
   // больше не является скрытой зоной долгого нажатия.
   trigger.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();openDevPalette();});
   document.addEventListener('keydown',event=>{
-    if(event.key==='Escape')closeDevPalette();
+    if(event.key==='Escape'){closeDevPalette();closeAudioDiagnosticReport();}
     if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.code==='KeyD'){
       event.preventDefault();openDevPalette();
     }
