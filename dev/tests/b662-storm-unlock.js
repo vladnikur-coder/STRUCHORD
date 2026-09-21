@@ -37,9 +37,7 @@ ok(src.includes("achievement-style-meter")&&src.includes('achievement-meter'),'�
 ok(!src.includes('devPreviewAchievementStyle'),'временный выбор визуалов удалён');
 ok(!src.includes('DYNAMO_VARIANTS')&&!src.includes('openDynamoPrototype'),'непринятая витрина динамо полностью удалена');
 ok(!src.includes('openVoltageGeneratorPrototype')&&!src.includes('voltage-generator-scene'),'последний прототип генератора полностью удалён');
-ok(src.includes('function openVoltageSwitchPrototype')&&src.includes('voltage-switch-scene'),'есть единственный прототип большого рубильника');
-ok(src.includes('vs-needle-settle')&&src.includes('is-settling'),'вольтметр колеблется и стабилизируется на 220 V');
-ok(src.includes("showStormAchievement({id:'220-volts',title:'220 вольт'},false)"),'рубильник завершает сценарий щитком без Грозы');
+ok(!src.includes('openVoltageSwitchPrototype')&&!src.includes('voltage-switch-scene'),'непринятый рубильник полностью удалён');
 ok(src.includes('setInterval(refreshDevPaletteState,250)'),'состояние и таймер обновляются в реальном времени');
 ok(src.includes('clearInterval(devPaletteRefreshTimer)'),'live-таймер очищается при закрытии');
 ok(!src.includes('УДАЛИТЬ ПЕРЕД РЕЛИЗОМ'),'dev-палитра закреплена как постоянная');
