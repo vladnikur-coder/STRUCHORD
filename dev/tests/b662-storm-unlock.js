@@ -39,8 +39,10 @@ ok(!src.includes('DYNAMO_VARIANTS')&&!src.includes('openDynamoPrototype'),'не�
 ok(!src.includes('openVoltageGeneratorPrototype')&&!src.includes('voltage-generator-scene'),'старый шаблонный прототип генератора не вернулся');
 ok(!src.includes('openVoltageSwitchPrototype')&&!src.includes('voltage-switch-scene'),'непринятый рубильник полностью удалён');
 ok(src.includes('function startPowerGeneratorPrototype')&&src.includes("'Ручной генератор','Dev-прототип"),'генератор доступен для production-триггера и ручной dev-проверки');
-ok(src.includes('function maybeUnlockPowerAchievementFromBpm')&&src.includes('bpm !== 220')&&src.includes('currentSongSeal !== LIGHTNING_SONG_SEAL'),'220 запускается только для подписанной Молнии с глобальным BPM 220');
-ok((src.match(/maybeUnlockPowerAchievementFromBpm\(/g)||[]).length===3,'production-проверка вызывается только из функции, BPM commit и tap-tempo');
+ok(src.includes('function maybeUnlockPowerAchievementFromBpm')&&src.includes('bpm !== 220')&&src.includes('currentSongSeal !== LIGHTNING_SONG_SEAL'),'единый trigger 220 принимает только подписанную Молнию');
+ok((src.match(/maybeUnlockPowerAchievementFromBpm\(/g)||[]).length===4,'production-проверка вызывается только из функции, BPM commit, tap-tempo и завершённого wheel-жеста');
+ok(src.includes('function bpmWheelPathCrossed220')&&src.includes('if (crossed220) maybeUnlockPowerAchievementFromBpm(220)'),'wheel-проход через 220 маршрутизируется после остановки жеста');
+ok(src.includes('bpmWheelTarget == null')&&src.includes('BPM_WHEEL_DISTANCE_PER_STEP = 8'),'Safari-wheel использует отдельную цель и аккумулятор дистанции');
 ok(!src.includes('startPowerGeneratorPrototype();\n  setStormDevReady()')&&!src.includes("showStormAchievement({ id:'220-volts', title:'220 вольт' });"),'генератор и плашка 220 не выдают unlock Грозы');
 ok(src.includes("showStormAchievement({ id:'220-volts', title:'220 вольт' }, false)"),'плашка 220 явно запрещает запуск первого грозового заряда');
 ok(src.includes('POWER_GENERATOR_TURNS = 12')&&src.includes('data-generator-handle'),'до цели нужно 12 оборотов круговой ручки');

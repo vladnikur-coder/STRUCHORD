@@ -10286,7 +10286,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.335</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.336</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -39303,11 +39303,10 @@ DOM.bpmInput.addEventListener('change', applyBpmChange);
 // Стрелки штатного number-поля мелкие (11x8 px в Safari) и требуют
 // прицеливания. Колесо и протяжка попадают в само число — цель 80x30.
 //
-// Во время игры темп меняется на слух, и каждый шаг перезапускает
-// воспроизведение (restartPlaybackFromCurrentPosition). Поэтому
-// applyBpmChange вызывается не на каждый щелчок, а через паузу в 260 мс
-// после последнего: пока крутят, значение в поле обновляется сразу,
-// а тяжёлая работа делается один раз.
+// Во время игры темп меняется на слух, и каждый commit перезапускает
+// воспроизведение (restartPlaybackFromCurrentPosition). Поэтому тяжёлый
+// applyBpmChange выполняется один раз после остановки жеста, а не на
+// каждом промежуточном числе.
 let bpmCommitTimer = null;
 function bumpBpm(delta) {
   const el = DOM.bpmInput;
@@ -39319,32 +39318,103 @@ function bumpBpm(delta) {
   bpmCommitTimer = setTimeout(applyBpmChange, 260);
 }
 
-DOM.bpmInput.addEventListener(
-  'wheel',
-  (e) => {
-    // Только при наведении: страница под курсором не должна дёргаться,
-    // поэтому событие гасим. passive: false — иначе preventDefault не
-    // сработает и прокрутится вся страница.
-    e.preventDefault();
-    // Shift — крупный шаг: с 60 до 180 иначе пришлось бы крутить 120 раз.
-    const step = e.shiftKey ? 5 : 1;
-    // deltaY > 0 — колесо К СЕБЕ (вниз): при натуральном скролле контент
-    // едет вверх, барабан должен ехать туда же — темп ВВЕРХ. Инверсия по
-    // фидбеку пользователя 0.132: «крутишь колесо вниз — пусть барабан
-    // крутится наверх и наоборот».
-    //
-    // B-32 / 0.131 (фидбек пользователя: «ритм можно редактировать без
-    // открытия барабана колесиком — в вылетающем по клику барабане нет
-    // смысла; пусть барабан появляется именно при таком редактировании»):
-    // колесо ОТКРЫВАЕТ барабан и докручивает ленту до нового значения,
-    // а после паузы в редактировании барабан сам закрывается. Клик по
-    // полю барабан больше не открывает — это обычный ввод цифр.
-    if (!bpmDrumOpen) openBpmDrum();
-    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
-    bpmDrumTouchIdle();
-  },
-  { passive: false }
-);
+// B-89 / 0.336: Safari-трекпад присылает серию мелких wheel delta, пока
+// 130-мс snap барабана ещё едет. Раньше каждый следующий тик брал начало
+// из ПРОМЕЖУТОЧНОГО кадра, поэтому 10 быстрых событий давали всего +1.
+// Теперь физическая дистанция накапливается отдельно, а целевая цифра не
+// зависит от анимации. 8 px на шаг — подтверждённый быстрый режим; один
+// крупный дискретный тик мыши по-прежнему означает ровно один шаг.
+const BPM_WHEEL_DISTANCE_PER_STEP = 8;
+const BPM_WHEEL_DISCRETE_DELTA = 40;
+const BPM_WHEEL_SETTLE_MS = 260;
+let bpmWheelRemainder = 0;
+let bpmWheelTarget = null;
+let bpmWheelCrossed220 = false;
+let bpmWheelSettleTimer = 0;
+
+function normalizeBpmWheelDelta(event) {
+  let delta = Number(event.deltaY) || 0;
+  if (!delta) return 0;
+  if (event.deltaMode === 1) delta *= 16;
+  else if (event.deltaMode === 2) delta *= Math.max(1, window.innerHeight || 800);
+  // Не превращаем один обычный щелчок колеса (часто ±100/±120) в скачок
+  // на десятки BPM. У плавного трекпада мелкие события суммируются.
+  if (Math.abs(delta) >= BPM_WHEEL_DISCRETE_DELTA) {
+    return Math.sign(delta) * BPM_WHEEL_DISTANCE_PER_STEP;
+  }
+  return delta;
+}
+
+function bpmWheelPathCrossed220(from, to) {
+  return (from < 220 && to >= 220) || (from > 220 && to <= 220);
+}
+
+function settleBpmWheelGesture() {
+  clearTimeout(bpmWheelSettleTimer);
+  bpmWheelSettleTimer = 0;
+  if (bpmWheelTarget == null || !bpmDrum) return false;
+
+  const target = bpmWheelTarget;
+  const crossed220 = bpmWheelCrossed220;
+  const changed = target !== bpmDrum.committed;
+  bpmWheelTarget = null;
+  bpmWheelRemainder = 0;
+  bpmWheelCrossed220 = false;
+
+  // На commit прибиваем и ленту, и скрытое поле к одной целой цифре:
+  // центр барабана, сохранённый BPM и фактический ритм не расходятся.
+  bpmDrumStopLoop();
+  bpmDrum.offset = bpmDrumRestOffset(target);
+  bpmDrum.vel = 0;
+  bpmDrum.snapTo = null;
+  bpmDrum.lastValue = target;
+  DOM.bpmInput.value = target;
+  bpmDrumRenderFrame();
+  clearTimeout(bpmDrum.commitTimer);
+  clearTimeout(bpmCommitTimer);
+
+  if (changed) applyBpmChange();
+  bpmDrum.committed = target;
+  // Подтверждённое правило 0.336: для wheel-жеста достаточно пройти
+  // через 220 в любом направлении; сама сцена стартует только здесь,
+  // после остановки, даже если конечное число оказалось другим.
+  if (crossed220) maybeUnlockPowerAchievementFromBpm(220);
+  return changed || crossed220;
+}
+
+function scheduleBpmWheelSettle() {
+  clearTimeout(bpmWheelSettleTimer);
+  bpmWheelSettleTimer = setTimeout(settleBpmWheelGesture, BPM_WHEEL_SETTLE_MS);
+}
+
+function handleBpmWheel(event) {
+  // Только при наведении: страница под курсором не должна дёргаться.
+  // passive:false у слушателей обязателен для рабочего preventDefault.
+  event.preventDefault();
+  const delta = normalizeBpmWheelDelta(event);
+  if (!delta) return;
+  if (!bpmDrumOpen) openBpmDrum();
+  if (bpmWheelTarget == null) bpmWheelTarget = Math.round(bpmDrumCenterValue());
+
+  // Знаковый остаток естественно гасит незавершённый путь при развороте.
+  bpmWheelRemainder += delta;
+  const units = Math.trunc(bpmWheelRemainder / BPM_WHEEL_DISTANCE_PER_STEP);
+  if (units) {
+    const multiplier = event.shiftKey ? 5 : 1;
+    const from = bpmWheelTarget;
+    const requested = from + units * multiplier;
+    const to = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, requested));
+    bpmWheelRemainder -= units * BPM_WHEEL_DISTANCE_PER_STEP;
+    if (to !== requested) bpmWheelRemainder = 0;
+    if (bpmWheelPathCrossed220(from, to)) bpmWheelCrossed220 = true;
+    bpmWheelTarget = to;
+    if (to !== from) bpmDrumAnimateToValue(to);
+  }
+  scheduleBpmWheelSettle();
+  bpmDrumTouchIdle();
+}
+
+DOM.bpmInput.addEventListener('wheel', handleBpmWheel, { passive: false });
 
 // Протяжка вверх/вниз — «барабан будильника».
 //
@@ -39498,7 +39568,9 @@ function bpmDrumApplyLive() {
   DOM.bpmInput.value = v;
   clearTimeout(bpmDrum.commitTimer);
   bpmDrum.commitTimer = setTimeout(() => {
-    if (bpmDrumOpen) applyBpmChange();
+    if (!bpmDrumOpen || bpmWheelTarget != null) return;
+    applyBpmChange();
+    bpmDrum.committed = parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM;
   }, 260);
 }
 
@@ -39634,6 +39706,7 @@ function openBpmDrum() {
 
 function closeBpmDrum() {
   if (!bpmDrumOpen) return;
+  settleBpmWheelGesture();
   bpmDrumStopLoop();
   clearTimeout(bpmDrum.commitTimer);
   clearTimeout(bpmDrumIdleTimer);
@@ -39658,6 +39731,7 @@ function bpmDrumOnDocPointerDown(e) {
 
 function bpmDrumOnKey(e) {
   if (!bpmDrumOpen) return;
+  settleBpmWheelGesture();
   const cur = Math.round(bpmDrumCenterValue());
   if (e.key === 'Escape') {
     e.preventDefault();
@@ -39692,6 +39766,7 @@ function wireBpmDrumEvents() {
   cyl.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
+    settleBpmWheelGesture();
     try { cyl.setPointerCapture(e.pointerId); } catch (err) {}
     // физический драг: idle не должен закрыть барабан под пальцем
     clearTimeout(bpmDrumIdleTimer);
@@ -39755,13 +39830,9 @@ function wireBpmDrumEvents() {
   };
   cyl.addEventListener('pointerup', endDrag);
   cyl.addEventListener('pointercancel', endDrag);
-  cyl.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const step = e.shiftKey ? 5 : 1;
-    // направление и шаг — как у колеса над полем (см. комментарий там)
-    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
-    bpmDrumTouchIdle();
-  }, { passive: false });
+  // Поле и уже раскрытый цилиндр используют один accumulator/target:
+  // переход курсора между ними не меняет скорость и не теряет шаги.
+  cyl.addEventListener('wheel', handleBpmWheel, { passive: false });
 }
 
 // Клик по полю барабан НЕ открывает (0.131): барабан — фидбек колесного
