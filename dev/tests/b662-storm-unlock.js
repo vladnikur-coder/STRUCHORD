@@ -41,6 +41,14 @@ ok(!src.includes('openVoltageSwitchPrototype')&&!src.includes('voltage-switch-sc
 ok(src.includes('function startPowerGeneratorPrototype')&&src.includes("'Ручной генератор','Dev-прототип"),'новый генератор доступен только из dev-папки 220 вольт');
 ok(src.includes('POWER_GENERATOR_TURNS = 12')&&src.includes('data-generator-handle'),'до цели нужно 12 оборотов круговой ручки');
 ok(src.includes('state.angularVelocity *= Math.pow(.075, dt)'),'у ротора есть затухающая инерция');
+ok(src.includes('paint-order:stroke fill')&&src.includes('stroke:#f3e7ca; stroke-width:9'),'цифры шкалы защищены от наложения делений и стрелки');
+ok(src.includes('power-generator-dial-energy')&&src.includes('data-generator-rotor'),'прибор получил электрическую подсветку и видимое вращение ротора');
+ok(src.includes('function updatePowerGeneratorFeedback')&&src.includes("'--generator-speed'")&&src.includes("'--generator-power'"),'механическая и электрическая отдача следуют скорости и напряжению');
+ok(src.includes('power-generator-meter-flash')&&src.includes('power-generator-meter-ring'),'при 220 V вольтметр даёт отдельную вспышку');
+ok(src.includes('function ensurePowerGeneratorAudio')&&src.includes("hum.type = 'sine'")&&src.includes("harmonic.type = 'triangle'"),'гул динамо синтезируется процедурно без нового файла');
+ok(src.includes('function playPowerGeneratorRatchet')&&src.includes('lastRatchetStep'),'по углу рукояти звучит ограниченная трещотка');
+ok(src.includes('function playPowerGeneratorCompletionSound')&&src.includes("relay.type = 'square'")&&src.includes('const surge = ctx.createOscillator()'),'220 V сопровождают контактор и импульс питания');
+ok(src.includes('ensurePowerGeneratorAudio(state)')&&src.includes('stopPowerGeneratorAudio(state)'),'звук запускается жестом и гарантированно останавливается вместе со сценой');
 ok(src.includes("state.phase === 'complete' && forceVoltage == null"),'после достижения цели инерция не опускает показание ниже 220 V');
 ok(src.includes('power-generator-zone-restore')&&src.includes('showStormAchievement({ id:\'220-volts\''),'питание возвращается зонами, а щиток появляется в процессе');
 ok(src.includes('reduced ? 40 : 1450')&&src.includes('power-generator-step'),'reduced motion получает быстрый вход и пошаговое управление');
