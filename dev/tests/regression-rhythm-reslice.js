@@ -425,7 +425,7 @@ ok('J2 сейв: пул на борту, обе ссылки на ОДИН ру�
   savedSong.rhythmPool.refs[0][1] === savedSong.rhythmPool.refs[1][1] &&
   savedSong.rhythmPool.refs[0][1] === rollJ,
   JSON.stringify(savedSong.rhythmPool || null).slice(0, 140));
-ok('J3 сейв: schemaVersion 3', savedSong.schemaVersion === 3, String(savedSong.schemaVersion));
+ok('J3 сейв: schemaVersion 4', savedSong.schemaVersion === 4, String(savedSong.schemaVersion));
 evl('sections = []; songRhythmRolls = null; window.loadSong(0); return 0');
 ok('J4 после загрузки звук прежний: D_DU|_UDU',
   soundingText(0) === 'D_DU' && soundingText(1) === '_UDU',
