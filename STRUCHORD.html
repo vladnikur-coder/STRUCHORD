@@ -10286,7 +10286,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.337</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.338</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -39318,12 +39318,12 @@ function bumpBpm(delta) {
   bpmCommitTimer = setTimeout(applyBpmChange, 260);
 }
 
-// B-89 / 0.336–0.337: Safari-трекпад присылает серию мелких wheel delta,
-// пока 130-мс snap барабана ещё едет. Раньше каждый следующий тик брал
-// начало из ПРОМЕЖУТОЧНОГО кадра, поэтому 10 быстрых событий давали всего
-// +1. Теперь физическая дистанция накапливается отдельно, а целевая цифра
-// не зависит от анимации. В 0.337 порог откалиброван с 8 до 12 px на шаг:
-// короткий свайп даёт примерно 7–10 BPM вместо 10–15; один крупный
+// B-89 / 0.336–0.338: Safari-трекпад присылает серию мелких wheel delta,
+// пока snap барабана ещё едет. 0.336 отделила логическую цель от кадра, но
+// 0.337 всё ещё оставляла видимый центр на 6–7 BPM позади неё. В 0.338
+// каждый целый шаг сразу подводит ленту на расстояние одной строки от цели:
+// после последнего события остаётся максимум 1 BPM мягкого доезда.
+// Порог 12 px даёт примерно 7–10 BPM за обычный короткий свайп; крупный
 // дискретный тик мыши по-прежнему означает ровно один шаг.
 const BPM_WHEEL_DISTANCE_PER_STEP = 12;
 const BPM_WHEEL_DISCRETE_DELTA = 40;
@@ -39348,6 +39348,24 @@ function normalizeBpmWheelDelta(event) {
 
 function bpmWheelPathCrossed220(from, to) {
   return (from < 220 && to >= 220) || (from > 220 && to <= 220);
+}
+
+function followBpmWheelTarget(from, to) {
+  if (!bpmDrum || to === from) return;
+  const direction = Math.sign(to - from);
+  // 0.338: не позволяем скрытой цели уйти от видимой рамки дальше одной
+  // строки. Большой/Shift-шаг сразу переносит ленту к соседу цели, затем
+  // существующий 130-мс snap мягко доводит только последний 1 BPM.
+  const trailing = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, to - direction));
+  bpmDrumStopLoop();
+  bpmDrum.offset = bpmDrumRestOffset(trailing);
+  bpmDrum.vel = 0;
+  bpmDrum.snapTo = null;
+  bpmDrum.lastValue = trailing;
+  DOM.bpmInput.value = trailing;
+  clearTimeout(bpmDrum.commitTimer);
+  bpmDrumRenderFrame();
+  bpmDrumAnimateToValue(to);
 }
 
 function settleBpmWheelGesture() {
@@ -39409,7 +39427,7 @@ function handleBpmWheel(event) {
     if (to !== requested) bpmWheelRemainder = 0;
     if (bpmWheelPathCrossed220(from, to)) bpmWheelCrossed220 = true;
     bpmWheelTarget = to;
-    if (to !== from) bpmDrumAnimateToValue(to);
+    followBpmWheelTarget(from, to);
   }
   scheduleBpmWheelSettle();
   bpmDrumTouchIdle();
