@@ -42,8 +42,8 @@ ok(src.includes('function startPowerGeneratorPrototype')&&src.includes("'Руч�
 ok(src.includes('function maybeUnlockPowerAchievementFromBpm')&&src.includes('bpm !== 220')&&src.includes('currentSongSeal !== LIGHTNING_SONG_SEAL'),'единый trigger 220 принимает только подписанную Молнию');
 ok((src.match(/maybeUnlockPowerAchievementFromBpm\(/g)||[]).length===4,'production-проверка вызывается только из функции, BPM commit, tap-tempo и завершённого wheel-жеста');
 ok(src.includes('function bpmWheelPathCrossed220')&&src.includes('if (crossed220) maybeUnlockPowerAchievementFromBpm(220)'),'wheel-проход через 220 маршрутизируется после остановки жеста');
-ok(src.includes('bpmWheelTarget == null')&&src.includes('BPM_WHEEL_DISTANCE_PER_STEP = 12'),'Safari-wheel использует отдельную цель и аккумулятор дистанции');
-ok(src.includes('function followBpmWheelTarget')&&src.includes('to - direction')&&src.includes('followBpmWheelTarget(from, to)'),'видимый центр отстаёт от wheel-цели максимум на одну строку');
+ok(src.includes('BPM_WHEEL_DISTANCE_PER_STEP = 12')&&src.includes('let bpmWheelRemainder = 0')&&src.includes('let bpmCommitPending = false')&&!src.includes('bpmWheelTarget'),'Safari-wheel хранит только знаковый остаток и булево ожидание side-effect');
+ok(src.includes('function showBpmDrumValue')&&src.includes('bpmDrum.offset = bpmDrumRestOffset(selected)')&&src.includes('DOM.bpmInput.value = selected')&&!src.includes('followBpmWheelTarget')&&!src.includes('bpmDrum.committed'),'центр прямо проецирует единственное значение поля без target/committed');
 ok(!src.includes('startPowerGeneratorPrototype();\n  setStormDevReady()')&&!src.includes("showStormAchievement({ id:'220-volts', title:'220 вольт' });"),'генератор и плашка 220 не выдают unlock Грозы');
 ok(src.includes("showStormAchievement({ id:'220-volts', title:'220 вольт' }, false)"),'плашка 220 явно запрещает запуск первого грозового заряда');
 ok(src.includes('POWER_GENERATOR_TURNS = 12')&&src.includes('data-generator-handle'),'до цели нужно 12 оборотов круговой ручки');

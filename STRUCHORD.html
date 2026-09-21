@@ -10286,7 +10286,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.338</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.339</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -39296,7 +39296,7 @@ function applyBpmChange() {
   // Простая загрузка файла со значением 220 сюда не попадает.
   maybeUnlockPowerAchievementFromBpm(v);
 }
-DOM.bpmInput.addEventListener('change', applyBpmChange);
+DOM.bpmInput.addEventListener('change', commitBpmInputChange);
 
 // ---------- ТЕМП КОЛЕСОМ И ПЕРЕТАСКИВАНИЕМ ----------
 //
@@ -39307,39 +39307,60 @@ DOM.bpmInput.addEventListener('change', applyBpmChange);
 // воспроизведение (restartPlaybackFromCurrentPosition). Поэтому тяжёлый
 // applyBpmChange выполняется один раз после остановки жеста, а не на
 // каждом промежуточном числе.
-let bpmCommitTimer = null;
+// B-89 / 0.339: выбранный BPM живёт только в DOM.bpmInput.value.
+// Барабан — прямая визуальная проекция этого числа, без отдельной числовой
+// цели и без «последнего применённого BPM». Отложен только тяжёлый эффект
+// (перестройка ленты/рестарт), его ожидание — булев флаг, а не второе число.
+const BPM_WHEEL_DISTANCE_PER_STEP = 12;
+const BPM_WHEEL_DISCRETE_DELTA = 40;
+const BPM_WHEEL_SETTLE_MS = 260;
+let bpmCommitTimer = 0;
+let bpmCommitPending = false;
+let bpmWheelRemainder = 0;
+let bpmWheelCrossed220 = false;
+
+function flushPendingBpmCommit() {
+  clearTimeout(bpmCommitTimer);
+  bpmCommitTimer = 0;
+  const shouldApply = bpmCommitPending;
+  const crossed220 = bpmWheelCrossed220;
+  bpmCommitPending = false;
+  bpmWheelRemainder = 0;
+  bpmWheelCrossed220 = false;
+  if (shouldApply) applyBpmChange();
+  // Подтверждённое правило: wheel-проход через 220 считается даже при
+  // другом конечном BPM, но только после завершения жеста.
+  if (crossed220) maybeUnlockPowerAchievementFromBpm(220);
+  return shouldApply || crossed220;
+}
+
+function scheduleBpmCommit(changed = true) {
+  if (changed) bpmCommitPending = true;
+  clearTimeout(bpmCommitTimer);
+  bpmCommitTimer = setTimeout(flushPendingBpmCommit, BPM_WHEEL_SETTLE_MS);
+}
+
+function commitBpmInputChange() {
+  bpmCommitPending = true;
+  flushPendingBpmCommit();
+}
+
 function bumpBpm(delta) {
   const el = DOM.bpmInput;
   const cur = parseInt(el.value, 10) || CONFIG.DEFAULT_BPM;
   const next = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, cur + delta));
   if (next === cur) return;
   el.value = next;
-  clearTimeout(bpmCommitTimer);
-  bpmCommitTimer = setTimeout(applyBpmChange, 260);
+  scheduleBpmCommit();
 }
-
-// B-89 / 0.336–0.338: Safari-трекпад присылает серию мелких wheel delta,
-// пока snap барабана ещё едет. 0.336 отделила логическую цель от кадра, но
-// 0.337 всё ещё оставляла видимый центр на 6–7 BPM позади неё. В 0.338
-// каждый целый шаг сразу подводит ленту на расстояние одной строки от цели:
-// после последнего события остаётся максимум 1 BPM мягкого доезда.
-// Порог 12 px даёт примерно 7–10 BPM за обычный короткий свайп; крупный
-// дискретный тик мыши по-прежнему означает ровно один шаг.
-const BPM_WHEEL_DISTANCE_PER_STEP = 12;
-const BPM_WHEEL_DISCRETE_DELTA = 40;
-const BPM_WHEEL_SETTLE_MS = 260;
-let bpmWheelRemainder = 0;
-let bpmWheelTarget = null;
-let bpmWheelCrossed220 = false;
-let bpmWheelSettleTimer = 0;
 
 function normalizeBpmWheelDelta(event) {
   let delta = Number(event.deltaY) || 0;
   if (!delta) return 0;
   if (event.deltaMode === 1) delta *= 16;
   else if (event.deltaMode === 2) delta *= Math.max(1, window.innerHeight || 800);
-  // Не превращаем один обычный щелчок колеса (часто ±100/±120) в скачок
-  // на десятки BPM. У плавного трекпада мелкие события суммируются.
+  // Один крупный дискретный тик мыши остаётся одним шагом. Плавные
+  // Safari-delta меньше порога складываются в общий знаковый остаток.
   if (Math.abs(delta) >= BPM_WHEEL_DISCRETE_DELTA) {
     return Math.sign(delta) * BPM_WHEEL_DISTANCE_PER_STEP;
   }
@@ -39350,60 +39371,16 @@ function bpmWheelPathCrossed220(from, to) {
   return (from < 220 && to >= 220) || (from > 220 && to <= 220);
 }
 
-function followBpmWheelTarget(from, to) {
-  if (!bpmDrum || to === from) return;
-  const direction = Math.sign(to - from);
-  // 0.338: не позволяем скрытой цели уйти от видимой рамки дальше одной
-  // строки. Большой/Shift-шаг сразу переносит ленту к соседу цели, затем
-  // существующий 130-мс snap мягко доводит только последний 1 BPM.
-  const trailing = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, to - direction));
+function showBpmDrumValue(value) {
+  if (!bpmDrum) return;
+  const selected = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, value));
   bpmDrumStopLoop();
-  bpmDrum.offset = bpmDrumRestOffset(trailing);
+  bpmDrum.offset = bpmDrumRestOffset(selected);
   bpmDrum.vel = 0;
   bpmDrum.snapTo = null;
-  bpmDrum.lastValue = trailing;
-  DOM.bpmInput.value = trailing;
-  clearTimeout(bpmDrum.commitTimer);
+  bpmDrum.lastValue = selected;
+  DOM.bpmInput.value = selected;
   bpmDrumRenderFrame();
-  bpmDrumAnimateToValue(to);
-}
-
-function settleBpmWheelGesture() {
-  clearTimeout(bpmWheelSettleTimer);
-  bpmWheelSettleTimer = 0;
-  if (bpmWheelTarget == null || !bpmDrum) return false;
-
-  const target = bpmWheelTarget;
-  const crossed220 = bpmWheelCrossed220;
-  const changed = target !== bpmDrum.committed;
-  bpmWheelTarget = null;
-  bpmWheelRemainder = 0;
-  bpmWheelCrossed220 = false;
-
-  // На commit прибиваем и ленту, и скрытое поле к одной целой цифре:
-  // центр барабана, сохранённый BPM и фактический ритм не расходятся.
-  bpmDrumStopLoop();
-  bpmDrum.offset = bpmDrumRestOffset(target);
-  bpmDrum.vel = 0;
-  bpmDrum.snapTo = null;
-  bpmDrum.lastValue = target;
-  DOM.bpmInput.value = target;
-  bpmDrumRenderFrame();
-  clearTimeout(bpmDrum.commitTimer);
-  clearTimeout(bpmCommitTimer);
-
-  if (changed) applyBpmChange();
-  bpmDrum.committed = target;
-  // Подтверждённое правило 0.336: для wheel-жеста достаточно пройти
-  // через 220 в любом направлении; сама сцена стартует только здесь,
-  // после остановки, даже если конечное число оказалось другим.
-  if (crossed220) maybeUnlockPowerAchievementFromBpm(220);
-  return changed || crossed220;
-}
-
-function scheduleBpmWheelSettle() {
-  clearTimeout(bpmWheelSettleTimer);
-  bpmWheelSettleTimer = setTimeout(settleBpmWheelGesture, BPM_WHEEL_SETTLE_MS);
 }
 
 function handleBpmWheel(event) {
@@ -39413,23 +39390,27 @@ function handleBpmWheel(event) {
   const delta = normalizeBpmWheelDelta(event);
   if (!delta) return;
   if (!bpmDrumOpen) openBpmDrum();
-  if (bpmWheelTarget == null) bpmWheelTarget = Math.round(bpmDrumCenterValue());
-
   // Знаковый остаток естественно гасит незавершённый путь при развороте.
   bpmWheelRemainder += delta;
   const units = Math.trunc(bpmWheelRemainder / BPM_WHEEL_DISTANCE_PER_STEP);
+  let changed = false;
   if (units) {
     const multiplier = event.shiftKey ? 5 : 1;
-    const from = bpmWheelTarget;
+    const from = parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM;
     const requested = from + units * multiplier;
     const to = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, requested));
     bpmWheelRemainder -= units * BPM_WHEEL_DISTANCE_PER_STEP;
     if (to !== requested) bpmWheelRemainder = 0;
     if (bpmWheelPathCrossed220(from, to)) bpmWheelCrossed220 = true;
-    bpmWheelTarget = to;
-    followBpmWheelTarget(from, to);
+    if (to !== from) {
+      // Единственная запись выбранного BPM и её проекция происходят в
+      // одном обработчике: после события центр уже равен полю.
+      showBpmDrumValue(to);
+      changed = true;
+    }
   }
-  scheduleBpmWheelSettle();
+  // Даже подпороговый остаток должен забыться после паузы.
+  scheduleBpmCommit(changed);
   bpmDrumTouchIdle();
 }
 
@@ -39464,7 +39445,7 @@ window.addEventListener('pointermove', (e) => {
   // ведёт ленту к значению — как колесо. Открытие ПОСЛЕ bumpBpm, чтобы
   // пилюля сразу встала на новое значение.
   if (!bpmDrumOpen) openBpmDrum();
-  else bpmDrumAnimateToValue(parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM);
+  else showBpmDrumValue(parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM);
   bpmDrumTouchIdle();
   bpmDrag.y -= steps * STEP_PX;
 });
@@ -39568,7 +39549,7 @@ function buildBpmDrum() {
     dragRaw: 0,
     samples: [],
     snapFrom: 0, snapTo: 0, snapStart: 0, snapDur: 0,
-    lastValue: 0, committed: 0, commitTimer: 0,
+    lastValue: 0,
     lastWindow: null,
   };
   wireBpmDrumEvents();
@@ -39585,12 +39566,7 @@ function bpmDrumApplyLive() {
   if (v === bpmDrum.lastValue) return;
   bpmDrum.lastValue = v;
   DOM.bpmInput.value = v;
-  clearTimeout(bpmDrum.commitTimer);
-  bpmDrum.commitTimer = setTimeout(() => {
-    if (!bpmDrumOpen || bpmWheelTarget != null) return;
-    applyBpmChange();
-    bpmDrum.committed = parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM;
-  }, 260);
+  scheduleBpmCommit();
 }
 
 function bpmDrumRenderFrame() {
@@ -39705,7 +39681,6 @@ function openBpmDrum() {
   d.vel = 0;
   d.snapTo = null;
   d.lastValue = cur;
-  d.committed = cur;
   // Форсируем вычисление стартового стиля: на ПЕРВОМ открытии элемент
   // только что создан, и если повесить is-open до первого расчёта,
   // height-переход не проиграется — пилюля распахнётся скачком.
@@ -39725,9 +39700,10 @@ function openBpmDrum() {
 
 function closeBpmDrum() {
   if (!bpmDrumOpen) return;
-  settleBpmWheelGesture();
+  // Раннее закрытие только флашит отложенные последствия. Само число уже
+  // совпадает с центром и после закрытия не переписывается.
+  flushPendingBpmCommit();
   bpmDrumStopLoop();
-  clearTimeout(bpmDrum.commitTimer);
   clearTimeout(bpmDrumIdleTimer);
   bpmDrum.el.classList.remove('is-open');
   DOM.bpmInput.style.visibility = '';
@@ -39736,8 +39712,6 @@ function closeBpmDrum() {
   document.removeEventListener('pointerdown', bpmDrumOnDocPointerDown, true);
   document.removeEventListener('keydown', bpmDrumOnKey, true);
   window.removeEventListener('resize', closeBpmDrum);
-  // флаш: тяжёлое применение (лента/рестарт) — только если значение менялось
-  if (parseInt(DOM.bpmInput.value, 10) !== bpmDrum.committed) applyBpmChange();
 }
 
 function bpmDrumOnDocPointerDown(e) {
@@ -39750,7 +39724,6 @@ function bpmDrumOnDocPointerDown(e) {
 
 function bpmDrumOnKey(e) {
   if (!bpmDrumOpen) return;
-  settleBpmWheelGesture();
   const cur = Math.round(bpmDrumCenterValue());
   if (e.key === 'Escape') {
     e.preventDefault();
@@ -39785,7 +39758,7 @@ function wireBpmDrumEvents() {
   cyl.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
-    settleBpmWheelGesture();
+    if (bpmCommitPending || bpmWheelCrossed220 || bpmWheelRemainder) flushPendingBpmCommit();
     try { cyl.setPointerCapture(e.pointerId); } catch (err) {}
     // физический драг: idle не должен закрыть барабан под пальцем
     clearTimeout(bpmDrumIdleTimer);
@@ -39849,8 +39822,8 @@ function wireBpmDrumEvents() {
   };
   cyl.addEventListener('pointerup', endDrag);
   cyl.addEventListener('pointercancel', endDrag);
-  // Поле и уже раскрытый цилиндр используют один accumulator/target:
-  // переход курсора между ними не меняет скорость и не теряет шаги.
+  // Поле и уже раскрытый цилиндр используют один signed remainder:
+  // переход курсора между ними не меняет чувствительность и не теряет шаги.
   cyl.addEventListener('wheel', handleBpmWheel, { passive: false });
 }
 
