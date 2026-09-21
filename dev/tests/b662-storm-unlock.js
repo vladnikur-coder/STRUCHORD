@@ -36,8 +36,14 @@ ok(src.includes("achievements:[entry('ti-bolt','220 вольт'")&&src.includes(
 ok(src.includes("achievement-style-meter")&&src.includes('achievement-meter'),'выбран единственный визуал Электрощиток 220 V');
 ok(!src.includes('devPreviewAchievementStyle'),'временный выбор визуалов удалён');
 ok(!src.includes('DYNAMO_VARIANTS')&&!src.includes('openDynamoPrototype'),'непринятая витрина динамо полностью удалена');
-ok(!src.includes('openVoltageGeneratorPrototype')&&!src.includes('voltage-generator-scene'),'последний прототип генератора полностью удалён');
+ok(!src.includes('openVoltageGeneratorPrototype')&&!src.includes('voltage-generator-scene'),'старый шаблонный прототип генератора не вернулся');
 ok(!src.includes('openVoltageSwitchPrototype')&&!src.includes('voltage-switch-scene'),'непринятый рубильник полностью удалён');
+ok(src.includes('function startPowerGeneratorPrototype')&&src.includes("'Ручной генератор','Dev-прототип"),'новый генератор доступен только из dev-папки 220 вольт');
+ok(src.includes('POWER_GENERATOR_TURNS = 12')&&src.includes('data-generator-handle'),'до цели нужно 12 оборотов круговой ручки');
+ok(src.includes('state.angularVelocity *= Math.pow(.075, dt)'),'у ротора есть затухающая инерция');
+ok(src.includes("state.phase === 'complete' && forceVoltage == null"),'после достижения цели инерция не опускает показание ниже 220 V');
+ok(src.includes('power-generator-zone-restore')&&src.includes('showStormAchievement({ id:\'220-volts\''),'питание возвращается зонами, а щиток появляется в процессе');
+ok(src.includes('reduced ? 40 : 1450')&&src.includes('power-generator-step'),'reduced motion получает быстрый вход и пошаговое управление');
 ok(src.includes('setInterval(refreshDevPaletteState,250)'),'состояние и таймер обновляются в реальном времени');
 ok(src.includes('clearInterval(devPaletteRefreshTimer)'),'live-таймер очищается при закрытии');
 ok(!src.includes('УДАЛИТЬ ПЕРЕД РЕЛИЗОМ'),'dev-палитра закреплена как постоянная');
