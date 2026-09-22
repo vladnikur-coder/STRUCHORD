@@ -56,6 +56,7 @@ w.addEventListener('load', async () => {
     `);
     const applyCount = () => w.__b89ApplyCount;
     const reset = (value) => {
+      if (w.eval('powerProloguePlaying')) w.finishPowerPrologueNow();
       if (w.eval('powerGeneratorState')) w.clearPowerGeneratorPrototype(false);
       if (w.eval('bpmDrumOpen')) w.closeBpmDrum();
       w.eval(`
@@ -223,28 +224,38 @@ w.addEventListener('load', async () => {
     w.eval('currentSongSeal = LIGHTNING_SONG_SEAL');
     for (let i = 0; i < 5; i++) wheel(12); // выбранное число 224
     calmStream();
-    ok(input.value === '224' && center() === '224' && !w.eval('powerGeneratorState'),
-      'сразу после прохода итог 224 уже показан, сцены ещё нет');
+    ok(input.value === '224' && center() === '224' && !w.eval('powerProloguePlaying'),
+      'сразу после прохода итог 224 уже показан, пролога ещё нет');
     await sleep(170);
-    ok(input.value === '224' && center() === '224' && !w.eval('powerGeneratorState'),
-      'до 260 мс число неизменно и сцена не стартует');
+    ok(input.value === '224' && center() === '224' && !w.eval('powerProloguePlaying'),
+      'до 260 мс число неизменно и пролог не стартует');
     await sleep(150);
-    let state = w.eval('powerGeneratorState');
     ok(input.value === '224' && center() === '224' && pending() === false,
       'после commit конечный BPM остаётся 224');
-    ok(state && state.unlockAchievement, 'проход 219 → 224 через 220 запускает production-генератор');
+    // B-66.2.1: сначала торжественный пролог, генератор — после его обрыва.
+    ok(w.eval('powerProloguePlaying') && !w.eval('powerGeneratorState'),
+      'проход 219 → 224 через 220 запускает пролог, генератора ещё нет');
+    ok(d.querySelector('.power-prologue-digits')?.textContent === '220',
+      'в прологе растёт именно цифра 220');
+    w.finishPowerPrologueNow();
+    let state = w.eval('powerGeneratorState');
+    ok(!w.eval('powerProloguePlaying') && !d.querySelector('.power-prologue-overlay') &&
+      state && state.unlockAchievement,
+      'обрыв пролога убирает оверлей и запускает production-генератор');
 
     reset(221);
     for (let i = 0; i < 5; i++) wheel(-12); // выбранное число 216
     calmStream();
     await sleep(320);
+    w.finishPowerPrologueNow();
     state = w.eval('powerGeneratorState');
     ok(input.value === '216' && center() === '216' && state && state.unlockAchievement,
       'обратный проход 221 → 216 также считается');
 
     reset(220);
     await sleep(320);
-    ok(!w.eval('powerGeneratorState'), 'простая загрузка/подстановка 220 без wheel-жеста ничего не запускает');
+    ok(!w.eval('powerGeneratorState') && !w.eval('powerProloguePlaying'),
+      'простая загрузка/подстановка 220 без wheel-жеста ничего не запускает');
 
     console.log(`\nALL OK — ${count} проверок B-89.`);
     w.close();

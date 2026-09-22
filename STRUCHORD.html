@@ -10153,6 +10153,45 @@ html[data-theme='dark'] .storm-charge-glint {
 .storm-achievement-warning { filter:drop-shadow(0 .12rem .08rem rgba(45,39,23,.28)); }
 @keyframes achievement-meter { from{transform:scaleX(.03)} to{transform:scaleX(1)} }
 
+/* B-66.2.1 / 0.343: торжественный пролог «220». Копия цифры отделяется от
+   поля BPM и растёт титром в центре экрана под нарастающий свелл; на пике
+   пролог обрывается блэкаутом генератора. Анимируются только transform,
+   opacity и text-shadow оверлея — layout и render() не затрагиваются. */
+.power-prologue-overlay {
+  position:fixed; inset:0; z-index:2147483644; pointer-events:none;
+  display:grid; place-items:center;
+}
+.power-prologue-digits {
+  font-family:ui-monospace,SFMono-Regular,monospace;
+  font-weight:750; font-size:3rem; letter-spacing:.06em; line-height:1;
+  color:#ffd766; opacity:0;
+  transform:translate3d(var(--prologue-from-x,0px),var(--prologue-from-y,0px),0) scale(var(--prologue-from-scale,1));
+  will-change:transform,opacity,text-shadow;
+}
+.power-prologue-overlay.is-rising .power-prologue-digits {
+  animation:power-prologue-rise 1.8s cubic-bezier(.22,.68,.31,1) forwards;
+}
+@keyframes power-prologue-rise {
+  0% {
+    opacity:0;
+    transform:translate3d(var(--prologue-from-x,0px),var(--prologue-from-y,0px),0) scale(var(--prologue-from-scale,1));
+    text-shadow:0 0 0 rgba(255,215,102,0);
+  }
+  16% { opacity:1; }
+  100% {
+    opacity:1;
+    transform:translate3d(0,0,0) scale(3.2);
+    text-shadow:
+      0 0 .5rem rgba(255,224,130,.95),
+      0 0 1.6rem rgba(255,203,64,.8),
+      0 0 3.4rem rgba(255,176,28,.55);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .power-prologue-overlay.is-rising .power-prologue-digits { animation-duration:.05s; }
+}
+
+
 /* B-66.2 / 0.335: ручной генератор. Сцена целиком
    композитная: во время жеста меняются только transform, CSS-переменные и
    SVG-атрибуты; модель песни и основной render() не затрагиваются. */
@@ -10293,7 +10332,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.342</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.343</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31135,9 +31174,187 @@ function rememberPowerAchievement() {
 function maybeUnlockPowerAchievementFromBpm(value) {
   const bpm = parseInt(value, 10);
   if (bpm !== 220 || currentSongSeal !== LIGHTNING_SONG_SEAL) return false;
-  if (powerAchievementSeen || powerGeneratorState) return false;
-  startPowerGeneratorPrototype({ unlockAchievement: true });
+  if (powerAchievementSeen || powerGeneratorState || powerProloguePlaying) return false;
+  startPowerPrologue();
   return true;
+}
+
+// ---------- B-66.2.1: торжественный пролог «220» ----------
+// Цифра 220 отделяется от поля BPM, растёт титром в центре экрана и
+// светится под нарастающий свелл; на пике всё обрывается треском
+// электричества и блэкаутом генератора. Пролог — чистый оверлей: модель
+// песни, поле BPM и hot path барабана не затрагиваются.
+const POWER_PROLOGUE_MS = 1800;
+let powerProloguePlaying = false;
+let powerPrologueTimer = 0;
+let powerPrologueFinish = null;
+
+// Для тестов и dev-диагностики: мгновенно доиграть пролог до обрыва.
+function finishPowerPrologueNow() {
+  if (!powerProloguePlaying || !powerPrologueFinish) return false;
+  clearTimeout(powerPrologueTimer);
+  powerPrologueTimer = 0;
+  powerPrologueFinish();
+  return true;
+}
+
+function startPowerPrologue() {
+  powerProloguePlaying = true;
+  const overlay = document.createElement('div');
+  overlay.className = 'power-prologue-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  const digits = document.createElement('div');
+  digits.className = 'power-prologue-digits';
+  digits.textContent = '220';
+  overlay.appendChild(digits);
+  document.body.appendChild(overlay);
+  // Старт роста — из реального положения цифры в поле BPM: копия
+  // «отделяется» от пилюли и уезжает в центр экрана, вырастая.
+  try {
+    const src = DOM.bpmInput.getBoundingClientRect();
+    if (src.width > 0 && src.height > 0) {
+      const fromX = src.left + src.width / 2 - window.innerWidth / 2;
+      const fromY = src.top + src.height / 2 - window.innerHeight / 2;
+      overlay.style.setProperty('--prologue-from-x', fromX.toFixed(1) + 'px');
+      overlay.style.setProperty('--prologue-from-y', fromY.toFixed(1) + 'px');
+      overlay.style.setProperty('--prologue-from-scale', '0.4');
+    }
+  } catch (e) {}
+  const reduced = stormReducedMotion();
+  requestAnimationFrame(() => overlay.classList.add('is-rising'));
+  const swell = reduced ? null : playPowerPrologueSwell();
+  const finish = () => {
+    powerProloguePlaying = false;
+    powerPrologueFinish = null;
+    if (swell) stopPowerPrologueSwellAtPeak(swell);
+    try { overlay.remove(); } catch (e) {}
+    // Обрыв на пике: генератор сам гасит свет (is-failing), его начало и
+    // есть блэкаут — треск перебоя стартует одновременно с ним.
+    startPowerGeneratorPrototype({ unlockAchievement: true });
+  };
+  powerPrologueFinish = finish;
+  powerPrologueTimer = setTimeout(finish, reduced ? 60 : POWER_PROLOGUE_MS);
+}
+
+// Нарастающий торжественный свелл: мажорный аккорд A (220 Гц — та самая
+// частота ноты ля) из трёх осцилляторов, crescendo до пика ~1.8 с.
+function playPowerPrologueSwell() {
+  const ctx = audioPreflightForGesture();
+  if (!ctx) return null;
+  try {
+    const master = ctx.createGain();
+    const now = ctx.currentTime;
+    master.gain.setValueAtTime(.0001, now);
+    master.gain.exponentialRampToValueAtTime(.085, now + POWER_PROLOGUE_MS / 1000);
+    master.connect(ctx.destination);
+    const voices = [220, 277.18, 329.63].map((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = i === 0 ? 'sawtooth' : 'triangle';
+      osc.frequency.setValueAtTime(freq, now);
+      // лёгкая расстройка вибрирует, как гудящая сеть под нагрузкой
+      osc.detune.setValueAtTime((i - 1) * 4, now);
+      gain.gain.setValueAtTime(i === 0 ? .4 : .3, now);
+      osc.connect(gain); gain.connect(master);
+      osc.start(now);
+      return { osc, gain };
+    });
+    return { ctx, master, voices };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Обрыв свелла на пике: щелчок-треск перебоя электричества и мгновенная
+// тишина — свет гаснет в ту же долю секунды.
+function stopPowerPrologueSwellAtPeak(swell) {
+  if (!swell) return;
+  const ctx = swell.ctx;
+  const now = ctx.currentTime;
+  try {
+    swell.master.gain.cancelScheduledValues(now);
+    swell.master.gain.setValueAtTime(swell.master.gain.value || .085, now);
+    swell.master.gain.setTargetAtTime(.0001, now, .008);
+    swell.voices.forEach(({ osc }) => { try { osc.stop(now + .06); } catch (e) {} });
+    swell.voices[0].osc.onended = () => {
+      try {
+        swell.voices.forEach(({ osc, gain }) => { osc.disconnect(); gain.disconnect(); });
+        swell.master.disconnect();
+      } catch (e) {}
+    };
+  } catch (e) {}
+  playPowerOutageCrack(ctx);
+}
+
+// Треск перебоя: короткий шумовой разряд + глухой удар обесточивания.
+function playPowerOutageCrack(ctx) {
+  try {
+    const now = ctx.currentTime;
+    const frames = Math.floor(ctx.sampleRate * .12);
+    const buffer = ctx.createBuffer(1, Math.max(1, frames), ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < frames; i++) {
+      const decay = 1 - i / frames;
+      data[i] = (Math.random() * 2 - 1) * decay * decay;
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(.14, now);
+    noiseGain.gain.exponentialRampToValueAtTime(.0001, now + .13);
+    noise.connect(noiseGain); noiseGain.connect(ctx.destination);
+    noise.onended = () => { try { noise.disconnect(); noiseGain.disconnect(); } catch (e) {} };
+    noise.start(now); noise.stop(now + .13);
+
+    const thud = ctx.createOscillator();
+    const thudGain = ctx.createGain();
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(120, now);
+    thud.frequency.exponentialRampToValueAtTime(31, now + .21);
+    thudGain.gain.setValueAtTime(.0001, now);
+    thudGain.gain.exponentialRampToValueAtTime(.09, now + .012);
+    thudGain.gain.exponentialRampToValueAtTime(.0001, now + .26);
+    thud.connect(thudGain); thudGain.connect(ctx.destination);
+    thud.onended = () => { try { thud.disconnect(); thudGain.disconnect(); } catch (e) {} };
+    thud.start(now); thud.stop(now + .27);
+  } catch (e) {}
+}
+
+// Звук восстановления света: серия щелчков контакторов по зонам и
+// возвращающийся гул сети — свет включается так же «озвученно», как гас.
+function playPowerRestoreSound(state) {
+  const audio = state && (state.audio || ensurePowerGeneratorAudio(state));
+  if (!audio || audio.ctx.state === 'closed') return;
+  const ctx = audio.ctx;
+  const base = ctx.currentTime;
+  try {
+    // щелчки зон вслед CSS-задержкам восстановления (0/.12/.3/.48/.64/.82)
+    [0, .12, .3, .48, .64, .82].forEach((delay, i) => {
+      const click = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const t = base + delay;
+      click.type = 'square';
+      click.frequency.setValueAtTime(96 + i * 14, t);
+      click.frequency.exponentialRampToValueAtTime(52, t + .03);
+      gain.gain.setValueAtTime(.0001, t);
+      gain.gain.exponentialRampToValueAtTime(.03, t + .005);
+      gain.gain.exponentialRampToValueAtTime(.0001, t + .05);
+      click.connect(gain); gain.connect(ctx.destination);
+      click.onended = () => { try { click.disconnect(); gain.disconnect(); } catch (e) {} };
+      click.start(t); click.stop(t + .06);
+    });
+    // гул сети плавно возвращается вместе с зонами света
+    const hum = ctx.createOscillator();
+    const humGain = ctx.createGain();
+    hum.type = 'sine';
+    hum.frequency.setValueAtTime(50, base);
+    humGain.gain.setValueAtTime(.0001, base);
+    humGain.gain.exponentialRampToValueAtTime(.02, base + .9);
+    humGain.gain.exponentialRampToValueAtTime(.0001, base + 1.6);
+    hum.connect(humGain); humGain.connect(ctx.destination);
+    hum.onended = () => { try { hum.disconnect(); humGain.disconnect(); } catch (e) {} };
+    hum.start(base); hum.stop(base + 1.65);
+  } catch (e) {}
 }
 
 function completePowerGeneratorPrototype() {
@@ -31160,6 +31377,9 @@ function beginPowerGeneratorRestore() {
   if (!state || state.phase !== 'complete') return;
   state.phase = 'restoring';
   state.scene.classList.add('is-restoring');
+  // B-66.2.1: восстановление света озвучено — щелчки контакторов идут
+  // вслед зонам, гул сети возвращается вместе со светом.
+  if (!stormReducedMotion()) playPowerRestoreSound(state);
   // Плашка возникает уже во время зонального включения. Её принятый
   // 220.mp3 остаётся отдельной кульминацией после короткого звука контактора.
   const reduced = stormReducedMotion();

@@ -85,6 +85,12 @@ dom.window.addEventListener('load',()=>{
       d.getElementById('bpmInput').value='220';
       if(d.querySelector('.power-generator-scene'))throw new Error('ПРОВАЛ: простая установка значения уже запустила сцену');
       w.applyBpmChange();
+      // B-66.2.1: ручной commit 220 сначала играет торжественный пролог.
+      if(!w.eval('powerProloguePlaying'))throw new Error('ПРОВАЛ: ручной BPM 220 не запустил пролог');
+      if(d.querySelector('.power-prologue-digits')?.textContent!=='220')throw new Error('ПРОВАЛ: в прологе нет растущей цифры 220');
+      if(w.eval('powerGeneratorState'))throw new Error('ПРОВАЛ: генератор стартовал до обрыва пролога');
+      w.finishPowerPrologueNow();
+      if(d.querySelector('.power-prologue-overlay'))throw new Error('ПРОВАЛ: оверлей пролога не убран');
       const production=w.eval('powerGeneratorState');
       if(!production||!production.unlockAchievement)throw new Error('ПРОВАЛ: ручной BPM 220 не запустил production-генератор');
       if(w.eval('stormUnlocked'))throw new Error('ПРОВАЛ: схема Гроза повлияла на unlock 220');
