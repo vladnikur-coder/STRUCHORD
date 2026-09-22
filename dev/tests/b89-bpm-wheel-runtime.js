@@ -131,6 +131,19 @@ w.addEventListener('load', async () => {
     const stripStyle = d.querySelector('.bpm-drum-strip').style.transform;
     ok(/rem/.test(stripStyle) && !/translate3d\(0,-?\d+(?:\.\d+)?px/.test(stripStyle),
       'transform ленты задан в rem, а не в фиксированных экранных 38px', stripStyle);
+
+    console.log('=== 2.2. Крупность цифры непрерывна, без скачка класса ===');
+    ok(!/\.bpm-drum-row\.is-center\s*{[^}]*font-size/.test(html),
+      'у .is-center больше нет скачка font-size — только вес шрифта');
+    const scaleOf = (v) => {
+      const t = w.eval(`bpmDrum.rows[${v} - CONFIG.MIN_BPM].style.transform`);
+      return parseFloat((t.match(/scale\(([\d.]+)\)/) || [])[1]);
+    };
+    ok(Math.abs(scaleOf(120) - 1.235) < 0.001 && Math.abs(scaleOf(121) - 1) < 0.001,
+      'в покое центр ×1.235, сосед ×1', `${scaleOf(120)}/${scaleOf(121)}`);
+    w.eval('bpmDrum.offset = bpmDrumRestOffset(120) + BPM_DRUM_ROW / 2; bpmDrumRenderFrame();');
+    ok(Math.abs(scaleOf(120) - 1.1175) < 0.001 && Math.abs(scaleOf(121) - 1.1175) < 0.001,
+      'на полпути обе соседние строки в среднем масштабе', `${scaleOf(120)}/${scaleOf(121)}`);
     w.closeBpmDrum();
 
     console.log('=== 3. Недокрут живёт в offset, разворот гасит его естественно ===');
