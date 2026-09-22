@@ -1,0 +1,487 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>B-89 — Safari wheel probe</title>
+  <style>
+    :root {
+      color-scheme: light dark;
+      --bg: #eae7e0;
+      --surface: #fff;
+      --text: #1e1e2f;
+      --muted: #666674;
+      --border: rgba(0,0,0,.16);
+      --accent: #2c3e66;
+      --brand: #d8774f;
+      --ok: #257342;
+      --warn: #a35a17;
+      font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    }
+    @media (prefers-color-scheme: dark) {
+      :root { --bg:#161615;--surface:#262625;--text:#ececea;--muted:#aaa9a4;--border:rgba(255,255,255,.16);--accent:#cc7c5e;--brand:#e09374;--ok:#7fc596;--warn:#edb56c; }
+    }
+    * { box-sizing: border-box; }
+    body { margin:0; min-height:100vh; background:var(--bg); color:var(--text); padding:24px; }
+    main { width:min(980px,100%); margin:auto; }
+    h1 { margin:0 0 6px; font-size:clamp(1.35rem,4vw,2rem); }
+    h2 { font-size:1.05rem; margin:0 0 12px; }
+    p { line-height:1.5; }
+    code { font-family:ui-monospace,SFMono-Regular,Menlo,monospace; }
+    .lead { color:var(--muted); margin:0 0 18px; }
+    .card { background:var(--surface); border:1px solid var(--border); border-radius:18px; padding:18px; margin:12px 0; box-shadow:0 8px 24px rgba(0,0,0,.06); }
+    .steps { margin:0; padding-left:1.35rem; line-height:1.55; }
+    .steps strong { color:var(--brand); }
+    .controls { display:flex; flex-wrap:wrap; gap:10px; align-items:center; }
+    button,select { font:inherit; color:var(--text); background:var(--surface); border:1px solid var(--border); border-radius:999px; padding:9px 14px; }
+    button { cursor:pointer; font-weight:650; }
+    button.primary { background:var(--accent); color:white; border-color:transparent; }
+    button:disabled { opacity:.45; cursor:not-allowed; }
+    .kbd { display:inline-flex; min-width:2rem; justify-content:center; padding:.1rem .45rem; border:1px solid var(--border); border-bottom-width:3px; border-radius:6px; font-weight:750; background:var(--surface); }
+    .probe-stage { min-height:260px; display:grid; place-items:center; touch-action:none; user-select:none; border:1px dashed var(--border); border-radius:16px; background:color-mix(in srgb,var(--surface) 80%,var(--bg)); }
+    .drum-wrap { width:110px; text-align:center; }
+    .drum-label { display:block; color:var(--muted); font-size:.8rem; margin-bottom:8px; }
+    .drum { position:relative; width:100%; height:114px; overflow:hidden; border:1px solid var(--border); border-radius:999px; background:var(--surface); perspective:900px; cursor:ns-resize; }
+    .strip { will-change:transform; }
+    .row { height:38px; display:flex; align-items:center; justify-content:center; font-variant-numeric:tabular-nums; color:var(--muted); }
+    .row.is-center { color:var(--text); font-size:1.3rem; font-weight:750; }
+    .frame { position:absolute; left:12px; right:12px; top:38px; height:38px; border-top:1.5px solid var(--border); border-bottom:1.5px solid var(--border); border-radius:10px; pointer-events:none; }
+    .fade { position:absolute; left:0; right:0; height:30px; z-index:2; pointer-events:none; }
+    .fade.top { top:0; background:linear-gradient(var(--surface),transparent); }
+    .fade.bottom { bottom:0; background:linear-gradient(transparent,var(--surface)); }
+    .live { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; margin-top:14px; }
+    .metric { border:1px solid var(--border); border-radius:12px; padding:10px; min-width:0; }
+    .metric span { display:block; color:var(--muted); font-size:.72rem; }
+    .metric strong { display:block; margin-top:3px; font-variant-numeric:tabular-nums; overflow-wrap:anywhere; }
+    .status { margin:12px 0 0; padding:10px 12px; border-radius:12px; background:color-mix(in srgb,var(--accent) 10%,transparent); }
+    .status[data-kind="warn"] { background:color-mix(in srgb,var(--warn) 16%,transparent); }
+    .status[data-kind="ok"] { background:color-mix(in srgb,var(--ok) 14%,transparent); }
+    .support { font-size:.86rem; color:var(--muted); }
+    .trials { display:grid; gap:8px; }
+    .trial { display:grid; grid-template-columns:1.2fr repeat(4,.8fr); gap:8px; align-items:center; border:1px solid var(--border); border-radius:12px; padding:10px; font-variant-numeric:tabular-nums; }
+    .trial small { color:var(--muted); display:block; }
+    .drift { font-weight:800; }
+    .drift.nonzero { color:var(--warn); }
+    textarea { width:100%; min-height:170px; resize:vertical; border:1px solid var(--border); border-radius:12px; padding:10px; background:var(--surface); color:var(--text); font:11px/1.45 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    table { width:100%; border-collapse:collapse; font:11px/1.35 ui-monospace,SFMono-Regular,Menlo,monospace; }
+    th,td { padding:5px 7px; border-bottom:1px solid var(--border); text-align:right; white-space:nowrap; }
+    th:first-child,td:first-child { text-align:left; }
+    tr.after-release { background:color-mix(in srgb,var(--warn) 10%,transparent); }
+    details { margin-top:12px; }
+    .table-wrap { overflow:auto; max-height:340px; border:1px solid var(--border); border-radius:12px; }
+    @media (max-width:700px) {
+      body { padding:12px; }
+      .live { grid-template-columns:repeat(2,minmax(0,1fr)); }
+      .trial { grid-template-columns:1fr 1fr; }
+      .trial > :first-child { grid-column:1/-1; }
+    }
+  </style>
+</head>
+<body>
+<main>
+  <h1>B-89 · Safari wheel probe</h1>
+  <p class="lead">Отдельный диагностический стенд. Он не сохраняет данные, не запускает звук и не меняет production STRUCHORD.</p>
+
+  <section class="card">
+    <h2>Как снять физическое отпускание пальцев</h2>
+    <ol class="steps">
+      <li>Выберите тип прогона и нажмите <strong>«Начать прогон»</strong>.</li>
+      <li>Наведите курсор на барабан и зажмите клавишу <span class="kbd">M</span>.</li>
+      <li>Не отпуская <span class="kbd">M</span>, сделайте свайп двумя пальцами.</li>
+      <li><strong>Одновременно</strong> отпустите пальцы и клавишу <span class="kbd">M</span>. Keyup станет ручной меткой физического отпускания.</li>
+      <li>Подождите, пока поток событий закончится. Повторите для короткого, длинного и обратного свайпа.</li>
+    </ol>
+    <p class="support" id="supportLine"></p>
+  </section>
+
+  <section class="card">
+    <div class="controls">
+      <label>Тип:
+        <select id="trialKind">
+          <option value="short">Короткий свайп</option>
+          <option value="long">Длинный свайп</option>
+          <option value="reverse">Свайп с разворотом</option>
+          <option value="slow">Медленный свайп</option>
+          <option value="other">Другой</option>
+        </select>
+      </label>
+      <button class="primary" id="startBtn">Начать прогон</button>
+      <button id="releaseBtn" disabled>Отметить отпускание вручную</button>
+      <button id="finishBtn" disabled>Завершить сейчас</button>
+    </div>
+    <p class="status" id="status" data-kind="ok">Готово к новому прогону.</p>
+
+    <div class="probe-stage" id="probeStage">
+      <div class="drum-wrap">
+        <span class="drum-label">Крутите здесь</span>
+        <div class="drum" id="drum" aria-label="Диагностический барабан BPM">
+          <div class="strip" id="strip"></div>
+          <div class="fade top"></div>
+          <div class="fade bottom"></div>
+          <div class="frame" id="frame"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="live">
+      <div class="metric"><span>BPM</span><strong id="bpmOut">120</strong></div>
+      <div class="metric"><span>Остаток, px</span><strong id="remainderOut">0.00</strong></div>
+      <div class="metric"><span>Событий</span><strong id="eventsOut">0</strong></div>
+      <div class="metric"><span>Ошибка центра</span><strong id="centerOut">0.00 px</strong></div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Завершённые прогоны</h2>
+    <div class="trials" id="trials"><p class="support">Пока нет данных.</p></div>
+    <details id="eventsDetails">
+      <summary>Сырые события текущего/последнего прогона</summary>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>фаза</th><th>t, мс</th><th>ΔY</th><th>norm</th><th>остаток</th><th>BPM</th><th>momentum</th><th>cancelable</th></tr></thead>
+          <tbody id="eventsBody"></tbody>
+        </table>
+      </div>
+    </details>
+  </section>
+
+  <section class="card">
+    <h2>Отчёт для передачи</h2>
+    <div class="controls">
+      <button class="primary" id="copyBtn">Скопировать JSON</button>
+      <button id="downloadBtn">Скачать JSON</button>
+    </div>
+    <p class="support" id="copyStatus">После трёх прогонов скопируйте отчёт и пришлите его в чат.</p>
+    <textarea id="report" readonly spellcheck="false"></textarea>
+  </section>
+</main>
+<script>
+(() => {
+  'use strict';
+  const MIN = 40;
+  const MAX = 300;
+  const ROW = 38;
+  const PAD = 38;
+  const DISTANCE_PER_STEP = 12;
+  const DISCRETE_DELTA = 40;
+  const QUIET_MS = 500;
+  const labels = {
+    short: 'Короткий свайп', long: 'Длинный свайп', reverse: 'Свайп с разворотом',
+    slow: 'Медленный свайп', other: 'Другой'
+  };
+  const $ = (id) => document.getElementById(id);
+  const strip = $('strip');
+  const drum = $('drum');
+  const frame = $('frame');
+  const rows = new Map();
+  for (let value = MIN; value <= MAX; value++) {
+    const row = document.createElement('div');
+    row.className = 'row';
+    row.dataset.value = String(value);
+    row.textContent = String(value);
+    strip.appendChild(row);
+    rows.set(value, row);
+  }
+
+  let bpm = 120;
+  let remainder = 0;
+  let current = null;
+  let quietTimer = 0;
+  let markerHeld = false;
+  const completed = [];
+
+  const environment = {
+    capturedAt: new Date().toISOString(),
+    userAgent: navigator.userAgent,
+    platform: navigator.platform,
+    vendor: navigator.vendor,
+    language: navigator.language,
+    devicePixelRatio: window.devicePixelRatio,
+    viewport: { width: innerWidth, height: innerHeight },
+    wheelMomentumSupported: typeof WheelEvent !== 'undefined' && 'momentum' in WheelEvent.prototype,
+    wheelPrototypeKeys: typeof WheelEvent === 'undefined' ? [] : Object.getOwnPropertyNames(WheelEvent.prototype).sort(),
+  };
+
+  function centerOffset(value) {
+    return (value - MIN) * ROW - PAD;
+  }
+
+  function setBpm(value) {
+    bpm = Math.max(MIN, Math.min(MAX, Math.round(value)));
+    strip.style.transform = `translate3d(0,${(-centerOffset(bpm)).toFixed(2)}px,0)`;
+    rows.forEach((row, valueKey) => row.classList.toggle('is-center', valueKey === bpm));
+    $('bpmOut').textContent = String(bpm);
+  }
+
+  function centerError() {
+    const row = rows.get(bpm);
+    if (!row) return NaN;
+    const rr = row.getBoundingClientRect();
+    const fr = frame.getBoundingClientRect();
+    return (rr.top + rr.height / 2) - (fr.top + fr.height / 2);
+  }
+
+  function updateLive() {
+    $('remainderOut').textContent = remainder.toFixed(2);
+    $('eventsOut').textContent = String(current ? current.events.length : 0);
+    requestAnimationFrame(() => {
+      const error = centerError();
+      $('centerOut').textContent = Number.isFinite(error) ? `${error.toFixed(3)} px` : '—';
+    });
+  }
+
+  function setStatus(text, kind = 'ok') {
+    const el = $('status');
+    el.textContent = text;
+    el.dataset.kind = kind;
+  }
+
+  function normalize(event) {
+    let delta = Number(event.deltaY) || 0;
+    if (event.deltaMode === 1) delta *= 16;
+    else if (event.deltaMode === 2) delta *= Math.max(1, innerHeight || 800);
+    if (Math.abs(delta) >= DISCRETE_DELTA) return Math.sign(delta) * DISTANCE_PER_STEP;
+    return delta;
+  }
+
+  function rawEventRecord(event, normalized, units) {
+    const now = performance.now();
+    return {
+      index: current.events.length,
+      t: +(now - current.startedPerf).toFixed(3),
+      eventTimeStamp: +Number(event.timeStamp).toFixed(3),
+      markerHeld,
+      deltaX: +Number(event.deltaX || 0).toFixed(4),
+      deltaY: +Number(event.deltaY || 0).toFixed(4),
+      deltaZ: +Number(event.deltaZ || 0).toFixed(4),
+      deltaMode: event.deltaMode,
+      wheelDelta: Number.isFinite(Number(event.wheelDelta)) ? Number(event.wheelDelta) : null,
+      wheelDeltaX: Number.isFinite(Number(event.wheelDeltaX)) ? Number(event.wheelDeltaX) : null,
+      wheelDeltaY: Number.isFinite(Number(event.wheelDeltaY)) ? Number(event.wheelDeltaY) : null,
+      webkitDirectionInvertedFromDevice: 'webkitDirectionInvertedFromDevice' in event
+        ? Boolean(event.webkitDirectionInvertedFromDevice) : null,
+      momentumPresent: 'momentum' in event,
+      momentum: 'momentum' in event ? Boolean(event.momentum) : null,
+      cancelable: event.cancelable,
+      isTrusted: event.isTrusted,
+      normalized: +normalized.toFixed(4),
+      units,
+      remainder: +remainder.toFixed(4),
+      bpm,
+      centerErrorPx: +centerError().toFixed(4),
+    };
+  }
+
+  function renderEventRows(trial) {
+    const release = trial && trial.releaseMs;
+    $('eventsBody').innerHTML = trial ? trial.events.map((event) => {
+      const after = release != null && event.t > release;
+      const momentum = event.momentumPresent ? String(event.momentum) : 'нет свойства';
+      return `<tr class="${after ? 'after-release' : ''}">
+        <td>${after ? 'после M↑' : 'контакт'}</td><td>${event.t.toFixed(1)}</td>
+        <td>${event.deltaY}</td><td>${event.normalized}</td><td>${event.remainder}</td>
+        <td>${event.bpm}</td><td>${momentum}</td><td>${event.cancelable}</td></tr>`;
+    }).join('') : '';
+  }
+
+  function startTrial() {
+    if (current && current.events.length) finishTrial('manual-restart');
+    clearTimeout(quietTimer);
+    bpm = 120;
+    remainder = 0;
+    markerHeld = false;
+    current = {
+      id: completed.length + 1,
+      kind: $('trialKind').value,
+      label: labels[$('trialKind').value] || $('trialKind').value,
+      startedAt: new Date().toISOString(),
+      startedPerf: performance.now(),
+      contactKeyDownMs: null,
+      releaseMs: null,
+      finishReason: null,
+      events: [],
+    };
+    setBpm(120);
+    updateLive();
+    renderEventRows(current);
+    $('releaseBtn').disabled = false;
+    $('finishBtn').disabled = false;
+    setStatus('Прогон начат. Зажмите M, сделайте свайп над барабаном и отпустите M вместе с пальцами.', 'ok');
+    updateReport();
+  }
+
+  function markRelease(source) {
+    if (!current || current.releaseMs != null) return;
+    current.releaseMs = +(performance.now() - current.startedPerf).toFixed(3);
+    current.releaseSource = source;
+    markerHeld = false;
+    setStatus('Отпускание отмечено. Не касайтесь трекпада и дождитесь окончания системного хвоста.', 'warn');
+    renderEventRows(current);
+    updateReport();
+  }
+
+  function summaryFor(trial) {
+    const releaseMs = trial.releaseMs;
+    const before = releaseMs == null ? trial.events : trial.events.filter((event) => event.t <= releaseMs);
+    const after = releaseMs == null ? [] : trial.events.filter((event) => event.t > releaseMs);
+    const bpmAtRelease = before.length ? before[before.length - 1].bpm : 120;
+    const finalBpm = trial.events.length ? trial.events[trial.events.length - 1].bpm : 120;
+    const lastAfterT = after.length ? after[after.length - 1].t : releaseMs;
+    return {
+      eventCount: trial.events.length,
+      releaseMarked: releaseMs != null,
+      releaseMs,
+      bpmAtRelease,
+      finalBpm,
+      driftAfterRelease: finalBpm - bpmAtRelease,
+      eventsAfterRelease: after.length,
+      normalizedDistanceBeforeRelease: +before.reduce((sum, event) => sum + event.normalized, 0).toFixed(4),
+      normalizedDistanceAfterRelease: +after.reduce((sum, event) => sum + event.normalized, 0).toFixed(4),
+      rawDeltaBeforeRelease: +before.reduce((sum, event) => sum + event.deltaY, 0).toFixed(4),
+      rawDeltaAfterRelease: +after.reduce((sum, event) => sum + event.deltaY, 0).toFixed(4),
+      tailDurationMs: releaseMs == null || lastAfterT == null ? null : +(lastAfterT - releaseMs).toFixed(3),
+      maxAbsCenterErrorPx: +trial.events.reduce((max, event) => Math.max(max, Math.abs(event.centerErrorPx || 0)), 0).toFixed(4),
+      finalCenterErrorPx: +centerError().toFixed(4),
+    };
+  }
+
+  function finishTrial(reason = 'quiet') {
+    if (!current) return;
+    clearTimeout(quietTimer);
+    quietTimer = 0;
+    current.finishedAt = new Date().toISOString();
+    current.finishReason = reason;
+    current.summary = summaryFor(current);
+    completed.push(current);
+    renderEventRows(current);
+    current = null;
+    markerHeld = false;
+    $('releaseBtn').disabled = true;
+    $('finishBtn').disabled = true;
+    setStatus('Прогон завершён и добавлен в отчёт.', 'ok');
+    renderTrials();
+    updateReport();
+  }
+
+  function scheduleQuietFinish() {
+    clearTimeout(quietTimer);
+    quietTimer = setTimeout(() => finishTrial('500ms-wheel-silence'), QUIET_MS);
+  }
+
+  function handleWheel(event) {
+    event.preventDefault();
+    if (!current) startTrial();
+    const normalized = normalize(event);
+    if (!normalized) return;
+    remainder += normalized;
+    const units = Math.trunc(remainder / DISTANCE_PER_STEP);
+    if (units) {
+      const multiplier = event.shiftKey ? 5 : 1;
+      const requested = bpm + units * multiplier;
+      const next = Math.max(MIN, Math.min(MAX, requested));
+      remainder -= units * DISTANCE_PER_STEP;
+      if (next !== requested) remainder = 0;
+      setBpm(next);
+    }
+    current.events.push(rawEventRecord(event, normalized, units));
+    updateLive();
+    renderEventRows(current);
+    scheduleQuietFinish();
+    updateReport();
+  }
+
+  function renderTrials() {
+    const root = $('trials');
+    if (!completed.length) {
+      root.innerHTML = '<p class="support">Пока нет данных.</p>';
+      return;
+    }
+    root.innerHTML = completed.map((trial) => {
+      const s = trial.summary;
+      const driftClass = s.driftAfterRelease ? 'drift nonzero' : 'drift';
+      return `<div class="trial">
+        <div><strong>${trial.id}. ${trial.label}</strong><small>${s.eventCount} wheel-событий</small></div>
+        <div><small>BPM при M↑</small><strong>${s.bpmAtRelease}</strong></div>
+        <div><small>Финальный BPM</small><strong>${s.finalBpm}</strong></div>
+        <div><small>После M↑</small><strong>${s.eventsAfterRelease} событий</strong></div>
+        <div><small>Расхождение</small><strong class="${driftClass}">${s.driftAfterRelease > 0 ? '+' : ''}${s.driftAfterRelease}</strong></div>
+      </div>`;
+    }).join('');
+  }
+
+  function buildReport() {
+    return {
+      probe: 'B-89 Safari wheel probe',
+      probeVersion: 1,
+      productionReference: 'STRUCHORD 0.339 / commit 0d58f41',
+      environment,
+      completedTrials: completed,
+      activeTrial: current ? { ...current, summary: summaryFor(current) } : null,
+    };
+  }
+
+  function updateReport() {
+    $('report').value = JSON.stringify(buildReport(), null, 2);
+  }
+
+  async function copyReport() {
+    const text = JSON.stringify(buildReport(), null, 2);
+    $('report').value = text;
+    try {
+      await navigator.clipboard.writeText(text);
+      $('copyStatus').textContent = 'Отчёт скопирован. Пришлите JSON в чат.';
+    } catch (error) {
+      $('report').focus();
+      $('report').select();
+      document.execCommand('copy');
+      $('copyStatus').textContent = 'Текст выделен и скопирован резервным способом. Пришлите его в чат.';
+    }
+  }
+
+  function downloadReport() {
+    const blob = new Blob([JSON.stringify(buildReport(), null, 2)], { type: 'application/json' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `b89-safari-wheel-${new Date().toISOString().replace(/[:.]/g, '-')}.json`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    URL.revokeObjectURL(link.href);
+  }
+
+  // Один слушатель на сцене: wheel из барабана всплывает сюда. Два
+  // слушателя удвоили бы физическую дистанцию одного Safari-события.
+  $('probeStage').addEventListener('wheel', handleWheel, { passive: false });
+  $('startBtn').addEventListener('click', startTrial);
+  $('releaseBtn').addEventListener('click', () => markRelease('button'));
+  $('finishBtn').addEventListener('click', () => finishTrial('manual-finish'));
+  $('copyBtn').addEventListener('click', copyReport);
+  $('downloadBtn').addEventListener('click', downloadReport);
+
+  document.addEventListener('keydown', (event) => {
+    if (event.code !== 'KeyM' || event.repeat || !current) return;
+    markerHeld = true;
+    if (current.contactKeyDownMs == null) current.contactKeyDownMs = +(performance.now() - current.startedPerf).toFixed(3);
+    setStatus('M зажата: сделайте свайп и отпустите M одновременно с пальцами.', 'ok');
+    event.preventDefault();
+  }, true);
+  document.addEventListener('keyup', (event) => {
+    if (event.code !== 'KeyM' || !current) return;
+    markRelease('KeyM-keyup');
+    event.preventDefault();
+  }, true);
+  window.addEventListener('blur', () => {
+    if (markerHeld && current && current.releaseMs == null) markRelease('window-blur');
+  });
+
+  $('supportLine').textContent = environment.wheelMomentumSupported
+    ? 'Браузер предоставляет WheelEvent.momentum — стенд запишет нативную фазу инерции.'
+    : 'WheelEvent.momentum в этом браузере отсутствует — метка M нужна как внешний момент отпускания.';
+  setBpm(120);
+  updateLive();
+  renderTrials();
+  updateReport();
+})();
+</script>
+</body>
+</html>

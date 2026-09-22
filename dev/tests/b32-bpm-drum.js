@@ -1,6 +1,6 @@
-// B-32 (0.132): барабан BPM — транзиентный фидбек колесного редактирования.
-// Направление (0.132): колесо ВНИЗ (deltaY>0) = лента вверх = темп ВВЕРХ.
-// Аккумулятор: быстрая серия тиков складывается в цель — лента разгоняется.
+// B-32 + B-89 (0.338): барабан BPM и регрессии исходного контракта.
+// Направление: колесо ВНИЗ (deltaY>0) = лента вверх = темп ВВЕРХ.
+// Дискретная мышь даёт шаг, Safari-трекпад накапливает дистанцию.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const dom = new JSDOM(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8'), {
@@ -28,7 +28,12 @@ w.addEventListener('load', async () => {
   const pmove = (el, y) => el.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientY: y, clientX: 50 }));
   const pup = (el, y) => el.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true, clientY: y, clientX: 50 }));
   const key = (k) => d.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
-  const wheelField = (dy) => input.dispatchEvent(new w.WheelEvent('wheel', { deltaY: dy, cancelable: true, bubbles: true }));
+  // Каждый вызов здесь — новый намеренный жест теста, а не momentum-хвост
+  // предыдущего закрытия. B-89 отдельно проверяет 340мс-защиту хвоста.
+  const wheelField = (dy) => {
+    w.eval('clearTimeout(bpmDrumCloseTimer); bpmDrumCloseTimer = 0; bpmDrumClosing = false;');
+    return input.dispatchEvent(new w.WheelEvent('wheel', { deltaY: dy, cancelable: true, bubbles: true }));
+  };
   const pop = () => d.querySelector('.bpm-inline-drum');
 const isOpen = () => { const q = pop(); return !!q && q.classList.contains('is-open'); };
 
@@ -49,15 +54,15 @@ const isOpen = () => { const q = pop(); return !!q && q.classList.contains('is-o
   await sleep(260);
   ok('колесо от себя → 120', input.value === '120', input.value);
 
-  console.log('=== 3. Скорость «как было»: одно событие = один шаг ===');
-  // 5 тиков с человеческими паузами: каждый двигает цель на +1 от
-  // текущего центра ленты (семантика 0.131 и ранее)
+  console.log('=== 3. Дискретная мышь и порог трекпада сохраняют скорость ===');
+  // 5 крупных дискретных тиков: каждый нормализуется в +1, а цель
+  // хранится отдельно от промежуточного кадра ленты.
   for (let i = 0; i < 5; i++) { wheelField(100); await sleep(60); }
   await sleep(500);
   ok('после 5 тиков — 125', input.value === '125', input.value);
-  wheelField(8); // мелкая трекпадная дельта — тоже один шаг, как раньше
+  wheelField(12); // откалиброванная трекпадная дистанция = один шаг
   await sleep(320);
-  ok('мелкая дельта (8px) — тоже +1 → 126', input.value === '126', input.value);
+  ok('дельта порога (12px) даёт +1 → 126', input.value === '126', input.value);
 
   console.log('=== 4. Клавиши при открытом барабане ===');
   key('PageUp');
@@ -88,12 +93,12 @@ const isOpen = () => { const q = pop(); return !!q && q.classList.contains('is-o
   const cyl = pop();
   pdown(cyl, 300);
   await sleep(120);
-  pmove(cyl, 3400); // сильно за минимум
+  pmove(cyl, 4300); // сильно за минимум с учётом штатного UI scale 125%
   const centerDuringDrag = w.eval('Math.round(bpmDrumCenterValue())');
   ok('во время резинки центр не ниже 40', centerDuringDrag >= 40, String(centerDuringDrag));
   await sleep(400);
   ok('держим: барабан не закрылся', isOpen());
-  pup(cyl, 3400);
+  pup(cyl, 4300);
   await sleep(450);
   ok('после отпускания — пружина к 40', input.value === '40', input.value);
   await sleep(1500);

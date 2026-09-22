@@ -3283,6 +3283,14 @@ body {
   cursor: grabbing;
 }
 .bpm-drum-strip {
+  /* B-89 / 0.340: начало ленты привязано к геометрическому центру
+     пилюли, а не к её меняющемуся верхнему краю. Поэтому центральная
+     строка не уплывает при раскрытии/сворачивании, а rem-масштаб строк
+     и transform используют одну систему координат на всех 25–300%. */
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
   will-change: transform;
 }
 .bpm-drum-row {
@@ -3296,7 +3304,6 @@ body {
   backface-visibility: hidden;
 }
 .bpm-drum-row.is-center {
-  font-size: 1.3125rem;
   font-weight: 600;
 }
 .bpm-drum-fade {
@@ -10112,6 +10119,15 @@ html[data-theme='dark'] .storm-charge-glint {
 .dev-command i { width:1.25rem; color:var(--color-accent); font-size:1.05rem; }
 .dev-command small { display:block; margin-top:.12rem; color:var(--color-text-tertiary); }
 .dev-command[hidden] { display:none; }
+.audio-diagnostic-overlay { position:fixed; inset:0; z-index:2147483647; display:grid; place-items:center; padding:1rem; background:rgba(8,10,18,.62); backdrop-filter:blur(.25rem); }
+.audio-diagnostic-card { width:min(52rem,calc(100vw - 2rem)); max-height:min(86vh,48rem); display:grid; grid-template-rows:auto minmax(12rem,1fr) auto; overflow:hidden; border:1px solid var(--color-border-medium); border-radius:1rem; background:var(--color-surface); color:var(--color-text-primary); box-shadow:0 1.2rem 3.5rem rgba(0,0,0,.38); }
+.audio-diagnostic-head { display:flex; align-items:center; gap:.65rem; padding:.85rem 1rem; border-bottom:1px solid var(--color-border-light); }
+.audio-diagnostic-head strong { flex:1; }
+.audio-diagnostic-report { width:100%; min-height:18rem; resize:none; border:0; outline:0; padding:1rem; background:var(--color-background-secondary); color:var(--color-text-secondary); font:500 .72rem/1.45 ui-monospace,SFMono-Regular,Consolas,monospace; tab-size:2; }
+.audio-diagnostic-actions { display:flex; flex-wrap:wrap; justify-content:flex-end; gap:.5rem; padding:.75rem 1rem; border-top:1px solid var(--color-border-light); }
+.audio-diagnostic-actions button { border:1px solid var(--color-border-medium); border-radius:.65rem; padding:.55rem .8rem; background:var(--color-surface); color:var(--color-text-primary); cursor:pointer; font:inherit; }
+.audio-diagnostic-actions button:hover,.audio-diagnostic-actions button:focus-visible { outline:0; background:var(--color-tint); }
+.audio-diagnostic-actions .is-danger { color:var(--color-danger); }
 .storm-achievement { position:fixed; z-index:2147483647; top:1.4rem; left:50%; width:min(28rem,calc(100vw - 2rem)); transform:translate(-50%,-1rem); opacity:0; pointer-events:none; color:var(--color-text-primary); }
 .storm-achievement-card { position:relative; overflow:hidden; display:grid; grid-template-columns:3.25rem 1fr; align-items:center; gap:.9rem; padding:.9rem 1.1rem; border-radius:.85rem; background:color-mix(in srgb,var(--color-surface) 92%,transparent); box-shadow:0 .7rem 2.2rem rgba(10,12,28,.22); backdrop-filter:blur(.75rem); }
 .storm-achievement-outline { position:absolute; inset:0; width:100%; height:100%; fill:none; stroke:var(--color-accent); stroke-width:1.5; stroke-dasharray:1; stroke-dashoffset:1; }
@@ -10137,8 +10153,146 @@ html[data-theme='dark'] .storm-charge-glint {
 .storm-achievement-warning { filter:drop-shadow(0 .12rem .08rem rgba(45,39,23,.28)); }
 @keyframes achievement-meter { from{transform:scaleX(.03)} to{transform:scaleX(1)} }
 
+/* B-66.2.1 / 0.343: торжественный пролог «220». Копия цифры отделяется от
+   поля BPM и растёт титром в центре экрана под нарастающий свелл; на пике
+   пролог обрывается блэкаутом генератора. Анимируются только transform,
+   opacity и text-shadow оверлея — layout и render() не затрагиваются. */
+.power-prologue-overlay {
+  position:fixed; inset:0; z-index:2147483644; pointer-events:none;
+  display:grid; place-items:center;
+}
+.power-prologue-digits {
+  font-family:ui-monospace,SFMono-Regular,monospace;
+  font-weight:750; font-size:3rem; letter-spacing:.06em; line-height:1;
+  color:#ffd766; opacity:0;
+  transform:translate3d(var(--prologue-from-x,0px),var(--prologue-from-y,0px),0) scale(var(--prologue-from-scale,1));
+  will-change:transform,opacity,text-shadow;
+}
+.power-prologue-overlay.is-rising .power-prologue-digits {
+  animation:power-prologue-rise 1.8s cubic-bezier(.22,.68,.31,1) forwards;
+}
+@keyframes power-prologue-rise {
+  0% {
+    opacity:0;
+    transform:translate3d(var(--prologue-from-x,0px),var(--prologue-from-y,0px),0) scale(var(--prologue-from-scale,1));
+    text-shadow:0 0 0 rgba(255,215,102,0);
+  }
+  16% { opacity:1; }
+  100% {
+    opacity:1;
+    transform:translate3d(0,0,0) scale(3.2);
+    text-shadow:
+      0 0 .5rem rgba(255,224,130,.95),
+      0 0 1.6rem rgba(255,203,64,.8),
+      0 0 3.4rem rgba(255,176,28,.55);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .power-prologue-overlay.is-rising .power-prologue-digits { animation-duration:.05s; }
+}
+
+
+/* B-66.2 / 0.335: ручной генератор. Сцена целиком
+   композитная: во время жеста меняются только transform, CSS-переменные и
+   SVG-атрибуты; модель песни и основной render() не затрагиваются. */
+.power-generator-scene {
+  --generator-power:0; --generator-speed:0; --generator-shake-x:0rem; --generator-shake-y:0rem;
+  position:fixed; inset:0; z-index:2147483645; overflow:hidden;
+  display:grid; place-items:center; pointer-events:auto; color:#f6e8c7;
+  background:transparent; isolation:isolate;
+}
+.power-generator-blackout { position:absolute; inset:0; display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(2,1fr); z-index:0; }
+.power-generator-zone { background:#030303; opacity:0; }
+.power-generator-scene.is-failing .power-generator-zone { animation:power-generator-failure 1.45s steps(1,end) forwards; }
+.power-generator-scene.is-dark .power-generator-zone { opacity:1; }
+.power-generator-stage {
+  position:relative; z-index:2; width:min(58rem,96vw); min-height:min(39rem,88vh);
+  display:grid; place-items:center; align-content:center; gap:.65rem; padding:1rem;
+  opacity:0; transform:translate3d(0,7rem,0) scale(.97);
+  transition:opacity .85s ease,transform 1.05s cubic-bezier(.18,.82,.22,1),filter .5s ease;
+  outline:none; touch-action:none; user-select:none;
+}
+.power-generator-scene.is-generator-visible .power-generator-stage { opacity:1; transform:translate3d(0,0,0) scale(1); }
+.power-generator-device-wrap { position:relative; width:min(52rem,94vw); filter:drop-shadow(0 1.7rem 2.5rem rgba(0,0,0,.72)); }
+.power-generator-svg { display:block; width:100%; height:auto; max-height:72vh; overflow:visible; transform:translate3d(var(--generator-shake-x),var(--generator-shake-y),0); }
+.power-generator-body { fill:url(#power-generator-body-gradient); stroke:#cdb98f; stroke-width:5; }
+.power-generator-body-inset { fill:#262422; stroke:#786d59; stroke-width:3; }
+.power-generator-edge { fill:none; stroke:rgba(255,242,211,.28); stroke-width:2; opacity:calc(.58 + var(--generator-power) * .42); }
+.power-generator-top-handle { fill:none; stroke:#d3c29e; stroke-width:16; stroke-linecap:round; }
+.power-generator-top-grip { fill:none; stroke:#242220; stroke-width:11; stroke-linecap:round; }
+.power-generator-foot { fill:#171614; }
+.power-generator-screw { fill:#191816; stroke:#9d8e72; stroke-width:3; }
+.power-generator-dial-shell { fill:#151514; stroke:#aa9877; stroke-width:8; }
+.power-generator-dial { fill:#f3e7ca; stroke:#2b2925; stroke-width:5; }
+.power-generator-dial-energy { fill:none; stroke:#e0a943; stroke-width:4; opacity:calc(.04 + var(--generator-power) * .54); filter:drop-shadow(0 0 calc(var(--generator-power) * .7rem) rgba(255,201,74,.82)); }
+.power-generator-scale { fill:none; stroke:#272520; stroke-width:3; stroke-linecap:round; }
+.power-generator-scale.is-major { stroke-width:5; }
+.power-generator-arc { fill:none; stroke:#2c2923; stroke-width:3; }
+.power-generator-dial-label { fill:#2a2721; stroke:#f3e7ca; stroke-width:9; stroke-linejoin:round; paint-order:stroke fill; font:700 18px/1 ui-monospace,SFMono-Regular,Consolas,monospace; text-anchor:middle; }
+.power-generator-dial-unit { fill:#74684f; font:700 15px/1 ui-monospace,SFMono-Regular,Consolas,monospace; text-anchor:middle; letter-spacing:.14em; }
+.power-generator-needle { stroke:#171512; stroke-width:7; stroke-linecap:round; filter:drop-shadow(3px 4px 0 rgba(180,125,37,.34)); }
+.power-generator-needle-cap { fill:#1b1916; stroke:#c8953f; stroke-width:6; }
+.power-generator-shaft { fill:#171615; stroke:#ad9b79; stroke-width:6; }
+.power-generator-rotor-ring { fill:none; stroke:#f0cb79; stroke-width:4; stroke-linecap:round; stroke-dasharray:11 8; opacity:calc(.2 + var(--generator-speed) * .72); filter:drop-shadow(0 0 calc(var(--generator-speed) * .48rem) rgba(240,190,76,.7)); }
+.power-generator-crank-arm { stroke:#d2ad62; stroke-width:18; stroke-linecap:round; filter:drop-shadow(5px 7px 0 rgba(0,0,0,.32)); }
+.power-generator-crank-joint { fill:#d2ad62; stroke:#342d22; stroke-width:5; }
+.power-generator-crank-knob { fill:#2a2723; stroke:#d9bd7b; stroke-width:7; }
+.power-generator-crank-hit { fill:transparent; stroke:transparent; cursor:grab; pointer-events:all; }
+.power-generator-crank-hit:active,.power-generator-scene.is-cranking .power-generator-crank-hit { cursor:grabbing; }
+.power-generator-knob-halo { fill:none; stroke:#efd38e; stroke-width:3; opacity:.28; transform-box:fill-box; transform-origin:center; animation:power-generator-halo 1.8s ease-in-out infinite; pointer-events:none; }
+.power-generator-lamp { fill:#4f4430; stroke:#171511; stroke-width:4; transition:fill .22s,filter .22s; filter:drop-shadow(0 0 calc(var(--generator-power) * .48rem) rgba(255,198,52,.72)); }
+.power-generator-lamp-glow { fill:none; stroke:#f2c355; stroke-width:3; opacity:calc(var(--generator-power) * .58); filter:drop-shadow(0 0 calc(var(--generator-power) * .62rem) rgba(255,209,77,.84)); }
+.power-generator-copy { text-align:center; min-height:4.2rem; text-shadow:0 .16rem .55rem rgba(0,0,0,.8); }
+.power-generator-voltage { font:750 clamp(1.55rem,4vw,2.35rem)/1 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.08em; color:#f1d184; }
+.power-generator-instruction { margin-top:.45rem; color:rgba(246,232,199,.7); font-size:.85rem; letter-spacing:.035em; }
+.power-generator-ready { display:none; margin-top:.42rem; font-size:.78rem; font-weight:750; letter-spacing:.15em; color:#ffe28b; }
+.power-generator-scene.is-powered .power-generator-device-wrap { animation:power-generator-powered-pulse .8s ease-out both; }
+.power-generator-scene.is-powered .power-generator-dial { animation:power-generator-meter-flash .72s ease-out both; }
+.power-generator-scene.is-powered .power-generator-dial-energy { animation:power-generator-meter-ring .78s ease-out both; }
+.power-generator-scene.is-powered .power-generator-lamp { fill:#ffe267; filter:drop-shadow(0 0 .7rem #ffd14d) drop-shadow(0 0 1.5rem rgba(255,198,52,.75)); }
+.power-generator-scene.is-powered .power-generator-lamp-glow { opacity:1; animation:power-generator-lamp-ring .85s ease-out both; }
+.power-generator-scene.is-powered .power-generator-knob-halo { opacity:0; animation:none; }
+.power-generator-scene.is-powered .power-generator-instruction { display:none; }
+.power-generator-scene.is-powered .power-generator-ready { display:block; animation:power-generator-ready-in .42s ease-out both; }
+.power-generator-scene.is-restoring .power-generator-stage { opacity:0; transform:translate3d(0,-1.5rem,0) scale(.985); filter:brightness(1.35); }
+.power-generator-scene.is-restoring .power-generator-zone { animation:power-generator-zone-restore 1.65s steps(1,end) forwards; }
+.power-generator-scene.is-restoring .power-generator-zone:nth-child(2) { animation-delay:.12s; }
+.power-generator-scene.is-restoring .power-generator-zone:nth-child(3) { animation-delay:.3s; }
+.power-generator-scene.is-restoring .power-generator-zone:nth-child(4) { animation-delay:.48s; }
+.power-generator-scene.is-restoring .power-generator-zone:nth-child(5) { animation-delay:.64s; }
+.power-generator-scene.is-restoring .power-generator-zone:nth-child(6) { animation-delay:.82s; }
+.power-generator-step { display:none; border:1px solid rgba(246,232,199,.4); border-radius:999px; padding:.65rem 1rem; background:#292621; color:#f4dfad; font:inherit; font-size:.8rem; font-weight:700; }
+@keyframes power-generator-failure {
+  0%,16%{opacity:0} 17%,27%{opacity:.74} 28%,38%{opacity:.06} 39%,51%{opacity:.9}
+  52%,61%{opacity:.2} 62%,70%{opacity:1} 71%,79%{opacity:.45} 80%,100%{opacity:1}
+}
+@keyframes power-generator-halo { 0%,100%{opacity:.15;transform:scale(.86)} 50%{opacity:.58;transform:scale(1.16)} }
+@keyframes power-generator-powered-pulse { 0%{filter:drop-shadow(0 1.7rem 2.5rem rgba(0,0,0,.72))} 35%{filter:drop-shadow(0 0 1.3rem rgba(255,218,119,.92)) drop-shadow(0 1.7rem 2.5rem rgba(0,0,0,.72))} 100%{filter:drop-shadow(0 1.7rem 2.5rem rgba(0,0,0,.72))} }
+@keyframes power-generator-meter-flash { 0%{fill:#f3e7ca;filter:none} 30%{fill:#fff8d9;filter:drop-shadow(0 0 1.1rem rgba(255,222,126,.95))} 100%{fill:#f3e7ca;filter:none} }
+@keyframes power-generator-meter-ring { 0%{opacity:.35;stroke-width:4} 28%{opacity:1;stroke-width:9;filter:drop-shadow(0 0 1.2rem #ffd95f)} 100%{opacity:.58;stroke-width:4} }
+@keyframes power-generator-lamp-ring { from{opacity:1;transform:scale(.45)} to{opacity:0;transform:scale(2.4)} }
+@keyframes power-generator-ready-in { from{opacity:0;transform:translateY(.4rem)} to{opacity:1;transform:none} }
+@keyframes power-generator-zone-restore {
+  0%{opacity:1} 12%{opacity:.24} 22%{opacity:1} 38%{opacity:.48}
+  52%{opacity:.94} 69%{opacity:.12} 78%{opacity:.62} 100%{opacity:0}
+}
+
+@media (max-width: 620px) {
+  .power-generator-stage { width:100vw; min-height:100vh; padding:.75rem; }
+  .power-generator-device-wrap { width:min(46rem,100vw); }
+  .power-generator-copy { transform:translateY(-.4rem); }
+}
 
 @media (prefers-reduced-motion: reduce) {
+  .power-generator-scene.is-failing .power-generator-zone { animation:none; opacity:1; }
+  .power-generator-stage { transition:none; }
+  .power-generator-knob-halo,.power-generator-scene.is-powered .power-generator-device-wrap,
+  .power-generator-scene.is-powered .power-generator-dial,
+  .power-generator-scene.is-powered .power-generator-dial-energy,
+  .power-generator-scene.is-powered .power-generator-lamp-glow,
+  .power-generator-scene.is-powered .power-generator-ready { animation:none; }
+  .power-generator-scene.is-restoring .power-generator-zone { animation:none; opacity:0; }
+  .power-generator-step { display:inline-flex; }
   .storm-surprise-layer { display: none !important; }
   .storm-achievement.is-visible { animation:storm-achievement-static 3.5s both; }
   .storm-achievement.is-visible .storm-achievement-outline,
@@ -10178,7 +10332,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.331</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.346</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21082,6 +21236,10 @@ function renameSection(sid, nn) {
   }, { quiet: true });
   // B-25: меняется только label в заголовке секции.
   if (!syncSectionHeaderDom(s)) requestRender();
+  // B-91: карта песни строится из той же модели, но быстрый путь B-25
+  // не проходит через полный render() — без явного вызова карта
+  // показывала старое имя до следующей перестройки.
+  renderSongMap();
   showToast(`Секция переименована в "${nn}"`);
 }
 function removeSection(id) {
@@ -24038,6 +24196,7 @@ function tapTempo() {
       DOM.bpmInput.value = clamped;
       showToast(`BPM: ${clamped}`);
       if (playbackState.isPlaying) restartPlaybackFromCurrentPosition();
+      maybeUnlockPowerAchievementFromBpm(clamped);
     }
   }
 }
@@ -24389,21 +24548,167 @@ function clearActiveHighlight() {
     window._previewTimeout = null;
   }
 }
+// B-88 / 0.333: постоянный диагностический журнал. Он намеренно НЕ чинит
+// аудио сам: задача итерации — поймать реальное состояние Safari до того,
+// как перезапуск браузера уничтожит улику.
+const AUDIO_DIAGNOSTIC_KEY = 'struchord-audio-diagnostics-v1';
+const AUDIO_DIAGNOSTIC_LIMIT = 200;
+const audioDiagnosticSessionId = Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 7);
+let audioDiagnosticLog = [];
+let audioDiagnosticMedia = null;
+
+function loadAudioDiagnosticLog() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(AUDIO_DIAGNOSTIC_KEY) || '[]');
+    audioDiagnosticLog = Array.isArray(parsed) ? parsed.slice(-AUDIO_DIAGNOSTIC_LIMIT) : [];
+  } catch (e) {
+    audioDiagnosticLog = [];
+  }
+}
+function audioDiagnosticContextSnapshot(ctx) {
+  const out = {};
+  if (!ctx) return { state: 'none' };
+  try { out.state = String(ctx.state); } catch (e) { out.state = 'unreadable'; }
+  try { out.sampleRate = ctx.sampleRate || null; } catch (e) {}
+  try { out.currentTime = Number(ctx.currentTime.toFixed(3)); } catch (e) {}
+  try { if (Number.isFinite(ctx.baseLatency)) out.baseLatency = Number(ctx.baseLatency.toFixed(4)); } catch (e) {}
+  try { if (Number.isFinite(ctx.outputLatency)) out.outputLatency = Number(ctx.outputLatency.toFixed(4)); } catch (e) {}
+  return out;
+}
+function recordAudioDiagnostic(type, details) {
+  // Асинхронный close() старого контекста может завершиться уже во время
+  // выгрузки страницы; журнал не должен сам породить ошибку при teardown.
+  const doc = typeof document !== 'undefined' && document ? document : null;
+  const nav = typeof navigator !== 'undefined' && navigator ? navigator : null;
+  const activation = nav ? nav.userActivation : null;
+  const audioSession = nav ? nav.audioSession : null;
+  const entry = {
+    at: new Date().toISOString(),
+    session: audioDiagnosticSessionId,
+    type,
+    visibility: doc ? doc.visibilityState : 'detached',
+    generation: audioContextGeneration,
+    context: audioDiagnosticContextSnapshot(audioCtx),
+    userActive: activation ? !!activation.isActive : null,
+    userEverActive: activation ? !!activation.hasBeenActive : null,
+    ...(audioSession ? { audioSession: { type: audioSession.type || null, state: audioSession.state || null } } : {}),
+    ...(details || {})
+  };
+  audioDiagnosticLog.push(entry);
+  if (audioDiagnosticLog.length > AUDIO_DIAGNOSTIC_LIMIT) {
+    audioDiagnosticLog.splice(0, audioDiagnosticLog.length - AUDIO_DIAGNOSTIC_LIMIT);
+  }
+  try { localStorage.setItem(AUDIO_DIAGNOSTIC_KEY, JSON.stringify(audioDiagnosticLog)); } catch (e) {}
+  return entry;
+}
+function audioDiagnosticReport() {
+  return JSON.stringify({
+    generatedAt: new Date().toISOString(),
+    version: document.querySelector('.app-title span')?.textContent.replace('· ver', '').trim() || '—',
+    browser: navigator.userAgent,
+    language: navigator.language,
+    current: {
+      visibility: document.visibilityState,
+      generation: audioContextGeneration,
+      pending: audioRecoveryPending,
+      lastError: audioRecoveryLastError || null,
+      blurMs: Math.round(audioLastBlurDurationMs || 0),
+      context: audioDiagnosticContextSnapshot(audioCtx)
+    },
+    events: audioDiagnosticLog
+  }, null, 2);
+}
+function clearAudioDiagnosticLog() {
+  audioDiagnosticLog = [];
+  try { localStorage.removeItem(AUDIO_DIAGNOSTIC_KEY); } catch (e) {}
+}
+async function copyAudioDiagnosticReport() {
+  const text = audioDiagnosticReport();
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) await navigator.clipboard.writeText(text);
+    else throw new Error('clipboard unavailable');
+  } catch (e) {
+    const field = document.createElement('textarea');
+    field.value = text; field.setAttribute('readonly', '');
+    field.style.position = 'fixed'; field.style.left = '-9999rem';
+    document.body.appendChild(field); field.select();
+    try { document.execCommand('copy'); } catch (copyError) {}
+    field.remove();
+  }
+  showToast('Аудиоотчёт скопирован');
+}
+function closeAudioDiagnosticReport() {
+  document.querySelector('.audio-diagnostic-overlay')?.remove();
+}
+function openAudioDiagnosticReport() {
+  closeDevPalette(); closeAudioDiagnosticReport();
+  const overlay = document.createElement('div'); overlay.className = 'audio-diagnostic-overlay';
+  const card = document.createElement('section'); card.className = 'audio-diagnostic-card';
+  card.setAttribute('role', 'dialog'); card.setAttribute('aria-modal', 'true'); card.setAttribute('aria-label', 'Журнал диагностики звука');
+  const head = document.createElement('div'); head.className = 'audio-diagnostic-head';
+  const icon = document.createElement('i'); icon.className = 'ti ti-player-play';
+  const title = document.createElement('strong'); title.textContent = 'Диагностика звука';
+  const close = document.createElement('button'); close.type = 'button'; close.className = 'dev-palette-close'; close.innerHTML = '<i class="ti ti-x"></i>'; close.onclick = closeAudioDiagnosticReport;
+  head.append(icon, title, close);
+  const report = document.createElement('textarea'); report.className = 'audio-diagnostic-report'; report.readOnly = true; report.value = audioDiagnosticReport(); report.setAttribute('aria-label', 'Аудиоотчёт');
+  const actions = document.createElement('div'); actions.className = 'audio-diagnostic-actions';
+  const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'Копировать'; copy.onclick = copyAudioDiagnosticReport;
+  const clear = document.createElement('button'); clear.type = 'button'; clear.className = 'is-danger'; clear.textContent = 'Очистить';
+  clear.onclick = () => { clearAudioDiagnosticLog(); report.value = audioDiagnosticReport(); showToast('Аудиожурнал очищен'); };
+  const done = document.createElement('button'); done.type = 'button'; done.textContent = 'Закрыть'; done.onclick = closeAudioDiagnosticReport;
+  actions.append(clear, copy, done); card.append(head, report, actions); overlay.appendChild(card); document.body.appendChild(overlay);
+  overlay.addEventListener('click', event => { if (event.target === overlay) closeAudioDiagnosticReport(); });
+  requestAnimationFrame(() => report.focus());
+}
+function playAudioMediaElementTest() {
+  if (audioDiagnosticMedia) {
+    try { audioDiagnosticMedia.pause(); } catch (e) {}
+    audioDiagnosticMedia = null;
+  }
+  const sample = new Audio('./uploads/220.mp3');
+  audioDiagnosticMedia = sample; sample.volume = 0.24;
+  recordAudioDiagnostic('media-test-requested');
+  ['play', 'playing', 'waiting', 'stalled', 'ended', 'error'].forEach(name => {
+    sample.addEventListener(name, () => {
+      recordAudioDiagnostic(`media-test-${name}`, name === 'error' ? { mediaError: sample.error ? sample.error.code : null } : null);
+      if (name === 'ended' || name === 'error') audioDiagnosticMedia = null;
+    }, { once: name === 'ended' || name === 'error' });
+  });
+  const started = sample.play();
+  if (started && typeof started.catch === 'function') started.catch(error => {
+    recordAudioDiagnostic('media-test-rejected', { message: error && error.message ? error.message : String(error) });
+  });
+}
+
+loadAudioDiagnosticLog();
+recordAudioDiagnostic('page-init');
+
 function getAudioContext() {
   if (!audioCtx)
     try {
+      recordAudioDiagnostic('context-create-requested');
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       audioContextGeneration++;
+      const watchedContext = audioCtx;
+      const watchedGeneration = audioContextGeneration;
+      recordAudioDiagnostic('context-created', { watchedGeneration });
       // Safari умеет уводить контекст в 'interrupted' — состояние, которого
       // нет в спецификации Web Audio и которое САМО НЕ ВОССТАНАВЛИВАЕТСЯ.
       // Следим за сменой состояния, чтобы поднять его при первой
       // возможности, а не ждать перезагрузки страницы.
       audioCtx.onstatechange = () => {
+        recordAudioDiagnostic('context-statechange', {
+          watchedGeneration,
+          watchedIsCurrent: watchedContext === audioCtx,
+          watchedContext: audioDiagnosticContextSnapshot(watchedContext)
+        });
         if (!audioCtx) return;
         if (audioCtx.state === 'interrupted') requestAudioResume('statechange');
         else if (audioCtx.state === 'closed') audioRecoveryPending = true;
       };
     } catch (e) {
+      audioRecoveryLastError = `create: ${e && e.message ? e.message : e}`;
+      recordAudioDiagnostic('context-create-error', { message: audioRecoveryLastError });
       return null;
     }
   return audioCtx;
@@ -24425,16 +24730,27 @@ function getAudioContext() {
 // changes to "interrupted" and needs to be resumed».
 function resumeAudioContext() {
   const ctx = audioCtx;
-  if (!ctx) return;
-  if (ctx.state === 'running' || ctx.state === 'closed') return;
+  if (!ctx) { recordAudioDiagnostic('resume-skipped-no-context'); return; }
+  if (ctx.state === 'running' || ctx.state === 'closed') {
+    if (ctx.state === 'closed') recordAudioDiagnostic('resume-skipped-closed');
+    return;
+  }
+  recordAudioDiagnostic('resume-requested', { path: 'direct' });
+  let settled = false;
   try {
     const r = ctx.resume();
     // Safari умеет НЕ разрешать промис, если resume() вызван вне
-    // обработчика пользовательского жеста. Глушим отказ, чтобы он не
-    // всплывал необработанным исключением.
-    if (r && typeof r.catch === 'function') r.catch(() => {});
+    // обработчика пользовательского жеста. Поведение не меняем, но теперь
+    // исход промиса остаётся в журнале даже после перезапуска браузера.
+    if (r && typeof r.then === 'function') {
+      r.then(() => { settled = true; recordAudioDiagnostic('resume-resolved', { path: 'direct', resultState: ctx.state }); })
+        .catch(error => { settled = true; recordAudioDiagnostic('resume-rejected', { path: 'direct', message: error && error.message ? error.message : String(error) }); });
+      setTimeout(() => {
+        if (!settled) recordAudioDiagnostic('resume-promise-pending', { path: 'direct', resultState: ctx.state, stillCurrent: ctx === audioCtx });
+      }, 1500);
+    }
   } catch (e) {
-    /* контекст мог быть закрыт — повторять нечего */
+    recordAudioDiagnostic('resume-threw', { path: 'direct', message: e && e.message ? e.message : String(e) });
   }
 }
 window.resumeAudioContext = resumeAudioContext;
@@ -24448,19 +24764,31 @@ function requestAudioResume(reason) {
   const ctx = audioCtx;
   if (!ctx) return;
   if (ctx.state === 'running') { audioRecoveryPending = false; return; }
+  recordAudioDiagnostic('resume-requested', { path: 'manager', reason, before: audioDiagnosticContextSnapshot(ctx) });
+  let settled = false;
   try {
     const result = ctx.resume();
     Promise.resolve(result).then(() => {
+      settled = true;
       if (ctx === audioCtx && ctx.state === 'running') audioRecoveryPending = false;
       else audioRecoveryPending = true;
+      recordAudioDiagnostic('resume-resolved', { path: 'manager', reason, resultState: ctx.state, stillCurrent: ctx === audioCtx });
     }).catch((error) => {
+      settled = true;
       audioRecoveryLastError = `${reason}: ${error && error.message ? error.message : error}`;
       audioRecoveryPending = true;
+      recordAudioDiagnostic('resume-rejected', { path: 'manager', reason, message: audioRecoveryLastError });
     });
-    setTimeout(() => { if (ctx === audioCtx && ctx.state !== 'running') audioRecoveryPending = true; }, 450);
+    setTimeout(() => {
+      if (ctx === audioCtx && ctx.state !== 'running') audioRecoveryPending = true;
+      recordAudioDiagnostic(settled ? 'resume-check' : 'resume-promise-pending', {
+        path: 'manager', reason, resultState: ctx.state, stillCurrent: ctx === audioCtx
+      });
+    }, 450);
   } catch (error) {
     audioRecoveryLastError = `${reason}: ${error && error.message ? error.message : error}`;
     audioRecoveryPending = true;
+    recordAudioDiagnostic('resume-threw', { path: 'manager', reason, message: audioRecoveryLastError });
   }
 }
 function reconnectTunerAfterAudioRecovery(ctx) {
@@ -24481,11 +24809,14 @@ function reconnectTunerAfterAudioRecovery(ctx) {
   }
 }
 function hardRecoverAudioContext(reason, force) {
+  recordAudioDiagnostic('hard-recovery-started', { reason, force: !!force, previous: audioDiagnosticContextSnapshot(audioCtx) });
   if (playbackState && playbackState.isPlaying && !force) {
     audioRecoveryPending = true;
+    recordAudioDiagnostic('hard-recovery-blocked-playing', { reason });
     return false;
   }
   const previous = audioCtx;
+  const previousGeneration = audioContextGeneration;
   const tunerWasActive = !!tunerState;
   stopAllAudio(); stopMetronomeScheduler();
   metronomeGainNode = null;
@@ -24493,19 +24824,37 @@ function hardRecoverAudioContext(reason, force) {
   pluckBufferCache.clear();
   audioCtx = null;
   if (previous && previous.state !== 'closed') {
-    try { const closing = previous.close(); if (closing && closing.catch) closing.catch(() => {}); } catch (e) {}
+    try {
+      const closing = previous.close();
+      recordAudioDiagnostic('context-close-requested', { previousGeneration, previous: audioDiagnosticContextSnapshot(previous) });
+      if (closing && typeof closing.then === 'function') {
+        closing.then(() => recordAudioDiagnostic('context-close-resolved', { previousGeneration, previous: audioDiagnosticContextSnapshot(previous) }))
+          .catch(error => recordAudioDiagnostic('context-close-rejected', { previousGeneration, message: error && error.message ? error.message : String(error) }));
+      }
+    } catch (e) {
+      recordAudioDiagnostic('context-close-threw', { previousGeneration, message: e && e.message ? e.message : String(e) });
+    }
   }
   const fresh = getAudioContext();
-  if (!fresh) { audioRecoveryLastError = `${reason}: новый AudioContext недоступен`; audioRecoveryPending = true; return false; }
+  if (!fresh) {
+    audioRecoveryLastError = `${reason}: новый AudioContext недоступен`; audioRecoveryPending = true;
+    recordAudioDiagnostic('hard-recovery-failed', { reason, message: audioRecoveryLastError });
+    return false;
+  }
   audioRecoveryPending = false; audioRecoveryLastError = '';
   resumeAudioContext();
   if (tunerWasActive) reconnectTunerAfterAudioRecovery(fresh);
+  recordAudioDiagnostic('hard-recovery-finished', {
+    reason, previousGeneration, freshGeneration: audioContextGeneration,
+    fresh: audioDiagnosticContextSnapshot(fresh), tunerWasActive
+  });
   return true;
 }
 function audioPreflightForGesture() {
   const ctx = getAudioContext();
-  if (!ctx) return null;
+  if (!ctx) { recordAudioDiagnostic('preflight-no-context'); return null; }
   if (audioRecoveryPending || ctx.state === 'closed') {
+    recordAudioDiagnostic('preflight-hard-recovery', { pending: audioRecoveryPending, before: audioDiagnosticContextSnapshot(ctx) });
     if (!hardRecoverAudioContext('preflight', false)) return ctx;
     return audioCtx;
   }
@@ -24513,32 +24862,56 @@ function audioPreflightForGesture() {
   return audioCtx;
 }
 function playAudioRecoveryTestTone() {
-  const ctx = audioPreflightForGesture(); if (!ctx) return;
-  const osc=ctx.createOscillator(), gain=ctx.createGain(), now=ctx.currentTime;
-  osc.frequency.value=523.25; gain.gain.setValueAtTime(.0001,now);
-  gain.gain.exponentialRampToValueAtTime(.05,now+.015); gain.gain.exponentialRampToValueAtTime(.0001,now+.22);
-  osc.connect(gain); gain.connect(ctx.destination); osc.start(now); osc.stop(now+.24);
+  const ctx = audioPreflightForGesture();
+  if (!ctx) { recordAudioDiagnostic('webaudio-test-aborted'); return; }
+  try {
+    const osc=ctx.createOscillator(), gain=ctx.createGain(), now=ctx.currentTime;
+    recordAudioDiagnostic('webaudio-test-scheduled', { scheduledAt: Number(now.toFixed(3)) });
+    osc.frequency.value=523.25; gain.gain.setValueAtTime(.0001,now);
+    gain.gain.exponentialRampToValueAtTime(.05,now+.015); gain.gain.exponentialRampToValueAtTime(.0001,now+.22);
+    osc.connect(gain); gain.connect(ctx.destination);
+    osc.onended=()=>recordAudioDiagnostic('webaudio-test-ended', { endedAt: Number(ctx.currentTime.toFixed(3)), sameContext: ctx === audioCtx });
+    osc.start(now); osc.stop(now+.24);
+  } catch (error) {
+    audioRecoveryLastError = `test-tone: ${error && error.message ? error.message : error}`;
+    recordAudioDiagnostic('webaudio-test-error', { message: audioRecoveryLastError });
+  }
 }
 document.addEventListener('visibilitychange', () => {
-  if (document.visibilityState === 'hidden') audioBlurStartedAt = performance.now();
-  else {
+  if (document.visibilityState === 'hidden') {
+    audioBlurStartedAt = performance.now();
+    recordAudioDiagnostic('visibility-hidden');
+  } else {
     audioLastBlurDurationMs = audioBlurStartedAt ? performance.now() - audioBlurStartedAt : 0;
-    audioBlurStartedAt = 0; requestAudioResume('visibility');
+    audioBlurStartedAt = 0;
+    recordAudioDiagnostic('visibility-visible', { hiddenMs: Math.round(audioLastBlurDurationMs) });
+    requestAudioResume('visibility');
   }
 });
-window.addEventListener('blur', () => { if (!audioBlurStartedAt) audioBlurStartedAt = performance.now(); });
+window.addEventListener('blur', () => {
+  if (!audioBlurStartedAt) audioBlurStartedAt = performance.now();
+  recordAudioDiagnostic('window-blur');
+});
 window.addEventListener('focus', () => {
   audioLastBlurDurationMs = audioBlurStartedAt ? performance.now() - audioBlurStartedAt : audioLastBlurDurationMs;
-  audioBlurStartedAt = 0; requestAudioResume('focus');
+  audioBlurStartedAt = 0;
+  recordAudioDiagnostic('window-focus', { hiddenMs: Math.round(audioLastBlurDurationMs || 0) });
+  requestAudioResume('focus');
 });
+window.addEventListener('pagehide', event => recordAudioDiagnostic('pagehide', { persisted: !!event.persisted }));
+window.addEventListener('pageshow', event => recordAudioDiagnostic('pageshow', { persisted: !!event.persisted }));
 // Первый жест после неудачного resume имеет право пересоздать контекст.
 document.addEventListener('pointerdown', () => {
-  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) hardRecoverAudioContext('pointer', false);
-  else requestAudioResume('pointer');
+  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) {
+    recordAudioDiagnostic('pending-recovery-gesture', { kind: 'pointer' });
+    hardRecoverAudioContext('pointer', false);
+  } else requestAudioResume('pointer');
 }, { passive: true, capture: true });
 document.addEventListener('keydown', () => {
-  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) hardRecoverAudioContext('keyboard', false);
-  else requestAudioResume('keyboard');
+  if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) {
+    recordAudioDiagnostic('pending-recovery-gesture', { kind: 'keyboard' });
+    hardRecoverAudioContext('keyboard', false);
+  } else requestAudioResume('keyboard');
 }, { capture: true });
 
 // ===================== ТЮНЕР =====================
@@ -30485,6 +30858,638 @@ function initScheme() {
 
 
 
+
+// ========== B-66.2 / 0.335: РУЧНОЙ ГЕНЕРАТОР «220 ВОЛЬТ» ==========
+// Production-триггер: подписанная «Дима Билан — Молния» уже открыта,
+// пользователь вручную подтверждает глобальный BPM 220. Схема не важна.
+const POWER_GENERATOR_TURNS = 12;
+const POWER_GENERATOR_IDLE_DELAY_MS = 1000;
+const POWER_GENERATOR_DECAY_VPS = 15;
+const POWER_GENERATOR_STOP_SPEED = .015;
+const POWER_GENERATOR_KEY = 'struchord-achievement-220-v1';
+const SECRET_ROUTING_MIGRATION_KEY = 'struchord-secret-routing-v335';
+const LIGHTNING_SONG_SEAL = 'scd1.8d2f71c4e9a63b05.220';
+let powerGeneratorState = null;
+let powerAchievementSeen = false;
+
+function powerGeneratorDialTicks() {
+  let out = '';
+  const cx = 285, cy = 225;
+  for (let i = 0; i <= 22; i++) {
+    const a = (140 + i * (260 / 22)) * Math.PI / 180;
+    const major = i % 11 === 0;
+    const middle = i % 11 === 5;
+    const outer = 91;
+    const inner = major ? 73 : (middle ? 77 : 82);
+    const x1 = cx + Math.cos(a) * inner;
+    const y1 = cy + Math.sin(a) * inner;
+    const x2 = cx + Math.cos(a) * outer;
+    const y2 = cy + Math.sin(a) * outer;
+    out += `<line class="power-generator-scale${major ? ' is-major' : ''}" x1="${x1.toFixed(2)}" y1="${y1.toFixed(2)}" x2="${x2.toFixed(2)}" y2="${y2.toFixed(2)}"></line>`;
+  }
+  return out;
+}
+
+function powerGeneratorMarkup() {
+  return '<div class="power-generator-blackout" aria-hidden="true">' +
+    '<span class="power-generator-zone"></span>'.repeat(6) +
+    '</div><section class="power-generator-stage" role="dialog" aria-modal="true" aria-label="Ручной генератор: восстановите питание" tabindex="-1">' +
+    '<div class="power-generator-device-wrap"><svg class="power-generator-svg" viewBox="0 0 720 470" aria-hidden="true">' +
+    '<defs><linearGradient id="power-generator-body-gradient" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#45413c"></stop><stop offset=".52" stop-color="#312e2a"></stop><stop offset="1" stop-color="#1d1b19"></stop></linearGradient></defs>' +
+    '<path class="power-generator-top-handle" d="M178 67 V41 Q178 24 197 24 H379 Q398 24 398 41 V67"></path>' +
+    '<path class="power-generator-top-grip" d="M205 29 H371"></path>' +
+    '<rect class="power-generator-foot" x="115" y="402" width="92" height="18" rx="7"></rect><rect class="power-generator-foot" x="388" y="402" width="92" height="18" rx="7"></rect>' +
+    '<rect class="power-generator-body" x="65" y="58" width="465" height="350" rx="42"></rect>' +
+    '<rect class="power-generator-edge" x="79" y="72" width="437" height="322" rx="32"></rect>' +
+    '<rect class="power-generator-body-inset" x="99" y="91" width="394" height="281" rx="27"></rect>' +
+    '<circle class="power-generator-screw" cx="122" cy="114" r="9"></circle><circle class="power-generator-screw" cx="470" cy="114" r="9"></circle><circle class="power-generator-screw" cx="122" cy="348" r="9"></circle><circle class="power-generator-screw" cx="470" cy="348" r="9"></circle>' +
+    '<circle class="power-generator-dial-shell" cx="285" cy="225" r="126"></circle><circle class="power-generator-dial" cx="285" cy="225" r="109"></circle>' +
+    '<circle class="power-generator-dial-energy" cx="285" cy="225" r="102"></circle>' +
+    '<path class="power-generator-arc" d="M212.2 286.1 A95 95 0 1 1 357.8 286.1"></path>' + powerGeneratorDialTicks() +
+    '<text class="power-generator-dial-label" x="217" y="304">0</text><text class="power-generator-dial-label" x="285" y="151">110</text><text class="power-generator-dial-label" x="353" y="304">220</text><text class="power-generator-dial-unit" x="285" y="320">VOLT</text>' +
+    '<line class="power-generator-needle" data-generator-needle x1="285" y1="225" x2="367" y2="225" transform="rotate(140 285 225)"></line><circle class="power-generator-needle-cap" cx="285" cy="225" r="14"></circle>' +
+    '<circle class="power-generator-lamp-glow" cx="452" cy="146" r="16"></circle><circle class="power-generator-lamp" cx="452" cy="146" r="9"></circle>' +
+    '<circle class="power-generator-shaft" data-generator-pivot cx="556" cy="235" r="31"></circle>' +
+    '<circle class="power-generator-rotor-ring" data-generator-rotor cx="556" cy="235" r="22"></circle>' +
+    '<g data-generator-crank transform="rotate(0 556 235)"><line class="power-generator-crank-arm" x1="556" y1="235" x2="665" y2="235"></line><circle class="power-generator-crank-joint" cx="556" cy="235" r="12"></circle><circle class="power-generator-knob-halo" cx="665" cy="235" r="34"></circle><circle class="power-generator-crank-knob" cx="665" cy="235" r="22"></circle><circle class="power-generator-crank-hit" data-generator-handle cx="665" cy="235" r="43"></circle></g>' +
+    '</svg></div><div class="power-generator-copy" aria-live="polite"><div class="power-generator-voltage" data-generator-voltage>0 V</div><div class="power-generator-instruction">Крутите ручку, чтобы восстановить питание</div><div class="power-generator-ready">ПИТАНИЕ ВОССТАНОВЛЕНО · 220 V</div></div>' +
+    '<button class="power-generator-step" type="button">Повернуть ручку</button></section>';
+}
+
+function clearPowerGeneratorPrototype(restoreFocus = true) {
+  const state = powerGeneratorState;
+  if (!state) return;
+  state.timers.forEach(id => clearTimeout(id));
+  if (state.raf) cancelAnimationFrame(state.raf);
+  stopPowerGeneratorAudio(state);
+  state.scene.remove();
+  powerGeneratorState = null;
+  if (restoreFocus && state.previousFocus && state.previousFocus.isConnected) {
+    try { state.previousFocus.focus({ preventScroll: true }); } catch (e) { state.previousFocus.focus(); }
+  }
+}
+
+function queuePowerGeneratorStep(fn, delay) {
+  const state = powerGeneratorState;
+  if (!state) return null;
+  const id = setTimeout(() => {
+    if (powerGeneratorState !== state) return;
+    state.timers.delete(id);
+    fn();
+  }, delay);
+  state.timers.add(id);
+  return id;
+}
+
+function setPowerGeneratorAudioParam(param, value, now, glide = .025) {
+  if (!param) return;
+  try {
+    param.cancelScheduledValues(now);
+    param.setTargetAtTime(value, now, glide);
+  } catch (e) {
+    try { param.value = value; } catch (ignored) {}
+  }
+}
+
+function stopPowerGeneratorAudio(state, immediate = false) {
+  const audio = state && state.audio;
+  if (!audio) return;
+  state.audio = null;
+  const now = audio.ctx.currentTime;
+  try {
+    audio.master.gain.cancelScheduledValues(now);
+    audio.master.gain.setTargetAtTime(.0001, now, immediate ? .004 : .025);
+  } catch (e) {}
+  audio.harmonic.onended = () => {
+    try { audio.hum.disconnect(); audio.harmonic.disconnect(); audio.master.disconnect(); } catch (e) {}
+  };
+  [audio.hum, audio.harmonic].forEach(oscillator => {
+    try { oscillator.stop(now + (immediate ? .02 : .12)); } catch (e) {}
+  });
+}
+
+function ensurePowerGeneratorAudio(state) {
+  if (!state) return null;
+  const ctx = audioPreflightForGesture();
+  if (!ctx) return null;
+  if (state.audio && state.audio.ctx === ctx && ctx.state !== 'closed') return state.audio;
+  if (state.audio) stopPowerGeneratorAudio(state, true);
+  try {
+    const master = ctx.createGain();
+    const hum = ctx.createOscillator();
+    const harmonic = ctx.createOscillator();
+    const now = ctx.currentTime;
+    master.gain.setValueAtTime(.0001, now);
+    hum.type = 'sine'; harmonic.type = 'triangle';
+    hum.frequency.setValueAtTime(44, now);
+    harmonic.frequency.setValueAtTime(88, now);
+    hum.connect(master); harmonic.connect(master); master.connect(ctx.destination);
+    hum.start(now); harmonic.start(now);
+    state.audio = {
+      ctx, master, hum, harmonic,
+      lastRatchetStep: Math.floor(state.angle / 30),
+      lastRatchetAt: -Infinity
+    };
+    return state.audio;
+  } catch (e) {
+    state.audio = null;
+    return null;
+  }
+}
+
+function playPowerGeneratorRatchet(state, speed) {
+  const audio = state && state.audio;
+  if (!audio || audio.ctx.state === 'closed') return;
+  const ctx = audio.ctx;
+  const now = ctx.currentTime;
+  if (now - audio.lastRatchetAt < .028) return;
+  audio.lastRatchetAt = now;
+  try {
+    const click = ctx.createOscillator();
+    const gain = ctx.createGain();
+    click.type = 'square';
+    click.frequency.setValueAtTime(92 + speed * 46, now);
+    click.frequency.exponentialRampToValueAtTime(48, now + .034);
+    gain.gain.setValueAtTime(.0001, now);
+    gain.gain.exponentialRampToValueAtTime(.014 + speed * .008, now + .004);
+    gain.gain.exponentialRampToValueAtTime(.0001, now + .045);
+    click.connect(gain); gain.connect(ctx.destination);
+    click.onended = () => { try { click.disconnect(); gain.disconnect(); } catch (e) {} };
+    click.start(now); click.stop(now + .05);
+  } catch (e) {}
+}
+
+function playPowerGeneratorCompletionSound(state) {
+  const audio = state && (state.audio || ensurePowerGeneratorAudio(state));
+  if (!audio || audio.ctx.state === 'closed') return;
+  const ctx = audio.ctx;
+  const now = ctx.currentTime;
+  try {
+    const relay = ctx.createOscillator();
+    const relayGain = ctx.createGain();
+    relay.type = 'square';
+    relay.frequency.setValueAtTime(118, now);
+    relay.frequency.exponentialRampToValueAtTime(43, now + .085);
+    relayGain.gain.setValueAtTime(.0001, now);
+    relayGain.gain.exponentialRampToValueAtTime(.052, now + .006);
+    relayGain.gain.exponentialRampToValueAtTime(.0001, now + .11);
+    relay.connect(relayGain); relayGain.connect(ctx.destination);
+    relay.onended = () => { try { relay.disconnect(); relayGain.disconnect(); } catch (e) {} };
+    relay.start(now); relay.stop(now + .12);
+
+    const surge = ctx.createOscillator();
+    const surgeGain = ctx.createGain();
+    surge.type = 'sine';
+    surge.frequency.setValueAtTime(46, now + .035);
+    surge.frequency.exponentialRampToValueAtTime(132, now + .34);
+    surgeGain.gain.setValueAtTime(.0001, now);
+    surgeGain.gain.exponentialRampToValueAtTime(.034, now + .065);
+    surgeGain.gain.exponentialRampToValueAtTime(.0001, now + .48);
+    surge.connect(surgeGain); surgeGain.connect(ctx.destination);
+    surge.onended = () => { try { surge.disconnect(); surgeGain.disconnect(); } catch (e) {} };
+    surge.start(now); surge.stop(now + .5);
+  } catch (e) {}
+}
+
+function updatePowerGeneratorFeedback(now) {
+  const state = powerGeneratorState;
+  if (!state) return;
+  const speed = Math.min(1, Math.abs(state.angularVelocity) / 10);
+  const power = Math.min(1, Math.max(0, state.currentVoltage || 0) / 220);
+  state.scene.style.setProperty('--generator-speed', speed.toFixed(3));
+  state.scene.style.setProperty('--generator-power', power.toFixed(3));
+  if (stormReducedMotion()) {
+    state.scene.style.setProperty('--generator-shake-x', '0rem');
+    state.scene.style.setProperty('--generator-shake-y', '0rem');
+  } else {
+    const shake = speed * .055;
+    state.scene.style.setProperty('--generator-shake-x', `${(Math.sin(now * .071) * shake).toFixed(3)}rem`);
+    state.scene.style.setProperty('--generator-shake-y', `${(Math.cos(now * .093) * shake * .62).toFixed(3)}rem`);
+  }
+  state.rotor.setAttribute('transform', `rotate(${(state.angle * 1.8).toFixed(2)} 556 235)`);
+
+  const audio = state.audio;
+  if (!audio || audio.ctx.state === 'closed') return;
+  const audioNow = audio.ctx.currentTime;
+  // Механический слой следует скорости, тихий электрический остаток —
+  // фактическому напряжению и гаснет вместе с утечкой до 0 V.
+  const targetGain = speed > .012
+    ? .003 + speed * .018 + power * .004
+    : (power > .002 ? .0006 + power * .004 : .0001);
+  setPowerGeneratorAudioParam(audio.master.gain, targetGain, audioNow, .035);
+  setPowerGeneratorAudioParam(audio.hum.frequency, 42 + speed * 58 + power * 9, audioNow, .03);
+  setPowerGeneratorAudioParam(audio.harmonic.frequency, 84 + speed * 116 + power * 18, audioNow, .03);
+  const ratchetStep = Math.floor(state.angle / 30);
+  if (ratchetStep !== audio.lastRatchetStep && speed > .035) {
+    audio.lastRatchetStep = ratchetStep;
+    playPowerGeneratorRatchet(state, speed);
+  }
+}
+
+function powerGeneratorPointerAngle(event, state) {
+  const box = state.pivot.getBoundingClientRect();
+  const cx = box.left + box.width / 2;
+  const cy = box.top + box.height / 2;
+  return Math.atan2(event.clientY - cy, event.clientX - cx);
+}
+
+function normalizedGeneratorDelta(delta) {
+  while (delta > Math.PI) delta -= Math.PI * 2;
+  while (delta < -Math.PI) delta += Math.PI * 2;
+  return delta;
+}
+
+function rotatePowerGenerator(deltaRad) {
+  const state = powerGeneratorState;
+  if (!state || state.phase !== 'ready' || !Number.isFinite(deltaRad)) return;
+  // Слишком большой скачок означает, что указатель пересёк центр ручки:
+  // такой кадр игнорируем, чтобы напряжение нельзя было накрутить телепортом.
+  const delta = Math.max(-.9, Math.min(.9, deltaRad));
+  const turnDelta = Math.abs(delta) / (Math.PI * 2);
+  state.angle += delta * 180 / Math.PI;
+  if (turnDelta > .0001) {
+    // Напряжение теперь является настоящим накопителем: после утечки новый
+    // поворот продолжает с текущего значения, а не возвращает старый пик из
+    // вечного счётчика оборотов.
+    state.storedVoltage = Math.min(205, state.storedVoltage + turnDelta / POWER_GENERATOR_TURNS * 205);
+    state.turns = state.storedVoltage / 205 * POWER_GENERATOR_TURNS;
+    state.idleStartedAt = null;
+  }
+  state.crank.setAttribute('transform', `rotate(${state.angle.toFixed(2)} 556 235)`);
+}
+
+function updatePowerGeneratorGauge(forceVoltage) {
+  const state = powerGeneratorState;
+  if (!state || (state.phase !== 'ready' && state.phase !== 'complete')) return;
+  // После фиксации цели стрелка и цифры обязаны остаться на 220 V, пока
+  // экран включается зонами: затухающая инерция больше их не опускает.
+  if (state.phase === 'complete' && forceVoltage == null) return;
+  const boost = Math.min(26, Math.abs(state.angularVelocity) * 3.25);
+  const voltage = forceVoltage == null ? Math.min(220, state.storedVoltage + boost) : forceVoltage;
+  const needleAngle = 140 + (260 * voltage / 220);
+  state.currentVoltage = voltage;
+  state.needle.setAttribute('transform', `rotate(${needleAngle.toFixed(2)} 285 225)`);
+  state.voltage.textContent = `${Math.round(voltage)} V`;
+  state.voltage.setAttribute('aria-label', `${Math.round(voltage)} вольт`);
+  if (voltage >= 219.5 && state.turns >= POWER_GENERATOR_TURNS * .86) completePowerGeneratorPrototype();
+}
+
+function updatePowerGeneratorDecay(state, now, dt) {
+  if (!state || state.phase !== 'ready') return;
+  if (Math.abs(state.angularVelocity) > POWER_GENERATOR_STOP_SPEED) {
+    state.idleStartedAt = null;
+    return;
+  }
+  state.angularVelocity = 0;
+  if (state.idleStartedAt == null) {
+    state.idleStartedAt = now;
+    return;
+  }
+  if (now - state.idleStartedAt < POWER_GENERATOR_IDLE_DELAY_MS || state.storedVoltage <= 0) return;
+  state.storedVoltage = Math.max(0, state.storedVoltage - POWER_GENERATOR_DECAY_VPS * dt);
+  state.turns = state.storedVoltage / 205 * POWER_GENERATOR_TURNS;
+}
+
+function tickPowerGenerator(now) {
+  const state = powerGeneratorState;
+  if (!state) return;
+  const dt = Math.min(.05, Math.max(0, (now - state.lastFrame) / 1000 || 0));
+  state.lastFrame = now;
+  if (state.phase === 'ready' && state.dragging && now - state.lastPointerTime > 120) {
+    // Удержание неподвижной ручки — тоже бездействие. Скорость гасим без
+    // дополнительного поворота, после чего запускается секундная пауза.
+    state.angularVelocity *= Math.pow(.075, dt);
+  }
+  if (state.phase === 'ready' && !state.dragging && Math.abs(state.angularVelocity) > POWER_GENERATOR_STOP_SPEED) {
+    rotatePowerGenerator(state.angularVelocity * dt);
+    state.angularVelocity *= Math.pow(.075, dt);
+  }
+  updatePowerGeneratorDecay(state, now, dt);
+  updatePowerGeneratorGauge();
+  updatePowerGeneratorFeedback(now);
+  state.raf = requestAnimationFrame(tickPowerGenerator);
+}
+
+function rememberPowerAchievement() {
+  powerAchievementSeen = true;
+  try { localStorage.setItem(POWER_GENERATOR_KEY, '1'); } catch (e) {}
+}
+
+function maybeUnlockPowerAchievementFromBpm(value) {
+  const bpm = parseInt(value, 10);
+  if (bpm !== 220 || currentSongSeal !== LIGHTNING_SONG_SEAL) return false;
+  if (powerAchievementSeen || powerGeneratorState || powerProloguePlaying) return false;
+  startPowerPrologue();
+  return true;
+}
+
+// ---------- B-66.2.1: торжественный пролог «220» ----------
+// Цифра 220 отделяется от поля BPM, растёт титром в центре экрана и
+// светится под нарастающий свелл; на пике всё обрывается треском
+// электричества и блэкаутом генератора. Пролог — чистый оверлей: модель
+// песни, поле BPM и hot path барабана не затрагиваются.
+const POWER_PROLOGUE_MS = 1800;
+let powerProloguePlaying = false;
+let powerPrologueTimer = 0;
+let powerPrologueFinish = null;
+
+// Для тестов и dev-диагностики: мгновенно доиграть пролог до обрыва.
+function finishPowerPrologueNow() {
+  if (!powerProloguePlaying || !powerPrologueFinish) return false;
+  clearTimeout(powerPrologueTimer);
+  powerPrologueTimer = 0;
+  powerPrologueFinish();
+  return true;
+}
+
+function startPowerPrologue() {
+  powerProloguePlaying = true;
+  const overlay = document.createElement('div');
+  overlay.className = 'power-prologue-overlay';
+  overlay.setAttribute('aria-hidden', 'true');
+  const digits = document.createElement('div');
+  digits.className = 'power-prologue-digits';
+  digits.textContent = '220';
+  overlay.appendChild(digits);
+  document.body.appendChild(overlay);
+  // Старт роста — из реального положения цифры в поле BPM: копия
+  // «отделяется» от пилюли и уезжает в центр экрана, вырастая.
+  try {
+    const src = DOM.bpmInput.getBoundingClientRect();
+    if (src.width > 0 && src.height > 0) {
+      const fromX = src.left + src.width / 2 - window.innerWidth / 2;
+      const fromY = src.top + src.height / 2 - window.innerHeight / 2;
+      overlay.style.setProperty('--prologue-from-x', fromX.toFixed(1) + 'px');
+      overlay.style.setProperty('--prologue-from-y', fromY.toFixed(1) + 'px');
+      overlay.style.setProperty('--prologue-from-scale', '0.4');
+    }
+  } catch (e) {}
+  const reduced = stormReducedMotion();
+  requestAnimationFrame(() => overlay.classList.add('is-rising'));
+  const swell = reduced ? null : playPowerPrologueSwell();
+  const finish = () => {
+    powerProloguePlaying = false;
+    powerPrologueFinish = null;
+    if (swell) stopPowerPrologueSwellAtPeak(swell);
+    try { overlay.remove(); } catch (e) {}
+    // Обрыв на пике: генератор сам гасит свет (is-failing), его начало и
+    // есть блэкаут — треск перебоя стартует одновременно с ним.
+    startPowerGeneratorPrototype({ unlockAchievement: true });
+  };
+  powerPrologueFinish = finish;
+  powerPrologueTimer = setTimeout(finish, reduced ? 60 : POWER_PROLOGUE_MS);
+}
+
+// Нарастающий торжественный свелл: мажорный аккорд A (220 Гц — та самая
+// частота ноты ля) из трёх осцилляторов, crescendo до пика ~1.8 с.
+function playPowerPrologueSwell() {
+  const ctx = audioPreflightForGesture();
+  if (!ctx) return null;
+  try {
+    const master = ctx.createGain();
+    const now = ctx.currentTime;
+    master.gain.setValueAtTime(.0001, now);
+    master.gain.exponentialRampToValueAtTime(.085, now + POWER_PROLOGUE_MS / 1000);
+    master.connect(ctx.destination);
+    const voices = [220, 277.18, 329.63].map((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = i === 0 ? 'sawtooth' : 'triangle';
+      osc.frequency.setValueAtTime(freq, now);
+      // лёгкая расстройка вибрирует, как гудящая сеть под нагрузкой
+      osc.detune.setValueAtTime((i - 1) * 4, now);
+      gain.gain.setValueAtTime(i === 0 ? .4 : .3, now);
+      osc.connect(gain); gain.connect(master);
+      osc.start(now);
+      return { osc, gain };
+    });
+    return { ctx, master, voices };
+  } catch (e) {
+    return null;
+  }
+}
+
+// Обрыв свелла на пике: щелчок-треск перебоя электричества и мгновенная
+// тишина — свет гаснет в ту же долю секунды.
+function stopPowerPrologueSwellAtPeak(swell) {
+  if (!swell) return;
+  const ctx = swell.ctx;
+  const now = ctx.currentTime;
+  try {
+    swell.master.gain.cancelScheduledValues(now);
+    swell.master.gain.setValueAtTime(swell.master.gain.value || .085, now);
+    swell.master.gain.setTargetAtTime(.0001, now, .008);
+    swell.voices.forEach(({ osc }) => { try { osc.stop(now + .06); } catch (e) {} });
+    swell.voices[0].osc.onended = () => {
+      try {
+        swell.voices.forEach(({ osc, gain }) => { osc.disconnect(); gain.disconnect(); });
+        swell.master.disconnect();
+      } catch (e) {}
+    };
+  } catch (e) {}
+  playPowerOutageCrack(ctx);
+}
+
+// Треск перебоя: короткий шумовой разряд + глухой удар обесточивания.
+function playPowerOutageCrack(ctx) {
+  try {
+    const now = ctx.currentTime;
+    const frames = Math.floor(ctx.sampleRate * .12);
+    const buffer = ctx.createBuffer(1, Math.max(1, frames), ctx.sampleRate);
+    const data = buffer.getChannelData(0);
+    for (let i = 0; i < frames; i++) {
+      const decay = 1 - i / frames;
+      data[i] = (Math.random() * 2 - 1) * decay * decay;
+    }
+    const noise = ctx.createBufferSource();
+    noise.buffer = buffer;
+    const noiseGain = ctx.createGain();
+    noiseGain.gain.setValueAtTime(.14, now);
+    noiseGain.gain.exponentialRampToValueAtTime(.0001, now + .13);
+    noise.connect(noiseGain); noiseGain.connect(ctx.destination);
+    noise.onended = () => { try { noise.disconnect(); noiseGain.disconnect(); } catch (e) {} };
+    noise.start(now); noise.stop(now + .13);
+
+    const thud = ctx.createOscillator();
+    const thudGain = ctx.createGain();
+    thud.type = 'sine';
+    thud.frequency.setValueAtTime(120, now);
+    thud.frequency.exponentialRampToValueAtTime(31, now + .21);
+    thudGain.gain.setValueAtTime(.0001, now);
+    thudGain.gain.exponentialRampToValueAtTime(.09, now + .012);
+    thudGain.gain.exponentialRampToValueAtTime(.0001, now + .26);
+    thud.connect(thudGain); thudGain.connect(ctx.destination);
+    thud.onended = () => { try { thud.disconnect(); thudGain.disconnect(); } catch (e) {} };
+    thud.start(now); thud.stop(now + .27);
+  } catch (e) {}
+}
+
+// Звук восстановления света: серия щелчков контакторов по зонам и
+// возвращающийся гул сети — свет включается так же «озвученно», как гас.
+function playPowerRestoreSound(state) {
+  const audio = state && (state.audio || ensurePowerGeneratorAudio(state));
+  if (!audio || audio.ctx.state === 'closed') return;
+  const ctx = audio.ctx;
+  const base = ctx.currentTime;
+  try {
+    // щелчки зон вслед CSS-задержкам восстановления (0/.12/.3/.48/.64/.82)
+    [0, .12, .3, .48, .64, .82].forEach((delay, i) => {
+      const click = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const t = base + delay;
+      click.type = 'square';
+      click.frequency.setValueAtTime(96 + i * 14, t);
+      click.frequency.exponentialRampToValueAtTime(52, t + .03);
+      gain.gain.setValueAtTime(.0001, t);
+      gain.gain.exponentialRampToValueAtTime(.03, t + .005);
+      gain.gain.exponentialRampToValueAtTime(.0001, t + .05);
+      click.connect(gain); gain.connect(ctx.destination);
+      click.onended = () => { try { click.disconnect(); gain.disconnect(); } catch (e) {} };
+      click.start(t); click.stop(t + .06);
+    });
+    // гул сети плавно возвращается вместе с зонами света
+    const hum = ctx.createOscillator();
+    const humGain = ctx.createGain();
+    hum.type = 'sine';
+    hum.frequency.setValueAtTime(50, base);
+    humGain.gain.setValueAtTime(.0001, base);
+    humGain.gain.exponentialRampToValueAtTime(.02, base + .9);
+    humGain.gain.exponentialRampToValueAtTime(.0001, base + 1.6);
+    hum.connect(humGain); humGain.connect(ctx.destination);
+    hum.onended = () => { try { hum.disconnect(); humGain.disconnect(); } catch (e) {} };
+    hum.start(base); hum.stop(base + 1.65);
+  } catch (e) {}
+}
+
+function completePowerGeneratorPrototype() {
+  const state = powerGeneratorState;
+  if (!state || state.phase !== 'ready') return;
+  state.phase = 'complete';
+  state.dragging = false;
+  state.angularVelocity = 0;
+  state.scene.classList.remove('is-cranking');
+  state.scene.classList.add('is-powered');
+  if (state.unlockAchievement) rememberPowerAchievement();
+  updatePowerGeneratorGauge(220);
+  updatePowerGeneratorFeedback(performance.now());
+  playPowerGeneratorCompletionSound(state);
+  queuePowerGeneratorStep(beginPowerGeneratorRestore, 1150);
+}
+
+function beginPowerGeneratorRestore() {
+  const state = powerGeneratorState;
+  if (!state || state.phase !== 'complete') return;
+  state.phase = 'restoring';
+  state.scene.classList.add('is-restoring');
+  // B-66.2.1: восстановление света озвучено — щелчки контакторов идут
+  // вслед зонам, гул сети возвращается вместе со светом.
+  if (!stormReducedMotion()) playPowerRestoreSound(state);
+  // Плашка возникает уже во время зонального включения. Её принятый
+  // 220.mp3 остаётся отдельной кульминацией после короткого звука контактора.
+  const reduced = stormReducedMotion();
+  queuePowerGeneratorStep(() => showStormAchievement({ id:'220-volts', title:'220 вольт' }, false), reduced ? 0 : 620);
+  queuePowerGeneratorStep(() => clearPowerGeneratorPrototype(false), reduced ? 120 : 2700);
+}
+
+function bindPowerGeneratorControls(state) {
+  const handle = state.handle;
+  handle.addEventListener('pointerdown', event => {
+    if (state.phase !== 'ready') return;
+    event.preventDefault();
+    ensurePowerGeneratorAudio(state);
+    // Прогрев 220.mp3 внутри настоящего жеста: будущая плашка сможет
+    // запустить его даже спустя секунды анимаций (иначе Safari отклонит
+    // play() как оторванный от пользовательского действия).
+    primeAchievementAudio();
+    state.dragging = true;
+    state.scene.classList.add('is-cranking');
+    state.lastPointerAngle = powerGeneratorPointerAngle(event, state);
+    state.lastPointerTime = performance.now();
+    try { handle.setPointerCapture(event.pointerId); } catch (e) {}
+  });
+  handle.addEventListener('pointermove', event => {
+    if (!state.dragging || state.phase !== 'ready') return;
+    event.preventDefault();
+    const now = performance.now();
+    const angle = powerGeneratorPointerAngle(event, state);
+    const delta = normalizedGeneratorDelta(angle - state.lastPointerAngle);
+    const dt = Math.max(.008, (now - state.lastPointerTime) / 1000);
+    state.angularVelocity = state.angularVelocity * .32 + (delta / dt) * .68;
+    state.lastPointerAngle = angle;
+    state.lastPointerTime = now;
+    rotatePowerGenerator(delta);
+    updatePowerGeneratorGauge();
+  });
+  const release = event => {
+    if (!state.dragging) return;
+    state.dragging = false;
+    state.scene.classList.remove('is-cranking');
+    try { handle.releasePointerCapture(event.pointerId); } catch (e) {}
+  };
+  handle.addEventListener('pointerup', release);
+  handle.addEventListener('pointercancel', release);
+  state.stage.addEventListener('keydown', event => {
+    if (state.phase !== 'ready' || !['ArrowLeft','ArrowDown','ArrowRight','ArrowUp',' '].includes(event.key)) return;
+    event.preventDefault();
+    ensurePowerGeneratorAudio(state);
+    const direction = (event.key === 'ArrowLeft' || event.key === 'ArrowDown') ? -1 : 1;
+    state.angularVelocity = direction * 7.5;
+    rotatePowerGenerator(direction * Math.PI / 2);
+    updatePowerGeneratorGauge();
+  });
+  state.stepButton.addEventListener('click', () => {
+    if (state.phase !== 'ready') return;
+    ensurePowerGeneratorAudio(state);
+    state.angularVelocity = 6.5;
+    rotatePowerGenerator(Math.PI);
+    updatePowerGeneratorGauge();
+  });
+}
+
+function startPowerGeneratorPrototype(options = null) {
+  closeDevPalette();
+  clearPowerGeneratorPrototype(false);
+  // Сцены не накладываются друг на друга, но генератор больше не выдаёт
+  // stormUnlocked и не включает схему «Гроза».
+  cancelStormSurprise();
+  const unlockAchievement = !!(options && options.unlockAchievement === true);
+  const scene = document.createElement('div');
+  scene.className = 'power-generator-scene';
+  scene.innerHTML = powerGeneratorMarkup();
+  document.body.appendChild(scene);
+  const state = powerGeneratorState = {
+    scene,
+    stage: scene.querySelector('.power-generator-stage'),
+    crank: scene.querySelector('[data-generator-crank]'),
+    handle: scene.querySelector('[data-generator-handle]'),
+    pivot: scene.querySelector('[data-generator-pivot]'),
+    rotor: scene.querySelector('[data-generator-rotor]'),
+    needle: scene.querySelector('[data-generator-needle]'),
+    voltage: scene.querySelector('[data-generator-voltage]'),
+    stepButton: scene.querySelector('.power-generator-step'),
+    phase: 'failure', angle: 0, turns: 0, storedVoltage: 0, currentVoltage: 0,
+    angularVelocity: 0, dragging: false, idleStartedAt: null,
+    lastPointerTime: performance.now(), lastFrame: performance.now(),
+    timers: new Set(), raf: 0, audio: null,
+    unlockAchievement, previousFocus: document.activeElement
+  };
+  bindPowerGeneratorControls(state);
+  requestAnimationFrame(() => scene.classList.add('is-failing'));
+  const reduced = stormReducedMotion();
+  queuePowerGeneratorStep(() => {
+    scene.classList.remove('is-failing');
+    scene.classList.add('is-dark');
+  }, reduced ? 40 : 1450);
+  queuePowerGeneratorStep(() => {
+    state.phase = 'ready';
+    scene.classList.add('is-generator-visible');
+    state.stage.focus({ preventScroll: true });
+    state.lastFrame = performance.now();
+    state.raf = requestAnimationFrame(tickPowerGenerator);
+  }, reduced ? 90 : 3450);
+}
+
+
 // ========== СКРЫТАЯ DEV-ПАЛИТРА (ПОСТОЯННЫЙ ИНСТРУМЕНТ ДИАГНОСТИКИ) ==========
 let devPaletteRefreshTimer = null;
 function devStormStateRows() {
@@ -30498,12 +31503,14 @@ function devStormStateRows() {
   return [
     ['Версия', document.querySelector('.app-title span')?.textContent.replace('· ver','').trim() || '—'], ['Схема', activeSchemeId() || 'Дефолт'],
     ['Песня', songName], ['Seal', currentSongSeal || '—'],
-    ['Unlock', stormUnlocked ? 'да' : 'нет'], ['Тумблер', schemeSurprisesEnabled ? 'вкл' : 'выкл'],
+    ['220', powerAchievementSeen ? 'получена' : 'нет'],
+    ['Гроза unlock', stormUnlocked ? 'да' : 'нет'], ['Тумблер', schemeSurprisesEnabled ? 'вкл' : 'выкл'],
     ['Фаза', stormSurprisePhase], ['До события', remaining],
     ['Audio', audioCtx ? audioCtx.state : 'не создан'], ['Audio Hz', audioCtx ? audioCtx.sampleRate : '—'],
     ['Audio time', audioCtx ? audioCtx.currentTime.toFixed(2) : '—'], ['Audio gen', audioContextGeneration],
     ['Blur', audioLastBlurDurationMs ? Math.round(audioLastBlurDurationMs/1000)+' c' : '—'], ['Recovery', audioRecoveryPending ? 'ожидает жест' : 'готов'],
-    ['Audio error', audioRecoveryLastError || '—']
+    ['Audio error', audioRecoveryLastError || '—'],
+    ['Audio log', audioDiagnosticLog.length ? `${audioDiagnosticLog.length} · ${audioDiagnosticLog.at(-1).type}` : 'пусто']
   ];
 }
 function refreshDevPaletteState() {
@@ -30523,10 +31530,6 @@ function setStormDevReady() {
   document.documentElement.setAttribute('data-scheme', 'storm');
   try { localStorage.setItem('struchord-scheme', 'storm'); } catch (e) {}
   markSchemeItem('storm'); persistStormSecret(); updateStormSecretUI();
-}
-function devShowStormAchievement() {
-  closeDevPalette(); cancelStormSurprise(); setStormDevReady();
-  showStormAchievement({ id:'220-volts', title:'220 вольт' });
 }
 function devStartStormCharge() {
   closeDevPalette(); cancelStormSurprise(); setStormDevReady();
@@ -30563,12 +31566,13 @@ function openDevPalette() {
   let folderPath=[];
   const entry=(iconName,title,desc,action,folder)=>({iconName,title,desc,action,folder});
   const folders={
-    root:[entry('ti-volume','Звук','Recovery, тест физического выхода',null,'sound'),entry('ti-award','Ачивки','Секреты и визуальные варианты',null,'achievements')],
-    sound:[entry('ti-volume','Восстановить звук','Пересоздать AudioContext и переподключить аудиограф',()=>{closeDevPalette();hardRecoverAudioContext('dev',true);}),entry('ti-music','Тестовый тон','Короткая нота для проверки физического выхода',()=>{closeDevPalette();playAudioRecoveryTestTone();})],
-    achievements:[entry('ti-bolt','220 вольт','Щиток принят, новый эффект проектируется',null,'220'),entry('ti-cloud-bolt','Грохочет гром','Будущая ачивка: полный эффект Грозы',null,'thunder')],
-    '220':[entry('ti-refresh','Полный сброс «220 вольт»','Забыть unlock и ачивку',()=>{closeDevPalette();resetStormSecretForTesting();})],
-    thunder:[entry('ti-cloud-bolt','Гроза','Ачивка, заряд, вооружение и удар',null,'storm')],
-    storm:[entry('ti-award','Ачивка → заряд','Выбранный визуал, звук и первый заряд',devShowStormAchievement),entry('ti-cloud-bolt','Запустить заряд','Начать обычное накопление прямо сейчас',devStartStormCharge),entry('ti-bolt','Вооружить молнию','Перейти к ожиданию клика без накопления',devArmStormNow),entry('ti-target','Принудительный удар','Сразу ударить в ближайший к центру контрол',devStrikeStormNow)]
+    root:[entry('ti-player-play','Звук','Recovery, тест физического выхода',null,'sound'),entry('ti-award','Ачивки','Секреты и визуальные варианты',null,'achievements')],
+    sound:[entry('ti-repeat','Восстановить звук','Пересоздать AudioContext и переподключить аудиограф',()=>{closeDevPalette();hardRecoverAudioContext('dev',true);}),entry('ti-player-play','Тест Web Audio','Короткая синтетическая нота через AudioContext',()=>{closeDevPalette();playAudioRecoveryTestTone();}),entry('ti-player-play','Тест HTMLAudio','Тот же физический выход через 220.mp3, без Web Audio',()=>{closeDevPalette();playAudioMediaElementTest();}),entry('ti-clipboard-copy','Журнал звука','События Safari сохраняются даже после перезапуска',null,'audio-report')],
+    'audio-report':[entry('ti-folder-open','Просмотреть отчёт','Текущее состояние и последние 200 аудиособытий',openAudioDiagnosticReport),entry('ti-clipboard-copy','Копировать отчёт','Скопировать JSON для разбора',()=>{closeDevPalette();copyAudioDiagnosticReport();}),entry('ti-trash','Очистить журнал','Удалить сохранённую диагностику',()=>{closeDevPalette();clearAudioDiagnosticLog();showToast('Аудиожурнал очищен');})],
+    achievements:[entry('ti-bolt','220 вольт','Молния + глобальный BPM 220, без unlock Грозы',null,'220'),entry('ti-cloud-bolt','Грохочет гром','Будущая отдельная ачивка полного эффекта Грозы',null,'thunder')],
+    '220':[entry('ti-repeat','Ручной генератор','Dev-прототип: погасить экран и восстановить 220 V',startPowerGeneratorPrototype),entry('ti-trash','Сбросить «220 вольт»','Забыть только эту ачивку',()=>{closeDevPalette();resetPowerAchievementForTesting();})],
+    thunder:[entry('ti-cloud-bolt','Гроза','Dev-инструменты эффекта без production-ачивки',null,'storm')],
+    storm:[entry('ti-cloud-bolt','Разблокировать и запустить заряд','Dev-доступ к эффекту до волны B-66.3',devStartStormCharge),entry('ti-bolt','Вооружить молнию','Перейти к ожиданию клика без накопления',devArmStormNow),entry('ti-target','Принудительный удар','Сразу ударить в ближайший к центру контрол',devStrikeStormNow),entry('ti-trash','Сбросить «Грозу»','Удалить только dev-разблокировку эффекта',()=>{closeDevPalette();resetStormSecretForTesting();})]
   };
   const renderFolder=()=>{
     list.innerHTML=''; const key=folderPath.at(-1)||'root';
@@ -30592,7 +31596,7 @@ function attachDevPaletteTrigger() {
   // больше не является скрытой зоной долгого нажатия.
   trigger.addEventListener('click',(event)=>{event.preventDefault();event.stopPropagation();openDevPalette();});
   document.addEventListener('keydown',event=>{
-    if(event.key==='Escape')closeDevPalette();
+    if(event.key==='Escape'){closeDevPalette();closeAudioDiagnosticReport();}
     if((event.ctrlKey||event.metaKey)&&event.shiftKey&&event.code==='KeyD'){
       event.preventDefault();openDevPalette();
     }
@@ -30602,12 +31606,9 @@ function attachDevPaletteTrigger() {
 
 
 
-// ========== B-66.2: СЕКРЕТНЫЕ ПЕСНИ И АЧИВКИ «ГРОЗЫ» ==========
-const STORM_SEALS = Object.freeze({
-  'scd1.8d2f71c4e9a63b05.220': { id: '220-volts', title: '220 вольт' }
-});
+// ========== B-66.2: ПОДПИСАННЫЕ ПЕСНИ И НЕЗАВИСИМЫЕ АЧИВКИ ==========
+const SIGNED_SECRET_SONG_SEALS = new Set([LIGHTNING_SONG_SEAL]);
 let currentSongSeal = '';
-function currentStormAchievement() { return STORM_SEALS[currentSongSeal] || null; }
 function persistStormSecret() {
   try {
     localStorage.setItem(STORM_UNLOCK_KEY, stormUnlocked ? '1' : '0');
@@ -30615,10 +31616,39 @@ function persistStormSecret() {
     localStorage.setItem(STORM_ACHIEVEMENTS_KEY, JSON.stringify(Array.from(stormSeenAchievements)));
   } catch (e) {}
 }
+// B-66.2.1: прогрев 220.mp3 внутри пользовательского жеста. Беззвучный
+// play/pause помечает элемент разрешённым для Safari, после чего плашка
+// вправе запустить его в любой момент — даже через таймеры и rAF-цепочку.
+let primedAchievementAudio = null;
+function primeAchievementAudio() {
+  if (primedAchievementAudio) return primedAchievementAudio;
+  try {
+    const sample = new Audio('./uploads/220.mp3');
+    sample.preload = 'auto';
+    sample.muted = true;
+    const attempt = sample.play();
+    if (attempt && typeof attempt.then === 'function') {
+      attempt.then(() => { sample.pause(); sample.currentTime = 0; })
+        .catch(() => { /* жест мог не подойти — плашка попробует сама */ });
+    }
+    primedAchievementAudio = sample;
+    return sample;
+  } catch (e) {
+    return null;
+  }
+}
+
 function playStormAchievementChime() {
   // Загруженный пользователем слой — смысловой центр ачивки. HTMLAudio
   // выбран намеренно: браузер декодирует mp3 сам, а SW держит его офлайн.
-  const sample = new Audio('./uploads/220.mp3');
+  // Safari разрешает play() только рядом с пользовательским жестом, а
+  // production-плашка приходит через ~2 с анимаций после отпускания ручки
+  // генератора. Поэтому элемент прогревается заранее внутри реального
+  // жеста (primeAchievementAudio) и здесь лишь перезапускается.
+  const sample = primedAchievementAudio || new Audio('./uploads/220.mp3');
+  primedAchievementAudio = null;
+  try { sample.pause(); sample.currentTime = 0; } catch (e) {}
+  sample.muted = false;
   sample.volume = 0.24;
   sample.play().catch(() => { /* звук мог быть запрещён до пользовательского жеста */ });
 
@@ -30673,24 +31703,11 @@ function showStormAchievement(achievement, startStormAfter = true) {
   }, 4100);
 }
 function maybeUnlockStormSecret(source) {
-  if (source !== 'song' && source !== 'scheme') return;
-  if (activeSchemeId() !== 'storm') return;
-  const achievement = currentStormAchievement();
-  if (!achievement) return;
-  if (stormSeenAchievements.has(achievement.id)) {
-    // Повторное явное совпадение той же песни и «Грозы» — сразу новый
-    // заряд, но без повторной ачивки и её отдельного звука.
-    if (!stormUnlocked || !schemeSurprisesEnabled || stormReducedMotion()) return;
-    cancelStormSurprise();
-    requestAnimationFrame(() => {
-      if (stormCanStart()) startStormSurprise();
-      else scheduleSchemeSurprise(1000);
-    });
-    return;
-  }
-  stormUnlocked = true; schemeSurprisesEnabled = true;
-  stormSeenAchievements.add(achievement.id); persistStormSecret(); updateStormSecretUI();
-  cancelStormSurprise(); showStormAchievement(achievement);
+  // B-66.3 зарезервировала условие «подписанная Молния + схема Гроза»
+  // для отдельной ачивки «Грохочет гром». До её собственной приёмки
+  // production-маршрут намеренно ничего не разблокирует и не запускает.
+  void source;
+  return false;
 }
 
 // ========== B-66.1: МИКРО-СОБЫТИЕ СХЕМЫ «ГРОЗА» ==========
@@ -30815,12 +31832,28 @@ function resetSchemeSurpriseSchedule() {
     scheduleSchemeSurprise();
   }
 }
-function initSchemeSurprises() {
+function migrateSecretRoutingV335() {
   try {
+    if (localStorage.getItem(SECRET_ROUTING_MIGRATION_KEY) === '1') return;
+    // Старое условие смешивало «220 вольт» и unlock «Грозы». По решению
+    // пользователя оба результата отзываются один раз: 220 можно честно
+    // получить заново через BPM, а Грозу позже откроет только B-66.3.
+    localStorage.removeItem(STORM_UNLOCK_KEY);
+    localStorage.removeItem(STORM_ENABLED_KEY);
+    localStorage.removeItem(STORM_ACHIEVEMENTS_KEY);
+    localStorage.removeItem(POWER_GENERATOR_KEY);
+    localStorage.setItem(SECRET_ROUTING_MIGRATION_KEY, '1');
+  } catch (e) {}
+}
+function initSchemeSurprises() {
+  migrateSecretRoutingV335();
+  try {
+    powerAchievementSeen = localStorage.getItem(POWER_GENERATOR_KEY) === '1';
     stormUnlocked = localStorage.getItem(STORM_UNLOCK_KEY) === '1';
     schemeSurprisesEnabled = stormUnlocked && localStorage.getItem(STORM_ENABLED_KEY) !== '0';
     stormSeenAchievements = new Set(JSON.parse(localStorage.getItem(STORM_ACHIEVEMENTS_KEY) || '[]'));
   } catch (e) {
+    powerAchievementSeen = false;
     stormUnlocked = false; schemeSurprisesEnabled = false; stormSeenAchievements = new Set();
   }
   updateStormSecretUI();
@@ -30896,6 +31929,14 @@ function handleStormSwitchKey(event) {
   if (event.key !== 'Enter' && event.key !== ' ') return;
   event.preventDefault(); event.stopPropagation(); toggleStormSecret();
 }
+function resetPowerAchievementForTesting() {
+  clearPowerGeneratorPrototype(false);
+  clearTimeout(stormAchievementTimer);
+  document.querySelector('.storm-achievement')?.remove();
+  powerAchievementSeen = false;
+  try { localStorage.removeItem(POWER_GENERATOR_KEY); } catch (e) {}
+  showToast('«220 вольт» сброшено');
+}
 function resetStormSecretForTesting() {
   cancelStormSurprise(); clearTimeout(stormAchievementTimer);
   stormUnlocked = false; schemeSurprisesEnabled = false; stormSeenAchievements.clear();
@@ -30903,7 +31944,7 @@ function resetStormSecretForTesting() {
     localStorage.removeItem(STORM_UNLOCK_KEY); localStorage.removeItem(STORM_ENABLED_KEY);
     localStorage.removeItem(STORM_ACHIEVEMENTS_KEY);
   } catch (e) {}
-  updateStormSecretUI(); showToast('«220 вольт» сброшено');
+  updateStormSecretUI(); showToast('«Гроза» сброшена');
 }
 function stormChargeProgress() {
   if (stormSurprisePhase === 'armed') return 1;
@@ -38515,56 +39556,234 @@ function applyBpmChange() {
     restartPlaybackFromCurrentPosition();
     showToast(`BPM изменён на ${v}, воспроизведение продолжено`);
   }
+  // Только этот пользовательский commit BPM открывает production-сцену.
+  // Простая загрузка файла со значением 220 сюда не попадает.
+  maybeUnlockPowerAchievementFromBpm(v);
 }
-DOM.bpmInput.addEventListener('change', applyBpmChange);
+DOM.bpmInput.addEventListener('change', commitBpmInputChange);
 
 // ---------- ТЕМП КОЛЕСОМ И ПЕРЕТАСКИВАНИЕМ ----------
 //
 // Стрелки штатного number-поля мелкие (11x8 px в Safari) и требуют
 // прицеливания. Колесо и протяжка попадают в само число — цель 80x30.
 //
-// Во время игры темп меняется на слух, и каждый шаг перезапускает
-// воспроизведение (restartPlaybackFromCurrentPosition). Поэтому
-// applyBpmChange вызывается не на каждый щелчок, а через паузу в 260 мс
-// после последнего: пока крутят, значение в поле обновляется сразу,
-// а тяжёлая работа делается один раз.
-let bpmCommitTimer = null;
+// Во время игры темп меняется на слух, и каждый commit перезапускает
+// воспроизведение (restartPlaybackFromCurrentPosition). Поэтому тяжёлый
+// applyBpmChange выполняется один раз после остановки жеста, а не на
+// каждом промежуточном числе.
+// B-89 / 0.340: выбранный BPM живёт только в DOM.bpmInput.value.
+// Барабан — прямая визуальная проекция этого числа, без отдельной числовой
+// цели и без «последнего применённого BPM». Отложен только тяжёлый эффект
+// (перестройка ленты/рестарт), его ожидание — булев флаг, а не второе число.
+// Геометрия ленты считается в тех же rem, что и CSS-строки: прежние 38px
+// расходились с 2.375rem уже при штатном масштабе 125%.
+// B-89.1 / 0.341: плавный wheel двигает ТОТ ЖЕ физический offset ленты,
+// что и drag мышью. Скорость оценивается по потоку событий, после его
+// окончания работает то же трение и тот же snap; выбранным число
+// становится при пересечении центра (bpmDrumApplyLive). Отдельного
+// пиксельного остатка больше нет — весь недокрут живёт в offset и
+// естественно гасится при развороте.
+const BPM_WHEEL_DISTANCE_PER_STEP = 12;
+const BPM_WHEEL_DISCRETE_DELTA = 40;
+const BPM_WHEEL_SETTLE_MS = 260;
+// Пауза 90мс без wheel-событий = конец потока (Safari шлёт momentum-хвост
+// чаще, поэтому наша инерция стартует только после системной).
+const BPM_WHEEL_STREAM_END_MS = 90;
+let bpmCommitTimer = 0;
+let bpmCommitPending = false;
+let bpmWheelStreamTimer = 0;
+// true, пока лентой управляет wheel-жест (включая его инерцию).
+// B-66.2.2: пролёт через 220 больше не отслеживается — подтверждением
+// служит только остановка барабана на 220 (маршрут applyBpmChange).
+let bpmWheelDriving = false;
+
+function flushPendingBpmCommit() {
+  clearTimeout(bpmCommitTimer);
+  bpmCommitTimer = 0;
+  // Пока лента реально движется (drag, инерция, snap или живой
+  // wheel-поток), тяжёлый side-effect не выполняется: он один, после
+  // остановки. Таймер просто откладывается ещё на одно окно тишины.
+  if (bpmDrumOpen && bpmDrum &&
+      (bpmDrum.dragging || bpmDrum.raf || bpmDrum.snapTo != null || bpmWheelStreamTimer)) {
+    scheduleBpmCommit(false);
+    return false;
+  }
+  const shouldApply = bpmCommitPending;
+  bpmCommitPending = false;
+  if (shouldApply) applyBpmChange();
+  // B-66.2.2: пролёт через 220 больше не считается. Единственный маршрут
+  // подтверждения — конечное ВЫБРАННОЕ число внутри applyBpmChange: барабан
+  // остановился на 220 (даже коротко, на одно окно тишины) → сцена.
+  // Wheel не запускает rAF-снап: после 260 мс тишины это его точка
+  // остановки. Один раз доводим уже целую строку до измеренного центра.
+  // Во время drag/инерции не вмешиваемся — их завершает bpmDrumLoop.
+  if (bpmDrumOpen && bpmDrum && !bpmDrum.dragging && !bpmDrum.raf && bpmDrum.snapTo == null) {
+    bpmDrumAlignSettledCenter(parseInt(DOM.bpmInput.value, 10));
+  }
+  return shouldApply;
+}
+
+function scheduleBpmCommit(changed = true) {
+  if (changed) bpmCommitPending = true;
+  clearTimeout(bpmCommitTimer);
+  bpmCommitTimer = setTimeout(flushPendingBpmCommit, BPM_WHEEL_SETTLE_MS);
+}
+
+function commitBpmInputChange() {
+  bpmCommitPending = true;
+  flushPendingBpmCommit();
+}
+
 function bumpBpm(delta) {
   const el = DOM.bpmInput;
   const cur = parseInt(el.value, 10) || CONFIG.DEFAULT_BPM;
   const next = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, cur + delta));
   if (next === cur) return;
   el.value = next;
-  clearTimeout(bpmCommitTimer);
-  bpmCommitTimer = setTimeout(applyBpmChange, 260);
+  scheduleBpmCommit();
 }
 
-DOM.bpmInput.addEventListener(
-  'wheel',
-  (e) => {
-    // Только при наведении: страница под курсором не должна дёргаться,
-    // поэтому событие гасим. passive: false — иначе preventDefault не
-    // сработает и прокрутится вся страница.
-    e.preventDefault();
-    // Shift — крупный шаг: с 60 до 180 иначе пришлось бы крутить 120 раз.
-    const step = e.shiftKey ? 5 : 1;
-    // deltaY > 0 — колесо К СЕБЕ (вниз): при натуральном скролле контент
-    // едет вверх, барабан должен ехать туда же — темп ВВЕРХ. Инверсия по
-    // фидбеку пользователя 0.132: «крутишь колесо вниз — пусть барабан
-    // крутится наверх и наоборот».
-    //
-    // B-32 / 0.131 (фидбек пользователя: «ритм можно редактировать без
-    // открытия барабана колесиком — в вылетающем по клику барабане нет
-    // смысла; пусть барабан появляется именно при таком редактировании»):
-    // колесо ОТКРЫВАЕТ барабан и докручивает ленту до нового значения,
-    // а после паузы в редактировании барабан сам закрывается. Клик по
-    // полю барабан больше не открывает — это обычный ввод цифр.
-    if (!bpmDrumOpen) openBpmDrum();
-    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
+function normalizeBpmWheelDelta(event) {
+  let delta = Number(event.deltaY) || 0;
+  if (!delta) return 0;
+  if (event.deltaMode === 1) delta *= 16;
+  else if (event.deltaMode === 2) delta *= Math.max(1, window.innerHeight || 800);
+  return delta;
+}
+
+// Системная настройка «Уменьшение движения»: точные шаги сохраняются,
+// но инерционный хвост и длинный доезд отключаются.
+function bpmDrumReducedMotion() {
+  return !!(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches);
+}
+
+function bpmDrumValueAtOffset(off) {
+  return Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM,
+    Math.round(CONFIG.MIN_BPM + (off + BPM_DRUM_PAD) / BPM_DRUM_ROW)));
+}
+
+function showBpmDrumValue(value) {
+  if (!bpmDrum) return;
+  const selected = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, value));
+  bpmDrumStopLoop();
+  bpmDrum.offset = bpmDrumRestOffset(selected);
+  bpmDrum.vel = 0;
+  bpmDrum.snapTo = null;
+  bpmDrum.centerCorrectionPx = 0;
+  bpmDrum.lastValue = selected;
+  DOM.bpmInput.value = selected;
+  bpmDrumRenderFrame();
+}
+
+// Конец wheel-потока: как отпускание пальца в endDrag. Скорость уже
+// накоплена сэмплами самих событий; дальше та же инерция и тот же snap.
+function bpmWheelStreamEnd() {
+  clearTimeout(bpmWheelStreamTimer);
+  bpmWheelStreamTimer = 0;
+  if (!bpmDrumOpen || !bpmDrum || bpmDrum.dragging) { bpmWheelDriving = false; return; }
+  const d = bpmDrum;
+  if (bpmDrumReducedMotion()) {
+    // «Уменьшение движения»: без инерционного хвоста, сразу целая строка.
+    // Commit-таймер жеста уже заведён — не отодвигаем его повторно.
+    bpmWheelDriving = false;
+    bpmDrumAlignSettledCenter(Math.round(bpmDrumCenterValue()));
     bpmDrumTouchIdle();
-  },
-  { passive: false }
-);
+    return;
+  }
+  // Скорость по последним ~90мс сэмплов wheel-событий — окно как у drag,
+  // но относительно ПОСЛЕДНЕГО события: пауза до таймера не скорость.
+  let v = 0;
+  const s = d.wheelSamples || [];
+  if (s.length > 1) {
+    const last = s[s.length - 1];
+    let s0 = last;
+    for (let i = s.length - 1; i >= 0; i--) {
+      if (last.t - s[i].t <= 90) s0 = s[i];
+      else break;
+    }
+    const dt = last.t - s0.t;
+    if (dt > 0) v = (last.off - s0.off) / dt;
+  }
+  d.wheelSamples = [];
+  if (Math.abs(v) > 0.18) {
+    d.vel = Math.max(-3.2, Math.min(3.2, v));
+    d.lastT = 0;
+    d.snapTo = null;
+    bpmDrumKick();
+  } else {
+    d.vel = 0;
+    d.snapTo = null;
+    const rest = bpmDrumRestOffset(Math.round(bpmDrumCenterValue()));
+    if (Math.abs(d.offset - rest) < 0.5) {
+      // Лента уже стоит на строке: без лишнего 160мс-доезда сразу
+      // фиксируем точный центр — жест закончен.
+      bpmWheelDriving = false;
+      bpmDrumAlignSettledCenter(Math.round(bpmDrumCenterValue()));
+    } else {
+      bpmDrumKick();
+    }
+  }
+  bpmDrumTouchIdle();
+}
+
+function handleBpmWheel(event) {
+  // Только при наведении: страница под курсором не должна дёргаться.
+  // passive:false у слушателей обязателен для рабочего preventDefault.
+  event.preventDefault();
+  // Пока 340мс сворачивается уже зафиксированный финал, системный
+  // momentum-хвост не вправе снова открыть барабан и переписать поле.
+  if (bpmDrumClosing) return;
+  const raw = normalizeBpmWheelDelta(event);
+  if (!raw) return;
+  if (!bpmDrumOpen) openBpmDrum();
+  const d = bpmDrum;
+  if (d.dragging) return; // палец на ленте главнее колеса
+  // Быстрая серия дискретных тиков не должна терять шаги: базой служит
+  // цель недоигранной доездки, а не промежуточный кадр анимации.
+  const pendingSnap = d.raf && d.snapTo != null ? d.snapTo : null;
+  bpmDrumStopLoop();
+  d.snapTo = null;
+  d.vel = 0;
+  const from = bpmDrumValueAtOffset(pendingSnap != null ? pendingSnap : d.offset);
+  if (Math.abs(raw) >= BPM_WHEEL_DISCRETE_DELTA && !bpmWheelDriving) {
+    // Крупный дискретный тик мыши: строго ±1 строка (Shift ±5), плавным
+    // доездом bpmDrumAnimateToValue — без пролёта и без инерции.
+    const step = Math.sign(raw) * (event.shiftKey ? 5 : 1);
+    const to = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, from + step));
+    if (bpmDrumReducedMotion()) bpmDrumAlignSettledCenter(to);
+    else bpmDrumAnimateToValue(to);
+    scheduleBpmCommit(to !== from);
+    bpmDrumTouchIdle();
+    return;
+  }
+  // Плавный поток (трекпад): те же базовые единицы ленты, что и drag.
+  // Разворот жеста гасит недокрут естественно — он просто едет обратно.
+  bpmWheelDriving = true;
+  d.centerCorrectionPx = 0;
+  // Редкий крупный выброс ВНУТРИ плавного потока прижимается к одному
+  // шагу — как прежний дискретный clamp, чтобы лента не прыгала.
+  const clamped = Math.abs(raw) >= BPM_WHEEL_DISCRETE_DELTA
+    ? Math.sign(raw) * BPM_WHEEL_DISTANCE_PER_STEP
+    : raw;
+  const gain = (BPM_DRUM_ROW / BPM_WHEEL_DISTANCE_PER_STEP) *
+    (event.shiftKey ? 5 : 1);
+  const min = bpmDrumMinOffset();
+  const max = bpmDrumMaxOffset();
+  d.offset = Math.max(min, Math.min(max, d.offset + clamped * gain));
+  if (!d.wheelSamples) d.wheelSamples = [];
+  d.wheelSamples.push({ t: performance.now(), off: d.offset });
+  if (d.wheelSamples.length > 8) d.wheelSamples.shift();
+  // Пересечение центра сразу делает строку выбранной (крупный тик выше
+  // делает то же самое внутри bpmDrumAnimateToValue -> bpmDrumApplyLive).
+  bpmDrumApplyLive();
+  bpmDrumRenderFrame();
+  clearTimeout(bpmWheelStreamTimer);
+  bpmWheelStreamTimer = setTimeout(bpmWheelStreamEnd, BPM_WHEEL_STREAM_END_MS);
+  scheduleBpmCommit(false);
+  bpmDrumTouchIdle();
+}
+
+DOM.bpmInput.addEventListener('wheel', handleBpmWheel, { passive: false });
 
 // Протяжка вверх/вниз — «барабан будильника».
 //
@@ -38595,7 +39814,7 @@ window.addEventListener('pointermove', (e) => {
   // ведёт ленту к значению — как колесо. Открытие ПОСЛЕ bumpBpm, чтобы
   // пилюля сразу встала на новое значение.
   if (!bpmDrumOpen) openBpmDrum();
-  else bpmDrumAnimateToValue(parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM);
+  else showBpmDrumValue(parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM);
   bpmDrumTouchIdle();
   bpmDrag.y -= steps * STEP_PX;
 });
@@ -38619,16 +39838,24 @@ window.addEventListener('pointerup', () => {
 // цифра — закрыть барабан и продолжить ввод в поле, Esc/клик вне —
 // закрыть. Пока лента крутится, поле показывает живое целое значение,
 // тяжёлый applyBpmChange дебаунсится (260мс) и флашится на закрытии.
+//
+// Физика по-прежнему живёт в базовых единицах 16px (это сохраняет
+// принятую чувствительность), но transform выводится в rem: 38/16 =
+// 2.375rem, ровно как высота CSS-строки. Фиксированный px-transform был
+// причиной расхождения уже на дефолтных 125%.
+const BPM_DRUM_BASE_REM_PX = 16;
 const BPM_DRUM_ROW = 38;
 const BPM_DRUM_VISIBLE = 3;
-// центрирующий отступ: окно 5×38, ряд занимает середину, а не верх —
-// покой для значения V это (V−MIN)×ROW − PAD
+// центрирующий отступ в базовых единицах физики.
 const BPM_DRUM_PAD = ((BPM_DRUM_VISIBLE - 1) / 2) * BPM_DRUM_ROW;
 let bpmDrum = null;
 let bpmDrumOpen = false;
+let bpmDrumClosing = false;
+let bpmDrumCloseTimer = 0;
 let bpmDrumSuppressClick = false;
 let bpmDrumIdleTimer = 0;
 const BPM_DRUM_IDLE_MS = 1200;
+const BPM_DRUM_CLOSE_MS = 340;
 
 // Барабан — транзиентный фидбек редактирования колесом: пока крутят,
 // он живёт; 1.2с тишины — закрылся (с коммитом значения). Любое
@@ -38636,7 +39863,14 @@ const BPM_DRUM_IDLE_MS = 1200;
 function bpmDrumTouchIdle() {
   clearTimeout(bpmDrumIdleTimer);
   bpmDrumIdleTimer = setTimeout(() => {
-    if (bpmDrumOpen && bpmDrum && !bpmDrum.dragging) closeBpmDrum();
+    if (!bpmDrumOpen || !bpmDrum) return;
+    // B-89.1: автозакрытие отсчитывается от ПОЛНОЙ остановки — пока идёт
+    // drag, инерция, snap или живой wheel-поток, выдержка перезаводится.
+    if (bpmDrum.dragging || bpmDrum.raf || bpmDrum.snapTo != null || bpmWheelStreamTimer) {
+      bpmDrumTouchIdle();
+      return;
+    }
+    closeBpmDrum();
   }, BPM_DRUM_IDLE_MS);
 }
 
@@ -38679,6 +39913,7 @@ function buildBpmDrum() {
     '<div class="bpm-drum-fade bpm-drum-fade--bottom"></div>' +
     '<div class="bpm-drum-frame"></div>';
   const strip = el.querySelector('.bpm-drum-strip');
+  const frame = el.querySelector('.bpm-drum-frame');
   const rows = [];
   for (let v = CONFIG.MIN_BPM; v <= CONFIG.MAX_BPM; v++) {
     const r = document.createElement('div');
@@ -38691,17 +39926,28 @@ function buildBpmDrum() {
   // сам барабан и есть цилиндр (события вешаются на него)
   const cyl = el;
   bpmDrum = {
-    el, cyl, strip, rows,
-    offset: 0,          // px: (значение − MIN) × ROW в покое
-    vel: 0,             // px/мс при инерции
+    el, cyl, strip, frame, rows,
+    offset: 0,          // базовые 16px-единицы: (значение − MIN) × ROW − PAD
+    vel: 0,             // базовые единицы/мс при инерции
     raf: 0,
     dragging: false,
     dragRaw: 0,
+    gestureScale: 1,
     samples: [],
     snapFrom: 0, snapTo: 0, snapStart: 0, snapDur: 0,
-    lastValue: 0, committed: 0, commitTimer: 0,
+    centerCorrectionPx: 0, // однократная субпиксельная доводка после остановки
+    lastValue: 0,
     lastWindow: null,
   };
+  // На дробных масштабах последний 1/64px может измениться в финальном
+  // кадре раскрытия. После height-transition повторяем только settled-
+  // калибровку; во время движения этот обработчик не вмешивается.
+  el.addEventListener('transitionend', (event) => {
+    const d = bpmDrum;
+    if (event.target !== el || event.propertyName !== 'height') return;
+    if (!bpmDrumOpen || !d || d.dragging || d.raf || d.snapTo != null || bpmWheelStreamTimer) return;
+    bpmDrumAlignSettledCenter(parseInt(DOM.bpmInput.value, 10));
+  });
   wireBpmDrumEvents();
   return bpmDrum;
 }
@@ -38716,16 +39962,20 @@ function bpmDrumApplyLive() {
   if (v === bpmDrum.lastValue) return;
   bpmDrum.lastValue = v;
   DOM.bpmInput.value = v;
-  clearTimeout(bpmDrum.commitTimer);
-  bpmDrum.commitTimer = setTimeout(() => {
-    if (bpmDrumOpen) applyBpmChange();
-  }, 260);
+  scheduleBpmCommit();
 }
 
 function bpmDrumRenderFrame() {
   const d = bpmDrum;
-  d.strip.style.transform = 'translate3d(0,' + (-d.offset).toFixed(2) + 'px,0)';
   const center = CONFIG.MIN_BPM + (d.offset + BPM_DRUM_PAD) / BPM_DRUM_ROW;
+  // .bpm-drum-strip стоит top:50%. От него уводим вверх индекс центра
+  // плюс половину строки. Базовые 16px переводим в rem — поэтому
+  // transform масштабируется ровно вместе с CSS height:2.375rem.
+  const yRem = -(
+    d.offset + BPM_DRUM_PAD + BPM_DRUM_ROW / 2
+  ) / BPM_DRUM_BASE_REM_PX;
+  d.strip.style.transform = 'translate3d(0,calc(' + yRem.toFixed(8) + 'rem + ' +
+    d.centerCorrectionPx.toFixed(4) + 'px),0)';
   const base = Math.round(center) - CONFIG.MIN_BPM; // ИНДЕКС центральной строки
   const from = Math.max(0, base - 3);
   const to = Math.min(d.rows.length - 1, base + 3);
@@ -38743,10 +39993,82 @@ function bpmDrumRenderFrame() {
   for (let i = from; i <= to; i++) {
     const dist = CONFIG.MIN_BPM + i - center; // строки от центра
     const r = d.rows[i];
-    r.style.transform = 'rotateX(' + (dist * 22).toFixed(2) + 'deg)';
+    // B-89.1: крупность цифры — непрерывная функция расстояния от центра,
+    // а не скачок класса. 1.0625→1.3125rem = scale до ×1.235; ближе к
+    // центру строка плавно растёт, дальше — плавно сжимается. transform
+    // не трогает layout, так что горячий путь остаётся без reflow.
+    const prox = Math.max(0, 1 - Math.abs(dist)); // 1 в центре, 0 за ±1 строку
+    const scale = 1 + 0.235 * prox;
+    r.style.transform = 'rotateX(' + (dist * 22).toFixed(2) + 'deg) scale(' +
+      scale.toFixed(4) + ')';
     r.style.opacity = String(Math.max(0.12, 1 - Math.abs(dist) / 3.2));
     r.classList.toggle('is-center', i === base);
   }
+}
+
+// Субпиксельная доводка выполняется ОДИН раз после остановки, не в rAF.
+// На промежуточных UI-масштабах (например 30%) WebKit/Chromium могут
+// округлить длинную колонку строк по 1/64px; измеряем фактические центры
+// и компенсируем только эту накопленную погрешность. Горячий путь wheel/
+// pointermove остаётся чистой записью transform без reflow.
+function bpmDrumAlignSettledCenter(value) {
+  const d = bpmDrum;
+  if (!d || !d.frame) return null;
+  let selected = Number(value);
+  if (!isFinite(selected)) selected = Math.round(bpmDrumCenterValue());
+  selected = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, Math.round(selected)));
+  d.offset = bpmDrumRestOffset(selected);
+  d.vel = 0;
+  d.snapTo = null;
+  d.centerCorrectionPx = 0;
+  d.lastValue = selected;
+  DOM.bpmInput.value = selected;
+  bpmDrumRenderFrame();
+
+  const row = d.rows[selected - CONFIG.MIN_BPM];
+  if (!row || typeof row.getBoundingClientRect !== 'function') return selected;
+  // Два прохода нужны только на редких масштабах вроде 65%: первый
+  // transform может сам округлиться до сетки движка 1/64px и оставить
+  // 0.015625px. Второй убирает и этот остаток, сохраняя допуск ≤0.01px.
+  for (let pass = 0; pass < 2; pass++) {
+    const rowRect = row.getBoundingClientRect();
+    const frameRect = d.frame.getBoundingClientRect();
+    const error = rowRect.top + rowRect.height / 2 -
+      (frameRect.top + frameRect.height / 2);
+    if (!isFinite(error) || Math.abs(error) <= 0.005) break;
+    d.centerCorrectionPx -= error;
+    bpmDrumRenderFrame();
+  }
+  return selected;
+}
+
+// Явное закрытие не ждёт инерцию: останавливает её, выбирает ближайшую
+// целую строку и синхронизирует поле ДО запуска CSS-сворачивания.
+function bpmDrumSettleImmediately() {
+  if (!bpmDrum) return null;
+  const d = bpmDrum;
+  const before = parseInt(DOM.bpmInput.value, 10);
+  const selected = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM,
+    Math.round(bpmDrumCenterValue())));
+  bpmDrumStopLoop();
+  // Явное закрытие обрывает и wheel-поток: его инерция уже не стартует.
+  clearTimeout(bpmWheelStreamTimer);
+  bpmWheelStreamTimer = 0;
+  bpmWheelDriving = false;
+  d.wheelSamples = [];
+  d.dragging = false;
+  d.dragRaw = bpmDrumRestOffset(selected);
+  d.samples = [];
+  d.vel = 0;
+  d.snapTo = null;
+  d.centerCorrectionPx = 0;
+  d.el.classList.remove('is-dragging');
+  d.offset = d.dragRaw;
+  d.lastValue = selected;
+  DOM.bpmInput.value = selected;
+  bpmDrumRenderFrame();
+  if (before !== selected) bpmCommitPending = true;
+  return selected;
 }
 
 function bpmDrumStopLoop() {
@@ -38806,6 +40128,8 @@ function bpmDrumLoop(t) {
     d.offset = d.snapTo;
     d.snapTo = null;
     d.raf = 0;
+    bpmWheelDriving = false; // жест (включая wheel-инерцию) полностью встал
+    bpmDrumAlignSettledCenter(Math.round(bpmDrumCenterValue()));
   }
 }
 
@@ -38820,6 +40144,7 @@ function bpmDrumAnimateToValue(v) {
   const d = bpmDrum;
   const target = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, v));
   d.vel = 0;
+  d.centerCorrectionPx = 0;
   d.snapFrom = d.offset;
   d.snapTo = bpmDrumRestOffset(target);
   d.snapDur = 130;
@@ -38829,12 +40154,19 @@ function bpmDrumAnimateToValue(v) {
 
 function openBpmDrum() {
   const d = buildBpmDrum();
+  clearTimeout(bpmDrumCloseTimer);
+  bpmDrumCloseTimer = 0;
+  bpmDrumClosing = false;
   const cur = parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM;
   d.offset = bpmDrumRestOffset(Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, cur)));
   d.vel = 0;
   d.snapTo = null;
+  d.centerCorrectionPx = 0;
+  clearTimeout(bpmWheelStreamTimer);
+  bpmWheelStreamTimer = 0;
+  bpmWheelDriving = false;
+  d.wheelSamples = [];
   d.lastValue = cur;
-  d.committed = cur;
   // Форсируем вычисление стартового стиля: на ПЕРВОМ открытии элемент
   // только что создан, и если повесить is-open до первого расчёта,
   // height-переход не проиграется — пилюля распахнётся скачком.
@@ -38854,18 +40186,27 @@ function openBpmDrum() {
 
 function closeBpmDrum() {
   if (!bpmDrumOpen) return;
-  bpmDrumStopLoop();
-  clearTimeout(bpmDrum.commitTimer);
+  // Любой путь закрытия сначала останавливает движение и ставит ближайшую
+  // целую строку в точный геометрический центр. Только затем начинается
+  // CSS-сворачивание; поле уже содержит ту же строку и дальше не меняется.
+  bpmDrumSettleImmediately();
+  // flush одновременно делает однократный геометрический контроль уже
+  // остановленной строки — отдельного reflow на закрытии нет.
+  flushPendingBpmCommit();
   clearTimeout(bpmDrumIdleTimer);
   bpmDrum.el.classList.remove('is-open');
   DOM.bpmInput.style.visibility = '';
   bpmDrumOpen = false;
+  bpmDrumClosing = true;
+  clearTimeout(bpmDrumCloseTimer);
+  bpmDrumCloseTimer = setTimeout(() => {
+    bpmDrumClosing = false;
+    bpmDrumCloseTimer = 0;
+  }, BPM_DRUM_CLOSE_MS);
   DOM.bpmInput.classList.remove('is-spinning');
   document.removeEventListener('pointerdown', bpmDrumOnDocPointerDown, true);
   document.removeEventListener('keydown', bpmDrumOnKey, true);
   window.removeEventListener('resize', closeBpmDrum);
-  // флаш: тяжёлое применение (лента/рестарт) — только если значение менялось
-  if (parseInt(DOM.bpmInput.value, 10) !== bpmDrum.committed) applyBpmChange();
 }
 
 function bpmDrumOnDocPointerDown(e) {
@@ -38912,12 +40253,21 @@ function wireBpmDrumEvents() {
   cyl.addEventListener('pointerdown', (e) => {
     if (e.button !== 0) return;
     e.preventDefault();
+    // Палец перехватывает ленту: wheel-поток и его инерция отменяются.
+    clearTimeout(bpmWheelStreamTimer);
+    bpmWheelStreamTimer = 0;
+    bpmWheelDriving = false;
+    d.wheelSamples = [];
     try { cyl.setPointerCapture(e.pointerId); } catch (err) {}
     // физический драг: idle не должен закрыть барабан под пальцем
     clearTimeout(bpmDrumIdleTimer);
     d.dragging = true;
     d.vel = 0;
     d.snapTo = null;
+    d.centerCorrectionPx = 0;
+    // pointer-координаты приходят в CSS px, а физика хранит базовые
+    // 16px-единицы. Деление на UI scale оставляет ленту под пальцем 1:1.
+    d.gestureScale = Math.max(0.25, currentUiScale() / 100);
     startY = e.clientY;
     startOffset = d.offset;
     d.dragRaw = d.offset;
@@ -38928,7 +40278,7 @@ function wireBpmDrumEvents() {
   cyl.addEventListener('pointermove', (e) => {
     if (!d.dragging) return;
     // вверх = большее BPM: лента едет вниз, смещение растёт
-    d.dragRaw = startOffset + (startY - e.clientY);
+    d.dragRaw = startOffset + (startY - e.clientY) / d.gestureScale;
     d.samples.push({ t: performance.now(), off: d.dragRaw });
     if (d.samples.length > 8) d.samples.shift();
   });
@@ -38975,13 +40325,9 @@ function wireBpmDrumEvents() {
   };
   cyl.addEventListener('pointerup', endDrag);
   cyl.addEventListener('pointercancel', endDrag);
-  cyl.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    const step = e.shiftKey ? 5 : 1;
-    // направление и шаг — как у колеса над полем (см. комментарий там)
-    bpmDrumAnimateToValue(Math.round(bpmDrumCenterValue()) + (e.deltaY > 0 ? step : -step));
-    bpmDrumTouchIdle();
-  }, { passive: false });
+  // Поле и уже раскрытый цилиндр используют один signed remainder:
+  // переход курсора между ними не меняет чувствительность и не теряет шаги.
+  cyl.addEventListener('wheel', handleBpmWheel, { passive: false });
 }
 
 // Клик по полю барабан НЕ открывает (0.131): барабан — фидбек колесного
@@ -39738,7 +41084,7 @@ toggleTimeAndBeats();
       return false;
     }
 
-    currentSongSeal = STORM_SEALS[song.documentSeal] ? song.documentSeal : '';
+    currentSongSeal = SIGNED_SECRET_SONG_SEALS.has(song.documentSeal) ? song.documentSeal : '';
     const loadedMeta = songMetadataOf(song);
     DOM.songArtist.value = loadedMeta.artist;
     DOM.songTitle.value = loadedMeta.title;
