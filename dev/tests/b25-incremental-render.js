@@ -390,6 +390,11 @@ w.addEventListener('load', async () => {
   ok('renameSection обновляет label локально',
     evl(`return document.querySelector('.section-card[data-id="1"] .section-label').textContent`) === 'Middle'
       && evl(`return document.querySelector('.section-card[data-id="1"] .section-label').classList.contains('custom')`));
+  // B-91: карта песни не проходит через render() на быстром пути B-25 —
+  // renameSection обязан сам обновить её подпись.
+  ok('renameSection актуализирует карту песни',
+    evl(`return document.querySelector('#songmapList .songmap-item[data-id="1"] .songmap-name')?.textContent`) === 'Middle',
+    evl(`return document.querySelector('#songmapList .songmap-item[data-id="1"] .songmap-name')?.textContent`));
   restoreRenderCounter();
 
   resetRenderCounter();
