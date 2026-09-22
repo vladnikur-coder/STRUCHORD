@@ -40,8 +40,8 @@ ok(!src.includes('openVoltageGeneratorPrototype')&&!src.includes('voltage-genera
 ok(!src.includes('openVoltageSwitchPrototype')&&!src.includes('voltage-switch-scene'),'непринятый рубильник полностью удалён');
 ok(src.includes('function startPowerGeneratorPrototype')&&src.includes("'Ручной генератор','Dev-прототип"),'генератор доступен для production-триггера и ручной dev-проверки');
 ok(src.includes('function maybeUnlockPowerAchievementFromBpm')&&src.includes('bpm !== 220')&&src.includes('currentSongSeal !== LIGHTNING_SONG_SEAL'),'единый trigger 220 принимает только подписанную Молнию');
-ok((src.match(/maybeUnlockPowerAchievementFromBpm\(/g)||[]).length===4,'production-проверка вызывается только из функции, BPM commit, tap-tempo и завершённого wheel-жеста');
-ok(src.includes('function bpmWheelPathCrossed220')&&src.includes('if (crossed220) maybeUnlockPowerAchievementFromBpm(220)'),'wheel-проход через 220 маршрутизируется после остановки жеста');
+ok((src.match(/maybeUnlockPowerAchievementFromBpm\(/g)||[]).length===3,'production-проверка вызывается только из функции, BPM commit и tap-tempo');
+ok(!src.includes('bpmWheelPathCrossed220')&&!src.includes('bpmWheelCrossed220'),'B-66.2.2: пролёт через 220 не считается — ачивку даёт только остановка барабана на 220');
 ok(src.includes('BPM_WHEEL_DISTANCE_PER_STEP = 12')&&src.includes('let bpmWheelDriving = false')&&src.includes('let bpmCommitPending = false')&&!src.includes('bpmWheelTarget')&&!src.includes('bpmWheelRemainder'),'Safari-wheel двигает физический offset ленты и булево ожидание side-effect, без числового остатка');
 ok(src.includes('function showBpmDrumValue')&&src.includes('bpmDrum.offset = bpmDrumRestOffset(selected)')&&src.includes('DOM.bpmInput.value = selected')&&!src.includes('followBpmWheelTarget')&&!src.includes('bpmDrum.committed'),'центр прямо проецирует единственное значение поля без target/committed');
 ok(!src.includes('startPowerGeneratorPrototype();\n  setStormDevReady()')&&!src.includes("showStormAchievement({ id:'220-volts', title:'220 вольт' });"),'генератор и плашка 220 не выдают unlock Грозы');

@@ -66,7 +66,6 @@ w.addEventListener('load', async () => {
         clearTimeout(bpmWheelStreamTimer);
         bpmWheelStreamTimer = 0;
         bpmWheelDriving = false;
-        bpmWheelCrossed220 = false;
         if (bpmDrum) { bpmDrum.wheelSamples = []; bpmDrumStopLoop(); bpmDrum.snapTo = null; bpmDrum.vel = 0; }
         clearTimeout(bpmDrumCloseTimer);
         bpmDrumCloseTimer = 0;
@@ -219,22 +218,29 @@ w.addEventListener('load', async () => {
     w.closeBpmDrum();
     await sleep(400);
 
-    console.log('=== 5. Проход через 220 запускает сцену только после остановки ===');
+    console.log('=== 5. B-66.2.2: сцену запускает только остановка на 220 ===');
     reset(219);
     w.eval('currentSongSeal = LIGHTNING_SONG_SEAL');
-    for (let i = 0; i < 5; i++) wheel(12); // выбранное число 224
+    for (let i = 0; i < 5; i++) wheel(12); // пролёт через 220, итог 224
     calmStream();
     ok(input.value === '224' && center() === '224' && !w.eval('powerProloguePlaying'),
-      'сразу после прохода итог 224 уже показан, пролога ещё нет');
-    await sleep(170);
-    ok(input.value === '224' && center() === '224' && !w.eval('powerProloguePlaying'),
-      'до 260 мс число неизменно и пролог не стартует');
-    await sleep(150);
+      'сразу после пролёта итог 224 уже показан, пролога нет');
+    await sleep(320);
     ok(input.value === '224' && center() === '224' && pending() === false,
       'после commit конечный BPM остаётся 224');
+    ok(!w.eval('powerProloguePlaying') && !w.eval('powerGeneratorState'),
+      'пролёт 219 → 224 через 220 без остановки НЕ запускает пролог');
+
+    // Остановка на 220: жест доводит выбранное число до 220 и замирает.
+    reset(219);
+    wheel(12); // выбранное число 220
+    calmStream();
+    ok(input.value === '220' && center() === '220' && !w.eval('powerProloguePlaying'),
+      'число 220 уже показано, но до тишины пролог не стартует');
+    await sleep(320);
     // B-66.2.1: сначала торжественный пролог, генератор — после его обрыва.
     ok(w.eval('powerProloguePlaying') && !w.eval('powerGeneratorState'),
-      'проход 219 → 224 через 220 запускает пролог, генератора ещё нет');
+      'остановка барабана на 220 запускает пролог, генератора ещё нет');
     ok(d.querySelector('.power-prologue-digits')?.textContent === '220',
       'в прологе растёт именно цифра 220');
     w.finishPowerPrologueNow();
@@ -242,15 +248,25 @@ w.addEventListener('load', async () => {
     ok(!w.eval('powerProloguePlaying') && !d.querySelector('.power-prologue-overlay') &&
       state && state.unlockAchievement,
       'обрыв пролога убирает оверлей и запускает production-генератор');
+    w.eval('clearPowerGeneratorPrototype(false)');
 
+    // Короткая остановка: замер на 220 дольше окна тишины, затем крутанул
+    // дальше — ачивка уже запущена и не отменяется.
     reset(221);
-    for (let i = 0; i < 5; i++) wheel(-12); // выбранное число 216
+    wheel(-12); // выбранное число 220
+    calmStream();
+    await sleep(320); // окно тишины прошло — commit на 220 состоялся
+    ok(w.eval('powerProloguePlaying'),
+      'короткая остановка на 220 сразу запускает пролог');
+    for (let i = 0; i < 4; i++) wheel(-12); // крутанул дальше, к 216
     calmStream();
     await sleep(320);
+    ok(input.value === '216' && center() === '216' && w.eval('powerProloguePlaying'),
+      'докрутка после остановки меняет BPM на 216, но пролог не отменяется');
     w.finishPowerPrologueNow();
     state = w.eval('powerGeneratorState');
-    ok(input.value === '216' && center() === '216' && state && state.unlockAchievement,
-      'обратный проход 221 → 216 также считается');
+    ok(state && state.unlockAchievement,
+      'сцена после короткой остановки идёт до конца как production');
 
     reset(220);
     await sleep(320);

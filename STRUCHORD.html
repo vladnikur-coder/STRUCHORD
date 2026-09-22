@@ -10332,7 +10332,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.344</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.345</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -39588,10 +39588,10 @@ const BPM_WHEEL_STREAM_END_MS = 90;
 let bpmCommitTimer = 0;
 let bpmCommitPending = false;
 let bpmWheelStreamTimer = 0;
-// true, пока лентой управляет wheel-жест (включая его инерцию): только
-// такие пересечения 220 считаются wheel-проходом для B-66.2.
+// true, пока лентой управляет wheel-жест (включая его инерцию).
+// B-66.2.2: пролёт через 220 больше не отслеживается — подтверждением
+// служит только остановка барабана на 220 (маршрут applyBpmChange).
 let bpmWheelDriving = false;
-let bpmWheelCrossed220 = false;
 
 function flushPendingBpmCommit() {
   clearTimeout(bpmCommitTimer);
@@ -39605,20 +39605,18 @@ function flushPendingBpmCommit() {
     return false;
   }
   const shouldApply = bpmCommitPending;
-  const crossed220 = bpmWheelCrossed220;
   bpmCommitPending = false;
-  bpmWheelCrossed220 = false;
   if (shouldApply) applyBpmChange();
-  // Подтверждённое правило: wheel-проход через 220 считается даже при
-  // другом конечном BPM, но только после завершения жеста.
-  if (crossed220) maybeUnlockPowerAchievementFromBpm(220);
+  // B-66.2.2: пролёт через 220 больше не считается. Единственный маршрут
+  // подтверждения — конечное ВЫБРАННОЕ число внутри applyBpmChange: барабан
+  // остановился на 220 (даже коротко, на одно окно тишины) → сцена.
   // Wheel не запускает rAF-снап: после 260 мс тишины это его точка
   // остановки. Один раз доводим уже целую строку до измеренного центра.
   // Во время drag/инерции не вмешиваемся — их завершает bpmDrumLoop.
   if (bpmDrumOpen && bpmDrum && !bpmDrum.dragging && !bpmDrum.raf && bpmDrum.snapTo == null) {
     bpmDrumAlignSettledCenter(parseInt(DOM.bpmInput.value, 10));
   }
-  return shouldApply || crossed220;
+  return shouldApply;
 }
 
 function scheduleBpmCommit(changed = true) {
@@ -39658,10 +39656,6 @@ function bpmDrumReducedMotion() {
 function bpmDrumValueAtOffset(off) {
   return Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM,
     Math.round(CONFIG.MIN_BPM + (off + BPM_DRUM_PAD) / BPM_DRUM_ROW)));
-}
-
-function bpmWheelPathCrossed220(from, to) {
-  return (from < 220 && to >= 220) || (from > 220 && to <= 220);
 }
 
 function showBpmDrumValue(value) {
@@ -39752,7 +39746,6 @@ function handleBpmWheel(event) {
     // доездом bpmDrumAnimateToValue — без пролёта и без инерции.
     const step = Math.sign(raw) * (event.shiftKey ? 5 : 1);
     const to = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, from + step));
-    if (bpmWheelPathCrossed220(from, to)) bpmWheelCrossed220 = true;
     if (bpmDrumReducedMotion()) bpmDrumAlignSettledCenter(to);
     else bpmDrumAnimateToValue(to);
     scheduleBpmCommit(to !== from);
@@ -39776,8 +39769,6 @@ function handleBpmWheel(event) {
   if (!d.wheelSamples) d.wheelSamples = [];
   d.wheelSamples.push({ t: performance.now(), off: d.offset });
   if (d.wheelSamples.length > 8) d.wheelSamples.shift();
-  const to = bpmDrumValueAtOffset(d.offset);
-  if (bpmWheelPathCrossed220(from, to)) bpmWheelCrossed220 = true;
   // Пересечение центра сразу делает строку выбранной (крупный тик выше
   // делает то же самое внутри bpmDrumAnimateToValue -> bpmDrumApplyLive).
   bpmDrumApplyLive();
@@ -39965,11 +39956,6 @@ function bpmDrumCenterValue() {
 function bpmDrumApplyLive() {
   const v = Math.round(bpmDrumCenterValue());
   if (v === bpmDrum.lastValue) return;
-  // Инерция wheel-жеста — продолжение самого жеста: пересечение 220 на
-  // этом участке тоже считается wheel-проходом (подтверждается на flush).
-  if (bpmWheelDriving && bpmWheelPathCrossed220(bpmDrum.lastValue, v)) {
-    bpmWheelCrossed220 = true;
-  }
   bpmDrum.lastValue = v;
   DOM.bpmInput.value = v;
   scheduleBpmCommit();
