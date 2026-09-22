@@ -10332,7 +10332,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.343</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.344</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31393,6 +31393,10 @@ function bindPowerGeneratorControls(state) {
     if (state.phase !== 'ready') return;
     event.preventDefault();
     ensurePowerGeneratorAudio(state);
+    // Прогрев 220.mp3 внутри настоящего жеста: будущая плашка сможет
+    // запустить его даже спустя секунды анимаций (иначе Safari отклонит
+    // play() как оторванный от пользовательского действия).
+    primeAchievementAudio();
     state.dragging = true;
     state.scene.classList.add('is-cranking');
     state.lastPointerAngle = powerGeneratorPointerAngle(event, state);
@@ -31608,10 +31612,39 @@ function persistStormSecret() {
     localStorage.setItem(STORM_ACHIEVEMENTS_KEY, JSON.stringify(Array.from(stormSeenAchievements)));
   } catch (e) {}
 }
+// B-66.2.1: прогрев 220.mp3 внутри пользовательского жеста. Беззвучный
+// play/pause помечает элемент разрешённым для Safari, после чего плашка
+// вправе запустить его в любой момент — даже через таймеры и rAF-цепочку.
+let primedAchievementAudio = null;
+function primeAchievementAudio() {
+  if (primedAchievementAudio) return primedAchievementAudio;
+  try {
+    const sample = new Audio('./uploads/220.mp3');
+    sample.preload = 'auto';
+    sample.muted = true;
+    const attempt = sample.play();
+    if (attempt && typeof attempt.then === 'function') {
+      attempt.then(() => { sample.pause(); sample.currentTime = 0; })
+        .catch(() => { /* жест мог не подойти — плашка попробует сама */ });
+    }
+    primedAchievementAudio = sample;
+    return sample;
+  } catch (e) {
+    return null;
+  }
+}
+
 function playStormAchievementChime() {
   // Загруженный пользователем слой — смысловой центр ачивки. HTMLAudio
   // выбран намеренно: браузер декодирует mp3 сам, а SW держит его офлайн.
-  const sample = new Audio('./uploads/220.mp3');
+  // Safari разрешает play() только рядом с пользовательским жестом, а
+  // production-плашка приходит через ~2 с анимаций после отпускания ручки
+  // генератора. Поэтому элемент прогревается заранее внутри реального
+  // жеста (primeAchievementAudio) и здесь лишь перезапускается.
+  const sample = primedAchievementAudio || new Audio('./uploads/220.mp3');
+  primedAchievementAudio = null;
+  try { sample.pause(); sample.currentTime = 0; } catch (e) {}
+  sample.muted = false;
   sample.volume = 0.24;
   sample.play().catch(() => { /* звук мог быть запрещён до пользовательского жеста */ });
 
