@@ -41,8 +41,11 @@ w.addEventListener('load', async () => {
     );
     const center = () => d.querySelector('.bpm-drum-row.is-center')?.textContent || '';
     const pending = () => w.eval('bpmCommitPending');
-    const remainder = () => w.eval('bpmWheelRemainder');
     const isOpen = () => w.eval('bpmDrumOpen');
+    // Синтетическая серия dispatchEvent укладывается в ~0мс, из-за чего
+    // оценка скорости по сэмплам была бы фиктивно огромной. Обнуляем
+    // сэмплы: конец потока тогда детерминированно фиксирует целую строку.
+    const calmStream = () => w.eval('if (bpmDrum) bpmDrum.wheelSamples = [];');
     w.eval(`
       window.__b89ApplyCount = 0;
       window.__b89OriginalApplyBpmChange = applyBpmChange;
@@ -59,8 +62,11 @@ w.addEventListener('load', async () => {
         clearTimeout(bpmCommitTimer);
         bpmCommitTimer = 0;
         bpmCommitPending = false;
-        bpmWheelRemainder = 0;
+        clearTimeout(bpmWheelStreamTimer);
+        bpmWheelStreamTimer = 0;
+        bpmWheelDriving = false;
         bpmWheelCrossed220 = false;
+        if (bpmDrum) { bpmDrum.wheelSamples = []; bpmDrumStopLoop(); bpmDrum.snapTo = null; bpmDrum.vel = 0; }
         clearTimeout(bpmDrumCloseTimer);
         bpmDrumCloseTimer = 0;
         bpmDrumClosing = false;
@@ -71,9 +77,12 @@ w.addEventListener('load', async () => {
     console.log('=== 1. Поле — единственное выбранное число, центр следует сразу ===');
     ok(!html.includes('bpmWheelTarget') && !html.includes('bpmDrum.committed') && !html.includes('followBpmWheelTarget'),
       'отдельные target/committed и числовой follow удалены');
+    ok(!html.includes('bpmWheelRemainder'),
+      'числовой пиксельный остаток удалён: недокрут живёт в offset самой ленты');
     reset(120);
     let before = applyCount();
     for (let i = 0; i < 10; i++) wheel(12);
+    calmStream();
     ok(input.value === '130' && center() === '130',
       '10 быстрых дистанций сразу показывают 130 и в поле, и в центре', `${input.value}/${center()}`);
     ok(pending() === true && applyCount() === before,
@@ -84,7 +93,9 @@ w.addEventListener('load', async () => {
     await sleep(150);
     ok(input.value === '130' && center() === '130' && pending() === false, 'после commit отображаемое число остаётся 130');
     ok(applyCount() === before + 1, 'вся серия вызывает applyBpmChange ровно один раз');
-    await sleep(950);
+    // Автозакрытие отсчитывается от ПОЛНОЙ остановки (конец wheel-потока
+    // через 90 мс), поэтому выдержка чуть больше прежних 950 мс.
+    await sleep(1150);
     ok(!isOpen() && input.value === '130' && center() === '130',
       'автозакрытие оставляет ровно последнее показанное число');
 
@@ -122,15 +133,20 @@ w.addEventListener('load', async () => {
       'transform ленты задан в rem, а не в фиксированных экранных 38px', stripStyle);
     w.closeBpmDrum();
 
-    console.log('=== 3. Дробные delta копятся, разворот сначала гасит остаток ===');
+    console.log('=== 3. Недокрут живёт в offset, разворот гасит его естественно ===');
     reset(120);
     for (let i = 0; i < 4; i++) wheel(1);
+    ok(w.eval('bpmDrum.offset') > w.eval('bpmDrumRestOffset(120)'),
+      'подпороговый путь реально сдвигает ленту, а не копится в скрытом числе');
     for (let i = 0; i < 4; i++) wheel(-1);
-    ok(input.value === '120' && center() === '120' && remainder() === 0,
-      'равные встречные остатки сразу взаимно гасятся без ложного шага');
+    calmStream();
+    ok(input.value === '120' && center() === '120' &&
+      w.eval('bpmDrum.offset === bpmDrumRestOffset(120)'),
+      'равный встречный путь возвращает ленту ровно на строку 120');
     await sleep(300);
     ok(input.value === '120' && pending() === false, 'подпороговый жест ничего не применяет');
     for (let i = 0; i < 12; i++) wheel(-1);
+    calmStream();
     ok(input.value === '119' && center() === '119', 'полный обратный путь сразу даёт −1');
     await sleep(300);
     ok(input.value === '119' && pending() === false, 'после тишины число 119 не меняется');
@@ -138,23 +154,62 @@ w.addEventListener('load', async () => {
     console.log('=== 4. Мышь, Shift и границы сохраняют контракт ===');
     reset(120);
     wheel(100);
-    ok(input.value === '121' && center() === '121', 'крупный дискретный тик мыши сразу даёт +1');
+    await sleep(220);
+    ok(input.value === '121' && center() === '121',
+      'крупный дискретный тик мыши плавно перелистывает ровно +1', `${input.value}/${center()}`);
     wheel(100, true);
-    ok(input.value === '126' && center() === '126', 'Shift сразу ускоряет дискретный тик до +5');
+    await sleep(220);
+    ok(input.value === '126' && center() === '126',
+      'Shift плавно перелистывает ровно +5 без пролёта', `${input.value}/${center()}`);
+    ok(w.eval('bpmDrum.offset === bpmDrumRestOffset(126) && bpmDrum.raf === 0'),
+      'после дискретной доездки лента стоит точно на строке без инерции');
     await sleep(300);
     reset(298);
     for (let i = 0; i < 5; i++) wheel(12);
+    calmStream();
     ok(input.value === '300' && center() === '300', 'верхняя граница 300 едина для поля и центра');
     await sleep(300);
     reset(42);
     for (let i = 0; i < 5; i++) wheel(-12);
+    calmStream();
     ok(input.value === '40' && center() === '40', 'нижняя граница 40 едина для поля и центра');
     await sleep(300);
+
+    console.log('=== 4.1. Конец быстрого потока продолжает движение той же инерцией ===');
+    reset(120);
+    w.eval(`
+      openBpmDrum();
+      const t0 = performance.now();
+      bpmDrum.offset = bpmDrumRestOffset(124);
+      bpmDrum.lastValue = 124;
+      DOM.bpmInput.value = 124;
+      bpmDrum.wheelSamples = [
+        { t: t0 - 60, off: bpmDrumRestOffset(122) },
+        { t: t0, off: bpmDrumRestOffset(124) }
+      ];
+      bpmWheelDriving = true;
+      bpmWheelStreamTimer = 1;
+      bpmWheelStreamEnd();
+    `);
+    ok(w.eval('bpmDrum.vel') > 0.18 && w.eval('bpmDrum.raf') !== 0,
+      'быстрый wheel-поток передаёт скорость той же инерции, что и drag');
+    // затухание exp(-dt/260) при ~1.3 ед/мс длится около секунды + snap
+    await sleep(1900);
+    ok(w.eval('bpmDrum.raf === 0 && bpmDrum.snapTo == null'),
+      'инерция сама затухает и snap ставит целую строку');
+    ok(input.value === center() && Number(input.value) > 124,
+      'после инерции поле и центр — одно число дальше точки отпускания',
+      `${input.value}/${center()}`);
+    ok(w.eval(`bpmDrum.offset === bpmDrumRestOffset(${input.value})`),
+      'финальная строка стоит ровно в центре');
+    w.closeBpmDrum();
+    await sleep(400);
 
     console.log('=== 5. Проход через 220 запускает сцену только после остановки ===');
     reset(219);
     w.eval('currentSongSeal = LIGHTNING_SONG_SEAL');
     for (let i = 0; i < 5; i++) wheel(12); // выбранное число 224
+    calmStream();
     ok(input.value === '224' && center() === '224' && !w.eval('powerGeneratorState'),
       'сразу после прохода итог 224 уже показан, сцены ещё нет');
     await sleep(170);
@@ -168,6 +223,7 @@ w.addEventListener('load', async () => {
 
     reset(221);
     for (let i = 0; i < 5; i++) wheel(-12); // выбранное число 216
+    calmStream();
     await sleep(320);
     state = w.eval('powerGeneratorState');
     ok(input.value === '216' && center() === '216' && state && state.unlockAchievement,
