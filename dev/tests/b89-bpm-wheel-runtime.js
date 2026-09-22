@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* B-89 / 0.339 — Safari wheel: единый выбранный BPM без числового доезда. */
+/* B-89 / 0.340 — Safari wheel и точный геометрический центр барабана. */
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 const html = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
@@ -61,6 +61,9 @@ w.addEventListener('load', async () => {
         bpmCommitPending = false;
         bpmWheelRemainder = 0;
         bpmWheelCrossed220 = false;
+        clearTimeout(bpmDrumCloseTimer);
+        bpmDrumCloseTimer = 0;
+        bpmDrumClosing = false;
       `);
       input.value = String(value);
     };
@@ -94,6 +97,30 @@ w.addEventListener('load', async () => {
     ok(!isOpen() && input.value === '130' && center() === '130' && pending() === false,
       'после раннего закрытия остаётся то же число 130');
     ok(applyCount() === before + 1, 'раннее закрытие только один раз флашит side-effect');
+    wheel(100);
+    ok(input.value === '130' && !isOpen(),
+      'momentum-хвост во время сворачивания не открывает барабан и не переписывает поле');
+
+    console.log('=== 2.1. Закрытие активного движения сначала снапает целую строку ===');
+    reset(130);
+    w.openBpmDrum();
+    w.eval(`
+      bpmDrum.offset = bpmDrumRestOffset(130) + BPM_DRUM_ROW * 0.6;
+      bpmDrum.vel = 2;
+      bpmDrum.snapTo = null;
+      bpmDrumRenderFrame();
+    `);
+    w.closeBpmDrum();
+    ok(input.value === '131' && center() === '131' && !isOpen(),
+      'явное закрытие останавливает инерцию на ближайшей строке 131');
+    ok(w.eval('bpmDrum.offset === bpmDrumRestOffset(131) && bpmDrum.raf === 0'),
+      'после закрытия офсет уже точный и отложенного rAF нет');
+    reset(120);
+    w.openBpmDrum();
+    const stripStyle = d.querySelector('.bpm-drum-strip').style.transform;
+    ok(/rem/.test(stripStyle) && !/translate3d\(0,-?\d+(?:\.\d+)?px/.test(stripStyle),
+      'transform ленты задан в rem, а не в фиксированных экранных 38px', stripStyle);
+    w.closeBpmDrum();
 
     console.log('=== 3. Дробные delta копятся, разворот сначала гасит остаток ===');
     reset(120);

@@ -28,7 +28,12 @@ w.addEventListener('load', async () => {
   const pmove = (el, y) => el.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientY: y, clientX: 50 }));
   const pup = (el, y) => el.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true, clientY: y, clientX: 50 }));
   const key = (k) => d.dispatchEvent(new w.KeyboardEvent('keydown', { key: k, bubbles: true, cancelable: true }));
-  const wheelField = (dy) => input.dispatchEvent(new w.WheelEvent('wheel', { deltaY: dy, cancelable: true, bubbles: true }));
+  // Каждый вызов здесь — новый намеренный жест теста, а не momentum-хвост
+  // предыдущего закрытия. B-89 отдельно проверяет 340мс-защиту хвоста.
+  const wheelField = (dy) => {
+    w.eval('clearTimeout(bpmDrumCloseTimer); bpmDrumCloseTimer = 0; bpmDrumClosing = false;');
+    return input.dispatchEvent(new w.WheelEvent('wheel', { deltaY: dy, cancelable: true, bubbles: true }));
+  };
   const pop = () => d.querySelector('.bpm-inline-drum');
 const isOpen = () => { const q = pop(); return !!q && q.classList.contains('is-open'); };
 
@@ -88,12 +93,12 @@ const isOpen = () => { const q = pop(); return !!q && q.classList.contains('is-o
   const cyl = pop();
   pdown(cyl, 300);
   await sleep(120);
-  pmove(cyl, 3400); // сильно за минимум
+  pmove(cyl, 4300); // сильно за минимум с учётом штатного UI scale 125%
   const centerDuringDrag = w.eval('Math.round(bpmDrumCenterValue())');
   ok('во время резинки центр не ниже 40', centerDuringDrag >= 40, String(centerDuringDrag));
   await sleep(400);
   ok('держим: барабан не закрылся', isOpen());
-  pup(cyl, 3400);
+  pup(cyl, 4300);
   await sleep(450);
   ok('после отпускания — пружина к 40', input.value === '40', input.value);
   await sleep(1500);

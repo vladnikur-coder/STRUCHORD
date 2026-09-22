@@ -3283,6 +3283,14 @@ body {
   cursor: grabbing;
 }
 .bpm-drum-strip {
+  /* B-89 / 0.340: начало ленты привязано к геометрическому центру
+     пилюли, а не к её меняющемуся верхнему краю. Поэтому центральная
+     строка не уплывает при раскрытии/сворачивании, а rem-масштаб строк
+     и transform используют одну систему координат на всех 25–300%. */
+  position: absolute;
+  top: 50%;
+  left: 0;
+  right: 0;
   will-change: transform;
 }
 .bpm-drum-row {
@@ -10286,7 +10294,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.339</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.340</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -39307,10 +39315,12 @@ DOM.bpmInput.addEventListener('change', commitBpmInputChange);
 // воспроизведение (restartPlaybackFromCurrentPosition). Поэтому тяжёлый
 // applyBpmChange выполняется один раз после остановки жеста, а не на
 // каждом промежуточном числе.
-// B-89 / 0.339: выбранный BPM живёт только в DOM.bpmInput.value.
+// B-89 / 0.340: выбранный BPM живёт только в DOM.bpmInput.value.
 // Барабан — прямая визуальная проекция этого числа, без отдельной числовой
 // цели и без «последнего применённого BPM». Отложен только тяжёлый эффект
 // (перестройка ленты/рестарт), его ожидание — булев флаг, а не второе число.
+// Геометрия ленты считается в тех же rem, что и CSS-строки: прежние 38px
+// расходились с 2.375rem уже при штатном масштабе 125%.
 const BPM_WHEEL_DISTANCE_PER_STEP = 12;
 const BPM_WHEEL_DISCRETE_DELTA = 40;
 const BPM_WHEEL_SETTLE_MS = 260;
@@ -39331,6 +39341,12 @@ function flushPendingBpmCommit() {
   // Подтверждённое правило: wheel-проход через 220 считается даже при
   // другом конечном BPM, но только после завершения жеста.
   if (crossed220) maybeUnlockPowerAchievementFromBpm(220);
+  // Wheel не запускает rAF-снап: после 260 мс тишины это его точка
+  // остановки. Один раз доводим уже целую строку до измеренного центра.
+  // Во время drag/инерции не вмешиваемся — их завершает bpmDrumLoop.
+  if (bpmDrumOpen && bpmDrum && !bpmDrum.dragging && !bpmDrum.raf && bpmDrum.snapTo == null) {
+    bpmDrumAlignSettledCenter(parseInt(DOM.bpmInput.value, 10));
+  }
   return shouldApply || crossed220;
 }
 
@@ -39378,6 +39394,7 @@ function showBpmDrumValue(value) {
   bpmDrum.offset = bpmDrumRestOffset(selected);
   bpmDrum.vel = 0;
   bpmDrum.snapTo = null;
+  bpmDrum.centerCorrectionPx = 0;
   bpmDrum.lastValue = selected;
   DOM.bpmInput.value = selected;
   bpmDrumRenderFrame();
@@ -39387,6 +39404,9 @@ function handleBpmWheel(event) {
   // Только при наведении: страница под курсором не должна дёргаться.
   // passive:false у слушателей обязателен для рабочего preventDefault.
   event.preventDefault();
+  // Пока 340мс сворачивается уже зафиксированный финал, системный
+  // momentum-хвост не вправе снова открыть барабан и переписать поле.
+  if (bpmDrumClosing) return;
   const delta = normalizeBpmWheelDelta(event);
   if (!delta) return;
   if (!bpmDrumOpen) openBpmDrum();
@@ -39469,16 +39489,24 @@ window.addEventListener('pointerup', () => {
 // цифра — закрыть барабан и продолжить ввод в поле, Esc/клик вне —
 // закрыть. Пока лента крутится, поле показывает живое целое значение,
 // тяжёлый applyBpmChange дебаунсится (260мс) и флашится на закрытии.
+//
+// Физика по-прежнему живёт в базовых единицах 16px (это сохраняет
+// принятую чувствительность), но transform выводится в rem: 38/16 =
+// 2.375rem, ровно как высота CSS-строки. Фиксированный px-transform был
+// причиной расхождения уже на дефолтных 125%.
+const BPM_DRUM_BASE_REM_PX = 16;
 const BPM_DRUM_ROW = 38;
 const BPM_DRUM_VISIBLE = 3;
-// центрирующий отступ: окно 5×38, ряд занимает середину, а не верх —
-// покой для значения V это (V−MIN)×ROW − PAD
+// центрирующий отступ в базовых единицах физики.
 const BPM_DRUM_PAD = ((BPM_DRUM_VISIBLE - 1) / 2) * BPM_DRUM_ROW;
 let bpmDrum = null;
 let bpmDrumOpen = false;
+let bpmDrumClosing = false;
+let bpmDrumCloseTimer = 0;
 let bpmDrumSuppressClick = false;
 let bpmDrumIdleTimer = 0;
 const BPM_DRUM_IDLE_MS = 1200;
+const BPM_DRUM_CLOSE_MS = 340;
 
 // Барабан — транзиентный фидбек редактирования колесом: пока крутят,
 // он живёт; 1.2с тишины — закрылся (с коммитом значения). Любое
@@ -39529,6 +39557,7 @@ function buildBpmDrum() {
     '<div class="bpm-drum-fade bpm-drum-fade--bottom"></div>' +
     '<div class="bpm-drum-frame"></div>';
   const strip = el.querySelector('.bpm-drum-strip');
+  const frame = el.querySelector('.bpm-drum-frame');
   const rows = [];
   for (let v = CONFIG.MIN_BPM; v <= CONFIG.MAX_BPM; v++) {
     const r = document.createElement('div');
@@ -39541,17 +39570,28 @@ function buildBpmDrum() {
   // сам барабан и есть цилиндр (события вешаются на него)
   const cyl = el;
   bpmDrum = {
-    el, cyl, strip, rows,
-    offset: 0,          // px: (значение − MIN) × ROW в покое
-    vel: 0,             // px/мс при инерции
+    el, cyl, strip, frame, rows,
+    offset: 0,          // базовые 16px-единицы: (значение − MIN) × ROW − PAD
+    vel: 0,             // базовые единицы/мс при инерции
     raf: 0,
     dragging: false,
     dragRaw: 0,
+    gestureScale: 1,
     samples: [],
     snapFrom: 0, snapTo: 0, snapStart: 0, snapDur: 0,
+    centerCorrectionPx: 0, // однократная субпиксельная доводка после остановки
     lastValue: 0,
     lastWindow: null,
   };
+  // На дробных масштабах последний 1/64px может измениться в финальном
+  // кадре раскрытия. После height-transition повторяем только settled-
+  // калибровку; во время движения этот обработчик не вмешивается.
+  el.addEventListener('transitionend', (event) => {
+    const d = bpmDrum;
+    if (event.target !== el || event.propertyName !== 'height') return;
+    if (!bpmDrumOpen || !d || d.dragging || d.raf || d.snapTo != null) return;
+    bpmDrumAlignSettledCenter(parseInt(DOM.bpmInput.value, 10));
+  });
   wireBpmDrumEvents();
   return bpmDrum;
 }
@@ -39571,8 +39611,15 @@ function bpmDrumApplyLive() {
 
 function bpmDrumRenderFrame() {
   const d = bpmDrum;
-  d.strip.style.transform = 'translate3d(0,' + (-d.offset).toFixed(2) + 'px,0)';
   const center = CONFIG.MIN_BPM + (d.offset + BPM_DRUM_PAD) / BPM_DRUM_ROW;
+  // .bpm-drum-strip стоит top:50%. От него уводим вверх индекс центра
+  // плюс половину строки. Базовые 16px переводим в rem — поэтому
+  // transform масштабируется ровно вместе с CSS height:2.375rem.
+  const yRem = -(
+    d.offset + BPM_DRUM_PAD + BPM_DRUM_ROW / 2
+  ) / BPM_DRUM_BASE_REM_PX;
+  d.strip.style.transform = 'translate3d(0,calc(' + yRem.toFixed(8) + 'rem + ' +
+    d.centerCorrectionPx.toFixed(4) + 'px),0)';
   const base = Math.round(center) - CONFIG.MIN_BPM; // ИНДЕКС центральной строки
   const from = Math.max(0, base - 3);
   const to = Math.min(d.rows.length - 1, base + 3);
@@ -39594,6 +39641,66 @@ function bpmDrumRenderFrame() {
     r.style.opacity = String(Math.max(0.12, 1 - Math.abs(dist) / 3.2));
     r.classList.toggle('is-center', i === base);
   }
+}
+
+// Субпиксельная доводка выполняется ОДИН раз после остановки, не в rAF.
+// На промежуточных UI-масштабах (например 30%) WebKit/Chromium могут
+// округлить длинную колонку строк по 1/64px; измеряем фактические центры
+// и компенсируем только эту накопленную погрешность. Горячий путь wheel/
+// pointermove остаётся чистой записью transform без reflow.
+function bpmDrumAlignSettledCenter(value) {
+  const d = bpmDrum;
+  if (!d || !d.frame) return null;
+  let selected = Number(value);
+  if (!isFinite(selected)) selected = Math.round(bpmDrumCenterValue());
+  selected = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, Math.round(selected)));
+  d.offset = bpmDrumRestOffset(selected);
+  d.vel = 0;
+  d.snapTo = null;
+  d.centerCorrectionPx = 0;
+  d.lastValue = selected;
+  DOM.bpmInput.value = selected;
+  bpmDrumRenderFrame();
+
+  const row = d.rows[selected - CONFIG.MIN_BPM];
+  if (!row || typeof row.getBoundingClientRect !== 'function') return selected;
+  // Два прохода нужны только на редких масштабах вроде 65%: первый
+  // transform может сам округлиться до сетки движка 1/64px и оставить
+  // 0.015625px. Второй убирает и этот остаток, сохраняя допуск ≤0.01px.
+  for (let pass = 0; pass < 2; pass++) {
+    const rowRect = row.getBoundingClientRect();
+    const frameRect = d.frame.getBoundingClientRect();
+    const error = rowRect.top + rowRect.height / 2 -
+      (frameRect.top + frameRect.height / 2);
+    if (!isFinite(error) || Math.abs(error) <= 0.005) break;
+    d.centerCorrectionPx -= error;
+    bpmDrumRenderFrame();
+  }
+  return selected;
+}
+
+// Явное закрытие не ждёт инерцию: останавливает её, выбирает ближайшую
+// целую строку и синхронизирует поле ДО запуска CSS-сворачивания.
+function bpmDrumSettleImmediately() {
+  if (!bpmDrum) return null;
+  const d = bpmDrum;
+  const before = parseInt(DOM.bpmInput.value, 10);
+  const selected = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM,
+    Math.round(bpmDrumCenterValue())));
+  bpmDrumStopLoop();
+  d.dragging = false;
+  d.dragRaw = bpmDrumRestOffset(selected);
+  d.samples = [];
+  d.vel = 0;
+  d.snapTo = null;
+  d.centerCorrectionPx = 0;
+  d.el.classList.remove('is-dragging');
+  d.offset = d.dragRaw;
+  d.lastValue = selected;
+  DOM.bpmInput.value = selected;
+  bpmDrumRenderFrame();
+  if (before !== selected) bpmCommitPending = true;
+  return selected;
 }
 
 function bpmDrumStopLoop() {
@@ -39653,6 +39760,7 @@ function bpmDrumLoop(t) {
     d.offset = d.snapTo;
     d.snapTo = null;
     d.raf = 0;
+    bpmDrumAlignSettledCenter(Math.round(bpmDrumCenterValue()));
   }
 }
 
@@ -39667,6 +39775,7 @@ function bpmDrumAnimateToValue(v) {
   const d = bpmDrum;
   const target = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, v));
   d.vel = 0;
+  d.centerCorrectionPx = 0;
   d.snapFrom = d.offset;
   d.snapTo = bpmDrumRestOffset(target);
   d.snapDur = 130;
@@ -39676,10 +39785,14 @@ function bpmDrumAnimateToValue(v) {
 
 function openBpmDrum() {
   const d = buildBpmDrum();
+  clearTimeout(bpmDrumCloseTimer);
+  bpmDrumCloseTimer = 0;
+  bpmDrumClosing = false;
   const cur = parseInt(DOM.bpmInput.value, 10) || CONFIG.DEFAULT_BPM;
   d.offset = bpmDrumRestOffset(Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, cur)));
   d.vel = 0;
   d.snapTo = null;
+  d.centerCorrectionPx = 0;
   d.lastValue = cur;
   // Форсируем вычисление стартового стиля: на ПЕРВОМ открытии элемент
   // только что создан, и если повесить is-open до первого расчёта,
@@ -39700,14 +39813,23 @@ function openBpmDrum() {
 
 function closeBpmDrum() {
   if (!bpmDrumOpen) return;
-  // Раннее закрытие только флашит отложенные последствия. Само число уже
-  // совпадает с центром и после закрытия не переписывается.
+  // Любой путь закрытия сначала останавливает движение и ставит ближайшую
+  // целую строку в точный геометрический центр. Только затем начинается
+  // CSS-сворачивание; поле уже содержит ту же строку и дальше не меняется.
+  bpmDrumSettleImmediately();
+  // flush одновременно делает однократный геометрический контроль уже
+  // остановленной строки — отдельного reflow на закрытии нет.
   flushPendingBpmCommit();
-  bpmDrumStopLoop();
   clearTimeout(bpmDrumIdleTimer);
   bpmDrum.el.classList.remove('is-open');
   DOM.bpmInput.style.visibility = '';
   bpmDrumOpen = false;
+  bpmDrumClosing = true;
+  clearTimeout(bpmDrumCloseTimer);
+  bpmDrumCloseTimer = setTimeout(() => {
+    bpmDrumClosing = false;
+    bpmDrumCloseTimer = 0;
+  }, BPM_DRUM_CLOSE_MS);
   DOM.bpmInput.classList.remove('is-spinning');
   document.removeEventListener('pointerdown', bpmDrumOnDocPointerDown, true);
   document.removeEventListener('keydown', bpmDrumOnKey, true);
@@ -39765,6 +39887,10 @@ function wireBpmDrumEvents() {
     d.dragging = true;
     d.vel = 0;
     d.snapTo = null;
+    d.centerCorrectionPx = 0;
+    // pointer-координаты приходят в CSS px, а физика хранит базовые
+    // 16px-единицы. Деление на UI scale оставляет ленту под пальцем 1:1.
+    d.gestureScale = Math.max(0.25, currentUiScale() / 100);
     startY = e.clientY;
     startOffset = d.offset;
     d.dragRaw = d.offset;
@@ -39775,7 +39901,7 @@ function wireBpmDrumEvents() {
   cyl.addEventListener('pointermove', (e) => {
     if (!d.dragging) return;
     // вверх = большее BPM: лента едет вниз, смещение растёт
-    d.dragRaw = startOffset + (startY - e.clientY);
+    d.dragRaw = startOffset + (startY - e.clientY) / d.gestureScale;
     d.samples.push({ t: performance.now(), off: d.dragRaw });
     if (d.samples.length > 8) d.samples.shift();
   });
