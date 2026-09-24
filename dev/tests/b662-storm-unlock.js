@@ -26,9 +26,9 @@ ok(src.includes("localStorage.getItem(POWER_GENERATOR_KEY) === '1'"),'ачивк
 ok(src.includes('stormSeenAchievements = new Set'),'грозовые ачивки имеют отдельный реестр');
 ok(src.includes('function maybeUnlockStormSecret(source)')&&src.includes('currentSongSeal !== THUNDER_SONG_SEAL')&&src.includes("activeSchemeId() !== 'storm'"),'production-маршрут Грохочет гром требует seal песни и схему Гроза');
 ok(!src.includes('STORM_SECRET_STRIKE_DELAY_MS')&&src.includes("afterStrike: firstThunder ? () => showStormAchievement(achievement, false) : null"),'unlock больше не ускоряет молнию: плашка ждёт обычный полный грозовой удар');
-ok(src.includes("achievement = { id: THUNDER_ACHIEVEMENT_ID, title: 'Грохочет гром' }")&&src.includes('achievement-style-storm')&&src.includes('storm-achievement-cloud'),'плашка Грохочет гром выполнена как грозовая туча');
+ok(src.includes("achievement = { id: THUNDER_ACHIEVEMENT_ID, title: 'Грохочет гром' }")&&src.includes('thunder-title-achievement')&&src.includes('thunder-title-main'),'Грохочет гром показывает не плашку, а чёрный титр после удара');
 ok(src.includes("THUNDER_ACHIEVEMENT_AUDIO_SRC = './uploads/грохочет гром.mp3'")&&src.includes('playThunderAchievementMp3'),'mp3 «грохочет гром» проигрывается вместе с плашкой');
-ok(src.includes('thunder-badge-dark-fairytale')&&src.includes('thunder-badge-storm-tower')&&src.includes('thunder-badge-jester-sign'),'в dev доступны 3 новых мрачных варианта плашки Грохочет гром');
+ok(src.includes("font-family:'Izhitsa'")&&src.includes('thunder-title-etching')&&src.includes('Превью титра'),'титр использует Izhitsa-направление, линогравюрные молнии и dev-preview');
 ok(src.includes('requestAnimationFrame(() => requestAnimationFrame(() =>')&&src.includes('тучи сгущаются переходом'),'тучи получают плавный двухкадровый вход без скачка');
 ok(!src.includes('cancelStormSurprise(); showStormAchievement(achievement);'),'Молния со схемой Гроза больше не выдаёт старую ачивку');
 ok(src.includes('documentSeal: asSafeText(rawSong.documentSeal'),'подпись проходит санитайзер');
