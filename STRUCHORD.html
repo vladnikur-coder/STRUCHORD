@@ -3978,6 +3978,15 @@ body.is-section-dragging .section-header { cursor: grabbing; }
   min-width: 0.375rem;
   font-weight: 700;
 }
+/* B-93: хвост пауз одиночного удара (D___ → D). Элементы остаются в
+   потоке DOM ради порядковой адресации подсветки, но не занимают ни
+   пикселя: display:none убрал бы их из ряда целиком, а нам нужно лишь
+   спрятать — при этом gap родителя не должен оставить пустых зазоров,
+   поэтому именно display:none, а gap схлопывается сам (скрытые дети
+   гридом/флексом не считаются). */
+.event-strum-preview .strum-step.is-collapsed-rest {
+  display: none;
+}
 .event-strum-preview .strum-step.pick {
   font-size: 0.5625rem;
   gap: 0;
@@ -5890,6 +5899,14 @@ html:not([data-theme='dark']) #btnPlay.active:hover {
   background: rgba(var(--color-accent-warm-rgb), 0.10);
   transition: box-shadow 0.08s ease, background 0.08s ease;
 }
+/* Кружок настроек метронома сидит ВЕРХОМ на кнопке метронома (top/right
+   отрицательные) — значит его фон обязан быть непрозрачным.
+   B-94: фоном стоял --color-border-medium, а это rgba(0,0,0,0.15) в
+   светлой теме и rgba(255,255,255,0.12) в тёмной — цвет ГРАНИЦЫ, по
+   смыслу полупрозрачный. Сквозь него просвечивали белый круг метронома
+   и его обводка, и кнопка выглядела дырявой наклейкой.
+   Берём токен нейтрального фона — непрозрачный серый, заведён во всех
+   15 схемах и обеих темах (проверено: 32 определения, все #hex). */
 .metronome-dots-btn {
   position: absolute;
   top: -0.375rem;
@@ -5897,7 +5914,7 @@ html:not([data-theme='dark']) #btnPlay.active:hover {
   width: 1rem;
   height: 1rem;
   border-radius: 50%;
-  background: var(--color-border-medium);
+  background: var(--color-neutral-bg);
   border: 0.0625rem solid var(--color-border-medium);
   cursor: pointer;
   font-size: 0.5rem;
@@ -5907,8 +5924,10 @@ html:not([data-theme='dark']) #btnPlay.active:hover {
   line-height: 1;
   color: var(--color-neutral-text);
 }
+/* Ховер обязан отличаться: раньше он повторял базовый фон один в один,
+   и кнопка не отзывалась на курсор вовсе. */
 .metronome-dots-btn:hover {
-  background: var(--color-border-medium);
+  background: var(--color-surface-hover);
 }
 .subdivision-btn {
   width: 2rem;
@@ -6965,6 +6984,133 @@ body:not(.is-timeline) .fing-string.is-vibrating {
 }
 @media (prefers-reduced-motion: reduce) {
   .save-for-all-btn { transition: none; }
+}
+
+/* B-93: КАСКАД-ПИЛЮЛЯ в редакторе ритма (переработка каскада B-92).
+   Над кнопкой «Сохранить» теперь не один ярус кнопок, а два:
+     1) некликабельный триггер «Сохранить для всех…» (появляется наведением
+        на обёртку вокруг «Сохранить»),
+     2) действия «{Тип}ов (N)» / «Секций (N)» — ГОРИЗОНТАЛЬНОЙ строкой
+        НАД триггером (появляются наведением на сам триггер).
+   Мотив: первая пилюля — это приглашение и защита от случайного клика
+   (массовая раздача — тяжёлая операция), вторая строка — собственно
+   выбор области. По механике появления всё осталось прежним, язык тот
+   же, что и у аппликатур (.save-for-all-btn): лёгкие контурные пилюли
+   в акценте всплывают НАД кнопкой «Сохранить» по наведению. */
+.pattern-save-wrap { position: relative; display: inline-flex; }
+.pattern-save-cascade {
+  position: absolute;
+  left: 50%;
+  bottom: 100%;
+  display: flex;
+  /* column-reverse: триггер в DOM идёт первым (для селектора
+     trigger:hover ~ actions), но ВИЗУАЛЬНО в колонке он должен быть
+     НИЖЕ действий — ближе к кнопке «Сохранить», а действия всплывают
+     НАД пилюлей-триггером. */
+  flex-direction: column-reverse;
+  align-items: center;
+  gap: 0.25rem;
+  padding-bottom: 0.5rem; /* невидимый мост между каскадом и «Сохранить» */
+  transform: translate(-50%, 0.25rem);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+  z-index: 20010;
+}
+.pattern-save-wrap:hover .pattern-save-cascade,
+.pattern-save-cascade:hover,
+.pattern-save-cascade:focus-within {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translate(-50%, 0);
+}
+/* Пилюля-приглашение НЕ кликабельна: @media (hover:none) показывает её
+   постоянно поверх «Сохранить», и перехват клика приводил бы к тому,
+   что touch-пользователь не смог бы сохранить даже один паттерн. */
+.pattern-save-cascade-trigger {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.3125rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 0.0625rem solid var(--color-accent);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: default;
+  user-select: none;
+  box-shadow: var(--shadow-card);
+  position: relative; /* опора для ::before (мост к действиям) */
+  pointer-events: auto; /* ловит ХОВЕР, но не клик (span) */
+}
+/* Мостик через gap 0.25rem между строкой действий и триггером: без него
+   подселектор .pattern-save-cascade-actions:hover переставал бы гореть
+   на стыке пилюль и каскад «хлопался» бы раньше, чем курсор добрался. */
+.pattern-save-cascade-trigger::before {
+  content: '';
+  position: absolute;
+  left: -0.125rem;
+  right: -0.125rem;
+  bottom: 100%;
+  height: 0.375rem;
+}
+.pattern-save-cascade-actions {
+  display: flex;
+  flex-direction: row;
+  gap: 0.25rem;
+  transform: translateY(0.125rem);
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 0.16s ease, transform 0.16s ease, visibility 0.16s;
+}
+/* Открываем строку действий ПРИ НАВЕДЕНИИ на сам триггер (и при ховере
+   на ней самой, и когда фокус внутри неё — для доступности). */
+.pattern-save-cascade-trigger:hover ~ .pattern-save-cascade-actions,
+.pattern-save-cascade-actions:hover,
+.pattern-save-cascade-actions:focus-within {
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transform: translateY(0);
+}
+.pattern-save-all-btn {
+  padding: 0.3125rem 0.75rem;
+  border-radius: 0.75rem;
+  border: 0.0625rem solid var(--color-accent);
+  background: var(--color-surface);
+  color: var(--color-accent);
+  font-family: var(--font-sans);
+  font-size: 0.75rem;
+  font-weight: 600;
+  white-space: nowrap;
+  cursor: pointer;
+  box-shadow: var(--shadow-card);
+}
+/* Строка кнопок выравнивается по ширине триггера: одна («…секций»)
+   занимает её целиком, две делят пополам — прижимаем края, чтобы не
+   было впадин по бокам. */
+.pattern-save-all-btn:first-child:last-child { flex: 1 1 auto; }
+.pattern-save-all-btn:not(:first-child):not(:last-child) { flex: 1 1 auto; }
+.pattern-save-all-btn:hover { background: var(--color-tint); }
+@media (hover: none), (pointer: coarse) {
+  /* Сенсорный экран не показывает :hover-каскад: открываем приглашение
+     по нажатию на обёртку (см. обработчик в JS ниже; класс ставится
+     один раз, дальше каскад реагирует на hover как обычно). */
+  .pattern-save-wrap.is-cascade-open .pattern-save-cascade {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+    transform: translate(-50%, 0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .pattern-save-cascade,
+  .pattern-save-cascade-actions { transition: none; }
 }
 .modulation-round-btn {
   width: 2.25rem;
@@ -10202,8 +10348,10 @@ html[data-theme='dark'] .storm-charge-glint {
   background:transparent; isolation:isolate;
 }
 .power-generator-blackout { position:absolute; inset:0; display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(2,1fr); z-index:0; }
-.power-generator-zone { background:#030303; opacity:0; }
+.power-generator-zone { display:block; background:#030303; opacity:0; }
 .power-generator-scene.is-failing .power-generator-zone { animation:power-generator-failure 1.45s steps(1,end) forwards; }
+.power-generator-scene.is-restoring .power-generator-stage { transition:none; }
+.power-generator-scene.is-restoring .power-generator-zone { animation:power-generator-zone-restore 1.65s steps(1,end) forwards; }
 .power-generator-scene.is-dark .power-generator-zone { opacity:1; }
 .power-generator-stage {
   position:relative; z-index:2; width:min(58rem,96vw); min-height:min(39rem,88vh);
@@ -10241,7 +10389,7 @@ html[data-theme='dark'] .storm-charge-glint {
 .power-generator-crank-hit:active,.power-generator-scene.is-cranking .power-generator-crank-hit { cursor:grabbing; }
 .power-generator-knob-halo { fill:none; stroke:#efd38e; stroke-width:3; opacity:.28; transform-box:fill-box; transform-origin:center; animation:power-generator-halo 1.8s ease-in-out infinite; pointer-events:none; }
 .power-generator-lamp { fill:#4f4430; stroke:#171511; stroke-width:4; transition:fill .22s,filter .22s; filter:drop-shadow(0 0 calc(var(--generator-power) * .48rem) rgba(255,198,52,.72)); }
-.power-generator-lamp-glow { fill:none; stroke:#f2c355; stroke-width:3; opacity:calc(var(--generator-power) * .58); filter:drop-shadow(0 0 calc(var(--generator-power) * .62rem) rgba(255,209,77,.84)); }
+.power-generator-lamp-glow { fill:none; stroke:#f2c355; stroke-width:3; opacity:calc(var(--generator-power) * .58); filter:drop-shadow(0 0 calc(var(--generator-power) * .62rem) rgba(255,209,77,.84)); transform-box:fill-box; transform-origin:center; }
 .power-generator-copy { text-align:center; min-height:4.2rem; text-shadow:0 .16rem .55rem rgba(0,0,0,.8); }
 .power-generator-voltage { font:750 clamp(1.55rem,4vw,2.35rem)/1 ui-monospace,SFMono-Regular,Consolas,monospace; letter-spacing:.08em; color:#f1d184; }
 .power-generator-instruction { margin-top:.45rem; color:rgba(246,232,199,.7); font-size:.85rem; letter-spacing:.035em; }
@@ -10255,16 +10403,34 @@ html[data-theme='dark'] .storm-charge-glint {
 .power-generator-scene.is-powered .power-generator-instruction { display:none; }
 .power-generator-scene.is-powered .power-generator-ready { display:block; animation:power-generator-ready-in .42s ease-out both; }
 .power-generator-scene.is-restoring .power-generator-stage { opacity:0; transform:translate3d(0,-1.5rem,0) scale(.985); filter:brightness(1.35); }
-.power-generator-scene.is-restoring .power-generator-zone { animation:power-generator-zone-restore 1.65s steps(1,end) forwards; }
+
 .power-generator-scene.is-restoring .power-generator-zone:nth-child(2) { animation-delay:.12s; }
 .power-generator-scene.is-restoring .power-generator-zone:nth-child(3) { animation-delay:.3s; }
 .power-generator-scene.is-restoring .power-generator-zone:nth-child(4) { animation-delay:.48s; }
 .power-generator-scene.is-restoring .power-generator-zone:nth-child(5) { animation-delay:.64s; }
 .power-generator-scene.is-restoring .power-generator-zone:nth-child(6) { animation-delay:.82s; }
 .power-generator-step { display:none; border:1px solid rgba(246,232,199,.4); border-radius:999px; padding:.65rem 1rem; background:#292621; color:#f4dfad; font:inherit; font-size:.8rem; font-weight:700; }
+@keyframes power-generator-voltage-surge {
+  0%,7%{opacity:1;filter:brightness(.08)}
+  8%,13%{opacity:.05;filter:brightness(2.8)}
+  14%,22%{opacity:.94;filter:brightness(.2)}
+  23%,30%{opacity:.12;filter:brightness(3.6)}
+  31%,41%{opacity:.82;filter:brightness(.35)}
+  42%,49%{opacity:.04;filter:brightness(4.8)}
+  50%,60%{opacity:.7;filter:brightness(.45)}
+  61%,69%{opacity:.08;filter:brightness(3.2)}
+  70%,81%{opacity:.48;filter:brightness(.7)}
+  82%,90%{opacity:.16;filter:brightness(1.8)}
+  91%,99%{opacity:.04;filter:brightness(4)}
+  100%{opacity:0;filter:brightness(1)}
+}
 @keyframes power-generator-failure {
   0%,16%{opacity:0} 17%,27%{opacity:.74} 28%,38%{opacity:.06} 39%,51%{opacity:.9}
   52%,61%{opacity:.2} 62%,70%{opacity:1} 71%,79%{opacity:.45} 80%,100%{opacity:1}
+}
+@keyframes power-generator-zone-restore {
+  0%{opacity:1} 12%{opacity:.24} 22%{opacity:1} 38%{opacity:.48}
+  52%{opacity:.94} 69%{opacity:.12} 78%{opacity:.62} 100%{opacity:0}
 }
 @keyframes power-generator-halo { 0%,100%{opacity:.15;transform:scale(.86)} 50%{opacity:.58;transform:scale(1.16)} }
 @keyframes power-generator-powered-pulse { 0%{filter:drop-shadow(0 1.7rem 2.5rem rgba(0,0,0,.72))} 35%{filter:drop-shadow(0 0 1.3rem rgba(255,218,119,.92)) drop-shadow(0 1.7rem 2.5rem rgba(0,0,0,.72))} 100%{filter:drop-shadow(0 1.7rem 2.5rem rgba(0,0,0,.72))} }
@@ -10272,10 +10438,6 @@ html[data-theme='dark'] .storm-charge-glint {
 @keyframes power-generator-meter-ring { 0%{opacity:.35;stroke-width:4} 28%{opacity:1;stroke-width:9;filter:drop-shadow(0 0 1.2rem #ffd95f)} 100%{opacity:.58;stroke-width:4} }
 @keyframes power-generator-lamp-ring { from{opacity:1;transform:scale(.45)} to{opacity:0;transform:scale(2.4)} }
 @keyframes power-generator-ready-in { from{opacity:0;transform:translateY(.4rem)} to{opacity:1;transform:none} }
-@keyframes power-generator-zone-restore {
-  0%{opacity:1} 12%{opacity:.24} 22%{opacity:1} 38%{opacity:.48}
-  52%{opacity:.94} 69%{opacity:.12} 78%{opacity:.62} 100%{opacity:0}
-}
 
 @media (max-width: 620px) {
   .power-generator-stage { width:100vw; min-height:100vh; padding:.75rem; }
@@ -10332,7 +10494,7 @@ html[data-theme='dark'] .storm-charge-glint {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.346</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.388</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21326,6 +21488,11 @@ function changeSectionType(sid, nt) {
   if (s.customName) delete s.customName;
   // B-25: тип секции меняет только label-класс/текст.
   if (!syncSectionHeaderDom(s)) requestRender();
+  // B-91.1: карта песни подписывает секции тем же songmapBaseName, то
+  // есть ТИПОМ. Смена типа — это переименование с точки зрения карты,
+  // и мимо полного render() она о нём не узнавала: в 0.346 закрыли
+  // только renameSection, а это вторая дверь в то же имя.
+  renderSongMap();
   showToast(`Тип секции изменён на "${LABEL_RU[nt] || nt}"`);
 }
 function setSectionKey(sid, nk) {
@@ -21558,6 +21725,9 @@ function setSectionRepeat(sectionId, count) {
   // B-25: повтор секции меняет только repeat-row в списке квадратов этой
   // секции и таймлайн; весь документ не пересобираем.
   if (!rerenderSectionSquaresDom(sec)) requestRender();
+  // B-91.1: в карте песни повтор висит плашкой «×N» рядом с именем —
+  // тот же быстрый путь мимо render(), что и у переименования.
+  renderSongMap();
   if (count === 1) showToast('Повтор секции убран');
   else showToast(`Секция повторяется ×${count}`);
 }
@@ -23158,6 +23328,17 @@ function soundingWindowsEqual(a, b) {
 function sectionRhythmDeclared(sec) {
   const p = sec && sec.strumPattern;
   return !!(p && Array.isArray(p.steps) && p.steps.length);
+}
+
+// B-92: рисунок есть, но в нём нет ни одного удара — записанная ТИШИНА.
+// Для звука это полноценный паттерн (секция молчит, а не играет бой по
+// умолчанию), а для глаза — пустое место: рисовать бейдж из одних пауз
+// незачем, он сообщал бы «тут свой ритм», показывая «_ _ _ _».
+// Отличается от isGhostSilenceCell: тот про ЯЧЕЙКУ и про пул рулонов,
+// этот — про любой готовый объект паттерна.
+function isSilentPattern(p) {
+  if (!p || !Array.isArray(p.steps) || !p.steps.length) return false;
+  return !p.steps.some((s) => (Array.isArray(s) ? s.length : s));
 }
 
 // Звучащее содержимое ячейки целиком пустое (окно пула либо легаси-
@@ -27675,6 +27856,7 @@ function renderEventStrumPreviews(container) {
       // Дробное число циклов (рисунок не укладывается в ячейку целое
       // число раз) счётчиком не показываем: «×1.5» ничего не подсказывает.
       extraLoops: Number.isInteger(loops) && loops > 1 ? loops : 1,
+      collapseSoloHit: true,   // B-93: D___ показываем как одиночный D
     });
     box.appendChild(preview);
     box.classList.add('has-pattern');
@@ -27837,6 +28019,31 @@ function buildStrumPreviewEls(pattern, opts) {
       .filter((idx) => idx > 0)
   );
 
+  // B-93: «один удар и тишина» в ЯЧЕЙКЕ читается как одиночный удар.
+  // Рука бьёт один раз и ждёт — хвост «_ _ _» ничего не добавляет к
+  // тому, что играть, зато съедает узкую ширину ячейки и выглядит
+  // рисунком из четырёх событий.
+  //
+  // Условие намеренно узкое (резюме пользователя): удар ровно один И
+  // стоит ПЕРВЫМ. Рисунок вида «_ _ D _» не сворачивается — там паузы
+  // несут момент удара, и без них превью соврало бы, когда бить.
+  // D_U_ тоже остаётся как есть: ударов два, паузы держат их расстояние.
+  //
+  // Флаг приходит только от превью ячейки (opts.collapseSoloHit):
+  // бейдж секции, тултип и список пресетов показывают рисунок целиком —
+  // там рисунки сравнивают между собой, и место для этого есть.
+  //
+  // Паузы при этом остаются в DOM скрытыми (.is-collapsed-rest), а не
+  // удаляются: планировщик подсветки адресует шаги ПОРЯДКОВЫМ номером
+  // (els[stepIdx % els.length], см. scheduleStrumStepHighlight). Выкинь
+  // элементы — и на «×N»-повторах загорался бы не тот знак.
+  const collapseSoloHit =
+    !!(opts && opts.collapseSoloHit) &&
+    steps.length > 1 &&
+    isHit(steps[0]) &&
+    steps.every((s, i) => i === 0 || !isHit(s));
+  if (collapseSoloHit) preview.classList.add('has-collapsed-rests');
+
   steps.forEach((s, i) => {
     if (changeSteps.has(i)) {
       const sep = document.createElement('span');
@@ -27847,6 +28054,9 @@ function buildStrumPreviewEls(pattern, opts) {
     }
     const stepEl = document.createElement('span');
     stepEl.className = 'strum-step';
+    // B-93: хвост тишины после одиночного удара — в DOM есть, на экране
+    // нет (ширину тоже не занимает, см. .is-collapsed-rest в CSS).
+    if (collapseSoloHit && i > 0) stepEl.classList.add('is-collapsed-rest');
     // Смешанная лента (волна-5): щипковые шаги рисуем перебором,
     // знаковые — боем, независимо от режима всего рисунка.
     if (pattern.mode === 'pick' || (pattern.mode === 'mixed' && (Array.isArray(s) || typeof s === 'number'))) {
@@ -27954,7 +28164,8 @@ function restoreSectionStrumBadge(sectionId) {
   strumPreviewStepEls.delete(sectionId);
   if (!badgesDiv) return;
   let wrap = badgesDiv.querySelector('.strum-badge-wrap');
-  if (!sec || !sec.strumPattern) {
+  // B-92: тишина — не повод рисовать бейдж (та же проверка, что в render).
+  if (!sec || !sec.strumPattern || isSilentPattern(sec.strumPattern)) {
     if (wrap) wrap.remove();
     return;
   }
@@ -28026,7 +28237,7 @@ function setEventLiveStrumPreview(secId, sqId, ei, pattern, sectionDefaultPatter
     const sqL = secL && secL.squares.find((q) => q.id === sqId);
     const liveSlice = pattern ? inheritedFacadeSliceForPreview(secL, sqL, ei) : null;
     if (liveSlice) {
-      const { preview: pv } = buildStrumPreviewEls(liveSlice);
+      const { preview: pv } = buildStrumPreviewEls(liveSlice, { collapseSoloHit: true });
       box.appendChild(pv);
       box.classList.add('has-pattern', 'is-live', 'is-inherited-slice');
       box.parentElement?.classList.add('has-cell-rhythm');
@@ -28036,7 +28247,7 @@ function setEventLiveStrumPreview(secId, sqId, ei, pattern, sectionDefaultPatter
     box.parentElement?.classList.remove('has-cell-rhythm');
     return;
   }
-  const { preview } = buildStrumPreviewEls(pattern);
+  const { preview } = buildStrumPreviewEls(pattern, { collapseSoloHit: true });
   box.appendChild(preview);
   box.classList.add('has-pattern', 'is-live');
   box.parentElement?.classList.add('has-cell-rhythm');
@@ -28075,7 +28286,7 @@ function restoreEventStrumPreview(key) {
     box.parentElement?.classList.remove('has-cell-rhythm');
     return;
   }
-  const { preview } = buildStrumPreviewEls(cellPattern);
+  const { preview } = buildStrumPreviewEls(cellPattern, { collapseSoloHit: true });
   box.appendChild(preview);
   box.classList.add('has-pattern');
   box.parentElement?.classList.add('has-cell-rhythm');
@@ -29178,7 +29389,16 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">
     <button id="cancel-pattern" style="padding:0.5rem 1.25rem;background:var(--color-neutral-bg);border:0.0625rem solid var(--color-border-medium);border-radius:1.25rem;cursor:pointer">Отмена</button>
     <button id="reset-pattern" style="padding:0.5rem 1.25rem;background:var(--color-neutral-bg);border:0.0625rem solid var(--color-border-medium);border-radius:1.25rem;cursor:pointer">${escapeHtml(resetLabel)}</button>
-    <button id="save-pattern" style="padding:0.5rem 1.25rem;background:var(--color-ink);color:white;border:none;border-radius:1.25rem;cursor:pointer;font-weight:600">Сохранить</button>
+    <span class="pattern-save-wrap" id="save-pattern-all-wrap">
+      <span class="pattern-save-cascade" role="group" aria-label="Сохранить ритм для нескольких секций">
+        <span class="pattern-save-cascade-trigger" id="pattern-save-trigger" aria-hidden="true">Сохранить для всех…</span>
+        <span class="pattern-save-cascade-actions" role="group" aria-label="Область сохранения ритма">
+          <button type="button" class="pattern-save-all-btn" id="save-pattern-type"></button>
+          <button type="button" class="pattern-save-all-btn" id="save-pattern-all"></button>
+        </span>
+      </span>
+      <button id="save-pattern" style="padding:0.5rem 1.25rem;background:var(--color-ink);color:white;border:none;border-radius:1.25rem;cursor:pointer;font-weight:600">Сохранить</button>
+    </span>
   </div>
 </div>
 `;
@@ -29829,12 +30049,20 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     previewBtn.innerHTML = '<i class="ti ti-player-stop"></i> Стоп';
   };
 
-  modal.querySelector('#save-pattern').onclick = () => {
-    const hasAnyStep = pattern.steps.some((s) => (Array.isArray(s) ? s.length : s));
-    if (!hasAnyStep) {
-      showToast('Задайте хотя бы одну долю паттерна');
-      return;
-    }
+  // B-92: пустая сетка — это честная ТИШИНА, а не ошибка ввода.
+  //
+  // Раньше сохранение просто отклонялось тостом «Задайте хотя бы одну
+  // долю паттерна»: задать молчащую секцию (проигрыш, пауза перед
+  // припевом) было нельзя вообще. Теперь тишина сохраняется, но —
+  // по резюме пользователя — с предупреждением: пустая сетка чаще
+  // означает «случайно всё стёр», чем намерение, и молча закрывать
+  // окно нельзя.
+  //
+  // Значок кастомного ритма такая секция не получает: «пустой» ритм и
+  // «свой ритм» — разные вещи (см. isSilentPattern у бейджа).
+  const saveCommit = (allScope) => {
+    const isSilent = !pattern.steps.some((s) => (Array.isArray(s) ? s.length : s));
+    let savedToCount = 1;
     // Планировщик ждёт паттерн ровно на полную длину (такт или ячейку) и
     // молча откатывается на обычный бой, если длина другая. Поэтому
     // короткий рисунок разворачиваем повтором ПЕРЕД сохранением —
@@ -29852,13 +30080,29 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
       });
     }
     if (scope === 'section') {
-      sec.strumPattern = saved;
-      // Волна-4: только секционный рулон — пула ячеек эта правка не
-      // касается (волны-2/3 дропали пул целиком, спасал кэш ячеек).
-      setSectionRhythmRoll(sec, saved);
-      // Волна-7: пины, совпавшие с НОВЫМ боем секции, сдаются — ячейки
-      // снова наследуют секцию (звук не меняется на месте).
-      demoteMatchingCellRhythmsInSection(sec);
+      // B-92: адресаты правки. Без allScope — только эта секция
+      // (прежнее поведение). 'type' — все секции того же типа,
+      // 'all' — вся песня.
+      const targets =
+        allScope === 'all'
+          ? sections.slice()
+          : allScope === 'type'
+            ? sections.filter((s) => s.type === sec.type &&
+                (s.type !== 'Custom' || (s.customName || '') === (sec.customName || '')))
+            : [sec];
+      targets.forEach((target) => {
+        // Каждой секции — СВОЯ копия: общий объект связал бы их правки
+        // между собой (правка одной меняла бы остальные).
+        const copy = JSON.parse(JSON.stringify(saved));
+        target.strumPattern = copy;
+        // Волна-4: только секционный рулон — пула ячеек эта правка не
+        // касается (волны-2/3 дропали пул целиком, спасал кэш ячеек).
+        setSectionRhythmRoll(target, copy);
+        // Волна-7: пины, совпавшие с НОВЫМ боем секции, сдаются — ячейки
+        // снова наследуют секцию (звук не меняется на месте).
+        demoteMatchingCellRhythmsInSection(target);
+      });
+      savedToCount = targets.length;
     } else {
       // Ячейка: хирургия по своей полосе общего рулона или форк в
       // приватный (см. saveEventPatternToRhythmRoll).
@@ -29871,10 +30115,83 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
     // B-25: сохранение ритма меняет только бейдж секции или текущий
     // квадрат; полный render всей песни не нужен и может конфликтовать с
     // B-15/stale preview.
-    if (scope === 'section') syncSectionRhythmDom(sec);
-    else syncSquareDomNow(sec, sq);
-    showToast('Паттерн сохранён');
+    //
+    // B-92: при раздаче на несколько секций точечной синхронизации мало —
+    // бейджи всех затронутых карточек должны обновиться, поэтому там
+    // идём общим render(). Это редкое явное действие, не горячий путь.
+    if (scope === 'section') {
+      if (savedToCount > 1) render();
+      else syncSectionRhythmDom(sec);
+    } else syncSquareDomNow(sec, sq);
+    showToast(
+      savedToCount > 1
+        ? `Ритм сохранён для ${savedToCount} ${pluralSections(savedToCount)}`
+        : isSilent
+          ? 'Сохранена тишина: секция молчит'
+          : 'Паттерн сохранён'
+    );
   };
+  // Предупреждение о тишине — ОДНО на все три кнопки сохранения, иначе
+  // «Сохранить для всех» молча разослала бы пустую сетку по песне.
+  const confirmSilenceIfNeeded = () => {
+    const silent = !pattern.steps.some((s) => (Array.isArray(s) ? s.length : s));
+    if (!silent) return true;
+    return window.confirm(
+      scope === 'section'
+        ? 'Сетка пуста — секция будет молчать. Сохранить тишину?'
+        : 'Сетка пуста — ячейка будет молчать. Сохранить тишину?'
+    );
+  };
+
+  modal.querySelector('#save-pattern').onclick = () => {
+    if (!confirmSilenceIfNeeded()) return;
+    saveCommit(null);
+  };
+
+  // B-93: КАСКАД-ПИЛЮЛЯ — переработка каскада B-92. Теперь над
+  // «Сохранить» сначала всплывает некликабельный триггер «Сохранить
+  // для всех…», а наведение на него раскрывает второй уровень — две
+  // кнопки области в одну строку. Логика областей (однотипные секции,
+  // счётчики, клики) та же, что была в B-92, — меняется только ТОПОЛОГИЯ
+  // представления. Только для секции: раздавать ритм ОДНОЙ ячейки по
+  // всей песне пользователь не просил, и смысла в этом нет.
+  const saveAllWrap = modal.querySelector('#save-pattern-all-wrap');
+  if (saveAllWrap && scope === 'section') {
+    const sameType = sections.filter((s) => s.type === sec.type &&
+      (s.type !== 'Custom' || (s.customName || '') === (sec.customName || '')));
+    const typeBtn = modal.querySelector('#save-pattern-type');
+    const allBtn = modal.querySelector('#save-pattern-all');
+    // Короткие подписи (B-93, выбор пользователя): на триггере уже
+    // написано «Сохранить для всех…», поэтому на кнопках второго уровня
+    // повторяем только саму область — «Куплетов (2)» / «Секций (4)».
+    if (typeBtn) {
+      typeBtn.textContent = `${sectionTypePlural(sec)} (${sameType.length})`;
+      // Однотипная секция ровно одна — раздавать нечего, кнопка только
+      // мешала бы выбору.
+      if (sameType.length < 2) typeBtn.style.display = 'none';
+      typeBtn.onclick = () => {
+        if (!confirmSilenceIfNeeded()) return;
+        saveCommit('type');
+      };
+    }
+    if (allBtn) {
+      allBtn.textContent = `Секций (${sections.length})`;
+      allBtn.onclick = () => {
+        if (!confirmSilenceIfNeeded()) return;
+        saveCommit('all');
+      };
+    }
+    // Одна секция во всей песне — каскад не нужен вовсе.
+    if (sections.length < 2) saveAllWrap.querySelector('.pattern-save-cascade').style.display = 'none';
+  } else if (saveAllWrap) {
+    // Редактор ЯЧЕЙКИ: каскада нет (ни триггера, ни действий). При этом
+    // прячем ТОЛЬКО сам .pattern-save-cascade — никогда весь
+    // #save-pattern-all-wrap: он обернул вокруг него ещё и кнопку
+    // «Сохранить», и её прятать нельзя (баг B-92.1).
+    const cascade = saveAllWrap.querySelector('.pattern-save-cascade');
+    if (cascade) cascade.style.display = 'none';
+  }
+
   modal.querySelector('#reset-pattern').onclick = () => {
     if (scope === 'section') {
       sec.strumPattern = null;
@@ -30870,6 +31187,7 @@ const POWER_GENERATOR_KEY = 'struchord-achievement-220-v1';
 const SECRET_ROUTING_MIGRATION_KEY = 'struchord-secret-routing-v335';
 const LIGHTNING_SONG_SEAL = 'scd1.8d2f71c4e9a63b05.220';
 let powerGeneratorState = null;
+let powerGeneratorSessionSeen = false;
 let powerAchievementSeen = false;
 
 function powerGeneratorDialTicks() {
@@ -30910,7 +31228,7 @@ function powerGeneratorMarkup() {
     '<line class="power-generator-needle" data-generator-needle x1="285" y1="225" x2="367" y2="225" transform="rotate(140 285 225)"></line><circle class="power-generator-needle-cap" cx="285" cy="225" r="14"></circle>' +
     '<circle class="power-generator-lamp-glow" cx="452" cy="146" r="16"></circle><circle class="power-generator-lamp" cx="452" cy="146" r="9"></circle>' +
     '<circle class="power-generator-shaft" data-generator-pivot cx="556" cy="235" r="31"></circle>' +
-    '<circle class="power-generator-rotor-ring" data-generator-rotor cx="556" cy="235" r="22"></circle>' +
+    '' +
     '<g data-generator-crank transform="rotate(0 556 235)"><line class="power-generator-crank-arm" x1="556" y1="235" x2="665" y2="235"></line><circle class="power-generator-crank-joint" cx="556" cy="235" r="12"></circle><circle class="power-generator-knob-halo" cx="665" cy="235" r="34"></circle><circle class="power-generator-crank-knob" cx="665" cy="235" r="22"></circle><circle class="power-generator-crank-hit" data-generator-handle cx="665" cy="235" r="43"></circle></g>' +
     '</svg></div><div class="power-generator-copy" aria-live="polite"><div class="power-generator-voltage" data-generator-voltage>0 V</div><div class="power-generator-instruction">Крутите ручку, чтобы восстановить питание</div><div class="power-generator-ready">ПИТАНИЕ ВОССТАНОВЛЕНО · 220 V</div></div>' +
     '<button class="power-generator-step" type="button">Повернуть ручку</button></section>';
@@ -31066,7 +31384,7 @@ function updatePowerGeneratorFeedback(now) {
     state.scene.style.setProperty('--generator-shake-x', `${(Math.sin(now * .071) * shake).toFixed(3)}rem`);
     state.scene.style.setProperty('--generator-shake-y', `${(Math.cos(now * .093) * shake * .62).toFixed(3)}rem`);
   }
-  state.rotor.setAttribute('transform', `rotate(${(state.angle * 1.8).toFixed(2)} 556 235)`);
+  if (state.rotor) state.rotor.setAttribute('transform', `rotate(${(state.angle * 1.8).toFixed(2)} 556 235)`);
 
   const audio = state.audio;
   if (!audio || audio.ctx.state === 'closed') return;
@@ -31178,7 +31496,11 @@ function rememberPowerAchievement() {
 function maybeUnlockPowerAchievementFromBpm(value) {
   const bpm = parseInt(value, 10);
   if (bpm !== 220 || currentSongSeal !== LIGHTNING_SONG_SEAL) return false;
-  if (powerAchievementSeen || powerGeneratorState || powerProloguePlaying) return false;
+  // Условие может срабатывать повторно: это не одноразовый unlock, а
+  // повторяемая сцена генератора. Пока текущий пролог/генератор активен,
+  // повторный запуск всё равно блокируем, чтобы сцены не накладывались.
+  if (powerGeneratorSessionSeen || powerGeneratorState || powerProloguePlaying) return false;
+  powerGeneratorSessionSeen = true;
   startPowerPrologue();
   return true;
 }
@@ -31369,6 +31691,8 @@ function completePowerGeneratorPrototype() {
   state.angularVelocity = 0;
   state.scene.classList.remove('is-cranking');
   state.scene.classList.add('is-powered');
+  // Генератор повторяемый, но плашка и её mp3 — одноразовые.
+  state.showAchievement = !!(state.unlockAchievement && !powerAchievementSeen);
   if (state.unlockAchievement) rememberPowerAchievement();
   updatePowerGeneratorGauge(220);
   updatePowerGeneratorFeedback(performance.now());
@@ -31384,10 +31708,12 @@ function beginPowerGeneratorRestore() {
   // B-66.2.1: восстановление света озвучено — щелчки контакторов идут
   // вслед зонам, гул сети возвращается вместе со светом.
   if (!stormReducedMotion()) playPowerRestoreSound(state);
-  // Плашка возникает уже во время зонального включения. Её принятый
-  // 220.mp3 остаётся отдельной кульминацией после короткого звука контактора.
+  // Генератор повторяется при каждом выполнении условия. Плашка и
+  // привязанный к ней mp3 показываются только в первом прохождении.
   const reduced = stormReducedMotion();
-  queuePowerGeneratorStep(() => showStormAchievement({ id:'220-volts', title:'220 вольт' }, false), reduced ? 0 : 620);
+  if (state.showAchievement) {
+    queuePowerGeneratorStep(() => showStormAchievement({ id:'220-volts', title:'220 вольт' }, false), reduced ? 0 : 620);
+  }
   queuePowerGeneratorStep(() => clearPowerGeneratorPrototype(false), reduced ? 120 : 2700);
 }
 
@@ -31626,14 +31952,32 @@ function primeAchievementAudio() {
     const sample = new Audio('./uploads/220.mp3');
     sample.preload = 'auto';
     sample.muted = true;
+    recordAudioDiagnostic('achievement-prime-requested');
     const attempt = sample.play();
     if (attempt && typeof attempt.then === 'function') {
-      attempt.then(() => { sample.pause(); sample.currentTime = 0; })
-        .catch(() => { /* жест мог не подойти — плашка попробует сама */ });
+      attempt.then(() => {
+        recordAudioDiagnostic('achievement-prime-playing', {
+          readyState: sample.readyState,
+        });
+        sample.pause(); sample.currentTime = 0;
+      })
+        .catch((error) => {
+          // Жест мог не подойти — плашка попробует сама. Причину фиксируем:
+          // Safari молчит в консоли, а отчёт покажет, NotAllowedError это,
+          // NotSupportedError (кривой ответ SW на Range) или AbortError.
+          recordAudioDiagnostic('achievement-prime-rejected', {
+            name: error && error.name ? error.name : null,
+            message: error && error.message ? error.message : String(error),
+            readyState: sample.readyState,
+          });
+        });
     }
     primedAchievementAudio = sample;
     return sample;
   } catch (e) {
+    recordAudioDiagnostic('achievement-prime-throw', {
+      message: e && e.message ? e.message : String(e),
+    });
     return null;
   }
 }
@@ -31645,12 +31989,36 @@ function playStormAchievementChime() {
   // production-плашка приходит через ~2 с анимаций после отпускания ручки
   // генератора. Поэтому элемент прогревается заранее внутри реального
   // жеста (primeAchievementAudio) и здесь лишь перезапускается.
-  const sample = primedAchievementAudio || new Audio('./uploads/220.mp3');
+  const wasPrimed = !!primedAchievementAudio;
+  // Safari 17.6 иногда успешно разрешает play() у того же элемента после
+  // muted-прогрева, но физически выводит звук только через раз. Не
+  // переиспользуем прогретый элемент: прогрев остаётся отдельной попыткой,
+  // а слышимый чайм получает свежий HTMLAudioElement на каждый запуск.
+  const sample = new Audio('./uploads/220.mp3');
   primedAchievementAudio = null;
-  try { sample.pause(); sample.currentTime = 0; } catch (e) {}
+  sample.preload = 'auto';
   sample.muted = false;
   sample.volume = 0.24;
-  sample.play().catch(() => { /* звук мог быть запрещён до пользовательского жеста */ });
+  recordAudioDiagnostic('achievement-chime-requested', { wasPrimed });
+  const chimeAttempt = sample.play();
+  if (chimeAttempt && typeof chimeAttempt.then === 'function') {
+    chimeAttempt.then(() => {
+      recordAudioDiagnostic('achievement-chime-playing', {
+        readyState: sample.readyState,
+      });
+    }).catch((error) => {
+      // Главный выход диагностики B-66.2: до логирования ошибка утопала
+      // без вывода, и по пустой консоли диагностировать было нечего.
+      recordAudioDiagnostic('achievement-chime-rejected', {
+        name: error && error.name ? error.name : null,
+        message: error && error.message ? error.message : String(error),
+        readyState: sample.readyState,
+        networkState: sample.networkState,
+        mediaError: sample.error ? sample.error.code : null,
+        wasPrimed,
+      });
+    });
+  }
 
   const ctx = getAudioContext();
   if (!ctx || ctx.state !== 'running') return;
@@ -35123,6 +35491,28 @@ let songmapSelectedId = null;
 // панели — см. ниже).
 let songmapClipboard = null;
 
+// Склонение слова «секция» под число: 1 секции, 2 секций, 5 секций.
+// В тосте стоит «Ритм сохранён для N …» — родительный падеж.
+function pluralSections(n) {
+  const mod10 = n % 10, mod100 = n % 100;
+  if (mod10 === 1 && mod100 !== 11) return 'секции';
+  return 'секций';
+}
+
+// B-92: «для всех Куплетов» читается живее, чем «для всех «Куплет»».
+// Тип секции — всегда существительное мужского рода, кроме кастомных
+// имён, которые пользователь пишет сам: их не склоняем, а берём в
+// кавычки, иначе получится «для всех Мой проигрышов».
+function sectionTypePlural(sec) {
+  if (!sec) return 'секций';
+  if (sec.type === 'Custom') return `«${sec.customName || 'Кастом'}»`;
+  const ru = LABEL_RU[sec.type] || sec.type;
+  // Куплет→Куплетов, Припев→Припевов, Бридж→Бриджей, Интро→Интро.
+  if (/[оеи]$/i.test(ru)) return ru;              // Интро, Соло, Аутро — несклоняемые
+  if (/[жчшщ]$/i.test(ru)) return `${ru}ей`;      // Бридж → Бриджей
+  return `${ru}ов`;                                // Куплет → Куплетов
+}
+
 // Подпись секции без номера.
 function songmapBaseName(sec) {
   return sec.type === 'Custom'
@@ -36020,6 +36410,28 @@ function fitSongArtistField(input) {
   input.style.setProperty('--identity-field-width', `${width}px`);
 }
 
+// B-90: подгонка ширины полей шапки РЕДАКТОРА под фактический текст.
+//
+// Отдельно от attachTimelineSongBar: тот привязан к полям ленты и
+// зовётся только при входе в неё. Здесь — поля редактора, которые видны
+// с первой секунды работы.
+//
+// `input` покрывает ввод с клавиатуры, вставку мышью и автозаполнение.
+// Программные присваивания (`loadSong`, `clearAll`) события не шлют —
+// там подгонка вызывается явно, эти вызовы уже стояли в коде.
+function attachEditorSongIdentityAutosize() {
+  if (window.__editorIdentityAutosizeReady) return;
+  window.__editorIdentityAutosizeReady = true;
+  [DOM.songArtist, DOM.songTitle].forEach((field) => {
+    if (!field) return;
+    field.addEventListener('input', () => fitSongArtistField(field));
+    // Стартовая подгонка: до первого ввода поле должно стоять по
+    // плейсхолдеру («Исполнитель» длиннее «Названия»), иначе вид по
+    // умолчанию поехал бы относительно принятого в 0.289.
+    fitSongArtistField(field);
+  });
+}
+
 function syncTimelineSongBar() {
   const artist = document.getElementById('tlSongArtist');
   const title = document.getElementById('tlSongTitle');
@@ -36601,7 +37013,9 @@ function renderSectionsGrid() {
       badgesDiv.appendChild(bpmBadge);
     }
     // --- бейдж боя/перебора секции (задаёт умолчание для всех её квадратов) ---
-    if (sec.strumPattern) {
+    // B-92: записанная тишина бейджа не получает — «пустой» ритм и
+    // «свой ритм» это разные вещи (см. isSilentPattern).
+    if (sec.strumPattern && !isSilentPattern(sec.strumPattern)) {
       const strumWrap = document.createElement('span');
       strumWrap.className = 'strum-badge-wrap';
       strumWrap.title = 'Бой/перебор секции (по умолчанию для всех её квадратов) — нажмите, чтобы изменить';
@@ -37920,7 +38334,10 @@ function syncSectionHeaderDom(sec) {
     };
     badgesDiv.appendChild(bpmBadge);
   }
-  if (sec.strumPattern) {
+  // B-92: и на быстром пути B-25 тишина бейджа не получает — иначе
+  // после сохранения пустой сетки плашка «_ _ _ _» оставалась висеть до
+  // ближайшей полной перерисовки (замер это и поймал).
+  if (sec.strumPattern && !isSilentPattern(sec.strumPattern)) {
     const wrap = document.createElement('span');
     wrap.className = 'strum-badge-wrap';
     wrap.title = 'Бой/перебор секции (по умолчанию для всех её квадратов) — нажмите, чтобы изменить';
@@ -41085,6 +41502,8 @@ toggleTimeAndBeats();
     }
 
     currentSongSeal = SIGNED_SECRET_SONG_SEALS.has(song.documentSeal) ? song.documentSeal : '';
+    // Новая загруженная песня открывает одну новую попытку сцены генератора.
+    powerGeneratorSessionSeen = false;
     const loadedMeta = songMetadataOf(song);
     DOM.songArtist.value = loadedMeta.artist;
     DOM.songTitle.value = loadedMeta.title;
@@ -41521,6 +41940,21 @@ toggleTimeAndBeats();
   // Плашка строя в панели: заполняем при старте, иначе до первого
   // открытия тюнера она пустая.
   renderTuningPill();
+
+  // B-90: поля «Исполнитель — Название» подстраиваются под длину текста.
+  //
+  // Подгонка (fitSongArtistField) в коде была и раньше, но её вызовы
+  // жили ТОЛЬКО в attachTimelineSongBar, а тот зовётся из блока
+  // `if (timelineMode)`. В обычном режиме редактора слушателей не
+  // появлялось вовсе: замер показал, что после ввода 14 символов ширина
+  // оставалась стартовыми 276px, а --identity-field-width не выставлялся
+  // ни разу — длинное название просто обрезалось.
+  //
+  // Поэтому вешаем подгонку на сами поля редактора при старте, один
+  // раз. Со слушателями ленты это не конфликтует: attachTimelineSongBar
+  // добавит свою пару при первом входе в ленту, а подгонка идемпотентна —
+  // она считает ширину от текущего значения, а не прибавляет к прежней.
+  attachEditorSongIdentityAutosize();
 
   // ---------- ИМПОРТ ИЗ ФАЙЛА ----------
   // Вызывается из диалога загрузки (кнопка «Из файла…»). Оставлен в

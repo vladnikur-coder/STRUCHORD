@@ -405,6 +405,28 @@ w.addEventListener('load', async () => {
   ok('changeSectionType обновляет label локально',
     evl(`return document.querySelector('.section-card[data-id="1"] .section-label').textContent`) === 'Припев'
       && evl(`return document.querySelector('.section-card[data-id="1"] .section-label').classList.contains('chorus')`));
+  // B-91.1: карта подписывает секции ТИПОМ (songmapBaseName), поэтому
+  // смена типа — это переименование и для неё. В 0.346 закрыли только
+  // renameSection, а эта вторая дверь вела к тому же устаревшему имени:
+  // карточка показывала «Соло», карта — прежний «Припев».
+  ok('changeSectionType актуализирует карту песни',
+    evl(`return document.querySelector('#songmapList .songmap-item[data-id="1"] .songmap-name')?.textContent`) === 'Припев',
+    evl(`return document.querySelector('#songmapList .songmap-item[data-id="1"] .songmap-name')?.textContent`));
+  restoreRenderCounter();
+
+  // B-91.1: третья дверь — повтор секции. В карте он висит плашкой «×N»
+  // рядом с именем и так же шёл мимо render().
+  resetRenderCounter();
+  evl(`setSectionRepeat(1, 3); return 0`);
+  ok('setSectionRepeat не вызывает полный requestRender',
+    evl('return window.__b25RequestRenderCount') === 0,
+    evl('return window.__b25RequestRenderCount'));
+  ok('setSectionRepeat актуализирует плашку ×N в карте песни',
+    evl(`return document.querySelector('#songmapList .songmap-item[data-id="1"] .songmap-repeat')?.textContent`) === '×3',
+    evl(`return document.querySelector('#songmapList .songmap-item[data-id="1"] .songmap-repeat')?.textContent`));
+  evl(`setSectionRepeat(1, 1); return 0`);
+  ok('снятие повтора убирает плашку из карты',
+    !evl(`return document.querySelector('#songmapList .songmap-item[data-id="1"] .songmap-repeat')`));
   restoreRenderCounter();
 
   resetRenderCounter();
