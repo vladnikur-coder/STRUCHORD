@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* B-66.2 / 0.406 — production-маршрут «Грохочет гром»: seal + схема storm. */
+/* B-66.2 / 0.407 — production-маршрут «Грохочет гром»: seal + схема storm. */
 const fs=require('fs');
 const {JSDOM}=require('jsdom');
 const html=fs.readFileSync(__dirname+'/../../STRUCHORD.html','utf8');
@@ -51,7 +51,7 @@ dom.window.addEventListener('load',()=>{
       if(badge.parentElement!==d.documentElement)throw new Error('ПРОВАЛ: грозовая плашка висит внутри body и уезжает при scroll + shake');
       if(w.getComputedStyle(badge).position!=='fixed')throw new Error('ПРОВАЛ: грозовая плашка не закреплена во viewport');
       if(!badge.querySelector('.thunder-plate-card')||!badge.querySelector('.thunder-plate-mark-bolt'))throw new Error('ПРОВАЛ: нет woodcut-карты или видимой молнии');
-      if(badge.querySelector('.thunder-title-backdrop'))throw new Error('ПРОВАЛ: production всё ещё показывает широкий титр');
+      if(badge.querySelector('[class*="thunder-title"]'))throw new Error('ПРОВАЛ: production всё ещё содержит широкий титр');
       if(!w.getComputedStyle(badge.querySelector('.thunder-plate-main')).fontFamily.includes('Izhitsa'))throw new Error('ПРОВАЛ: плашка не просит шрифт Izhitsa');
       if(!badge.textContent.includes('СЕКРЕТ НАЙДЕН')||!badge.textContent.includes('Грохочет гром'))throw new Error('ПРОВАЛ: текст плашки неверный');
       if(!w.eval("audioDiagnosticLog.some(e=>e.type==='thunder-achievement-mp3-requested')"))throw new Error('ПРОВАЛ: mp3 Грохочет гром не запрошен при плашке');
@@ -65,10 +65,7 @@ dom.window.addEventListener('load',()=>{
       if(repeat.hasAfterStrike)throw new Error('ПРОВАЛ: повторный вход снова назначил плашку');
       if(d.querySelector('.storm-achievement'))throw new Error('ПРОВАЛ: повторный вход показал плашку повторно');
 
-      w.previewThunderTitleForDev();
-      const preview=d.querySelector('.storm-achievement.thunder-title-achievement');
-      if(!preview||!preview.querySelector('.thunder-title-main'))throw new Error('ПРОВАЛ: dev-preview титра не появился');
-      preview.remove();
+      if(typeof w.previewThunderTitleForDev==='function')throw new Error('ПРОВАЛ: старый dev-preview титра остался в runtime');
       w.previewThunderPlateForDev();
       const plate=d.querySelector('.storm-achievement.thunder-plate-achievement');
       if(!plate||!plate.querySelector('.thunder-plate-etching')||!plate.querySelector('.thunder-plate-mark-bolt')||!plate.querySelector('.thunder-plate-main'))throw new Error('ПРОВАЛ: dev-preview woodcut-плашки с видимой молнией не появился');
@@ -82,7 +79,7 @@ dom.window.addEventListener('load',()=>{
       if(w.maybeUnlockStormSecret('song'))throw new Error('ПРОВАЛ: Дима Билан — Молния запустила «Грохочет гром»');
       if(w.__stormCalls.length)throw new Error('ПРОВАЛ: неправильный seal дошёл до storm route');
 
-      console.log('ALL OK — B-66.2 production требует seal «Дурак и молния» + storm, первый удар показывает принятую woodcut-плашку после грома, повторный вход гремит без повторной плашки.');
+      console.log('ALL OK — B-66.2 production требует seal «Дурак и молния» + storm, первый удар показывает принятую woodcut-плашку после грома, старый титр удалён, повторный вход гремит без повторной плашки.');
       dom.window.close();
     }catch(error){console.error(error);dom.window.close();process.exit(1);}
   },60);
