@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* B-66.2 / 0.397 — production-маршрут «Грохочет гром»: seal + схема storm. */
+/* B-66.2 / 0.398 — production-маршрут «Грохочет гром»: seal + схема storm. */
 const fs=require('fs');
 const {JSDOM}=require('jsdom');
 const html=fs.readFileSync(__dirname+'/../../STRUCHORD.html','utf8');
@@ -46,6 +46,8 @@ dom.window.addEventListener('load',()=>{
       if(!w.localStorage.getItem('struchord-storm-achievements')?.includes('thunder-rumbles'))throw new Error('ПРОВАЛ: ачивка не сохранена в localStorage');
       const badge=d.querySelector('.storm-achievement.achievement-style-storm');
       if(!badge)throw new Error('ПРОВАЛ: не показана грозовая плашка');
+      if(badge.parentElement!==d.documentElement)throw new Error('ПРОВАЛ: грозовая плашка висит внутри body и уезжает при scroll + shake');
+      if(w.getComputedStyle(badge).position!=='fixed')throw new Error('ПРОВАЛ: грозовая плашка не закреплена во viewport');
       if(!badge.querySelector('.storm-achievement-cloud'))throw new Error('ПРОВАЛ: плашка не туча');
       if(!badge.textContent.includes('СЕКРЕТ НАЙДЕН')||!badge.textContent.includes('Грохочет гром'))throw new Error('ПРОВАЛ: текст плашки неверный');
       badge.remove();
