@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* B-66.2 / 0.399 — production-маршрут «Грохочет гром»: seal + схема storm. */
+/* B-66.2 / 0.400 — production-маршрут «Грохочет гром»: seal + схема storm. */
 const fs=require('fs');
 const {JSDOM}=require('jsdom');
 const html=fs.readFileSync(__dirname+'/../../STRUCHORD.html','utf8');
@@ -50,7 +50,7 @@ dom.window.addEventListener('load',()=>{
       if(!badge)throw new Error('ПРОВАЛ: не показана грозовая плашка');
       if(badge.parentElement!==d.documentElement)throw new Error('ПРОВАЛ: грозовая плашка висит внутри body и уезжает при scroll + shake');
       if(w.getComputedStyle(badge).position!=='fixed')throw new Error('ПРОВАЛ: грозовая плашка не закреплена во viewport');
-      if(!badge.classList.contains('thunder-badge-cloud-seal'))throw new Error('ПРОВАЛ: production default не Туча-печать');
+      if(!badge.classList.contains('thunder-badge-dark-fairytale'))throw new Error('ПРОВАЛ: production default не Мрачная сказка');
       if(!badge.querySelector('.storm-achievement-cloud'))throw new Error('ПРОВАЛ: плашка не туча');
       if(!badge.textContent.includes('СЕКРЕТ НАЙДЕН')||!badge.textContent.includes('Грохочет гром'))throw new Error('ПРОВАЛ: текст плашки неверный');
       if(!w.eval("audioDiagnosticLog.some(e=>e.type==='thunder-achievement-mp3-requested')"))throw new Error('ПРОВАЛ: mp3 Грохочет гром не запрошен при плашке');
@@ -64,9 +64,9 @@ dom.window.addEventListener('load',()=>{
       if(repeat.hasAfterStrike)throw new Error('ПРОВАЛ: повторный вход снова назначил плашку');
       if(d.querySelector('.storm-achievement'))throw new Error('ПРОВАЛ: повторный вход показал плашку повторно');
 
-      w.setThunderBadgeStyleForDev('sky-rift');
+      w.setThunderBadgeStyleForDev('storm-tower');
       const preview=d.querySelector('.storm-achievement.achievement-style-storm');
-      if(!preview||!preview.classList.contains('thunder-badge-sky-rift'))throw new Error('ПРОВАЛ: dev-выбор плашки не применился');
+      if(!preview||!preview.classList.contains('thunder-badge-storm-tower'))throw new Error('ПРОВАЛ: dev-выбор плашки не применился');
       preview.remove();
 
       // Другая подписанная песня (B-66.1) не должна открывать «Грохочет гром».
