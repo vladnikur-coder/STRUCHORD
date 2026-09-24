@@ -139,6 +139,12 @@ console.log('=== 2. sw.js: функциональный прогон Range-об�
     /achievement-chime-rejected',\s*\{[\s\S]*?mediaError/.test(html));
   ok('wasPrimed фиксируется в отказе чайма',
     /achievement-chime-rejected[\s\S]{0,300}?wasPrimed/.test(html));
+  ok('mp3 «Грохочет гром» не затухает сразу после старта',
+    html.includes('fadeStart = Math.min(endAt - .02, Math.max(attackEnd + .08, endAt - fadeDuration))') &&
+    html.includes('gain.gain.setValueAtTime(.72, fadeStart)') &&
+    html.includes('fadeStartOffset') &&
+    !html.includes('exponentialRampToValueAtTime(.0001, ctx.currentTime + Math.min(5.8'),
+    'ожидаем sustain до хвоста и короткий fade-out в конце');
   ok('версия приложения поднята не ниже релиза B-66.2.3',
     !!(appVersion && Number(appVersion[1]) >= 353),
     appVersion && appVersion[1]);

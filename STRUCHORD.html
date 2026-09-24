@@ -10637,7 +10637,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.407</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.408</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32281,14 +32281,29 @@ function playThunderAchievementMp3() {
     if (!buffer || !ctx || ctx.state !== 'running') return false;
     try {
       const source = ctx.createBufferSource(), gain = ctx.createGain();
+      const now = ctx.currentTime;
+      const playbackDuration = Math.max(.25, buffer.duration || 5.8);
+      const attackEnd = now + .035;
+      const endAt = now + playbackDuration;
+      const fadeDuration = Math.min(.45, Math.max(.18, playbackDuration * .08));
+      const fadeStart = Math.min(endAt - .02, Math.max(attackEnd + .08, endAt - fadeDuration));
       source.buffer = buffer;
-      gain.gain.setValueAtTime(.0001, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(.72, ctx.currentTime + .035);
-      gain.gain.exponentialRampToValueAtTime(.0001, ctx.currentTime + Math.min(5.8, buffer.duration || 5.8));
+      gain.gain.cancelScheduledValues(now);
+      gain.gain.setValueAtTime(.0001, now);
+      gain.gain.exponentialRampToValueAtTime(.72, attackEnd);
+      // 0.408: не тянем fade-out от самого старта — держим громкость почти
+      // до конца mp3, иначе хвост «грохочет гром» исчезает сразу после атаки.
+      gain.gain.setValueAtTime(.72, fadeStart);
+      gain.gain.linearRampToValueAtTime(.0001, endAt);
       source.connect(gain); gain.connect(ctx.destination);
-      source.start(ctx.currentTime);
+      source.start(now);
+      source.stop(endAt + .02);
       source.onended = () => { try { source.disconnect(); gain.disconnect(); } catch (e) {} };
-      recordAudioDiagnostic('thunder-achievement-buffer-playing', { duration: buffer.duration || null });
+      recordAudioDiagnostic('thunder-achievement-buffer-playing', {
+        duration: buffer.duration || null,
+        fadeStartOffset: +(fadeStart - now).toFixed(3),
+        fadeDuration: +fadeDuration.toFixed(3),
+      });
       return true;
     } catch (error) {
       recordAudioDiagnostic('thunder-achievement-buffer-throw', { message: error && error.message ? error.message : String(error) });
