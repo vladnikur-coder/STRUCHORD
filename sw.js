@@ -12,7 +12,7 @@
 // (например, struchord-v2) — иначе браузер продолжит показывать
 // старую закэшированную версию, потому что имя кэша не поменялось.
 
-const CACHE_NAME = 'struchord-v346';
+const CACHE_NAME = 'struchord-v394';
 
 // Список файлов, которые нужно закэшировать сразу при установке.
 // './' добавлен на случай, если приложение открывают по адресу
@@ -48,6 +48,49 @@ self.addEventListener('fetch', (event) => {
   // Обрабатываем только GET-запросы того же происхождения (сам файл
   // приложения). Остального в STRUCHORD и нет — всё встроено в HTML.
   if (event.request.method !== 'GET') return;
+
+  // B-66.2.3: Range-запросы (206 Partial Content). Safari воспроизводит
+  // аудио именно таким способом: сначала «Range: bytes=0-1» для зондировки,
+  // затем диапазонами — и ждёт ровно 206 с заголовком Content-Range. Вместо
+  // этого кэш отдавал целиком 200 OK, и аудио-стек WebKit молча отказывался
+  // играть файл: сцена звучала всем, КРОМЕ 220.mp3, а консоль оставалась
+  // пустой. Поэтому range-запросы обрабатываем отдельно: из кэша режем
+  // нужный диапазон и отвечаем честным 206, без кэша — уходим в сеть.
+  if (event.request.headers.has('range')) {
+    event.respondWith(
+      caches.match(event.request).then(async (cached) => {
+        if (!cached) return fetch(event.request);
+        const rangeHeader = event.request.headers.get('range') || '';
+        const match = /bytes=(\d*)-(\d*)/.exec(rangeHeader);
+        if (!match) return cached; // нестандартный Range — отдаём целиком
+        const buffer = await cached.arrayBuffer();
+        const total = buffer.byteLength;
+        let start = match[1] ? parseInt(match[1], 10) : 0;
+        let end = match[2] ? Math.min(parseInt(match[2], 10), total - 1) : total - 1;
+        if (!match[1]) { // форма «bytes=-500»: последние 500 байт
+          start = Math.max(0, total - parseInt(match[2] || '0', 10));
+          end = total - 1;
+        }
+        if (start > end || start >= total) {
+          return new Response(null, {
+            status: 416,
+            headers: { 'Content-Range': `bytes */${total}` },
+          });
+        }
+        const slice = buffer.slice(start, end + 1);
+        return new Response(slice, {
+          status: 206,
+          headers: {
+            'Content-Range': `bytes ${start}-${end}/${total}`,
+            'Accept-Ranges': 'bytes',
+            'Content-Length': String(slice.byteLength),
+            'Content-Type': cached.headers.get('Content-Type') || 'audio/mpeg',
+          },
+        });
+      })
+    );
+    return;
+  }
 
   event.respondWith(
     caches.match(event.request).then((cached) => {
