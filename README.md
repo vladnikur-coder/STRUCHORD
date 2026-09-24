@@ -2,7 +2,7 @@
 
 > Редактор структуры песен: секции, квадраты, аккорды, аппликатуры, бои и переборы с воспроизведением.  
 > Одностраничное веб-приложение без сборки и без внешних зависимостей — работает офлайн, открывается двойным кликом.  
-> **Текущая версия:** `0.408` (`struchord-v408`) | **Актуальный план:** [`ROADMAP.md`](ROADMAP.md)
+> **Текущая версия:** `0.409` (`struchord-v409`) | **Актуальный план:** [`ROADMAP.md`](ROADMAP.md)
 
 ---
 
@@ -13217,6 +13217,29 @@ HTMLAudio fallback, SW Range-обработка, условие seal + storm, pr
 `node dev/tests/b662-dev-palette-runtime.js` — все OK. Версия и PWA-кэш
 синхронизированы как 0.408 / `struchord-v408`. SHA-256 `STRUCHORD.html`:
 `20c3767b0ad0e04f97ab38437851e8ffb59e4bb3647c024cf41bc2b62ee379a2`, размер 2203377 байт.
+
+#### B-66.2, итерация 0.409 — mp3 без программного fade
+
+Повторная живая проверка показала, что одного переноса fade-out в хвост
+недостаточно: пользователь всё ещё слышал затухание сразу после начала и
+потерю окончания mp3. Поэтому для `грохочет гром.mp3` полностью снят
+синтетический WebAudio-envelope с основного пути. Теперь слышимый путь —
+нативный `HTMLAudioElement` с `volume = 0.72`, без ramp/fade; элемент держится
+в `activeThunderAchievementAudios` до `ended/error`, чтобы браузер не оборвал
+его сборкой мусора.
+
+WebAudio-декодирование оставлено только как fallback на случай отказа HTMLAudio,
+и там тоже постоянный gain `constant-no-fade` без `linearRampToValueAtTime` /
+`exponentialRampToValueAtTime` к нулю. В аудио-журнале теперь видно
+`envelope: native-no-fade` или `constant-no-fade`. Production-плашка, условие
+seal + storm, SW Range и B-66.1 не менялись.
+
+Проверки точечные, без полного долгого корпуса: `node dev/tests/b662-storm-unlock.js`,
+`node dev/tests/b662-thunder-production-runtime.js`,
+`node dev/tests/b662-sw-range-and-chime-log.js`,
+`node dev/tests/b662-dev-palette-runtime.js` — все OK. Версия и PWA-кэш
+синхронизированы как 0.409 / `struchord-v409`. SHA-256 `STRUCHORD.html`:
+`57355ccfeb4dc6aee3e8ae2547fc1325a856305018684eb443c8d09e3e498e12`, размер 2203812 байт.
 
 ## Инженерные выводы после B-66.2.3
 

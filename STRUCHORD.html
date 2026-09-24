@@ -10637,7 +10637,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.408</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.409</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32223,6 +32223,7 @@ function playStormAchievementChime() {
   });
 }
 let primedThunderAchievementAudio = null;
+let activeThunderAchievementAudios = new Set();
 let thunderAchievementBuffer = null;
 let thunderAchievementBufferPromise = null;
 function loadThunderAchievementBuffer() {
@@ -32251,7 +32252,6 @@ function loadThunderAchievementBuffer() {
   return thunderAchievementBufferPromise;
 }
 function primeThunderAchievementAudio() {
-  loadThunderAchievementBuffer();
   if (primedThunderAchievementAudio) return primedThunderAchievementAudio;
   try {
     const sample = new Audio(THUNDER_ACHIEVEMENT_AUDIO_SRC);
@@ -32275,34 +32275,25 @@ function primeThunderAchievementAudio() {
     return null;
   }
 }
-function playThunderAchievementMp3() {
+function playThunderAchievementBufferFallback(reason) {
   const ctx = getAudioContext();
   const playBuffer = (buffer) => {
     if (!buffer || !ctx || ctx.state !== 'running') return false;
     try {
       const source = ctx.createBufferSource(), gain = ctx.createGain();
       const now = ctx.currentTime;
-      const playbackDuration = Math.max(.25, buffer.duration || 5.8);
-      const attackEnd = now + .035;
-      const endAt = now + playbackDuration;
-      const fadeDuration = Math.min(.45, Math.max(.18, playbackDuration * .08));
-      const fadeStart = Math.min(endAt - .02, Math.max(attackEnd + .08, endAt - fadeDuration));
       source.buffer = buffer;
       gain.gain.cancelScheduledValues(now);
-      gain.gain.setValueAtTime(.0001, now);
-      gain.gain.exponentialRampToValueAtTime(.72, attackEnd);
-      // 0.408: не тянем fade-out от самого старта — держим громкость почти
-      // до конца mp3, иначе хвост «грохочет гром» исчезает сразу после атаки.
-      gain.gain.setValueAtTime(.72, fadeStart);
-      gain.gain.linearRampToValueAtTime(.0001, endAt);
+      // 0.409: WebAudio — только запасной путь. Никаких fade/ramp на mp3:
+      // слышимый основной путь должен воспроизводить файл нативно и целиком.
+      gain.gain.setValueAtTime(.72, now);
       source.connect(gain); gain.connect(ctx.destination);
       source.start(now);
-      source.stop(endAt + .02);
       source.onended = () => { try { source.disconnect(); gain.disconnect(); } catch (e) {} };
       recordAudioDiagnostic('thunder-achievement-buffer-playing', {
         duration: buffer.duration || null,
-        fadeStartOffset: +(fadeStart - now).toFixed(3),
-        fadeDuration: +fadeDuration.toFixed(3),
+        fallbackReason: reason || null,
+        envelope: 'constant-no-fade',
       });
       return true;
     } catch (error) {
@@ -32310,27 +32301,55 @@ function playThunderAchievementMp3() {
       return false;
     }
   };
-  if (thunderAchievementBuffer && playBuffer(thunderAchievementBuffer)) return;
+  if (thunderAchievementBuffer && playBuffer(thunderAchievementBuffer)) return true;
   const pending = loadThunderAchievementBuffer();
-  if (pending && typeof pending.then === 'function') pending.then((buffer) => { if (buffer) playBuffer(buffer); });
+  if (pending && typeof pending.then === 'function') {
+    pending.then((buffer) => { if (buffer) playBuffer(buffer); });
+    return true;
+  }
+  return false;
+}
+function playThunderAchievementMp3() {
   try {
     const sample = new Audio(THUNDER_ACHIEVEMENT_AUDIO_SRC);
     primedThunderAchievementAudio = null;
-    sample.preload = 'auto'; sample.muted = false; sample.volume = 0.58;
+    sample.preload = 'auto';
+    sample.muted = false;
+    sample.volume = 0.72;
+    const cleanup = () => activeThunderAchievementAudios.delete(sample);
+    sample.addEventListener('ended', cleanup, { once: true });
+    sample.addEventListener('error', cleanup, { once: true });
+    activeThunderAchievementAudios.add(sample);
     recordAudioDiagnostic('thunder-achievement-mp3-requested');
     const attempt = sample.play();
     if (attempt && typeof attempt.then === 'function') {
-      attempt.then(() => recordAudioDiagnostic('thunder-achievement-mp3-playing', { readyState: sample.readyState }))
-        .catch((error) => recordAudioDiagnostic('thunder-achievement-mp3-rejected', {
+      attempt.then(() => recordAudioDiagnostic('thunder-achievement-mp3-playing', {
+        readyState: sample.readyState,
+        duration: Number.isFinite(sample.duration) ? sample.duration : null,
+        volume: sample.volume,
+        envelope: 'native-no-fade',
+      })).catch((error) => {
+        cleanup();
+        recordAudioDiagnostic('thunder-achievement-mp3-rejected', {
           name: error && error.name ? error.name : null,
           message: error && error.message ? error.message : String(error),
           readyState: sample.readyState,
           networkState: sample.networkState,
           mediaError: sample.error ? sample.error.code : null,
-        }));
+        });
+        playThunderAchievementBufferFallback(error && error.name ? error.name : 'htmlaudio-rejected');
+      });
+    } else {
+      recordAudioDiagnostic('thunder-achievement-mp3-playing', {
+        readyState: sample.readyState,
+        duration: Number.isFinite(sample.duration) ? sample.duration : null,
+        volume: sample.volume,
+        envelope: 'native-no-fade',
+      });
     }
   } catch (error) {
     recordAudioDiagnostic('thunder-achievement-mp3-throw', { message: error && error.message ? error.message : String(error) });
+    playThunderAchievementBufferFallback('htmlaudio-throw');
   }
 }
 function playThunderAchievementChime() {
