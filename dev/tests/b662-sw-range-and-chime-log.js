@@ -147,6 +147,13 @@ console.log('=== 2. sw.js: функциональный прогон Range-об�
     !html.includes('linearRampToValueAtTime(.0001, endAt)') &&
     !html.includes('exponentialRampToValueAtTime(.0001, ctx.currentTime + Math.min(5.8'),
     'ожидаем native playback без синтетического fade; fallback тоже constant gain');
+  const thunderChimeBody = (/function playThunderAchievementChime\(\) \{([\s\S]*?)\n\}/.exec(html)||[])[1] || '';
+  ok('mp3 «Грохочет гром» звучит без дополнительного WebAudio-эффекта поверх',
+    thunderChimeBody.includes('playThunderAchievementMp3();') &&
+    !thunderChimeBody.includes('getAudioContext') &&
+    !thunderChimeBody.includes('createBuffer') &&
+    !thunderChimeBody.includes('gain.gain'),
+    thunderChimeBody);
   ok('версия приложения поднята не ниже релиза B-66.2.3',
     !!(appVersion && Number(appVersion[1]) >= 353),
     appVersion && appVersion[1]);

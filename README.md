@@ -2,7 +2,7 @@
 
 > Редактор структуры песен: секции, квадраты, аккорды, аппликатуры, бои и переборы с воспроизведением.  
 > Одностраничное веб-приложение без сборки и без внешних зависимостей — работает офлайн, открывается двойным кликом.  
-> **Текущая версия:** `0.409` (`struchord-v409`) | **Актуальный план:** [`ROADMAP.md`](ROADMAP.md)
+> **Текущая версия:** `0.410` (`struchord-v410`) | **Актуальный план:** [`ROADMAP.md`](ROADMAP.md)
 
 ---
 
@@ -13240,6 +13240,26 @@ seal + storm, SW Range и B-66.1 не менялись.
 `node dev/tests/b662-dev-palette-runtime.js` — все OK. Версия и PWA-кэш
 синхронизированы как 0.409 / `struchord-v409`. SHA-256 `STRUCHORD.html`:
 `57355ccfeb4dc6aee3e8ae2547fc1325a856305018684eb443c8d09e3e498e12`, размер 2203812 байт.
+
+#### B-66.2, итерация 0.410 — снят дополнительный WebAudio-эффект поверх mp3
+
+Да, поверх mp3 оставался отдельный синтетический WebAudio-шум в
+`playThunderAchievementChime()`: короткий lowpass-buffer с gain-envelope
+примерно на полсекунды. Он не менял сам файл, но звучал поверх него и затухал
+сразу после старта, поэтому воспринимался как fade у `грохочет гром.mp3`.
+
+В 0.410 этот слой полностью удалён. Для «Грохочет гром» `playThunderAchievementChime()`
+теперь делает только `playThunderAchievementMp3()`: без `getAudioContext`,
+`createBuffer`, `gain.gain` и любых дополнительных шумовых/фейд-эффектов.
+Основной mp3-путь по-прежнему native-no-fade, WebAudio остаётся только fallback
+при отказе HTMLAudio и тоже без fade.
+
+Проверки точечные, без полного долгого корпуса: `node dev/tests/b662-storm-unlock.js`,
+`node dev/tests/b662-thunder-production-runtime.js`,
+`node dev/tests/b662-sw-range-and-chime-log.js`,
+`node dev/tests/b662-dev-palette-runtime.js` — все OK. Версия и PWA-кэш
+синхронизированы как 0.410 / `struchord-v410`. SHA-256 `STRUCHORD.html`:
+`8020577f4a859cbcbb90807848b0f7ebc6fac6b65eb86967c44569ff61455542`, размер 2203201 байт.
 
 ## Инженерные выводы после B-66.2.3
 
