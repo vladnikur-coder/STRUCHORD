@@ -37,7 +37,11 @@ ok('есть 416 для невалидного диапазона', swSrc.includ
 ok('range-ветка обработана ДО общего обработчика',
   swSrc.indexOf("headers.has('range')") > 0 &&
   swSrc.indexOf("headers.has('range')") < swSrc.indexOf("caches.match(event.request)"));
-ok('версия кэша поднята', swSrc.includes("'struchord-v353'"), swSrc.match(/CACHE_NAME = '([^']+)'/));
+const cacheVersion = /CACHE_NAME = 'struchord-v(\d+)'/.exec(swSrc);
+const appVersion = /STRUCHORD[^<]*<span[^>]*>· ver 0\.(\d+)<\/span>/.exec(html);
+ok('версия кэша поднята и синхронизирована с приложением',
+  !!(cacheVersion && appVersion && Number(cacheVersion[1]) >= 353 && cacheVersion[1] === appVersion[1]),
+  { cacheVersion: cacheVersion && cacheVersion[1], appVersion: appVersion && appVersion[1] });
 
 console.log('=== 2. sw.js: функциональный прогон Range-обработчика ===');
 (async () => {
@@ -135,7 +139,9 @@ console.log('=== 2. sw.js: функциональный прогон Range-об�
     /achievement-chime-rejected',\s*\{[\s\S]*?mediaError/.test(html));
   ok('wasPrimed фиксируется в отказе чайма',
     /achievement-chime-rejected[\s\S]{0,300}?wasPrimed/.test(html));
-  ok('версия приложения поднята', html.includes('ver 0.353'));
+  ok('версия приложения поднята не ниже релиза B-66.2.3',
+    !!(appVersion && Number(appVersion[1]) >= 353),
+    appVersion && appVersion[1]);
 
   console.log(bad ? `FAIL: ${bad}` : 'ALL OK');
   process.exit(bad ? 1 : 0);

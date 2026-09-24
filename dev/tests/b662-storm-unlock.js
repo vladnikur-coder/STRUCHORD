@@ -62,6 +62,9 @@ ok(src.includes('function playPowerGeneratorCompletionSound')&&src.includes("rel
 ok(src.includes('ensurePowerGeneratorAudio(state)')&&src.includes('stopPowerGeneratorAudio(state)'),'звук запускается жестом и гарантированно останавливается вместе со сценой');
 ok(src.includes("state.phase === 'complete' && forceVoltage == null"),'после достижения цели инерция не опускает показание ниже 220 V');
 ok(src.includes('power-generator-zone-restore')&&src.includes('showStormAchievement({ id:\'220-volts\''),'питание возвращается зонами, а щиток появляется в процессе');
+ok(src.includes('.power-generator-scene.is-restoring .power-generator-zone { display:block; opacity:1; animation:power-generator-zone-restore')&&!src.includes('.power-generator-scene.is-restoring .power-generator-zone { display:none; }'),'B-66.2.4: blackout-зоны реально включаются, а не скрываются мгновенно');
+ok(src.includes('power-generator-restore-sweep')&&src.includes('power-generator-restore-bloom'),'B-66.2.4: восстановление питания получило sweep и финальный glow');
+ok(src.includes('data-generator-rotor')&&src.includes('power-generator-rotor-ring'),'B-66.2.4: ротор реально присутствует в SVG и может вращаться');
 ok(src.includes('reduced ? 40 : 1450')&&src.includes('power-generator-step'),'reduced motion получает быстрый вход и пошаговое управление');
 ok(src.includes('setInterval(refreshDevPaletteState,250)'),'состояние и таймер обновляются в реальном времени');
 ok(src.includes('clearInterval(devPaletteRefreshTimer)'),'live-таймер очищается при закрытии');
