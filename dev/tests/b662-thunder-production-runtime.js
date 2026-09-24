@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* B-66.2 / 0.398 — production-маршрут «Грохочет гром»: seal + схема storm. */
+/* B-66.2 / 0.399 — production-маршрут «Грохочет гром»: seal + схема storm. */
 const fs=require('fs');
 const {JSDOM}=require('jsdom');
 const html=fs.readFileSync(__dirname+'/../../STRUCHORD.html','utf8');
@@ -10,6 +10,8 @@ const dom=new JSDOM(html,{
   pretendToBeVisual:true,
   url:'https://localhost/',
   beforeParse(w){
+    w.HTMLMediaElement.prototype.play=function(){return Promise.resolve();};
+    w.HTMLMediaElement.prototype.pause=function(){};
     w.HTMLCanvasElement.prototype.getContext=()=>({font:'',measureText:()=>({width:50}),clearRect(){},beginPath(){},arc(){},fill(){},stroke(){},moveTo(){},lineTo(){},closePath(){},save(){},restore(){},translate(){},rotate(){},fillText(){},strokeText(){},setTransform(){},scale(){},createLinearGradient:()=>({addColorStop(){}})});
   }
 });
@@ -39,7 +41,7 @@ dom.window.addEventListener('load',()=>{
       d.documentElement.setAttribute('data-scheme','storm');
       if(!w.maybeUnlockStormSecret('song'))throw new Error('ПРОВАЛ: подписанная песня + storm не запустили маршрут');
       const first=w.__stormCalls[0];
-      if(!first||first.strikeDelayMs!==w.eval('STORM_SECRET_STRIKE_DELAY_MS'))throw new Error('ПРОВАЛ: первый удар не идёт по быстрому грозовому маршруту');
+      if(!first||first.strikeDelayMs!==undefined)throw new Error('ПРОВАЛ: первый unlock форсирует быстрый удар вместо обычного таймера');
       if(!first.hasAfterStrike)throw new Error('ПРОВАЛ: первая плашка не привязана к завершению удара');
       if(!w.eval('stormUnlocked')||!w.eval('schemeSurprisesEnabled'))throw new Error('ПРОВАЛ: Гроза не разблокирована и не включена');
       if(!w.eval("stormSeenAchievements.has(THUNDER_ACHIEVEMENT_ID)"))throw new Error('ПРОВАЛ: ачивка Грохочет гром не записана в реестр');
@@ -48,17 +50,24 @@ dom.window.addEventListener('load',()=>{
       if(!badge)throw new Error('ПРОВАЛ: не показана грозовая плашка');
       if(badge.parentElement!==d.documentElement)throw new Error('ПРОВАЛ: грозовая плашка висит внутри body и уезжает при scroll + shake');
       if(w.getComputedStyle(badge).position!=='fixed')throw new Error('ПРОВАЛ: грозовая плашка не закреплена во viewport');
+      if(!badge.classList.contains('thunder-badge-cloud-seal'))throw new Error('ПРОВАЛ: production default не Туча-печать');
       if(!badge.querySelector('.storm-achievement-cloud'))throw new Error('ПРОВАЛ: плашка не туча');
       if(!badge.textContent.includes('СЕКРЕТ НАЙДЕН')||!badge.textContent.includes('Грохочет гром'))throw new Error('ПРОВАЛ: текст плашки неверный');
+      if(!w.eval("audioDiagnosticLog.some(e=>e.type==='thunder-achievement-mp3-requested')"))throw new Error('ПРОВАЛ: mp3 Грохочет гром не запрошен при плашке');
       badge.remove();
 
       // Повторный явный вход: сразу запускает громовой маршрут, но без повторной плашки.
       w.__stormCalls=[];
       if(!w.maybeUnlockStormSecret('song'))throw new Error('ПРОВАЛ: повторный вход не запускает грозу');
       const repeat=w.__stormCalls[0];
-      if(!repeat||repeat.strikeDelayMs!==w.eval('STORM_SECRET_STRIKE_DELAY_MS'))throw new Error('ПРОВАЛ: повторный вход не использует быстрый удар');
+      if(!repeat||repeat.strikeDelayMs!==undefined)throw new Error('ПРОВАЛ: повторный вход форсирует быстрый удар вместо обычного таймера');
       if(repeat.hasAfterStrike)throw new Error('ПРОВАЛ: повторный вход снова назначил плашку');
       if(d.querySelector('.storm-achievement'))throw new Error('ПРОВАЛ: повторный вход показал плашку повторно');
+
+      w.setThunderBadgeStyleForDev('sky-rift');
+      const preview=d.querySelector('.storm-achievement.achievement-style-storm');
+      if(!preview||!preview.classList.contains('thunder-badge-sky-rift'))throw new Error('ПРОВАЛ: dev-выбор плашки не применился');
+      preview.remove();
 
       // Другая подписанная песня (B-66.1) не должна открывать «Грохочет гром».
       w.__stormCalls=[];

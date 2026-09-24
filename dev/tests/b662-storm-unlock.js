@@ -25,8 +25,11 @@ ok(src.includes("localStorage.getItem(STORM_UNLOCK_KEY) === '1'"),'dev-разб�
 ok(src.includes("localStorage.getItem(POWER_GENERATOR_KEY) === '1'"),'ачивка 220 хранится отдельным флагом');
 ok(src.includes('stormSeenAchievements = new Set'),'грозовые ачивки имеют отдельный реестр');
 ok(src.includes('function maybeUnlockStormSecret(source)')&&src.includes('currentSongSeal !== THUNDER_SONG_SEAL')&&src.includes("activeSchemeId() !== 'storm'"),'production-маршрут Грохочет гром требует seal песни и схему Гроза');
-ok(src.includes('strikeDelayMs: STORM_SECRET_STRIKE_DELAY_MS')&&src.includes("afterStrike: firstThunder ? () => showStormAchievement(achievement, false) : null"),'первый запуск ставит плашку только после полного грозового удара');
+ok(!src.includes('STORM_SECRET_STRIKE_DELAY_MS')&&src.includes("afterStrike: firstThunder ? () => showStormAchievement(achievement, false) : null"),'unlock больше не ускоряет молнию: плашка ждёт обычный полный грозовой удар');
 ok(src.includes("achievement = { id: THUNDER_ACHIEVEMENT_ID, title: 'Грохочет гром' }")&&src.includes('achievement-style-storm')&&src.includes('storm-achievement-cloud'),'плашка Грохочет гром выполнена как грозовая туча');
+ok(src.includes("THUNDER_ACHIEVEMENT_AUDIO_SRC = './uploads/грохочет гром.mp3'")&&src.includes('playThunderAchievementMp3'),'mp3 «грохочет гром» проигрывается вместе с плашкой');
+ok(src.includes('thunder-badge-cloud-seal')&&src.includes('thunder-badge-sky-rift')&&src.includes('thunder-badge-storm-poster')&&src.includes('thunder-badge-minimal-thunder'),'в dev доступны 4 варианта плашки Грохочет гром');
+ok(src.includes('requestAnimationFrame(() => requestAnimationFrame(() =>')&&src.includes('тучи сгущаются переходом'),'тучи получают плавный двухкадровый вход без скачка');
 ok(!src.includes('cancelStormSurprise(); showStormAchievement(achievement);'),'Молния со схемой Гроза больше не выдаёт старую ачивку');
 ok(src.includes('documentSeal: asSafeText(rawSong.documentSeal'),'подпись проходит санитайзер');
 ok(src.includes("...(currentSongSeal ? { documentSeal: currentSongSeal } : {})"),'подпись переживает сохранение');

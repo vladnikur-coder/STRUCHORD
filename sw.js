@@ -12,12 +12,12 @@
 // (например, struchord-v2) — иначе браузер продолжит показывать
 // старую закэшированную версию, потому что имя кэша не поменялось.
 
-const CACHE_NAME = 'struchord-v398';
+const CACHE_NAME = 'struchord-v399';
 
 // Список файлов, которые нужно закэшировать сразу при установке.
 // './' добавлен на случай, если приложение открывают по адресу
 // папки без имени файла (например, просто ваш-сайт.github.io/struchord/).
-const APP_SHELL = ['./', './STRUCHORD.html', './manifest.json', './uploads/220.mp3'];
+const APP_SHELL = ['./', './STRUCHORD.html', './manifest.json', './uploads/220.mp3', './uploads/грохочет гром.mp3'];
 
 self.addEventListener('install', (event) => {
   // skipWaiting — новая версия SW начинает работать сразу, не дожидаясь
