@@ -28,7 +28,7 @@ ok(src.includes('function maybeUnlockStormSecret(source)')&&src.includes('curren
 ok(!src.includes('STORM_SECRET_STRIKE_DELAY_MS')&&src.includes("afterStrike: firstThunder ? () => showStormAchievement(achievement, false) : null"),'unlock больше не ускоряет молнию: плашка ждёт обычный полный грозовой удар');
 ok(src.includes("achievement = { id: THUNDER_ACHIEVEMENT_ID, title: 'Грохочет гром' }")&&src.includes('thunder-title-achievement')&&src.includes('thunder-title-main'),'Грохочет гром показывает не плашку, а чёрный титр после удара');
 ok(src.includes("THUNDER_ACHIEVEMENT_AUDIO_SRC = './uploads/грохочет гром.mp3'")&&src.includes('playThunderAchievementMp3'),'mp3 «грохочет гром» проигрывается вместе с плашкой');
-ok(src.includes("font-family:'Izhitsa'")&&src.includes('thunder-title-etching')&&src.includes('Превью титра'),'титр использует Izhitsa-направление, линогравюрные молнии и dev-preview');
+ok(src.includes("@font-face")&&src.includes("./uploads/ofont.ru_Izhitsa.ttf")&&src.includes("font-family:'Izhitsa'")&&src.includes('thunder-title-etching')&&src.includes('Превью титра'),'титр использует локальный Izhitsa, линогравюрные молнии и dev-preview');
 ok(src.includes('requestAnimationFrame(() => requestAnimationFrame(() =>')&&src.includes('тучи сгущаются переходом'),'тучи получают плавный двухкадровый вход без скачка');
 ok(!src.includes('cancelStormSurprise(); showStormAchievement(achievement);'),'Молния со схемой Гроза больше не выдаёт старую ачивку');
 ok(src.includes('documentSeal: asSafeText(rawSong.documentSeal'),'подпись проходит санитайзер');
