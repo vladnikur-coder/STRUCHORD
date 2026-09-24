@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* B-66.2 / 0.403 — production-маршрут «Грохочет гром»: seal + схема storm. */
+/* B-66.2 / 0.404 — production-маршрут «Грохочет гром»: seal + схема storm. */
 const fs=require('fs');
 const {JSDOM}=require('jsdom');
 const html=fs.readFileSync(__dirname+'/../../STRUCHORD.html','utf8');
@@ -71,7 +71,8 @@ dom.window.addEventListener('load',()=>{
       preview.remove();
       w.previewThunderPlateForDev();
       const plate=d.querySelector('.storm-achievement.thunder-plate-achievement');
-      if(!plate||!plate.querySelector('.thunder-plate-scene')||!plate.querySelector('.thunder-plate-main'))throw new Error('ПРОВАЛ: dev-preview woodcut-плашки не появился');
+      if(!plate||!plate.querySelector('.thunder-plate-etching')||!plate.querySelector('.thunder-plate-bolt')||!plate.querySelector('.thunder-plate-main'))throw new Error('ПРОВАЛ: dev-preview woodcut-плашки текст + молния не появился');
+      if(plate.querySelector('.thunder-plate-hill')||plate.querySelector('.thunder-plate-tree'))throw new Error('ПРОВАЛ: в текстовую плашку вернулась пейзажная мини-сцена');
       if(w.getComputedStyle(plate).position!=='fixed')throw new Error('ПРОВАЛ: woodcut-плашка не закреплена во viewport');
       plate.remove();
 
