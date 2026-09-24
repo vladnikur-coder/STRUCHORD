@@ -11268,6 +11268,10 @@ body.power-ui-waking .pinned-fingering-dock {
   audioContextGeneration = 0,
   audioRecoveryPending = false,
   audioRecoveryLastError = '',
+  // Promise текущего idle-suspend. Нужен только для гонки быстрого
+  // возврата: если visibility снова стала visible до завершения suspend(),
+  // контекст надо сразу вернуть в running, а не оставить его уснувшим.
+  audioBackgroundSuspendPromise = null,
   audioBlurStartedAt = 0,
   audioLastBlurDurationMs = 0,
   activeOscillators = new Set(),
@@ -25007,6 +25011,54 @@ function playAudioMediaElementTest() {
 loadAudioDiagnosticLog();
 recordAudioDiagnostic('page-init');
 
+// Safari может оставить idle AudioContext в состоянии `running`, но после
+// долгого фона вернуть его уже без физического вывода. Проверяем одну
+// гипотезу B-88: перед уходом в фон явно усыпляем только БЕЗДЕЙСТВУЮЩИЙ
+// контекст. Активное воспроизведение и тюнер не затрагиваются.
+function suspendIdleAudioContextForBackground(reason) {
+  const ctx = audioCtx;
+  if (!ctx || ctx.state === 'closed' || ctx.state !== 'running') return;
+  if (playbackState && playbackState.isPlaying) return;
+  if (typeof tunerState !== 'undefined' && tunerState) return;
+  if (audioBackgroundSuspendPromise) return;
+
+  recordAudioDiagnostic('context-idle-suspend-requested', {
+    reason: reason || 'background',
+    before: audioDiagnosticContextSnapshot(ctx),
+  });
+  try {
+    audioBackgroundSuspendPromise = Promise.resolve(ctx.suspend())
+      .then(() => {
+        const stillCurrent = ctx === audioCtx;
+        recordAudioDiagnostic('context-idle-suspend-resolved', {
+          reason: reason || 'background',
+          resultState: ctx.state,
+          stillCurrent,
+        });
+        audioBackgroundSuspendPromise = null;
+        // Возврат мог произойти быстрее, чем завершился suspend(). Не
+        // оставляем контекст в suspended после возврата на страницу.
+        if (stillCurrent && document.visibilityState !== 'hidden' && ctx.state === 'suspended') {
+          requestAudioResume('idle-suspend-race');
+        }
+      })
+      .catch(error => {
+        audioBackgroundSuspendPromise = null;
+        recordAudioDiagnostic('context-idle-suspend-rejected', {
+          reason: reason || 'background',
+          message: error && error.message ? error.message : String(error),
+          stillCurrent: ctx === audioCtx,
+        });
+      });
+  } catch (error) {
+    audioBackgroundSuspendPromise = null;
+    recordAudioDiagnostic('context-idle-suspend-threw', {
+      reason: reason || 'background',
+      message: error && error.message ? error.message : String(error),
+    });
+  }
+}
+
 function getAudioContext() {
   if (!audioCtx)
     try {
@@ -25205,6 +25257,7 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     audioBlurStartedAt = performance.now();
     recordAudioDiagnostic('visibility-hidden');
+    suspendIdleAudioContextForBackground('visibility');
   } else {
     audioLastBlurDurationMs = audioBlurStartedAt ? performance.now() - audioBlurStartedAt : 0;
     audioBlurStartedAt = 0;

@@ -10,6 +10,9 @@ ok(src.includes('audioContextGeneration++'),'новый контекст уве�
 ok(src.includes("audioCtx.state === 'interrupted'"),'Safari interrupted отслеживается');
 ok(src.includes("audioCtx.state === 'closed'"),'закрытый контекст отслеживается');
 ok(src.includes('function requestAudioResume'),'есть мягкая ступень resume');
+ok(src.includes('function suspendIdleAudioContextForBackground'),'idle-контекст усыпляется перед фоном');
+ok(src.includes("'context-idle-suspend-requested'")&&src.includes("'context-idle-suspend-resolved'"),'idle suspend lifecycle попадает в журнал');
+ok(src.includes('playbackState && playbackState.isPlaying')&&src.includes('tunerState'),'активное воспроизведение и тюнер не усыпляются');
 ok(src.includes("requestAudioResume('visibility')"),'возврат видимости пробуждает звук');
 ok(src.includes("requestAudioResume('focus')"),'focus пробуждает звук');
 ok(src.includes('450'),'неудачный resume получает срок проверки');
