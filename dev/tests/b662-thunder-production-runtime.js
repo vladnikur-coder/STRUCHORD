@@ -23,6 +23,25 @@ dom.window.addEventListener('load',()=>{
       const w=dom.window,d=w.document;
       if(runtimeError)throw runtimeError;
 
+      // B-66.2 regression: Play before the first storm strike must be a
+      // silent no-op, otherwise setPlaybackBodyClass() cancels the pending
+      // strike callback and permanently loses the first plate.
+      w.eval("stormSurprisePhase='armed'; playbackState.isPlaying=false");
+      w.playAll();
+      if(w.eval('playbackState.isPlaying'))throw new Error('ПРОВАЛ: Play стартовал до выстрела Грозы');
+      if(!w.eval('stormBlocksTransport()'))throw new Error('ПРОВАЛ: armed-фаза не блокирует transport');
+      w.eval("stormSurprisePhase='striking'");
+      if(w.eval('stormBlocksTransport()'))throw new Error('ПРОВАЛ: после выстрела transport всё ещё заблокирован');
+      w.eval(`
+        window.__afterStrikeSentinel=()=>{};
+        stormAfterStrikeCallback=window.__afterStrikeSentinel;
+        setPlaybackBodyClass(true);
+        window.__afterStrikePreserved=stormAfterStrikeCallback===window.__afterStrikeSentinel;
+        stormAfterStrikeCallback=null;
+      `);
+      if(!w.__afterStrikePreserved)throw new Error('ПРОВАЛ: разрешённый Play отменил afterStrike плашки');
+      w.eval("stormSurprisePhase='idle'; document.body.classList.remove('is-playing')");
+
       // Одна подпись без схемы «Гроза» ничего не выдаёт.
       w.eval("currentSongSeal = THUNDER_SONG_SEAL");
       d.documentElement.setAttribute('data-scheme','default');

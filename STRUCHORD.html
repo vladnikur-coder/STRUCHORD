@@ -27169,8 +27169,18 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm) {
   }
   check();
 }
+// В момент первой грозовой ачивки transport не должен отменить ещё не
+// завершившийся удар: `maybeUnlockStormSecret` уже поставил callback плашки
+// после strike. Поэтому Play — и вызванные им клавиатурный/ленточный пути —
+// тихо ждут фактического выстрела.
+function stormBlocksTransport() {
+  return typeof stormSurprisePhase !== 'undefined' &&
+    (stormSurprisePhase === 'charging' || stormSurprisePhase === 'armed');
+}
+
 // воспроизведение
 function playAll() {
+  if (stormBlocksTransport()) return;
   closeMetronomeSettings();
   if (sections.length === 0) {
     showToast('Нет секций');
@@ -27276,8 +27286,14 @@ function playAll() {
 // между разными способами запуска и остановки.
 function setPlaybackBodyClass(on) {
   document.body.classList.toggle('is-playing', !!on);
-  if (on) cancelStormSurprise();
-  else resetSchemeSurpriseSchedule();
+  // До этого места Play не доходит во время charging/armed. После
+  // фактического выстрела фаза уже `striking`, и cancelStormSurprise()
+  // нельзя вызывать: он снял бы отложенный callback показа плашки.
+  if (on && (!stormBlocksTransport() &&
+      (typeof stormSurprisePhase === 'undefined' || stormSurprisePhase === 'idle'))) {
+    cancelStormSurprise();
+  }
+  else if (!on) resetSchemeSurpriseSchedule();
 }
 
 function stopPlayback() {

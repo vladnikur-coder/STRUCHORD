@@ -12,7 +12,7 @@ check(src.includes("activeSchemeId() === 'storm'"), 'событие ограни
 check(src.includes("document.visibilityState === 'visible'"), 'скрытая вкладка исключена');
 check(src.includes('!stormReducedMotion()'), 'prefers-reduced-motion учитывается в воротах');
 check(src.includes('!(playbackState && playbackState.isPlaying)'), 'воспроизведение исключено из запуска');
-check(src.includes('if (on) cancelStormSurprise()'), 'старт воспроизведения отменяет грозу');
+check(src.includes("stormSurprisePhase === 'idle'") && src.includes('cancelStormSurprise()'), 'старт воспроизведения отменяет только idle-грозу и не теряет afterStrike');
 check(/randomBetween\(3000, 5000\)/.test(src), 'заряд длится 3–5 секунд');
 check(/randomBetween\(20000, 30000\)/.test(src), 'автоудар ждёт 20–30 секунд');
 check(src.includes("document.addEventListener('click', interceptStormClick, true)"), 'клик перехватывается в capture-фазе');

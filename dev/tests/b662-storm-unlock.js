@@ -26,6 +26,9 @@ ok(src.includes("localStorage.getItem(POWER_GENERATOR_KEY) === '1'"),'ачивк
 ok(src.includes('stormSeenAchievements = new Set'),'грозовые ачивки имеют отдельный реестр');
 ok(src.includes('function maybeUnlockStormSecret(source)')&&src.includes('currentSongSeal !== THUNDER_SONG_SEAL')&&src.includes("activeSchemeId() !== 'storm'"),'production-маршрут Грохочет гром требует seal песни и схему Гроза');
 ok(!src.includes('STORM_SECRET_STRIKE_DELAY_MS')&&src.includes("afterStrike: firstThunder ? () => showStormAchievement(achievement, false) : null"),'unlock больше не ускоряет молнию: плашка ждёт обычный полный грозовой удар');
+ok(src.includes('function stormBlocksTransport()')&&src.includes("stormSurprisePhase === 'charging'")&&src.includes("stormSurprisePhase === 'armed'"),'transport блокируется только до фактического выстрела');
+ok(src.includes('if (stormBlocksTransport()) return;'),'нажатие Play до выстрела тихо игнорируется');
+ok(src.includes("stormSurprisePhase === 'idle'")&&src.includes('cancelStormSurprise()'),'Play после выстрела не отменяет callback плашки');
 ok(src.includes("achievement = { id: THUNDER_ACHIEVEMENT_ID, title: 'Грохочет гром', presentation: 'woodcut-plate' }")&&src.includes('thunder-plate-achievement')&&src.includes('thunder-plate-mark-bolt'),'Грохочет гром показывает принятую woodcut-плашку после удара');
 ok(src.includes("THUNDER_ACHIEVEMENT_AUDIO_SRC = './uploads/грохочет гром.mp3'")&&src.includes('playThunderAchievementMp3'),'mp3 «грохочет гром» проигрывается вместе с плашкой');
 ok(src.includes('activeThunderAchievementAudios = new Set')&&src.includes("envelope: 'native-no-fade'")&&src.includes("envelope: 'constant-no-fade'"),'mp3 Грохочет гром играет нативно без синтетического fade; WebAudio только fallback без ramp');
