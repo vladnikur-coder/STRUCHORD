@@ -10637,7 +10637,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.411</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.410</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -11268,13 +11268,6 @@ body.power-ui-waking .pinned-fingering-dock {
   audioContextGeneration = 0,
   audioRecoveryPending = false,
   audioRecoveryLastError = '',
-  // Safari может оставить Web Audio в состоянии `running`, но уже без
-  // физического вывода после долгого простоя в фоне. Не оставляем такой
-  // «running-but-idle» контекст на милость WebKit: перед уходом в фон
-  // усыпляем его сами, а на возврате будим снова.
-  audioBackgroundSuspended = false,
-  audioBackgroundSuspendInFlight = false,
-  audioBackgroundSuspendFailed = false,
   audioBlurStartedAt = 0,
   audioLastBlurDurationMs = 0,
   activeOscillators = new Set(),
@@ -24942,8 +24935,6 @@ function audioDiagnosticReport() {
       visibility: document.visibilityState,
       generation: audioContextGeneration,
       pending: audioRecoveryPending,
-      backgroundSuspended: audioBackgroundSuspended,
-      backgroundSuspendFailed: audioBackgroundSuspendFailed,
       lastError: audioRecoveryLastError || null,
       blurMs: Math.round(audioLastBlurDurationMs || 0),
       context: audioDiagnosticContextSnapshot(audioCtx)
@@ -25016,106 +25007,9 @@ function playAudioMediaElementTest() {
 loadAudioDiagnosticLog();
 recordAudioDiagnostic('page-init');
 
-// Safari 16.4+ exposes AudioSession separately from AudioContext. The
-// default `auto` mode is allowed to choose an ambient session, and that is
-// exactly the mode in which Web Audio can later report `running` while its
-// output has gone silent. Native HTMLAudio is not affected, which explains
-// the useful A/B symptom: the mp3 plays, but generated guitar/tones do not.
-// Prefer the playback category whenever this page is producing sound. The
-// feature is Safari-only for now, so every access is deliberately guarded.
-function setAudioSessionType(type, reason) {
-  const nav = typeof navigator !== 'undefined' && navigator ? navigator : null;
-  const session = nav && nav.audioSession;
-  if (!session || typeof session.type === 'undefined') return false;
-  try {
-    const before = session.type || null;
-    if (before === type) return true;
-    session.type = type;
-    recordAudioDiagnostic('audio-session-type-changed', {
-      reason: reason || null,
-      requested: type,
-      before,
-      result: session.type || null,
-    });
-    return session.type === type;
-  } catch (error) {
-    recordAudioDiagnostic('audio-session-type-error', {
-      reason: reason || null,
-      requested: type,
-      message: error && error.message ? error.message : String(error),
-    });
-    return false;
-  }
-}
-
-// Safari's background power management has a particularly bad edge case:
-// an idle context can stay in `running`, then become silent after the page
-// has spent time hidden. A later resume changes the state back to `running`
-// but does not necessarily restore the output route. An explicit suspend is
-// the reliable boundary: WebKit has a real lifecycle transition to restore
-// instead of trying to revive an abandoned idle renderer.
-function suspendAudioContextForBackground(reason) {
-  const ctx = audioCtx;
-  if (!ctx || ctx.state === 'closed') return;
-  if (playbackState && playbackState.isPlaying) return;
-  if (typeof tunerState !== 'undefined' && tunerState) return;
-  if (ctx.state !== 'running') return;
-
-  audioBackgroundSuspendInFlight = true;
-  recordAudioDiagnostic('context-suspend-requested', {
-    reason: reason || 'background',
-    before: audioDiagnosticContextSnapshot(ctx),
-  });
-  try {
-    const result = ctx.suspend();
-    Promise.resolve(result).then(() => {
-      const stillCurrent = ctx === audioCtx;
-      if (stillCurrent) {
-        audioBackgroundSuspendInFlight = false;
-        audioBackgroundSuspended = ctx.state === 'suspended';
-        audioBackgroundSuspendFailed = !audioBackgroundSuspended;
-        if (audioBackgroundSuspended) audioRecoveryPending = false;
-        // The user can return before suspend()'s promise settles. In that
-        // race the context would otherwise finish suspending after the
-        // visible handler already ran, leaving the page silent again.
-        if (audioBackgroundSuspended && document.visibilityState === 'visible') {
-          requestAudioResume('background-suspend-race');
-        }
-      }
-      recordAudioDiagnostic('context-suspend-resolved', {
-        reason: reason || 'background',
-        resultState: ctx.state,
-        stillCurrent,
-      });
-    }).catch((error) => {
-      if (ctx === audioCtx) {
-        audioBackgroundSuspendInFlight = false;
-        audioBackgroundSuspendFailed = true;
-        audioRecoveryPending = true;
-      }
-      recordAudioDiagnostic('context-suspend-rejected', {
-        reason: reason || 'background',
-        message: error && error.message ? error.message : String(error),
-        stillCurrent: ctx === audioCtx,
-      });
-    });
-  } catch (error) {
-    audioBackgroundSuspendInFlight = false;
-    audioBackgroundSuspendFailed = true;
-    audioRecoveryPending = true;
-    recordAudioDiagnostic('context-suspend-threw', {
-      reason: reason || 'background',
-      message: error && error.message ? error.message : String(error),
-    });
-  }
-}
-
 function getAudioContext() {
   if (!audioCtx)
     try {
-      // Must happen before constructing the context: Safari chooses the
-      // underlying AVAudioSession while the first AudioContext is created.
-      setAudioSessionType('playback', 'context-create');
       recordAudioDiagnostic('context-create-requested');
       audioCtx = new (window.AudioContext || window.webkitAudioContext)();
       audioContextGeneration++;
@@ -25158,10 +25052,9 @@ function getAudioContext() {
 // MDN про это прямо пишет в разделе про BaseAudioContext.state:
 // «In iOS Safari, when a user leaves the page the audio context's state
 // changes to "interrupted" and needs to be resumed».
-function resumeAudioContext(sessionType = 'playback') {
+function resumeAudioContext() {
   const ctx = audioCtx;
   if (!ctx) { recordAudioDiagnostic('resume-skipped-no-context'); return; }
-  setAudioSessionType(sessionType, 'resume');
   if (ctx.state === 'running' || ctx.state === 'closed') {
     if (ctx.state === 'closed') recordAudioDiagnostic('resume-skipped-closed');
     return;
@@ -25194,33 +25087,15 @@ function requestAudioResume(reason) {
   // Если звук ещё ни разу не использовался, восстанавливать нечего.
   const ctx = audioCtx;
   if (!ctx) return;
-  const sessionType = typeof tunerState !== 'undefined' && tunerState
-    ? 'play-and-record'
-    : 'playback';
-  setAudioSessionType(sessionType, `resume:${reason || 'manager'}`);
-  if (ctx.state === 'running') {
-    // Если suspend() перед уходом в фон не удался, один только running не
-    // является доказательством здорового выхода. Оставляем pending для
-    // hard recovery на следующем настоящем жесте.
-    if (audioBackgroundSuspendFailed) {
-      audioRecoveryPending = true;
-      recordAudioDiagnostic('resume-skipped-suspect-running', { reason });
-    } else {
-      audioRecoveryPending = false;
-    }
-    return;
-  }
+  if (ctx.state === 'running') { audioRecoveryPending = false; return; }
   recordAudioDiagnostic('resume-requested', { path: 'manager', reason, before: audioDiagnosticContextSnapshot(ctx) });
   let settled = false;
   try {
     const result = ctx.resume();
     Promise.resolve(result).then(() => {
       settled = true;
-      if (ctx === audioCtx && ctx.state === 'running') {
-        audioBackgroundSuspended = false;
-        audioBackgroundSuspendFailed = false;
-        audioRecoveryPending = false;
-      } else audioRecoveryPending = true;
+      if (ctx === audioCtx && ctx.state === 'running') audioRecoveryPending = false;
+      else audioRecoveryPending = true;
       recordAudioDiagnostic('resume-resolved', { path: 'manager', reason, resultState: ctx.state, stillCurrent: ctx === audioCtx });
     }).catch((error) => {
       settled = true;
@@ -25267,15 +25142,11 @@ function hardRecoverAudioContext(reason, force) {
   const previous = audioCtx;
   const previousGeneration = audioContextGeneration;
   const tunerWasActive = !!tunerState;
-  setAudioSessionType(tunerWasActive ? 'play-and-record' : 'playback', 'hard-recovery');
   stopAllAudio(); stopMetronomeScheduler();
   metronomeGainNode = null;
   guitarDryBus = null; guitarWetBus = null; guitarBodyConvolver = null; guitarMasterGain = null;
   pluckBufferCache.clear();
   audioCtx = null;
-  audioBackgroundSuspended = false;
-  audioBackgroundSuspendInFlight = false;
-  audioBackgroundSuspendFailed = false;
   if (previous && previous.state !== 'closed') {
     try {
       const closing = previous.close();
@@ -25295,7 +25166,7 @@ function hardRecoverAudioContext(reason, force) {
     return false;
   }
   audioRecoveryPending = false; audioRecoveryLastError = '';
-  resumeAudioContext(tunerWasActive ? 'play-and-record' : 'playback');
+  resumeAudioContext();
   if (tunerWasActive) reconnectTunerAfterAudioRecovery(fresh);
   recordAudioDiagnostic('hard-recovery-finished', {
     reason, previousGeneration, freshGeneration: audioContextGeneration,
@@ -25304,15 +25175,10 @@ function hardRecoverAudioContext(reason, force) {
   return true;
 }
 function audioPreflightForGesture() {
-  setAudioSessionType('playback', 'preflight');
   const ctx = getAudioContext();
   if (!ctx) { recordAudioDiagnostic('preflight-no-context'); return null; }
-  if (audioRecoveryPending || audioBackgroundSuspendFailed || ctx.state === 'closed') {
-    recordAudioDiagnostic('preflight-hard-recovery', {
-      pending: audioRecoveryPending,
-      backgroundSuspendFailed: audioBackgroundSuspendFailed,
-      before: audioDiagnosticContextSnapshot(ctx),
-    });
+  if (audioRecoveryPending || ctx.state === 'closed') {
+    recordAudioDiagnostic('preflight-hard-recovery', { pending: audioRecoveryPending, before: audioDiagnosticContextSnapshot(ctx) });
     if (!hardRecoverAudioContext('preflight', false)) return ctx;
     return audioCtx;
   }
@@ -25339,12 +25205,6 @@ document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'hidden') {
     audioBlurStartedAt = performance.now();
     recordAudioDiagnostic('visibility-hidden');
-    // The important Safari case is an IDLE page. Leaving a running but
-    // silent AudioContext alive lets WebKit power-manage it into a context
-    // that later reports `running` while producing no output. Make the
-    // lifecycle transition explicit ourselves. Active song playback and
-    // the microphone tuner are intentionally left alone.
-    suspendAudioContextForBackground('visibility');
   } else {
     audioLastBlurDurationMs = audioBlurStartedAt ? performance.now() - audioBlurStartedAt : 0;
     audioBlurStartedAt = 0;
@@ -25363,11 +25223,7 @@ window.addEventListener('focus', () => {
   requestAudioResume('focus');
 });
 window.addEventListener('pagehide', event => recordAudioDiagnostic('pagehide', { persisted: !!event.persisted }));
-window.addEventListener('pageshow', event => {
-  recordAudioDiagnostic('pageshow', { persisted: !!event.persisted });
-  // A bfcache restore can arrive without a second visibilitychange.
-  if (audioCtx) requestAudioResume('pageshow');
-});
+window.addEventListener('pageshow', event => recordAudioDiagnostic('pageshow', { persisted: !!event.persisted }));
 // Первый жест после неудачного resume имеет право пересоздать контекст.
 document.addEventListener('pointerdown', () => {
   if (audioRecoveryPending && !(playbackState && playbackState.isPlaying)) {
@@ -26578,9 +26434,6 @@ async function tunerStart() {
   }
   if (hint) hint.textContent = 'Слушаю микрофон…';
   try {
-    // Для микрофона Safari нужен отдельный аудиосеанс. Иначе переход
-    // между input и playback иногда оставляет Web Audio без выхода.
-    setAudioSessionType('play-and-record', 'tuner-start');
     // Обработку звука браузером ОТКЛЮЧАЕМ. Подавление шума и
     // автоусиление рассчитаны на речь: они давят ровный тон струны как
     // «фоновый шум», и частота уплывает.
@@ -26593,8 +26446,7 @@ async function tunerStart() {
     });
     const ctx = getAudioContext();
     if (!ctx) throw new Error('нет аудиоконтекста');
-    setAudioSessionType('play-and-record', 'tuner-start');
-    resumeAudioContext('play-and-record');
+    resumeAudioContext();
     const source = ctx.createMediaStreamSource(stream);
     const analyser = ctx.createAnalyser();
     // Окно 4096 сэмплов: при 48 кГц это 85 мс — двух периодов самой
@@ -26643,9 +26495,6 @@ function tunerStop() {
     tunerState.source.disconnect();
   } catch (e) {}
   tunerState = null;
-  // После прекращения захвата возвращаем обычную категорию вывода:
-  // аккорды и метроном должны идти как playback, не как capture.
-  setAudioSessionType('playback', 'tuner-stop');
   tunerRender(null);
 }
 
@@ -27089,7 +26938,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
 
 function playChord(c, wrapper) {
   if (!c?.trim()) return;
-  const ctx = audioPreflightForGesture();
+  const ctx = getAudioContext();
   if (!ctx) {
     showToast('🔇 Аудио недоступно');
     return;
@@ -27159,7 +27008,7 @@ function playChordScheduled(c, st, dur, posCtx) {
 // логику подбора аппликатуры под позицию, что и обычное воспроизведение.
 function previewChordNow(chordName, wrapper) {
   if (!chordName) return;
-  const ctx = audioPreflightForGesture();
+  const ctx = getAudioContext();
   if (!ctx) return;
   resumeAudioContext(); // покрывает и 'suspended', и Safari-'interrupted'
   const secId = wrapper ? +wrapper.dataset.sec : null;
@@ -29126,7 +28975,7 @@ function stopPatternPreview() {
 // Крутит паттерн в цикле независимо от общего плеера — для прослушивания
 // прямо в редакторе.
 function startPatternPreview(pattern, ts, bpm, chordName, key) {
-  const ctx = audioPreflightForGesture();
+  const ctx = getAudioContext();
   if (!ctx) {
     showToast('Аудио недоступно');
     return;
