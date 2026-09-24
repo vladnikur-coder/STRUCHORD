@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-/* B-66.2 / 0.405 — production-маршрут «Грохочет гром»: seal + схема storm. */
+/* B-66.2 / 0.406 — production-маршрут «Грохочет гром»: seal + схема storm. */
 const fs=require('fs');
 const {JSDOM}=require('jsdom');
 const html=fs.readFileSync(__dirname+'/../../STRUCHORD.html','utf8');
@@ -46,15 +46,15 @@ dom.window.addEventListener('load',()=>{
       if(!w.eval('stormUnlocked')||!w.eval('schemeSurprisesEnabled'))throw new Error('ПРОВАЛ: Гроза не разблокирована и не включена');
       if(!w.eval("stormSeenAchievements.has(THUNDER_ACHIEVEMENT_ID)"))throw new Error('ПРОВАЛ: ачивка Грохочет гром не записана в реестр');
       if(!w.localStorage.getItem('struchord-storm-achievements')?.includes('thunder-rumbles'))throw new Error('ПРОВАЛ: ачивка не сохранена в localStorage');
-      const badge=d.querySelector('.storm-achievement.thunder-title-achievement');
-      if(!badge)throw new Error('ПРОВАЛ: не показан грозовой титр');
-      if(badge.parentElement!==d.documentElement)throw new Error('ПРОВАЛ: грозовой титр висит внутри body и уезжает при scroll + shake');
-      if(w.getComputedStyle(badge).position!=='fixed')throw new Error('ПРОВАЛ: грозовой титр не закреплён во viewport');
-      if(badge.querySelector('.storm-achievement-card'))throw new Error('ПРОВАЛ: титр всё ещё сделан карточкой-плашкой');
-      if(!badge.querySelector('.thunder-title-backdrop')||!badge.querySelector('.thunder-title-etching'))throw new Error('ПРОВАЛ: нет чёрного провала или линогравюрной молнии');
-      if(!w.getComputedStyle(badge.querySelector('.thunder-title-main')).fontFamily.includes('Izhitsa'))throw new Error('ПРОВАЛ: титр не просит шрифт Izhitsa');
-      if(!badge.textContent.includes('СЕКРЕТ НАЙДЕН')||!badge.textContent.includes('Грохочет гром'))throw new Error('ПРОВАЛ: текст титра неверный');
-      if(!w.eval("audioDiagnosticLog.some(e=>e.type==='thunder-achievement-mp3-requested')"))throw new Error('ПРОВАЛ: mp3 Грохочет гром не запрошен при титре');
+      const badge=d.querySelector('.storm-achievement.thunder-plate-achievement');
+      if(!badge)throw new Error('ПРОВАЛ: не показана принятая woodcut-плашка');
+      if(badge.parentElement!==d.documentElement)throw new Error('ПРОВАЛ: грозовая плашка висит внутри body и уезжает при scroll + shake');
+      if(w.getComputedStyle(badge).position!=='fixed')throw new Error('ПРОВАЛ: грозовая плашка не закреплена во viewport');
+      if(!badge.querySelector('.thunder-plate-card')||!badge.querySelector('.thunder-plate-mark-bolt'))throw new Error('ПРОВАЛ: нет woodcut-карты или видимой молнии');
+      if(badge.querySelector('.thunder-title-backdrop'))throw new Error('ПРОВАЛ: production всё ещё показывает широкий титр');
+      if(!w.getComputedStyle(badge.querySelector('.thunder-plate-main')).fontFamily.includes('Izhitsa'))throw new Error('ПРОВАЛ: плашка не просит шрифт Izhitsa');
+      if(!badge.textContent.includes('СЕКРЕТ НАЙДЕН')||!badge.textContent.includes('Грохочет гром'))throw new Error('ПРОВАЛ: текст плашки неверный');
+      if(!w.eval("audioDiagnosticLog.some(e=>e.type==='thunder-achievement-mp3-requested')"))throw new Error('ПРОВАЛ: mp3 Грохочет гром не запрошен при плашке');
       badge.remove();
 
       // Повторный явный вход: сразу запускает громовой маршрут, но без повторной плашки.
@@ -82,7 +82,7 @@ dom.window.addEventListener('load',()=>{
       if(w.maybeUnlockStormSecret('song'))throw new Error('ПРОВАЛ: Дима Билан — Молния запустила «Грохочет гром»');
       if(w.__stormCalls.length)throw new Error('ПРОВАЛ: неправильный seal дошёл до storm route');
 
-      console.log('ALL OK — B-66.2 production требует seal «Дурак и молния» + storm, первый удар показывает чёрный титр после грома, повторный вход гремит без повторного титра.');
+      console.log('ALL OK — B-66.2 production требует seal «Дурак и молния» + storm, первый удар показывает принятую woodcut-плашку после грома, повторный вход гремит без повторной плашки.');
       dom.window.close();
     }catch(error){console.error(error);dom.window.close();process.exit(1);}
   },60);
