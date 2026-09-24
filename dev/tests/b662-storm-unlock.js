@@ -3,10 +3,14 @@
 const fs=require('fs'), path=require('path');
 const src=fs.readFileSync(path.join(__dirname,'..','..','STRUCHORD.html'),'utf8');
 const song=JSON.parse(fs.readFileSync(path.join(__dirname,'..','..','uploads','Дима Билан - Молния.struchord.json'),'utf8'));
+const thunderSong=JSON.parse(fs.readFileSync(path.join(__dirname,'..','..','uploads','Король и Шут - Дурак и молния.struchord.json'),'utf8'));
 let n=0; function ok(v,m){if(!v)throw new Error('ПРОВАЛ: '+m); console.log('OK:',m); n++;}
 ok(song.metadata.artist==='Дима Билан'&&song.metadata.title==='Молния','встроена правильная песня');
 ok(/^scd1\.[a-f0-9.]+/.test(song.documentSeal),'песня несёт неприметную подпись');
 ok(src.includes("LIGHTNING_SONG_SEAL = 'scd1.8d2f71c4e9a63b05.220'"),'подписанная Молния распознаётся отдельно от ачивок');
+ok(thunderSong.metadata.artist==='Король и Шут'&&thunderSong.metadata.title==='Дурак и молния','целевая песня «Дурак и молния» встроена');
+ok(thunderSong.documentSeal==='scd1.7f4c1d8a6e2b90d3.thunder','целевая песня подписана скрытым seal');
+ok(src.includes("THUNDER_SONG_SEAL = 'scd1.7f4c1d8a6e2b90d3.thunder'")&&src.includes('SIGNED_SECRET_SONG_SEALS = new Set([LIGHTNING_SONG_SEAL, THUNDER_SONG_SEAL])'),'Грохочет гром проверяет documentSeal, а не текст полей');
 ok(src.includes("title:'220 вольт'"),'заголовок ачивки точный');
 ok(src.includes('СЕКРЕТ НАЙДЕН'),'есть согласованный kicker');
 ok(src.includes('.storm-achievement-outline { display:none; }'),'у щитка нет лишней контурной рамки');
@@ -19,8 +23,10 @@ ok(src.includes("if (startStormAfter && !stormReducedMotion() && stormCanStart()
 ok(src.includes('3 * 60 * 1000')&&src.includes('7 * 60 * 1000'),'повторы через 3–7 минут');
 ok(src.includes("localStorage.getItem(STORM_UNLOCK_KEY) === '1'"),'dev-разблокировка Грозы может сохраняться отдельно');
 ok(src.includes("localStorage.getItem(POWER_GENERATOR_KEY) === '1'"),'ачивка 220 хранится отдельным флагом');
-ok(src.includes('stormSeenAchievements = new Set'),'будущие грозовые ачивки имеют отдельный реестр');
-ok(src.includes('function maybeUnlockStormSecret(source)')&&src.includes('production-маршрут намеренно ничего не разблокирует'),'production-маршрут Грохочет гром отложен до B-66.3');
+ok(src.includes('stormSeenAchievements = new Set'),'грозовые ачивки имеют отдельный реестр');
+ok(src.includes('function maybeUnlockStormSecret(source)')&&src.includes('currentSongSeal !== THUNDER_SONG_SEAL')&&src.includes("activeSchemeId() !== 'storm'"),'production-маршрут Грохочет гром требует seal песни и схему Гроза');
+ok(src.includes('strikeDelayMs: STORM_SECRET_STRIKE_DELAY_MS')&&src.includes("afterStrike: firstThunder ? () => showStormAchievement(achievement, false) : null"),'первый запуск ставит плашку только после полного грозового удара');
+ok(src.includes("achievement = { id: THUNDER_ACHIEVEMENT_ID, title: 'Грохочет гром' }")&&src.includes('achievement-style-storm')&&src.includes('storm-achievement-cloud'),'плашка Грохочет гром выполнена как грозовая туча');
 ok(!src.includes('cancelStormSurprise(); showStormAchievement(achievement);'),'Молния со схемой Гроза больше не выдаёт старую ачивку');
 ok(src.includes('documentSeal: asSafeText(rawSong.documentSeal'),'подпись проходит санитайзер');
 ok(src.includes("...(currentSongSeal ? { documentSeal: currentSongSeal } : {})"),'подпись переживает сохранение');
@@ -32,7 +38,7 @@ ok(!src.includes('id="stormSecretReset"'),'отладочный сброс уб�
 ok(src.includes('id="devPanelTrigger"'),'у номера версии есть dev-trigger');
 ok(src.includes('function openDevPalette'),'реализована командная dev-палитра');
 ok(src.includes("root:[entry('ti-player-play','Звук'")&&src.includes("entry('ti-award','Ачивки'"),'dev-палитра разделена на Звук и Ачивки');
-ok(src.includes("achievements:[entry('ti-bolt','220 вольт'")&&src.includes("entry('ti-cloud-bolt','Грохочет гром'")&&src.includes("thunder:[entry('ti-cloud-bolt','Гроза'"),'220 вольт и будущая «Грохочет гром» разведены по отдельным папкам');
+ok(src.includes("achievements:[entry('ti-bolt','220 вольт'")&&src.includes("entry('ti-cloud-bolt','Грохочет гром'")&&src.includes("thunder:[entry('ti-cloud-bolt','Гроза'"),'220 вольт и «Грохочет гром» разведены по отдельным папкам');
 ok(src.includes("achievement-style-meter")&&src.includes('achievement-meter'),'выбран единственный визуал Электрощиток 220 V');
 ok(!src.includes('devPreviewAchievementStyle'),'временный выбор визуалов удалён');
 ok(!src.includes('DYNAMO_VARIANTS')&&!src.includes('openDynamoPrototype'),'непринятая витрина динамо полностью удалена');
