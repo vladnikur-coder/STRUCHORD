@@ -39,7 +39,7 @@ const dom=new JSDOM(html,{
 });
 dom.window.addEventListener('error',e=>{runtimeError=e.error||new Error(e.message);});
 dom.window.addEventListener('load',()=>{
-  setTimeout(()=>{
+  setTimeout(async ()=>{
     try {
       const w=dom.window,d=w.document;
       if(runtimeError)throw runtimeError;
@@ -74,9 +74,14 @@ dom.window.addEventListener('load',()=>{
       if(state.currentVoltage!==220||state.voltage.textContent!=='220 V')throw new Error('ПРОВАЛ: финал не зафиксирован на 220 V');
       w.updatePowerGeneratorDecay(state,99999,10);
       if(state.currentVoltage!==220||state.storedVoltage===0)throw new Error('ПРОВАЛ: утечка действует после завершения');
+      w.beginPowerGeneratorRestore();
+      await new Promise(resolve=>w.requestAnimationFrame(resolve));
+      if(state.phase!=='restoring'||!scene.classList.contains('is-restoring'))throw new Error('ПРОВАЛ: восстановление питания не началось');
+      if(!d.body.classList.contains('power-ui-waking'))throw new Error('ПРОВАЛ: интерфейс не получил wake-up класс');
       if(w.eval('powerAchievementSeen')||w.eval('stormUnlocked'))throw new Error('ПРОВАЛ: dev-генератор выдал production-unlock');
       const hum=audio.hum,harmonic=audio.harmonic;
       w.clearPowerGeneratorPrototype(false);
+      if(d.body.classList.contains('power-ui-waking'))throw new Error('ПРОВАЛ: wake-up класс не очищен вместе со сценой');
       if(!hum.stopped||!harmonic.stopped)throw new Error('ПРОВАЛ: звук не остановлен при очистке сцены');
 
       // Само загруженное значение 220 ничего не делает. Только ручной commit.

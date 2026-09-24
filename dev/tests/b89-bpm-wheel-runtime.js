@@ -70,6 +70,7 @@ w.addEventListener('load', async () => {
         clearTimeout(bpmDrumCloseTimer);
         bpmDrumCloseTimer = 0;
         bpmDrumClosing = false;
+        powerGeneratorSessionSeen = false;
       `);
       input.value = String(value);
     };
