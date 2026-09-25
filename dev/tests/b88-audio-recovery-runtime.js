@@ -5,6 +5,7 @@ const KEY='struchord-audio-diagnostics-v1';
 class MockAudioContext {
   constructor(){this.state='running';this.sampleRate=48000;this.currentTime=1;this.destination={};this.onstatechange=null;}
   resume(){this.state='running';return Promise.resolve();}
+  suspend(){this.state='suspended';return Promise.resolve();}
   close(){this.state='closed';return Promise.resolve();}
   createOscillator(){return {frequency:{value:0},connect(){},start(){},stop(){}};}
   createGain(){return {gain:{value:0,setValueAtTime(){},exponentialRampToValueAtTime(){}},connect(){},disconnect(){}};}
@@ -21,6 +22,21 @@ function makeDom(seed){
   const dom=await makeDom(); const w=dom.window;
   const first=w.getAudioContext();
   if(!first||w.eval('audioContextGeneration')!==1)throw new Error('ПРОВАЛ: первое поколение не создано');
+  Object.defineProperty(w.document,'visibilityState',{configurable:true,value:'hidden'});
+  w.document.dispatchEvent(new w.Event('visibilitychange'));
+  await new Promise(resolve=>setTimeout(resolve,0));
+  if(first.state!=='suspended')throw new Error('ПРОВАЛ: idle-контекст не усыпился в фоне');
+  if(!w.eval("audioDiagnosticLog.some(e=>e.type==='context-idle-suspend-resolved')"))throw new Error('ПРОВАЛ: idle suspend не записан в журнал');
+  Object.defineProperty(w.document,'visibilityState',{configurable:true,value:'visible'});
+  w.document.dispatchEvent(new w.Event('visibilitychange'));
+  await new Promise(resolve=>setTimeout(resolve,0));
+  if(first.state!=='running')throw new Error('ПРОВАЛ: контекст не проснулся после возврата');
+  w.eval('playbackState.isPlaying=true');
+  Object.defineProperty(w.document,'visibilityState',{configurable:true,value:'hidden'});
+  w.document.dispatchEvent(new w.Event('visibilitychange'));
+  await new Promise(resolve=>setTimeout(resolve,0));
+  if(first.state!=='running')throw new Error('ПРОВАЛ: активное воспроизведение было усыплено');
+  w.eval('playbackState.isPlaying=false');
   first.state='interrupted';
   if(!w.hardRecoverAudioContext('runtime-test',true))throw new Error('ПРОВАЛ: hard recovery вернул false');
   const second=w.getAudioContext();
