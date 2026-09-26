@@ -67,26 +67,26 @@ w.addEventListener('load', () => {
     ok('нет затемняющего .wheel-overlay', !modal.querySelector('.wheel-overlay'));
     ok('слой стартует скрытым для AT', modal.getAttribute('aria-hidden') === 'true');
     ok('в SVG квадратный viewBox для полного круга', d.getElementById('circleSvg').getAttribute('viewBox') === '0 0 540 540');
-    ok('есть оба варианта визуальной проверки', d.querySelectorAll('[data-wheel-variant]').length === 2);
+    ok('временного переключателя вариантов больше нет', !d.querySelector('[data-wheel-variant]'));
 
-    console.log('\n=== 2. Открытие и положение «над» ===');
+    console.log('\n=== 2. Открытие и центрирование «Вокруг» ===');
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');
     ok('слой открыт', modal.classList.contains('open'));
     ok('слой объявлен видимым для AT', modal.getAttribute('aria-hidden') === 'false');
     ok('режим при открытии — трезвучия', w.eval('wheelMode') === 'triads');
-    ok('поповер перевернулся вниз, когда сверху не хватает места', container.dataset.side === 'below', container.dataset.side);
-    ok('контекст подписывает текущий аккорд', d.getElementById('wheelContextLabel').textContent.includes(input.value));
-
-    console.log('\n=== 3. Положение «вокруг» ===');
-    w.eval('setWheelPopoverVariant("around"); positionContextualChordWheel();');
-    ok('контейнер помечен вариантом вокруг', container.dataset.variant === 'around');
     ok('геометрия помечена вокруг', container.dataset.side === 'around');
     ok('центр SVG выровнен по центру ячейки',
       Math.abs((Number.parseFloat(container.style.left) + 192) - 510) < 1 &&
       Math.abs((Number.parseFloat(container.style.top) + 242) - 545) < 1,
       `${container.style.left}, ${container.style.top}`);
-    ok('переключатель отражает вариант',
-      d.querySelector('[data-wheel-variant="around"]').getAttribute('aria-pressed') === 'true');
+    ok('контекст подписывает текущий аккорд', d.getElementById('wheelContextLabel').textContent.includes(input.value));
+
+    console.log('\n=== 3. У края круг не смещается от ячейки ===');
+    Object.defineProperty(w, 'innerHeight', { value: 700, configurable: true });
+    w.eval('positionContextualChordWheel();');
+    ok('центр остаётся на ячейке, даже когда низ выходит из viewport',
+      Math.abs((Number.parseFloat(container.style.top) + 242) - 545) < 1,
+      `${container.style.top} при viewport ${w.innerHeight}`);
 
     console.log('\n=== 4. Вне слоя — закрытие без смены аккорда ===');
     const beforeOutside = input.value;
