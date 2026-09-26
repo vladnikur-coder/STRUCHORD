@@ -5120,54 +5120,64 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   text-transform: uppercase;
   white-space: nowrap;
 }
-.wheel-popover-toolbar,
-.mode-tabs {
-  padding: 0.375rem 0.5rem;
+.wheel-popover-toolbar {
+  padding: 0.375rem 0.625rem;
   border: 0.0625rem solid var(--color-border-light);
   border-radius: 1rem;
   background: var(--color-surface);
   box-shadow: var(--shadow-card);
-}
-.wheel-popover-toolbar {
   margin: 0 auto 0.375rem;
 }
+/* Качества — не отдельная панель, а нижняя дуга самого инструмента.
+   Контейнер ничего не перехватывает: кликабельны только видимые кнопки. */
 .mode-tabs {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 0.25rem;
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
 }
 .mode-row {
-  display: flex;
-  justify-content: center;
-  gap: 0.5rem;
+  display: contents;
 }
 .mode-tab {
-  width: 2.75rem;
-  height: 2.75rem;
-  border-radius: 50%;
+  --wheel-mode-angle: 180deg;
+  --wheel-mode-scale: 1;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  min-width: 2.25rem;
+  height: 2.25rem;
+  padding: 0.25rem 0.4375rem;
   border: 0.0625rem solid var(--color-border-medium);
-  background: var(--color-background-primary);
+  border-radius: 0.8125rem;
+  background: var(--color-surface);
   color: var(--color-text-secondary);
-  font-size: 0.8125rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+  font-size: 0.6875rem;
+  font-weight: 750;
+  line-height: 1;
+  white-space: nowrap;
   cursor: pointer;
-  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.18s, border-color 0.18s, box-shadow 0.18s;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) rotate(var(--wheel-mode-angle)) translateY(-12.95rem) rotate(calc(-1 * var(--wheel-mode-angle))) scale(var(--wheel-mode-scale));
+  transform-origin: center;
+  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.18s, border-color 0.18s, box-shadow 0.18s, color 0.18s;
 }
 .mode-tab:hover {
-  transform: translateY(-0.125rem) scale(1.06);
+  --wheel-mode-scale: 1.1;
   background: var(--color-background-secondary);
   border-color: var(--color-text-secondary);
   box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
 }
 .mode-tab:active {
-  transform: scale(0.96);
+  --wheel-mode-scale: 0.95;
 }
 .mode-tab.active {
+  --wheel-mode-scale: 1.05;
   background: var(--color-tab-active-bg);
   color: var(--color-accent);
   border-color: var(--color-accent);
@@ -10662,7 +10672,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.414</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.415</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -11243,17 +11253,13 @@ body.power-ui-waking .pinned-fingering-dock {
         </div>
         <div class="wheel-svg-wrap">
           <svg id="circleSvg" viewBox="0 0 540 540" aria-label="Аккорды текущей тональности"></svg>
-        </div>
-        <div class="mode-tabs">
-          <!-- Кнопки расширений строит скрипт (renderWheelModeTabs).
-               Список живой: аккорд, введённый вручную с расширением,
-               которого здесь нет (например, add9), ставит его на первую
-               кнопку, сдвигая остальные — последняя вытесняется.
-               Загруженная песня наполняет очередь из своих аккордов:
-               её расширения впереди, хвост — штатные умолчания.
-               Число мест и расстановка прежние: четыре сверху, три снизу. -->
-          <div class="mode-row" id="wheelModeRow1"></div>
-          <div class="mode-row" id="wheelModeRow2"></div>
+          <!-- Качества — нижняя дуга круга. Список живой: он следует за
+               аккордами песни; редкое качество текущей ячейки временно
+               закрепляется, чтобы активное состояние всегда было честным. -->
+          <div class="mode-tabs" aria-label="Качество аккорда">
+            <div class="mode-row" id="wheelModeRow1"></div>
+            <div class="mode-row" id="wheelModeRow2"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -30478,26 +30484,45 @@ function toggleWheelMode(m) {
 // их целиком: кнопок всегда семь, порядок — очередь, где свежевведённое
 // расширение первое. id кнопкам больше не нужны: содержимое динамическое,
 // поэтому режим хранится в data-атрибуте, а не зашит в разметку.
+// Расширение текущей ячейки, которого нет среди семи живых типов.
+// Это только проекция при открытом круге: закрытие возвращает очередь к
+// песне, а реально выбранный новый аккорд учится обычным push-путём.
+let wheelPinnedExtension = null;
+
+function visibleWheelExtensions() {
+  if (!wheelPinnedExtension) return [...wheelExtModes];
+  return [wheelPinnedExtension, ...wheelExtModes.filter((m) => m !== wheelPinnedExtension)]
+    .slice(0, WHEEL_EXT_SLOTS);
+}
+// Строит кнопки нижней дуги из живой очереди. В отличие от старого дока
+// рядов 4+3, оба DOM-рядка теперь служат лишь устойчивыми якорями для
+// тестов/доступности; CSS раскладывает их семь элементов вдоль дуги.
 function renderWheelModeTabs() {
   const row1 = document.getElementById('wheelModeRow1');
   const row2 = document.getElementById('wheelModeRow2');
   if (!row1 || !row2) return;
   row1.innerHTML = '';
   row2.innerHTML = '';
-  wheelExtModes.forEach((m, i) => {
+  const modes = visibleWheelExtensions();
+  modes.forEach((m, i) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'mode-tab';
-    if (wheelMode === m) b.classList.add('active');
+    const active = wheelMode === m;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
     b.dataset.wheelMode = m;
+    b.style.setProperty('--wheel-mode-angle', `${120 + i * 20}deg`);
     b.textContent = m;
-    // Круг 56px рассчитан под короткие ярлыки вроде «sus4». Ручные
-    // расширения длиннее (m7b5, add11) — ужимаем только шрифт: размеры
-    // кнопок и их расстановка остаются прежними.
-    if (m.length === 4) b.style.fontSize = '0.8125rem';
-    else if (m.length >= 5) b.style.fontSize = '0.6875rem';
-    b.addEventListener('click', () => toggleWheelMode(m));
-    // Первые четыре места — верхний ряд, остальные три — нижний.
+    b.title = active ? `Качество ${m}; нажмите, чтобы вернуться к трезвучиям` : `Выбрать качество ${m}`;
+    // На дуге место дороже прежнего дока: ужимаем только длинные подписи,
+    // не меняя размер цели клика и её равномерное расположение.
+    if (m.length === 4) b.style.fontSize = '0.625rem';
+    else if (m.length >= 5) b.style.fontSize = '0.5625rem';
+    b.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleWheelMode(m);
+    });
     (i < 4 ? row1 : row2).appendChild(b);
   });
 }
@@ -30562,6 +30587,7 @@ function learnWheelExtension(chord) {
 // прошлой песни) сбрасывается: кнопки всегда описывают открытую песню.
 // Перерисовка одна, в конце: аккордов в песне сотни, а кнопок семь.
 function seedWheelExtensionsFromSong() {
+  wheelPinnedExtension = null;
   wheelExtModes.length = 0;
   wheelExtModes.push(...WHEEL_EXT_DEFAULTS);
   sections.forEach((sec) =>
@@ -30570,10 +30596,24 @@ function seedWheelExtensionsFromSong() {
         pushWheelExtension(extractWheelExtension(ev.chord)))));
   renderWheelModeTabs();
 }
+function prepareWheelModeForChord(chord) {
+  const extension = extractWheelExtension(chord);
+  wheelPinnedExtension = extension && !wheelExtModes.includes(extension) ? extension : null;
+  renderWheelModeTabs();
+  return extension || 'triads';
+}
+function clearPinnedWheelExtension() {
+  if (!wheelPinnedExtension) return;
+  wheelPinnedExtension = null;
+  renderWheelModeTabs();
+}
 function setWheelMode(m) {
   wheelMode = m;
   document.querySelectorAll('.mode-tab').forEach((b) => {
-    b.classList.toggle('active', m !== 'triads' && b.dataset.wheelMode === m);
+    const active = m !== 'triads' && b.dataset.wheelMode === m;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
+    b.title = active ? `Качество ${m}; нажмите, чтобы вернуться к трезвучиям` : `Выбрать качество ${b.dataset.wheelMode}`;
   });
   drawWheel();
 }
@@ -31261,7 +31301,7 @@ function openChordWheel(inp) {
   updateWheelContextLabel(inp);
   DOM.chordWheelModal.setAttribute('aria-hidden', 'false');
   DOM.chordWheelModal.classList.add('open');
-  setWheelMode('triads');
+  setWheelMode(prepareWheelModeForChord(inp.value));
   requestWheelPosition();
 }
 function closeChordWheel() {
@@ -31269,6 +31309,7 @@ function closeChordWheel() {
   DOM.chordWheelModal.classList.remove('open');
   DOM.chordWheelModal.setAttribute('aria-hidden', 'true');
   activeSectionKey = null;
+  clearPinnedWheelExtension();
   if (wheelPositionRaf) {
     cancelAnimationFrame(wheelPositionRaf);
     wheelPositionRaf = 0;

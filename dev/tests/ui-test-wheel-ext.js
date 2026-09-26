@@ -172,12 +172,17 @@ w.addEventListener('load', () => {
   ok('очередь: 9 7 6/9 13 / aug 11 5',
      row1() === '9 7 6/9 13' && row2() === 'aug 11 5', row1() + ' / ' + row2());
 
-  console.log('\n=== 11. Открытие колеса: режим сброшен в трезвучия, очередь кнопок цела ===');
+  console.log('\n=== 11. Открытие колеса: качество текущей ячейки активно, очередь цела ===');
   const listBefore = row1() + ' / ' + row2();
+  // Последний вручную введённый аккорд на этом этапе — Eb9. B-40 открывает
+  // круг в его качестве, а не слепо в трезвучиях; список самой очереди
+  // при этом не перетасовывается.
   w.eval("activeChordInput = document.querySelector('.chord-input'); openChordWheel(activeChordInput);");
-  ok('режим — triads', w.eval('wheelMode') === 'triads', w.eval('wheelMode'));
+  ok('режим — 9 из текущей ячейки', w.eval('wheelMode') === '9', w.eval('wheelMode'));
   ok('очередь сохранилась', row1() + ' / ' + row2() === listBefore, row1() + ' / ' + row2());
-  ok('ни одна кнопка не подсвечена', d.querySelectorAll('.mode-tab.active').length === 0);
+  ok('подсвечена ровно кнопка 9',
+     d.querySelectorAll('.mode-tab.active').length === 1 &&
+     d.querySelector('.mode-tab.active')?.dataset.wheelMode === '9');
   w.eval('closeChordWheel()');
 
   console.log('\n=== 12. Собранное с колеса имя полноценно работает дальше ===');

@@ -1,7 +1,7 @@
 // B-40 — контекстный круг аккордов.
-// Контракт первой визуальной итерации: круг больше не модальный, он
-// геометрически привязан к ячейке, даёт временно сравнить «над/вокруг»,
-// закрывается вне ячейки и по повторному клику отдаёт ячейку в ручной ввод.
+// Контракт B-40: круг больше не модальный, геометрически окружает ячейку,
+// а качества живой очереди расположены на нижней дуге. Проверяем также
+// открытие в качестве текущей ячейки и временное закрепление редкого типа.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -42,6 +42,7 @@ w.addEventListener('load', () => {
     const modal = d.getElementById('chordWheelModal');
     const container = modal.querySelector('.wheel-container');
     const wheel = container.querySelector('.wheel-svg-wrap');
+    const modeTabs = container.querySelector('.mode-tabs');
 
     // jsdom не раскладывает CSS. Даём функции якорения честную геометрию,
     // чтобы проверить именно формулы B-40, а не нулевые rect среды.
@@ -68,6 +69,8 @@ w.addEventListener('load', () => {
     ok('слой стартует скрытым для AT', modal.getAttribute('aria-hidden') === 'true');
     ok('в SVG квадратный viewBox для полного круга', d.getElementById('circleSvg').getAttribute('viewBox') === '0 0 540 540');
     ok('временного переключателя вариантов больше нет', !d.querySelector('[data-wheel-variant]'));
+    ok('качества находятся внутри координат круга', modeTabs.parentElement === wheel);
+    ok('дуга содержит семь живых типов', d.querySelectorAll('.mode-tab').length === 7);
 
     console.log('\n=== 2. Открытие и центрирование «Вокруг» ===');
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');
@@ -94,7 +97,50 @@ w.addEventListener('load', () => {
     ok('клик вне круга закрыл слой', !modal.classList.contains('open'));
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
 
-    console.log('\n=== 5. Повторный клик ячейки — ручной ввод ===');
+    console.log('\n=== 5. Качество текущей ячейки и редкое закрепление ===');
+    // 7 есть в штатной живой очереди: C7 открывается сразу в этом режиме.
+    w.eval(`{
+      const inp = document.querySelector('.chord-input');
+      inp.value = 'C7';
+      sections[0].squares[0].events[0].chord = 'C7';
+      openChordWheel(inp);
+    }`);
+    ok('C7 открывает режим 7', w.eval('wheelMode') === '7', w.eval('wheelMode'));
+    ok('7 подсвечена в дуге', d.querySelector('.mode-tab.active')?.dataset.wheelMode === '7');
+    d.querySelector('.mode-tab.active').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    ok('повторный клик качества возвращает трезвучия', w.eval('wheelMode') === 'triads');
+    w.eval('closeChordWheel()');
+
+    // Убираем 13 из живой очереди вручную, чтобы проверить именно
+    // временную проекцию качества сохранённой ячейки, а не её обучение.
+    w.eval(`{
+      wheelExtModes.splice(0, wheelExtModes.length, ...WHEEL_EXT_DEFAULTS);
+      renderWheelModeTabs();
+      const inp = document.querySelector('.chord-input');
+      inp.value = 'C13';
+      sections[0].squares[0].events[0].chord = 'C13';
+      openChordWheel(inp);
+    }`);
+    ok('редкое 13 закреплено на время открытия', w.eval('wheelPinnedExtension') === '13');
+    ok('редкое 13 — первый и активный тип дуги',
+      d.querySelector('.mode-tab')?.dataset.wheelMode === '13' &&
+      d.querySelector('.mode-tab.active')?.dataset.wheelMode === '13');
+    w.eval('closeChordWheel()');
+    ok('после закрытия временное закрепление снято', w.eval('wheelPinnedExtension') === null);
+    ok('13 не засорило живую очередь', !Array.from(d.querySelectorAll('.mode-tab')).some((b) => b.dataset.wheelMode === '13'));
+
+    console.log('\n=== 6. Пустая ячейка — трезвучия ===');
+    w.eval(`{
+      const inp = document.querySelector('.chord-input');
+      inp.value = '';
+      sections[0].squares[0].events[0].chord = '';
+      openChordWheel(inp);
+    }`);
+    ok('пустая ячейка открывает трезвучия', w.eval('wheelMode') === 'triads');
+    ok('у пустой ячейки не подсвечен тип', d.querySelectorAll('.mode-tab.active').length === 0);
+    w.eval('closeChordWheel()');
+
+    console.log('\n=== 7. Повторный клик ячейки — ручной ввод ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
     owner.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('повторный клик закрыл круг', !modal.classList.contains('open'));
@@ -103,7 +149,7 @@ w.addEventListener('load', () => {
     // обычный единый commit, не создавая изменения модели.
     w.eval('saveCurrentChord();');
 
-    console.log('\n=== 6. Клик по реальному сектору фиксирует и закрывает ===');
+    console.log('\n=== 8. Клик по реальному сектору фиксирует и закрывает ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
     const firstSector = d.querySelector('#circleSvg path');
     firstSector.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
