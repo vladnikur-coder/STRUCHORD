@@ -46,7 +46,8 @@ w.addEventListener('load', () => {
 
     // jsdom не раскладывает CSS. Даём функции якорения честную геометрию,
     // чтобы проверить именно формулы B-40, а не нулевые rect среды.
-    owner.getBoundingClientRect = () => ({ left: 420, top: 500, width: 180, height: 90, right: 600, bottom: 590 });
+    let ownerRect = { left: 420, top: 500, width: 180, height: 90, right: 600, bottom: 590 };
+    owner.getBoundingClientRect = () => ownerRect;
     container.getBoundingClientRect = () => ({
       left: Number.parseFloat(container.style.left) || 0,
       top: Number.parseFloat(container.style.top) || 0,
@@ -87,8 +88,8 @@ w.addEventListener('load', () => {
       near?.style.getPropertyValue('--wheel-mode-angle') === '202deg' &&
       d.querySelector('#wheelModeRow1 .mode-tab:last-child')?.style.getPropertyValue('--wheel-mode-angle') === '158deg');
     ok('дальний ряд из трёх собран уже, как нижний ряд 0.410',
-      far?.style.getPropertyValue('--wheel-mode-angle') === '193deg' &&
-      d.querySelector('#wheelModeRow2 .mode-tab:last-child')?.style.getPropertyValue('--wheel-mode-angle') === '167deg');
+      far?.style.getPropertyValue('--wheel-mode-angle') === '192deg' &&
+      d.querySelector('#wheelModeRow2 .mode-tab:last-child')?.style.getPropertyValue('--wheel-mode-angle') === '168deg');
     ok('ближняя дуга не наезжает на SVG-кольцо',
       Number.parseFloat(near?.style.getPropertyValue('--wheel-mode-radius')) >= 13.5);
 
@@ -110,13 +111,31 @@ w.addEventListener('load', () => {
       Math.abs((Number.parseFloat(container.style.top) + 192) - 545) < 1,
       `${container.style.top} при viewport ${w.innerHeight}`);
 
-    console.log('\n=== 4. Вне слоя — закрытие без смены аккорда ===');
+    console.log('\n=== 4. Масштаб UI и прокрутка не отрывают круг от ячейки ===');
+    Object.defineProperties(w, {
+      scrollX: { value: 80, configurable: true },
+      scrollY: { value: 120, configurable: true },
+    });
+    ownerRect = { left: 340, top: 440, width: 100, height: 80, right: 440, bottom: 520 };
+    w.eval('writeUiScale(150);');
+    ok('после UI-зумa круг заново привязан к document-координатам ячейки',
+      Math.abs((Number.parseFloat(container.style.left) + 192) - 470) < 1 &&
+      Math.abs((Number.parseFloat(container.style.top) + 192) - 600) < 1,
+      `${container.style.left}, ${container.style.top}`);
+    Object.defineProperties(w, {
+      scrollX: { value: 0, configurable: true },
+      scrollY: { value: 0, configurable: true },
+    });
+    ownerRect = { left: 420, top: 500, width: 180, height: 90, right: 600, bottom: 590 };
+    w.eval('writeUiScale(125);');
+
+    console.log('\n=== 5. Вне слоя — закрытие без смены аккорда ===');
     const beforeOutside = input.value;
     d.body.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
     ok('клик вне круга закрыл слой', !modal.classList.contains('open'));
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
 
-    console.log('\n=== 5. Качество текущей ячейки и редкое закрепление ===');
+    console.log('\n=== 6. Качество текущей ячейки и редкое закрепление ===');
     // 7 есть в штатной живой очереди: C7 открывается сразу в этом режиме.
     w.eval(`{
       const inp = document.querySelector('.chord-input');
@@ -148,7 +167,7 @@ w.addEventListener('load', () => {
     ok('после закрытия временное закрепление снято', w.eval('wheelPinnedExtension') === null);
     ok('13 не засорило живую очередь', !Array.from(d.querySelectorAll('.mode-tab')).some((b) => b.dataset.wheelMode === '13'));
 
-    console.log('\n=== 6. Пустая ячейка — трезвучия ===');
+    console.log('\n=== 7. Пустая ячейка — трезвучия ===');
     w.eval(`{
       const inp = document.querySelector('.chord-input');
       inp.value = '';
@@ -159,7 +178,7 @@ w.addEventListener('load', () => {
     ok('у пустой ячейки не подсвечен тип', d.querySelectorAll('.mode-tab.active').length === 0);
     w.eval('closeChordWheel()');
 
-    console.log('\n=== 7. Повторный клик ячейки — ручной ввод ===');
+    console.log('\n=== 8. Повторный клик ячейки — ручной ввод ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
     owner.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('повторный клик закрыл круг', !modal.classList.contains('open'));
@@ -168,7 +187,7 @@ w.addEventListener('load', () => {
     // обычный единый commit, не создавая изменения модели.
     w.eval('saveCurrentChord();');
 
-    console.log('\n=== 8. Клик по реальному сектору фиксирует и закрывает ===');
+    console.log('\n=== 9. Клик по реальному сектору фиксирует и закрывает ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
     const firstSector = d.querySelector('#circleSvg path');
     firstSector.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));

@@ -5072,7 +5072,9 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
    активная ячейка остаётся видимой и по повторному клику переключается
    в прямой ручной ввод. */
 .chord-wheel-modal {
-  position: fixed;
+  /* Как тултип аппликатуры: документные координаты переживают browser/pinch
+     zoom, тогда как fixed в Safari привязывается к visual viewport. */
+  position: absolute;
   inset: 0;
   display: none;
   z-index: 10001;
@@ -5082,7 +5084,8 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   display: block;
 }
 .wheel-container {
-  position: fixed;
+  /* left/top записываются в document-px от якорной ячейки. */
+  position: absolute;
   z-index: 1;
   /* B-40: принятый вариант — круг окружает настоящую ячейку, поэтому
      нет общей прямоугольной карточки, заслоняющей редактор. */
@@ -10651,7 +10654,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.421</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.422</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30493,7 +30496,7 @@ function renderWheelModeTabs() {
     // повторяет компактность 0.410, но остаётся парой вложенных дуг,
     // а не нижним доком.
     const nearAngles = [202, 187.5, 172.5, 158];
-    const farAngles = [193, 180, 167];
+    const farAngles = [192, 180, 168];
     const inNearArc = i < 4;
     b.style.setProperty('--wheel-mode-angle', `${inNearArc ? nearAngles[i] : farAngles[i - 4]}deg`);
     b.style.setProperty('--wheel-mode-radius', inNearArc ? '13.5rem' : '16.5rem');
@@ -31248,8 +31251,13 @@ function positionContextualChordWheel() {
     : wholeRect.height / 2;
 
   container.dataset.side = 'around';
-  container.style.left = `${Math.round(ownerRect.left + ownerRect.width / 2 - wheelCenterX)}px`;
-  container.style.top = `${Math.round(ownerRect.top + ownerRect.height / 2 - wheelCenterY)}px`;
+  // Контейнер absolute, как тултип аппликатуры: переводим viewport-rect
+  // ячейки в document-px. Так browser/pinch zoom не переякоривает fixed
+  // слой через visual viewport и круг остаётся на своей ячейке.
+  const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+  const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  container.style.left = `${Math.round(ownerRect.left + ownerRect.width / 2 - wheelCenterX + scrollX)}px`;
+  container.style.top = `${Math.round(ownerRect.top + ownerRect.height / 2 - wheelCenterY + scrollY)}px`;
   container.style.visibility = '';
 }
 function requestWheelPosition() {
@@ -31268,6 +31276,11 @@ function initContextualChordWheel() {
   });
   window.addEventListener('resize', requestWheelPosition);
   window.addEventListener('scroll', requestWheelPosition, true);
+  // Safari может не послать window resize во время pinch: повторяем
+  // проверенный маршрут тултипа аппликатуры для visual viewport/gesture.
+  window.visualViewport?.addEventListener('resize', requestWheelPosition);
+  window.visualViewport?.addEventListener('scroll', requestWheelPosition);
+  document.addEventListener('gesturechange', requestWheelPosition, { passive: true });
 }
 function openChordWheel(inp) {
   if (!inp) return;
@@ -31411,6 +31424,9 @@ function writeUiScale(p) {
   const plus = document.getElementById('scalePlus');
   if (minus) minus.disabled = p <= UI_SCALE_MIN;
   if (plus) plus.disabled = p >= UI_SCALE_MAX;
+  // Масштаб интерфейса меняет rem-геометрию без window resize. Открытый
+  // круг пересчитываем сразу от живого rect ячейки, как тултип аппликатуры.
+  if (DOM.chordWheelModal?.classList.contains('open')) positionContextualChordWheel();
 }
 // Установить конкретный масштаб (в процентах) с клампом и сохранением.
 function setUiScale(pct) {
