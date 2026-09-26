@@ -10805,7 +10805,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.428</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.429</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -16632,6 +16632,26 @@ const tooltip = document.getElementById('fingering-tooltip');
 let lastTooltipWrapper = null;
 const preferredFingeringByChord = new Map();
 
+// Круг и живой текстовый ввод уже занимают owner-ячейку. Тултип грифа в
+// этот момент конкурировал бы и за видимость, и за pointer-фокус, поэтому
+// все маршруты показа спрашивают одно и то же состояние.
+function isFingeringTooltipSuppressed(wrapper) {
+  if (DOM?.chordWheelModal?.classList.contains('open')) return true;
+  const input = wrapper?.querySelector?.('.chord-input');
+  return !!(input && !input.hasAttribute('readonly'));
+}
+function suppressFingeringTooltips() {
+  if (typeof hideFingeringTooltip === 'function') {
+    hideFingeringTooltip(false);
+    hideFingeringTooltip(true);
+  }
+  if (tooltipTimeout) {
+    clearTimeout(tooltipTimeout);
+    tooltipTimeout = null;
+  }
+  currentTooltipWrapper = null;
+}
+
 // Единый ключ "конкретное место в песне" для выбранной аппликатуры —
 // используется и тултипом, и аудио-движком, чтобы звук всегда совпадал
 // с тем, что показано на грифе для данного вхождения аккорда.
@@ -17238,6 +17258,10 @@ function isLastEventInSquare(secId, sqId, evIndex) {
 }
 
 function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLast = false) {
+  if (isFingeringTooltipSuppressed(wrapper)) {
+    hideFingeringTooltip(isPreview);
+    return;
+  }
   // В режиме ленты тултипы не показываем. Во-первых, аппликатура и так
   // нарисована прямо в ячейке — окно её дублировало бы. Во-вторых, оно
   // позиционируется от .chord-wrapper редактора, а тот скрыт: у скрытого
@@ -31669,6 +31693,7 @@ function initContextualChordWheel() {
 }
 function openChordWheel(inp) {
   if (!inp) return;
+  suppressFingeringTooltips();
   clearWheelHover();
   // Короткий обратный fade после прежнего close может ещё идти. При
   // немедленном повторном открытии новый круг всегда начинает с чистого
@@ -34692,6 +34717,7 @@ function showManualInputFingeringHint(inp, onActivate) {
 function activateManualInput(inp) {
   if (!inp) return;
   if (longPressTimer) clearTimeout(longPressTimer);
+  suppressFingeringTooltips();
   if (DOM.chordWheelModal.classList.contains('open')) closeChordWheel();
   activeChordInput = inp;
   activeChordInput.removeAttribute('readonly');
