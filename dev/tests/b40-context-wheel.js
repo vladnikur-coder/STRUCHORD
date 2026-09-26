@@ -97,11 +97,14 @@ w.addEventListener('load', () => {
     const wheelSource = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
     ok('вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
-    ok('закрытие зеркалит ключевые scale-стадии opening',
-      /@keyframes wheel-surface-out[\s\S]*?scale\(1\)[\s\S]*?scale\(1\.014\)[\s\S]*?scale\(0\.93\)/.test(wheelSource));
-    ok('opening и closing используют отдельные одинаково долгие fade-дорожки',
-      /wheel-surface-fade-in 0\.22s ease both/.test(wheelSource) &&
-      /wheel-surface-fade-out 0\.22s ease both/.test(wheelSource));
+    ok('закрытие зеркалит спокойную микрогеометрию opening',
+      /@keyframes wheel-surface-in[\s\S]*?scale\(0\.985\)[\s\S]*?scale\(1\)/.test(wheelSource) &&
+      /@keyframes wheel-surface-out[\s\S]*?scale\(1\)[\s\S]*?scale\(0\.985\)/.test(wheelSource));
+    ok('opening и closing используют одинаковые тихие fade-дорожки',
+      /wheel-surface-fade-in 0\.16s ease-in-out both/.test(wheelSource) &&
+      /wheel-surface-fade-out 0\.16s ease-in-out both/.test(wheelSource));
+    ok('дуги качеств тихо уходят вместе с closing, без мгновенного исчезновения',
+      /wheel-quality-out 0\.12s ease-in-out both/.test(wheelSource));
     ok('длинная подпись сначала использует compact из ячеек',
       w.eval("fitWheelChordLabel('F#m(maj7)', 55, 24, 18, '600', '500')") === 'F#mΔ');
     ok('если compact не проходит, подпись оставляет корень и многоточие',

@@ -5275,20 +5275,17 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   transform: translate(-50%, -50%);
   transform-origin: center;
 }
-/* Геометрия и прозрачность разведены в отдельные дорожки. Иначе
-   сильный easing pop-а делал fade-in заметно резче, чем спокойный fade-out. */
+/* B-40: geometry и opacity разведены в отдельные дорожки, но motion
+   намеренно почти не читается как эффект. Открытие и закрытие — одна
+   короткая симметричная микропауза: без подъёма и без
+   overshoot, только 1.5% спокойной смены масштаба вместе с прозрачностью. */
 @keyframes wheel-surface-in {
-  0% { transform: translateY(0.4rem) scale(0.93); }
-  72% { transform: translateY(-0.04rem) scale(1.014); }
-  100% { transform: translateY(0) scale(1); }
+  from { transform: scale(0.985); }
+  to { transform: scale(1); }
 }
-/* Зеркальная фаза opening: тот же собранный подъём, затем обратный
-   уход к owner. Общая пластика читается одним жестом, а не парой разных
-   эффектов. */
 @keyframes wheel-surface-out {
-  0% { transform: translateY(0) scale(1); }
-  28% { transform: translateY(-0.04rem) scale(1.014); }
-  100% { transform: translateY(0.4rem) scale(0.93); }
+  from { transform: scale(1); }
+  to { transform: scale(0.985); }
 }
 @keyframes wheel-surface-fade-in {
   from { opacity: 0; }
@@ -5304,6 +5301,10 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 @keyframes wheel-quality-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes wheel-quality-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 @keyframes wheel-label-in {
   from { opacity: 0; }
@@ -5329,13 +5330,18 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 @media (prefers-reduced-motion: no-preference) {
   /* Все сектора возникают одной собранной поверхностью — не волной по кругу. */
   .chord-wheel-modal.open .wheel-svg-wrap {
-    animation: wheel-surface-in 0.22s cubic-bezier(0.2, 0.82, 0.25, 1) both, wheel-surface-fade-in 0.22s ease both;
+    animation: wheel-surface-in 0.16s ease-in-out both, wheel-surface-fade-in 0.16s ease-in-out both;
   }
   .chord-wheel-modal.closing .wheel-svg-wrap {
-    animation: wheel-surface-out 0.22s cubic-bezier(0.2, 0.82, 0.25, 1) both, wheel-surface-fade-out 0.22s ease both;
+    animation: wheel-surface-out 0.16s ease-in-out both, wheel-surface-fade-out 0.16s ease-in-out both;
   }
+  /* Качества появляются вторым шагом, но всего на 40 мс позже и так же
+     тихо уходят: при closing не остаётся резкого исчезновения нижних дуг. */
   .chord-wheel-modal.open .mode-tab {
-    animation: wheel-quality-in 0.15s ease 0.105s both;
+    animation: wheel-quality-in 0.12s ease-in-out 0.04s both;
+  }
+  .chord-wheel-modal.closing .mode-tab {
+    animation: wheel-quality-out 0.12s ease-in-out both;
   }
   #circleSvg .wheel-label-entering {
     animation: wheel-label-in 0.18s ease both;
@@ -10838,7 +10844,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.433</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.434</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31647,7 +31653,7 @@ function toggleDegreesOnWheel() {
 // геометрию ячейки в центре, даже если часть круга уйдёт за видимую область.
 let wheelPositionRaf = 0;
 let wheelCloseTimer = 0;
-const WHEEL_CLOSE_MS = 225;
+const WHEEL_CLOSE_MS = 170;
 
 function wheelContainer() {
   return DOM.chordWheelModal?.querySelector('.wheel-container') || null;
