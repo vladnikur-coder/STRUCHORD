@@ -128,8 +128,9 @@ w.addEventListener('load', () => {
       /createWheelCardPath\(start, end, Rs - WHEEL_CARD_HALF_SEAM, Ri \+ WHEEL_CARD_PERIMETER\)/.test(wheelSource) &&
       /const WHEEL_CARD_CORNER = 10;/.test(wheelSource) &&
       /Q\$\{outerEnd\.x\}/.test(wheelSource) &&
-      !/classList\.add\('wheel-boundary'\)/.test(wheelSource) &&
-      !/setAttribute\('stroke', 'var\(--color-background-primary\)'\)/.test(wheelSource));
+      /const WHEEL_CARD_OUTLINE = 1\.2;/.test(wheelSource) &&
+      /setAttribute\('stroke', 'var\(--color-border-medium\)'\)/.test(wheelSource) &&
+      !/classList\.add\('wheel-boundary'\)/.test(wheelSource));
     ok('переезд круга использует отдельный FLIP-retarget, не opening/closing',
       /function retargetChordWheel\(inp, \{ suppressOwnerClick = false \} = \{\}\)/.test(wheelSource) &&
       /transform \${WHEEL_RETARGET_MS}ms/.test(wheelSource));
