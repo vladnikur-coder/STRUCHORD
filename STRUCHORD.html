@@ -5066,59 +5066,137 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 .toast.show {
   opacity: 1;
 }
+/* B-40 — контекстный круг аккордов.
+   Это больше не модальная завеса: корневой слой пропускает события к
+   редактору, а живой поповер ловит их только на себе. Благодаря этому
+   активная ячейка остаётся видимой и по повторному клику переключается
+   в прямой ручной ввод. */
 .chord-wheel-modal {
   position: fixed;
   inset: 0;
   display: none;
-  align-items: center;
-  justify-content: center;
   z-index: 10001;
+  pointer-events: none;
 }
 .chord-wheel-modal.open {
-  display: flex;
-}
-.wheel-overlay {
-  position: absolute;
-  inset: 0;
-  background: var(--color-overlay);
-  backdrop-filter: blur(0.3125rem);
+  display: block;
 }
 .wheel-container {
-  position: relative;
+  position: fixed;
+  z-index: 1;
+  width: 27rem;
+  max-width: calc(100vw - 1.5rem);
+  box-sizing: border-box;
+  padding: 0.75rem;
+  border: 0.0625rem solid var(--color-border-light);
+  border-radius: 1.375rem;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-modal);
+  pointer-events: auto;
+  opacity: 0;
+  transform: translateY(0.5rem) scale(0.985);
+  transition: opacity 0.16s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.25, 1);
+}
+.chord-wheel-modal.open .wheel-container {
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+/* Вариант «вокруг» намеренно оставляет только отдельные мягкие плашки
+   управления: круг физически окружает живую ячейку, а не заслоняет её
+   ещё одной большой прямоугольной карточкой. */
+.wheel-container[data-variant="around"] {
+  width: 24rem;
+  padding: 0;
+  border-color: transparent;
   background: transparent;
-  z-index: 2;
-  width: 26.25rem;
-  max-width: 92vw;
+  box-shadow: none;
+}
+.wheel-popover-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 2.25rem;
+  padding: 0 0.25rem 0.5rem;
+}
+.wheel-context-label {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--color-text-secondary);
+  font-size: 0.6875rem;
+  font-weight: 650;
+  letter-spacing: 0.045em;
+  text-overflow: ellipsis;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.wheel-prototype-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.125rem;
+  margin-left: auto;
+  padding: 0.1875rem;
+  border: 0.0625rem solid var(--color-border-light);
+  border-radius: var(--border-radius-pill);
+  background: var(--color-background-secondary);
+}
+.wheel-prototype-switch button {
+  min-height: 1.625rem;
+  padding: 0.1875rem 0.5rem;
+  border: 0;
+  border-radius: var(--border-radius-pill);
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: 650 0.6875rem/1 var(--font-sans);
+  cursor: pointer;
+}
+.wheel-prototype-switch button:hover {
+  color: var(--color-text-primary);
+}
+.wheel-prototype-switch button[aria-pressed="true"] {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  box-shadow: 0 0.0625rem 0.25rem rgba(0, 0, 0, 0.12);
+}
+.wheel-container[data-variant="around"] .wheel-popover-toolbar,
+.wheel-container[data-variant="around"] .mode-tabs {
+  padding: 0.375rem 0.5rem;
+  border: 0.0625rem solid var(--color-border-light);
+  border-radius: 1rem;
+  background: var(--color-surface);
+  box-shadow: var(--shadow-card);
+}
+.wheel-container[data-variant="around"] .wheel-popover-toolbar {
+  margin: 0 auto 0.375rem;
 }
 .mode-tabs {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 0.75rem;
-  margin-top: 0.75rem;
+  gap: 0.5rem;
+  margin-top: 0.25rem;
 }
 .mode-row {
   display: flex;
   justify-content: center;
-  gap: 0.75rem;
+  gap: 0.5rem;
 }
 .mode-tab {
-  width: 3.5rem;
-  height: 3.5rem;
-  border-radius: 80%;
-  border: 0.1875rem solid var(--color-border-medium);
+  width: 2.75rem;
+  height: 2.75rem;
+  border-radius: 50%;
+  border: 0.0625rem solid var(--color-border-medium);
   background: var(--color-background-primary);
   color: var(--color-text-secondary);
-  font-size: 1rem;
+  font-size: 0.8125rem;
   font-weight: 700;
   display: flex;
   align-items: center;
   justify-content: center;
   cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1);
+  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.18s, border-color 0.18s, box-shadow 0.18s;
 }
 .mode-tab:hover {
-  transform: scale(1.12);
+  transform: translateY(-0.125rem) scale(1.06);
   background: var(--color-background-secondary);
   border-color: var(--color-text-secondary);
   box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
@@ -5130,16 +5208,29 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   background: var(--color-tab-active-bg);
   color: var(--color-accent);
   border-color: var(--color-accent);
-  box-shadow: 0 0.25rem 0.875rem rgba(0, 0, 0, 0.18);
-  transform: scale(1.06);
+  box-shadow: 0 0.1875rem 0.625rem rgba(0, 0, 0, 0.15);
 }
 .wheel-svg-wrap {
   position: relative;
   display: flex;
   justify-content: center;
-  overflow-x: auto;
-  margin: 0.5rem 0;
+  overflow: visible;
 }
+.wheel-svg-wrap svg {
+  display: block;
+  width: min(24rem, calc(100vw - 2rem));
+  height: auto;
+  aspect-ratio: 1;
+  overflow: visible;
+  /* Пустой центр SVG не должен быть стеклянной стеной над ячейкой:
+     события берут только нарисованные сектора и подписи. */
+  pointer-events: none;
+}
+.wheel-svg-wrap svg path,
+.wheel-svg-wrap svg text {
+  pointer-events: visiblePainted;
+}
+
 .theme-toggle-btn {
   background: var(--color-surface);
   border: 0.0625rem solid var(--color-border-medium);
@@ -6546,35 +6637,6 @@ body:not(.is-timeline) .fing-string.is-vibrating {
 .strum-step.pick .strum-pick-num.is-bass {
   color: var(--color-accent);
   font-weight: 800;
-}
-.center-pencil-btn {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -61%);
-  width: 4rem;
-  height: 4rem;
-  border-radius: 80%;
-  border: 0.1875rem solid var(--color-border-medium);
-  background: var(--color-background-primary);
-  color: var(--color-text-secondary);
-  font-size: 2.125rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1);
-  z-index: 10;
-}
-.center-pencil-btn:hover {
-  transform: translate(-50%, -61%) scale(1.12);
-  background: var(--color-background-secondary);
-  border-color: var(--color-text-secondary);
-  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
-}
-.center-pencil-btn:active {
-  transform: translate(-50%, -61%) scale(0.96);
 }
 .manual-input-fingering-btn {
   position: fixed;
@@ -10637,7 +10699,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.410</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.413</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -11208,14 +11270,22 @@ body.power-ui-waking .pinned-fingering-dock {
 >
   <div class="fingering-content"></div>
 </div>
-    <div class="chord-wheel-modal" id="chordWheelModal" role="dialog" aria-modal="true" aria-label="Колесо аккордов">
-      <div class="wheel-overlay" onclick="closeChordWheel()"></div>
-      <div class="wheel-container">
+    <!-- B-40: не модальный слой, а контекстный круг у выбранной ячейки.
+         Корень не ловит pointer-события: клик в пустоту закрывает его через
+         document-listener, а повторный клик в центр попадает в саму ячейку. -->
+    <div class="chord-wheel-modal" id="chordWheelModal" aria-hidden="true">
+      <div class="wheel-container" role="dialog" aria-modal="false" aria-label="Круг аккордов" data-variant="above">
+        <div class="wheel-popover-toolbar">
+          <span class="wheel-context-label" id="wheelContextLabel">Выбор аккорда</span>
+          <!-- Временный переключатель первой визуальной итерации B-40.
+               После живого выбора останется только принятый вариант. -->
+          <div class="wheel-prototype-switch" aria-label="Положение круга">
+            <button type="button" data-wheel-variant="above" aria-pressed="true">Над</button>
+            <button type="button" data-wheel-variant="around" aria-pressed="false">Вокруг</button>
+          </div>
+        </div>
         <div class="wheel-svg-wrap">
-          <svg id="circleSvg" style="width: 33.75rem; height: 28.75rem" viewBox="0 0 540 460"></svg>
-          <button class="center-pencil-btn" onclick="activateManualInput(activeChordInput)" aria-label="Ввести аккорд вручную">
-            <i class="ti ti-pencil"></i>
-          </button>
+          <svg id="circleSvg" viewBox="0 0 540 540" aria-label="Аккорды текущей тональности"></svg>
         </div>
         <div class="mode-tabs">
           <!-- Кнопки расширений строит скрипт (renderWheelModeTabs).
@@ -30923,11 +30993,14 @@ function createChordGroup(
 function drawWheel() {
   const svg = DOM.circleSvg;
   svg.innerHTML = '';
+  // B-40: круг теперь действительно круглый (540×540), а центральное
+  // окно достаточно велико, чтобы в варианте «вокруг» оставить ячейку
+  // читаемой и доступной для повторного клика.
   const cx = 270,
-    cy = 220,
-    Ro = 260,
-    Rs = 170,
-    Ri = 80;
+    cy = 270,
+    Ro = 245,
+    Rs = 172,
+    Ri = 103;
   const n = 12,
     sa = (2 * Math.PI) / n,
     ao = -Math.PI / 2 - sa / 2;
@@ -31150,23 +31223,147 @@ function toggleDegreesOnWheel() {
   drawWheel();
   updateCellsDegrees();
 }
+
+// ========== B-40: КОНТЕКСТНЫЙ КРУГ ==========
+// В первой живой итерации намеренно оставлены оба пространственных решения.
+// Это не два независимых компонента: гармония, выбор и расширения у них
+// общие, меняется только геометрия вокруг настоящей ячейки.
+let wheelPopoverVariant = 'above';
+let wheelPositionRaf = 0;
+
+function wheelContainer() {
+  return DOM.chordWheelModal?.querySelector('.wheel-container') || null;
+}
+function wheelOwnerFor(inp = activeChordInput) {
+  return inp?.closest('.chord-wrapper') || null;
+}
+function isChordWheelOpenFor(inp) {
+  return !!(
+    inp &&
+    DOM.chordWheelModal?.classList.contains('open') &&
+    activeChordInput === inp
+  );
+}
+function updateWheelContextLabel(inp = activeChordInput) {
+  const label = document.getElementById('wheelContextLabel');
+  if (!label) return;
+  const chord = (inp?.value || '').trim();
+  label.textContent = chord ? `Аккорд · ${chord}` : 'Пустая ячейка';
+}
+function clampWheelPosition(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
+function positionContextualChordWheel() {
+  wheelPositionRaf = 0;
+  const modal = DOM.chordWheelModal;
+  const container = wheelContainer();
+  const owner = wheelOwnerFor();
+  if (!modal?.classList.contains('open') || !container || !owner) return;
+
+  // Сначала ставим в безопасную точку и скрываем только на время замера:
+  // getBoundingClientRect не должен видеть остаточную позицию прошлого
+  // открытия. Это один дискретный клик, не горячий pointermove-путь.
+  container.style.visibility = 'hidden';
+  container.style.left = '0px';
+  container.style.top = '0px';
+  const ownerRect = owner.getBoundingClientRect();
+  const wholeRect = container.getBoundingClientRect();
+  const wheelRect = container.querySelector('.wheel-svg-wrap')?.getBoundingClientRect();
+  const pad = 12;
+  const maxLeft = Math.max(pad, window.innerWidth - wholeRect.width - pad);
+  const maxTop = Math.max(pad, window.innerHeight - wholeRect.height - pad);
+  let left;
+  let top;
+  let side = 'above';
+
+  if (wheelPopoverVariant === 'around' && wheelRect) {
+    // Центр именно SVG, а не всего контейнера: плашка переключателя и
+    // ряд расширений не должны сдвигать центральное окно относительно
+    // реальной ячейки.
+    const wheelCenterX = wheelRect.left - wholeRect.left + wheelRect.width / 2;
+    const wheelCenterY = wheelRect.top - wholeRect.top + wheelRect.height / 2;
+    left = ownerRect.left + ownerRect.width / 2 - wheelCenterX;
+    top = ownerRect.top + ownerRect.height / 2 - wheelCenterY;
+    side = 'around';
+  } else {
+    left = ownerRect.left + ownerRect.width / 2 - wholeRect.width / 2;
+    top = ownerRect.top - wholeRect.height - 12;
+    if (top < pad) {
+      top = ownerRect.bottom + 12;
+      side = 'below';
+    }
+  }
+
+  // На самом краю редактора не даём карточке уйти за viewport. Для
+  // «вокруг» это осознанный компромисс прототипа: центр чуть съедет,
+  // зато пользователь всё равно увидит круг полностью и сможет оценить
+  // его форму, а не обрезанный сектор.
+  left = clampWheelPosition(left, pad, maxLeft);
+  top = clampWheelPosition(top, pad, maxTop);
+  container.dataset.variant = wheelPopoverVariant;
+  container.dataset.side = side;
+  container.style.left = `${Math.round(left)}px`;
+  container.style.top = `${Math.round(top)}px`;
+  container.style.visibility = '';
+}
+function requestWheelPosition() {
+  if (wheelPositionRaf) return;
+  wheelPositionRaf = requestAnimationFrame(positionContextualChordWheel);
+}
+function setWheelPopoverVariant(variant) {
+  if (variant !== 'above' && variant !== 'around') return;
+  wheelPopoverVariant = variant;
+  const container = wheelContainer();
+  if (container) container.dataset.variant = variant;
+  document.querySelectorAll('[data-wheel-variant]').forEach((button) => {
+    button.setAttribute('aria-pressed', String(button.dataset.wheelVariant === variant));
+  });
+  requestWheelPosition();
+}
+function initChordWheelPrototypeControls() {
+  document.querySelectorAll('[data-wheel-variant]').forEach((button) => {
+    button.addEventListener('click', (event) => {
+      event.stopPropagation();
+      setWheelPopoverVariant(button.dataset.wheelVariant);
+    });
+  });
+  // Клик вне круга закрывает только слой выбора. Исключение для ячейки
+  // обязательно: её повторный клик — утверждённый жест перехода во ввод.
+  document.addEventListener('pointerdown', (event) => {
+    if (!DOM.chordWheelModal?.classList.contains('open')) return;
+    const container = wheelContainer();
+    const owner = wheelOwnerFor();
+    if (container?.contains(event.target) || owner?.contains(event.target)) return;
+    closeChordWheel();
+  });
+  window.addEventListener('resize', requestWheelPosition);
+  window.addEventListener('scroll', requestWheelPosition, true);
+}
 function openChordWheel(inp) {
+  if (!inp) return;
   if (activeChordInput && !activeChordInput.hasAttribute('readonly')) saveCurrentChord();
   activeChordInput = inp;
   const sid = +inp.dataset.sec;
   const sec = sections.find((s) => s.id === sid);
   activeSectionKey = sec && sec.key ? sec.key : null;
+  updateWheelContextLabel(inp);
+  DOM.chordWheelModal.setAttribute('aria-hidden', 'false');
   DOM.chordWheelModal.classList.add('open');
   setWheelMode('triads');
-  DOM.chordWheelModal._releaseFocusTrap = trapFocus(DOM.chordWheelModal, closeChordWheel);
+  requestWheelPosition();
 }
 function closeChordWheel() {
+  if (!DOM.chordWheelModal) return;
   DOM.chordWheelModal.classList.remove('open');
+  DOM.chordWheelModal.setAttribute('aria-hidden', 'true');
   activeSectionKey = null;
+  if (wheelPositionRaf) {
+    cancelAnimationFrame(wheelPositionRaf);
+    wheelPositionRaf = 0;
+  }
   // На таче тултип аппликатуры остаётся висеть после закрытия колеса:
-  // прячет его mousemove, которого здесь не бывает. С z-index 10000 и
-  // pointer-events: auto он ложится поверх транспорта, и первое
-  // касание кнопки уходит в него, а не в кнопку. Снимаем сразу.
+  // прячет его mousemove, которого здесь не бывает. Снимаем сразу, чтобы
+  // первый следующий тап не ушёл в зависший тултип.
   if (
     window.matchMedia &&
     window.matchMedia('(pointer: coarse)').matches &&
@@ -31174,10 +31371,6 @@ function closeChordWheel() {
   ) {
     hideFingeringTooltip();
     currentTooltipWrapper = null;
-  }
-  if (DOM.chordWheelModal._releaseFocusTrap) {
-    DOM.chordWheelModal._releaseFocusTrap();
-    DOM.chordWheelModal._releaseFocusTrap = null;
   }
 }
 function selectChord(c) {
@@ -34499,23 +34692,26 @@ function attachChordWheelEvents() {
           activateManualInput(inp);
           return;
         }
+        // B-40: слой больше не модальный, центр ячейки остаётся живым.
+        // Повторный клик по той же ячейке — явный переход к ручному
+        // вводу, без отдельного карандаша и без таймера double-click.
+        if (isChordWheelOpenFor(inp)) {
+          if (timer) clearTimeout(timer);
+          activateManualInput(inp);
+          return;
+        }
         if (timer) {
           clearTimeout(timer);
           timer = null;
           const c = inp.value.trim();
           if (c) playChord(c, w);
         } else {
-          // На ТАЧ-устройстве первый тап только ВЫБИРАЕТ ячейку: он
-          // открывает её кнопки (размер, ритм, + и −) через
-          // is-buttons-armed. Открывать вдобавок колесо аккордов
-          // нельзя — оно модальное, ложится поверх (z-index 10001), и
-          // wheel-overlay перехватывает нажатия. На iPad это выглядело
-          // как «не нажимается ни одна кнопка»: колесо всплывало от
-          // любого касания и накрывало интерфейс.
-          //
-          // Колесо на таче открывает ВТОРОЙ тап по уже выбранной
-          // ячейке. С мышью поведение прежнее: наведение показывает
-          // кнопки, одиночный клик ведёт в колесо.
+          // На таче первый тап только выбирает ячейку и открывает её
+          // локальные кнопки. B-40 больше не кладёт завесу на весь
+          // редактор, но это правило сохраняем: тач-сценарий отдельной
+          // мобильной волны не меняем случайной правкой круга.
+          // Колесо на таче открывает второй тап по уже выбранной ячейке;
+          // мышью по-прежнему достаточно обычного клика.
           const coarse =
             window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
           if (coarse && justArmedByTouch === w) {
@@ -41276,8 +41472,10 @@ document.addEventListener('input', function (e) {
 });
 initKeyChangeHandler();
 // Кнопки расширений под колесом больше не в разметке — строим их из
-// списка до первой отрисовки.
+// списка до первой отрисовки. Затем вешаем единые слушатели B-40 на
+// временный переключатель варианта и на закрытие по клику вне круга.
 renderWheelModeTabs();
+initChordWheelPrototypeControls();
 drawWheel();
 toggleTimeAndBeats();
 // ========== СОХРАНЕНИЕ / ЗАГРУЗКА / ЭКСПОРТ ==========
