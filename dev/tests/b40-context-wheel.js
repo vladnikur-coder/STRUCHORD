@@ -71,6 +71,8 @@ w.addEventListener('load', () => {
     ok('в SVG квадратный viewBox для полного круга', d.getElementById('circleSvg').getAttribute('viewBox') === '0 0 540 540');
     ok('временного переключателя вариантов больше нет', !d.querySelector('[data-wheel-variant]'));
     ok('слой качеств находится в координатах круга', modeTabs.parentElement === wheel);
+    ok('прозрачный контейнер не перекрывает owner-ячейку', w.getComputedStyle(container).pointerEvents === 'none');
+    ok('сами кнопки качеств остаются кликабельными', w.getComputedStyle(d.querySelector('.mode-tab')).pointerEvents === 'auto');
     ok('контекстная плашка полностью удалена',
       !container.querySelector('.wheel-popover-toolbar') && !d.getElementById('wheelContextLabel'));
     ok('сохранена раскладка живых типов 4 + 3',
