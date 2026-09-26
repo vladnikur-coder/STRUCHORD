@@ -92,6 +92,9 @@ w.addEventListener('load', () => {
       d.querySelector('#wheelModeRow2 .mode-tab:last-child')?.style.getPropertyValue('--wheel-mode-angle') === '168deg');
     ok('ближняя дуга не наезжает на SVG-кольцо',
       Number.parseFloat(near?.style.getPropertyValue('--wheel-mode-radius')) >= 13.5);
+    const wheelSource = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
+    ok('вход качеств не перезаписывает transform их позиционирования',
+      /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
 
     console.log('\n=== 2. Открытие и центрирование «Вокруг» ===');
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');
