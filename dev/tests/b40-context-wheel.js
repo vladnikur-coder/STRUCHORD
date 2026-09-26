@@ -86,6 +86,9 @@ w.addEventListener('load', () => {
     ok('дуги собраны компактнее прежнего широкого разлёта',
       near?.style.getPropertyValue('--wheel-mode-angle') === '202deg' &&
       d.querySelector('#wheelModeRow1 .mode-tab:last-child')?.style.getPropertyValue('--wheel-mode-angle') === '158deg');
+    ok('дальний ряд из трёх собран уже, как нижний ряд 0.410',
+      far?.style.getPropertyValue('--wheel-mode-angle') === '193deg' &&
+      d.querySelector('#wheelModeRow2 .mode-tab:last-child')?.style.getPropertyValue('--wheel-mode-angle') === '167deg');
     ok('ближняя дуга не наезжает на SVG-кольцо',
       Number.parseFloat(near?.style.getPropertyValue('--wheel-mode-radius')) >= 13.5);
 
