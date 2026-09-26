@@ -5185,6 +5185,75 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 .wheel-svg-wrap svg text {
   pointer-events: visiblePainted;
 }
+/* B-40 visual pass: кольцо остаётся частью языка STRUCHORD — мягкие
+   карточные поверхности, спокойные фоновые зазоры и ясный hover, без
+   отдельной «материальности» или технических плашек. */
+#circleSvg .wheel-sector,
+#circleSvg .wheel-chord-label,
+#circleSvg .wheel-degree-label {
+  transition: translate 0.16s cubic-bezier(0.2, 0.82, 0.25, 1), filter 0.16s ease, opacity 0.14s ease;
+}
+#circleSvg .wheel-hoverable.is-wheel-hovered {
+  translate: var(--wheel-hover-x, 0px) var(--wheel-hover-y, 0px);
+}
+#circleSvg .wheel-sector.is-wheel-hovered {
+  filter: brightness(1.055) saturate(1.08);
+}
+#circleSvg .wheel-divider {
+  opacity: 0;
+}
+.chord-wrapper.wheel-owner-active {
+  z-index: 1;
+  box-shadow: inset 0 0 0 0.0625rem var(--color-accent), 0 0 1rem rgba(var(--color-accent-rgb), 0.24);
+  transition: box-shadow 0.16s ease, background 0.16s ease;
+}
+.chord-wrapper.wheel-preview .chord-display {
+  color: var(--color-accent);
+  transition: color 0.14s ease, opacity 0.14s ease;
+}
+@keyframes wheel-open-pop {
+  from { opacity: 0; transform: translateY(0.35rem) scale(0.972); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+@keyframes wheel-quality-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes wheel-label-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes wheel-commit-name-pop {
+  0% { transform: scale(1); color: var(--color-text-primary); }
+  52% { transform: scale(1.075); color: var(--color-accent); }
+  100% { transform: scale(1); color: var(--color-text-primary); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  .chord-wheel-modal.open .wheel-container {
+    animation: wheel-open-pop 0.18s cubic-bezier(0.2, 0.82, 0.25, 1) both;
+  }
+  .chord-wheel-modal.open .mode-tab {
+    animation: wheel-quality-in 0.14s ease 0.065s both;
+  }
+  #circleSvg .wheel-label-entering {
+    animation: wheel-label-in 0.14s ease both;
+  }
+  .chord-wrapper.wheel-commit-pop .chord-display-inner {
+    animation: wheel-commit-name-pop 0.16s cubic-bezier(0.2, 0.82, 0.25, 1) both;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .wheel-container,
+  .mode-tab,
+  #circleSvg .wheel-sector,
+  #circleSvg .wheel-chord-label,
+  #circleSvg .wheel-degree-label,
+  .chord-wrapper.wheel-owner-active,
+  .chord-wrapper.wheel-preview .chord-display {
+    animation: none !important;
+    transition: none !important;
+  }
+}
 
 .theme-toggle-btn {
   background: var(--color-surface);
@@ -10654,7 +10723,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.422</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.423</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30456,6 +30525,7 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
 
 // ========== КРУГ АККОРДОВ ==========
 function toggleWheelMode(m) {
+  clearWheelHover();
   if (wheelMode === m) setWheelMode('triads');
   else setWheelMode(m);
 }
@@ -30594,7 +30664,8 @@ function clearPinnedWheelExtension() {
   wheelPinnedExtension = null;
   renderWheelModeTabs();
 }
-function setWheelMode(m) {
+function setWheelMode(m, { crossfade = true } = {}) {
+  const previousMode = wheelMode;
   wheelMode = m;
   document.querySelectorAll('.mode-tab').forEach((b) => {
     const active = m !== 'triads' && b.dataset.wheelMode === m;
@@ -30602,7 +30673,11 @@ function setWheelMode(m) {
     b.setAttribute('aria-pressed', String(active));
     b.title = active ? `Качество ${m}; нажмите, чтобы вернуться к трезвучиям` : `Выбрать качество ${b.dataset.wheelMode}`;
   });
-  drawWheel();
+  // При выборе типа меняются именно имена будущих аккордов: плавно
+  // проявляем новые подписи, не анимируя саму очередь качеств.
+  drawWheel({
+    crossfadeLabels: crossfade && previousMode !== m && DOM.chordWheelModal?.classList.contains('open'),
+  });
 }
 // Два кольца (мажорное + минорное) рисуются не всем режимам, а только
 // там, где минорная форма аккорда отличается от мажорной на том же
@@ -30974,8 +31049,67 @@ function createChordGroup(
   }
   return g;
 }
-function drawWheel() {
+// Визуальный preview не меняет модель песни: временно подменяется
+// только отображение active input, а закрытие/уход курсора возвращают
+// сохранённое значение. Это даёт честный «будущий аккорд» до commit.
+let wheelHoverState = null;
+let wheelPreviewState = null;
+function clearWheelPreview() {
+  const state = wheelPreviewState;
+  if (!state) return;
+  wheelPreviewState = null;
+  if (state.input?.isConnected) {
+    state.input.value = state.value;
+    syncChordDisplay(state.input);
+  }
+  state.owner?.classList.remove('wheel-preview');
+}
+function clearWheelHover() {
+  if (wheelHoverState?.nodes) {
+    wheelHoverState.nodes.forEach((node) => node.classList.remove('is-wheel-hovered'));
+  }
+  wheelHoverState = null;
+  clearWheelPreview();
+}
+function previewWheelChord(chord) {
+  if (!activeChordInput) return;
+  const input = activeChordInput;
+  const owner = wheelOwnerFor(input);
+  const display = normalizeChordCase(expandChordName(chord));
+  if (!wheelPreviewState) wheelPreviewState = { input, owner, value: input.value };
+  input.value = display;
+  owner?.classList.add('wheel-preview');
+  syncChordDisplay(input);
+}
+function activateWheelHover(nodes, chord) {
+  if (!nodes?.length) return;
+  if (wheelHoverState?.chord === chord) {
+    nodes.forEach((node) => {
+      if (!wheelHoverState.nodes.includes(node)) {
+        wheelHoverState.nodes.push(node);
+        node.classList.add('is-wheel-hovered');
+      }
+    });
+    return;
+  }
+  clearWheelHover();
+  wheelHoverState = { chord, nodes: [...nodes] };
+  nodes.forEach((node) => node.classList.add('is-wheel-hovered'));
+  previewWheelChord(chord);
+}
+function wireWheelSectorHover(nodes, chord, mid) {
+  const dx = `${Math.cos(mid) * 3}px`;
+  const dy = `${Math.sin(mid) * 3}px`;
+  nodes.filter(Boolean).forEach((node) => {
+    node.classList.add('wheel-hoverable');
+    node.style.setProperty('--wheel-hover-x', dx);
+    node.style.setProperty('--wheel-hover-y', dy);
+    node.addEventListener('pointerover', () => activateWheelHover(nodes.filter(Boolean), chord));
+  });
+}
+function drawWheel({ crossfadeLabels = false } = {}) {
   const svg = DOM.circleSvg;
+  clearWheelHover();
   svg.innerHTML = '';
   // B-40: круг теперь действительно круглый (540×540), а центральное
   // окно достаточно велико, чтобы в варианте «вокруг» оставить ячейку
@@ -31028,8 +31162,9 @@ function drawWheel() {
         `M${cx + Rs * cos1} ${cy + Rs * sin1} L${cx + Ro * cos1} ${cy + Ro * sin1} A${Ro} ${Ro} 0 0 1 ${cx + Ro * cos2} ${cy + Ro * sin2} L${cx + Rs * cos2} ${cy + Rs * sin2} A${Rs} ${Rs} 0 0 0 ${cx + Rs * cos1} ${cy + Rs * sin1}Z`
       );
       op.setAttribute('fill', imd ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
-      op.setAttribute('stroke', imd ? 'var(--wheel-segment-stroke-in)' : 'var(--wheel-segment-stroke-out)');
-      op.setAttribute('stroke-width', '0.8');
+      op.classList.add('wheel-sector');
+      op.setAttribute('stroke', 'var(--color-background-primary)');
+      op.setAttribute('stroke-width', '2.4');
       op.style.cursor = 'pointer';
       op.addEventListener('click', () => {
         selectChord(vm);
@@ -31047,8 +31182,9 @@ function drawWheel() {
         `M${cx + Ri * cos1} ${cy + Ri * sin1} L${cx + Rs * cos1} ${cy + Rs * sin1} A${Rs} ${Rs} 0 0 1 ${cx + Rs * cos2} ${cy + Rs * sin2} L${cx + Ri * cos2} ${cy + Ri * sin2} A${Ri} ${Ri} 0 0 0 ${cx + Ri * cos1} ${cy + Ri * sin1}Z`
       );
       ip.setAttribute('fill', imid ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
-      ip.setAttribute('stroke', imid ? 'var(--wheel-segment-stroke-in)' : 'var(--wheel-segment-stroke-out)');
-      ip.setAttribute('stroke-width', '0.8');
+      ip.classList.add('wheel-sector');
+      ip.setAttribute('stroke', 'var(--color-background-primary)');
+      ip.setAttribute('stroke-width', '2.4');
       ip.style.cursor = 'pointer';
       ip.addEventListener('click', () => {
         selectChord(vmi);
@@ -31065,26 +31201,31 @@ function drawWheel() {
         my = cy + Rmt * Math.sin(mid);
       const { root: mr, suffix: ms } = splitRootSuffix(dm);
       const mg = createChordGroup(mx, my, mr, ms, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
+      mg.classList.add('wheel-chord-label');
       mg.style.cursor = 'pointer';
       mg.addEventListener('click', (e) => {
         e.stopPropagation();
         selectChord(vm);
       });
       frag.appendChild(mg);
+      wireWheelSectorHover([op, mg], vm, mid);
       const Rmit = (Rs + Ri) / 2,
         mix = cx + Rmit * Math.cos(mid),
         miy = cy + Rmit * Math.sin(mid);
       const { root: mir, suffix: mis } = splitRootSuffix(dmi);
       const mig = createChordGroup(mix, miy, mir, mis, 24, 18, 'var(--wheel-chord-minor-text)', '600', '500', 6);
+      mig.classList.add('wheel-chord-label');
       mig.style.cursor = 'pointer';
       mig.addEventListener('click', (e) => {
         e.stopPropagation();
         selectChord(vmi);
       });
       frag.appendChild(mig);
+      wireWheelSectorHover([ip, mig], vmi, mid);
       if (sd) {
         if (imd && md) {
           const dt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          dt.classList.add('wheel-degree-label');
           dt.setAttribute('x', mx);
           dt.setAttribute('y', my - 28);
           dt.setAttribute('text-anchor', 'middle');
@@ -31097,6 +31238,7 @@ function drawWheel() {
         }
         if (imid && mid_deg) {
           const dt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+          dt.classList.add('wheel-degree-label');
           dt.setAttribute('x', mix);
           dt.setAttribute('y', miy + 6 + 24);
           dt.setAttribute('text-anchor', 'middle');
@@ -31109,6 +31251,7 @@ function drawWheel() {
         }
       }
       const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      ln.classList.add('wheel-divider');
       ln.setAttribute('x1', cx + Ri * cos1);
       ln.setAttribute('y1', cy + Ri * sin1);
       ln.setAttribute('x2', cx + Ro * cos1);
@@ -31128,8 +31271,9 @@ function drawWheel() {
         `M${cx + Ri * cos1} ${cy + Ri * sin1} L${cx + Ro * cos1} ${cy + Ro * sin1} A${Ro} ${Ro} 0 0 1 ${cx + Ro * cos2} ${cy + Ro * sin2} L${cx + Ri * cos2} ${cy + Ri * sin2} A${Ri} ${Ri} 0 0 0 ${cx + Ri * cos1} ${cy + Ri * sin1}Z`
       );
       p.setAttribute('fill', idg ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
-      p.setAttribute('stroke', idg ? 'var(--wheel-segment-stroke-in)' : 'var(--wheel-segment-stroke-out)');
-      p.setAttribute('stroke-width', '0.8');
+      p.classList.add('wheel-sector');
+      p.setAttribute('stroke', 'var(--color-background-primary)');
+      p.setAttribute('stroke-width', '2.4');
       p.style.cursor = 'pointer';
       p.addEventListener('click', () => {
         selectChord(cv);
@@ -31146,14 +31290,17 @@ function drawWheel() {
         ty = cy + tr * Math.sin(mid);
       const { root, suffix } = splitRootSuffix(dc);
       const cg = createChordGroup(tx, ty, root, suffix, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
+      cg.classList.add('wheel-chord-label');
       cg.style.cursor = 'pointer';
       cg.addEventListener('click', (e) => {
         e.stopPropagation();
         selectChord(cv);
       });
       frag.appendChild(cg);
+      wireWheelSectorHover([p, cg], cv, mid);
       if (sd && idg && deg) {
         const dt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+        dt.classList.add('wheel-degree-label');
         dt.setAttribute('x', tx);
         dt.setAttribute('y', ty - 28);
         dt.setAttribute('text-anchor', 'middle');
@@ -31165,6 +31312,7 @@ function drawWheel() {
         frag.appendChild(dt);
       }
       const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
+      ln.classList.add('wheel-divider');
       ln.setAttribute('x1', cx + Ri * cos1);
       ln.setAttribute('y1', cy + Ri * sin1);
       ln.setAttribute('x2', cx + Ro * cos1);
@@ -31202,6 +31350,17 @@ function drawWheel() {
   ic.setAttribute('stroke-width', '1');
   frag.appendChild(ic);
   svg.appendChild(frag);
+  // addEventListener вместо onpointerleave: в том числе Safari корректно
+  // отдаёт уход курсора из SVG даже после пересборки его дочерних узлов.
+  if (svg._wheelPointerLeave) svg.removeEventListener('pointerleave', svg._wheelPointerLeave);
+  svg._wheelPointerLeave = clearWheelHover;
+  svg.addEventListener('pointerleave', svg._wheelPointerLeave);
+  if (crossfadeLabels) {
+    svg.querySelectorAll('text').forEach((node) => {
+      node.classList.add('wheel-label-entering');
+      node.addEventListener('animationend', () => node.classList.remove('wheel-label-entering'), { once: true });
+    });
+  }
 }
 function toggleDegreesOnWheel() {
   drawWheel();
@@ -31226,6 +31385,15 @@ function isChordWheelOpenFor(inp) {
     DOM.chordWheelModal?.classList.contains('open') &&
     activeChordInput === inp
   );
+}
+function triggerWheelCommitPop(owner) {
+  if (!owner) return;
+  owner.classList.remove('wheel-commit-pop');
+  // Повторный commit до завершения прошлой анимации должен снова быть
+  // видимым: перезапускаем именно класс на следующем reflow.
+  void owner.offsetWidth;
+  owner.classList.add('wheel-commit-pop');
+  window.setTimeout(() => owner.classList.remove('wheel-commit-pop'), 190);
 }
 function positionContextualChordWheel() {
   wheelPositionRaf = 0;
@@ -31284,18 +31452,22 @@ function initContextualChordWheel() {
 }
 function openChordWheel(inp) {
   if (!inp) return;
+  clearWheelHover();
   if (activeChordInput && !activeChordInput.hasAttribute('readonly')) saveCurrentChord();
   activeChordInput = inp;
+  wheelOwnerFor(inp)?.classList.add('wheel-owner-active');
   const sid = +inp.dataset.sec;
   const sec = sections.find((s) => s.id === sid);
   activeSectionKey = sec && sec.key ? sec.key : null;
   DOM.chordWheelModal.setAttribute('aria-hidden', 'false');
   DOM.chordWheelModal.classList.add('open');
-  setWheelMode(prepareWheelModeForChord(inp.value));
+  setWheelMode(prepareWheelModeForChord(inp.value), { crossfade: false });
   requestWheelPosition();
 }
 function closeChordWheel() {
   if (!DOM.chordWheelModal) return;
+  clearWheelHover();
+  wheelOwnerFor()?.classList.remove('wheel-owner-active');
   DOM.chordWheelModal.classList.remove('open');
   DOM.chordWheelModal.setAttribute('aria-hidden', 'true');
   activeSectionKey = null;
@@ -31318,6 +31490,7 @@ function closeChordWheel() {
 }
 function selectChord(c) {
   if (!activeChordInput) return;
+  clearWheelHover();
   const sid = +activeChordInput.dataset.sec,
     sqid = +activeChordInput.dataset.square,
     ei = +activeChordInput.dataset.ei;
@@ -31346,8 +31519,12 @@ function selectChord(c) {
   } else {
     updateCellsDegrees();
   }
-  previewChordNow(activeChordInput.value, activeChordInput.closest('.chord-wrapper'));
+  const committedOwner = activeChordInput.closest('.chord-wrapper');
+  previewChordNow(activeChordInput.value, committedOwner);
   closeChordWheel();
+  // Preview уже показал итоговое имя до клика; теперь достаточно коротко
+  // подтвердить именно commit небольшим pop самого имени в ячейке.
+  triggerWheelCommitPop(committedOwner);
 }
 
 // ---------- прочие вспомогательные функции ----------

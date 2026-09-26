@@ -97,6 +97,7 @@ w.addEventListener('load', () => {
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');
     ok('слой открыт', modal.classList.contains('open'));
     ok('слой объявлен видимым для AT', modal.getAttribute('aria-hidden') === 'false');
+    ok('owner получает halo-состояние на время круга', owner.classList.contains('wheel-owner-active'));
     ok('режим при открытии — трезвучия', w.eval('wheelMode') === 'triads');
     ok('геометрия помечена вокруг', container.dataset.side === 'around');
     ok('центр SVG выровнен по центру ячейки',
@@ -111,7 +112,17 @@ w.addEventListener('load', () => {
       Math.abs((Number.parseFloat(container.style.top) + 192) - 545) < 1,
       `${container.style.top} при viewport ${w.innerHeight}`);
 
-    console.log('\n=== 4. Масштаб UI и прокрутка не отрывают круг от ячейки ===');
+    console.log('\n=== 4. Hover только показывает будущий аккорд ===');
+    const beforePreview = input.value;
+    const beforePreviewModel = w.eval('sections[0].squares[0].events[0].chord');
+    const hoverSector = d.querySelector('#circleSvg path.wheel-sector');
+    hoverSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
+    ok('hover включает временный preview в owner-ячейке', owner.classList.contains('wheel-preview'));
+    ok('hover не меняет модель песни', w.eval('sections[0].squares[0].events[0].chord') === beforePreviewModel);
+    d.getElementById('circleSvg').dispatchEvent(new w.Event('pointerleave', { bubbles: true }));
+    ok('уход с круга возвращает исходное имя ячейки', input.value === beforePreview);
+
+    console.log('\n=== 5. Масштаб UI и прокрутка не отрывают круг от ячейки ===');
     Object.defineProperties(w, {
       scrollX: { value: 80, configurable: true },
       scrollY: { value: 120, configurable: true },
@@ -129,13 +140,13 @@ w.addEventListener('load', () => {
     ownerRect = { left: 420, top: 500, width: 180, height: 90, right: 600, bottom: 590 };
     w.eval('writeUiScale(125);');
 
-    console.log('\n=== 5. Вне слоя — закрытие без смены аккорда ===');
+    console.log('\n=== 6. Вне слоя — закрытие без смены аккорда ===');
     const beforeOutside = input.value;
     d.body.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
     ok('клик вне круга закрыл слой', !modal.classList.contains('open'));
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
 
-    console.log('\n=== 6. Качество текущей ячейки и редкое закрепление ===');
+    console.log('\n=== 7. Качество текущей ячейки и редкое закрепление ===');
     // 7 есть в штатной живой очереди: C7 открывается сразу в этом режиме.
     w.eval(`{
       const inp = document.querySelector('.chord-input');
@@ -147,6 +158,7 @@ w.addEventListener('load', () => {
     ok('7 подсвечена в дуге качеств', d.querySelector('.mode-tab.active')?.dataset.wheelMode === '7');
     d.querySelector('.mode-tab.active').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('повторный клик качества возвращает трезвучия', w.eval('wheelMode') === 'triads');
+    ok('смена качества мягко вводит новые подписи секторов', d.querySelectorAll('#circleSvg .wheel-label-entering').length > 0);
     w.eval('closeChordWheel()');
 
     // Убираем 13 из живой очереди вручную, чтобы проверить именно
@@ -167,7 +179,7 @@ w.addEventListener('load', () => {
     ok('после закрытия временное закрепление снято', w.eval('wheelPinnedExtension') === null);
     ok('13 не засорило живую очередь', !Array.from(d.querySelectorAll('.mode-tab')).some((b) => b.dataset.wheelMode === '13'));
 
-    console.log('\n=== 7. Пустая ячейка — трезвучия ===');
+    console.log('\n=== 8. Пустая ячейка — трезвучия ===');
     w.eval(`{
       const inp = document.querySelector('.chord-input');
       inp.value = '';
@@ -178,7 +190,7 @@ w.addEventListener('load', () => {
     ok('у пустой ячейки не подсвечен тип', d.querySelectorAll('.mode-tab.active').length === 0);
     w.eval('closeChordWheel()');
 
-    console.log('\n=== 8. Повторный клик ячейки — ручной ввод ===');
+    console.log('\n=== 9. Повторный клик ячейки — ручной ввод ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
     owner.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('повторный клик закрыл круг', !modal.classList.contains('open'));
@@ -187,12 +199,13 @@ w.addEventListener('load', () => {
     // обычный единый commit, не создавая изменения модели.
     w.eval('saveCurrentChord();');
 
-    console.log('\n=== 9. Клик по реальному сектору фиксирует и закрывает ===');
+    console.log('\n=== 10. Клик по реальному сектору фиксирует и закрывает ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
     const firstSector = d.querySelector('#circleSvg path');
     firstSector.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('клик по сектору закрыл слой', !modal.classList.contains('open'));
     ok('клик по сектору записал аккорд в модель', w.eval('sections[0].squares[0].events[0].chord') === 'C');
+    ok('после commit имя аккорда получает короткое подтверждение', owner.classList.contains('wheel-commit-pop'));
 
     if (bad) process.exitCode = 1;
     else console.log('\nALL OK — B-40 context wheel');
