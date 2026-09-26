@@ -50,18 +50,18 @@ w.addEventListener('load', () => {
     container.getBoundingClientRect = () => ({
       left: Number.parseFloat(container.style.left) || 0,
       top: Number.parseFloat(container.style.top) || 0,
-      width: 432,
-      height: 590,
-      right: (Number.parseFloat(container.style.left) || 0) + 432,
-      bottom: (Number.parseFloat(container.style.top) || 0) + 590,
-    });
-    wheel.getBoundingClientRect = () => ({
-      left: Number.parseFloat(container.style.left) || 0,
-      top: (Number.parseFloat(container.style.top) || 0) + 50,
       width: 384,
       height: 384,
       right: (Number.parseFloat(container.style.left) || 0) + 384,
-      bottom: (Number.parseFloat(container.style.top) || 0) + 434,
+      bottom: (Number.parseFloat(container.style.top) || 0) + 384,
+    });
+    wheel.getBoundingClientRect = () => ({
+      left: Number.parseFloat(container.style.left) || 0,
+      top: Number.parseFloat(container.style.top) || 0,
+      width: 384,
+      height: 384,
+      right: (Number.parseFloat(container.style.left) || 0) + 384,
+      bottom: (Number.parseFloat(container.style.top) || 0) + 384,
     });
 
     console.log('=== 1. Разметка больше не модальная ===');
@@ -70,6 +70,8 @@ w.addEventListener('load', () => {
     ok('в SVG квадратный viewBox для полного круга', d.getElementById('circleSvg').getAttribute('viewBox') === '0 0 540 540');
     ok('временного переключателя вариантов больше нет', !d.querySelector('[data-wheel-variant]'));
     ok('слой качеств находится в координатах круга', modeTabs.parentElement === wheel);
+    ok('контекстная плашка полностью удалена',
+      !container.querySelector('.wheel-popover-toolbar') && !d.getElementById('wheelContextLabel'));
     ok('сохранена раскладка живых типов 4 + 3',
       d.querySelectorAll('#wheelModeRow1 .mode-tab').length === 4 &&
       d.querySelectorAll('#wheelModeRow2 .mode-tab').length === 3);
@@ -95,15 +97,14 @@ w.addEventListener('load', () => {
     ok('геометрия помечена вокруг', container.dataset.side === 'around');
     ok('центр SVG выровнен по центру ячейки',
       Math.abs((Number.parseFloat(container.style.left) + 192) - 510) < 1 &&
-      Math.abs((Number.parseFloat(container.style.top) + 242) - 545) < 1,
+      Math.abs((Number.parseFloat(container.style.top) + 192) - 545) < 1,
       `${container.style.left}, ${container.style.top}`);
-    ok('контекст подписывает текущий аккорд', d.getElementById('wheelContextLabel').textContent.includes(input.value));
 
     console.log('\n=== 3. У края круг не смещается от ячейки ===');
     Object.defineProperty(w, 'innerHeight', { value: 700, configurable: true });
     w.eval('positionContextualChordWheel();');
     ok('центр остаётся на ячейке, даже когда низ выходит из viewport',
-      Math.abs((Number.parseFloat(container.style.top) + 242) - 545) < 1,
+      Math.abs((Number.parseFloat(container.style.top) + 192) - 545) < 1,
       `${container.style.top} при viewport ${w.innerHeight}`);
 
     console.log('\n=== 4. Вне слоя — закрытие без смены аккорда ===');
@@ -153,7 +154,6 @@ w.addEventListener('load', () => {
     }`);
     ok('пустая ячейка открывает трезвучия', w.eval('wheelMode') === 'triads');
     ok('у пустой ячейки не подсвечен тип', d.querySelectorAll('.mode-tab.active').length === 0);
-    ok('у пустой ячейки нет бесполезной плашки', d.querySelector('.wheel-popover-toolbar').hidden);
     w.eval('closeChordWheel()');
 
     console.log('\n=== 7. Повторный клик ячейки — ручной ввод ===');
