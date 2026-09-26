@@ -11,7 +11,7 @@ const dom = new JSDOM(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8
   url: 'https://localhost/',
   beforeParse(win) {
     win.HTMLCanvasElement.prototype.getContext = () => ({
-      font: '', measureText: () => ({ width: 10 }),
+      font: '', measureText: (text) => ({ width: String(text).length * 10 }),
       clearRect(){}, beginPath(){}, arc(){}, fill(){}, stroke(){}, moveTo(){},
       lineTo(){}, closePath(){}, save(){}, restore(){}, translate(){}, rotate(){},
       fillText(){}, strokeText(){}, setTransform(){}, scale(){},
@@ -95,6 +95,10 @@ w.addEventListener('load', () => {
     const wheelSource = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
     ok('вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
+    ok('длинная подпись сначала использует compact из ячеек',
+      w.eval("fitWheelChordLabel('F#m(maj7)', 55, 24, 18, '600', '500')") === 'F#mΔ');
+    ok('если compact не проходит, подпись оставляет корень и многоточие',
+      w.eval("fitWheelChordLabel('F#mmaj13', 58, 24, 18, '600', '500')") === 'F#...');
 
     console.log('\n=== 2. Открытие и центрирование «Вокруг» ===');
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');

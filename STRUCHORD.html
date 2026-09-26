@@ -10795,7 +10795,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.426</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.427</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31079,6 +31079,24 @@ function splitRootSuffix(ct) {
   if (gm && gm[2] !== 'm' && gm[2] !== 'maj') return { root: gm[1], suffix: gm[2] };
   return { root: ct, suffix: '' };
 }
+// Круг делит пространство на дуги, а не на прямоугольные ячейки, но
+// типографическое правило у него то же: сначала полное имя, затем знакомый
+// compact-вариант из ячеек, и только в самом тесном случае — корень + "...".
+// Полное chord-значение остаётся вне этой функции: это исключительно подпись.
+function getWheelChordLabelWidth(displayName, fsR, fsS, fwR = '700', fwS = '500') {
+  const { root, suffix } = splitRootSuffix(displayName);
+  return getTextWidth(root, fsR, fwR) + (suffix ? 2 + getTextWidth(suffix, fsS, fwS) : 0);
+}
+function fitWheelChordLabel(fullName, maxWidth, fsR, fsS, fwR = '700', fwS = '500') {
+  if (getWheelChordLabelWidth(fullName, fsR, fsS, fwR, fwS) <= maxWidth) return fullName;
+  const compact = getCompactChordName(fullName);
+  if (getWheelChordLabelWidth(compact, fsR, fsS, fwR, fwS) <= maxWidth) return compact;
+  const root = fullName.match(/^([A-G][#b]?)/)?.[1] || '';
+  const ellipsized = root ? `${root}...` : '...';
+  // Нота всегда помещается на даже самой узкой внутренней дуге. Эта
+  // страховка нужна только для некорректного произвольного текста.
+  return getWheelChordLabelWidth(ellipsized, fsR, fsS, fwR, fwS) <= maxWidth ? ellipsized : root || '...';
+}
 function createChordGroup(
   x,
   y,
@@ -31309,12 +31327,11 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const mid = start + sa / 2;
       const dm = getDisplayChord(cm, false),
         dmiFull = getDisplayChord(cmi, true);
-      // Внутреннему кольцу тесно (дуга ~65px): 'Am(maj7)' и 'Amadd9'
-      // наезжали бы на соседние сегменты. Показываем компакт ('AmΔ',
-      // 'Am(9)') — тем же getCompactChordName, что ужимает имена в
-      // ячейках; у коротких режимов (7, 6...) он ничего не меняет.
-      // Значение (vmi) остаётся каноническим: клик вставляет полное имя.
-      const dmi = getCompactChordName(dmiFull);
+      // Значения (vm/vmi) всегда канонические. Длинное имя может
+      // меняться только в его подписи на дуге — по тому же compact-правилу,
+      // которым пользуются ячейки редактора.
+      const dmLabel = fitWheelChordLabel(dm, 86, 28, 20, '700', '500');
+      const dmi = fitWheelChordLabel(dmiFull, 58, 24, 18, '600', '500');
       const vm = getChordValue(cm, false),
         vmi = getChordValue(cmi, true);
       const md = getScaleDegree(dm, sk),
@@ -31370,7 +31387,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const Rmt = (Ro + Rs) / 2,
         mx = cx + Rmt * Math.cos(mid),
         my = cy + Rmt * Math.sin(mid);
-      const { root: mr, suffix: ms } = splitRootSuffix(dm);
+      const { root: mr, suffix: ms } = splitRootSuffix(dmLabel);
       const mg = createChordGroup(mx, my, mr, ms, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
       mg.classList.add('wheel-chord-label');
       mg.style.cursor = 'pointer';
@@ -31438,6 +31455,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const mid = start + sa / 2;
       const dc = getDisplayChord(cm, false),
         cv = getChordValue(cm, false);
+      const dcLabel = fitWheelChordLabel(dc, 76, 28, 20, '700', '500');
       const deg = getScaleDegree(dc, sk);
       const idg = deg !== '';
       const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -31465,7 +31483,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const tr = (Ro + Ri) / 2,
         tx = cx + tr * Math.cos(mid),
         ty = cy + tr * Math.sin(mid);
-      const { root, suffix } = splitRootSuffix(dc);
+      const { root, suffix } = splitRootSuffix(dcLabel);
       const cg = createChordGroup(tx, ty, root, suffix, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
       cg.classList.add('wheel-chord-label');
       cg.style.cursor = 'pointer';
