@@ -127,6 +127,16 @@ w.addEventListener('load', () => {
       /Math\.cos\(mid\) \* 2/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
       /translate 0\.2s cubic-bezier\(0\.22, 0\.61, 0\.36, 1\)/.test(wheelSource));
+    ok('карточки получают лёгкий theme-aware объём без смены geometry',
+      /wheel-card-volume-overlay/.test(wheelSource) &&
+      /wheel-card-depth-shadow/.test(wheelSource) &&
+      /addWheelCardVolume =/.test(wheelSource) &&
+      /pointer-events: none;/.test(wheelSource));
+    ok('hover раздвигает только две соседние пары в том же кольце',
+      /const WHEEL_HOVER_NEIGHBOR_DISTANCES = \[1\.6, 0\.8\]/.test(wheelSource) &&
+      /is-wheel-neighbor-spread/.test(wheelSource) &&
+      /data-wheel-hover-ring/.test(wheelSource) &&
+      /node\.classList\.contains\('is-wheel-selected'\)/.test(wheelSource));
     ok('выбранный аккорд получает явный marker без сжатия gap',
       /#circleSvg \.wheel-sector\.is-wheel-selected[\s\S]*?fill: color-mix\(in srgb, var\(--wheel-segment-fill-out\) 62%, var\(--color-accent\)\)/.test(wheelSource) &&
       /stroke: var\(--color-accent\);/.test(wheelSource) &&
@@ -235,6 +245,24 @@ w.addEventListener('load', () => {
     hoverSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
     ok('hover включает временный preview в owner-ячейке', owner.classList.contains('wheel-preview'));
     ok('hover не меняет модель песни', w.eval('sections[0].squares[0].events[0].chord') === beforePreviewModel);
+    const majorNear = Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="1"]'));
+    const majorFar = Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="2"]'));
+    const minorNear = Array.from(d.querySelectorAll('[data-wheel-hover-ring="minor"][data-wheel-hover-index="1"]'));
+    ok('hover раздвигает первую и вторую соседние пары пропорционально',
+      majorNear.length > 0 && majorFar.length > 0 &&
+      majorNear.every((node) => node.classList.contains('is-wheel-neighbor-spread')) &&
+      majorFar.every((node) => node.classList.contains('is-wheel-neighbor-spread')) &&
+      Math.abs(Number.parseFloat(majorNear[0].style.getPropertyValue('--wheel-neighbor-y'))) >
+        Math.abs(Number.parseFloat(majorFar[0].style.getPropertyValue('--wheel-neighbor-y'))));
+    ok('hover внешнего кольца не двигает соседей внутреннего',
+      minorNear.every((node) => !node.classList.contains('is-wheel-neighbor-spread')));
+    const selectedMajor = d.querySelector('[data-wheel-ring="major"].is-wheel-selected');
+    d.querySelector('[data-wheel-hover-ring="major"][data-wheel-hover-index="1"].wheel-sector')
+      ?.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
+    ok('выбранный marker не сдвигается, даже если он сосед hovered-карточки',
+      !selectedMajor?.classList.contains('is-wheel-neighbor-spread') &&
+      Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="0"]'))
+        .every((node) => !node.classList.contains('is-wheel-neighbor-spread')));
     hoverSectors[1].dispatchEvent(new w.Event('pointerover', { bubbles: true }));
     ok('между секторами остаётся outgoing ghost имени', !!owner.querySelector('.wheel-preview-ghost'));
     ok('следующее preview-имя входит отдельно от ghost', !!owner.querySelector('.wheel-preview-incoming'));
