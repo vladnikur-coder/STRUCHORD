@@ -115,10 +115,15 @@ w.addEventListener('load', () => {
     console.log('\n=== 4. Hover только показывает будущий аккорд ===');
     const beforePreview = input.value;
     const beforePreviewModel = w.eval('sections[0].squares[0].events[0].chord');
-    const hoverSector = d.querySelector('#circleSvg path.wheel-sector');
+    const hoverSectors = Array.from(d.querySelectorAll('#circleSvg path.wheel-sector'));
+    const hoverSector = hoverSectors[0];
     hoverSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
     ok('hover включает временный preview в owner-ячейке', owner.classList.contains('wheel-preview'));
     ok('hover не меняет модель песни', w.eval('sections[0].squares[0].events[0].chord') === beforePreviewModel);
+    hoverSectors[1].dispatchEvent(new w.Event('pointerover', { bubbles: true }));
+    ok('между секторами остаётся outgoing ghost имени', !!owner.querySelector('.wheel-preview-ghost'));
+    ok('следующее preview-имя входит отдельно от ghost', !!owner.querySelector('.wheel-preview-incoming'));
+    ok('второй hover также не меняет модель песни', w.eval('sections[0].squares[0].events[0].chord') === beforePreviewModel);
     d.getElementById('circleSvg').dispatchEvent(new w.Event('pointerleave', { bubbles: true }));
     ok('уход с круга возвращает исходное имя ячейки', input.value === beforePreview);
 
@@ -145,6 +150,7 @@ w.addEventListener('load', () => {
     d.body.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
     ok('клик вне круга закрыл слой', !modal.classList.contains('open'));
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
+    ok('после закрытия у owner снят halo', !owner.classList.contains('wheel-owner-active'));
 
     console.log('\n=== 7. Качество текущей ячейки и редкое закрепление ===');
     // 7 есть в штатной живой очереди: C7 открывается сразу в этом режиме.
@@ -159,6 +165,10 @@ w.addEventListener('load', () => {
     d.querySelector('.mode-tab.active').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('повторный клик качества возвращает трезвучия', w.eval('wheelMode') === 'triads');
     ok('смена качества мягко вводит новые подписи секторов', d.querySelectorAll('#circleSvg .wheel-label-entering').length > 0);
+    const labelExitLayer = d.querySelector('#circleSvg .wheel-label-exit-layer');
+    ok('смена качества сохраняет старые подписи до конца fade-out', !!labelExitLayer);
+    ok('уходящие подписи не получают одновременно entering-анимацию',
+      !labelExitLayer?.querySelector('.wheel-label-entering'));
     w.eval('closeChordWheel()');
 
     // Убираем 13 из живой очереди вручную, чтобы проверить именно
@@ -202,10 +212,24 @@ w.addEventListener('load', () => {
     console.log('\n=== 10. Клик по реальному сектору фиксирует и закрывает ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
     const firstSector = d.querySelector('#circleSvg path');
+    firstSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
+    const previewBeforeCommit = input.value;
     firstSector.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('клик по сектору закрыл слой', !modal.classList.contains('open'));
     ok('клик по сектору записал аккорд в модель', w.eval('sections[0].squares[0].events[0].chord') === 'C');
+    ok('commit оставляет уже показанное preview-имя без обратной подмены', input.value === previewBeforeCommit);
+    ok('commit очищает transient preview-state', w.eval('wheelPreviewState') === null && !owner.classList.contains('wheel-preview'));
     ok('после commit имя аккорда получает короткое подтверждение', owner.classList.contains('wheel-commit-pop'));
+    ok('после commit у owner снят halo круга', !owner.classList.contains('wheel-owner-active'));
+
+    console.log('\n=== 11. Reduced motion не создаёт transitional слоёв ===');
+    w.matchMedia = (query) => ({ matches: query.includes('prefers-reduced-motion: reduce') });
+    w.eval('openChordWheel(document.querySelector(".chord-input")); setWheelMode("7");');
+    ok('при reduced motion нет уходящего слоя подписей', !d.querySelector('#circleSvg .wheel-label-exit-layer'));
+    const reducedSector = d.querySelectorAll('#circleSvg path.wheel-sector')[1];
+    reducedSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
+    ok('при reduced motion preview не оставляет ghost', !owner.querySelector('.wheel-preview-ghost'));
+    w.eval('closeChordWheel()');
 
     if (bad) process.exitCode = 1;
     else console.log('\nALL OK — B-40 context wheel');

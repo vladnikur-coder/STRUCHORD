@@ -5097,13 +5097,10 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   background: transparent;
   box-shadow: none;
   pointer-events: auto;
-  opacity: 0;
-  transform: translateY(0.5rem) scale(0.985);
-  transition: opacity 0.16s ease, transform 0.18s cubic-bezier(0.2, 0.8, 0.25, 1);
-}
-.chord-wheel-modal.open .wheel-container {
+  /* Появляется сам круг, а не вся техническая обёртка с кнопками:
+     так первый жест остаётся собранным, а качества приходят вторым шагом. */
   opacity: 1;
-  transform: translateY(0) scale(1);
+  transform: none;
 }
 /* B-40: два вложенных ряда качеств остаются частью круга: четыре
    круглые кнопки идут по ближней нижней дуге, три — по дальней.
@@ -5185,22 +5182,44 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 .wheel-svg-wrap svg text {
   pointer-events: visiblePainted;
 }
-/* B-40 visual pass: кольцо остаётся частью языка STRUCHORD — мягкие
-   карточные поверхности, спокойные фоновые зазоры и ясный hover, без
-   отдельной «материальности» или технических плашек. */
+/* B-40 visual pass: кольцо — не шкала с линиями, а ряд мягких
+   карточных сегментов. Светлый фон в тонких зазорах работает отрицательным
+   пространством; отдельная бумажная/физическая фактура здесь не нужна. */
 #circleSvg .wheel-sector,
 #circleSvg .wheel-chord-label,
 #circleSvg .wheel-degree-label {
-  transition: translate 0.16s cubic-bezier(0.2, 0.82, 0.25, 1), filter 0.16s ease, opacity 0.14s ease;
+  transition: translate 0.17s cubic-bezier(0.2, 0.82, 0.25, 1), filter 0.17s ease, opacity 0.14s ease;
+}
+#circleSvg .wheel-sector {
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  paint-order: stroke fill;
+}
+/* Минор не становится отдельной цветовой системой: это только более
+   тихий внутренний слой той же карточной поверхности. Диатоника, напротив,
+   получает немного больше цветовой плотности, чтобы считываться первой. */
+#circleSvg .wheel-sector[data-wheel-ring='minor'] {
+  opacity: 0.955;
+  filter: saturate(0.96) brightness(0.995);
+}
+#circleSvg .wheel-sector[data-wheel-diatonic='true'] {
+  filter: saturate(1.075) brightness(1.012);
+}
+#circleSvg .wheel-sector[data-wheel-ring='minor'][data-wheel-diatonic='true'] {
+  filter: saturate(1.035) brightness(1.004);
 }
 #circleSvg .wheel-hoverable.is-wheel-hovered {
   translate: var(--wheel-hover-x, 0px) var(--wheel-hover-y, 0px);
 }
 #circleSvg .wheel-sector.is-wheel-hovered {
-  filter: brightness(1.055) saturate(1.08);
+  opacity: 1;
+  filter: brightness(1.065) saturate(1.11);
 }
 #circleSvg .wheel-divider {
   opacity: 0;
+}
+#circleSvg .wheel-label-exit-layer {
+  pointer-events: none;
 }
 .chord-wrapper.wheel-owner-active {
   z-index: 1;
@@ -5211,17 +5230,39 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   color: var(--color-accent);
   transition: color 0.14s ease, opacity 0.14s ease;
 }
-@keyframes wheel-open-pop {
+/* Ghost — предыдущая подпись owner-ячейки. Он кладётся ровно на место
+   старого имени до пересборки отображения и позволяет следующему имени
+   войти без рывка и без записи preview в модель песни. */
+.chord-display-inner.wheel-preview-ghost {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+}
+@keyframes wheel-surface-in {
   from { opacity: 0; transform: translateY(0.35rem) scale(0.972); }
   to { opacity: 1; transform: translateY(0) scale(1); }
 }
 @keyframes wheel-quality-in {
-  from { opacity: 0; }
-  to { opacity: 1; }
+  from { opacity: 0; transform: scale(0.96); }
+  to { opacity: 1; transform: scale(1); }
 }
 @keyframes wheel-label-in {
   from { opacity: 0; }
   to { opacity: 1; }
+}
+@keyframes wheel-label-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes wheel-preview-name-in {
+  from { opacity: 0.18; }
+  to { opacity: 1; }
+}
+@keyframes wheel-preview-name-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
 }
 @keyframes wheel-commit-name-pop {
   0% { transform: scale(1); color: var(--color-text-primary); }
@@ -5229,14 +5270,24 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   100% { transform: scale(1); color: var(--color-text-primary); }
 }
 @media (prefers-reduced-motion: no-preference) {
-  .chord-wheel-modal.open .wheel-container {
-    animation: wheel-open-pop 0.18s cubic-bezier(0.2, 0.82, 0.25, 1) both;
+  /* Все сектора возникают одной собранной поверхностью — не волной по кругу. */
+  .chord-wheel-modal.open .wheel-svg-wrap {
+    animation: wheel-surface-in 0.18s cubic-bezier(0.2, 0.82, 0.25, 1) both;
   }
   .chord-wheel-modal.open .mode-tab {
-    animation: wheel-quality-in 0.14s ease 0.065s both;
+    animation: wheel-quality-in 0.14s cubic-bezier(0.2, 0.82, 0.25, 1) 0.075s both;
   }
   #circleSvg .wheel-label-entering {
     animation: wheel-label-in 0.14s ease both;
+  }
+  #circleSvg .wheel-label-exiting {
+    animation: wheel-label-out 0.14s ease both;
+  }
+  .chord-wrapper.wheel-preview .chord-display-inner.wheel-preview-incoming {
+    animation: wheel-preview-name-in 0.13s ease both;
+  }
+  .chord-wrapper.wheel-preview .chord-display-inner.wheel-preview-ghost {
+    animation: wheel-preview-name-out 0.13s ease both;
   }
   .chord-wrapper.wheel-commit-pop .chord-display-inner {
     animation: wheel-commit-name-pop 0.16s cubic-bezier(0.2, 0.82, 0.25, 1) both;
@@ -5244,12 +5295,15 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 }
 @media (prefers-reduced-motion: reduce) {
   .wheel-container,
+  .wheel-svg-wrap,
   .mode-tab,
   #circleSvg .wheel-sector,
   #circleSvg .wheel-chord-label,
   #circleSvg .wheel-degree-label,
   .chord-wrapper.wheel-owner-active,
-  .chord-wrapper.wheel-preview .chord-display {
+  .chord-wrapper.wheel-preview .chord-display,
+  .chord-display-inner.wheel-preview-ghost,
+  .chord-display-inner.wheel-preview-incoming {
     animation: none !important;
     transition: none !important;
   }
@@ -10723,7 +10777,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.423</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.424</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31051,25 +31105,95 @@ function createChordGroup(
 }
 // Визуальный preview не меняет модель песни: временно подменяется
 // только отображение active input, а закрытие/уход курсора возвращают
-// сохранённое значение. Это даёт честный «будущий аккорд» до commit.
+// сохранённое значение. Между именами остаётся короткий ghost старого
+// текста — поэтому движение по секторам читается как crossfade, а не как
+// серия DOM-скачков в owner-ячейке.
 let wheelHoverState = null;
 let wheelPreviewState = null;
+let wheelPreviewTransitionToken = 0;
+const WHEEL_PREVIEW_TRANSITION_MS = 145;
+function prefersReducedWheelMotion() {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+}
+function chordDisplayForInput(input) {
+  return input?.parentElement?.querySelector('.chord-display') || null;
+}
+function directChordDisplayInner(display) {
+  return Array.from(display?.children || []).find((node) => node.classList?.contains('chord-display-inner')) || null;
+}
+// Меняет только presentation input. Возвращает token текущего перехода:
+// он позволяет отменить старое снятие preview-класса, если пользователь
+// успел перейти на соседний сектор.
+function transitionWheelPreviewText(input, nextValue) {
+  const token = ++wheelPreviewTransitionToken;
+  if (!input?.isConnected || input.value === nextValue) return { token, animated: false };
+  const display = chordDisplayForInput(input);
+  const outgoing = directChordDisplayInner(display);
+  const canAnimate = !!(display && outgoing && !prefersReducedWheelMotion());
+  const outgoingRect = canAnimate ? outgoing.getBoundingClientRect() : null;
+  const displayRect = canAnimate ? display.getBoundingClientRect() : null;
+
+  // Быстрый переход на соседний сектор начинает одну новую пару, а не
+  // складывает цепочку полупрозрачных старых имён.
+  display?.querySelectorAll('.wheel-preview-ghost').forEach((node) => node.remove());
+  input.value = nextValue;
+  syncChordDisplay(input);
+  if (!canAnimate) return { token, animated: false };
+
+  const incoming = directChordDisplayInner(display);
+  if (!incoming) return { token, animated: false };
+  incoming.classList.add('wheel-preview-incoming');
+  const ghost = outgoing.cloneNode(true);
+  ghost.classList.remove('wheel-preview-incoming', 'wheel-preview-ghost');
+  ghost.classList.add('wheel-preview-ghost');
+  const x = outgoingRect.left - displayRect.left + outgoingRect.width / 2;
+  const y = outgoingRect.top - displayRect.top + outgoingRect.height / 2;
+  ghost.style.left = `${x}px`;
+  ghost.style.top = `${y}px`;
+  display.appendChild(ghost);
+  window.setTimeout(() => {
+    ghost.remove();
+    incoming.classList.remove('wheel-preview-incoming');
+  }, WHEEL_PREVIEW_TRANSITION_MS);
+  return { token, animated: true };
+}
 function clearWheelPreview() {
   const state = wheelPreviewState;
   if (!state) return;
   wheelPreviewState = null;
-  if (state.input?.isConnected) {
-    state.input.value = state.value;
-    syncChordDisplay(state.input);
-  }
-  state.owner?.classList.remove('wheel-preview');
+  const transition = transitionWheelPreviewText(state.input, state.value);
+  const finish = () => {
+    // Если за время обратного перехода уже начался новый hover, старый
+    // callback не имеет права погасить его акцентный цвет.
+    if (!wheelPreviewState && transition.token === wheelPreviewTransitionToken) {
+      state.owner?.classList.remove('wheel-preview');
+    }
+  };
+  if (transition.animated) window.setTimeout(finish, WHEEL_PREVIEW_TRANSITION_MS);
+  else finish();
 }
-function clearWheelHover() {
+// Для commit preview не возвращается в исходное имя: оно уже является
+// выбранным именем. Убираем только transient слои и оставляем текст на
+// месте, чтобы pop подтверждал результат, а не вторую подмену имени.
+function clearStaleWheelPreviewPresentation(input) {
+  const display = chordDisplayForInput(input);
+  display?.querySelectorAll('.wheel-preview-ghost').forEach((node) => node.remove());
+  directChordDisplayInner(display)?.classList.remove('wheel-preview-incoming');
+  wheelOwnerFor(input)?.classList.remove('wheel-preview');
+}
+function discardWheelPreview() {
+  const state = wheelPreviewState;
+  wheelPreviewState = null;
+  ++wheelPreviewTransitionToken;
+  clearStaleWheelPreviewPresentation(state?.input);
+}
+function clearWheelHover({ restorePreview = true } = {}) {
   if (wheelHoverState?.nodes) {
     wheelHoverState.nodes.forEach((node) => node.classList.remove('is-wheel-hovered'));
   }
   wheelHoverState = null;
-  clearWheelPreview();
+  if (restorePreview) clearWheelPreview();
+  else discardWheelPreview();
 }
 function previewWheelChord(chord) {
   if (!activeChordInput) return;
@@ -31077,9 +31201,8 @@ function previewWheelChord(chord) {
   const owner = wheelOwnerFor(input);
   const display = normalizeChordCase(expandChordName(chord));
   if (!wheelPreviewState) wheelPreviewState = { input, owner, value: input.value };
-  input.value = display;
   owner?.classList.add('wheel-preview');
-  syncChordDisplay(input);
+  transitionWheelPreviewText(input, display);
 }
 function activateWheelHover(nodes, chord) {
   if (!nodes?.length) return;
@@ -31092,7 +31215,12 @@ function activateWheelHover(nodes, chord) {
     });
     return;
   }
-  clearWheelHover();
+  // Между соседними секторами не возвращаем исходный chord: тот же
+  // preview-state сохраняет исходное значение, а имена перетекают одно
+  // в другое без промежуточного мигания owner-ячейки.
+  if (wheelHoverState?.nodes) {
+    wheelHoverState.nodes.forEach((node) => node.classList.remove('is-wheel-hovered'));
+  }
   wheelHoverState = { chord, nodes: [...nodes] };
   nodes.forEach((node) => node.classList.add('is-wheel-hovered'));
   previewWheelChord(chord);
@@ -31107,9 +31235,24 @@ function wireWheelSectorHover(nodes, chord, mid) {
     node.addEventListener('pointerover', () => activateWheelHover(nodes.filter(Boolean), chord));
   });
 }
+function createWheelLabelExitLayer(svg) {
+  if (prefersReducedWheelMotion()) return null;
+  const priorLabels = Array.from(svg.querySelectorAll('.wheel-chord-label, .wheel-degree-label'));
+  if (!priorLabels.length) return null;
+  const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  layer.classList.add('wheel-label-exit-layer');
+  priorLabels.forEach((label) => {
+    const ghost = label.cloneNode(true);
+    ghost.classList.remove('wheel-label-entering', 'is-wheel-hovered', 'wheel-hoverable');
+    ghost.classList.add('wheel-label-exiting');
+    layer.appendChild(ghost);
+  });
+  return layer;
+}
 function drawWheel({ crossfadeLabels = false } = {}) {
   const svg = DOM.circleSvg;
   clearWheelHover();
+  const labelExitLayer = crossfadeLabels ? createWheelLabelExitLayer(svg) : null;
   svg.innerHTML = '';
   // B-40: круг теперь действительно круглый (540×540), а центральное
   // окно достаточно велико, чтобы в варианте «вокруг» оставить ячейку
@@ -31162,6 +31305,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         `M${cx + Rs * cos1} ${cy + Rs * sin1} L${cx + Ro * cos1} ${cy + Ro * sin1} A${Ro} ${Ro} 0 0 1 ${cx + Ro * cos2} ${cy + Ro * sin2} L${cx + Rs * cos2} ${cy + Rs * sin2} A${Rs} ${Rs} 0 0 0 ${cx + Rs * cos1} ${cy + Rs * sin1}Z`
       );
       op.setAttribute('fill', imd ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
+      op.setAttribute('data-wheel-ring', 'major');
+      op.setAttribute('data-wheel-diatonic', String(imd));
       op.classList.add('wheel-sector');
       op.setAttribute('stroke', 'var(--color-background-primary)');
       op.setAttribute('stroke-width', '2.4');
@@ -31182,6 +31327,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         `M${cx + Ri * cos1} ${cy + Ri * sin1} L${cx + Rs * cos1} ${cy + Rs * sin1} A${Rs} ${Rs} 0 0 1 ${cx + Rs * cos2} ${cy + Rs * sin2} L${cx + Ri * cos2} ${cy + Ri * sin2} A${Ri} ${Ri} 0 0 0 ${cx + Ri * cos1} ${cy + Ri * sin1}Z`
       );
       ip.setAttribute('fill', imid ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
+      ip.setAttribute('data-wheel-ring', 'minor');
+      ip.setAttribute('data-wheel-diatonic', String(imid));
       ip.classList.add('wheel-sector');
       ip.setAttribute('stroke', 'var(--color-background-primary)');
       ip.setAttribute('stroke-width', '2.4');
@@ -31208,7 +31355,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         selectChord(vm);
       });
       frag.appendChild(mg);
-      wireWheelSectorHover([op, mg], vm, mid);
+      const outerHoverNodes = [op, mg];
       const Rmit = (Rs + Ri) / 2,
         mix = cx + Rmit * Math.cos(mid),
         miy = cy + Rmit * Math.sin(mid);
@@ -31221,7 +31368,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         selectChord(vmi);
       });
       frag.appendChild(mig);
-      wireWheelSectorHover([ip, mig], vmi, mid);
+      const innerHoverNodes = [ip, mig];
       if (sd) {
         if (imd && md) {
           const dt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -31235,6 +31382,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
           dt.setAttribute('fill', 'var(--wheel-degree-text)');
           dt.textContent = md;
           frag.appendChild(dt);
+          outerHoverNodes.push(dt);
         }
         if (imid && mid_deg) {
           const dt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
@@ -31248,8 +31396,11 @@ function drawWheel({ crossfadeLabels = false } = {}) {
           dt.setAttribute('fill', 'var(--wheel-degree-text)');
           dt.textContent = mid_deg;
           frag.appendChild(dt);
+          innerHoverNodes.push(dt);
         }
       }
+      wireWheelSectorHover(outerHoverNodes, vm, mid);
+      wireWheelSectorHover(innerHoverNodes, vmi, mid);
       const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       ln.classList.add('wheel-divider');
       ln.setAttribute('x1', cx + Ri * cos1);
@@ -31271,6 +31422,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         `M${cx + Ri * cos1} ${cy + Ri * sin1} L${cx + Ro * cos1} ${cy + Ro * sin1} A${Ro} ${Ro} 0 0 1 ${cx + Ro * cos2} ${cy + Ro * sin2} L${cx + Ri * cos2} ${cy + Ri * sin2} A${Ri} ${Ri} 0 0 0 ${cx + Ri * cos1} ${cy + Ri * sin1}Z`
       );
       p.setAttribute('fill', idg ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
+      p.setAttribute('data-wheel-ring', 'single');
+      p.setAttribute('data-wheel-diatonic', String(idg));
       p.classList.add('wheel-sector');
       p.setAttribute('stroke', 'var(--color-background-primary)');
       p.setAttribute('stroke-width', '2.4');
@@ -31297,7 +31450,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         selectChord(cv);
       });
       frag.appendChild(cg);
-      wireWheelSectorHover([p, cg], cv, mid);
+      const singleHoverNodes = [p, cg];
       if (sd && idg && deg) {
         const dt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
         dt.classList.add('wheel-degree-label');
@@ -31310,7 +31463,9 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         dt.setAttribute('fill', 'var(--wheel-degree-text)');
         dt.textContent = deg;
         frag.appendChild(dt);
+        singleHoverNodes.push(dt);
       }
+      wireWheelSectorHover(singleHoverNodes, cv, mid);
       const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
       ln.classList.add('wheel-divider');
       ln.setAttribute('x1', cx + Ri * cos1);
@@ -31350,17 +31505,24 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   ic.setAttribute('stroke-width', '1');
   frag.appendChild(ic);
   svg.appendChild(frag);
+  // Снимок берём до помещения уходящего слоя: entering- и exiting-labels
+  // никогда не должны оказаться на одном SVG-узле.
+  const incomingLabels = labelExitLayer
+    ? Array.from(svg.querySelectorAll('.wheel-chord-label, .wheel-degree-label'))
+    : [];
+  if (labelExitLayer) {
+    svg.appendChild(labelExitLayer);
+    window.setTimeout(() => labelExitLayer.remove(), WHEEL_PREVIEW_TRANSITION_MS + 15);
+  }
   // addEventListener вместо onpointerleave: в том числе Safari корректно
   // отдаёт уход курсора из SVG даже после пересборки его дочерних узлов.
   if (svg._wheelPointerLeave) svg.removeEventListener('pointerleave', svg._wheelPointerLeave);
   svg._wheelPointerLeave = clearWheelHover;
   svg.addEventListener('pointerleave', svg._wheelPointerLeave);
-  if (crossfadeLabels) {
-    svg.querySelectorAll('text').forEach((node) => {
-      node.classList.add('wheel-label-entering');
-      node.addEventListener('animationend', () => node.classList.remove('wheel-label-entering'), { once: true });
-    });
-  }
+  incomingLabels.forEach((node) => {
+    node.classList.add('wheel-label-entering');
+    node.addEventListener('animationend', () => node.classList.remove('wheel-label-entering'), { once: true });
+  });
 }
 function toggleDegreesOnWheel() {
   drawWheel();
@@ -31453,6 +31615,10 @@ function initContextualChordWheel() {
 function openChordWheel(inp) {
   if (!inp) return;
   clearWheelHover();
+  // Короткий обратный fade после прежнего close может ещё идти. При
+  // немедленном повторном открытии новый круг всегда начинает с чистого
+  // owner-состояния, а не наследует старый preview-акцент/ghost.
+  clearStaleWheelPreviewPresentation(inp);
   if (activeChordInput && !activeChordInput.hasAttribute('readonly')) saveCurrentChord();
   activeChordInput = inp;
   wheelOwnerFor(inp)?.classList.add('wheel-owner-active');
@@ -31490,7 +31656,7 @@ function closeChordWheel() {
 }
 function selectChord(c) {
   if (!activeChordInput) return;
-  clearWheelHover();
+  clearWheelHover({ restorePreview: false });
   const sid = +activeChordInput.dataset.sec,
     sqid = +activeChordInput.dataset.square,
     ei = +activeChordInput.dataset.ei;
