@@ -1,6 +1,6 @@
 // B-40 — контекстный круг аккордов.
 // Контракт B-40: круг больше не модальный, геометрически окружает ячейку,
-// а качества живой очереди сохраняют круглую раскладку 4 + 3 под ним.
+// а качества живой очереди идут двумя вложенными нижними дугами 4 + 3.
 // Проверяем также открытие в качестве текущей ячейки и редкое закрепление.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
@@ -69,10 +69,15 @@ w.addEventListener('load', () => {
     ok('слой стартует скрытым для AT', modal.getAttribute('aria-hidden') === 'true');
     ok('в SVG квадратный viewBox для полного круга', d.getElementById('circleSvg').getAttribute('viewBox') === '0 0 540 540');
     ok('временного переключателя вариантов больше нет', !d.querySelector('[data-wheel-variant]'));
-    ok('док качеств расположен отдельным блоком под кругом', modeTabs.parentElement === container && modeTabs.previousElementSibling === wheel);
+    ok('слой качеств находится в координатах круга', modeTabs.parentElement === wheel);
     ok('сохранена раскладка живых типов 4 + 3',
       d.querySelectorAll('#wheelModeRow1 .mode-tab').length === 4 &&
       d.querySelectorAll('#wheelModeRow2 .mode-tab').length === 3);
+    const outer = d.querySelector('#wheelModeRow1 .mode-tab');
+    const inner = d.querySelector('#wheelModeRow2 .mode-tab');
+    ok('ряды — две разные вложенные дуги',
+      outer?.style.getPropertyValue('--wheel-mode-radius') === '13.35rem' &&
+      inner?.style.getPropertyValue('--wheel-mode-radius') === '10.35rem');
 
     console.log('\n=== 2. Открытие и центрирование «Вокруг» ===');
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');
@@ -108,7 +113,7 @@ w.addEventListener('load', () => {
       openChordWheel(inp);
     }`);
     ok('C7 открывает режим 7', w.eval('wheelMode') === '7', w.eval('wheelMode'));
-    ok('7 подсвечена в доке качеств', d.querySelector('.mode-tab.active')?.dataset.wheelMode === '7');
+    ok('7 подсвечена в дуге качеств', d.querySelector('.mode-tab.active')?.dataset.wheelMode === '7');
     d.querySelector('.mode-tab.active').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('повторный клик качества возвращает трезвучия', w.eval('wheelMode') === 'triads');
     w.eval('closeChordWheel()');
@@ -124,7 +129,7 @@ w.addEventListener('load', () => {
       openChordWheel(inp);
     }`);
     ok('редкое 13 закреплено на время открытия', w.eval('wheelPinnedExtension') === '13');
-    ok('редкое 13 — первый и активный тип дока',
+    ok('редкое 13 — первый и активный тип дуги',
       d.querySelector('.mode-tab')?.dataset.wheelMode === '13' &&
       d.querySelector('.mode-tab.active')?.dataset.wheelMode === '13');
     w.eval('closeChordWheel()');
