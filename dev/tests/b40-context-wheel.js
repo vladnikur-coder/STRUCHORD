@@ -131,6 +131,7 @@ w.addEventListener('load', () => {
       /const WHEEL_CARD_OUTLINE = 1\.2;/.test(wheelSource) &&
       /setAttribute\('stroke', 'var\(--color-border-medium\)'\)/.test(wheelSource) &&
       /setAttribute\('pointer-events', 'visibleFill'\)/.test(wheelSource) &&
+      /gapCatcher\.setAttribute\('pointer-events', 'fill'\)/.test(wheelSource) &&
       !/classList\.add\('wheel-boundary'\)/.test(wheelSource));
     ok('переезд круга использует отдельный FLIP-retarget, не opening/closing',
       /function retargetChordWheel\(inp, \{ suppressOwnerClick = false \} = \{\}\)/.test(wheelSource) &&
@@ -167,9 +168,21 @@ w.addEventListener('load', () => {
       d.querySelectorAll('#circleSvg .wheel-sector.is-wheel-selected').length === 1 &&
       d.querySelector('#circleSvg .wheel-sector.is-wheel-selected')?.dataset.wheelRing === 'major' &&
       d.querySelectorAll('#circleSvg .wheel-chord-label.is-wheel-selected').length === 1);
-    ok('межкарточные зазоры некликабельны: событие принимает только fill карточки',
+    const gapCatcher = d.querySelector('#circleSvg .wheel-gap-catcher');
+    const beforeGapInput = input.value;
+    let gapReachedDocument = false;
+    const noteGapAtDocument = () => { gapReachedDocument = true; };
+    d.addEventListener('pointerdown', noteGapAtDocument);
+    const gapDown = new w.Event('pointerdown', { bubbles: true, cancelable: true });
+    const gapClick = new w.MouseEvent('click', { bubbles: true, cancelable: true });
+    gapCatcher?.dispatchEvent(gapDown);
+    gapCatcher?.dispatchEvent(gapClick);
+    d.removeEventListener('pointerdown', noteGapAtDocument);
+    ok('межкарточные зазоры некликабельны и не проваливаются в редактор',
       Array.from(d.querySelectorAll('#circleSvg path.wheel-sector')).every((sector) =>
-        sector.getAttribute('pointer-events') === 'visibleFill'));
+        sector.getAttribute('pointer-events') === 'visibleFill') &&
+      gapDown.defaultPrevented && gapClick.defaultPrevented && !gapReachedDocument &&
+      modal.classList.contains('open') && input.value === beforeGapInput);
     ok('геометрия помечена вокруг', container.dataset.side === 'around');
     ok('центр SVG выровнен по центру ячейки',
       Math.abs((Number.parseFloat(container.style.left) + 192) - 510) < 1 &&
@@ -314,7 +327,7 @@ w.addEventListener('load', () => {
 
     console.log('\n=== 10. Клик по реальному сектору фиксирует и закрывает ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
-    const firstSector = d.querySelector('#circleSvg path');
+    const firstSector = d.querySelector('#circleSvg path.wheel-sector');
     firstSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
     const previewBeforeCommit = input.value;
     firstSector.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
