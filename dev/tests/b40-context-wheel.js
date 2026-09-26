@@ -149,7 +149,7 @@ w.addEventListener('load', () => {
       /function updateWheelCursorResponse\(nodes, event\)/.test(wheelSource));
     ok('hover раздвигает соседние пары в своём и соседнем ряду',
       /const WHEEL_HOVER_NEIGHBOR_DISTANCES = \[1\.6, 0\.8\]/.test(wheelSource) &&
-      /majorToMinor: \{ aligned: 1\.6, side: 0\.8 \}/.test(wheelSource) &&
+      /majorToMinor: \{ aligned: 3\.2, side: 1\.6 \}/.test(wheelSource) &&
       /minorToMajor: \{ aligned: 3\.2, side: 1\.6 \}/.test(wheelSource) &&
       /const crossRing = ring === 'major' \? 'minor'/.test(wheelSource) &&
       /includeSelected: true/.test(wheelSource) &&
@@ -302,10 +302,13 @@ w.addEventListener('load', () => {
     ok('вариант «Курсор раздвигает круг» усиливает ответ соседей по позиции pointer',
       spreadLength(majorNear[0]) > baselineNeighborSpread);
     w.eval("setWheelHoverPrototype('baseline')");
-    ok('hover раздвигает ряд сверху/снизу: напротив сильнее, боковая пара слабее',
+    ok('внутренний ряд отступает внутрь настолько же, как внешний наружу',
       minorAligned.length > 0 && minorSide.length > 0 &&
       minorAligned.every((node) => node.classList.contains('is-wheel-neighbor-spread')) &&
       minorSide.every((node) => node.classList.contains('is-wheel-neighbor-spread')) &&
+      Math.abs(spreadLength(minorAligned[0]) - 3.2) < 0.02 &&
+      Math.abs(spreadLength(minorSide[0]) - 1.6) < 0.02);
+    ok('hover раздвигает ряд сверху/снизу: напротив сильнее, боковая пара слабее',
       spreadLength(minorAligned[0]) > spreadLength(minorSide[0]));
     const selectedMajor = d.querySelector('[data-wheel-ring="major"].is-wheel-selected');
     d.querySelector('[data-wheel-hover-ring="major"][data-wheel-hover-index="1"].wheel-sector')
