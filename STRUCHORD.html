@@ -5245,7 +5245,11 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 #circleSvg .wheel-label-exit-layer {
   pointer-events: none;
 }
-.chord-wrapper.wheel-owner-active {
+/* is-cell-selected — нейтральное семантическое выделение ячейки.
+   Сейчас его используют круг и ручной ввод; B-33 сможет развить это
+   состояние, не подменяя его фокусом поля или визуальным классом круга. */
+.chord-wrapper.wheel-owner-active,
+.chord-wrapper.is-cell-selected {
   z-index: 1;
   box-shadow: inset 0 0 0 0.0625rem var(--color-accent), 0 0 1rem rgba(var(--color-accent-rgb), 0.24);
   transition: box-shadow 0.16s ease, background 0.16s ease;
@@ -5329,6 +5333,7 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   #circleSvg .wheel-chord-label,
   #circleSvg .wheel-degree-label,
   .chord-wrapper.wheel-owner-active,
+  .chord-wrapper.is-cell-selected,
   .chord-wrapper.wheel-preview .chord-display,
   .chord-display-inner.wheel-preview-ghost,
   .chord-display-inner.wheel-preview-incoming {
@@ -10805,7 +10810,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.429</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.430</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31620,6 +31625,11 @@ function wheelContainer() {
 function wheelOwnerFor(inp = activeChordInput) {
   return inp?.closest('.chord-wrapper') || null;
 }
+// Семантический selection-hook для B-33: не равен DOM-focus и не зависит
+// от того, открыт ли поверх выбранной ячейки контекстный круг.
+function setChordCellSelected(inp, selected) {
+  wheelOwnerFor(inp)?.classList.toggle('is-cell-selected', !!selected);
+}
 function isChordWheelOpenFor(inp) {
   return !!(
     inp &&
@@ -31701,6 +31711,7 @@ function openChordWheel(inp) {
   clearStaleWheelPreviewPresentation(inp);
   if (activeChordInput && !activeChordInput.hasAttribute('readonly')) saveCurrentChord();
   activeChordInput = inp;
+  setChordCellSelected(inp, true);
   wheelOwnerFor(inp)?.classList.add('wheel-owner-active');
   const sid = +inp.dataset.sec;
   const sec = sections.find((s) => s.id === sid);
@@ -31713,6 +31724,7 @@ function openChordWheel(inp) {
 function closeChordWheel() {
   if (!DOM.chordWheelModal) return;
   clearWheelHover();
+  setChordCellSelected(activeChordInput, false);
   wheelOwnerFor()?.classList.remove('wheel-owner-active');
   DOM.chordWheelModal.classList.remove('open');
   DOM.chordWheelModal.setAttribute('aria-hidden', 'true');
@@ -34669,6 +34681,7 @@ function saveCurrentChord() {
     previewChordNow(chord, activeChordInput.closest('.chord-wrapper'));
   }
   activeChordInput.setAttribute('readonly', 'readonly');
+  setChordCellSelected(activeChordInput, false);
   return true;
 }
 let manualInputFingeringBtn = null;
@@ -34720,6 +34733,7 @@ function activateManualInput(inp) {
   suppressFingeringTooltips();
   if (DOM.chordWheelModal.classList.contains('open')) closeChordWheel();
   activeChordInput = inp;
+  setChordCellSelected(activeChordInput, true);
   activeChordInput.removeAttribute('readonly');
   activeChordInput.focus();
   activeChordInput.setSelectionRange(0, 0);
@@ -34728,6 +34742,9 @@ function activateManualInput(inp) {
     inp2.removeEventListener('blur', onBlur);
     inp2.removeEventListener('keydown', onKey);
     hideManualInputFingeringHint();
+    // При обычном save класс уже снят в saveCurrentChord; при переходе
+    // в редактор аппликатуры снимаем здесь, не оставляя selection-фантом.
+    if (!inp2.hasAttribute('readonly')) setChordCellSelected(inp2, false);
   };
   const onBlur = () => {
     saveCurrentChord();

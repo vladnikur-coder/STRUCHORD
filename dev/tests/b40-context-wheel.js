@@ -110,6 +110,7 @@ w.addEventListener('load', () => {
     ok('открытие круга сразу скрывает тултип аппликатуры', fingeringTooltip.style.display === 'none');
     ok('слой объявлен видимым для AT', modal.getAttribute('aria-hidden') === 'false');
     ok('owner получает halo-состояние на время круга', owner.classList.contains('wheel-owner-active'));
+    ok('круг помечает owner нейтральным selection-state для B-33', owner.classList.contains('is-cell-selected'));
     ok('режим при открытии — трезвучия', w.eval('wheelMode') === 'triads');
     ok('геометрия помечена вокруг', container.dataset.side === 'around');
     ok('центр SVG выровнен по центру ячейки',
@@ -163,6 +164,7 @@ w.addEventListener('load', () => {
     ok('клик вне круга закрыл слой', !modal.classList.contains('open'));
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
     ok('после закрытия у owner снят halo', !owner.classList.contains('wheel-owner-active'));
+    ok('после обычного close у owner снят selection-state', !owner.classList.contains('is-cell-selected'));
 
     console.log('\n=== 7. Качество текущей ячейки и редкое закрепление ===');
     // 7 есть в штатной живой очереди: C7 открывается сразу в этом режиме.
@@ -217,12 +219,14 @@ w.addEventListener('load', () => {
     owner.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('повторный клик закрыл круг', !modal.classList.contains('open'));
     ok('повторный клик снял readonly', !input.hasAttribute('readonly'));
+    ok('ручной ввод сохраняет selection-state owner-ячейки', owner.classList.contains('is-cell-selected'));
     ok('ручной ввод подавляет тултип аппликатуры', w.eval('isFingeringTooltipSuppressed(document.querySelector(".chord-wrapper"))'));
     // Не оставляем тестовую ячейку в режиме ввода: это же проверяет
     // обычный единый commit, не создавая изменения модели.
     w.eval('saveCurrentChord();');
     ok('после завершения ручного ввода тултип снова разрешён',
       !w.eval('isFingeringTooltipSuppressed(document.querySelector(".chord-wrapper"))'));
+    ok('после commit ввода selection-state снят', !owner.classList.contains('is-cell-selected'));
 
     console.log('\n=== 10. Клик по реальному сектору фиксирует и закрывает ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
