@@ -139,6 +139,14 @@ w.addEventListener('load', () => {
       /stop-opacity: 0\.09;/.test(wheelSource) &&
       /addWheelCardVolume =/.test(wheelSource) &&
       /pointer-events: none;/.test(wheelSource));
+    ok('dev-палитра даёт выбрать все cursor-reactive hover-прототипы',
+      /const WHEEL_HOVER_PROTOTYPES = Object\.freeze/.test(wheelSource) &&
+      /magnet: \{ title: 'Магнит'/.test(wheelSource) &&
+      /tilt: \{ title: 'Наклон и свет'/.test(wheelSource) &&
+      /pressure: \{ title: 'Живая поверхность'/.test(wheelSource) &&
+      /push: \{ title: 'Курсор раздвигает круг'/.test(wheelSource) &&
+      /'wheel-hover':Object\.entries\(WHEEL_HOVER_PROTOTYPES\)/.test(wheelSource) &&
+      /function updateWheelCursorResponse\(nodes, event\)/.test(wheelSource));
     ok('hover раздвигает соседние пары в своём и соседнем ряду',
       /const WHEEL_HOVER_NEIGHBOR_DISTANCES = \[1\.6, 0\.8\]/.test(wheelSource) &&
       /majorToMinor: \{ aligned: 1\.6, side: 0\.8 \}/.test(wheelSource) &&
@@ -261,6 +269,20 @@ w.addEventListener('load', () => {
     ok('имя сохраняет координаты своей сектор-карточки при её увеличении',
       hoveredChordLabel?.style.getPropertyValue('--wheel-hover-origin-x') === hoverSector.style.getPropertyValue('--wheel-hover-origin-x') &&
       hoveredChordLabel?.style.getPropertyValue('--wheel-hover-origin-y') === hoverSector.style.getPropertyValue('--wheel-hover-origin-y'));
+    hoverSector.getBoundingClientRect = () => ({ left: 20, top: 30, width: 100, height: 80, right: 120, bottom: 110 });
+    hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 50 }));
+    ok('позиция курсора передаётся активной сектор-карточке',
+      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-x')) > 1 &&
+      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-scale')) > 1.03);
+    w.eval("setWheelHoverPrototype('magnet')");
+    ok('dev может включить магнитный вариант без перерендера круга',
+      d.documentElement.dataset.wheelHoverPrototype === 'magnet' && modal.classList.contains('open'));
+    const devVariants = ['tilt', 'pressure', 'push'];
+    ok('dev переключает остальные cursor-варианты', devVariants.every((prototype) => {
+      w.eval(`setWheelHoverPrototype('${prototype}')`);
+      return d.documentElement.dataset.wheelHoverPrototype === prototype;
+    }));
+    w.eval("setWheelHoverPrototype('baseline')");
     const majorNear = Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="1"]'));
     const majorFar = Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="2"]'));
     const minorAligned = Array.from(d.querySelectorAll('[data-wheel-hover-ring="minor"][data-wheel-hover-index="0"]'));
@@ -274,6 +296,12 @@ w.addEventListener('load', () => {
       majorNear.every((node) => node.classList.contains('is-wheel-neighbor-spread')) &&
       majorFar.every((node) => node.classList.contains('is-wheel-neighbor-spread')) &&
       spreadLength(majorNear[0]) > spreadLength(majorFar[0]));
+    const baselineNeighborSpread = spreadLength(majorNear[0]);
+    w.eval("setWheelHoverPrototype('push')");
+    hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 50 }));
+    ok('вариант «Курсор раздвигает круг» усиливает ответ соседей по позиции pointer',
+      spreadLength(majorNear[0]) > baselineNeighborSpread);
+    w.eval("setWheelHoverPrototype('baseline')");
     ok('hover раздвигает ряд сверху/снизу: напротив сильнее, боковая пара слабее',
       minorAligned.length > 0 && minorSide.length > 0 &&
       minorAligned.every((node) => node.classList.contains('is-wheel-neighbor-spread')) &&
