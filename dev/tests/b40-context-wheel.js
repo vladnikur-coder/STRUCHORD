@@ -36,9 +36,12 @@ w.addEventListener('load', () => {
     // варианта «вокруг», а не его осознанный fallback у нижней кромки.
     Object.defineProperty(w, 'innerWidth', { value: 1400, configurable: true });
     Object.defineProperty(w, 'innerHeight', { value: 1200, configurable: true });
-    w.eval("addSection('Verse'); render();");
+    w.eval("addSection('Verse'); addSection('Chorus'); render();");
     const input = d.querySelector('.chord-input');
     const owner = input.closest('.chord-wrapper');
+    const targetInput = d.querySelectorAll('.chord-input')[1];
+    const targetOwner = targetInput.closest('.chord-wrapper');
+    targetInput.value = 'Cadd9';
     const modal = d.getElementById('chordWheelModal');
     const container = modal.querySelector('.wheel-container');
     const wheel = container.querySelector('.wheel-svg-wrap');
@@ -47,7 +50,9 @@ w.addEventListener('load', () => {
     // jsdom не раскладывает CSS. Даём функции якорения честную геометрию,
     // чтобы проверить именно формулы B-40, а не нулевые rect среды.
     let ownerRect = { left: 420, top: 500, width: 180, height: 90, right: 600, bottom: 590 };
+    let targetOwnerRect = { left: 720, top: 650, width: 150, height: 70, right: 870, bottom: 720 };
     owner.getBoundingClientRect = () => ownerRect;
+    targetOwner.getBoundingClientRect = () => targetOwnerRect;
     container.getBoundingClientRect = () => ({
       left: Number.parseFloat(container.style.left) || 0,
       top: Number.parseFloat(container.style.top) || 0,
@@ -105,6 +110,13 @@ w.addEventListener('load', () => {
       /wheel-surface-fade-out 0\.16s ease-in-out both/.test(wheelSource));
     ok('дуги качеств тихо уходят вместе с closing, без мгновенного исчезновения',
       /wheel-quality-out 0\.12s ease-in-out both/.test(wheelSource));
+    ok('hover — мягкий двухпиксельный отклик без резкого filter-скачка',
+      /Math\.cos\(mid\) \* 2/.test(wheelSource) &&
+      /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
+      /translate 0\.2s cubic-bezier\(0\.22, 0\.61, 0\.36, 1\)/.test(wheelSource));
+    ok('переезд круга использует отдельный FLIP-retarget, не opening/closing',
+      /function retargetChordWheel\(inp\)/.test(wheelSource) &&
+      /transform \${WHEEL_RETARGET_MS}ms/.test(wheelSource));
     ok('major-дуга оставляет безопасные поля для длинных accidental-подписей',
       /const WHEEL_MAJOR_LABEL_MAX_WIDTH = 72;/.test(wheelSource) &&
       /fitWheelChordLabel\(dm, WHEEL_MAJOR_LABEL_MAX_WIDTH, 28, 20/.test(wheelSource));
@@ -288,13 +300,31 @@ w.addEventListener('load', () => {
     ok('после commit имя аккорда получает короткое подтверждение', owner.classList.contains('wheel-commit-pop'));
     ok('после commit у owner снят halo круга', !owner.classList.contains('wheel-owner-active'));
 
+    console.log('\n=== 10.5. Круг плавно переезжает к другой ячейке ===');
+    w.eval('openChordWheel(document.querySelector(".chord-input"));');
+    targetOwner.dispatchEvent(new w.Event('pointerdown', { bubbles: true, cancelable: true }));
+    // В реальном браузере preventDefault обычно подавляет click; посылаем
+    // его явно, чтобы проверить guard браузеров, которые click всё же шлют.
+    targetOwner.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    ok('клик по другой ячейке не закрывает круг', modal.classList.contains('open') && !modal.classList.contains('closing'));
+    ok('переезд сразу меняет active owner', w.eval('activeChordInput') === targetInput && targetOwner.classList.contains('wheel-owner-active'));
+    ok('старый owner теряет halo и selection-state', !owner.classList.contains('wheel-owner-active') && !owner.classList.contains('is-cell-selected'));
+    ok('click, породивший переезд, не включает ручной ввод', targetInput.hasAttribute('readonly') && targetOwner.classList.contains('is-cell-selected'));
+    ok('контейнер идёт к точной новой document-привязке с transform-motion',
+      Number.parseFloat(container.style.left) === 603 && Number.parseFloat(container.style.top) === 493 &&
+      container.dataset.wheelRetargeting === 'true' && container.style.transition.includes('transform 200ms'));
+    ok('режим нового owner обновлён в рамках того же переезда', w.eval('wheelMode') === 'add9');
+    w.eval('closeChordWheel()');
+
     console.log('\n=== 11. Reduced motion не создаёт transitional слоёв ===');
     w.matchMedia = (query) => ({ matches: query.includes('prefers-reduced-motion: reduce') });
-    w.eval('openChordWheel(document.querySelector(".chord-input")); setWheelMode("7");');
+    w.eval('openChordWheel(document.querySelector(".chord-input")); retargetChordWheel(document.querySelectorAll(".chord-input")[1]); setWheelMode("7");');
+    ok('при reduced motion переезд сразу стоит на новой ячейке, без transform-слоя',
+      w.eval('activeChordInput') === targetInput && !container.dataset.wheelRetargeting && !container.style.transition);
     ok('при reduced motion нет уходящего слоя подписей', !d.querySelector('#circleSvg .wheel-label-exit-layer'));
     const reducedSector = d.querySelectorAll('#circleSvg path.wheel-sector')[1];
     reducedSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
-    ok('при reduced motion preview не оставляет ghost', !owner.querySelector('.wheel-preview-ghost'));
+    ok('при reduced motion preview не оставляет ghost', !targetOwner.querySelector('.wheel-preview-ghost'));
     w.eval('closeChordWheel()');
     ok('при reduced motion closing-фаза не задерживает скрытие', !modal.classList.contains('closing'));
 

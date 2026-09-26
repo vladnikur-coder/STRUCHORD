@@ -5205,7 +5205,8 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 #circleSvg .wheel-sector,
 #circleSvg .wheel-chord-label,
 #circleSvg .wheel-degree-label {
-  transition: translate 0.17s cubic-bezier(0.2, 0.82, 0.25, 1), filter 0.17s ease, opacity 0.14s ease;
+  /* Hover читается как тихое подтверждение, а не как отдельный эффект. */
+  transition: translate 0.2s cubic-bezier(0.22, 0.61, 0.36, 1), filter 0.2s ease-out, opacity 0.2s ease-out;
 }
 #circleSvg .wheel-sector {
   stroke-linejoin: round;
@@ -5240,7 +5241,7 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 }
 #circleSvg .wheel-sector.is-wheel-hovered {
   opacity: 1;
-  filter: brightness(1.105) saturate(1.17);
+  filter: brightness(1.045) saturate(1.06);
 }
 #circleSvg .wheel-divider,
 #circleSvg .wheel-separator {
@@ -10844,7 +10845,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.436</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.437</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31343,8 +31344,8 @@ function activateWheelHover(nodes, chord) {
   previewWheelChord(chord);
 }
 function wireWheelSectorHover(nodes, chord, mid) {
-  const dx = `${Math.cos(mid) * 4}px`;
-  const dy = `${Math.sin(mid) * 4}px`;
+  const dx = `${Math.cos(mid) * 2}px`;
+  const dy = `${Math.sin(mid) * 2}px`;
   nodes.filter(Boolean).forEach((node) => {
     node.classList.add('wheel-hoverable');
     node.style.setProperty('--wheel-hover-x', dx);
@@ -31661,11 +31662,14 @@ function toggleDegreesOnWheel() {
 // геометрию ячейки в центре, даже если часть круга уйдёт за видимую область.
 let wheelPositionRaf = 0;
 let wheelCloseTimer = 0;
+let wheelRetargetTimer = 0;
+let wheelRetargetClickInput = null;
 // При редком pinned-качестве очередь кнопок нельзя пересобирать посреди
 // closing: удаление старых <button> обрывает их fade-out. Состояние pin
 // сбрасываем сразу, а DOM очереди — после короткой exit-фазы.
 let wheelCloseNeedsModeTabsRefresh = false;
 const WHEEL_CLOSE_MS = 170;
+const WHEEL_RETARGET_MS = 200;
 
 function wheelContainer() {
   return DOM.chordWheelModal?.querySelector('.wheel-container') || null;
@@ -31685,6 +31689,112 @@ function isChordWheelOpenFor(inp) {
     (modal?.classList.contains('open') || modal?.classList.contains('closing')) &&
     activeChordInput === inp
   );
+}
+// Pointerdown ретаргетит круг раньше click владельца. Этот флаг поглощает
+// следующий click, иначе он был бы принят как второй click по уже новому
+// owner и ошибочно включил бы ручной ввод.
+function consumeWheelRetargetClick(inp) {
+  if (wheelRetargetClickInput !== inp) return false;
+  wheelRetargetClickInput = null;
+  return true;
+}
+function cancelWheelRetargetMotion({ keepVisualPosition = false } = {}) {
+  const container = wheelContainer();
+  if (wheelRetargetTimer) {
+    clearTimeout(wheelRetargetTimer);
+    wheelRetargetTimer = 0;
+  }
+  if (!container || !container.dataset.wheelRetargeting) return;
+  if (keepVisualPosition) {
+    const rect = container.getBoundingClientRect();
+    const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    // Фиксируем именно видимую промежуточную точку. Следующий retarget
+    // начинается отсюда, а не прыгает в прошлый destination.
+    container.style.transition = 'none';
+    container.style.left = `${Math.round(rect.left + scrollX)}px`;
+    container.style.top = `${Math.round(rect.top + scrollY)}px`;
+  }
+  delete container.dataset.wheelRetargeting;
+  container.style.removeProperty('transform');
+  container.style.removeProperty('transition');
+}
+function finishWheelRetargetMotion() {
+  const container = wheelContainer();
+  if (!container) return;
+  delete container.dataset.wheelRetargeting;
+  container.style.removeProperty('transform');
+  container.style.removeProperty('transition');
+  wheelRetargetTimer = 0;
+}
+function getContextualWheelPosition(container, owner) {
+  const wholeRect = container.getBoundingClientRect();
+  const wheelRect = container.querySelector('.wheel-svg-wrap')?.getBoundingClientRect();
+  const wheelCenterX = wheelRect
+    ? wheelRect.left - wholeRect.left + wheelRect.width / 2
+    : wholeRect.width / 2;
+  const wheelCenterY = wheelRect
+    ? wheelRect.top - wholeRect.top + wheelRect.height / 2
+    : wholeRect.height / 2;
+  const ownerRect = owner.getBoundingClientRect();
+  const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+  const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  return {
+    left: Math.round(ownerRect.left + ownerRect.width / 2 - wheelCenterX + scrollX),
+    top: Math.round(ownerRect.top + ownerRect.height / 2 - wheelCenterY + scrollY),
+  };
+}
+function animateWheelRetarget(container, position) {
+  const visualRect = container.getBoundingClientRect();
+  const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+  const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  const dx = Math.round(visualRect.left + scrollX - position.left);
+  const dy = Math.round(visualRect.top + scrollY - position.top);
+  // FLIP: новая document-якорная точка ставится сразу, а transform держит
+  // прежнюю видимую позицию до следующего кадра. Так перемещение не
+  // конфликтует с scroll/zoom-перепозиционированием absolute контейнера.
+  container.style.transition = 'none';
+  container.style.left = `${position.left}px`;
+  container.style.top = `${position.top}px`;
+  if (prefersReducedWheelMotion()) {
+    container.style.removeProperty('transform');
+    container.style.removeProperty('transition');
+    return;
+  }
+  container.style.transform = `translate(${dx}px, ${dy}px)`;
+  void container.offsetWidth;
+  container.dataset.wheelRetargeting = 'true';
+  container.style.transition = `transform ${WHEEL_RETARGET_MS}ms cubic-bezier(0.22, 0.61, 0.36, 1)`;
+  container.style.transform = 'translate(0, 0)';
+  wheelRetargetTimer = window.setTimeout(finishWheelRetargetMotion, WHEEL_RETARGET_MS);
+}
+function retargetChordWheel(inp) {
+  const modal = DOM.chordWheelModal;
+  const container = wheelContainer();
+  if (!inp || inp === activeChordInput || !modal?.classList.contains('open') || !container) return false;
+  // Редактируемый input уже находится в прямом ручном вводе: его жест не
+  // перехватываем у обычной логики формы.
+  if (!inp.hasAttribute('readonly')) return false;
+  cancelWheelRetargetMotion({ keepVisualPosition: true });
+  clearWheelHover();
+  setChordCellSelected(activeChordInput, false);
+  wheelOwnerFor()?.classList.remove('wheel-owner-active');
+  activeChordInput = inp;
+  setChordCellSelected(inp, true);
+  wheelOwnerFor(inp)?.classList.add('wheel-owner-active');
+  const sec = sections.find((s) => s.id === +inp.dataset.sec);
+  activeSectionKey = sec?.key || null;
+  // Подписи и режим нового owner мягко перетекают вместе с движением, а
+  // не получают второй эффект после остановки круга.
+  setWheelMode(prepareWheelModeForChord(inp.value), { crossfade: true });
+  animateWheelRetarget(container, getContextualWheelPosition(container, wheelOwnerFor(inp)));
+  wheelRetargetClickInput = inp;
+  // preventDefault обычно подавляет click, а этот короткий guard нужен
+  // браузерам, которые всё же доставляют его после pointerdown.
+  window.setTimeout(() => {
+    if (wheelRetargetClickInput === inp) wheelRetargetClickInput = null;
+  }, 120);
+  return true;
 }
 function cancelWheelCloseAnimation() {
   if (wheelCloseTimer) {
@@ -31718,32 +31828,13 @@ function positionContextualChordWheel() {
   const container = wheelContainer();
   const owner = wheelOwnerFor();
   if (!modal?.classList.contains('open') || !container || !owner) return;
-
-  // Сначала ставим в безопасную точку и скрываем только на время замера:
-  // getBoundingClientRect не должен видеть остаточную позицию прошлого
-  // открытия. Это один дискретный клик, не горячий pointermove-путь.
-  container.style.visibility = 'hidden';
-  container.style.left = '0px';
-  container.style.top = '0px';
-  const ownerRect = owner.getBoundingClientRect();
-  const wholeRect = container.getBoundingClientRect();
-  const wheelRect = container.querySelector('.wheel-svg-wrap')?.getBoundingClientRect();
-  const wheelCenterX = wheelRect
-    ? wheelRect.left - wholeRect.left + wheelRect.width / 2
-    : wholeRect.width / 2;
-  const wheelCenterY = wheelRect
-    ? wheelRect.top - wholeRect.top + wheelRect.height / 2
-    : wholeRect.height / 2;
-
+  // Scroll/zoom должен держать круг на owner, а не продолжать старую
+  // траекторию. При новой навигации retarget сам сохранит текущую точку.
+  cancelWheelRetargetMotion({ keepVisualPosition: true });
   container.dataset.side = 'around';
-  // Контейнер absolute, как тултип аппликатуры: переводим viewport-rect
-  // ячейки в document-px. Так browser/pinch zoom не переякоривает fixed
-  // слой через visual viewport и круг остаётся на своей ячейке.
-  const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
-  const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
-  container.style.left = `${Math.round(ownerRect.left + ownerRect.width / 2 - wheelCenterX + scrollX)}px`;
-  container.style.top = `${Math.round(ownerRect.top + ownerRect.height / 2 - wheelCenterY + scrollY)}px`;
-  container.style.visibility = '';
+  const position = getContextualWheelPosition(container, owner);
+  container.style.left = `${position.left}px`;
+  container.style.top = `${position.top}px`;
 }
 function requestWheelPosition() {
   if (wheelPositionRaf) return;
@@ -31757,6 +31848,19 @@ function initContextualChordWheel() {
     const container = wheelContainer();
     const owner = wheelOwnerFor();
     if (container?.contains(event.target) || owner?.contains(event.target)) return;
+    const nextOwner = event.target.closest?.('.chord-wrapper');
+    const nextInput = nextOwner?.querySelector('.chord-input');
+    // Один click по другой readonly-ячейке меняет owner: круг не исчезает,
+    // а спокойно переезжает. Контролы ячейки остаются обычными внешними
+    // действиями и, как прежде, закрывают круг.
+    if (
+      nextInput &&
+      !event.target.closest('.del-square-btn, .chord-btn, .square-resize-handle') &&
+      retargetChordWheel(nextInput)
+    ) {
+      event.preventDefault();
+      return;
+    }
     closeChordWheel();
   });
   window.addEventListener('resize', requestWheelPosition);
@@ -31769,6 +31873,7 @@ function initContextualChordWheel() {
 }
 function openChordWheel(inp) {
   if (!inp) return;
+  cancelWheelRetargetMotion();
   cancelWheelCloseAnimation();
   suppressFingeringTooltips();
   clearWheelHover();
@@ -31792,6 +31897,8 @@ function closeChordWheel() {
   const modal = DOM.chordWheelModal;
   if (!modal || modal.classList.contains('closing')) return;
   const wasOpen = modal.classList.contains('open');
+  wheelRetargetClickInput = null;
+  cancelWheelRetargetMotion({ keepVisualPosition: true });
   clearWheelHover();
   setChordCellSelected(activeChordInput, false);
   wheelOwnerFor()?.classList.remove('wheel-owner-active');
@@ -35134,6 +35241,7 @@ function attachChordWheelEvents() {
           e.target.closest('.square-resize-handle')
         )
           return;
+        if (consumeWheelRetargetClick(inp)) return;
         if (playbackState.isPlaying) {
           const sid = +w.dataset.sec,
             sqid = +w.dataset.square,
