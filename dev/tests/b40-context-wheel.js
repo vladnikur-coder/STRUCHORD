@@ -97,6 +97,8 @@ w.addEventListener('load', () => {
     const wheelSource = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
     ok('вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
+    ok('закрытие зеркалит ключевые scale-стадии opening',
+      /@keyframes wheel-surface-out[\s\S]*?scale\(1\)[\s\S]*?scale\(1\.014\)[\s\S]*?scale\(0\.93\)/.test(wheelSource));
     ok('длинная подпись сначала использует compact из ячеек',
       w.eval("fitWheelChordLabel('F#m(maj7)', 55, 24, 18, '600', '500')") === 'F#mΔ');
     ok('если compact не проходит, подпись оставляет корень и многоточие',
