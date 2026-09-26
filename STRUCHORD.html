@@ -10929,7 +10929,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.453</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.454</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31405,7 +31405,16 @@ function discardWheelPreview() {
   clearStaleWheelPreviewPresentation(state?.input);
 }
 const WHEEL_HOVER_NEIGHBOR_DISTANCES = [1.6, 0.8];
+const WHEEL_HOVER_CROSS_RING_DISTANCES = { aligned: 1.6, side: 0.8 };
 const WHEEL_ROOT_COUNT = 12;
+// Радиусы совпадают с визуальными центрами major/minor-рядов в drawWheel.
+// Это нужно только для направления разъезда, а не для построения карточек.
+const WHEEL_HOVER_RING_RADII = { major: (245 + 172) / 2, minor: (172 + 103) / 2 };
+function getWheelHoverPoint(ring, index) {
+  const radius = WHEEL_HOVER_RING_RADII[ring];
+  const angle = -Math.PI / 2 + (index + 0.5) * ((2 * Math.PI) / WHEEL_ROOT_COUNT);
+  return { x: 270 + radius * Math.cos(angle), y: 270 + radius * Math.sin(angle) };
+}
 function clearWheelHoverClasses(state) {
   state?.nodes?.forEach((node) => node.classList.remove('is-wheel-hovered'));
   state?.neighborNodes?.forEach((node) => {
@@ -31419,25 +31428,50 @@ function getWheelNeighborSpreadNodes({ ring, index }) {
   const svg = DOM.circleSvg;
   if (!svg) return [];
   const affected = [];
+  const moveCards = (targetRing, targetIndex, dx, dy) => {
+    svg
+      .querySelectorAll(`[data-wheel-hover-ring="${targetRing}"][data-wheel-hover-index="${targetIndex}"]`)
+      .forEach((node) => {
+        // Уже выбранный аккорд остаётся неподвижным marker, даже если
+        // оказался рядом с наведённой карточкой.
+        if (node.classList.contains('is-wheel-selected')) return;
+        node.style.setProperty('--wheel-neighbor-x', `${dx.toFixed(2)}px`);
+        node.style.setProperty('--wheel-neighbor-y', `${dy.toFixed(2)}px`);
+        node.classList.add('is-wheel-neighbor-spread');
+        affected.push(node);
+      });
+  };
+  // Внутри своего ряда две пары расходятся вдоль касательной: ближайшая
+  // на 1.6px, следующая вдвое слабее.
   WHEEL_HOVER_NEIGHBOR_DISTANCES.forEach((distance, offset) => {
     const step = offset + 1;
     [-1, 1].forEach((direction) => {
       const neighborIndex = (index + direction * step + WHEEL_ROOT_COUNT) % WHEEL_ROOT_COUNT;
       const neighborMid = -Math.PI / 2 + (neighborIndex + 0.5) * ((2 * Math.PI) / WHEEL_ROOT_COUNT);
-      const dx = -Math.sin(neighborMid) * distance * direction;
-      const dy = Math.cos(neighborMid) * distance * direction;
-      svg
-        .querySelectorAll(`[data-wheel-hover-ring="${ring}"][data-wheel-hover-index="${neighborIndex}"]`)
-        .forEach((node) => {
-          // Уже выбранный аккорд остаётся неподвижным marker, даже если
-          // оказался рядом с наведённой карточкой.
-          if (node.classList.contains('is-wheel-selected')) return;
-          node.style.setProperty('--wheel-neighbor-x', `${dx.toFixed(2)}px`);
-          node.style.setProperty('--wheel-neighbor-y', `${dy.toFixed(2)}px`);
-          node.classList.add('is-wheel-neighbor-spread');
-          affected.push(node);
-        });
+      moveCards(
+        ring,
+        neighborIndex,
+        -Math.sin(neighborMid) * distance * direction,
+        Math.cos(neighborMid) * distance * direction
+      );
     });
+  });
+  // В dual-ring режиме соседний ряд отвечает тем же ритмом: карточка
+  // напротив уходит от hovered по направлению между рядами, боковая пара —
+  // вдвое слабее. Диагональный вектор сохраняет естественный «разъезд»,
+  // а не тянет всю дугу в одну сторону.
+  const crossRing = ring === 'major' ? 'minor' : ring === 'minor' ? 'major' : null;
+  if (!crossRing) return affected;
+  const source = getWheelHoverPoint(ring, index);
+  [
+    { offset: 0, distance: WHEEL_HOVER_CROSS_RING_DISTANCES.aligned },
+    { offset: -1, distance: WHEEL_HOVER_CROSS_RING_DISTANCES.side },
+    { offset: 1, distance: WHEEL_HOVER_CROSS_RING_DISTANCES.side },
+  ].forEach(({ offset, distance }) => {
+    const targetIndex = (index + offset + WHEEL_ROOT_COUNT) % WHEEL_ROOT_COUNT;
+    const target = getWheelHoverPoint(crossRing, targetIndex);
+    const length = Math.hypot(target.x - source.x, target.y - source.y) || 1;
+    moveCards(crossRing, targetIndex, ((target.x - source.x) / length) * distance, ((target.y - source.y) / length) * distance);
   });
   return affected;
 }
