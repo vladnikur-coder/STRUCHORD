@@ -125,11 +125,11 @@ w.addEventListener('load', () => {
       /wheel-quality-out 0\.12s ease-in-out both/.test(wheelSource));
     ok('hover растит аккорд из центра, а не уводит его радиально',
       !/--wheel-hover-x/.test(wheelSource) &&
-      /#circleSvg \.wheel-hoverable\.is-wheel-hovered[\s\S]*?translate: 0 0;[\s\S]*?scale: 1\.03;/.test(wheelSource) &&
+      /#circleSvg \.wheel-hoverable\.is-wheel-hovered[\s\S]*?translate: 0 0;[\s\S]*?scale: var\(--wheel-cursor-scale, 1\.03\);/.test(wheelSource) &&
       /transform-box: view-box;/.test(wheelSource) &&
       /--wheel-hover-origin-x/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
-      /translate 0\.32s cubic-bezier\(0\.65, 0, 0\.35, 1\)/.test(wheelSource) &&
+      /translate 0\.34s cubic-bezier\(0\.32, 1\.5, 0\.45, 1\)/.test(wheelSource) &&
       /scale 0\.26s cubic-bezier\(0\.22, 1\.5, 0\.36, 1\)/.test(wheelSource) &&
       /function applyWheelHoverClasses\(state\)/.test(wheelSource) &&
       /requestAnimationFrame\(apply\)/.test(wheelSource));
@@ -271,9 +271,11 @@ w.addEventListener('load', () => {
       hoveredChordLabel?.style.getPropertyValue('--wheel-hover-origin-y') === hoverSector.style.getPropertyValue('--wheel-hover-origin-y'));
     hoverSector.getBoundingClientRect = () => ({ left: 20, top: 30, width: 100, height: 80, right: 120, bottom: 110 });
     hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 50 }));
-    ok('позиция курсора передаётся активной сектор-карточке',
+    ok('позиция курсора тактильно меняет масштаб активной сектор-карточки',
       Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-x')) > 1 &&
-      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-scale')) > 1.03);
+      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-scale')) > 1.03 &&
+      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-pressure-scale')) >
+        Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-scale')));
     w.eval("setWheelHoverPrototype('magnet')");
     ok('dev может включить магнитный вариант без перерендера круга',
       d.documentElement.dataset.wheelHoverPrototype === 'magnet' && modal.classList.contains('open'));
