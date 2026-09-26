@@ -5198,25 +5198,39 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 /* Минор не становится отдельной цветовой системой: это только более
    тихий внутренний слой той же карточной поверхности. Диатоника, напротив,
    получает немного больше цветовой плотности, чтобы считываться первой. */
-#circleSvg .wheel-sector[data-wheel-ring='minor'] {
-  opacity: 0.955;
-  filter: saturate(0.96) brightness(0.995);
+/* Вне лада поверхность спокойнее. Внутреннее минорное кольцо — та же
+   поверхность, лишь немного ближе к фону; оно не получает отдельный цвет. */
+#circleSvg .wheel-sector[data-wheel-diatonic='false'] {
+  fill: var(--wheel-segment-fill-out);
+  filter: saturate(0.94) brightness(1.01);
 }
 #circleSvg .wheel-sector[data-wheel-diatonic='true'] {
-  filter: saturate(1.075) brightness(1.012);
+  fill: color-mix(in srgb, var(--wheel-segment-fill-in) 91%, var(--color-accent));
+  filter: saturate(1.13) brightness(1.025);
+}
+#circleSvg .wheel-sector[data-wheel-ring='minor'][data-wheel-diatonic='false'] {
+  fill: color-mix(in srgb, var(--wheel-segment-fill-out) 88%, var(--color-background-primary));
+  opacity: 0.96;
+  filter: saturate(0.9) brightness(1.015);
 }
 #circleSvg .wheel-sector[data-wheel-ring='minor'][data-wheel-diatonic='true'] {
-  filter: saturate(1.035) brightness(1.004);
+  fill: color-mix(in srgb, var(--wheel-segment-fill-in) 94%, var(--color-accent));
+  opacity: 0.965;
+  filter: saturate(1.055) brightness(1.016);
 }
 #circleSvg .wheel-hoverable.is-wheel-hovered {
   translate: var(--wheel-hover-x, 0px) var(--wheel-hover-y, 0px);
 }
 #circleSvg .wheel-sector.is-wheel-hovered {
   opacity: 1;
-  filter: brightness(1.09) saturate(1.15);
+  filter: brightness(1.105) saturate(1.17);
 }
-#circleSvg .wheel-divider {
-  opacity: 0;
+#circleSvg .wheel-divider,
+#circleSvg .wheel-separator {
+  display: none;
+}
+#circleSvg .wheel-boundary {
+  opacity: 0.38;
 }
 #circleSvg .wheel-label-exit-layer {
   pointer-events: none;
@@ -5282,16 +5296,16 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
     animation: wheel-quality-in 0.15s ease 0.105s both;
   }
   #circleSvg .wheel-label-entering {
-    animation: wheel-label-in 0.14s ease both;
+    animation: wheel-label-in 0.18s ease both;
   }
   #circleSvg .wheel-label-exiting {
-    animation: wheel-label-out 0.14s ease both;
+    animation: wheel-label-out 0.18s ease both;
   }
   .chord-wrapper.wheel-preview .chord-display-inner.wheel-preview-incoming {
-    animation: wheel-preview-name-in 0.13s ease both;
+    animation: wheel-preview-name-in 0.17s ease both;
   }
   .chord-wrapper.wheel-preview .chord-display-inner.wheel-preview-ghost {
-    animation: wheel-preview-name-out 0.13s ease both;
+    animation: wheel-preview-name-out 0.17s ease both;
   }
   .chord-wrapper.wheel-commit-pop .chord-display-inner {
     animation: wheel-commit-name-pop 0.16s cubic-bezier(0.2, 0.82, 0.25, 1) both;
@@ -10781,7 +10795,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.425</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.426</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31115,7 +31129,7 @@ function createChordGroup(
 let wheelHoverState = null;
 let wheelPreviewState = null;
 let wheelPreviewTransitionToken = 0;
-const WHEEL_PREVIEW_TRANSITION_MS = 145;
+const WHEEL_PREVIEW_TRANSITION_MS = 175;
 function prefersReducedWheelMotion() {
   return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
 }
@@ -31281,10 +31295,16 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       cmi = correctChordName(rmi, ks);
     const start = ao + i * sa,
       end = ao + (i + 1) * sa;
-    const cos1 = Math.cos(start),
-      sin1 = Math.sin(start),
-      cos2 = Math.cos(end),
-      sin2 = Math.sin(end);
+    // Фоновый зазор — это настоящая часть геометрии карточек, а не
+    // тонкая разделительная линия. Mid остаётся прежним: подписи держат
+    // честный центр своего музыкального сектора.
+    const sectorGap = 0.008;
+    const visualStart = start + sectorGap,
+      visualEnd = end - sectorGap;
+    const cos1 = Math.cos(visualStart),
+      sin1 = Math.sin(visualStart),
+      cos2 = Math.cos(visualEnd),
+      sin2 = Math.sin(visualEnd);
     if (dr) {
       const mid = start + sa / 2;
       const dm = getDisplayChord(cm, false),
@@ -31313,7 +31333,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       op.setAttribute('data-wheel-diatonic', String(imd));
       op.classList.add('wheel-sector');
       op.setAttribute('stroke', 'var(--color-background-primary)');
-      op.setAttribute('stroke-width', '4');
+      op.setAttribute('stroke-width', '3');
       op.style.cursor = 'pointer';
       op.addEventListener('click', () => {
         selectChord(vm);
@@ -31335,7 +31355,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       ip.setAttribute('data-wheel-diatonic', String(imid));
       ip.classList.add('wheel-sector');
       ip.setAttribute('stroke', 'var(--color-background-primary)');
-      ip.setAttribute('stroke-width', '4');
+      ip.setAttribute('stroke-width', '3');
       ip.style.cursor = 'pointer';
       ip.addEventListener('click', () => {
         selectChord(vmi);
@@ -31392,7 +31412,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
           const dt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
           dt.classList.add('wheel-degree-label');
           dt.setAttribute('x', mix);
-          dt.setAttribute('y', miy + 6 + 24);
+          dt.setAttribute('y', miy - 24);
           dt.setAttribute('text-anchor', 'middle');
           dt.setAttribute('dominant-baseline', 'middle');
           dt.setAttribute('font-size', '18');
@@ -31430,7 +31450,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       p.setAttribute('data-wheel-diatonic', String(idg));
       p.classList.add('wheel-sector');
       p.setAttribute('stroke', 'var(--color-background-primary)');
-      p.setAttribute('stroke-width', '4');
+      p.setAttribute('stroke-width', '3');
       p.style.cursor = 'pointer';
       p.addEventListener('click', () => {
         selectChord(cv);
@@ -31483,6 +31503,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   }
   if (dr) {
     const sep = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+    sep.classList.add('wheel-separator');
     sep.setAttribute('cx', cx);
     sep.setAttribute('cy', cy);
     sep.setAttribute('r', Rs);
@@ -31493,6 +31514,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     frag.appendChild(sep);
   }
   const oc = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  oc.classList.add('wheel-boundary');
   oc.setAttribute('cx', cx);
   oc.setAttribute('cy', cy);
   oc.setAttribute('r', Ro);
@@ -31501,6 +31523,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   oc.setAttribute('stroke-width', '1.2');
   frag.appendChild(oc);
   const ic = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+  ic.classList.add('wheel-boundary');
   ic.setAttribute('cx', cx);
   ic.setAttribute('cy', cy);
   ic.setAttribute('r', Ri);
