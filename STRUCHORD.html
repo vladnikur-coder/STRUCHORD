@@ -5223,8 +5223,14 @@ html[data-theme='dark'] #circleSvg {
 #circleSvg .wheel-sector-volume,
 #circleSvg .wheel-chord-label,
 #circleSvg .wheel-degree-label {
-  /* Hover читается как тихое подтверждение, а не как отдельный эффект. */
-  transition: translate 0.2s cubic-bezier(0.22, 0.61, 0.36, 1), filter 0.2s ease-out, opacity 0.2s ease-out;
+  /* Один чуть более длинный motion и нулевая стартовая скорость убирают
+     рывок на входе/выходе, но высокий mid-point сохраняет живой отклик. */
+  transition: translate 0.24s cubic-bezier(0.22, 0.76, 0.36, 1), filter 0.18s ease-out, opacity 0.18s ease-out;
+}
+#circleSvg .wheel-hoverable {
+  /* SVG-карточка заранее вынесена в compositing layer на время открытого
+     круга: соседний ряд ретаргетится без кадра перескока. */
+  will-change: translate;
 }
 /* Три прозрачных stop поверх штатной заливки добавляют очень лёгкий
    material-light, не меняя форму, gap или контур карточки. */
@@ -10929,7 +10935,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.454</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.455</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31326,6 +31332,7 @@ function createChordGroup(
 // текста — поэтому движение по секторам читается как crossfade, а не как
 // серия DOM-скачков в owner-ячейке.
 let wheelHoverState = null;
+let wheelHoverMotionRaf = 0;
 let wheelPreviewState = null;
 let wheelPreviewTransitionToken = 0;
 const WHEEL_PREVIEW_TRANSITION_MS = 175;
@@ -31415,13 +31422,37 @@ function getWheelHoverPoint(ring, index) {
   const angle = -Math.PI / 2 + (index + 0.5) * ((2 * Math.PI) / WHEEL_ROOT_COUNT);
   return { x: 270 + radius * Math.cos(angle), y: 270 + radius * Math.sin(angle) };
 }
+function cancelWheelHoverMotionFrame() {
+  if (!wheelHoverMotionRaf) return;
+  cancelAnimationFrame(wheelHoverMotionRaf);
+  wheelHoverMotionRaf = 0;
+}
 function clearWheelHoverClasses(state) {
+  cancelWheelHoverMotionFrame();
   state?.nodes?.forEach((node) => node.classList.remove('is-wheel-hovered'));
   state?.neighborNodes?.forEach((node) => {
     node.classList.remove('is-wheel-neighbor-spread');
     node.style.removeProperty('--wheel-neighbor-x');
     node.style.removeProperty('--wheel-neighbor-y');
   });
+}
+function applyWheelHoverClasses(state) {
+  const apply = () => {
+    if (wheelHoverState !== state) return;
+    state.nodes.forEach((node) => node.classList.add('is-wheel-hovered'));
+    state.neighborNodes.forEach((node) => node.classList.add('is-wheel-neighbor-spread'));
+    wheelHoverMotionRaf = 0;
+  };
+  // При reduced motion не откладываем состояние даже на один frame.
+  if (prefersReducedWheelMotion()) {
+    apply();
+    return;
+  }
+  cancelWheelHoverMotionFrame();
+  // Browser сначала фиксирует neutral/current position, затем получает
+  // следующий target. Это даёт непрерывный retarget и на первом входе,
+  // и между секторами, и при обратной сборке.
+  wheelHoverMotionRaf = requestAnimationFrame(apply);
 }
 function getWheelNeighborSpreadNodes({ ring, index }) {
   if (!ring || !Number.isInteger(index)) return [];
@@ -31437,7 +31468,6 @@ function getWheelNeighborSpreadNodes({ ring, index }) {
         if (node.classList.contains('is-wheel-selected')) return;
         node.style.setProperty('--wheel-neighbor-x', `${dx.toFixed(2)}px`);
         node.style.setProperty('--wheel-neighbor-y', `${dy.toFixed(2)}px`);
-        node.classList.add('is-wheel-neighbor-spread');
         affected.push(node);
       });
   };
@@ -31496,9 +31526,9 @@ function activateWheelHover(nodes, chord, position) {
     nodes.forEach((node) => {
       if (!wheelHoverState.nodes.includes(node)) {
         wheelHoverState.nodes.push(node);
-        node.classList.add('is-wheel-hovered');
       }
     });
+    applyWheelHoverClasses(wheelHoverState);
     return;
   }
   // Между соседними секторами не возвращаем исходный chord: тот же
@@ -31510,7 +31540,7 @@ function activateWheelHover(nodes, chord, position) {
     nodes: [...nodes],
     neighborNodes: getWheelNeighborSpreadNodes(position),
   };
-  nodes.forEach((node) => node.classList.add('is-wheel-hovered'));
+  applyWheelHoverClasses(wheelHoverState);
   previewWheelChord(chord);
 }
 function wireWheelSectorHover(nodes, chord, mid, ring, index) {

@@ -126,7 +126,9 @@ w.addEventListener('load', () => {
     ok('hover — мягкий двухпиксельный отклик без резкого filter-скачка',
       /Math\.cos\(mid\) \* 2/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
-      /translate 0\.2s cubic-bezier\(0\.22, 0\.61, 0\.36, 1\)/.test(wheelSource));
+      /translate 0\.24s cubic-bezier\(0\.22, 0\.76, 0\.36, 1\)/.test(wheelSource) &&
+      /function applyWheelHoverClasses\(state\)/.test(wheelSource) &&
+      /requestAnimationFrame\(apply\)/.test(wheelSource));
     ok('карточки получают лёгкий theme-aware объём без смены geometry',
       /wheel-card-volume-overlay/.test(wheelSource) &&
       /wheel-card-depth-shadow/.test(wheelSource) &&
@@ -243,6 +245,8 @@ w.addEventListener('load', () => {
     const beforePreviewModel = w.eval('sections[0].squares[0].events[0].chord');
     const hoverSectors = Array.from(d.querySelectorAll('#circleSvg path.wheel-sector'));
     const hoverSector = hoverSectors[0];
+    const nativeHoverRaf = w.requestAnimationFrame;
+    w.requestAnimationFrame = (callback) => { callback(); return 1; };
     hoverSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
     ok('hover включает временный preview в owner-ячейке', owner.classList.contains('wheel-preview'));
     ok('hover не меняет модель песни', w.eval('sections[0].squares[0].events[0].chord') === beforePreviewModel);
@@ -276,6 +280,7 @@ w.addEventListener('load', () => {
     ok('следующее preview-имя входит отдельно от ghost', !!owner.querySelector('.wheel-preview-incoming'));
     ok('второй hover также не меняет модель песни', w.eval('sections[0].squares[0].events[0].chord') === beforePreviewModel);
     d.getElementById('circleSvg').dispatchEvent(new w.Event('pointerleave', { bubbles: true }));
+    w.requestAnimationFrame = nativeHoverRaf;
     ok('уход с круга возвращает исходное имя ячейки', input.value === beforePreview);
 
     console.log('\n=== 5. Масштаб UI и прокрутка не отрывают круг от ячейки ===');
