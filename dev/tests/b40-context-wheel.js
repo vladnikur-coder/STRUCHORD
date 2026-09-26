@@ -120,6 +120,13 @@ w.addEventListener('load', () => {
       /Math\.cos\(mid\) \* 2/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
       /translate 0\.2s cubic-bezier\(0\.22, 0\.61, 0\.36, 1\)/.test(wheelSource));
+    ok('card-gap остаётся физически постоянным от внешней к внутренней дуге',
+      /const WHEEL_CARD_GAP = 7;/.test(wheelSource) &&
+      /Math\.asin\(WHEEL_CARD_HALF_SEAM \/ outerRadius\)/.test(wheelSource) &&
+      /Math\.asin\(WHEEL_CARD_HALF_SEAM \/ innerRadius\)/.test(wheelSource) &&
+      /createWheelCardPath\(start, end, Ro - WHEEL_CARD_PERIMETER, Rs \+ WHEEL_CARD_HALF_SEAM\)/.test(wheelSource) &&
+      /createWheelCardPath\(start, end, Rs - WHEEL_CARD_HALF_SEAM, Ri \+ WHEEL_CARD_PERIMETER\)/.test(wheelSource) &&
+      /stroke-linejoin', 'round'/.test(wheelSource));
     ok('переезд круга использует отдельный FLIP-retarget, не opening/closing',
       /function retargetChordWheel\(inp, \{ suppressOwnerClick = false \} = \{\}\)/.test(wheelSource) &&
       /transform \${WHEEL_RETARGET_MS}ms/.test(wheelSource));

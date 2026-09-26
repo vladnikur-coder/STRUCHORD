@@ -5244,12 +5244,11 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   filter: brightness(1.045) saturate(1.06);
 }
 /* Это не hover, а честное состояние уже записанного в owner аккорда.
-   Тонкий accent-контур и имя остаются после ухода курсора с сектора. */
+   Accent-поверхность и имя остаются после ухода курсора с сектора. */
 #circleSvg .wheel-sector.is-wheel-selected {
   opacity: 1;
-  stroke: var(--color-accent);
-  stroke-width: 3.25;
-  filter: brightness(1.035) saturate(1.07);
+  /* Marker меняет только цвет поверхности: постоянный card-gap не сжимается. */
+  filter: brightness(1.06) saturate(1.12);
 }
 #circleSvg .wheel-chord-label.is-wheel-selected text,
 #circleSvg .wheel-degree-label.is-wheel-selected {
@@ -10857,7 +10856,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.439</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.440</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31407,9 +31406,31 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     Ro = 245,
     Rs = 172,
     Ri = 103;
+  // В отличие от прежней угловой щели, этот gap измеряется в SVG-px.
+  // Геометрия каждого annular-card компенсирует угол на каждом радиусе,
+  // поэтому промежуток не сужается к внутреннему кольцу.
+  const WHEEL_CARD_GAP = 7;
+  const WHEEL_CARD_EDGE = 1;
+  const WHEEL_CARD_HALF_SEAM = (WHEEL_CARD_GAP + WHEEL_CARD_EDGE) / 2;
+  const WHEEL_CARD_PERIMETER = WHEEL_CARD_GAP + WHEEL_CARD_EDGE / 2;
   const n = 12,
     sa = (2 * Math.PI) / n,
     ao = -Math.PI / 2 - sa / 2;
+  const polarPoint = (radius, angle) => ({ x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) });
+  // По внешнему и внутреннему радиусу используются разные углы asin(d/r).
+  // Поэтому кромки остаются «параллельными» с постоянной физической щелью,
+  // а не расходятся как обычные радиальные клинья.
+  const createWheelCardPath = (start, end, outerRadius, innerRadius) => {
+    const so = start + Math.asin(WHEEL_CARD_HALF_SEAM / outerRadius);
+    const eo = end - Math.asin(WHEEL_CARD_HALF_SEAM / outerRadius);
+    const si = start + Math.asin(WHEEL_CARD_HALF_SEAM / innerRadius);
+    const ei = end - Math.asin(WHEEL_CARD_HALF_SEAM / innerRadius);
+    const outerStart = polarPoint(outerRadius, so);
+    const outerEnd = polarPoint(outerRadius, eo);
+    const innerEnd = polarPoint(innerRadius, ei);
+    const innerStart = polarPoint(innerRadius, si);
+    return `M${outerStart.x} ${outerStart.y} A${outerRadius} ${outerRadius} 0 0 1 ${outerEnd.x} ${outerEnd.y} L${innerEnd.x} ${innerEnd.y} A${innerRadius} ${innerRadius} 0 0 0 ${innerStart.x} ${innerStart.y}Z`;
+  };
   const sk = activeSectionKey || getEffectiveKey();
   const ks = getKeyStyle(sk);
   const sd = document.getElementById('showDegrees')?.checked === true;
@@ -31425,16 +31446,12 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       cmi = correctChordName(rmi, ks);
     const start = ao + i * sa,
       end = ao + (i + 1) * sa;
-    // Фоновый зазор — это настоящая часть геометрии карточек, а не
-    // тонкая разделительная линия. Mid остаётся прежним: подписи держат
-    // честный центр своего музыкального сектора.
-    const sectorGap = 0.008;
-    const visualStart = start + sectorGap,
-      visualEnd = end - sectorGap;
-    const cos1 = Math.cos(visualStart),
-      sin1 = Math.sin(visualStart),
-      cos2 = Math.cos(visualEnd),
-      sin2 = Math.sin(visualEnd);
+    // Mid остаётся музыкальным центром сектора. Прежние cos1/cos2 нужны
+    // только скрытому legacy-divider; реальные card-gap строит path ниже.
+    const cos1 = Math.cos(start),
+      sin1 = Math.sin(start),
+      cos2 = Math.cos(end),
+      sin2 = Math.sin(end);
     if (dr) {
       const mid = start + sa / 2;
       const dm = getDisplayChord(cm, false),
@@ -31457,7 +31474,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const op = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       op.setAttribute(
         'd',
-        `M${cx + Rs * cos1} ${cy + Rs * sin1} L${cx + Ro * cos1} ${cy + Ro * sin1} A${Ro} ${Ro} 0 0 1 ${cx + Ro * cos2} ${cy + Ro * sin2} L${cx + Rs * cos2} ${cy + Rs * sin2} A${Rs} ${Rs} 0 0 0 ${cx + Rs * cos1} ${cy + Rs * sin1}Z`
+        createWheelCardPath(start, end, Ro - WHEEL_CARD_PERIMETER, Rs + WHEEL_CARD_HALF_SEAM)
       );
       op.setAttribute('fill', imd ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
       op.setAttribute('data-wheel-ring', 'major');
@@ -31466,7 +31483,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       op.classList.toggle('is-wheel-selected', majorSelected);
       op.setAttribute('data-wheel-selected', String(majorSelected));
       op.setAttribute('stroke', 'var(--color-background-primary)');
-      op.setAttribute('stroke-width', '3');
+      op.setAttribute('stroke-width', String(WHEEL_CARD_EDGE));
+      op.setAttribute('stroke-linejoin', 'round');
       op.style.cursor = 'pointer';
       op.addEventListener('click', () => {
         selectChord(vm);
@@ -31481,7 +31499,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const ip = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       ip.setAttribute(
         'd',
-        `M${cx + Ri * cos1} ${cy + Ri * sin1} L${cx + Rs * cos1} ${cy + Rs * sin1} A${Rs} ${Rs} 0 0 1 ${cx + Rs * cos2} ${cy + Rs * sin2} L${cx + Ri * cos2} ${cy + Ri * sin2} A${Ri} ${Ri} 0 0 0 ${cx + Ri * cos1} ${cy + Ri * sin1}Z`
+        createWheelCardPath(start, end, Rs - WHEEL_CARD_HALF_SEAM, Ri + WHEEL_CARD_PERIMETER)
       );
       ip.setAttribute('fill', imid ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
       ip.setAttribute('data-wheel-ring', 'minor');
@@ -31490,7 +31508,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       ip.classList.toggle('is-wheel-selected', minorSelected);
       ip.setAttribute('data-wheel-selected', String(minorSelected));
       ip.setAttribute('stroke', 'var(--color-background-primary)');
-      ip.setAttribute('stroke-width', '3');
+      ip.setAttribute('stroke-width', String(WHEEL_CARD_EDGE));
+      ip.setAttribute('stroke-linejoin', 'round');
       ip.style.cursor = 'pointer';
       ip.addEventListener('click', () => {
         selectChord(vmi);
@@ -31584,7 +31603,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       p.setAttribute(
         'd',
-        `M${cx + Ri * cos1} ${cy + Ri * sin1} L${cx + Ro * cos1} ${cy + Ro * sin1} A${Ro} ${Ro} 0 0 1 ${cx + Ro * cos2} ${cy + Ro * sin2} L${cx + Ri * cos2} ${cy + Ri * sin2} A${Ri} ${Ri} 0 0 0 ${cx + Ri * cos1} ${cy + Ri * sin1}Z`
+        createWheelCardPath(start, end, Ro - WHEEL_CARD_PERIMETER, Ri + WHEEL_CARD_PERIMETER)
       );
       p.setAttribute('fill', idg ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
       p.setAttribute('data-wheel-ring', 'single');
@@ -31593,7 +31612,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       p.classList.toggle('is-wheel-selected', singleSelected);
       p.setAttribute('data-wheel-selected', String(singleSelected));
       p.setAttribute('stroke', 'var(--color-background-primary)');
-      p.setAttribute('stroke-width', '3');
+      p.setAttribute('stroke-width', String(WHEEL_CARD_EDGE));
+      p.setAttribute('stroke-linejoin', 'round');
       p.style.cursor = 'pointer';
       p.addEventListener('click', () => {
         selectChord(cv);
