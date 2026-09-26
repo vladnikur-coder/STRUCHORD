@@ -105,6 +105,19 @@ w.addEventListener('load', () => {
       /wheel-surface-fade-out 0\.16s ease-in-out both/.test(wheelSource));
     ok('дуги качеств тихо уходят вместе с closing, без мгновенного исчезновения',
       /wheel-quality-out 0\.12s ease-in-out both/.test(wheelSource));
+    ok('major-дуга оставляет безопасные поля для длинных accidental-подписей',
+      /const WHEEL_MAJOR_LABEL_MAX_WIDTH = 72;/.test(wheelSource) &&
+      /fitWheelChordLabel\(dm, WHEEL_MAJOR_LABEL_MAX_WIDTH, 28, 20/.test(wheelSource));
+    // В реальном шрифте два символа корня заметно шире одной буквы. Этот
+    // локальный метрический сценарий ловит именно D#add9/A#add9/G#add9:
+    // полная подпись выходит за 72, а cell-compatible compact — нет.
+    const nativeWheelTextWidth = w.getTextWidth;
+    w.getTextWidth = (text, size) => String(text).length * Number(size) * 0.6;
+    const sharpAdd9Label = w.eval("fitWheelChordLabel('D#add9', WHEEL_MAJOR_LABEL_MAX_WIDTH, 28, 20, '700', '500')");
+    const plainAdd9Label = w.eval("fitWheelChordLabel('Cadd9', WHEEL_MAJOR_LABEL_MAX_WIDTH, 28, 20, '700', '500')");
+    w.getTextWidth = nativeWheelTextWidth;
+    ok('широкий D#add9 получает compact-подпись без потери значения', sharpAdd9Label === 'D#(9)', sharpAdd9Label);
+    ok('короткий Cadd9 сохраняет полную подпись', plainAdd9Label === 'Cadd9', plainAdd9Label);
     ok('длинная подпись сначала использует compact из ячеек',
       w.eval("fitWheelChordLabel('F#m(maj7)', 55, 24, 18, '600', '500')") === 'F#mΔ');
     ok('если compact не проходит, подпись оставляет корень и многоточие',
