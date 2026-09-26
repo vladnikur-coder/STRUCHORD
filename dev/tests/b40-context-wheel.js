@@ -38,6 +38,12 @@ w.addEventListener('load', () => {
     Object.defineProperty(w, 'innerHeight', { value: 1200, configurable: true });
     w.eval("addSection('Verse'); addSection('Chorus'); render();");
     const input = d.querySelector('.chord-input');
+    w.eval(`{
+      const inp = document.querySelector('.chord-input');
+      inp.value = 'C';
+      sections[0].squares[0].events[0].chord = 'C';
+      syncChordDisplay(inp);
+    }`);
     const owner = input.closest('.chord-wrapper');
     const targetInput = d.querySelectorAll('.chord-input')[1];
     const targetOwner = targetInput.closest('.chord-wrapper');
@@ -145,6 +151,10 @@ w.addEventListener('load', () => {
     ok('owner получает halo-состояние на время круга', owner.classList.contains('wheel-owner-active'));
     ok('круг помечает owner нейтральным selection-state для B-33', owner.classList.contains('is-cell-selected'));
     ok('режим при открытии — трезвучия', w.eval('wheelMode') === 'triads');
+    ok('текущий аккорд ячейки сразу выделен на соответствующем секторе и подписи',
+      d.querySelectorAll('#circleSvg .wheel-sector.is-wheel-selected').length === 1 &&
+      d.querySelector('#circleSvg .wheel-sector.is-wheel-selected')?.dataset.wheelRing === 'major' &&
+      d.querySelectorAll('#circleSvg .wheel-chord-label.is-wheel-selected').length === 1);
     ok('геометрия помечена вокруг', container.dataset.side === 'around');
     ok('центр SVG выровнен по центру ячейки',
       Math.abs((Number.parseFloat(container.style.left) + 192) - 510) < 1 &&
@@ -314,6 +324,9 @@ w.addEventListener('load', () => {
       Number.parseFloat(container.style.left) === 603 && Number.parseFloat(container.style.top) === 493 &&
       container.dataset.wheelRetargeting === 'true' && container.style.transition.includes('transform 200ms'));
     ok('режим нового owner обновлён в рамках того же переезда', w.eval('wheelMode') === 'add9');
+    ok('переезд переносит выбранный marker на add9-сектор нового owner',
+      d.querySelectorAll('#circleSvg .wheel-sector.is-wheel-selected').length === 1 &&
+      d.querySelector('#circleSvg .wheel-sector.is-wheel-selected')?.dataset.wheelRing === 'major');
     w.eval('closeChordWheel()');
 
     console.log('\n=== 10.6. Стрелки переезжают между ячейками ===');

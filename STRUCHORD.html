@@ -5243,6 +5243,18 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   opacity: 1;
   filter: brightness(1.045) saturate(1.06);
 }
+/* Это не hover, а честное состояние уже записанного в owner аккорда.
+   Тонкий accent-контур и имя остаются после ухода курсора с сектора. */
+#circleSvg .wheel-sector.is-wheel-selected {
+  opacity: 1;
+  stroke: var(--color-accent);
+  stroke-width: 3.25;
+  filter: brightness(1.035) saturate(1.07);
+}
+#circleSvg .wheel-chord-label.is-wheel-selected text,
+#circleSvg .wheel-degree-label.is-wheel-selected {
+  fill: var(--color-accent);
+}
 #circleSvg .wheel-divider,
 #circleSvg .wheel-separator {
   display: none;
@@ -10845,7 +10857,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.438</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.439</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31126,6 +31138,21 @@ function observeChordDisplays(root) {
 function getChordValue(rc, isMin) {
   return getDisplayChord(rc, isMin);
 }
+// Сравнение для marker-а выбранного сектора идёт по смыслу, а не по
+// конкретной подписи: C#maj7 и C#Δ, Ebadd9 и D#(9) должны указывать на
+// один и тот же сектор. Слэш-бас не рисуется отдельным сектором, поэтому
+// для этого marker-а используем основной аккорд до '/'.
+function wheelChordIdentity(chord) {
+  const expanded = normalizeChordCase(expandChordName(String(chord || '').trim()));
+  const main = expanded.split('/')[0];
+  const match = main.match(/^([A-G][#b]?)(.*)$/);
+  if (!match) return '';
+  const root = FLAT_TO_SHARP[match[1]] || match[1];
+  let suffix = match[2] || '';
+  if (suffix === 'maj') suffix = '';
+  if (suffix === 'mmaj7') suffix = 'm(maj7)';
+  return root + suffix;
+}
 function addPulse(x, y, r, svg) {
   const p = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
   p.setAttribute('cx', x);
@@ -31387,6 +31414,9 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   const ks = getKeyStyle(sk);
   const sd = document.getElementById('showDegrees')?.checked === true;
   const dr = wheelModeIsDualRing(wheelMode);
+  const activeWheelChord = wheelChordIdentity(activeChordInput?.value);
+  const isSelectedWheelChord = (candidate) =>
+    !!activeWheelChord && activeWheelChord === wheelChordIdentity(candidate);
   const frag = document.createDocumentFragment();
   for (let i = 0; i < n; i++) {
     const rm = MAJOR_CHORDS[i],
@@ -31416,6 +31446,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const dmi = fitWheelChordLabel(dmiFull, 58, 24, 18, '600', '500');
       const vm = getChordValue(cm, false),
         vmi = getChordValue(cmi, true);
+      const majorSelected = isSelectedWheelChord(vm);
+      const minorSelected = isSelectedWheelChord(vmi);
       const md = getScaleDegree(dm, sk),
         // Степень — от полного имени: компакт ('AmΔ') теряет септиму
         // при разборе и ложно считался бы диатоническим.
@@ -31431,6 +31463,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       op.setAttribute('data-wheel-ring', 'major');
       op.setAttribute('data-wheel-diatonic', String(imd));
       op.classList.add('wheel-sector');
+      op.classList.toggle('is-wheel-selected', majorSelected);
+      op.setAttribute('data-wheel-selected', String(majorSelected));
       op.setAttribute('stroke', 'var(--color-background-primary)');
       op.setAttribute('stroke-width', '3');
       op.style.cursor = 'pointer';
@@ -31453,6 +31487,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       ip.setAttribute('data-wheel-ring', 'minor');
       ip.setAttribute('data-wheel-diatonic', String(imid));
       ip.classList.add('wheel-sector');
+      ip.classList.toggle('is-wheel-selected', minorSelected);
+      ip.setAttribute('data-wheel-selected', String(minorSelected));
       ip.setAttribute('stroke', 'var(--color-background-primary)');
       ip.setAttribute('stroke-width', '3');
       ip.style.cursor = 'pointer';
@@ -31472,6 +31508,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const { root: mr, suffix: ms } = splitRootSuffix(dmLabel);
       const mg = createChordGroup(mx, my, mr, ms, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
       mg.classList.add('wheel-chord-label');
+      mg.classList.toggle('is-wheel-selected', majorSelected);
       mg.style.cursor = 'pointer';
       mg.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -31485,6 +31522,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const { root: mir, suffix: mis } = splitRootSuffix(dmi);
       const mig = createChordGroup(mix, miy, mir, mis, 24, 18, 'var(--wheel-chord-minor-text)', '600', '500', 6);
       mig.classList.add('wheel-chord-label');
+      mig.classList.toggle('is-wheel-selected', minorSelected);
       mig.style.cursor = 'pointer';
       mig.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -31504,6 +31542,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
           dt.setAttribute('font-weight', '600');
           dt.setAttribute('fill', 'var(--wheel-degree-text)');
           dt.textContent = md;
+          dt.classList.toggle('is-wheel-selected', majorSelected);
           frag.appendChild(dt);
           outerHoverNodes.push(dt);
         }
@@ -31518,6 +31557,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
           dt.setAttribute('font-weight', '600');
           dt.setAttribute('fill', 'var(--wheel-degree-text)');
           dt.textContent = mid_deg;
+          dt.classList.toggle('is-wheel-selected', minorSelected);
           frag.appendChild(dt);
           innerHoverNodes.push(dt);
         }
@@ -31537,6 +31577,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const mid = start + sa / 2;
       const dc = getDisplayChord(cm, false),
         cv = getChordValue(cm, false);
+      const singleSelected = isSelectedWheelChord(cv);
       const dcLabel = fitWheelChordLabel(dc, 76, 28, 20, '700', '500');
       const deg = getScaleDegree(dc, sk);
       const idg = deg !== '';
@@ -31549,6 +31590,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       p.setAttribute('data-wheel-ring', 'single');
       p.setAttribute('data-wheel-diatonic', String(idg));
       p.classList.add('wheel-sector');
+      p.classList.toggle('is-wheel-selected', singleSelected);
+      p.setAttribute('data-wheel-selected', String(singleSelected));
       p.setAttribute('stroke', 'var(--color-background-primary)');
       p.setAttribute('stroke-width', '3');
       p.style.cursor = 'pointer';
@@ -31568,6 +31611,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const { root, suffix } = splitRootSuffix(dcLabel);
       const cg = createChordGroup(tx, ty, root, suffix, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
       cg.classList.add('wheel-chord-label');
+      cg.classList.toggle('is-wheel-selected', singleSelected);
       cg.style.cursor = 'pointer';
       cg.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -31586,6 +31630,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         dt.setAttribute('font-weight', '600');
         dt.setAttribute('fill', 'var(--wheel-degree-text)');
         dt.textContent = deg;
+        dt.classList.toggle('is-wheel-selected', singleSelected);
         frag.appendChild(dt);
         singleHoverNodes.push(dt);
       }
