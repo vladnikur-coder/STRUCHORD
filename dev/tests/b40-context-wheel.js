@@ -131,8 +131,8 @@ w.addEventListener('load', () => {
       /#circleSvg \.wheel-sector\.is-wheel-selected[\s\S]*?fill: color-mix\(in srgb, var\(--wheel-segment-fill-out\) 62%, var\(--color-accent\)\)/.test(wheelSource) &&
       /stroke: var\(--color-accent\);/.test(wheelSource) &&
       /Контур использует штатные 1\.2 SVG-px/.test(wheelSource) &&
-      /function addWheelSelectedLabelBadge\(group, labelWidth, labelHeight\)/.test(wheelSource) &&
-      /html:not\(\[data-theme='dark'\]\) #circleSvg \.wheel-sector\.is-wheel-selected/.test(wheelSource));
+      /html:not\(\[data-theme='dark'\]\) #circleSvg \.wheel-sector\.is-wheel-selected/.test(wheelSource) &&
+      !/wheel-selected-label-badge/.test(wheelSource));
     ok('круг отслеживает layout-shift от hover-раскрытия секции',
       /function trackWheelAnchorDuringLayout\(duration = WHEEL_LAYOUT_TRACK_MS\)/.test(wheelSource) &&
       /document\.addEventListener\('transitionrun'/.test(wheelSource) &&
@@ -185,8 +185,7 @@ w.addEventListener('load', () => {
     ok('текущий аккорд ячейки сразу выделен на соответствующем секторе и подписи',
       d.querySelectorAll('#circleSvg .wheel-sector.is-wheel-selected').length === 1 &&
       d.querySelector('#circleSvg .wheel-sector.is-wheel-selected')?.dataset.wheelRing === 'major' &&
-      d.querySelectorAll('#circleSvg .wheel-chord-label.is-wheel-selected').length === 1 &&
-      d.querySelectorAll('#circleSvg .wheel-selected-label-badge').length === 1);
+      d.querySelectorAll('#circleSvg .wheel-chord-label.is-wheel-selected').length === 1);
     const gapCatcher = d.querySelector('#circleSvg .wheel-gap-catcher');
     const beforeGapInput = input.value;
     let gapReachedDocument = false;
