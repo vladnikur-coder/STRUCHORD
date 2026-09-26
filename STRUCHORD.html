@@ -10845,7 +10845,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.437</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.438</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31768,7 +31768,7 @@ function animateWheelRetarget(container, position) {
   container.style.transform = 'translate(0, 0)';
   wheelRetargetTimer = window.setTimeout(finishWheelRetargetMotion, WHEEL_RETARGET_MS);
 }
-function retargetChordWheel(inp) {
+function retargetChordWheel(inp, { suppressOwnerClick = false } = {}) {
   const modal = DOM.chordWheelModal;
   const container = wheelContainer();
   if (!inp || inp === activeChordInput || !modal?.classList.contains('open') || !container) return false;
@@ -31788,12 +31788,63 @@ function retargetChordWheel(inp) {
   // не получают второй эффект после остановки круга.
   setWheelMode(prepareWheelModeForChord(inp.value), { crossfade: true });
   animateWheelRetarget(container, getContextualWheelPosition(container, wheelOwnerFor(inp)));
-  wheelRetargetClickInput = inp;
-  // preventDefault обычно подавляет click, а этот короткий guard нужен
-  // браузерам, которые всё же доставляют его после pointerdown.
-  window.setTimeout(() => {
-    if (wheelRetargetClickInput === inp) wheelRetargetClickInput = null;
-  }, 120);
+  if (suppressOwnerClick) {
+    wheelRetargetClickInput = inp;
+    // preventDefault обычно подавляет click, а этот короткий guard нужен
+    // браузерам, которые всё же доставляют его после pointerdown.
+    window.setTimeout(() => {
+      if (wheelRetargetClickInput === inp) wheelRetargetClickInput = null;
+    }, 120);
+  }
+  return true;
+}
+// Возвращает ближайшую видимую readonly-ячейку в геометрическом направлении
+// стрелки. Так ←/→ остаются естественными внутри строки, а ↑/↓ выбирают
+// ближайшую ячейку соседнего визуального ряда даже при разных span-ширинах.
+function getDirectionalChordWheelInput(key) {
+  const current = activeChordInput;
+  const currentOwner = wheelOwnerFor(current);
+  if (!current || !currentOwner) return null;
+  const rect = currentOwner.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+  const positive = key === 'ArrowRight' || key === 'ArrowDown';
+  let best = null;
+  let bestScore = Infinity;
+  document.querySelectorAll('.chord-input[readonly]').forEach((input) => {
+    if (input === current || !input.isConnected) return;
+    const owner = wheelOwnerFor(input);
+    if (!owner) return;
+    const candidate = owner.getBoundingClientRect();
+    if (!candidate.width || !candidate.height) return;
+    const dx = candidate.left + candidate.width / 2 - cx;
+    const dy = candidate.top + candidate.height / 2 - cy;
+    const primaryDelta = horizontal ? dx : dy;
+    if (positive ? primaryDelta <= 1 : primaryDelta >= -1) return;
+    const primary = Math.abs(primaryDelta);
+    const cross = Math.abs(horizontal ? dy : dx);
+    // Ведущее направление важнее, но близость к той же строке/колонке
+    // не даёт стрелке «перепрыгнуть» на далёкую ячейку по диагонали.
+    const score = primary + cross * 1.35;
+    if (score < bestScore) {
+      best = input;
+      bestScore = score;
+    }
+  });
+  return best;
+}
+function navigateChordWheelByArrow(event) {
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return false;
+  const modal = DOM.chordWheelModal;
+  if (
+    !modal?.classList.contains('open') ||
+    !activeChordInput?.hasAttribute('readonly') ||
+    event.altKey || event.ctrlKey || event.metaKey
+  ) return false;
+  event.preventDefault();
+  const next = getDirectionalChordWheelInput(event.key);
+  if (next) retargetChordWheel(next);
   return true;
 }
 function cancelWheelCloseAnimation() {
@@ -31856,7 +31907,7 @@ function initContextualChordWheel() {
     if (
       nextInput &&
       !event.target.closest('.del-square-btn, .chord-btn, .square-resize-handle') &&
-      retargetChordWheel(nextInput)
+      retargetChordWheel(nextInput, { suppressOwnerClick: true })
     ) {
       event.preventDefault();
       return;
@@ -41984,6 +42035,7 @@ document.addEventListener('click', (e) => {
     DOM.toolsDropdown?.classList.remove('open');
 });
 document.addEventListener('keydown', (e) => {
+  if (navigateChordWheelByArrow(e)) return;
   if (e.key === 'Escape') closeChordWheel();
   if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
     e.preventDefault();

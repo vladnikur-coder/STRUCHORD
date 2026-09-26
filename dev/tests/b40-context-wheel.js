@@ -115,7 +115,7 @@ w.addEventListener('load', () => {
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
       /translate 0\.2s cubic-bezier\(0\.22, 0\.61, 0\.36, 1\)/.test(wheelSource));
     ok('переезд круга использует отдельный FLIP-retarget, не opening/closing',
-      /function retargetChordWheel\(inp\)/.test(wheelSource) &&
+      /function retargetChordWheel\(inp, \{ suppressOwnerClick = false \} = \{\}\)/.test(wheelSource) &&
       /transform \${WHEEL_RETARGET_MS}ms/.test(wheelSource));
     ok('major-дуга оставляет безопасные поля для длинных accidental-подписей',
       /const WHEEL_MAJOR_LABEL_MAX_WIDTH = 72;/.test(wheelSource) &&
@@ -314,6 +314,16 @@ w.addEventListener('load', () => {
       Number.parseFloat(container.style.left) === 603 && Number.parseFloat(container.style.top) === 493 &&
       container.dataset.wheelRetargeting === 'true' && container.style.transition.includes('transform 200ms'));
     ok('режим нового owner обновлён в рамках того же переезда', w.eval('wheelMode') === 'add9');
+    w.eval('closeChordWheel()');
+
+    console.log('\n=== 10.6. Стрелки переезжают между ячейками ===');
+    w.eval('openChordWheel(document.querySelector(".chord-input"));');
+    const arrowRight = new w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
+    d.dispatchEvent(arrowRight);
+    ok('ArrowRight не скроллит страницу при открытом круге', arrowRight.defaultPrevented);
+    ok('ArrowRight ретаргетит круг к ближайшей ячейке справа',
+      w.eval('activeChordInput') === targetInput && modal.classList.contains('open') && targetOwner.classList.contains('wheel-owner-active'));
+    ok('переезд стрелкой не ставит click-guard ручного ввода', w.eval('wheelRetargetClickInput') === null);
     w.eval('closeChordWheel()');
 
     console.log('\n=== 11. Reduced motion не создаёт transitional слоёв ===');
