@@ -10844,7 +10844,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.434</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.435</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30804,10 +30804,11 @@ function prepareWheelModeForChord(chord) {
   renderWheelModeTabs();
   return extension || 'triads';
 }
-function clearPinnedWheelExtension() {
-  if (!wheelPinnedExtension) return;
+function clearPinnedWheelExtension({ render = true } = {}) {
+  if (!wheelPinnedExtension) return false;
   wheelPinnedExtension = null;
-  renderWheelModeTabs();
+  if (render) renderWheelModeTabs();
+  return true;
 }
 function setWheelMode(m, { crossfade = true } = {}) {
   const previousMode = wheelMode;
@@ -31653,6 +31654,10 @@ function toggleDegreesOnWheel() {
 // геометрию ячейки в центре, даже если часть круга уйдёт за видимую область.
 let wheelPositionRaf = 0;
 let wheelCloseTimer = 0;
+// При редком pinned-качестве очередь кнопок нельзя пересобирать посреди
+// closing: удаление старых <button> обрывает их fade-out. Состояние pin
+// сбрасываем сразу, а DOM очереди — после короткой exit-фазы.
+let wheelCloseNeedsModeTabsRefresh = false;
 const WHEEL_CLOSE_MS = 170;
 
 function wheelContainer() {
@@ -31679,7 +31684,17 @@ function cancelWheelCloseAnimation() {
     clearTimeout(wheelCloseTimer);
     wheelCloseTimer = 0;
   }
+  // Следующее open всегда строит кнопки под нового owner. Не даём старому
+  // close-timer'у позже пересобрать DOM уже начавшегося нового opening.
+  wheelCloseNeedsModeTabsRefresh = false;
   DOM.chordWheelModal?.classList.remove('closing');
+}
+function finishWheelCloseAnimation() {
+  DOM.chordWheelModal?.classList.remove('closing');
+  wheelCloseTimer = 0;
+  if (!wheelCloseNeedsModeTabsRefresh) return;
+  wheelCloseNeedsModeTabsRefresh = false;
+  renderWheelModeTabs();
 }
 function triggerWheelCommitPop(owner) {
   if (!owner) return;
@@ -31776,19 +31791,19 @@ function closeChordWheel() {
   modal.classList.remove('open');
   modal.setAttribute('aria-hidden', 'true');
   activeSectionKey = null;
-  clearPinnedWheelExtension();
+  const animateClosing = wasOpen && !prefersReducedWheelMotion();
+  // Не уничтожаем pinned-кнопку до её fade-out: это был единственный
+  // маршрут, который срезал exit-анимацию посередине кадра.
+  wheelCloseNeedsModeTabsRefresh = clearPinnedWheelExtension({ render: !animateClosing }) && animateClosing;
   if (wheelPositionRaf) {
     cancelAnimationFrame(wheelPositionRaf);
     wheelPositionRaf = 0;
   }
   // Семантически круг закрыт сразу: commit/manual input и следующий click
   // не ждут motion. Только его рисунок остаётся на короткий обратный pop.
-  if (wasOpen && !prefersReducedWheelMotion()) {
+  if (animateClosing) {
     modal.classList.add('closing');
-    wheelCloseTimer = window.setTimeout(() => {
-      modal.classList.remove('closing');
-      wheelCloseTimer = 0;
-    }, WHEEL_CLOSE_MS);
+    wheelCloseTimer = window.setTimeout(finishWheelCloseAnimation, WHEEL_CLOSE_MS);
   }
   // На таче тултип аппликатуры остаётся висеть после закрытия колеса:
   // прячет его mousemove, которого здесь не бывает. Снимаем сразу, чтобы

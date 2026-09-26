@@ -209,9 +209,33 @@ w.addEventListener('load', () => {
     ok('редкое 13 — первый и активный тип дуги',
       d.querySelector('.mode-tab')?.dataset.wheelMode === '13' &&
       d.querySelector('.mode-tab.active')?.dataset.wheelMode === '13');
+    const pinnedButtonBeforeClose = d.querySelector('.mode-tab');
+    // Делаем lifecycle close детерминированным: не ждём реального времени,
+    // чтобы другие отложенные задачи редактора не меняли fixture между
+    // проверками. Захватываем только exit-timer круга и завершаем его вручную.
+    const nativeSetTimeout = w.setTimeout.bind(w);
+    const nativeClearTimeout = w.clearTimeout.bind(w);
+    let finishClose = null;
+    const closeTimerId = 981;
+    w.setTimeout = (callback, delay, ...args) => {
+      if (delay === 170) {
+        finishClose = () => callback(...args);
+        return closeTimerId;
+      }
+      return nativeSetTimeout(callback, delay, ...args);
+    };
+    w.clearTimeout = (id) => id === closeTimerId ? undefined : nativeClearTimeout(id);
     w.eval('closeChordWheel()');
-    ok('после закрытия временное закрепление снято', w.eval('wheelPinnedExtension') === null);
-    ok('13 не засорило живую очередь', !Array.from(d.querySelectorAll('.mode-tab')).some((b) => b.dataset.wheelMode === '13'));
+    ok('после закрытия временное закрепление снято семантически', w.eval('wheelPinnedExtension') === null);
+    ok('pinned-кнопки остаются теми же DOM-узлами на время fade-out',
+      modal.classList.contains('closing') && d.querySelector('.mode-tab') === pinnedButtonBeforeClose &&
+      pinnedButtonBeforeClose?.dataset.wheelMode === '13');
+    ok('13 не засорило живую очередь', !w.eval('wheelExtModes.includes("13")'));
+    finishClose?.();
+    w.setTimeout = nativeSetTimeout;
+    w.clearTimeout = nativeClearTimeout;
+    ok('после exit-фазы pinned-кнопка очищена из DOM',
+      !modal.classList.contains('closing') && !Array.from(d.querySelectorAll('.mode-tab')).some((b) => b.dataset.wheelMode === '13'));
 
     console.log('\n=== 8. Пустая ячейка — трезвучия ===');
     w.eval(`{
