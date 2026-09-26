@@ -10856,7 +10856,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.440</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.441</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31409,8 +31409,10 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // В отличие от прежней угловой щели, этот gap измеряется в SVG-px.
   // Геометрия каждого annular-card компенсирует угол на каждом радиусе,
   // поэтому промежуток не сужается к внутреннему кольцу.
-  const WHEEL_CARD_GAP = 7;
+  // 4 SVG-px — отчётливый, но не «рассыпающий» кольцо промежуток.
+  const WHEEL_CARD_GAP = 4;
   const WHEEL_CARD_EDGE = 1;
+  const WHEEL_CARD_CORNER = 5;
   const WHEEL_CARD_HALF_SEAM = (WHEEL_CARD_GAP + WHEEL_CARD_EDGE) / 2;
   const WHEEL_CARD_PERIMETER = WHEEL_CARD_GAP + WHEEL_CARD_EDGE / 2;
   const n = 12,
@@ -31429,7 +31431,23 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     const outerEnd = polarPoint(outerRadius, eo);
     const innerEnd = polarPoint(innerRadius, ei);
     const innerStart = polarPoint(innerRadius, si);
-    return `M${outerStart.x} ${outerStart.y} A${outerRadius} ${outerRadius} 0 0 1 ${outerEnd.x} ${outerEnd.y} L${innerEnd.x} ${innerEnd.y} A${innerRadius} ${innerRadius} 0 0 0 ${innerStart.x} ${innerStart.y}Z`;
+    const outerCorner = WHEEL_CARD_CORNER / outerRadius;
+    const innerCorner = WHEEL_CARD_CORNER / innerRadius;
+    const pointToward = (from, to, distance) => {
+      const length = Math.hypot(to.x - from.x, to.y - from.y);
+      return { x: from.x + ((to.x - from.x) * distance) / length, y: from.y + ((to.y - from.y) * distance) / length };
+    };
+    // Кривые Q — настоящие скругления поверхности, а не едва заметный
+    // effect stroke-linejoin: каждый угол подрезается на физические 5 px.
+    const outerArcStart = polarPoint(outerRadius, so + outerCorner);
+    const outerArcEnd = polarPoint(outerRadius, eo - outerCorner);
+    const outerSideStart = pointToward(outerEnd, innerEnd, WHEEL_CARD_CORNER);
+    const innerSideEnd = pointToward(innerEnd, outerEnd, WHEEL_CARD_CORNER);
+    const innerArcStart = polarPoint(innerRadius, ei - innerCorner);
+    const innerArcEnd = polarPoint(innerRadius, si + innerCorner);
+    const innerSideStart = pointToward(innerStart, outerStart, WHEEL_CARD_CORNER);
+    const outerSideEnd = pointToward(outerStart, innerStart, WHEEL_CARD_CORNER);
+    return `M${outerArcStart.x} ${outerArcStart.y} A${outerRadius} ${outerRadius} 0 0 1 ${outerArcEnd.x} ${outerArcEnd.y} Q${outerEnd.x} ${outerEnd.y} ${outerSideStart.x} ${outerSideStart.y} L${innerSideEnd.x} ${innerSideEnd.y} Q${innerEnd.x} ${innerEnd.y} ${innerArcStart.x} ${innerArcStart.y} A${innerRadius} ${innerRadius} 0 0 0 ${innerArcEnd.x} ${innerArcEnd.y} Q${innerStart.x} ${innerStart.y} ${innerSideStart.x} ${innerSideStart.y} L${outerSideEnd.x} ${outerSideEnd.y} Q${outerStart.x} ${outerStart.y} ${outerArcStart.x} ${outerArcStart.y}Z`;
   };
   const sk = activeSectionKey || getEffectiveKey();
   const ks = getKeyStyle(sk);
