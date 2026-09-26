@@ -384,7 +384,20 @@ w.addEventListener('load', () => {
 
     console.log('\n=== 10.6. Стрелки сохраняют ряд zoomed-секции и показывают owner ===');
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
+    // Изолируем правило приоритета от штатных соседей fixture: ниже
+    // добавлены ровно три конкурирующие readonly-ячейки с нужной геометрией.
+    const temporarilyEditable = Array.from(d.querySelectorAll('.chord-input[readonly]')).filter((node) => node !== input);
+    temporarilyEditable.forEach((node) => node.removeAttribute('readonly'));
     const currentViewport = owner.closest('.squares-viewport');
+    const currentSquare = owner.closest('.square');
+    const sameSquareOwner = d.createElement('div');
+    sameSquareOwner.className = 'chord-wrapper';
+    const sameSquareInput = d.createElement('input');
+    sameSquareInput.className = 'chord-input';
+    sameSquareInput.readOnly = true;
+    sameSquareInput.dataset.ei = String(Number(input.dataset.ei) + 1);
+    sameSquareOwner.appendChild(sameSquareInput);
+    currentSquare.appendChild(sameSquareOwner);
     const sameViewportOwner = d.createElement('div');
     sameViewportOwner.className = 'chord-wrapper';
     const sameViewportInput = d.createElement('input');
@@ -402,12 +415,17 @@ w.addEventListener('load', () => {
     lowerOwner.appendChild(lowerInput);
     lowerViewport.appendChild(lowerOwner);
     d.body.appendChild(lowerViewport);
+    sameSquareOwner.getBoundingClientRect = () => ({ left: 660, top: 500, width: 120, height: 90, right: 780, bottom: 590 });
     sameViewportOwner.getBoundingClientRect = () => ({ left: 660, top: 500, width: 120, height: 90, right: 780, bottom: 590 });
-    lowerOwner.getBoundingClientRect = () => ({ left: 540, top: 560, width: 120, height: 90, right: 660, bottom: 650 });
-    ok('ArrowRight предпочитает ячейку в текущей zoomed-секции нижней секции',
+    lowerOwner.getBoundingClientRect = () => ({ left: 530, top: 550, width: 120, height: 90, right: 650, bottom: 640 });
+    ok('ArrowRight выбирает логически следующую ячейку текущего квадрата, даже если нижняя ближе',
+      w.eval('getDirectionalChordWheelInput("ArrowRight")') === sameSquareInput);
+    sameSquareOwner.remove();
+    ok('после конца квадрата ArrowRight предпочитает текущую zoomed-секцию нижней',
       w.eval('getDirectionalChordWheelInput("ArrowRight")') === sameViewportInput);
     sameViewportOwner.remove();
     lowerViewport.remove();
+    temporarilyEditable.forEach((node) => node.setAttribute('readonly', ''));
     const targetViewport = targetOwner.closest('.squares-viewport');
     const localScrolls = [];
     const pageScrolls = [];
