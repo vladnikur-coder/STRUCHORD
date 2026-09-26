@@ -126,7 +126,7 @@ w.addEventListener('load', () => {
     ok('hover — мягкий двухпиксельный отклик без резкого filter-скачка',
       /Math\.cos\(mid\) \* 2/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
-      /translate 0\.24s cubic-bezier\(0\.22, 0\.76, 0\.36, 1\)/.test(wheelSource) &&
+      /translate 0\.32s cubic-bezier\(0\.65, 0, 0\.35, 1\)/.test(wheelSource) &&
       /function applyWheelHoverClasses\(state\)/.test(wheelSource) &&
       /requestAnimationFrame\(apply\)/.test(wheelSource));
     ok('карточки получают лёгкий theme-aware объём без смены geometry',
