@@ -5,6 +5,7 @@
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
+const resizeObservers = [];
 const dom = new JSDOM(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8'), {
   runScripts: 'dangerously',
   pretendToBeVisual: true,
@@ -17,6 +18,12 @@ const dom = new JSDOM(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8
       fillText(){}, strokeText(){}, setTransform(){}, scale(){},
       createLinearGradient: () => ({ addColorStop(){} }),
     });
+    win.ResizeObserver = class {
+      constructor(callback) { this.callback = callback; this.targets = []; resizeObservers.push(this); }
+      observe(target) { this.targets.push(target); }
+      unobserve(target) { this.targets = this.targets.filter((item) => item !== target); }
+      disconnect() { this.targets = []; }
+    };
   },
 });
 const w = dom.window;
@@ -120,6 +127,10 @@ w.addEventListener('load', () => {
       /Math\.cos\(mid\) \* 2/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
       /translate 0\.2s cubic-bezier\(0\.22, 0\.61, 0\.36, 1\)/.test(wheelSource));
+    ok('круг отслеживает layout-shift от hover-раскрытия секции',
+      /function trackWheelAnchorDuringLayout\(duration = WHEEL_LAYOUT_TRACK_MS\)/.test(wheelSource) &&
+      /document\.addEventListener\('transitionrun'/.test(wheelSource) &&
+      /const chordLayoutObserver = new ResizeObserver\(\(\) =>/.test(wheelSource));
     ok('card-gap узкий и постоянный, углы явно скруглены, круг без обводок',
       /const WHEEL_CARD_GAP = 2\.5;/.test(wheelSource) &&
       /Math\.asin\(WHEEL_CARD_HALF_SEAM \/ outerRadius\)/.test(wheelSource) &&
@@ -189,6 +200,19 @@ w.addEventListener('load', () => {
       Math.abs((Number.parseFloat(container.style.left) + 192) - 510) < 1 &&
       Math.abs((Number.parseFloat(container.style.top) + 192) - 545) < 1,
       `${container.style.left}, ${container.style.top}`);
+    const sectionsRoot = d.getElementById('sectionsContainer');
+    const layoutObserver = resizeObservers.find((observer) => observer.targets.includes(sectionsRoot));
+    const nativeRaf = w.requestAnimationFrame;
+    const beforeLayoutShiftTop = Number.parseFloat(container.style.top);
+    w.requestAnimationFrame = (callback) => { callback(); return 1; };
+    ownerRect = { left: 420, top: 560, width: 180, height: 90, right: 600, bottom: 650 };
+    layoutObserver?.callback([]);
+    ok('layout shift соседней секции немедленно перепривязывает открытый круг к owner',
+      !!layoutObserver && Number.parseFloat(container.style.top) > beforeLayoutShiftTop + 40,
+      `${beforeLayoutShiftTop} → ${container.style.top}`);
+    w.requestAnimationFrame = nativeRaf;
+    ownerRect = { left: 420, top: 500, width: 180, height: 90, right: 600, bottom: 590 };
+    w.eval('positionContextualChordWheel();');
 
     console.log('\n=== 3. У края круг не смещается от ячейки ===');
     Object.defineProperty(w, 'innerHeight', { value: 700, configurable: true });

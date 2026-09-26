@@ -10853,7 +10853,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.446</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.447</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31722,6 +31722,8 @@ function toggleDegreesOnWheel() {
 // У краёв viewport центр не «спасаем» сдвигом: пользователь выбрал честную
 // геометрию ячейки в центре, даже если часть круга уйдёт за видимую область.
 let wheelPositionRaf = 0;
+let wheelLayoutTrackRaf = 0;
+let wheelLayoutTrackUntil = 0;
 let wheelCloseTimer = 0;
 let wheelRetargetTimer = 0;
 let wheelRetargetClickInput = null;
@@ -32053,6 +32055,37 @@ function requestWheelPosition() {
   if (wheelPositionRaf) return;
   wheelPositionRaf = requestAnimationFrame(positionContextualChordWheel);
 }
+// Раскрытие ряда «добавить / клонировать» меняет высоту предыдущей
+// секции через CSS, а значит owner в следующей секции движется без
+// scroll/resize event. Пока идёт такой layout-transition, держим круг
+// на живом rect owner каждый кадр. Это также ловит любой подобный hover
+// shift, если ResizeObserver недоступен в старом браузере.
+const WHEEL_LAYOUT_TRACK_MS = 280;
+function cancelWheelLayoutAnchorTracking() {
+  if (wheelLayoutTrackRaf) cancelAnimationFrame(wheelLayoutTrackRaf);
+  wheelLayoutTrackRaf = 0;
+  wheelLayoutTrackUntil = 0;
+}
+function trackWheelAnchorDuringLayout(duration = WHEEL_LAYOUT_TRACK_MS) {
+  if (!DOM.chordWheelModal?.classList.contains('open')) return;
+  wheelLayoutTrackUntil = Math.max(wheelLayoutTrackUntil, performance.now() + duration);
+  if (wheelLayoutTrackRaf) return;
+  const tick = (now) => {
+    wheelLayoutTrackRaf = 0;
+    if (!DOM.chordWheelModal?.classList.contains('open')) return;
+    requestWheelPosition();
+    if (now < wheelLayoutTrackUntil) wheelLayoutTrackRaf = requestAnimationFrame(tick);
+  };
+  wheelLayoutTrackRaf = requestAnimationFrame(tick);
+}
+function isWheelLayoutShiftTransition(event) {
+  const target = event.target;
+  if (!target?.matches) return false;
+  return (
+    (target.matches('.square-actions-row') && ['max-height', 'margin-top'].includes(event.propertyName)) ||
+    (target.matches('#sectionsContainer') && event.propertyName === 'padding-top')
+  );
+}
 function initContextualChordWheel() {
   // Клик вне круга закрывает только слой выбора. Исключение для ячейки
   // обязательно: её повторный клик — утверждённый жест перехода во ввод.
@@ -32083,6 +32116,22 @@ function initContextualChordWheel() {
   window.visualViewport?.addEventListener('resize', requestWheelPosition);
   window.visualViewport?.addEventListener('scroll', requestWheelPosition);
   document.addEventListener('gesturechange', requestWheelPosition, { passive: true });
+  // pointerover/out запускают трекинг до первого transition frame: именно
+  // этот маршрут воспроизводит hover другой секции с add/clone-кнопками.
+  const trackSectionHoverShift = (event) => {
+    if (!DOM.chordWheelModal?.classList.contains('open')) return;
+    const section = event.target?.closest?.('.section-card');
+    const relatedSection = event.relatedTarget?.closest?.('.section-card');
+    if (section && section !== relatedSection) trackWheelAnchorDuringLayout();
+  };
+  document.addEventListener('pointerover', trackSectionHoverShift, true);
+  document.addEventListener('pointerout', trackSectionHoverShift, true);
+  document.addEventListener('transitionrun', (event) => {
+    if (isWheelLayoutShiftTransition(event)) trackWheelAnchorDuringLayout();
+  }, true);
+  document.addEventListener('transitionend', (event) => {
+    if (isWheelLayoutShiftTransition(event)) requestWheelPosition();
+  }, true);
 }
 function openChordWheel(inp) {
   if (!inp) return;
@@ -32126,6 +32175,7 @@ function closeChordWheel() {
     cancelAnimationFrame(wheelPositionRaf);
     wheelPositionRaf = 0;
   }
+  cancelWheelLayoutAnchorTracking();
   // Семантически круг закрыт сразу: commit/manual input и следующий click
   // не ждут motion. Только его рисунок остаётся на короткий обратный pop.
   if (animateClosing) {
@@ -36270,7 +36320,12 @@ if (document.fonts && document.fonts.ready) {
 // разворачивания секции — делает кэш неактуальным. ResizeObserver ловит
 // это независимо от того, прошла ли перерисовка через render().
 if (typeof ResizeObserver !== 'undefined') {
-  const chordLayoutObserver = new ResizeObserver(invalidateChordWrapperRects);
+  const chordLayoutObserver = new ResizeObserver(() => {
+    invalidateChordWrapperRects();
+    // CSS-hover/layout и изменения высоты соседней секции не посылают
+    // scroll/resize. Открытый круг должен всё равно следовать за owner.
+    if (DOM.chordWheelModal?.classList.contains('open')) requestWheelPosition();
+  });
   const observeLayoutRoot = () => {
     const root = document.getElementById('sectionsContainer') || document.body;
     if (root) chordLayoutObserver.observe(root);
