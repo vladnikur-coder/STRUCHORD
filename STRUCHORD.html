@@ -5208,11 +5208,6 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   /* Hover читается как тихое подтверждение, а не как отдельный эффект. */
   transition: translate 0.2s cubic-bezier(0.22, 0.61, 0.36, 1), filter 0.2s ease-out, opacity 0.2s ease-out;
 }
-#circleSvg .wheel-sector {
-  stroke-linejoin: round;
-  stroke-linecap: round;
-  paint-order: stroke fill;
-}
 /* Минор не становится отдельной цветовой системой: это только более
    тихий внутренний слой той же карточной поверхности. Диатоника, напротив,
    получает немного больше цветовой плотности, чтобы считываться первой. */
@@ -5253,13 +5248,6 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 #circleSvg .wheel-chord-label.is-wheel-selected text,
 #circleSvg .wheel-degree-label.is-wheel-selected {
   fill: var(--color-accent);
-}
-#circleSvg .wheel-divider,
-#circleSvg .wheel-separator {
-  display: none;
-}
-#circleSvg .wheel-boundary {
-  opacity: 0.38;
 }
 #circleSvg .wheel-label-exit-layer {
   pointer-events: none;
@@ -10856,7 +10844,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.441</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.442</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31409,12 +31397,12 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // В отличие от прежней угловой щели, этот gap измеряется в SVG-px.
   // Геометрия каждого annular-card компенсирует угол на каждом радиусе,
   // поэтому промежуток не сужается к внутреннему кольцу.
-  // 4 SVG-px — отчётливый, но не «рассыпающий» кольцо промежуток.
-  const WHEEL_CARD_GAP = 4;
-  const WHEEL_CARD_EDGE = 1;
-  const WHEEL_CARD_CORNER = 5;
-  const WHEEL_CARD_HALF_SEAM = (WHEEL_CARD_GAP + WHEEL_CARD_EDGE) / 2;
-  const WHEEL_CARD_PERIMETER = WHEEL_CARD_GAP + WHEEL_CARD_EDGE / 2;
+  // 2.5 SVG-px: карточки собраны плотнее, но отрицательное пространство
+  // всё ещё отделяет их без нарисованной обводки.
+  const WHEEL_CARD_GAP = 2.5;
+  const WHEEL_CARD_CORNER = 10;
+  const WHEEL_CARD_HALF_SEAM = WHEEL_CARD_GAP / 2;
+  const WHEEL_CARD_PERIMETER = WHEEL_CARD_GAP;
   const n = 12,
     sa = (2 * Math.PI) / n,
     ao = -Math.PI / 2 - sa / 2;
@@ -31438,7 +31426,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       return { x: from.x + ((to.x - from.x) * distance) / length, y: from.y + ((to.y - from.y) * distance) / length };
     };
     // Кривые Q — настоящие скругления поверхности, а не едва заметный
-    // effect stroke-linejoin: каждый угол подрезается на физические 5 px.
+    // effect stroke-linejoin: каждый угол подрезается на физические 10 px.
     const outerArcStart = polarPoint(outerRadius, so + outerCorner);
     const outerArcEnd = polarPoint(outerRadius, eo - outerCorner);
     const outerSideStart = pointToward(outerEnd, innerEnd, WHEEL_CARD_CORNER);
@@ -31464,12 +31452,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       cmi = correctChordName(rmi, ks);
     const start = ao + i * sa,
       end = ao + (i + 1) * sa;
-    // Mid остаётся музыкальным центром сектора. Прежние cos1/cos2 нужны
-    // только скрытому legacy-divider; реальные card-gap строит path ниже.
-    const cos1 = Math.cos(start),
-      sin1 = Math.sin(start),
-      cos2 = Math.cos(end),
-      sin2 = Math.sin(end);
+    // Mid остаётся музыкальным центром сектора; реальные card-gap и
+    // скругления строит path ниже, без дополнительных линий-разделителей.
     if (dr) {
       const mid = start + sa / 2;
       const dm = getDisplayChord(cm, false),
@@ -31500,9 +31484,6 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       op.classList.add('wheel-sector');
       op.classList.toggle('is-wheel-selected', majorSelected);
       op.setAttribute('data-wheel-selected', String(majorSelected));
-      op.setAttribute('stroke', 'var(--color-background-primary)');
-      op.setAttribute('stroke-width', String(WHEEL_CARD_EDGE));
-      op.setAttribute('stroke-linejoin', 'round');
       op.style.cursor = 'pointer';
       op.addEventListener('click', () => {
         selectChord(vm);
@@ -31525,9 +31506,6 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       ip.classList.add('wheel-sector');
       ip.classList.toggle('is-wheel-selected', minorSelected);
       ip.setAttribute('data-wheel-selected', String(minorSelected));
-      ip.setAttribute('stroke', 'var(--color-background-primary)');
-      ip.setAttribute('stroke-width', String(WHEEL_CARD_EDGE));
-      ip.setAttribute('stroke-linejoin', 'round');
       ip.style.cursor = 'pointer';
       ip.addEventListener('click', () => {
         selectChord(vmi);
@@ -31601,15 +31579,6 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       }
       wireWheelSectorHover(outerHoverNodes, vm, mid);
       wireWheelSectorHover(innerHoverNodes, vmi, mid);
-      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      ln.classList.add('wheel-divider');
-      ln.setAttribute('x1', cx + Ri * cos1);
-      ln.setAttribute('y1', cy + Ri * sin1);
-      ln.setAttribute('x2', cx + Ro * cos1);
-      ln.setAttribute('y2', cy + Ro * sin1);
-      ln.setAttribute('stroke', 'var(--wheel-divider-line)');
-      ln.setAttribute('stroke-width', '0.7');
-      frag.appendChild(ln);
     } else {
       const mid = start + sa / 2;
       const dc = getDisplayChord(cm, false),
@@ -31629,9 +31598,6 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       p.classList.add('wheel-sector');
       p.classList.toggle('is-wheel-selected', singleSelected);
       p.setAttribute('data-wheel-selected', String(singleSelected));
-      p.setAttribute('stroke', 'var(--color-background-primary)');
-      p.setAttribute('stroke-width', String(WHEEL_CARD_EDGE));
-      p.setAttribute('stroke-linejoin', 'round');
       p.style.cursor = 'pointer';
       p.addEventListener('click', () => {
         selectChord(cv);
@@ -31673,47 +31639,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         singleHoverNodes.push(dt);
       }
       wireWheelSectorHover(singleHoverNodes, cv, mid);
-      const ln = document.createElementNS('http://www.w3.org/2000/svg', 'line');
-      ln.classList.add('wheel-divider');
-      ln.setAttribute('x1', cx + Ri * cos1);
-      ln.setAttribute('y1', cy + Ri * sin1);
-      ln.setAttribute('x2', cx + Ro * cos1);
-      ln.setAttribute('y2', cy + Ro * sin1);
-      ln.setAttribute('stroke', 'var(--wheel-divider-line)');
-      ln.setAttribute('stroke-width', '0.7');
-      frag.appendChild(ln);
     }
   }
-  if (dr) {
-    const sep = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-    sep.classList.add('wheel-separator');
-    sep.setAttribute('cx', cx);
-    sep.setAttribute('cy', cy);
-    sep.setAttribute('r', Rs);
-    sep.setAttribute('fill', 'none');
-    sep.setAttribute('stroke', 'var(--wheel-separator-circle)');
-    sep.setAttribute('stroke-width', '1.6');
-    sep.setAttribute('stroke-dasharray', '5 4');
-    frag.appendChild(sep);
-  }
-  const oc = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-  oc.classList.add('wheel-boundary');
-  oc.setAttribute('cx', cx);
-  oc.setAttribute('cy', cy);
-  oc.setAttribute('r', Ro);
-  oc.setAttribute('fill', 'none');
-  oc.setAttribute('stroke', 'var(--wheel-outer-ring)');
-  oc.setAttribute('stroke-width', '1.2');
-  frag.appendChild(oc);
-  const ic = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
-  ic.classList.add('wheel-boundary');
-  ic.setAttribute('cx', cx);
-  ic.setAttribute('cy', cy);
-  ic.setAttribute('r', Ri);
-  ic.setAttribute('fill', 'none');
-  ic.setAttribute('stroke', 'var(--wheel-inner-ring)');
-  ic.setAttribute('stroke-width', '1');
-  frag.appendChild(ic);
   svg.appendChild(frag);
   // Снимок берём до помещения уходящего слоя: entering- и exiting-labels
   // никогда не должны оказаться на одном SVG-узле.
