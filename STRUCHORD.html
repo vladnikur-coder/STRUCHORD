@@ -5080,8 +5080,15 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   z-index: 10001;
   pointer-events: none;
 }
-.chord-wheel-modal.open {
+.chord-wheel-modal.open,
+.chord-wheel-modal.closing {
   display: block;
+}
+/* В closing слой остаётся только картинкой: последующий click сразу
+   идёт в редактор, а не в уходящий сектор или кнопку качества. */
+#chordWheelModal.closing .wheel-container,
+#chordWheelModal.closing .wheel-container * {
+  pointer-events: none !important;
 }
 .wheel-container {
   /* left/top записываются в document-px от якорной ячейки. */
@@ -5273,6 +5280,10 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   72% { opacity: 1; transform: translateY(-0.04rem) scale(1.014); }
   100% { opacity: 1; transform: translateY(0) scale(1); }
 }
+@keyframes wheel-surface-out {
+  0% { opacity: 1; transform: translateY(0) scale(1); }
+  100% { opacity: 0; transform: translateY(0.22rem) scale(0.935); }
+}
 /* У кнопок transform — это их координаты на двух дугах. Анимация
    намеренно меняет только opacity: transform в keyframes перезаписал бы
    rotate/translate позиционирования и сложил все семь кнопок в центр. */
@@ -5305,6 +5316,9 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   /* Все сектора возникают одной собранной поверхностью — не волной по кругу. */
   .chord-wheel-modal.open .wheel-svg-wrap {
     animation: wheel-surface-in 0.22s cubic-bezier(0.2, 0.82, 0.25, 1) both;
+  }
+  .chord-wheel-modal.closing .wheel-svg-wrap {
+    animation: wheel-surface-out 0.18s cubic-bezier(0.4, 0, 0.65, 0.25) both;
   }
   .chord-wheel-modal.open .mode-tab {
     animation: wheel-quality-in 0.15s ease 0.105s both;
@@ -10810,7 +10824,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.430</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.431</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31618,6 +31632,8 @@ function toggleDegreesOnWheel() {
 // У краёв viewport центр не «спасаем» сдвигом: пользователь выбрал честную
 // геометрию ячейки в центре, даже если часть круга уйдёт за видимую область.
 let wheelPositionRaf = 0;
+let wheelCloseTimer = 0;
+const WHEEL_CLOSE_MS = 185;
 
 function wheelContainer() {
   return DOM.chordWheelModal?.querySelector('.wheel-container') || null;
@@ -31631,11 +31647,19 @@ function setChordCellSelected(inp, selected) {
   wheelOwnerFor(inp)?.classList.toggle('is-cell-selected', !!selected);
 }
 function isChordWheelOpenFor(inp) {
+  const modal = DOM.chordWheelModal;
   return !!(
     inp &&
-    DOM.chordWheelModal?.classList.contains('open') &&
+    (modal?.classList.contains('open') || modal?.classList.contains('closing')) &&
     activeChordInput === inp
   );
+}
+function cancelWheelCloseAnimation() {
+  if (wheelCloseTimer) {
+    clearTimeout(wheelCloseTimer);
+    wheelCloseTimer = 0;
+  }
+  DOM.chordWheelModal?.classList.remove('closing');
 }
 function triggerWheelCommitPop(owner) {
   if (!owner) return;
@@ -31703,6 +31727,7 @@ function initContextualChordWheel() {
 }
 function openChordWheel(inp) {
   if (!inp) return;
+  cancelWheelCloseAnimation();
   suppressFingeringTooltips();
   clearWheelHover();
   // Короткий обратный fade после прежнего close может ещё идти. При
@@ -31722,17 +31747,28 @@ function openChordWheel(inp) {
   requestWheelPosition();
 }
 function closeChordWheel() {
-  if (!DOM.chordWheelModal) return;
+  const modal = DOM.chordWheelModal;
+  if (!modal || modal.classList.contains('closing')) return;
+  const wasOpen = modal.classList.contains('open');
   clearWheelHover();
   setChordCellSelected(activeChordInput, false);
   wheelOwnerFor()?.classList.remove('wheel-owner-active');
-  DOM.chordWheelModal.classList.remove('open');
-  DOM.chordWheelModal.setAttribute('aria-hidden', 'true');
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
   activeSectionKey = null;
   clearPinnedWheelExtension();
   if (wheelPositionRaf) {
     cancelAnimationFrame(wheelPositionRaf);
     wheelPositionRaf = 0;
+  }
+  // Семантически круг закрыт сразу: commit/manual input и следующий click
+  // не ждут motion. Только его рисунок остаётся на короткий обратный pop.
+  if (wasOpen && !prefersReducedWheelMotion()) {
+    modal.classList.add('closing');
+    wheelCloseTimer = window.setTimeout(() => {
+      modal.classList.remove('closing');
+      wheelCloseTimer = 0;
+    }, WHEEL_CLOSE_MS);
   }
   // На таче тултип аппликатуры остаётся висеть после закрытия колеса:
   // прячет его mousemove, которого здесь не бывает. Снимаем сразу, чтобы

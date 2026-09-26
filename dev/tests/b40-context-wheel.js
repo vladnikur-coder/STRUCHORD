@@ -162,6 +162,7 @@ w.addEventListener('load', () => {
     const beforeOutside = input.value;
     d.body.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
     ok('клик вне круга закрыл слой', !modal.classList.contains('open'));
+    ok('после close остаётся короткая некликабельная closing-фаза', modal.classList.contains('closing'));
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
     ok('после закрытия у owner снят halo', !owner.classList.contains('wheel-owner-active'));
     ok('после обычного close у owner снят selection-state', !owner.classList.contains('is-cell-selected'));
@@ -174,6 +175,7 @@ w.addEventListener('load', () => {
       sections[0].squares[0].events[0].chord = 'C7';
       openChordWheel(inp);
     }`);
+    ok('новое открытие отменяет незавершённую closing-фазу', !modal.classList.contains('closing'));
     ok('C7 открывает режим 7', w.eval('wheelMode') === '7', w.eval('wheelMode'));
     ok('7 подсвечена в дуге качеств', d.querySelector('.mode-tab.active')?.dataset.wheelMode === '7');
     d.querySelector('.mode-tab.active').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
@@ -249,6 +251,7 @@ w.addEventListener('load', () => {
     reducedSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
     ok('при reduced motion preview не оставляет ghost', !owner.querySelector('.wheel-preview-ghost'));
     w.eval('closeChordWheel()');
+    ok('при reduced motion closing-фаза не задерживает скрытие', !modal.classList.contains('closing'));
 
     if (bad) process.exitCode = 1;
     else console.log('\nALL OK — B-40 context wheel');
