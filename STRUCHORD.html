@@ -10853,7 +10853,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.445</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.446</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31829,7 +31829,107 @@ function animateWheelRetarget(container, position) {
   container.style.transform = 'translate(0, 0)';
   wheelRetargetTimer = window.setTimeout(finishWheelRetargetMotion, WHEEL_RETARGET_MS);
 }
-function retargetChordWheel(inp, { suppressOwnerClick = false } = {}) {
+// Навигация стрелками не должна оставлять owner с обводкой за экраном.
+// Сначала двигаем ближайшие скролл-контейнеры (прежде всего zoomed
+// .squares-viewport), затем при необходимости сам документ. По оси
+// стрелки карточка паркуется у соответствующего края safe-area, а не
+// безусловно центрируется; так переход читается как продолжение движения.
+const WHEEL_KEYBOARD_REVEAL_PAD = 24;
+function getWheelKeyboardScrollBehavior() {
+  return prefersReducedWheelMotion() ? 'auto' : 'smooth';
+}
+function clampWheelKeyboardScroll(value, max) {
+  return Math.max(0, Math.min(Math.max(0, max), value));
+}
+function scrollWheelKeyboardContainer(container, axis, target, behavior) {
+  const isX = axis === 'x';
+  const current = isX ? container.scrollLeft : container.scrollTop;
+  const size = isX ? container.clientWidth : container.clientHeight;
+  const extent = isX ? container.scrollWidth : container.scrollHeight;
+  const next = clampWheelKeyboardScroll(target, extent - size);
+  if (!(size > 0) || Math.abs(next - current) <= 1) return false;
+  const options = isX ? { left: next, behavior } : { top: next, behavior };
+  if (typeof container.scrollTo === 'function') container.scrollTo(options);
+  else if (isX) container.scrollLeft = next;
+  else container.scrollTop = next;
+  return true;
+}
+function isWheelKeyboardScrollable(container, axis) {
+  const isX = axis === 'x';
+  const size = isX ? container.clientWidth : container.clientHeight;
+  const extent = isX ? container.scrollWidth : container.scrollHeight;
+  if (!(extent > size + 1)) return false;
+  // Zoomed section rows intentionally get a HORIZONTAL scrollport even if
+  // a browser normalises computed overflow. Их вертикальный overflow hidden
+  // — это клип, не самостоятельная прокрутка; по Y дальше ведём страницу.
+  if (container.classList?.contains('squares-viewport')) return isX;
+  const style = getComputedStyle(container);
+  const overflow = isX ? style.overflowX : style.overflowY;
+  return /(auto|scroll|overlay)/.test(overflow);
+}
+function getWheelKeyboardSafeViewport() {
+  const transport = document.querySelector('.transport-bar');
+  const transportRect = transport?.getBoundingClientRect();
+  const stickyTop = transport ? parseFloat(getComputedStyle(transport).top) || 0 : 0;
+  const transportIsCoveringTop = transportRect && transportRect.height > 0 && transportRect.top <= stickyTop + 1;
+  return {
+    top: transportIsCoveringTop ? transportRect.bottom + WHEEL_KEYBOARD_REVEAL_PAD : WHEEL_KEYBOARD_REVEAL_PAD,
+    right: WHEEL_KEYBOARD_REVEAL_PAD,
+    bottom: Math.max(WHEEL_KEYBOARD_REVEAL_PAD, window.innerHeight - WHEEL_KEYBOARD_REVEAL_PAD),
+    left: WHEEL_KEYBOARD_REVEAL_PAD,
+  };
+}
+function revealChordWheelOwnerForKeyboard(inp, key) {
+  const owner = wheelOwnerFor(inp);
+  if (!owner) return false;
+  const behavior = getWheelKeyboardScrollBehavior();
+  const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+  const positive = key === 'ArrowRight' || key === 'ArrowDown';
+  let moved = false;
+  // Вложенные скролл-контейнеры обрабатываем от ближайшего наружу. После
+  // него окно получает только ту часть смещения, которую секция не решает.
+  for (let container = owner.parentElement; container && container !== document.body; container = container.parentElement) {
+    const rect = owner.getBoundingClientRect();
+    const viewport = container.getBoundingClientRect();
+    const pad = WHEEL_KEYBOARD_REVEAL_PAD;
+    if (isWheelKeyboardScrollable(container, 'x')) {
+      const leftEdge = viewport.left + pad;
+      const rightEdge = viewport.right - pad;
+      let target = container.scrollLeft;
+      if (horizontal && key === 'ArrowRight' && rect.right > rightEdge) target += rect.right - rightEdge;
+      else if (horizontal && key === 'ArrowLeft' && rect.left < leftEdge) target -= leftEdge - rect.left;
+      else if (rect.left < leftEdge) target -= leftEdge - rect.left;
+      else if (rect.right > rightEdge) target += rect.right - rightEdge;
+      moved = scrollWheelKeyboardContainer(container, 'x', target, behavior) || moved;
+    }
+    if (isWheelKeyboardScrollable(container, 'y')) {
+      const topEdge = viewport.top + pad;
+      const bottomEdge = viewport.bottom - pad;
+      let target = container.scrollTop;
+      if (!horizontal && positive && rect.bottom > bottomEdge) target += rect.bottom - bottomEdge;
+      else if (!horizontal && !positive && rect.top < topEdge) target -= topEdge - rect.top;
+      else if (rect.top < topEdge) target -= topEdge - rect.top;
+      else if (rect.bottom > bottomEdge) target += rect.bottom - bottomEdge;
+      moved = scrollWheelKeyboardContainer(container, 'y', target, behavior) || moved;
+    }
+  }
+  const rect = owner.getBoundingClientRect();
+  const safe = getWheelKeyboardSafeViewport();
+  const pageY = window.scrollY || document.documentElement.scrollTop || 0;
+  const maxPageY = Math.max(0, (document.documentElement.scrollHeight || 0) - window.innerHeight);
+  let pageTarget = pageY;
+  if (!horizontal && positive && rect.bottom > safe.bottom) pageTarget += rect.bottom - safe.bottom;
+  else if (!horizontal && !positive && rect.top < safe.top) pageTarget -= safe.top - rect.top;
+  else if (rect.top < safe.top) pageTarget -= safe.top - rect.top;
+  else if (rect.bottom > safe.bottom) pageTarget += rect.bottom - safe.bottom;
+  pageTarget = clampWheelKeyboardScroll(pageTarget, maxPageY);
+  if (Math.abs(pageTarget - pageY) > 1) {
+    window.scrollTo({ top: pageTarget, behavior });
+    moved = true;
+  }
+  return moved;
+}
+function retargetChordWheel(inp, { suppressOwnerClick = false, revealDirection = null } = {}) {
   const modal = DOM.chordWheelModal;
   const container = wheelContainer();
   if (!inp || inp === activeChordInput || !modal?.classList.contains('open') || !container) return false;
@@ -31843,6 +31943,7 @@ function retargetChordWheel(inp, { suppressOwnerClick = false } = {}) {
   activeChordInput = inp;
   setChordCellSelected(inp, true);
   wheelOwnerFor(inp)?.classList.add('wheel-owner-active');
+  if (revealDirection) revealChordWheelOwnerForKeyboard(inp, revealDirection);
   const sec = sections.find((s) => s.id === +inp.dataset.sec);
   activeSectionKey = sec?.key || null;
   // Подписи и режим нового owner мягко перетекают вместе с движением, а
@@ -31905,7 +32006,7 @@ function navigateChordWheelByArrow(event) {
   ) return false;
   event.preventDefault();
   const next = getDirectionalChordWheelInput(event.key);
-  if (next) retargetChordWheel(next);
+  if (next) retargetChordWheel(next, { revealDirection: event.key });
   return true;
 }
 function cancelWheelCloseAnimation() {

@@ -134,7 +134,8 @@ w.addEventListener('load', () => {
       /gapCatcher\.setAttribute\('pointer-events', 'fill'\)/.test(wheelSource) &&
       !/classList\.add\('wheel-boundary'\)/.test(wheelSource));
     ok('переезд круга использует отдельный FLIP-retarget, не opening/closing',
-      /function retargetChordWheel\(inp, \{ suppressOwnerClick = false \} = \{\}\)/.test(wheelSource) &&
+      /function retargetChordWheel\(inp, \{ suppressOwnerClick = false, revealDirection = null \} = \{\}\)/.test(wheelSource) &&
+      /function revealChordWheelOwnerForKeyboard\(inp, key\)/.test(wheelSource) &&
       /transform \${WHEEL_RETARGET_MS}ms/.test(wheelSource));
     ok('major-дуга оставляет безопасные поля для длинных accidental-подписей',
       /const WHEEL_MAJOR_LABEL_MAX_WIDTH = 72;/.test(wheelSource) &&
@@ -357,14 +358,35 @@ w.addEventListener('load', () => {
       d.querySelector('#circleSvg .wheel-sector.is-wheel-selected')?.dataset.wheelRing === 'major');
     w.eval('closeChordWheel()');
 
-    console.log('\n=== 10.6. Стрелки переезжают между ячейками ===');
+    console.log('\n=== 10.6. Стрелки переезжают между ячейками и показывают owner ===');
+    const targetViewport = targetOwner.closest('.squares-viewport');
+    const localScrolls = [];
+    const pageScrolls = [];
+    const nativePageScrollTo = w.scrollTo;
+    const nativeViewportRect = targetViewport?.getBoundingClientRect;
+    if (targetViewport) {
+      Object.defineProperties(targetViewport, {
+        clientWidth: { value: 400, configurable: true },
+        scrollWidth: { value: 1000, configurable: true },
+      });
+      targetViewport.scrollLeft = 100;
+      targetViewport.getBoundingClientRect = () => ({ left: 160, top: 430, right: 600, bottom: 780, width: 440, height: 350 });
+      targetViewport.scrollTo = (options) => { localScrolls.push(options); targetViewport.scrollLeft = options.left; };
+    }
+    Object.defineProperty(d.documentElement, 'scrollHeight', { value: 3000, configurable: true });
+    w.scrollTo = (options) => pageScrolls.push(options);
     w.eval('openChordWheel(document.querySelector(".chord-input"));');
     const arrowRight = new w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true, cancelable: true });
     d.dispatchEvent(arrowRight);
-    ok('ArrowRight не скроллит страницу при открытом круге', arrowRight.defaultPrevented);
+    ok('ArrowRight подавляет штатный scroll браузера при открытом круге', arrowRight.defaultPrevented);
     ok('ArrowRight ретаргетит круг к ближайшей ячейке справа',
       w.eval('activeChordInput') === targetInput && modal.classList.contains('open') && targetOwner.classList.contains('wheel-owner-active'));
+    ok('переезд стрелкой плавно прокручивает zoomed-секцию, затем страницу к owner',
+      localScrolls.some((call) => call.left > 100 && call.behavior === 'smooth') &&
+      pageScrolls.some((call) => call.top > 0 && call.behavior === 'smooth'));
     ok('переезд стрелкой не ставит click-guard ручного ввода', w.eval('wheelRetargetClickInput') === null);
+    w.scrollTo = nativePageScrollTo;
+    if (targetViewport) targetViewport.getBoundingClientRect = nativeViewportRect;
     w.eval('closeChordWheel()');
 
     console.log('\n=== 11. Reduced motion не создаёт transitional слоёв ===');
