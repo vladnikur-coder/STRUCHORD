@@ -130,6 +130,7 @@ w.addEventListener('load', () => {
       /--wheel-hover-origin-x/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
       /translate 0\.32s cubic-bezier\(0\.65, 0, 0\.35, 1\)/.test(wheelSource) &&
+      /scale 0\.26s cubic-bezier\(0\.22, 1\.5, 0\.36, 1\)/.test(wheelSource) &&
       /function applyWheelHoverClasses\(state\)/.test(wheelSource) &&
       /requestAnimationFrame\(apply\)/.test(wheelSource));
     ok('карточки получают лёгкий theme-aware объём без смены geometry',
