@@ -75,9 +75,14 @@ w.addEventListener('load', () => {
       d.querySelectorAll('#wheelModeRow2 .mode-tab').length === 3);
     const outer = d.querySelector('#wheelModeRow1 .mode-tab');
     const inner = d.querySelector('#wheelModeRow2 .mode-tab');
-    ok('ряды — две разные вложенные дуги',
-      outer?.style.getPropertyValue('--wheel-mode-radius') === '13.35rem' &&
-      inner?.style.getPropertyValue('--wheel-mode-radius') === '10.35rem');
+    ok('ряды — две разные внешние вложенные дуги',
+      outer?.style.getPropertyValue('--wheel-mode-radius') === '16.5rem' &&
+      inner?.style.getPropertyValue('--wheel-mode-radius') === '13.5rem');
+    ok('дуги собраны компактнее прежнего широкого разлёта',
+      outer?.style.getPropertyValue('--wheel-mode-angle') === '202deg' &&
+      d.querySelector('#wheelModeRow1 .mode-tab:last-child')?.style.getPropertyValue('--wheel-mode-angle') === '158deg');
+    ok('ближняя дуга не наезжает на SVG-кольцо',
+      Number.parseFloat(inner?.style.getPropertyValue('--wheel-mode-radius')) >= 13.5);
 
     console.log('\n=== 2. Открытие и центрирование «Вокруг» ===');
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');
@@ -145,6 +150,7 @@ w.addEventListener('load', () => {
     }`);
     ok('пустая ячейка открывает трезвучия', w.eval('wheelMode') === 'triads');
     ok('у пустой ячейки не подсвечен тип', d.querySelectorAll('.mode-tab.active').length === 0);
+    ok('у пустой ячейки нет бесполезной плашки', d.querySelector('.wheel-popover-toolbar').hidden);
     w.eval('closeChordWheel()');
 
     console.log('\n=== 7. Повторный клик ячейки — ручной ввод ===');
