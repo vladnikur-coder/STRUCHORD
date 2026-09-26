@@ -138,6 +138,7 @@ w.addEventListener('load', () => {
       /const WHEEL_HOVER_NEIGHBOR_DISTANCES = \[1\.6, 0\.8\]/.test(wheelSource) &&
       /WHEEL_HOVER_CROSS_RING_DISTANCES = \{ aligned: 1\.6, side: 0\.8 \}/.test(wheelSource) &&
       /const crossRing = ring === 'major' \? 'minor'/.test(wheelSource) &&
+      /includeSelected: true/.test(wheelSource) &&
       /is-wheel-neighbor-spread/.test(wheelSource) &&
       /node\.classList\.contains\('is-wheel-selected'\)/.test(wheelSource));
     ok('выбранный аккорд получает явный marker без сжатия gap',
@@ -276,6 +277,9 @@ w.addEventListener('load', () => {
       Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="0"]'))
         .every((node) => !node.classList.contains('is-wheel-neighbor-spread')));
     hoverSectors[1].dispatchEvent(new w.Event('pointerover', { bubbles: true }));
+    ok('selected marker заметно участвует в разъезде противоположного ряда',
+      selectedMajor?.classList.contains('is-wheel-neighbor-spread') &&
+      Math.abs(spreadLength(selectedMajor) - 1.6) < 0.02);
     ok('между секторами остаётся outgoing ghost имени', !!owner.querySelector('.wheel-preview-ghost'));
     ok('следующее preview-имя входит отдельно от ghost', !!owner.querySelector('.wheel-preview-incoming'));
     ok('второй hover также не меняет модель песни', w.eval('sections[0].squares[0].events[0].chord') === beforePreviewModel);
