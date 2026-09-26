@@ -130,6 +130,7 @@ w.addEventListener('load', () => {
       /Q\$\{outerEnd\.x\}/.test(wheelSource) &&
       /const WHEEL_CARD_OUTLINE = 1\.2;/.test(wheelSource) &&
       /setAttribute\('stroke', 'var\(--color-border-medium\)'\)/.test(wheelSource) &&
+      /setAttribute\('pointer-events', 'visibleFill'\)/.test(wheelSource) &&
       !/classList\.add\('wheel-boundary'\)/.test(wheelSource));
     ok('переезд круга использует отдельный FLIP-retarget, не opening/closing',
       /function retargetChordWheel\(inp, \{ suppressOwnerClick = false \} = \{\}\)/.test(wheelSource) &&
@@ -166,6 +167,9 @@ w.addEventListener('load', () => {
       d.querySelectorAll('#circleSvg .wheel-sector.is-wheel-selected').length === 1 &&
       d.querySelector('#circleSvg .wheel-sector.is-wheel-selected')?.dataset.wheelRing === 'major' &&
       d.querySelectorAll('#circleSvg .wheel-chord-label.is-wheel-selected').length === 1);
+    ok('межкарточные зазоры некликабельны: событие принимает только fill карточки',
+      Array.from(d.querySelectorAll('#circleSvg path.wheel-sector')).every((sector) =>
+        sector.getAttribute('pointer-events') === 'visibleFill'));
     ok('геометрия помечена вокруг', container.dataset.side === 'around');
     ok('центр SVG выровнен по центру ячейки',
       Math.abs((Number.parseFloat(container.style.left) + 192) - 510) < 1 &&
