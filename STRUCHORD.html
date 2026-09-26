@@ -5231,8 +5231,10 @@ html[data-theme='dark'] #circleSvg {
   /* SVG-карточка заранее вынесена в compositing layer на время открытого
      круга: соседний ряд ретаргетится без кадра перескока. */
   will-change: translate, scale;
-  transform-box: fill-box;
-  transform-origin: center;
+  /* Один origin в координатах viewBox получают поверхность, её overlay,
+     имя и степень — подпись остаётся на своём месте внутри карточки. */
+  transform-box: view-box;
+  transform-origin: var(--wheel-hover-origin-x, 50%) var(--wheel-hover-origin-y, 50%);
   scale: 1;
 }
 /* Три прозрачных stop поверх штатной заливки добавляют очень лёгкий
@@ -10941,7 +10943,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.460</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.461</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31566,11 +31568,17 @@ function activateWheelHover(nodes, chord, position) {
   applyWheelHoverClasses(wheelHoverState);
   previewWheelChord(chord);
 }
-function wireWheelSectorHover(nodes, chord, ring, index) {
+function wireWheelSectorHover(nodes, chord, ring, index, centerX, centerY) {
+  // Проценты viewBox, а не fill-box отдельного текста: при scale имя
+  // движется как часть одной сектор-карточки, не «плавает» внутри неё.
+  const originX = `${(centerX / 540) * 100}%`;
+  const originY = `${(centerY / 540) * 100}%`;
   nodes.filter(Boolean).forEach((node) => {
     node.classList.add('wheel-hoverable');
     node.dataset.wheelHoverRing = ring;
     node.dataset.wheelHoverIndex = String(index);
+    node.style.setProperty('--wheel-hover-origin-x', originX);
+    node.style.setProperty('--wheel-hover-origin-y', originY);
     node.addEventListener('pointerover', () => activateWheelHover(nodes.filter(Boolean), chord, { ring, index }));
   });
 }
@@ -31849,8 +31857,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
           innerHoverNodes.push(dt);
         }
       }
-      wireWheelSectorHover(outerHoverNodes, vm, 'major', i);
-      wireWheelSectorHover(innerHoverNodes, vmi, 'minor', i);
+      wireWheelSectorHover(outerHoverNodes, vm, 'major', i, mx, my);
+      wireWheelSectorHover(innerHoverNodes, vmi, 'minor', i, mix, miy);
     } else {
       const mid = start + sa / 2;
       const dc = getDisplayChord(cm, false),
@@ -31918,7 +31926,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         frag.appendChild(dt);
         singleHoverNodes.push(dt);
       }
-      wireWheelSectorHover(singleHoverNodes, cv, 'single', i);
+      wireWheelSectorHover(singleHoverNodes, cv, 'single', i, tx, ty);
     }
   }
   svg.appendChild(frag);

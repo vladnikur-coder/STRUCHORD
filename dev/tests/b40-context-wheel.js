@@ -126,7 +126,8 @@ w.addEventListener('load', () => {
     ok('hover растит аккорд из центра, а не уводит его радиально',
       !/--wheel-hover-x/.test(wheelSource) &&
       /#circleSvg \.wheel-hoverable\.is-wheel-hovered[\s\S]*?translate: 0 0;[\s\S]*?scale: 1\.03;/.test(wheelSource) &&
-      /transform-box: fill-box;/.test(wheelSource) &&
+      /transform-box: view-box;/.test(wheelSource) &&
+      /--wheel-hover-origin-x/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
       /translate 0\.32s cubic-bezier\(0\.65, 0, 0\.35, 1\)/.test(wheelSource) &&
       /function applyWheelHoverClasses\(state\)/.test(wheelSource) &&
@@ -255,6 +256,10 @@ w.addEventListener('load', () => {
     hoverSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
     ok('hover включает временный preview в owner-ячейке', owner.classList.contains('wheel-preview'));
     ok('hover не меняет модель песни', w.eval('sections[0].squares[0].events[0].chord') === beforePreviewModel);
+    const hoveredChordLabel = d.querySelector('#circleSvg .wheel-chord-label.is-wheel-hovered');
+    ok('имя сохраняет координаты своей сектор-карточки при её увеличении',
+      hoveredChordLabel?.style.getPropertyValue('--wheel-hover-origin-x') === hoverSector.style.getPropertyValue('--wheel-hover-origin-x') &&
+      hoveredChordLabel?.style.getPropertyValue('--wheel-hover-origin-y') === hoverSector.style.getPropertyValue('--wheel-hover-origin-y'));
     const majorNear = Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="1"]'));
     const majorFar = Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="2"]'));
     const minorAligned = Array.from(d.querySelectorAll('[data-wheel-hover-ring="minor"][data-wheel-hover-index="0"]'));
