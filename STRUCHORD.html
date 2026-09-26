@@ -5225,12 +5225,15 @@ html[data-theme='dark'] #circleSvg {
 #circleSvg .wheel-degree-label {
   /* Gentle-вариант: 320 мс и нулевая скорость в начале/конце убирают
      рывок на входе, смене карточки и обратной сборке. */
-  transition: translate 0.32s cubic-bezier(0.65, 0, 0.35, 1), filter 0.22s ease-in-out, opacity 0.22s ease-in-out;
+  transition: translate 0.32s cubic-bezier(0.65, 0, 0.35, 1), scale 0.32s cubic-bezier(0.65, 0, 0.35, 1), filter 0.22s ease-in-out, opacity 0.22s ease-in-out;
 }
 #circleSvg .wheel-hoverable {
   /* SVG-карточка заранее вынесена в compositing layer на время открытого
      круга: соседний ряд ретаргетится без кадра перескока. */
-  will-change: translate;
+  will-change: translate, scale;
+  transform-box: fill-box;
+  transform-origin: center;
+  scale: 1;
 }
 /* Три прозрачных stop поверх штатной заливки добавляют очень лёгкий
    material-light, не меняя форму, gap или контур карточки. */
@@ -5279,8 +5282,11 @@ html[data-theme='dark'] #circleSvg #wheel-card-volume-bottom {
   opacity: 0.965;
   filter: saturate(1.055) brightness(1.016) var(--wheel-card-depth-shadow);
 }
+/* Наведённая карточка остаётся на своём месте и слегка растёт из центра.
+   Разъезд остаётся только у окружающих карточек, поэтому читается логично. */
 #circleSvg .wheel-hoverable.is-wheel-hovered {
-  translate: var(--wheel-hover-x, 0px) var(--wheel-hover-y, 0px);
+  translate: 0 0;
+  scale: 1.03;
 }
 /* Две соседние пары расходятся по касательной: ближайшая заметнее,
    следующая вдвое тише. Иными кольцами это движение не управляет. */
@@ -10935,7 +10941,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.459</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.460</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31560,15 +31566,11 @@ function activateWheelHover(nodes, chord, position) {
   applyWheelHoverClasses(wheelHoverState);
   previewWheelChord(chord);
 }
-function wireWheelSectorHover(nodes, chord, mid, ring, index) {
-  const dx = `${Math.cos(mid) * 2}px`;
-  const dy = `${Math.sin(mid) * 2}px`;
+function wireWheelSectorHover(nodes, chord, ring, index) {
   nodes.filter(Boolean).forEach((node) => {
     node.classList.add('wheel-hoverable');
     node.dataset.wheelHoverRing = ring;
     node.dataset.wheelHoverIndex = String(index);
-    node.style.setProperty('--wheel-hover-x', dx);
-    node.style.setProperty('--wheel-hover-y', dy);
     node.addEventListener('pointerover', () => activateWheelHover(nodes.filter(Boolean), chord, { ring, index }));
   });
 }
@@ -31847,8 +31849,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
           innerHoverNodes.push(dt);
         }
       }
-      wireWheelSectorHover(outerHoverNodes, vm, mid, 'major', i);
-      wireWheelSectorHover(innerHoverNodes, vmi, mid, 'minor', i);
+      wireWheelSectorHover(outerHoverNodes, vm, 'major', i);
+      wireWheelSectorHover(innerHoverNodes, vmi, 'minor', i);
     } else {
       const mid = start + sa / 2;
       const dc = getDisplayChord(cm, false),
@@ -31916,7 +31918,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         frag.appendChild(dt);
         singleHoverNodes.push(dt);
       }
-      wireWheelSectorHover(singleHoverNodes, cv, mid, 'single', i);
+      wireWheelSectorHover(singleHoverNodes, cv, 'single', i);
     }
   }
   svg.appendChild(frag);

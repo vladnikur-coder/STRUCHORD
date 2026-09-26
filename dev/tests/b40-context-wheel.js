@@ -123,8 +123,10 @@ w.addEventListener('load', () => {
       /wheel-surface-fade-out 0\.16s ease-in-out both/.test(wheelSource));
     ok('дуги качеств тихо уходят вместе с closing, без мгновенного исчезновения',
       /wheel-quality-out 0\.12s ease-in-out both/.test(wheelSource));
-    ok('hover — мягкий двухпиксельный отклик без резкого filter-скачка',
-      /Math\.cos\(mid\) \* 2/.test(wheelSource) &&
+    ok('hover растит аккорд из центра, а не уводит его радиально',
+      !/--wheel-hover-x/.test(wheelSource) &&
+      /#circleSvg \.wheel-hoverable\.is-wheel-hovered[\s\S]*?translate: 0 0;[\s\S]*?scale: 1\.03;/.test(wheelSource) &&
+      /transform-box: fill-box;/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
       /translate 0\.32s cubic-bezier\(0\.65, 0, 0\.35, 1\)/.test(wheelSource) &&
       /function applyWheelHoverClasses\(state\)/.test(wheelSource) &&
