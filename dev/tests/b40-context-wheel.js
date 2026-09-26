@@ -131,7 +131,8 @@ w.addEventListener('load', () => {
       /requestAnimationFrame\(apply\)/.test(wheelSource));
     ok('карточки получают лёгкий theme-aware объём без смены geometry',
       /wheel-card-volume-overlay/.test(wheelSource) &&
-      /wheel-card-depth-shadow/.test(wheelSource) &&
+      /rgba\(20, 30, 45, 0\.07\)/.test(wheelSource) &&
+      /stop-opacity: 0\.09;/.test(wheelSource) &&
       /addWheelCardVolume =/.test(wheelSource) &&
       /pointer-events: none;/.test(wheelSource));
     ok('hover раздвигает соседние пары в своём и соседнем ряду',
