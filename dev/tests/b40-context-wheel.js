@@ -127,6 +127,11 @@ w.addEventListener('load', () => {
       /Math\.cos\(mid\) \* 2/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
       /translate 0\.2s cubic-bezier\(0\.22, 0\.61, 0\.36, 1\)/.test(wheelSource));
+    ok('выбранный аккорд получает явную accent-поверхность и контур без сжатия gap',
+      /#circleSvg \.wheel-sector\.is-wheel-selected[\s\S]*?fill: color-mix\(in srgb, var\(--wheel-segment-fill-out\) 62%, var\(--color-accent\)\)/.test(wheelSource) &&
+      /stroke: var\(--color-accent\);/.test(wheelSource) &&
+      /stroke-width: 1\.25px;/.test(wheelSource) &&
+      /Контур использует штатные 1\.2 SVG-px/.test(wheelSource));
     ok('круг отслеживает layout-shift от hover-раскрытия секции',
       /function trackWheelAnchorDuringLayout\(duration = WHEEL_LAYOUT_TRACK_MS\)/.test(wheelSource) &&
       /document\.addEventListener\('transitionrun'/.test(wheelSource) &&
