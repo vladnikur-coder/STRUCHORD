@@ -10853,7 +10853,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.447</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.448</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31974,8 +31974,15 @@ function getDirectionalChordWheelInput(key) {
   const cy = rect.top + rect.height / 2;
   const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
   const positive = key === 'ArrowRight' || key === 'ArrowDown';
+  // При zoom каждая секция — собственный горизонтальный viewport. Для
+  // ←/→ сначала исчерпываем кандидатов именно в нём: ячейка нижней
+  // секции может геометрически оказаться «ближе», но не является правым
+  // соседом, пока в текущем ряду ещё есть аккорды.
+  const currentViewport = current.closest('.squares-viewport');
   let best = null;
   let bestScore = Infinity;
+  let sameViewportBest = null;
+  let sameViewportBestScore = Infinity;
   document.querySelectorAll('.chord-input[readonly]').forEach((input) => {
     if (input === current || !input.isConnected) return;
     const owner = wheelOwnerFor(input);
@@ -31995,8 +32002,12 @@ function getDirectionalChordWheelInput(key) {
       best = input;
       bestScore = score;
     }
+    if (horizontal && currentViewport && owner.closest('.squares-viewport') === currentViewport && score < sameViewportBestScore) {
+      sameViewportBest = input;
+      sameViewportBestScore = score;
+    }
   });
-  return best;
+  return sameViewportBest || best;
 }
 function navigateChordWheelByArrow(event) {
   if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return false;

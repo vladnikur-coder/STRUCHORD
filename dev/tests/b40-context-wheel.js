@@ -382,7 +382,32 @@ w.addEventListener('load', () => {
       d.querySelector('#circleSvg .wheel-sector.is-wheel-selected')?.dataset.wheelRing === 'major');
     w.eval('closeChordWheel()');
 
-    console.log('\n=== 10.6. Стрелки переезжают между ячейками и показывают owner ===');
+    console.log('\n=== 10.6. Стрелки сохраняют ряд zoomed-секции и показывают owner ===');
+    w.eval('openChordWheel(document.querySelector(".chord-input"));');
+    const currentViewport = owner.closest('.squares-viewport');
+    const sameViewportOwner = d.createElement('div');
+    sameViewportOwner.className = 'chord-wrapper';
+    const sameViewportInput = d.createElement('input');
+    sameViewportInput.className = 'chord-input';
+    sameViewportInput.readOnly = true;
+    sameViewportOwner.appendChild(sameViewportInput);
+    currentViewport.appendChild(sameViewportOwner);
+    const lowerViewport = d.createElement('div');
+    lowerViewport.className = 'squares-viewport';
+    const lowerOwner = d.createElement('div');
+    lowerOwner.className = 'chord-wrapper';
+    const lowerInput = d.createElement('input');
+    lowerInput.className = 'chord-input';
+    lowerInput.readOnly = true;
+    lowerOwner.appendChild(lowerInput);
+    lowerViewport.appendChild(lowerOwner);
+    d.body.appendChild(lowerViewport);
+    sameViewportOwner.getBoundingClientRect = () => ({ left: 660, top: 500, width: 120, height: 90, right: 780, bottom: 590 });
+    lowerOwner.getBoundingClientRect = () => ({ left: 540, top: 560, width: 120, height: 90, right: 660, bottom: 650 });
+    ok('ArrowRight предпочитает ячейку в текущей zoomed-секции нижней секции',
+      w.eval('getDirectionalChordWheelInput("ArrowRight")') === sameViewportInput);
+    sameViewportOwner.remove();
+    lowerViewport.remove();
     const targetViewport = targetOwner.closest('.squares-viewport');
     const localScrolls = [];
     const pageScrolls = [];
