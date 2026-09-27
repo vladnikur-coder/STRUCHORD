@@ -41,6 +41,10 @@ w.addEventListener('load', () => {
     }`);
   const wheelTexts = () =>
     Array.from(d.querySelectorAll('#circleSvg text')).map((t) => t.textContent).join(' ');
+  // Production B-40 рисует 24/12 логических сектор-карточек, их
+  // volume-слои и один отдельный gap-catcher. Считаем семантику, а не
+  // случайное число SVG <path> исторического круга 0.410.
+  const sectorCount = () => d.querySelectorAll('#circleSvg path.wheel-sector').length;
   const pathCount = () => d.querySelectorAll('#circleSvg path').length;
 
   w.eval("addSection('Verse'); render();");
@@ -65,16 +69,22 @@ w.addEventListener('load', () => {
   ok('aug: C -> Caug', disp('aug', 'C') === 'Caug');
   ok('sus2: D -> Dsus2', disp('sus2', 'D') === 'Dsus2');
   ok('6: Am -> Am6', disp('6', 'Am', true) === 'Am6');
-  // Кольца: triads/7/6/maj7 — два кольца (24 сегмента), sus/dim/aug — одно.
+  // Кольца: triads/7/6/maj7 — два (24 logical cards), sus/dim/aug — одно.
+  // У текущего B-40 pathCount включает 24 overlay + gap-catcher; source 0.410
+  // под Dev остаётся отдельным вариантом и не меняет production contract.
   w.eval("setWheelMode('triads')");
-  ok('triads — два кольца', pathCount() === 24, pathCount() + '');
+  ok('triads — два кольца', sectorCount() === 24 && pathCount() === 49, `${sectorCount()} cards / ${pathCount()} paths`);
   w.eval("setWheelMode('maj7')");
-  ok('maj7 — два кольца', pathCount() === 24, pathCount() + '');
-  // На внутреннем кольце тесно — показываем компакт 'AmΔ'; клик всё
-  // равно вставляет каноническое 'Am(maj7)' (проверено в disp выше).
-  ok('на внутреннем кольце компактные mΔ', wheelTexts().includes('mΔ'));
+  ok('maj7 — два кольца', sectorCount() === 24 && pathCount() === 49, `${sectorCount()} cards / ${pathCount()} paths`);
+  // В jsdom mock-метрика намеренно плоская, поэтому проверяем именно
+  // production-fit с честной шириной символов, а не псевдоразмер <text>.
+  const nativeLabelWidth = w.getTextWidth;
+  w.getTextWidth = (text, size) => String(text).length * Number(size) * 0.6;
+  const innerMaj7Compact = w.eval("fitWheelChordLabel('Am(maj7)', 54, 24, 18, '600', '500')");
+  w.getTextWidth = nativeLabelWidth;
+  ok('на внутреннем кольце компактные mΔ', innerMaj7Compact === 'AmΔ', innerMaj7Compact);
   w.eval("setWheelMode('sus4')");
-  ok('sus4 — одно кольцо', pathCount() === 12, pathCount() + '');
+  ok('sus4 — одно кольцо', sectorCount() === 12 && pathCount() === 25, `${sectorCount()} cards / ${pathCount()} paths`);
 
   console.log('\n=== 3. Ручной ввод Cadd9: кнопка add9 встаёт первой ===');
   type('Cadd9');
@@ -98,7 +108,7 @@ w.addEventListener('load', () => {
   ok('минорный сегмент — Amadd9', w.eval("getDisplayChord('Am', true)") === 'Amadd9',
      w.eval("getDisplayChord('Am', true)"));
   ok('на колесе виден add9', wheelTexts().includes('add9'));
-  ok('два кольца (окраска, не лад)', pathCount() === 24, pathCount() + '');
+  ok('два кольца (окраска, не лад)', sectorCount() === 24 && pathCount() === 49, `${sectorCount()} cards / ${pathCount()} paths`);
   ok('повторный клик снимает в triads',
      (btn1.dispatchEvent(new w.MouseEvent('click', { bubbles: true })), w.eval('wheelMode') === 'triads'),
      w.eval('wheelMode'));
@@ -113,7 +123,7 @@ w.addEventListener('load', () => {
      w.eval("getDisplayChord('C', false)"));
   ok('минорный сегмент — Am9 (минор приходит с внутреннего кольца)',
      w.eval("getDisplayChord('Am', true)") === 'Am9', w.eval("getDisplayChord('Am', true)"));
-  ok('два кольца', pathCount() === 24, pathCount() + '');
+  ok('два кольца', sectorCount() === 24 && pathCount() === 49, `${sectorCount()} cards / ${pathCount()} paths`);
 
   console.log('\n=== 6а. Склейка в уже живущие кнопки: m7/m(maj7)/mΔ/mmaj7 новых не создают ===');
   const before6a = row1() + ' / ' + row2();
@@ -130,7 +140,7 @@ w.addEventListener('load', () => {
   console.log('      ряд 1:', row1(), '| ряд 2:', row2());
   ok('7sus4 первой кнопкой', row1().split(' ')[0] === '7sus4', row1());
   w.eval("setWheelMode('7sus4')");
-  ok('одно кольцо', pathCount() === 12, pathCount() + '');
+  ok('одно кольцо', sectorCount() === 12 && pathCount() === 25, `${sectorCount()} cards / ${pathCount()} paths`);
   ok('сегмент Bm-кольца строит B7sus4, а не Bm7sus4',
      w.eval("getDisplayChord('Bm', true)") === 'B7sus4', w.eval("getDisplayChord('Bm', true)"));
 
@@ -139,7 +149,7 @@ w.addEventListener('load', () => {
   console.log('      ряд 1:', row1(), '| ряд 2:', row2());
   ok('кнопка «5» первой', row1().split(' ')[0] === '5', row1());
   w.eval("setWheelMode('5')");
-  ok('одно кольцо', pathCount() === 12, pathCount() + '');
+  ok('одно кольцо', sectorCount() === 12 && pathCount() === 25, `${sectorCount()} cards / ${pathCount()} paths`);
   ok('мажорный сегмент — C5', w.eval("getDisplayChord('C', false)") === 'C5');
   ok('минорный сегмент тоже A5, а не «Am5»',
      w.eval("getDisplayChord('Am', true)") === 'A5', w.eval("getDisplayChord('Am', true)"));
@@ -172,12 +182,17 @@ w.addEventListener('load', () => {
   ok('очередь: 9 7 6/9 13 / aug 11 5',
      row1() === '9 7 6/9 13' && row2() === 'aug 11 5', row1() + ' / ' + row2());
 
-  console.log('\n=== 11. Открытие колеса: режим сброшен в трезвучия, очередь кнопок цела ===');
+  console.log('\n=== 11. Открытие колеса: качество текущей ячейки активно, очередь цела ===');
   const listBefore = row1() + ' / ' + row2();
+  // Последний вручную введённый аккорд на этом этапе — Eb9. B-40 открывает
+  // круг в его качестве, а не слепо в трезвучиях; список самой очереди
+  // при этом не перетасовывается.
   w.eval("activeChordInput = document.querySelector('.chord-input'); openChordWheel(activeChordInput);");
-  ok('режим — triads', w.eval('wheelMode') === 'triads', w.eval('wheelMode'));
+  ok('режим — 9 из текущей ячейки', w.eval('wheelMode') === '9', w.eval('wheelMode'));
   ok('очередь сохранилась', row1() + ' / ' + row2() === listBefore, row1() + ' / ' + row2());
-  ok('ни одна кнопка не подсвечена', d.querySelectorAll('.mode-tab.active').length === 0);
+  ok('подсвечена ровно кнопка 9',
+     d.querySelectorAll('.mode-tab.active').length === 1 &&
+     d.querySelector('.mode-tab.active')?.dataset.wheelMode === '9');
   w.eval('closeChordWheel()');
 
   console.log('\n=== 12. Собранное с колеса имя полноценно работает дальше ===');
@@ -236,7 +251,7 @@ w.addEventListener('load', () => {
   // Аккорды по порядку появления: Aadd9, F#madd9, Dsus2, D5, Esus2, E5 —
   // расширения add9, add9 (F#madd9 склеился), sus2 (в умолчаниях), 5.
   const every = JSON.parse(
-    fs.readFileSync('/home/user/uploads/Every breath you take.struchord-2.json', 'utf8'));
+    fs.readFileSync(__dirname + '/../../uploads/Police - Every breath you take.struchord-2.json', 'utf8'));
   loadObj(every);
   console.log('      ряд 1:', row1(), '| ряд 2:', row2());
   ok('«5» и склеенный add9 впереди; отдельной кнопки madd9 нет',
@@ -282,10 +297,14 @@ w.addEventListener('load', () => {
   }`);
   ok('в ячейке сохраняется каноничный Cadd9', inpVal === 'Cadd9', inpVal);
   ok('сквозное: набранная C(9) учит кнопку add9', row1().split(' ')[0] === 'add9', row1());
-  // Внутреннее кольцо в add9-режиме: компакт m(9); полное имя не влезало.
-  w.eval("setWheelMode('add9')");
-  ok('на внутреннем кольце компактные m(9)',
-     wheelTexts().includes('m(9)'), wheelTexts().slice(0, 100));
+  // В jsdom canvas отдаёт одинаковую ширину любой строке. Проверяем
+  // production-fit с реалистичной пропорциональной метрикой: полное имя
+  // не входит в 58 SVG-px внутренней дуги, а знакомый compact входит.
+  const nativeAdd9LabelWidth = w.getTextWidth;
+  w.getTextWidth = (text, size) => String(text).length * Number(size) * 0.55;
+  const innerAdd9Compact = w.eval("fitWheelChordLabel('Amadd9', 58, 24, 18, '600', '500')");
+  w.getTextWidth = nativeAdd9LabelWidth;
+  ok('на внутреннем кольце компактные m(9)', innerAdd9Compact === 'Am(9)', innerAdd9Compact);
   ok('значение остаётся каноничным: минорный сегмент = Amadd9',
      w.eval("getDisplayChord('Am', true)") === 'Amadd9');
   w.eval("setWheelMode('triads')");
