@@ -144,7 +144,7 @@ w.addEventListener('load', () => {
     ok('production объединяет четыре cursor-эффекта и не оставляет dev-переключателей',
       /translate: var\(--wheel-cursor-x, 0px\)/.test(wheelSource) &&
       /rotate: var\(--wheel-cursor-rotate, 0deg\)/.test(wheelSource) &&
-      /nx \* 3\.3/.test(wheelSource) &&
+      /nx \* 0\.8/.test(wheelSource) &&
       /nx \* 1\.875/.test(wheelSource) &&
       /nx \* 0\.825/.test(wheelSource) &&
       /1\.03 \+ energy \* 0\.018/.test(wheelSource) &&
@@ -291,8 +291,8 @@ w.addEventListener('load', () => {
       Math.abs(spreadLength(minorSide[0]) - 1.6) < 0.02);
     const baselineNeighborSpread = spreadLength(majorNear[0]);
     hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 50 }));
-    ok('cursor тактильно объединяет рост, магнит, наклон и свет сектор-карточки',
-      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-x')) > 1.5 &&
+    ok('cursor тактильно объединяет рост, micro-magnet, наклон и свет сектор-карточки',
+      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-x')) > 0.45 &&
       Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-scale')) > 1.03 &&
       Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-rotate')) > 0.4 &&
       Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-light-x')) > 1);
