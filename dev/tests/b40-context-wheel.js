@@ -129,9 +129,9 @@ w.addEventListener('load', () => {
       /transform-box: view-box;/.test(wheelSource) &&
       /--wheel-hover-origin-x/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
-      /translate 0\.32s cubic-bezier\(0\.32, 0, 0\.45, 1\)/.test(wheelSource) &&
-      /scale 0\.32s cubic-bezier\(0\.32, 0, 0\.45, 1\)/.test(wheelSource) &&
-      /rotate 0\.32s cubic-bezier\(0\.32, 0, 0\.45, 1\)/.test(wheelSource) &&
+      /translate 0\.24s cubic-bezier\(0\.2, 0\.65, 0\.3, 1\)/.test(wheelSource) &&
+      /scale 0\.24s cubic-bezier\(0\.2, 0\.65, 0\.3, 1\)/.test(wheelSource) &&
+      /rotate 0\.24s cubic-bezier\(0\.2, 0\.65, 0\.3, 1\)/.test(wheelSource) &&
       !/cubic-bezier\(0\.32, 1\.5, 0\.45, 1\)/.test(wheelSource) &&
       /function applyWheelHoverClasses\(state\)/.test(wheelSource) &&
       /requestAnimationFrame\(apply\)/.test(wheelSource));
