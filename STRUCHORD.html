@@ -59,6 +59,11 @@
               document.documentElement.style.setProperty('--ui-scale', (p / 100).toString());
             }
           }
+          // Настройка B-40 ставится до первой отрисовки, чтобы сохранённое
+          // «без анимаций» не успевало показать один motion-кадр круга.
+          if (localStorage.getItem('struchord-wheel-motion') === '0') {
+            document.documentElement.classList.add('wheel-motion-disabled');
+          }
         } catch (e) {
           /* localStorage недоступен (приватный режим и т.п.) — просто остаёмся на светлой теме */
         }
@@ -5066,80 +5071,623 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 .toast.show {
   opacity: 1;
 }
+/* B-40 — контекстный круг аккордов.
+   Это больше не модальная завеса: корневой слой пропускает события к
+   редактору, а живой поповер ловит их только на себе. Благодаря этому
+   активная ячейка остаётся видимой и по повторному клику переключается
+   в прямой ручной ввод. */
 .chord-wheel-modal {
+  /* Как тултип аппликатуры: документные координаты переживают browser/pinch
+     zoom, тогда как fixed в Safari привязывается к visual viewport. */
+  position: absolute;
+  inset: 0;
+  display: none;
+  z-index: 10001;
+  pointer-events: none;
+}
+.chord-wheel-modal.open,
+.chord-wheel-modal.closing {
+  display: block;
+}
+/* В closing слой остаётся только картинкой: последующий click сразу
+   идёт в редактор, а не в уходящий сектор или кнопку качества. */
+#chordWheelModal.closing .wheel-container,
+#chordWheelModal.closing .wheel-container * {
+  pointer-events: none !important;
+}
+.wheel-container {
+  /* left/top записываются в document-px от якорной ячейки. */
+  position: absolute;
+  z-index: 1;
+  /* B-40: принятый вариант — круг окружает настоящую ячейку, поэтому
+     нет общей прямоугольной карточки, заслоняющей редактор. */
+  width: 24rem;
+  max-width: calc(100vw - 1.5rem);
+  box-sizing: border-box;
+  padding: 0;
+  border: 0.0625rem solid transparent;
+  background: transparent;
+  box-shadow: none;
+  /* Вся прямоугольная обёртка лежит поверх редактора, но кликабельны
+     только её реальные потомки. Иначе прозрачный центр становился бы
+     стеклом над owner-ячейкой и ломал повторный клик в ручной ввод. */
+  pointer-events: none;
+  /* Появляется сам круг, а не вся техническая обёртка с кнопками:
+     так первый жест остаётся собранным, а качества приходят вторым шагом. */
+  opacity: 1;
+  transform: none;
+}
+/* B-40: два вложенных ряда качеств остаются частью круга: четыре
+   круглые кнопки идут по ближней нижней дуге, три — по дальней.
+   События получают только сами кнопки, не прозрачный координатный слой. */
+.mode-tabs {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  pointer-events: none;
+}
+.mode-row {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.mode-tab {
+  --wheel-mode-angle: 180deg;
+  --wheel-mode-radius: 12rem;
+  --wheel-mode-scale: 1;
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 2.75rem;
+  height: 2.75rem;
+  padding: 0;
+  border: 0.0625rem solid var(--color-border-medium);
+  border-radius: 50%;
+  background: var(--color-background-primary);
+  color: var(--color-text-secondary);
+  font-size: 0.8125rem;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  pointer-events: auto;
+  transform: translate(-50%, -50%) rotate(var(--wheel-mode-angle)) translateY(calc(-1 * var(--wheel-mode-radius))) rotate(calc(-1 * var(--wheel-mode-angle))) scale(var(--wheel-mode-scale));
+  transform-origin: center;
+  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.18s, border-color 0.18s, box-shadow 0.18s;
+}
+.mode-tab:hover {
+  --wheel-mode-scale: 1.06;
+  background: var(--color-background-secondary);
+  border-color: var(--color-text-secondary);
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
+}
+.mode-tab:active {
+  --wheel-mode-scale: 0.96;
+}
+.mode-tab.active {
+  --wheel-mode-scale: 1.05;
+  background: var(--color-tab-active-bg);
+  color: var(--color-accent);
+  border-color: var(--color-accent);
+  box-shadow: 0 0.1875rem 0.625rem rgba(0, 0, 0, 0.15);
+}
+.wheel-svg-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  overflow: visible;
+  /* Прозрачное поле SVG не перехватывает owner и соседние ячейки. */
+  pointer-events: none;
+}
+.wheel-svg-wrap svg {
+  display: block;
+  width: min(24rem, calc(100vw - 2rem));
+  height: auto;
+  aspect-ratio: 1;
+  overflow: visible;
+  /* Пустой центр SVG не должен быть стеклянной стеной над ячейкой:
+     события берут только нарисованные сектора и подписи. */
+  pointer-events: none;
+}
+.wheel-svg-wrap svg path,
+.wheel-svg-wrap svg text {
+  pointer-events: visiblePainted;
+}
+/* Контур не расширяет hit-area карточки. Прозрачный catcher лежит под
+   секторами, ловит только реальные промежутки и гасит их без click-through. */
+#circleSvg .wheel-sector {
+  pointer-events: visibleFill;
+}
+#circleSvg .wheel-gap-catcher {
+  pointer-events: fill;
+  cursor: default;
+}
+/* Степень — подпись сектора, не отдельная кнопка: клик сквозь неё
+   попадает в path и выбирает тот же корень. */
+#circleSvg .wheel-degree-label {
+  pointer-events: none;
+}
+/* B-40 visual pass: кольцо — не шкала с линиями, а ряд мягких
+   карточных сегментов. Светлый фон в тонких зазорах работает отрицательным
+   пространством; отдельная бумажная/физическая фактура здесь не нужна. */
+#circleSvg {
+  /* Пассивный объём карточек ещё вдвое тише: остаются только едва
+     читаемые верхний свет и опора; hover-каналы не меняются. */
+  --wheel-card-depth-shadow: drop-shadow(0 1.2px 1.6px rgba(20, 30, 45, 0.035));
+}
+html[data-theme='dark'] #circleSvg {
+  --wheel-card-depth-shadow: drop-shadow(0 1.2px 1.6px rgba(0, 0, 0, 0.085));
+}
+#circleSvg .wheel-sector,
+#circleSvg .wheel-sector-volume,
+#circleSvg .wheel-chord-label,
+#circleSvg .wheel-degree-label {
+  /* Непрерывную инерцию ведёт requestAnimationFrame; короткий quiet ease
+     лишь собирает вход/выход без overshoot и без рывка на пороге. */
+  transition: translate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), scale 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), rotate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), filter 0.16s ease-in-out, opacity 0.16s ease-in-out;
+}
+#circleSvg .wheel-hoverable {
+  /* SVG-карточка заранее вынесена в compositing layer на время открытого
+     круга: соседний ряд ретаргетится без кадра перескока. */
+  will-change: translate, scale, rotate;
+  /* Один origin в координатах viewBox получают поверхность, её overlay,
+     имя и степень — подпись остаётся на своём месте внутри карточки. */
+  transform-box: view-box;
+  transform-origin: var(--wheel-hover-origin-x, 50%) var(--wheel-hover-origin-y, 50%);
+  scale: 1;
+  /* В покое у каждой card свой тихий water-vector; все более сильные
+     hover/release channels ниже складываются с ним, а не перезаписывают. */
+  translate: var(--wheel-idle-x, 0px) var(--wheel-idle-y, 0px);
+}
+/* Active surface уже получает все transform channels из timestamped rAF.
+   Второй CSS transition добавлял ей ещё ~180ms chase на каждом sample.
+   Outgoing handoff-tail сохраняет CSS-route отдельно. */
+#circleSvg .wheel-hoverable.is-wheel-hovered:not(.is-wheel-handoff-out) {
+  transition: filter 0.16s ease-in-out, opacity 0.16s ease-in-out;
+}
+/* Три прозрачных stop поверх штатной заливки добавляют очень лёгкий
+   material-light, не меняя форму, gap или контур карточки. */
+#circleSvg .wheel-sector-volume {
+  fill: url(#wheel-card-volume-overlay);
+  pointer-events: none;
+}
+#circleSvg #wheel-card-volume-top {
+  stop-color: #fff;
+  stop-opacity: 0.045;
+}
+#circleSvg #wheel-card-volume-mid {
+  stop-color: #fff;
+  stop-opacity: 0.00625;
+}
+#circleSvg #wheel-card-volume-bottom {
+  stop-color: #172033;
+  stop-opacity: 0.03;
+}
+/* 0.488: выбранное очень деликатное усиление только пассивной
+   тёмной поверхности: +25% к световой кромке и нижней опоре. Светлая
+   тема, path/gap и все hover-каналы намеренно остаются без изменений. */
+html[data-theme='dark'] #circleSvg #wheel-card-volume-top {
+  stop-opacity: 0.041;
+}
+html[data-theme='dark'] #circleSvg #wheel-card-volume-bottom {
+  stop-opacity: 0.05;
+}
+/* 0.492: выбранный выраженный рельеф без новой кромки. У special
+   gradient явно заданы цвета stop: без них SVG defaults к чёрному и
+   теряет верхний свет на accent-поверхности. */
+html[data-theme='dark'] #circleSvg #wheel-card-volume-diatonic-top {
+  stop-color: #fff;
+  stop-opacity: 0.18;
+}
+html[data-theme='dark'] #circleSvg #wheel-card-volume-diatonic-mid {
+  stop-color: #fff;
+  stop-opacity: 0.03;
+}
+html[data-theme='dark'] #circleSvg #wheel-card-volume-diatonic-bottom {
+  stop-color: #090d15;
+  stop-opacity: 0.18;
+}
+html[data-theme='dark'] #circleSvg .wheel-sector-volume[data-wheel-diatonic='true'] {
+  fill: url(#wheel-card-volume-diatonic-overlay);
+}
+/* Минор не становится отдельной цветовой системой: это только более
+   тихий внутренний слой той же карточной поверхности. Диатоника, напротив,
+   получает немного больше цветовой плотности, чтобы считываться первой. */
+/* Вне лада поверхность спокойнее. Внутреннее минорное кольцо — та же
+   поверхность, лишь немного ближе к фону; оно не получает отдельный цвет. */
+#circleSvg .wheel-sector[data-wheel-diatonic='false'] {
+  fill: var(--wheel-segment-fill-out);
+  filter: saturate(0.94) brightness(1.01) var(--wheel-card-depth-shadow);
+}
+#circleSvg .wheel-sector[data-wheel-diatonic='true'] {
+  fill: color-mix(in srgb, var(--wheel-segment-fill-in) 91%, var(--color-accent));
+  filter: saturate(1.13) brightness(1.025) var(--wheel-card-depth-shadow);
+}
+#circleSvg .wheel-sector[data-wheel-ring='minor'][data-wheel-diatonic='false'] {
+  fill: color-mix(in srgb, var(--wheel-segment-fill-out) 88%, var(--color-background-primary));
+  opacity: 0.96;
+  filter: saturate(0.9) brightness(1.015) var(--wheel-card-depth-shadow);
+}
+#circleSvg .wheel-sector[data-wheel-ring='minor'][data-wheel-diatonic='true'] {
+  fill: color-mix(in srgb, var(--wheel-segment-fill-in) 94%, var(--color-accent));
+  opacity: 0.965;
+  filter: saturate(1.055) brightness(1.016) var(--wheel-card-depth-shadow);
+}
+/* Принятый объединённый ответ: сектор-карточка остаётся читаемой
+   системой с подписью, но пружинно растёт, чуть тянется к cursor, мягко
+   наклоняется и получает смещение поверхностного света. */
+#circleSvg .wheel-hoverable.is-wheel-hovered {
+  translate: calc(var(--wheel-idle-x, 0px) + var(--wheel-cursor-x, 0px)) calc(var(--wheel-idle-y, 0px) + var(--wheel-cursor-y, 0px));
+  /* Новая card начинает действительно neutral: rAF набирает scale вместе
+     с магнитом, наклоном и light, а не выдаёт готовый 3% grow на входе. */
+  scale: var(--wheel-cursor-scale, 1);
+  rotate: var(--wheel-cursor-rotate, 0deg);
+}
+#circleSvg .wheel-sector-volume.is-wheel-hovered {
+  translate: calc(var(--wheel-idle-x, 0px) + var(--wheel-cursor-light-x, 0px)) calc(var(--wheel-idle-y, 0px) + var(--wheel-cursor-light-y, 0px));
+}
+/* Короткий хвост предыдущей card: она отпускает все surface-каналы,
+   пока следующая спокойно набирает их от neutral. */
+#circleSvg .wheel-hoverable.is-wheel-hovered.is-wheel-handoff-out {
+  translate: var(--wheel-idle-x, 0px) var(--wheel-idle-y, 0px);
+  scale: 1;
+  rotate: 0deg;
+}
+#circleSvg .wheel-sector-volume.is-wheel-hovered.is-wheel-handoff-out {
+  translate: var(--wheel-idle-x, 0px) var(--wheel-idle-y, 0px);
+}
+/* На переходе внутри одного кольца следующая card могла ещё быть
+   раздвинутым соседом предыдущей. Это не cursor-vector: отдельный короткий
+   geometry-tail спокойно отпускает только прежний 1.6/0.8px gap, пока
+   surface новой card всё так же набирается из neutral. */
+#circleSvg .wheel-hoverable.is-wheel-neighbor-release {
+  translate: calc(var(--wheel-idle-x, 0px) + var(--wheel-neighbor-release-x, 0px)) calc(var(--wheel-idle-y, 0px) + var(--wheel-neighbor-release-y, 0px));
+}
+#circleSvg .wheel-hoverable.is-wheel-hovered.is-wheel-neighbor-release:not(.wheel-sector-volume) {
+  translate: calc(var(--wheel-idle-x, 0px) + var(--wheel-neighbor-release-x, 0px) + var(--wheel-cursor-x, 0px)) calc(var(--wheel-idle-y, 0px) + var(--wheel-neighbor-release-y, 0px) + var(--wheel-cursor-y, 0px));
+}
+#circleSvg .wheel-sector-volume.is-wheel-hovered.is-wheel-neighbor-release {
+  translate: calc(var(--wheel-idle-x, 0px) + var(--wheel-neighbor-release-x, 0px) + var(--wheel-cursor-light-x, 0px)) calc(var(--wheel-idle-y, 0px) + var(--wheel-neighbor-release-y, 0px) + var(--wheel-cursor-light-y, 0px));
+}
+/* При boundary node может быть соседом в обеих топологиях. release хранит
+   разность «уже видно → новая цель», поэтому сумма начинается ровно с
+   видимого положения и спокойно приходит к новой раскладке. */
+#circleSvg .wheel-hoverable.is-wheel-neighbor-spread.is-wheel-neighbor-release:not(.is-wheel-hovered) {
+  translate: calc(var(--wheel-idle-x, 0px) + var(--wheel-neighbor-release-x, 0px) + var(--wheel-neighbor-x, 0px)) calc(var(--wheel-idle-y, 0px) + var(--wheel-neighbor-release-y, 0px) + var(--wheel-neighbor-y, 0px));
+  transition: translate 0.14s cubic-bezier(0.2, 0.65, 0.3, 1), scale 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), rotate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), filter 0.16s ease-in-out, opacity 0.16s ease-in-out;
+}
+#circleSvg .wheel-hoverable.is-wheel-hovered.is-wheel-neighbor-spread.is-wheel-neighbor-release:not(.wheel-sector-volume) {
+  translate: calc(var(--wheel-idle-x, 0px) + var(--wheel-neighbor-release-x, 0px) + var(--wheel-neighbor-x, 0px) + var(--wheel-cursor-x, 0px)) calc(var(--wheel-idle-y, 0px) + var(--wheel-neighbor-release-y, 0px) + var(--wheel-neighbor-y, 0px) + var(--wheel-cursor-y, 0px));
+}
+#circleSvg .wheel-sector-volume.is-wheel-hovered.is-wheel-neighbor-spread.is-wheel-neighbor-release {
+  translate: calc(var(--wheel-idle-x, 0px) + var(--wheel-neighbor-release-x, 0px) + var(--wheel-neighbor-x, 0px) + var(--wheel-cursor-light-x, 0px)) calc(var(--wheel-idle-y, 0px) + var(--wheel-neighbor-release-y, 0px) + var(--wheel-neighbor-y, 0px) + var(--wheel-cursor-light-y, 0px));
+}
+/* Две соседние пары расходятся по касательной: ближайшая заметнее,
+   следующая вдвое тише. Cursor дополнительно даёт им общий инерционный
+   толчок, пропорциональный удалению от центра sector-карточки. */
+#circleSvg .wheel-hoverable.is-wheel-neighbor-spread {
+  translate: calc(var(--wheel-idle-x, 0px) + var(--wheel-neighbor-x, 0px)) calc(var(--wheel-idle-y, 0px) + var(--wheel-neighbor-y, 0px));
+}
+#circleSvg .wheel-sector.is-wheel-hovered {
+  opacity: 1;
+  filter: brightness(1.045) saturate(1.06) var(--wheel-card-depth-shadow);
+}
+/* Это не hover, а честное состояние уже записанного в owner аккорда.
+   Выбранная карточка должна читаться без наведения: accent-поверхность,
+   тот же по толщине accent-контур и подпись остаются после ухода курсора. */
+#circleSvg .wheel-sector.is-wheel-selected {
+  opacity: 1;
+  /* Контур использует штатные 1.2 SVG-px: marker не съедает card-gap. */
+  fill: color-mix(in srgb, var(--wheel-segment-fill-out) 62%, var(--color-accent));
+  stroke: var(--color-accent);
+  stroke-opacity: 1;
+  filter: brightness(1.13) saturate(1.42) drop-shadow(0 0 0.22rem rgba(var(--color-accent-rgb), 0.34)) var(--wheel-card-depth-shadow);
+}
+#circleSvg .wheel-sector[data-wheel-diatonic='true'].is-wheel-selected {
+  fill: color-mix(in srgb, var(--wheel-segment-fill-in) 60%, var(--color-accent));
+}
+#circleSvg .wheel-sector[data-wheel-ring='minor'].is-wheel-selected {
+  fill: color-mix(in srgb, var(--wheel-segment-fill-out) 58%, var(--color-accent));
+}
+#circleSvg .wheel-chord-label.is-wheel-selected text,
+#circleSvg .wheel-degree-label.is-wheel-selected {
+  fill: var(--color-accent);
+  paint-order: stroke fill;
+  stroke: var(--color-background-primary);
+  stroke-width: 1.25px;
+  stroke-linejoin: round;
+  filter: drop-shadow(0 0 0.16rem rgba(var(--color-accent-rgb), 0.42));
+}
+/* В светлой теме большая accent-заливка выглядела тяжёлой. Там marker
+   становится лёгким tint + тонкий контур; имя остаётся обычной подписью,
+   лишь получает акцентный цвет — отдельной маленькой карточки нет. */
+html:not([data-theme='dark']) #circleSvg .wheel-sector.is-wheel-selected {
+  fill: color-mix(in srgb, var(--wheel-segment-fill-out) 84%, var(--color-accent));
+  stroke: var(--color-accent);
+  stroke-opacity: 0.92;
+  filter: brightness(1.04) saturate(1.12) var(--wheel-card-depth-shadow);
+}
+html:not([data-theme='dark']) #circleSvg .wheel-sector[data-wheel-diatonic='true'].is-wheel-selected {
+  fill: color-mix(in srgb, var(--wheel-segment-fill-in) 82%, var(--color-accent));
+}
+html:not([data-theme='dark']) #circleSvg .wheel-sector[data-wheel-ring='minor'].is-wheel-selected {
+  fill: color-mix(in srgb, var(--wheel-segment-fill-out) 82%, var(--color-accent));
+}
+html:not([data-theme='dark']) #circleSvg .wheel-chord-label.is-wheel-selected text,
+html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
+  fill: var(--color-accent);
+  stroke: var(--color-background-primary);
+  stroke-width: 0.75px;
+  filter: none;
+}
+#circleSvg .wheel-label-exit-layer {
+  pointer-events: none;
+}
+/* is-cell-selected — нейтральное семантическое выделение ячейки.
+   Сейчас его используют круг и ручной ввод; B-33 сможет развить это
+   состояние, не подменяя его фокусом поля или визуальным классом круга. */
+.chord-wrapper.wheel-owner-active,
+.chord-wrapper.is-cell-selected {
+  z-index: 1;
+  box-shadow: inset 0 0 0 0.0625rem var(--color-accent), 0 0 1rem rgba(var(--color-accent-rgb), 0.24);
+  transition: box-shadow 0.16s ease, background 0.16s ease;
+}
+.chord-wrapper.wheel-preview .chord-display {
+  color: var(--color-accent);
+  transition: color 0.14s ease, opacity 0.14s ease;
+}
+/* Ghost — предыдущая подпись owner-ячейки. Он кладётся ровно на место
+   старого имени до пересборки отображения и позволяет следующему имени
+   войти без рывка и без записи preview в модель песни. */
+.chord-display-inner.wheel-preview-ghost {
+  position: absolute;
+  z-index: 1;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+  transform-origin: center;
+}
+/* B-40: geometry и opacity разведены в отдельные дорожки, но motion
+   намеренно почти не читается как эффект. Открытие и закрытие — одна
+   короткая симметричная микропауза: без подъёма и без
+   overshoot, только 1.5% спокойной смены масштаба вместе с прозрачностью. */
+@keyframes wheel-surface-in {
+  from { transform: scale(0.985); }
+  to { transform: scale(1); }
+}
+@keyframes wheel-surface-out {
+  from { transform: scale(1); }
+  to { transform: scale(0.985); }
+}
+@keyframes wheel-surface-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes wheel-surface-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+/* У кнопок transform — это их координаты на двух дугах. Анимация
+   намеренно меняет только opacity: transform в keyframes перезаписал бы
+   rotate/translate позиционирования и сложил все семь кнопок в центр. */
+@keyframes wheel-quality-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes wheel-quality-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes wheel-label-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes wheel-label-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes wheel-preview-name-in {
+  from { opacity: 0.18; }
+  to { opacity: 1; }
+}
+@keyframes wheel-preview-name-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes wheel-commit-name-pop {
+  0% { transform: scale(1); color: var(--color-text-primary); }
+  52% { transform: scale(1.075); color: var(--color-accent); }
+  100% { transform: scale(1); color: var(--color-text-primary); }
+}
+@media (prefers-reduced-motion: no-preference) {
+  /* Все сектора возникают одной собранной поверхностью — не волной по кругу. */
+  .chord-wheel-modal.open .wheel-svg-wrap {
+    animation: wheel-surface-in 0.16s ease-in-out both, wheel-surface-fade-in 0.16s ease-in-out both;
+  }
+  .chord-wheel-modal.closing .wheel-svg-wrap {
+    animation: wheel-surface-out 0.16s ease-in-out both, wheel-surface-fade-out 0.16s ease-in-out both;
+  }
+  /* Качества появляются вторым шагом, но всего на 40 мс позже и так же
+     тихо уходят: при closing не остаётся резкого исчезновения нижних дуг. */
+  .chord-wheel-modal.open .mode-tab {
+    animation: wheel-quality-in 0.12s ease-in-out 0.04s both;
+  }
+  .chord-wheel-modal.closing .mode-tab {
+    animation: wheel-quality-out 0.12s ease-in-out both;
+  }
+  #circleSvg .wheel-label-entering {
+    animation: wheel-label-in 0.18s ease both;
+  }
+  #circleSvg .wheel-label-exiting {
+    animation: wheel-label-out 0.18s ease both;
+  }
+  .chord-wrapper.wheel-preview .chord-display-inner.wheel-preview-incoming {
+    animation: wheel-preview-name-in 0.17s ease both;
+  }
+  .chord-wrapper.wheel-preview .chord-display-inner.wheel-preview-ghost {
+    animation: wheel-preview-name-out 0.17s ease both;
+  }
+  .chord-wrapper.wheel-commit-pop .chord-display-inner {
+    animation: wheel-commit-name-pop 0.16s cubic-bezier(0.2, 0.82, 0.25, 1) both;
+  }
+}
+/* «Анимации круга» — намеренно узкая user preference: выключает только
+   hover-response и idle-water. Opening/closing, смена качеств, подписи,
+   preview и переезд owner остаются обычными анимациями; системный
+   prefers-reduced-motion по-прежнему отключает их все. */
+html.wheel-motion-disabled #circleSvg .wheel-hoverable {
+  transition: none !important;
+}
+@media (prefers-reduced-motion: reduce) {
+  .wheel-container,
+  .wheel-svg-wrap,
+  .mode-tab,
+  #circleSvg .wheel-sector,
+  #circleSvg .wheel-sector-volume,
+  #circleSvg .wheel-chord-label,
+  #circleSvg .wheel-degree-label,
+  .chord-wrapper.wheel-owner-active,
+  .chord-wrapper.is-cell-selected,
+  .chord-wrapper.wheel-preview .chord-display,
+  .chord-display-inner.wheel-preview-ghost,
+  .chord-display-inner.wheel-preview-incoming {
+    animation: none !important;
+    transition: none !important;
+  }
+}
+
+/* Dev only — исторический B-40 из 0.410. В production эти правила
+   недостижимы: класс выдаёт лишь явный переключатель Dev-палитры и не
+   сохраняется между перезагрузками. */
+#chordWheelModal.is-dev-wheel-410 {
   position: fixed;
   inset: 0;
   display: none;
   align-items: center;
   justify-content: center;
   z-index: 10001;
+  pointer-events: auto;
 }
-.chord-wheel-modal.open {
-  display: flex;
-}
-.wheel-overlay {
+#chordWheelModal.is-dev-wheel-410.open { display: flex; }
+#chordWheelModal.is-dev-wheel-410 .wheel-overlay {
   position: absolute;
   inset: 0;
+  display: block;
   background: var(--color-overlay);
   backdrop-filter: blur(0.3125rem);
 }
-.wheel-container {
+#chordWheelModal.is-dev-wheel-410 .wheel-container {
   position: relative;
-  background: transparent;
   z-index: 2;
   width: 26.25rem;
   max-width: 92vw;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 1;
+  transform: none;
+  pointer-events: auto;
 }
-.mode-tabs {
+#chordWheelModal.is-dev-wheel-410 .wheel-svg-wrap {
+  position: relative;
+  display: flex;
+  justify-content: center;
+  overflow-x: auto;
+  overflow-y: visible;
+  margin: 0.5rem 0;
+  pointer-events: auto;
+}
+#chordWheelModal.is-dev-wheel-410 .wheel-svg-wrap svg {
+  display: block;
+  width: 33.75rem;
+  height: 28.75rem;
+  aspect-ratio: auto;
+  overflow: visible;
+  pointer-events: auto;
+}
+#chordWheelModal.is-dev-wheel-410 .wheel-svg-wrap svg path,
+#chordWheelModal.is-dev-wheel-410 .wheel-svg-wrap svg text { pointer-events: auto; }
+#chordWheelModal.is-dev-wheel-410 .mode-tabs {
+  position: static;
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 0.75rem;
   margin-top: 0.75rem;
+  pointer-events: auto;
 }
-.mode-row {
+#chordWheelModal.is-dev-wheel-410 .mode-row {
+  position: static;
   display: flex;
   justify-content: center;
   gap: 0.75rem;
+  pointer-events: auto;
 }
-.mode-tab {
+#chordWheelModal.is-dev-wheel-410 .mode-tab {
+  position: static;
   width: 3.5rem;
   height: 3.5rem;
-  border-radius: 80%;
+  padding: 0;
   border: 0.1875rem solid var(--color-border-medium);
+  border-radius: 80%;
   background: var(--color-background-primary);
   color: var(--color-text-secondary);
   font-size: 1rem;
   font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
+  transform: none;
+  box-shadow: none;
   transition: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1);
+  pointer-events: auto;
 }
-.mode-tab:hover {
+#chordWheelModal.is-dev-wheel-410 .mode-tab:hover {
   transform: scale(1.12);
   background: var(--color-background-secondary);
   border-color: var(--color-text-secondary);
   box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
 }
-.mode-tab:active {
-  transform: scale(0.96);
-}
-.mode-tab.active {
+#chordWheelModal.is-dev-wheel-410 .mode-tab:active { transform: scale(0.96); }
+#chordWheelModal.is-dev-wheel-410 .mode-tab.active {
+  transform: scale(1.06);
   background: var(--color-tab-active-bg);
   color: var(--color-accent);
   border-color: var(--color-accent);
   box-shadow: 0 0.25rem 0.875rem rgba(0, 0, 0, 0.18);
-  transform: scale(1.06);
 }
-.wheel-svg-wrap {
-  position: relative;
+#chordWheelModal.is-dev-wheel-410 .center-pencil-btn {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 4rem;
+  height: 4rem;
+  padding: 0;
+  border: 0.1875rem solid var(--color-border-medium);
+  border-radius: 80%;
+  background: var(--color-background-primary);
+  color: var(--color-text-secondary);
+  font-size: 2.125rem;
+  font-weight: 700;
   display: flex;
+  align-items: center;
   justify-content: center;
-  overflow-x: auto;
-  margin: 0.5rem 0;
+  cursor: pointer;
+  transform: translate(-50%, -61%);
+  transition: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1);
+  z-index: 10;
 }
+#chordWheelModal.is-dev-wheel-410 .center-pencil-btn:hover {
+  transform: translate(-50%, -61%) scale(1.12);
+  background: var(--color-background-secondary);
+  border-color: var(--color-text-secondary);
+  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
+}
+#chordWheelModal.is-dev-wheel-410 .center-pencil-btn:active { transform: translate(-50%, -61%) scale(0.96); }
+
 .theme-toggle-btn {
   background: var(--color-surface);
   border: 0.0625rem solid var(--color-border-medium);
@@ -6546,35 +7094,6 @@ body:not(.is-timeline) .fing-string.is-vibrating {
 .strum-step.pick .strum-pick-num.is-bass {
   color: var(--color-accent);
   font-weight: 800;
-}
-.center-pencil-btn {
-  position: absolute;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -61%);
-  width: 4rem;
-  height: 4rem;
-  border-radius: 80%;
-  border: 0.1875rem solid var(--color-border-medium);
-  background: var(--color-background-primary);
-  color: var(--color-text-secondary);
-  font-size: 2.125rem;
-  font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  transition: all 0.25s cubic-bezier(0.2, 0.9, 0.4, 1);
-  z-index: 10;
-}
-.center-pencil-btn:hover {
-  transform: translate(-50%, -61%) scale(1.12);
-  background: var(--color-background-secondary);
-  border-color: var(--color-text-secondary);
-  box-shadow: 0 0.25rem 0.75rem rgba(0, 0, 0, 0.1);
-}
-.center-pencil-btn:active {
-  transform: translate(-50%, -61%) scale(0.96);
 }
 .manual-input-fingering-btn {
   position: fixed;
@@ -10637,7 +11156,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.410</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.493</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -10677,6 +11196,10 @@ body.power-ui-waking .pinned-fingering-dock {
           <label class="tools-label"
             ><input type="checkbox" id="showDegrees" onchange="toggleDegreesOnWheel()" />
             Отображение ступеней</label
+          >
+          <label class="tools-label"
+            ><input type="checkbox" id="wheelAnimations" onchange="toggleWheelAnimations()" checked />
+            Анимации круга</label
           >
           <label class="tools-label"
             ><input type="checkbox" id="manualInputOnly" onchange="toggleManualInputMode()" />
@@ -11208,25 +11731,20 @@ body.power-ui-waking .pinned-fingering-dock {
 >
   <div class="fingering-content"></div>
 </div>
-    <div class="chord-wheel-modal" id="chordWheelModal" role="dialog" aria-modal="true" aria-label="Колесо аккордов">
-      <div class="wheel-overlay" onclick="closeChordWheel()"></div>
-      <div class="wheel-container">
+    <!-- B-40: не модальный круг вокруг выбранной ячейки. Корень не ловит
+         pointer-события: клик в пустоту закрывает слой, а повторный клик
+         в центр попадает в саму ячейку и включает ручной ввод. -->
+    <div class="chord-wheel-modal" id="chordWheelModal" aria-hidden="true">
+      <div class="wheel-container" role="dialog" aria-modal="false" aria-label="Круг аккордов">
         <div class="wheel-svg-wrap">
-          <svg id="circleSvg" style="width: 33.75rem; height: 28.75rem" viewBox="0 0 540 460"></svg>
-          <button class="center-pencil-btn" onclick="activateManualInput(activeChordInput)" aria-label="Ввести аккорд вручную">
-            <i class="ti ti-pencil"></i>
-          </button>
-        </div>
-        <div class="mode-tabs">
-          <!-- Кнопки расширений строит скрипт (renderWheelModeTabs).
-               Список живой: аккорд, введённый вручную с расширением,
-               которого здесь нет (например, add9), ставит его на первую
-               кнопку, сдвигая остальные — последняя вытесняется.
-               Загруженная песня наполняет очередь из своих аккордов:
-               её расширения впереди, хвост — штатные умолчания.
-               Число мест и расстановка прежние: четыре сверху, три снизу. -->
-          <div class="mode-row" id="wheelModeRow1"></div>
-          <div class="mode-row" id="wheelModeRow2"></div>
+          <svg id="circleSvg" viewBox="0 0 540 540" aria-label="Аккорды текущей тональности"></svg>
+          <!-- Живая очередь качеств: 4 круглые кнопки по ближней нижней
+               дуге и 3 по дальней. Редкий текущий тип закрепляется
+               временно, поэтому активное состояние всегда честное. -->
+          <div class="mode-tabs" aria-label="Качество аккорда">
+            <div class="mode-row" id="wheelModeRow1"></div>
+            <div class="mode-row" id="wheelModeRow2"></div>
+          </div>
         </div>
       </div>
     </div>
@@ -16469,6 +16987,26 @@ const tooltip = document.getElementById('fingering-tooltip');
 let lastTooltipWrapper = null;
 const preferredFingeringByChord = new Map();
 
+// Круг и живой текстовый ввод уже занимают owner-ячейку. Тултип грифа в
+// этот момент конкурировал бы и за видимость, и за pointer-фокус, поэтому
+// все маршруты показа спрашивают одно и то же состояние.
+function isFingeringTooltipSuppressed(wrapper) {
+  if (DOM?.chordWheelModal?.classList.contains('open')) return true;
+  const input = wrapper?.querySelector?.('.chord-input');
+  return !!(input && !input.hasAttribute('readonly'));
+}
+function suppressFingeringTooltips() {
+  if (typeof hideFingeringTooltip === 'function') {
+    hideFingeringTooltip(false);
+    hideFingeringTooltip(true);
+  }
+  if (tooltipTimeout) {
+    clearTimeout(tooltipTimeout);
+    tooltipTimeout = null;
+  }
+  currentTooltipWrapper = null;
+}
+
 // Единый ключ "конкретное место в песне" для выбранной аппликатуры —
 // используется и тултипом, и аудио-движком, чтобы звук всегда совпадал
 // с тем, что показано на грифе для данного вхождения аккорда.
@@ -17075,6 +17613,10 @@ function isLastEventInSquare(secId, sqId, evIndex) {
 }
 
 function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLast = false) {
+  if (isFingeringTooltipSuppressed(wrapper)) {
+    hideFingeringTooltip(isPreview);
+    return;
+  }
   // В режиме ленты тултипы не показываем. Во-первых, аппликатура и так
   // нарисована прямо в ячейке — окно её дублировало бы. Во-вторых, оно
   // позиционируется от .chord-wrapper редактора, а тот скрыт: у скрытого
@@ -30443,7 +30985,83 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
 }
 
 // ========== КРУГ АККОРДОВ ==========
+// Dev-сравнение намеренно session-only: это не настройка пользователя и не
+// production-вариант. Переключатель возвращает реальный круг B-40 0.410,
+// а не стилизацию его отдельных признаков.
+const DEV_WHEEL_VARIANT_CURRENT = 'current';
+const DEV_WHEEL_VARIANT_410 = '410';
+let devWheelVariant = DEV_WHEEL_VARIANT_CURRENT;
+let modernWheelMarkup = null;
+function isDevWheel410() {
+  return devWheelVariant === DEV_WHEEL_VARIANT_410;
+}
+function legacyWheel410Markup() {
+  return `
+    <div class="wheel-overlay" aria-hidden="true"></div>
+    <div class="wheel-container" role="dialog" aria-modal="true" aria-label="Колесо аккордов">
+      <div class="wheel-svg-wrap">
+        <svg id="circleSvg" style="width: 33.75rem; height: 28.75rem" viewBox="0 0 540 460" aria-label="Аккорды текущей тональности"></svg>
+        <button class="center-pencil-btn" type="button" aria-label="Ввести аккорд вручную"><i class="ti ti-pencil"></i></button>
+      </div>
+      <div class="mode-tabs">
+        <div class="mode-row" id="wheelModeRow1"></div>
+        <div class="mode-row" id="wheelModeRow2"></div>
+      </div>
+    </div>`;
+}
+function bindLegacyWheel410Markup(modal) {
+  modal.querySelector('.wheel-overlay')?.addEventListener('click', closeChordWheel);
+  modal.querySelector('.center-pencil-btn')?.addEventListener('click', () => activateManualInput(activeChordInput));
+}
+function setDevWheelVariant(variant) {
+  if (![DEV_WHEEL_VARIANT_CURRENT, DEV_WHEEL_VARIANT_410].includes(variant)) return;
+  const modal = DOM.chordWheelModal;
+  if (!modal || variant === devWheelVariant) return;
+  // По согласованному сценарию переключение всегда закрывает круг: SVG,
+  // focus-trap, hover и motion двух поколений не могут смешаться в кадре.
+  if (modal.classList.contains('open') || modal.classList.contains('closing')) closeChordWheel();
+  cancelWheelCloseAnimation?.();
+  clearWheelHover?.();
+  if (!modernWheelMarkup) modernWheelMarkup = modal.innerHTML;
+  devWheelVariant = variant;
+  modal.classList.remove('open', 'closing', 'is-dev-wheel-410');
+  modal.setAttribute('aria-hidden', 'true');
+  modal.innerHTML = isDevWheel410() ? legacyWheel410Markup() : modernWheelMarkup;
+  if (isDevWheel410()) {
+    modal.classList.add('is-dev-wheel-410');
+    bindLegacyWheel410Markup(modal);
+  }
+  renderWheelModeTabs();
+  showToast(isDevWheel410() ? 'Dev: круг B-40 0.410. Откройте ячейку заново.' : 'Dev: текущий круг. Откройте ячейку заново.');
+}
+function renderWheelModeTabs410() {
+  const row1 = document.getElementById('wheelModeRow1');
+  const row2 = document.getElementById('wheelModeRow2');
+  if (!row1 || !row2) return;
+  row1.innerHTML = '';
+  row2.innerHTML = '';
+  wheelExtModes.forEach((m, i) => {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = 'mode-tab';
+    button.classList.toggle('active', wheelMode === m);
+    button.dataset.wheelMode = m;
+    button.textContent = m;
+    if (m.length === 4) button.style.fontSize = '0.8125rem';
+    else if (m.length >= 5) button.style.fontSize = '0.6875rem';
+    button.addEventListener('click', () => toggleWheelMode(m));
+    (i < 4 ? row1 : row2).appendChild(button);
+  });
+}
+function setWheelMode410(mode) {
+  wheelMode = mode;
+  document.querySelectorAll('#chordWheelModal .mode-tab').forEach((button) => {
+    button.classList.toggle('active', mode !== 'triads' && button.dataset.wheelMode === mode);
+  });
+  drawWheel410();
+}
 function toggleWheelMode(m) {
+  clearWheelHover();
   if (wheelMode === m) setWheelMode('triads');
   else setWheelMode(m);
 }
@@ -30451,26 +31069,54 @@ function toggleWheelMode(m) {
 // их целиком: кнопок всегда семь, порядок — очередь, где свежевведённое
 // расширение первое. id кнопкам больше не нужны: содержимое динамическое,
 // поэтому режим хранится в data-атрибуте, а не зашит в разметку.
+// Расширение текущей ячейки, которого нет среди семи живых типов.
+// Это только проекция при открытом круге: закрытие возвращает очередь к
+// песне, а реально выбранный новый аккорд учится обычным push-путём.
+let wheelPinnedExtension = null;
+
+function visibleWheelExtensions() {
+  if (!wheelPinnedExtension) return [...wheelExtModes];
+  return [wheelPinnedExtension, ...wheelExtModes.filter((m) => m !== wheelPinnedExtension)]
+    .slice(0, WHEEL_EXT_SLOTS);
+}
+// Строит круглые кнопки живой очереди двумя нижними дугами 4 + 3.
+// Редкое закреплённое качество занимает первое место, остальная очередь
+// не меняет порядок до реального выбора нового аккорда.
 function renderWheelModeTabs() {
+  if (isDevWheel410()) return renderWheelModeTabs410();
   const row1 = document.getElementById('wheelModeRow1');
   const row2 = document.getElementById('wheelModeRow2');
   if (!row1 || !row2) return;
   row1.innerHTML = '';
   row2.innerHTML = '';
-  wheelExtModes.forEach((m, i) => {
+  const modes = visibleWheelExtensions();
+  modes.forEach((m, i) => {
     const b = document.createElement('button');
     b.type = 'button';
     b.className = 'mode-tab';
-    if (wheelMode === m) b.classList.add('active');
+    const active = wheelMode === m;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
     b.dataset.wheelMode = m;
+    // B-40: две короткие нижние дуги лежат ЦЕЛИКОМ вне кольца SVG.
+    // Ближняя к кругу несёт четыре типа, дальняя — три. Узкий разлёт
+    // повторяет компактность 0.410, но остаётся парой вложенных дуг,
+    // а не нижним доком.
+    const nearAngles = [202, 187.5, 172.5, 158];
+    const farAngles = [192, 180, 168];
+    const inNearArc = i < 4;
+    b.style.setProperty('--wheel-mode-angle', `${inNearArc ? nearAngles[i] : farAngles[i - 4]}deg`);
+    b.style.setProperty('--wheel-mode-radius', inNearArc ? '13.5rem' : '16.5rem');
     b.textContent = m;
-    // Круг 56px рассчитан под короткие ярлыки вроде «sus4». Ручные
-    // расширения длиннее (m7b5, add11) — ужимаем только шрифт: размеры
-    // кнопок и их расстановка остаются прежними.
-    if (m.length === 4) b.style.fontSize = '0.8125rem';
-    else if (m.length >= 5) b.style.fontSize = '0.6875rem';
-    b.addEventListener('click', () => toggleWheelMode(m));
-    // Первые четыре места — верхний ряд, остальные три — нижний.
+    b.title = active ? `Качество ${m}; нажмите, чтобы вернуться к трезвучиям` : `Выбрать качество ${m}`;
+    // Круг 44px рассчитан под короткие ярлыки вроде «sus4». Длинные
+    // пользовательские типы ужимаем только по шрифту, не по цели клика.
+    if (m.length === 4) b.style.fontSize = '0.6875rem';
+    else if (m.length >= 5) b.style.fontSize = '0.5625rem';
+    b.addEventListener('click', (event) => {
+      event.stopPropagation();
+      toggleWheelMode(m);
+    });
     (i < 4 ? row1 : row2).appendChild(b);
   });
 }
@@ -30535,6 +31181,7 @@ function learnWheelExtension(chord) {
 // прошлой песни) сбрасывается: кнопки всегда описывают открытую песню.
 // Перерисовка одна, в конце: аккордов в песне сотни, а кнопок семь.
 function seedWheelExtensionsFromSong() {
+  wheelPinnedExtension = null;
   wheelExtModes.length = 0;
   wheelExtModes.push(...WHEEL_EXT_DEFAULTS);
   sections.forEach((sec) =>
@@ -30543,12 +31190,33 @@ function seedWheelExtensionsFromSong() {
         pushWheelExtension(extractWheelExtension(ev.chord)))));
   renderWheelModeTabs();
 }
-function setWheelMode(m) {
+function prepareWheelModeForChord(chord) {
+  const extension = extractWheelExtension(chord);
+  wheelPinnedExtension = extension && !wheelExtModes.includes(extension) ? extension : null;
+  renderWheelModeTabs();
+  return extension || 'triads';
+}
+function clearPinnedWheelExtension({ render = true } = {}) {
+  if (!wheelPinnedExtension) return false;
+  wheelPinnedExtension = null;
+  if (render) renderWheelModeTabs();
+  return true;
+}
+function setWheelMode(m, { crossfade = true } = {}) {
+  if (isDevWheel410()) return setWheelMode410(m);
+  const previousMode = wheelMode;
   wheelMode = m;
   document.querySelectorAll('.mode-tab').forEach((b) => {
-    b.classList.toggle('active', m !== 'triads' && b.dataset.wheelMode === m);
+    const active = m !== 'triads' && b.dataset.wheelMode === m;
+    b.classList.toggle('active', active);
+    b.setAttribute('aria-pressed', String(active));
+    b.title = active ? `Качество ${m}; нажмите, чтобы вернуться к трезвучиям` : `Выбрать качество ${b.dataset.wheelMode}`;
   });
-  drawWheel();
+  // При выборе типа меняются именно имена будущих аккордов: плавно
+  // проявляем новые подписи, не анимируя саму очередь качеств.
+  drawWheel({
+    crossfadeLabels: crossfade && previousMode !== m && DOM.chordWheelModal?.classList.contains('open'),
+  });
 }
 // Два кольца (мажорное + минорное) рисуются не всем режимам, а только
 // там, где минорная форма аккорда отличается от мажорной на том же
@@ -30850,6 +31518,21 @@ function observeChordDisplays(root) {
 function getChordValue(rc, isMin) {
   return getDisplayChord(rc, isMin);
 }
+// Сравнение для marker-а выбранного сектора идёт по смыслу, а не по
+// конкретной подписи: C#maj7 и C#Δ, Ebadd9 и D#(9) должны указывать на
+// один и тот же сектор. Слэш-бас не рисуется отдельным сектором, поэтому
+// для этого marker-а используем основной аккорд до '/'.
+function wheelChordIdentity(chord) {
+  const expanded = normalizeChordCase(expandChordName(String(chord || '').trim()));
+  const main = expanded.split('/')[0];
+  const match = main.match(/^([A-G][#b]?)(.*)$/);
+  if (!match) return '';
+  const root = FLAT_TO_SHARP[match[1]] || match[1];
+  let suffix = match[2] || '';
+  if (suffix === 'maj') suffix = '';
+  if (suffix === 'mmaj7') suffix = 'm(maj7)';
+  return root + suffix;
+}
 function addPulse(x, y, r, svg) {
   const p = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
   p.setAttribute('cx', x);
@@ -30877,6 +31560,31 @@ function splitRootSuffix(ct) {
   const gm = ct.match(/^([A-G][#b]?)(.+)$/);
   if (gm && gm[2] !== 'm' && gm[2] !== 'maj') return { root: gm[1], suffix: gm[2] };
   return { root: ct, suffix: '' };
+}
+// Круг делит пространство на дуги, а не на прямоугольные ячейки, но
+// типографическое правило у него то же: сначала полное имя, затем знакомый
+// compact-вариант из ячеек, и только в самом тесном случае — корень + "...".
+// Полное chord-значение остаётся вне этой функции: это исключительно подпись.
+function getWheelChordLabelWidth(displayName, fsR, fsS, fwR = '700', fwS = '500') {
+  const { root, suffix } = splitRootSuffix(displayName);
+  return getTextWidth(root, fsR, fwR) + (suffix ? 2 + getTextWidth(suffix, fsS, fwS) : 0);
+}
+// У внешнего (major) кольца узкая сторона сектора — внутренняя дуга Rs.
+// Её хорда после зазоров около 88 SVG-px; резервируем по 8 px с каждой
+// стороны. Старый лимит 86 оставлял подписи D#add9/A#add9/G#add9 без
+// безопасного поля: в системных шрифтах они касались соседних секторов.
+// 72 заставляет такие длинные имена перейти в тот же compact, что в ячейке
+// (D#(9)), не меняя ни размер шрифта, ни геометрию круга.
+const WHEEL_MAJOR_LABEL_MAX_WIDTH = 72;
+function fitWheelChordLabel(fullName, maxWidth, fsR, fsS, fwR = '700', fwS = '500') {
+  if (getWheelChordLabelWidth(fullName, fsR, fsS, fwR, fwS) <= maxWidth) return fullName;
+  const compact = getCompactChordName(fullName);
+  if (getWheelChordLabelWidth(compact, fsR, fsS, fwR, fwS) <= maxWidth) return compact;
+  const root = fullName.match(/^([A-G][#b]?)/)?.[1] || '';
+  const ellipsized = root ? `${root}...` : '...';
+  // Нота всегда помещается на даже самой узкой внутренней дуге. Эта
+  // страховка нужна только для некорректного произвольного текста.
+  return getWheelChordLabelWidth(ellipsized, fsR, fsS, fwR, fwS) <= maxWidth ? ellipsized : root || '...';
 }
 function createChordGroup(
   x,
@@ -30918,9 +31626,1156 @@ function createChordGroup(
     st.textContent = suffix;
     g.appendChild(st);
   }
+  // Степень живёт внутри этой же SVG-группы: она разделяет с именем один
+  // transform/hover-owner, а не пытается синхронно догонять его как соседний
+  // независимый <text>.
+  g.dataset.wheelLabelCenterX = String(tw / 2);
   return g;
 }
-function drawWheel() {
+function appendWheelDegreeToChordGroup(group, degree, localY, selected) {
+  if (!group || !degree) return null;
+  const dt = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+  dt.classList.add('wheel-degree-label');
+  dt.setAttribute('x', group.dataset.wheelLabelCenterX || '0');
+  dt.setAttribute('y', String(localY));
+  dt.setAttribute('text-anchor', 'middle');
+  dt.setAttribute('dominant-baseline', 'middle');
+  dt.setAttribute('font-size', '18');
+  dt.setAttribute('font-weight', '600');
+  dt.setAttribute('fill', 'var(--wheel-degree-text)');
+  dt.textContent = degree;
+  dt.classList.toggle('is-wheel-selected', selected);
+  group.appendChild(dt);
+  return dt;
+}
+// Визуальный preview не меняет модель песни: временно подменяется
+// только отображение active input, а закрытие/уход курсора возвращают
+// сохранённое значение. Между именами остаётся короткий ghost старого
+// текста — поэтому движение по секторам читается как crossfade, а не как
+// серия DOM-скачков в owner-ячейке.
+let wheelHoverState = null;
+let wheelHoverMotionRaf = 0;
+let wheelCursorResponseState = null;
+let wheelCursorResponseRaf = 0;
+let wheelIdleMotionState = null;
+let wheelIdleMotionRaf = 0;
+// Выбранный slow water: отдельные фазы, 3.6s period, максимум vector 1.5px.
+const WHEEL_IDLE_WATER_PERIOD_MS = 3600;
+const WHEEL_IDLE_WATER_MAX_X = 1.2;
+const WHEEL_IDLE_WATER_MAX_Y = 0.9;
+// Между карточками water-vector не прыгает к независимой фазе новой card:
+// за короткий bridge он мягко приходит в её собственный deterministic rhythm.
+const WHEEL_IDLE_HANDOFF_MS = 180;
+const WHEEL_CURSOR_RESPONSE_TAU_MS = 64;
+const WHEEL_CURSOR_ENTRY_TAU_MS = 100;
+const WHEEL_CURSOR_ENTRY_FRAMES = 12;
+// Сначала спокойно открывается сама target-цель, затем обычный 100ms rAF
+// догоняет её. 340ms на четверть тише предыдущего первого импульса, но
+// сохраняет ненулевой отклик уже в первом rAF-кадре.
+const WHEEL_CURSOR_ENTRY_TARGET_MS = 340;
+const WHEEL_CURSOR_TAIL_MS = 140;
+// Дополнительный geometric repel соседей при полном cursor-magnet. Он
+// складывается с исходной 1.6/0.8/3.2px раскладкой, не меняя её базу.
+const WHEEL_NEIGHBOR_REPEL_MAX = 0.9;
+const WHEEL_NEIGHBOR_RELEASE_MS = 140;
+// Общий span viewBox: target cursor не зависит от прямоугольника очередной
+// wedge-card, поэтому не меняет знак/амплитуду на её границе.
+const WHEEL_CURSOR_GLOBAL_RANGE = 64;
+const wheelHoverTailTimers = new Map();
+const wheelNeighborReleaseTimers = new Map();
+const WHEEL_CURSOR_STYLE_PROPERTIES = ['--wheel-cursor-x', '--wheel-cursor-y', '--wheel-cursor-light-x', '--wheel-cursor-light-y', '--wheel-cursor-rotate', '--wheel-cursor-scale'];
+let wheelPreviewState = null;
+let wheelPreviewTransitionToken = 0;
+const WHEEL_PREVIEW_TRANSITION_MS = 175;
+const WHEEL_MOTION_STORAGE_KEY = 'struchord-wheel-motion';
+// По умолчанию motion включён. Ранний <head>-скрипт мог уже поставить класс
+// из сохранённой настройки, чтобы не было первого мелькающего motion-кадра.
+let wheelAnimationsEnabled = !document.documentElement.classList.contains('wheel-motion-disabled');
+// Системная accessibility preference относится ко всем переходам круга.
+function prefersReducedWheelMotion() {
+  return window.matchMedia?.('(prefers-reduced-motion: reduce)').matches === true;
+}
+// Пользовательская галочка относится только к живому hover/water слою.
+function allowsWheelHoverMotion() {
+  return wheelAnimationsEnabled && !prefersReducedWheelMotion();
+}
+function setWheelAnimationsEnabled(enabled, { persist = true, redraw = true } = {}) {
+  wheelAnimationsEnabled = enabled !== false;
+  document.documentElement.classList.toggle('wheel-motion-disabled', !wheelAnimationsEnabled);
+  const control = document.getElementById('wheelAnimations');
+  if (control) control.checked = wheelAnimationsEnabled;
+  if (persist) {
+    try {
+      localStorage.setItem(WHEEL_MOTION_STORAGE_KEY, wheelAnimationsEnabled ? '1' : '0');
+    } catch (error) {
+      // Private/offline storage may reject writes; the current tab still obeys it.
+    }
+  }
+  // Это пользовательское действие, не pointermove: безопасно пересобираем
+  // только SVG круга, чтобы мгновенно снять текущие rAF/CSS хвосты.
+  if (redraw && DOM.chordWheelModal?.classList.contains('open')) drawWheel();
+}
+function toggleWheelAnimations() {
+  const enabled = document.getElementById('wheelAnimations')?.checked !== false;
+  setWheelAnimationsEnabled(enabled);
+  showToast(enabled ? 'Анимации круга включены' : 'Анимации круга выключены');
+}
+function initWheelAnimations() {
+  let enabled = !document.documentElement.classList.contains('wheel-motion-disabled');
+  try {
+    enabled = localStorage.getItem(WHEEL_MOTION_STORAGE_KEY) !== '0';
+  } catch (error) {
+    // Default stays enabled if storage is unavailable.
+  }
+  setWheelAnimationsEnabled(enabled, { persist: false, redraw: false });
+}
+function stopWheelIdleMotion() {
+  if (wheelIdleMotionRaf) cancelAnimationFrame(wheelIdleMotionRaf);
+  wheelIdleMotionRaf = 0;
+  wheelIdleMotionState?.nodes?.forEach((node) => {
+    node.style.removeProperty('--wheel-idle-x');
+    node.style.removeProperty('--wheel-idle-y');
+  });
+  wheelIdleMotionState?.handoffs?.clear();
+  wheelIdleMotionState = null;
+}
+function getWheelIdleWaterTarget(node, timestamp, state = wheelIdleMotionState) {
+  if (!node || !state || !Number.isFinite(timestamp)) return { x: 0, y: 0 };
+  const phaseTime = ((timestamp - state.startedAt) % WHEEL_IDLE_WATER_PERIOD_MS) / WHEEL_IDLE_WATER_PERIOD_MS;
+  const ringOffset = node.dataset.wheelHoverRing === 'minor' ? 0.57 : 0;
+  const index = Number(node.dataset.wheelHoverIndex) || 0;
+  // Нелинейный deterministic offset deliberately scrambles adjacent cards:
+  // it avoids one readable wave running around the ring, while one 3.6s
+  // clock still lets the floating surface feel like shared water.
+  const phaseOffset = (index * index * 0.41 + index * 0.73 + ringOffset) % (Math.PI * 2);
+  const phase = phaseTime * Math.PI * 2 + phaseOffset;
+  return {
+    x: Math.sin(phase) * WHEEL_IDLE_WATER_MAX_X,
+    y: Math.sin(phase + 0.2) * WHEEL_IDLE_WATER_MAX_Y,
+  };
+}
+function readWheelIdleWaterVector(nodes) {
+  const node = nodes?.find?.((item) => item?.isConnected);
+  if (!node) return null;
+  const x = Number.parseFloat(node.style.getPropertyValue('--wheel-idle-x'));
+  const y = Number.parseFloat(node.style.getPropertyValue('--wheel-idle-y'));
+  if (Number.isFinite(x) && Number.isFinite(y)) return { x, y };
+  return getWheelIdleWaterTarget(node, performance.now());
+}
+function beginWheelIdleHandoff(previousNodes, incomingNodes) {
+  const state = wheelIdleMotionState;
+  if (!allowsWheelHoverMotion() || !state || !previousNodes?.length || !incomingNodes?.length) return;
+  // Только water-vector переносится через границу. Cursor/magnet/tilt/light
+  // новой card по-прежнему стартуют neutral в собственном rAF-маршруте.
+  const source = readWheelIdleWaterVector(previousNodes);
+  if (!source) return;
+  const startedAt = performance.now();
+  incomingNodes.forEach((node) => {
+    state.handoffs.set(node, { fromX: source.x, fromY: source.y, startedAt });
+    node.style.setProperty('--wheel-idle-x', `${source.x.toFixed(2)}px`);
+    node.style.setProperty('--wheel-idle-y', `${source.y.toFixed(2)}px`);
+  });
+}
+function writeWheelIdleWater(timestamp) {
+  wheelIdleMotionRaf = 0;
+  const state = wheelIdleMotionState;
+  if (!state) return;
+  // A live system or local hover-motion preference change must remove an
+  // already-written water vector, rather than parking the last frame.
+  if (!allowsWheelHoverMotion()) {
+    stopWheelIdleMotion();
+    return;
+  }
+  // jsdom synchronously invokes rAF without timestamp. Write one stable
+  // sample for tests, then do not create a synchronous self-recursion.
+  if (!Number.isFinite(timestamp)) {
+    state.nodes.forEach((node) => {
+      node.style.setProperty('--wheel-idle-x', '0px');
+      node.style.setProperty('--wheel-idle-y', '0px');
+    });
+    return;
+  }
+  state.nodes.forEach((node) => {
+    const target = getWheelIdleWaterTarget(node, timestamp, state);
+    const handoff = state.handoffs.get(node);
+    let x = target.x;
+    let y = target.y;
+    if (handoff) {
+      const phase = Math.max(0, Math.min(1, (timestamp - handoff.startedAt) / WHEEL_IDLE_HANDOFF_MS));
+      // Zero speed at both ends keeps the independent rhythms continuous
+      // without weakening the separate cursor response on the new card.
+      const gain = phase * phase * (3 - 2 * phase);
+      x = handoff.fromX + (target.x - handoff.fromX) * gain;
+      y = handoff.fromY + (target.y - handoff.fromY) * gain;
+      if (phase >= 1) state.handoffs.delete(node);
+    }
+    node.style.setProperty('--wheel-idle-x', `${x.toFixed(2)}px`);
+    node.style.setProperty('--wheel-idle-y', `${y.toFixed(2)}px`);
+  });
+  requestWheelIdleMotionFrame();
+}
+function requestWheelIdleMotionFrame() {
+  if (wheelIdleMotionRaf || !wheelIdleMotionState) return;
+  let ranSynchronously = false;
+  const handle = requestAnimationFrame((timestamp) => {
+    ranSynchronously = true;
+    writeWheelIdleWater(timestamp);
+  });
+  if (!ranSynchronously) wheelIdleMotionRaf = handle;
+}
+function startWheelIdleMotion(nodes) {
+  stopWheelIdleMotion();
+  if (!allowsWheelHoverMotion() || !nodes?.length) return;
+  wheelIdleMotionState = { nodes: [...nodes], startedAt: performance.now(), handoffs: new Map() };
+  requestWheelIdleMotionFrame();
+}
+function chordDisplayForInput(input) {
+  return input?.parentElement?.querySelector('.chord-display') || null;
+}
+function directChordDisplayInner(display) {
+  return Array.from(display?.children || []).find((node) => node.classList?.contains('chord-display-inner')) || null;
+}
+// Меняет только presentation input. Возвращает token текущего перехода:
+// он позволяет отменить старое снятие preview-класса, если пользователь
+// успел перейти на соседний сектор.
+function transitionWheelPreviewText(input, nextValue) {
+  const token = ++wheelPreviewTransitionToken;
+  if (!input?.isConnected || input.value === nextValue) return { token, animated: false };
+  const display = chordDisplayForInput(input);
+  const outgoing = directChordDisplayInner(display);
+  const canAnimate = !!(display && outgoing && !prefersReducedWheelMotion());
+  const outgoingRect = canAnimate ? outgoing.getBoundingClientRect() : null;
+  const displayRect = canAnimate ? display.getBoundingClientRect() : null;
+
+  // Быстрый переход на соседний сектор начинает одну новую пару, а не
+  // складывает цепочку полупрозрачных старых имён.
+  display?.querySelectorAll('.wheel-preview-ghost').forEach((node) => node.remove());
+  input.value = nextValue;
+  syncChordDisplay(input);
+  if (!canAnimate) return { token, animated: false };
+
+  const incoming = directChordDisplayInner(display);
+  if (!incoming) return { token, animated: false };
+  incoming.classList.add('wheel-preview-incoming');
+  const ghost = outgoing.cloneNode(true);
+  ghost.classList.remove('wheel-preview-incoming', 'wheel-preview-ghost');
+  ghost.classList.add('wheel-preview-ghost');
+  const x = outgoingRect.left - displayRect.left + outgoingRect.width / 2;
+  const y = outgoingRect.top - displayRect.top + outgoingRect.height / 2;
+  ghost.style.left = `${x}px`;
+  ghost.style.top = `${y}px`;
+  display.appendChild(ghost);
+  window.setTimeout(() => {
+    ghost.remove();
+    incoming.classList.remove('wheel-preview-incoming');
+  }, WHEEL_PREVIEW_TRANSITION_MS);
+  return { token, animated: true };
+}
+function clearWheelPreview() {
+  const state = wheelPreviewState;
+  if (!state) return;
+  wheelPreviewState = null;
+  const transition = transitionWheelPreviewText(state.input, state.value);
+  const finish = () => {
+    // Если за время обратного перехода уже начался новый hover, старый
+    // callback не имеет права погасить его акцентный цвет.
+    if (!wheelPreviewState && transition.token === wheelPreviewTransitionToken) {
+      state.owner?.classList.remove('wheel-preview');
+    }
+  };
+  if (transition.animated) window.setTimeout(finish, WHEEL_PREVIEW_TRANSITION_MS);
+  else finish();
+}
+// Для commit preview не возвращается в исходное имя: оно уже является
+// выбранным именем. Убираем только transient слои и оставляем текст на
+// месте, чтобы pop подтверждал результат, а не вторую подмену имени.
+function clearStaleWheelPreviewPresentation(input) {
+  const display = chordDisplayForInput(input);
+  display?.querySelectorAll('.wheel-preview-ghost').forEach((node) => node.remove());
+  directChordDisplayInner(display)?.classList.remove('wheel-preview-incoming');
+  wheelOwnerFor(input)?.classList.remove('wheel-preview');
+}
+function discardWheelPreview() {
+  const state = wheelPreviewState;
+  wheelPreviewState = null;
+  ++wheelPreviewTransitionToken;
+  clearStaleWheelPreviewPresentation(state?.input);
+}
+const WHEEL_HOVER_NEIGHBOR_DISTANCES = [1.6, 0.8];
+const WHEEL_HOVER_CROSS_RING_DISTANCES = {
+  // Одноимённая карточка второго ряда отступает зеркально: inner
+  // уходит внутрь ровно настолько же, насколько outer уходит наружу.
+  // Боковая пара сохраняет тот же пропорциональный рисунок 2:1.
+  majorToMinor: { aligned: 3.2, side: 1.6 },
+  minorToMajor: { aligned: 3.2, side: 1.6 },
+};
+const WHEEL_ROOT_COUNT = 12;
+// Радиусы совпадают с визуальными центрами major/minor-рядов в drawWheel.
+// Это нужно только для направления разъезда, а не для построения карточек.
+const WHEEL_HOVER_RING_RADII = { major: (245 + 172) / 2, minor: (172 + 103) / 2 };
+function getWheelHoverPoint(ring, index) {
+  const radius = WHEEL_HOVER_RING_RADII[ring];
+  const angle = -Math.PI / 2 + (index + 0.5) * ((2 * Math.PI) / WHEEL_ROOT_COUNT);
+  return { x: 270 + radius * Math.cos(angle), y: 270 + radius * Math.sin(angle) };
+}
+function cancelWheelHoverMotionFrame() {
+  if (!wheelHoverMotionRaf) return;
+  cancelAnimationFrame(wheelHoverMotionRaf);
+  wheelHoverMotionRaf = 0;
+}
+function cancelWheelCursorResponseFrame() {
+  if (wheelCursorResponseRaf) cancelAnimationFrame(wheelCursorResponseRaf);
+  wheelCursorResponseRaf = 0;
+  wheelCursorResponseState = null;
+}
+function restoreWheelNeighborBaseMotion(state) {
+  state?.neighborNodes?.forEach((node) => {
+    const x = node.style.getPropertyValue('--wheel-neighbor-base-x');
+    const y = node.style.getPropertyValue('--wheel-neighbor-base-y');
+    if (x) node.style.setProperty('--wheel-neighbor-x', x);
+    if (y) node.style.setProperty('--wheel-neighbor-y', y);
+  });
+}
+function clearWheelCursorNodeStyles(nodes) {
+  nodes?.forEach((node) => WHEEL_CURSOR_STYLE_PROPERTIES.forEach((property) => node.style.removeProperty(property)));
+}
+function finishWheelNeighborRelease(node, release) {
+  if (wheelNeighborReleaseTimers.get(node) !== release) return;
+  wheelNeighborReleaseTimers.delete(node);
+  node.classList.remove('is-wheel-neighbor-release');
+  node.style.removeProperty('--wheel-neighbor-release-x');
+  node.style.removeProperty('--wheel-neighbor-release-y');
+  if (!release.incoming) {
+    node.classList.remove('is-wheel-neighbor-spread');
+    ['--wheel-neighbor-x', '--wheel-neighbor-y', '--wheel-neighbor-base-x', '--wheel-neighbor-base-y', '--wheel-neighbor-repel-x', '--wheel-neighbor-repel-y']
+      .forEach((property) => node.style.removeProperty(property));
+  }
+}
+function clearWheelNeighborRelease(nodes) {
+  nodes?.forEach((node) => {
+    const release = wheelNeighborReleaseTimers.get(node);
+    if (release?.timer) window.clearTimeout(release.timer);
+    if (release?.raf) cancelAnimationFrame(release.raf);
+    wheelNeighborReleaseTimers.delete(node);
+    node.classList.remove('is-wheel-neighbor-release');
+    node.style.removeProperty('--wheel-neighbor-release-x');
+    node.style.removeProperty('--wheel-neighbor-release-y');
+  });
+}
+function clearAllWheelNeighborReleases() {
+  clearWheelNeighborRelease(Array.from(wheelNeighborReleaseTimers.keys()));
+}
+function readWheelNeighborVisualState(nodes) {
+  const values = new Map();
+  nodes?.forEach((node) => {
+    // CSS release складывается с neighbor motion; снимок всегда означает
+    // именно видимую позицию, без getComputedStyle/layout на boundary.
+    const x = (Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-x')) || 0)
+      + (Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-release-x')) || 0);
+    const y = (Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-y')) || 0)
+      + (Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-release-y')) || 0);
+    values.set(node, { x, y });
+  });
+  return values;
+}
+function beginWheelNeighborRelease(nodes, visualSnapshot = null, incomingNodes = new Set()) {
+  if (!nodes?.length || !allowsWheelHoverMotion()) return;
+  nodes.forEach((node) => {
+    const visible = visualSnapshot?.get(node) || {
+      x: Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-x')) || 0,
+      y: Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-y')) || 0,
+    };
+    const incoming = incomingNodes.has(node);
+    const nextX = incoming
+      ? Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-x')) || 0
+      : 0;
+    const nextY = incoming
+      ? Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-y')) || 0
+      : 0;
+    const releaseX = visible.x - nextX;
+    const releaseY = visible.y - nextY;
+    // Если эта card больше не сосед новой topology, её собственный channel
+    // становится нулём. Если остаётся — target уже записан getWheel... .
+    if (!incoming) {
+      node.style.setProperty('--wheel-neighbor-x', '0px');
+      node.style.setProperty('--wheel-neighbor-y', '0px');
+    } else {
+      // Обе topology участвуют в сумме с первого paint, иначе class-order
+      // кратко показывает одну из них и производит boundary flicker.
+      node.classList.add('is-wheel-neighbor-spread');
+    }
+    clearWheelNeighborRelease([node]);
+    const release = { timer: 0, raf: 0, startedAt: null, fromX: releaseX, fromY: releaseY, incoming };
+    wheelNeighborReleaseTimers.set(node, release);
+    node.classList.add('is-wheel-neighbor-release');
+    node.style.setProperty('--wheel-neighbor-release-x', `${releaseX.toFixed(2)}px`);
+    node.style.setProperty('--wheel-neighbor-release-y', `${releaseY.toFixed(2)}px`);
+    // Active card больше не имеет CSS-lag. Поэтому release-difference сам
+    // идёт timestamped rAF, оставаясь плавным и для active + release суммы.
+    const runReleaseFrame = (timestamp) => {
+      if (wheelNeighborReleaseTimers.get(node) !== release) return;
+      // jsdom вызывает rAF синхронно без timestamp: оставляем тот же
+      // детерминированный финал, не раскручивая рекурсивный loop.
+      if (!Number.isFinite(timestamp)) {
+        node.style.setProperty('--wheel-neighbor-release-x', '0px');
+        node.style.setProperty('--wheel-neighbor-release-y', '0px');
+        release.timer = window.setTimeout(() => finishWheelNeighborRelease(node, release), WHEEL_NEIGHBOR_RELEASE_MS);
+        return;
+      }
+      if (release.startedAt === null) release.startedAt = timestamp;
+      const phase = Math.min(1, Math.max(0, (timestamp - release.startedAt) / WHEEL_NEIGHBOR_RELEASE_MS));
+      // На 25% тише прежнего quadratic ease-out в первом кадре, но без
+      // dead interval: derivative при phase=0 остаётся -1.5, не нулевой.
+      // Cubic приходит к нулю со скоростью 0, поэтому конец 140ms не щёлкает.
+      const remaining = 1 - 1.5 * phase + 0.5 * phase * phase * phase;
+      node.style.setProperty('--wheel-neighbor-release-x', `${(release.fromX * remaining).toFixed(2)}px`);
+      node.style.setProperty('--wheel-neighbor-release-y', `${(release.fromY * remaining).toFixed(2)}px`);
+      if (phase >= 1) {
+        finishWheelNeighborRelease(node, release);
+      } else {
+        release.raf = requestAnimationFrame(runReleaseFrame);
+      }
+    };
+    release.raf = requestAnimationFrame(runReleaseFrame);
+  });
+}
+function clearWheelHoverTail(nodes) {
+  nodes?.forEach((node) => {
+    const timer = wheelHoverTailTimers.get(node);
+    if (timer) window.clearTimeout(timer);
+    wheelHoverTailTimers.delete(node);
+    node.classList.remove('is-wheel-handoff-out');
+  });
+}
+function clearAllWheelHoverTails() {
+  const tailNodes = Array.from(wheelHoverTailTimers.keys());
+  clearWheelHoverTail(tailNodes);
+  tailNodes.forEach((node) => node.classList.remove('is-wheel-hovered'));
+  clearWheelCursorNodeStyles(tailNodes);
+}
+function beginWheelHoverTail(state) {
+  if (!state?.nodes?.length || !allowsWheelHoverMotion()) return;
+  clearWheelNeighborRelease(state.nodes);
+  state.nodes.forEach((node) => {
+    clearWheelHoverTail([node]);
+    node.classList.add('is-wheel-handoff-out');
+    const timer = window.setTimeout(() => {
+      if (wheelHoverTailTimers.get(node) !== timer) return;
+      wheelHoverTailTimers.delete(node);
+      node.classList.remove('is-wheel-handoff-out', 'is-wheel-hovered');
+      clearWheelCursorNodeStyles([node]);
+    }, WHEEL_CURSOR_TAIL_MS);
+    wheelHoverTailTimers.set(node, timer);
+  });
+}
+function clearWheelCursorResponse(state, { preserveNodeStyles = false } = {}) {
+  cancelWheelCursorResponseFrame();
+  if (!preserveNodeStyles) clearWheelCursorNodeStyles(state?.nodes);
+  restoreWheelNeighborBaseMotion(state);
+}
+function clearWheelHoverClasses(state, { preserveSurfaceTail = false } = {}) {
+  cancelWheelHoverMotionFrame();
+  clearWheelCursorResponse(state, { preserveNodeStyles: preserveSurfaceTail });
+  if (!preserveSurfaceTail) state?.nodes?.forEach((node) => node.classList.remove('is-wheel-hovered'));
+  state?.neighborNodes?.forEach((node) => {
+    node.classList.remove('is-wheel-neighbor-spread');
+    ['--wheel-neighbor-x', '--wheel-neighbor-y', '--wheel-neighbor-base-x', '--wheel-neighbor-base-y', '--wheel-neighbor-repel-x', '--wheel-neighbor-repel-y']
+      .forEach((property) => node.style.removeProperty(property));
+  });
+}
+function applyWheelHoverClasses(state) {
+  const apply = () => {
+    if (wheelHoverState !== state) return;
+    state.nodes.forEach((node) => {
+      clearWheelHoverTail([node]);
+      node.classList.add('is-wheel-hovered');
+    });
+    state.neighborNodes.forEach((node) => node.classList.add('is-wheel-neighbor-spread'));
+    wheelHoverMotionRaf = 0;
+  };
+  // При reduced motion не откладываем состояние даже на один frame.
+  if (!allowsWheelHoverMotion()) {
+    apply();
+    return;
+  }
+  cancelWheelHoverMotionFrame();
+  // Browser сначала фиксирует neutral/current position, затем получает
+  // следующий target. Это даёт непрерывный retarget и на первом входе,
+  // и между секторами, и при обратной сборке.
+  wheelHoverMotionRaf = requestAnimationFrame(apply);
+}
+function getWheelNeighborSpreadNodes({ ring, index }) {
+  if (!ring || !Number.isInteger(index)) return [];
+  const svg = DOM.circleSvg;
+  if (!svg) return [];
+  const affected = [];
+  const moveCards = (targetRing, targetIndex, dx, dy, { includeSelected = false } = {}) => {
+    svg
+      .querySelectorAll(`[data-wheel-hover-ring="${targetRing}"][data-wheel-hover-index="${targetIndex}"]`)
+      .forEach((node) => {
+        // Внутри своего ряда selected marker держит стабильную точку. Но
+        // карточка напротив в другом ряду участвует в общем разъезде —
+        // иначе при hover одноимённого inner-аккорда внешний ряд визуально
+        // «замирает» именно на наиболее заметном selected root.
+        if (node.classList.contains('is-wheel-selected') && !includeSelected) return;
+        const x = `${dx.toFixed(2)}px`;
+        const y = `${dy.toFixed(2)}px`;
+        node.style.setProperty('--wheel-neighbor-base-x', x);
+        node.style.setProperty('--wheel-neighbor-base-y', y);
+        node.style.setProperty('--wheel-neighbor-x', x);
+        node.style.setProperty('--wheel-neighbor-y', y);
+        affected.push(node);
+      });
+  };
+  // Внутри своего ряда две пары расходятся вдоль касательной: ближайшая
+  // на 1.6px, следующая вдвое слабее.
+  WHEEL_HOVER_NEIGHBOR_DISTANCES.forEach((distance, offset) => {
+    const step = offset + 1;
+    [-1, 1].forEach((direction) => {
+      const neighborIndex = (index + direction * step + WHEEL_ROOT_COUNT) % WHEEL_ROOT_COUNT;
+      const neighborMid = -Math.PI / 2 + (neighborIndex + 0.5) * ((2 * Math.PI) / WHEEL_ROOT_COUNT);
+      moveCards(
+        ring,
+        neighborIndex,
+        -Math.sin(neighborMid) * distance * direction,
+        Math.cos(neighborMid) * distance * direction
+      );
+    });
+  });
+  // В dual-ring режиме соседний ряд отвечает тем же ритмом: карточка
+  // напротив уходит от hovered по направлению между рядами, боковая пара —
+  // вдвое слабее. Диагональный вектор сохраняет естественный «разъезд»,
+  // а не тянет всю дугу в одну сторону.
+  const crossRing = ring === 'major' ? 'minor' : ring === 'minor' ? 'major' : null;
+  if (!crossRing) return affected;
+  const crossDistances = ring === 'minor'
+    ? WHEEL_HOVER_CROSS_RING_DISTANCES.minorToMajor
+    : WHEEL_HOVER_CROSS_RING_DISTANCES.majorToMinor;
+  const source = getWheelHoverPoint(ring, index);
+  [
+    { offset: 0, distance: crossDistances.aligned },
+    { offset: -1, distance: crossDistances.side },
+    { offset: 1, distance: crossDistances.side },
+  ].forEach(({ offset, distance }) => {
+    const targetIndex = (index + offset + WHEEL_ROOT_COUNT) % WHEEL_ROOT_COUNT;
+    const target = getWheelHoverPoint(crossRing, targetIndex);
+    const length = Math.hypot(target.x - source.x, target.y - source.y) || 1;
+    moveCards(
+      crossRing,
+      targetIndex,
+      ((target.x - source.x) / length) * distance,
+      ((target.y - source.y) / length) * distance,
+      { includeSelected: true }
+    );
+  });
+  return affected;
+}
+function getWheelNeighborRepulsion(response, node, baseX, baseY) {
+  const position = response.hoverState?.position;
+  const ring = node.dataset.wheelHoverRing;
+  const index = Number(node.dataset.wheelHoverIndex);
+  if (!position?.ring || !Number.isInteger(position.index) || !ring || !Number.isInteger(index)) return { x: 0, y: 0 };
+  // Центры остаются в viewBox, а current magnet — в CSS px. Приводим
+  // последний к уже сохранённому pointer scale, не вызывая layout в rAF.
+  const source = getWheelHoverPoint(position.ring, position.index);
+  const neighbor = getWheelHoverPoint(ring, index);
+  const shiftedSourceX = source.x + response.current.x * (response.svgPerCssX || 1);
+  const shiftedSourceY = source.y + response.current.y * (response.svgPerCssY || 1);
+  const dx = neighbor.x - shiftedSourceX;
+  const dy = neighbor.y - shiftedSourceY;
+  const length = Math.hypot(dx, dy) || 1;
+  const magnetEnergy = Math.min(1, Math.hypot(response.current.x / 3.3, response.current.y / 3.3));
+  // Дальняя пара получает лишь половину добавки, ближайшая и противолежащая
+  // card — полную: сохраняется принятый ритм 1.6/0.8 и 3.2/1.6.
+  const baseLength = Math.hypot(baseX, baseY);
+  const topologyWeight = Math.max(0.5, Math.min(1, baseLength / 1.6));
+  const amount = WHEEL_NEIGHBOR_REPEL_MAX * magnetEnergy * topologyWeight;
+  return { x: (dx / length) * amount, y: (dy / length) * amount };
+}
+function clearWheelHover({ restorePreview = true, stopIdleMotion = false } = {}) {
+  // Pointerleave clears only hover channels: water remains alive for the
+  // entire open circle. Close/draw explicitly own its lifecycle instead.
+  if (stopIdleMotion) stopWheelIdleMotion();
+  clearWheelHoverClasses(wheelHoverState);
+  clearAllWheelHoverTails();
+  clearAllWheelNeighborReleases();
+  wheelHoverState = null;
+  if (restorePreview) clearWheelPreview();
+  else discardWheelPreview();
+}
+function previewWheelChord(chord) {
+  if (!activeChordInput) return;
+  const input = activeChordInput;
+  const owner = wheelOwnerFor(input);
+  const display = normalizeChordCase(expandChordName(chord));
+  if (!wheelPreviewState) wheelPreviewState = { input, owner, value: input.value };
+  owner?.classList.add('wheel-preview');
+  transitionWheelPreviewText(input, display);
+}
+function activateWheelHover(nodes, chord, position) {
+  if (!nodes?.length) return;
+  if (wheelHoverState?.chord === chord) {
+    nodes.forEach((node) => {
+      if (!wheelHoverState.nodes.includes(node)) {
+        wheelHoverState.nodes.push(node);
+      }
+    });
+    applyWheelHoverClasses(wheelHoverState);
+    return;
+  }
+  // На границе card → card старая поверхность коротко затухает, а новая
+  // набирает все cursor-каналы из neutral. Поэтому магнит не переносит
+  // чужую локальную координату и не «прилипает» к новой карточке одним кадром.
+  const previousState = wheelHoverState;
+  const previousNeighborVisual = readWheelNeighborVisualState(previousState?.neighborNodes);
+  const sameRingIncomingNeighbors = previousState?.position?.ring === position?.ring
+    ? nodes.filter((node) => previousState.neighborNodes.includes(node))
+    : [];
+  // Surface новой card остаётся neutral и не получает старый cursor-vector.
+  // Но water получает короткую физически непрерывную bridge-дорожку: old
+  // tail и incoming card начинают границу из одного displayed vector, затем
+  // incoming спокойно возвращается к своей независимой phase.
+  beginWheelIdleHandoff(previousState?.nodes, nodes);
+  // Соседская topology также не имеет права схлопнуться в ноль между cards:
+  // после чистки старого state она сразу получает target нового state, а
+  // release хранит только разность от уже видимого положения.
+  beginWheelHoverTail(previousState);
+  clearWheelHoverClasses(previousState, { preserveSurfaceTail: !!previousState });
+  // Когда пользователь выключил «Анимации круга» (либо ОС просит
+  // reduced motion), hover остаётся только colour/highlight-состоянием:
+  // не пишем соседнюю topology и не двигаем ни активную card, ни соседей.
+  const incomingNeighborNodes = allowsWheelHoverMotion()
+    ? getWheelNeighborSpreadNodes(position)
+    : [];
+  const nextState = {
+    chord,
+    nodes: [...nodes],
+    position,
+    neighborNodes: incomingNeighborNodes,
+  };
+  // B, бывшая соседом A в той же дуге, проходит тем же независимым 140ms
+  // geometry-release. Остальные бывшие соседи получают тот же непрерывный
+  // retarget вместо мгновенного возврата к кругу.
+  beginWheelNeighborRelease(
+    previousState?.neighborNodes || [],
+    previousNeighborVisual,
+    new Set(incomingNeighborNodes)
+  );
+  wheelHoverState = nextState;
+  applyWheelHoverClasses(wheelHoverState);
+  previewWheelChord(chord);
+}
+function writeWheelCursorResponse(response) {
+  const { current, hoverState } = response;
+  hoverState.nodes.forEach((node) => {
+    node.style.setProperty('--wheel-cursor-x', `${current.x.toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-y', `${current.y.toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-light-x', `${current.lightX.toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-light-y', `${current.lightY.toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-rotate', `${current.rotate.toFixed(2)}deg`);
+    node.style.setProperty('--wheel-cursor-scale', current.scale.toFixed(4));
+  });
+  hoverState.neighborNodes.forEach((node) => {
+    const baseX = Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-base-x')) || 0;
+    const baseY = Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-base-y')) || 0;
+    const repel = getWheelNeighborRepulsion(response, node, baseX, baseY);
+    node.style.setProperty('--wheel-neighbor-repel-x', `${repel.x.toFixed(2)}px`);
+    node.style.setProperty('--wheel-neighbor-repel-y', `${repel.y.toFixed(2)}px`);
+    node.style.setProperty('--wheel-neighbor-x', `${(baseX * current.factor + repel.x).toFixed(2)}px`);
+    node.style.setProperty('--wheel-neighbor-y', `${(baseY * current.factor + repel.y).toFixed(2)}px`);
+  });
+}
+function requestWheelCursorResponseFrame() {
+  if (wheelCursorResponseRaf) return;
+  let ranSynchronously = false;
+  const handle = requestAnimationFrame((timestamp) => {
+    ranSynchronously = true;
+    runWheelCursorResponseFrame(timestamp);
+  });
+  // jsdom вызывает callback до возврата handle; браузер — на следующем кадре.
+  if (!ranSynchronously) wheelCursorResponseRaf = handle;
+}
+function runWheelCursorResponseFrame(timestamp) {
+  wheelCursorResponseRaf = 0;
+  const response = wheelCursorResponseState;
+  if (!response || response.hoverState !== wheelHoverState || !allowsWheelHoverMotion()) return;
+  // jsdom-стенд вызывает rAF синхронно без timestamp: оставляем его
+  // детерминированным, не создавая рекурсивную петлю. В браузере ниже —
+  // полный двухступенчатый rAF вход.
+  if (!Number.isFinite(timestamp)) {
+    Object.assign(response.current, response.rawTarget || response.target);
+    writeWheelCursorResponse(response);
+    return;
+  }
+  const elapsed = response.lastTimestamp === null ? 16 : Math.min(48, Math.max(1, timestamp - response.lastTimestamp));
+  response.lastTimestamp = timestamp;
+  // Нулевая target новой card раскрывается ease-out за первые 340 мс. Это
+  // не wait: уже первый rAF кадр отвечает на cursor, но его сила мала.
+  response.entryTargetElapsed = Math.min(
+    WHEEL_CURSOR_ENTRY_TARGET_MS,
+    (response.entryTargetElapsed || 0) + elapsed
+  );
+  const entryPhase = response.entryTargetElapsed / WHEEL_CURSOR_ENTRY_TARGET_MS;
+  const entryGain = entryPhase * (2 - entryPhase);
+  const rawTarget = response.rawTarget || response.target;
+  response.target = {
+    x: rawTarget.x * entryGain,
+    y: rawTarget.y * entryGain,
+    lightX: rawTarget.lightX * entryGain,
+    lightY: rawTarget.lightY * entryGain,
+    rotate: rawTarget.rotate * entryGain,
+    scale: 1 + (rawTarget.scale - 1) * entryGain,
+    factor: 1 + (rawTarget.factor - 1) * entryGain,
+  };
+  // Новая card набирает всю поверхность примерно за 200 мс: первые
+  // двенадцать кадров спокойнее, затем остаётся обычная живая инерция.
+  const tau = response.entryFrames > 0 ? WHEEL_CURSOR_ENTRY_TAU_MS : WHEEL_CURSOR_RESPONSE_TAU_MS;
+  if (response.entryFrames > 0) response.entryFrames -= 1;
+  const alpha = 1 - Math.exp(-elapsed / tau);
+  let distance = 0;
+  Object.keys(response.current).forEach((key) => {
+    const next = response.current[key] + (response.target[key] - response.current[key]) * alpha;
+    distance = Math.max(distance, Math.abs(response.target[key] - next));
+    response.current[key] = next;
+  });
+  writeWheelCursorResponse(response);
+  if (distance > 0.002) requestWheelCursorResponseFrame();
+}
+function wheelSvgPointerPoint(event) {
+  // Synthetic / keyboard-originated pointerover может не нести координаты:
+  // он переключает card, но не имеет права породить NaN-target магниту.
+  if (!Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) return null;
+  const rect = DOM.circleSvg?.getBoundingClientRect?.();
+  if (!rect?.width || !rect.height) return null;
+  // Одна система координат для всего колеса — SVG строится в viewBox 540×540.
+  return {
+    x: Math.max(0, Math.min(540, ((event.clientX - rect.left) / rect.width) * 540)),
+    y: Math.max(0, Math.min(540, ((event.clientY - rect.top) / rect.height) * 540)),
+    // Не читаем layout в rAF: этот scale уже получен вместе с pointer point.
+    svgPerCssX: 540 / rect.width,
+    svgPerCssY: 540 / rect.height,
+  };
+}
+function updateWheelCursorResponse(nodes, event) {
+  if (!allowsWheelHoverMotion() || (event.pointerType && event.pointerType !== 'mouse') || !wheelHoverState) return;
+  const point = wheelSvgPointerPoint(event);
+  if (!point) return;
+  let response = wheelCursorResponseState;
+  if (!response || response.hoverState !== wheelHoverState) {
+    response = wheelCursorResponseState = {
+      hoverState: wheelHoverState,
+      lastTimestamp: null,
+      // Все каналы начинают вместе: neutral surface → target новой card.
+      current: { x: 0, y: 0, lightX: 0, lightY: 0, rotate: 0, scale: 1, factor: 1 },
+      target: {},
+      rawTarget: { x: 0, y: 0, lightX: 0, lightY: 0, rotate: 0, scale: 1, factor: 1 },
+      anchor: point,
+      svgPerCssX: point.svgPerCssX,
+      svgPerCssY: point.svgPerCssY,
+      entryFrames: WHEEL_CURSOR_ENTRY_FRAMES,
+      entryTargetElapsed: 0,
+    };
+  }
+  // Измеряем не от box активной card, а от её точки входа в общем SVG.
+  // На медленном card → card переходе первая цель всегда neutral, а дальше
+  // она меняется только вслед за реальным непрерывным движением pointer.
+  const nx = Math.max(-1, Math.min(1, (point.x - response.anchor.x) / WHEEL_CURSOR_GLOBAL_RANGE));
+  const ny = Math.max(-1, Math.min(1, (point.y - response.anchor.y) / WHEEL_CURSOR_GLOBAL_RANGE));
+  const energy = Math.min(1, Math.hypot(nx, ny));
+  // rawTarget — непрерывное физическое намерение cursor. В rAF оно
+  // получает короткий ease-in от neutral, чтобы первый pointer sample после
+  // границы не выдавал новый магнитный vector одним кадром.
+  response.svgPerCssX = point.svgPerCssX;
+  response.svgPerCssY = point.svgPerCssY;
+  response.rawTarget = {
+    x: nx * 3.3,
+    y: ny * 3.3,
+    lightX: nx * 2.25,
+    lightY: ny * 2.25,
+    rotate: nx * 1.05,
+    scale: 1.03 + energy * 0.024,
+    factor: 1 + energy * 0.63,
+  };
+  requestWheelCursorResponseFrame();
+}
+function wireWheelSectorHover(nodes, chord, ring, index, centerX, centerY) {
+  // Проценты viewBox, а не fill-box отдельного текста: при scale имя
+  // движется как часть одной сектор-карточки, не «плавает» внутри неё.
+  const originX = `${(centerX / 540) * 100}%`;
+  const originY = `${(centerY / 540) * 100}%`;
+  nodes.filter(Boolean).forEach((node) => {
+    node.classList.add('wheel-hoverable');
+    node.dataset.wheelHoverRing = ring;
+    node.dataset.wheelHoverIndex = String(index);
+    node.style.setProperty('--wheel-hover-origin-x', originX);
+    node.style.setProperty('--wheel-hover-origin-y', originY);
+    node.addEventListener('pointerover', (event) => {
+      const hoverNodes = nodes.filter(Boolean);
+      activateWheelHover(hoverNodes, chord, { ring, index });
+      // На медленном переходе следующий pointermove может прийти поздно;
+      // используем уже имеющиеся координаты самого входа в карточку.
+      updateWheelCursorResponse(hoverNodes, event);
+    });
+    node.addEventListener('pointermove', (event) => updateWheelCursorResponse(nodes.filter(Boolean), event));
+  });
+}
+function getWheelLabelMotionNodes(svg) {
+  // Degree is now a child of the chord-label group. Animate/clone that
+  // composite only once, otherwise a nested degree would double-fade.
+  return Array.from(svg?.querySelectorAll('.wheel-chord-label, .wheel-degree-label') || [])
+    .filter((node) => !node.classList.contains('wheel-degree-label') || !node.closest('.wheel-chord-label'));
+}
+function createWheelLabelExitLayer(svg) {
+  if (prefersReducedWheelMotion()) return null;
+  const priorLabels = getWheelLabelMotionNodes(svg);
+  if (!priorLabels.length) return null;
+  const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  layer.classList.add('wheel-label-exit-layer');
+  priorLabels.forEach((label) => {
+    const ghost = label.cloneNode(true);
+    ghost.classList.remove('wheel-label-entering', 'is-wheel-hovered', 'wheel-hoverable');
+    ghost.classList.add('wheel-label-exiting');
+    layer.appendChild(ghost);
+  });
+  return layer;
+}
+function drawWheel({ crossfadeLabels = false } = {}) {
+  stopWheelIdleMotion();
+  if (isDevWheel410()) return drawWheel410();
+  const svg = DOM.circleSvg;
+  clearWheelHover();
+  const labelExitLayer = crossfadeLabels ? createWheelLabelExitLayer(svg) : null;
+  svg.innerHTML = '';
+  // B-40: круг теперь действительно круглый (540×540), а центральное
+  // окно достаточно велико, чтобы в варианте «вокруг» оставить ячейку
+  // читаемой и доступной для повторного клика.
+  const cx = 270,
+    cy = 270,
+    Ro = 245,
+    Rs = 172,
+    Ri = 103;
+  // В отличие от прежней угловой щели, этот gap измеряется в SVG-px.
+  // Геометрия каждого annular-card компенсирует угол на каждом радиусе,
+  // поэтому промежуток не сужается к внутреннему кольцу.
+  // 2.5 SVG-px: карточки собраны плотнее, но отрицательное пространство
+  // всё ещё отделяет их при тонком контуре каждой карточки.
+  const WHEEL_CARD_GAP = 2.5;
+  // Тонкий контур принадлежит каждой карточке, не всему кольцу целиком.
+  const WHEEL_CARD_OUTLINE = 1.2;
+  const WHEEL_CARD_CORNER = 10;
+  const WHEEL_CARD_HALF_SEAM = (WHEEL_CARD_GAP + WHEEL_CARD_OUTLINE) / 2;
+  const WHEEL_CARD_PERIMETER = WHEEL_CARD_GAP + WHEEL_CARD_OUTLINE / 2;
+  const n = 12,
+    sa = (2 * Math.PI) / n,
+    ao = -Math.PI / 2 - sa / 2;
+  const polarPoint = (radius, angle) => ({ x: cx + radius * Math.cos(angle), y: cy + radius * Math.sin(angle) });
+  // По внешнему и внутреннему радиусу используются разные углы asin(d/r).
+  // Поэтому кромки остаются «параллельными» с постоянной физической щелью,
+  // а не расходятся как обычные радиальные клинья.
+  const createWheelCardPath = (start, end, outerRadius, innerRadius) => {
+    const so = start + Math.asin(WHEEL_CARD_HALF_SEAM / outerRadius);
+    const eo = end - Math.asin(WHEEL_CARD_HALF_SEAM / outerRadius);
+    const si = start + Math.asin(WHEEL_CARD_HALF_SEAM / innerRadius);
+    const ei = end - Math.asin(WHEEL_CARD_HALF_SEAM / innerRadius);
+    const outerStart = polarPoint(outerRadius, so);
+    const outerEnd = polarPoint(outerRadius, eo);
+    const innerEnd = polarPoint(innerRadius, ei);
+    const innerStart = polarPoint(innerRadius, si);
+    const outerCorner = WHEEL_CARD_CORNER / outerRadius;
+    const innerCorner = WHEEL_CARD_CORNER / innerRadius;
+    const pointToward = (from, to, distance) => {
+      const length = Math.hypot(to.x - from.x, to.y - from.y);
+      return { x: from.x + ((to.x - from.x) * distance) / length, y: from.y + ((to.y - from.y) * distance) / length };
+    };
+    // Кривые Q — настоящие скругления поверхности, а не едва заметный
+    // effect stroke-linejoin: каждый угол подрезается на физические 10 px.
+    const outerArcStart = polarPoint(outerRadius, so + outerCorner);
+    const outerArcEnd = polarPoint(outerRadius, eo - outerCorner);
+    const outerSideStart = pointToward(outerEnd, innerEnd, WHEEL_CARD_CORNER);
+    const innerSideEnd = pointToward(innerEnd, outerEnd, WHEEL_CARD_CORNER);
+    const innerArcStart = polarPoint(innerRadius, ei - innerCorner);
+    const innerArcEnd = polarPoint(innerRadius, si + innerCorner);
+    const innerSideStart = pointToward(innerStart, outerStart, WHEEL_CARD_CORNER);
+    const outerSideEnd = pointToward(outerStart, innerStart, WHEEL_CARD_CORNER);
+    return `M${outerArcStart.x} ${outerArcStart.y} A${outerRadius} ${outerRadius} 0 0 1 ${outerArcEnd.x} ${outerArcEnd.y} Q${outerEnd.x} ${outerEnd.y} ${outerSideStart.x} ${outerSideStart.y} L${innerSideEnd.x} ${innerSideEnd.y} Q${innerEnd.x} ${innerEnd.y} ${innerArcStart.x} ${innerArcStart.y} A${innerRadius} ${innerRadius} 0 0 0 ${innerArcEnd.x} ${innerArcEnd.y} Q${innerStart.x} ${innerStart.y} ${innerSideStart.x} ${innerSideStart.y} L${outerSideEnd.x} ${outerSideEnd.y} Q${outerStart.x} ${outerStart.y} ${outerArcStart.x} ${outerArcStart.y}Z`;
+  };
+  const sk = activeSectionKey || getEffectiveKey();
+  const ks = getKeyStyle(sk);
+  const sd = document.getElementById('showDegrees')?.checked === true;
+  const dr = wheelModeIsDualRing(wheelMode);
+  const activeWheelChord = wheelChordIdentity(activeChordInput?.value);
+  const isSelectedWheelChord = (candidate) =>
+    !!activeWheelChord && activeWheelChord === wheelChordIdentity(candidate);
+  const frag = document.createDocumentFragment();
+  // Единая лёгкая поверхностная засветка лежит над штатной заливкой каждой
+  // карточки. SVG gradient не меняет path, поэтому сохраняются форма и gap.
+  const cardVolumeDefs = document.createElementNS('http://www.w3.org/2000/svg', 'defs');
+  const cardVolumeGradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+  cardVolumeGradient.setAttribute('id', 'wheel-card-volume-overlay');
+  cardVolumeGradient.setAttribute('x1', '0');
+  cardVolumeGradient.setAttribute('y1', '0');
+  cardVolumeGradient.setAttribute('x2', '0');
+  cardVolumeGradient.setAttribute('y2', '1');
+  [['wheel-card-volume-top', '0%'], ['wheel-card-volume-mid', '54%'], ['wheel-card-volume-bottom', '100%']].forEach(([id, offset]) => {
+    const stop = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+    stop.setAttribute('id', id);
+    stop.setAttribute('offset', offset);
+    cardVolumeGradient.appendChild(stop);
+  });
+  cardVolumeDefs.appendChild(cardVolumeGradient);
+  // На насыщенной диатонической заливке общий very-low-opacity gradient
+  // теряется. Второй defs-gradient используется только dark CSS-селектором:
+  // он выравнивает воспринимаемую глубину с обычной card, не меняя её цвет.
+  const cardVolumeDiatonicGradient = document.createElementNS('http://www.w3.org/2000/svg', 'linearGradient');
+  cardVolumeDiatonicGradient.setAttribute('id', 'wheel-card-volume-diatonic-overlay');
+  cardVolumeDiatonicGradient.setAttribute('x1', '0');
+  cardVolumeDiatonicGradient.setAttribute('y1', '0');
+  cardVolumeDiatonicGradient.setAttribute('x2', '0');
+  cardVolumeDiatonicGradient.setAttribute('y2', '1');
+  [['wheel-card-volume-diatonic-top', '0%'], ['wheel-card-volume-diatonic-mid', '54%'], ['wheel-card-volume-diatonic-bottom', '100%']].forEach(([id, offset]) => {
+    const stop = document.createElementNS('http://www.w3.org/2000/svg', 'stop');
+    stop.setAttribute('id', id);
+    stop.setAttribute('offset', offset);
+    cardVolumeDiatonicGradient.appendChild(stop);
+  });
+  cardVolumeDefs.appendChild(cardVolumeDiatonicGradient);
+  frag.appendChild(cardVolumeDefs);
+  const addWheelCardVolume = (sector) => {
+    const overlay = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    overlay.classList.add('wheel-sector-volume');
+    // Overlay принадлежит той же карточке: selected marker не имеет права
+    // разъезжаться частично, пока его sector и label остаются на месте.
+    overlay.classList.toggle('is-wheel-selected', sector.classList.contains('is-wheel-selected'));
+    overlay.setAttribute('data-wheel-diatonic', sector.getAttribute('data-wheel-diatonic') || 'false');
+    overlay.setAttribute('d', sector.getAttribute('d'));
+    overlay.setAttribute('aria-hidden', 'true');
+    frag.appendChild(overlay);
+    return overlay;
+  };
+  // Лежит первым, поэтому заполненные карточки и их подписи остаются над
+  // ним кликабельными. Однако click в любом реальном gap не проваливается
+  // в owner/соседнюю ячейку и не запускает ни один маршрут выбора.
+  const gapCatcher = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+  gapCatcher.classList.add('wheel-gap-catcher');
+  gapCatcher.setAttribute(
+    'd',
+    `M${cx + Ro} ${cy} A${Ro} ${Ro} 0 1 1 ${cx - Ro} ${cy} A${Ro} ${Ro} 0 1 1 ${cx + Ro} ${cy}Z M${cx + Ri} ${cy} A${Ri} ${Ri} 0 1 1 ${cx - Ri} ${cy} A${Ri} ${Ri} 0 1 1 ${cx + Ri} ${cy}Z`
+  );
+  gapCatcher.setAttribute('fill', 'transparent');
+  gapCatcher.setAttribute('fill-rule', 'evenodd');
+  gapCatcher.setAttribute('pointer-events', 'fill');
+  gapCatcher.setAttribute('aria-hidden', 'true');
+  const swallowWheelGapEvent = (event) => {
+    event.preventDefault();
+    event.stopPropagation();
+  };
+  ['pointerdown', 'pointerup', 'click'].forEach((type) => gapCatcher.addEventListener(type, swallowWheelGapEvent));
+  frag.appendChild(gapCatcher);
+  for (let i = 0; i < n; i++) {
+    const rm = MAJOR_CHORDS[i],
+      rmi = MINOR_CHORDS[i];
+    const cm = correctChordName(rm, ks),
+      cmi = correctChordName(rmi, ks);
+    const start = ao + i * sa,
+      end = ao + (i + 1) * sa;
+    // Mid остаётся музыкальным центром сектора; реальные card-gap и
+    // скругления строит path ниже, без дополнительных линий-разделителей.
+    if (dr) {
+      const mid = start + sa / 2;
+      const dm = getDisplayChord(cm, false),
+        dmiFull = getDisplayChord(cmi, true);
+      // Значения (vm/vmi) всегда канонические. Длинное имя может
+      // меняться только в его подписи на дуге — по тому же compact-правилу,
+      // которым пользуются ячейки редактора.
+      const dmLabel = fitWheelChordLabel(dm, WHEEL_MAJOR_LABEL_MAX_WIDTH, 28, 20, '700', '500');
+      const dmi = fitWheelChordLabel(dmiFull, 58, 24, 18, '600', '500');
+      const vm = getChordValue(cm, false),
+        vmi = getChordValue(cmi, true);
+      const majorSelected = isSelectedWheelChord(vm);
+      const minorSelected = isSelectedWheelChord(vmi);
+      const md = getScaleDegree(dm, sk),
+        // Степень — от полного имени: компакт ('AmΔ') теряет септиму
+        // при разборе и ложно считался бы диатоническим.
+        mid_deg = getScaleDegree(dmiFull, sk);
+      const imd = md !== '',
+        imid = mid_deg !== '';
+      const op = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      op.setAttribute(
+        'd',
+        createWheelCardPath(start, end, Ro - WHEEL_CARD_PERIMETER, Rs + WHEEL_CARD_HALF_SEAM)
+      );
+      op.setAttribute('fill', imd ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
+      op.setAttribute('data-wheel-ring', 'major');
+      op.setAttribute('data-wheel-diatonic', String(imd));
+      op.classList.add('wheel-sector');
+      op.classList.toggle('is-wheel-selected', majorSelected);
+      op.setAttribute('data-wheel-selected', String(majorSelected));
+      op.setAttribute('stroke', 'var(--color-border-medium)');
+      op.setAttribute('stroke-width', String(WHEEL_CARD_OUTLINE));
+      op.setAttribute('stroke-opacity', '0.72');
+      op.setAttribute('stroke-linejoin', 'round');
+      // Click принадлежит только заливке карточки: промежутки и контур
+      // не выбирают соседний аккорд и остаются прозрачными для редактора.
+      op.setAttribute('pointer-events', 'visibleFill');
+      op.style.cursor = 'pointer';
+      op.addEventListener('click', () => {
+        selectChord(vm);
+        addPulse(
+          cx + ((Ro + Rs) / 2) * Math.cos(mid),
+          cy + ((Ro + Rs) / 2) * Math.sin(mid),
+          10,
+          svg
+        );
+      });
+      frag.appendChild(op);
+      const opVolume = addWheelCardVolume(op);
+      const ip = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      ip.setAttribute(
+        'd',
+        createWheelCardPath(start, end, Rs - WHEEL_CARD_HALF_SEAM, Ri + WHEEL_CARD_PERIMETER)
+      );
+      ip.setAttribute('fill', imid ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
+      ip.setAttribute('data-wheel-ring', 'minor');
+      ip.setAttribute('data-wheel-diatonic', String(imid));
+      ip.classList.add('wheel-sector');
+      ip.classList.toggle('is-wheel-selected', minorSelected);
+      ip.setAttribute('data-wheel-selected', String(minorSelected));
+      ip.setAttribute('stroke', 'var(--color-border-medium)');
+      ip.setAttribute('stroke-width', String(WHEEL_CARD_OUTLINE));
+      ip.setAttribute('stroke-opacity', '0.72');
+      ip.setAttribute('stroke-linejoin', 'round');
+      // Click принадлежит только заливке карточки: промежутки и контур
+      // не выбирают соседний аккорд и остаются прозрачными для редактора.
+      ip.setAttribute('pointer-events', 'visibleFill');
+      ip.style.cursor = 'pointer';
+      ip.addEventListener('click', () => {
+        selectChord(vmi);
+        addPulse(
+          cx + ((Rs + Ri) / 2) * Math.cos(mid),
+          cy + ((Rs + Ri) / 2) * Math.sin(mid),
+          8,
+          svg
+        );
+      });
+      frag.appendChild(ip);
+      const ipVolume = addWheelCardVolume(ip);
+      const Rmt = (Ro + Rs) / 2,
+        mx = cx + Rmt * Math.cos(mid),
+        my = cy + Rmt * Math.sin(mid);
+      const { root: mr, suffix: ms } = splitRootSuffix(dmLabel);
+      const mg = createChordGroup(mx, my, mr, ms, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
+      mg.classList.add('wheel-chord-label');
+      mg.classList.toggle('is-wheel-selected', majorSelected);
+      mg.style.cursor = 'pointer';
+      mg.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectChord(vm);
+      });
+      const outerHoverNodes = [op, opVolume, mg];
+      const Rmit = (Rs + Ri) / 2,
+        mix = cx + Rmit * Math.cos(mid),
+        miy = cy + Rmit * Math.sin(mid);
+      const { root: mir, suffix: mis } = splitRootSuffix(dmi);
+      const mig = createChordGroup(mix, miy, mir, mis, 24, 18, 'var(--wheel-chord-minor-text)', '600', '500', 6);
+      mig.classList.add('wheel-chord-label');
+      mig.classList.toggle('is-wheel-selected', minorSelected);
+      mig.style.cursor = 'pointer';
+      mig.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectChord(vmi);
+      });
+      const innerHoverNodes = [ip, ipVolume, mig];
+      // The degree becomes part of the same label group, so hover applies one
+      // transform to the complete label block instead of separately syncing a
+      // second SVG text node beside it.
+      if (sd && imd && md) appendWheelDegreeToChordGroup(mg, md, -28, majorSelected);
+      if (sd && imid && mid_deg) appendWheelDegreeToChordGroup(mig, mid_deg, -30, minorSelected);
+      frag.appendChild(mg);
+      frag.appendChild(mig);
+      wireWheelSectorHover(outerHoverNodes, vm, 'major', i, mx, my);
+      wireWheelSectorHover(innerHoverNodes, vmi, 'minor', i, mix, miy);
+    } else {
+      const mid = start + sa / 2;
+      const dc = getDisplayChord(cm, false),
+        cv = getChordValue(cm, false);
+      const singleSelected = isSelectedWheelChord(cv);
+      const dcLabel = fitWheelChordLabel(dc, 76, 28, 20, '700', '500');
+      const deg = getScaleDegree(dc, sk);
+      const idg = deg !== '';
+      const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      p.setAttribute(
+        'd',
+        createWheelCardPath(start, end, Ro - WHEEL_CARD_PERIMETER, Ri + WHEEL_CARD_PERIMETER)
+      );
+      p.setAttribute('fill', idg ? 'var(--wheel-segment-fill-in)' : 'var(--wheel-segment-fill-out)');
+      p.setAttribute('data-wheel-ring', 'single');
+      p.setAttribute('data-wheel-diatonic', String(idg));
+      p.classList.add('wheel-sector');
+      p.classList.toggle('is-wheel-selected', singleSelected);
+      p.setAttribute('data-wheel-selected', String(singleSelected));
+      p.setAttribute('stroke', 'var(--color-border-medium)');
+      p.setAttribute('stroke-width', String(WHEEL_CARD_OUTLINE));
+      p.setAttribute('stroke-opacity', '0.72');
+      p.setAttribute('stroke-linejoin', 'round');
+      // Click принадлежит только заливке карточки: промежутки и контур
+      // не выбирают соседний аккорд и остаются прозрачными для редактора.
+      p.setAttribute('pointer-events', 'visibleFill');
+      p.style.cursor = 'pointer';
+      p.addEventListener('click', () => {
+        selectChord(cv);
+        addPulse(
+          cx + ((Ro + Ri) / 2) * Math.cos(mid),
+          cy + ((Ro + Ri) / 2) * Math.sin(mid),
+          10,
+          svg
+        );
+      });
+      frag.appendChild(p);
+      const pVolume = addWheelCardVolume(p);
+      const tr = (Ro + Ri) / 2,
+        tx = cx + tr * Math.cos(mid),
+        ty = cy + tr * Math.sin(mid);
+      const { root, suffix } = splitRootSuffix(dcLabel);
+      const cg = createChordGroup(tx, ty, root, suffix, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
+      cg.classList.add('wheel-chord-label');
+      cg.classList.toggle('is-wheel-selected', singleSelected);
+      cg.style.cursor = 'pointer';
+      cg.addEventListener('click', (e) => {
+        e.stopPropagation();
+        selectChord(cv);
+      });
+      const singleHoverNodes = [p, pVolume, cg];
+      if (sd && idg && deg) appendWheelDegreeToChordGroup(cg, deg, -28, singleSelected);
+      frag.appendChild(cg);
+      wireWheelSectorHover(singleHoverNodes, cv, 'single', i, tx, ty);
+    }
+  }
+  svg.appendChild(frag);
+  // Снимок берём до помещения уходящего слоя: entering- и exiting-labels
+  // никогда не должны оказаться на одном SVG-узле.
+  const incomingLabels = labelExitLayer ? getWheelLabelMotionNodes(svg) : [];
+  if (labelExitLayer) {
+    svg.appendChild(labelExitLayer);
+    window.setTimeout(() => labelExitLayer.remove(), WHEEL_PREVIEW_TRANSITION_MS + 15);
+  }
+  // addEventListener вместо onpointerleave: в том числе Safari корректно
+  // отдаёт уход курсора из SVG даже после пересборки его дочерних узлов.
+  if (svg._wheelPointerLeave) svg.removeEventListener('pointerleave', svg._wheelPointerLeave);
+  svg._wheelPointerLeave = clearWheelHover;
+  svg.addEventListener('pointerleave', svg._wheelPointerLeave);
+  // Idle water exists only while the production circle is visibly open.
+  // drawWheel also serves hidden mode-tab prep, which must never leave an
+  // animation loop running; every card node otherwise shares its ring/index
+  // deterministic phase beneath hover channels.
+  if (DOM.chordWheelModal?.classList.contains('open')) {
+    startWheelIdleMotion(Array.from(svg.querySelectorAll('.wheel-hoverable')));
+  }
+  incomingLabels.forEach((node) => {
+    node.classList.add('wheel-label-entering');
+    node.addEventListener('animationend', () => node.classList.remove('wheel-label-entering'), { once: true });
+  });
+}
+function drawWheel410() {
   const svg = DOM.circleSvg;
   svg.innerHTML = '';
   const cx = 270,
@@ -31146,27 +33001,25 @@ function drawWheel() {
   frag.appendChild(ic);
   svg.appendChild(frag);
 }
-function toggleDegreesOnWheel() {
-  drawWheel();
-  updateCellsDegrees();
-}
-function openChordWheel(inp) {
+function openChordWheel410(inp) {
+  if (!inp) return;
   if (activeChordInput && !activeChordInput.hasAttribute('readonly')) saveCurrentChord();
   activeChordInput = inp;
-  const sid = +inp.dataset.sec;
-  const sec = sections.find((s) => s.id === sid);
-  activeSectionKey = sec && sec.key ? sec.key : null;
-  DOM.chordWheelModal.classList.add('open');
-  setWheelMode('triads');
-  DOM.chordWheelModal._releaseFocusTrap = trapFocus(DOM.chordWheelModal, closeChordWheel);
+  const sectionId = +inp.dataset.sec;
+  const section = sections.find((item) => item.id === sectionId);
+  activeSectionKey = section && section.key ? section.key : null;
+  const modal = DOM.chordWheelModal;
+  modal.setAttribute('aria-hidden', 'false');
+  modal.classList.add('open');
+  setWheelMode410('triads');
+  modal._releaseFocusTrap = trapFocus(modal, closeChordWheel);
 }
-function closeChordWheel() {
-  DOM.chordWheelModal.classList.remove('open');
+function closeChordWheel410() {
+  const modal = DOM.chordWheelModal;
+  if (!modal) return;
+  modal.classList.remove('open', 'closing');
+  modal.setAttribute('aria-hidden', 'true');
   activeSectionKey = null;
-  // На таче тултип аппликатуры остаётся висеть после закрытия колеса:
-  // прячет его mousemove, которого здесь не бывает. С z-index 10000 и
-  // pointer-events: auto он ложится поверх транспорта, и первое
-  // касание кнопки уходит в него, а не в кнопку. Снимаем сразу.
   if (
     window.matchMedia &&
     window.matchMedia('(pointer: coarse)').matches &&
@@ -31175,13 +33028,567 @@ function closeChordWheel() {
     hideFingeringTooltip();
     currentTooltipWrapper = null;
   }
-  if (DOM.chordWheelModal._releaseFocusTrap) {
-    DOM.chordWheelModal._releaseFocusTrap();
-    DOM.chordWheelModal._releaseFocusTrap = null;
+  if (modal._releaseFocusTrap) {
+    modal._releaseFocusTrap();
+    modal._releaseFocusTrap = null;
+  }
+}
+function selectChord410(chord) {
+  if (!activeChordInput) return;
+  const sectionId = +activeChordInput.dataset.sec;
+  const squareId = +activeChordInput.dataset.square;
+  const eventIndex = +activeChordInput.dataset.ei;
+  const section = sections.find((item) => item.id === sectionId);
+  const square = section?.squares.find((item) => item.id === squareId);
+  const fullChord = expandChordName(chord);
+  if (square && square.events[eventIndex]) {
+    setEventChord(square.events[eventIndex], fullChord, { secId: sectionId, sqId: squareId, ei: eventIndex });
+  }
+  activeChordInput.value = normalizeChordCase(fullChord);
+  syncChordDisplay(activeChordInput);
+  let keyChanged = false;
+  if (keyMode === 'auto') {
+    const oldKey = globalKey;
+    refreshAutoDetectedKey();
+    keyChanged = oldKey !== globalKey;
+  }
+  if (keyChanged) {
+    syncAllSectionHeadersDom();
+    updateCellsDegrees();
+  } else if (section && square) {
+    syncEventChordDom(section, square, eventIndex);
+  } else {
+    updateCellsDegrees();
+  }
+  previewChordNow(activeChordInput.value, activeChordInput.closest('.chord-wrapper'));
+  closeChordWheel410();
+}
+
+function toggleDegreesOnWheel() {
+  drawWheel();
+  updateCellsDegrees();
+}
+
+// ========== B-40: КОНТЕКСТНЫЙ КРУГ ==========
+// Принятый вариант один: SVG-кольцо физически окружает активную ячейку.
+// У краёв viewport центр не «спасаем» сдвигом: пользователь выбрал честную
+// геометрию ячейки в центре, даже если часть круга уйдёт за видимую область.
+let wheelPositionRaf = 0;
+let wheelLayoutTrackRaf = 0;
+let wheelLayoutTrackUntil = 0;
+let wheelCloseTimer = 0;
+let wheelRetargetTimer = 0;
+let wheelRetargetClickInput = null;
+// При редком pinned-качестве очередь кнопок нельзя пересобирать посреди
+// closing: удаление старых <button> обрывает их fade-out. Состояние pin
+// сбрасываем сразу, а DOM очереди — после короткой exit-фазы.
+let wheelCloseNeedsModeTabsRefresh = false;
+const WHEEL_CLOSE_MS = 170;
+const WHEEL_RETARGET_MS = 200;
+
+function wheelContainer() {
+  return DOM.chordWheelModal?.querySelector('.wheel-container') || null;
+}
+function wheelOwnerFor(inp = activeChordInput) {
+  return inp?.closest('.chord-wrapper') || null;
+}
+// Семантический selection-hook для B-33: не равен DOM-focus и не зависит
+// от того, открыт ли поверх выбранной ячейки контекстный круг.
+function setChordCellSelected(inp, selected) {
+  wheelOwnerFor(inp)?.classList.toggle('is-cell-selected', !!selected);
+}
+function isChordWheelOpenFor(inp) {
+  const modal = DOM.chordWheelModal;
+  return !!(
+    inp &&
+    (modal?.classList.contains('open') || modal?.classList.contains('closing')) &&
+    activeChordInput === inp
+  );
+}
+// Pointerdown ретаргетит круг раньше click владельца. Этот флаг поглощает
+// следующий click, иначе он был бы принят как второй click по уже новому
+// owner и ошибочно включил бы ручной ввод.
+function consumeWheelRetargetClick(inp) {
+  if (wheelRetargetClickInput !== inp) return false;
+  wheelRetargetClickInput = null;
+  return true;
+}
+function cancelWheelRetargetMotion({ keepVisualPosition = false } = {}) {
+  const container = wheelContainer();
+  if (wheelRetargetTimer) {
+    clearTimeout(wheelRetargetTimer);
+    wheelRetargetTimer = 0;
+  }
+  if (!container || !container.dataset.wheelRetargeting) return;
+  if (keepVisualPosition) {
+    const rect = container.getBoundingClientRect();
+    const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+    const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+    // Фиксируем именно видимую промежуточную точку. Следующий retarget
+    // начинается отсюда, а не прыгает в прошлый destination.
+    container.style.transition = 'none';
+    container.style.left = `${Math.round(rect.left + scrollX)}px`;
+    container.style.top = `${Math.round(rect.top + scrollY)}px`;
+  }
+  delete container.dataset.wheelRetargeting;
+  container.style.removeProperty('transform');
+  container.style.removeProperty('transition');
+}
+function finishWheelRetargetMotion() {
+  const container = wheelContainer();
+  if (!container) return;
+  delete container.dataset.wheelRetargeting;
+  container.style.removeProperty('transform');
+  container.style.removeProperty('transition');
+  wheelRetargetTimer = 0;
+}
+function getContextualWheelPosition(container, owner) {
+  const wholeRect = container.getBoundingClientRect();
+  const wheelRect = container.querySelector('.wheel-svg-wrap')?.getBoundingClientRect();
+  const wheelCenterX = wheelRect
+    ? wheelRect.left - wholeRect.left + wheelRect.width / 2
+    : wholeRect.width / 2;
+  const wheelCenterY = wheelRect
+    ? wheelRect.top - wholeRect.top + wheelRect.height / 2
+    : wholeRect.height / 2;
+  const ownerRect = owner.getBoundingClientRect();
+  const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+  const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  return {
+    left: Math.round(ownerRect.left + ownerRect.width / 2 - wheelCenterX + scrollX),
+    top: Math.round(ownerRect.top + ownerRect.height / 2 - wheelCenterY + scrollY),
+  };
+}
+function animateWheelRetarget(container, position) {
+  const visualRect = container.getBoundingClientRect();
+  const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+  const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  const dx = Math.round(visualRect.left + scrollX - position.left);
+  const dy = Math.round(visualRect.top + scrollY - position.top);
+  // FLIP: новая document-якорная точка ставится сразу, а transform держит
+  // прежнюю видимую позицию до следующего кадра. Так перемещение не
+  // конфликтует с scroll/zoom-перепозиционированием absolute контейнера.
+  container.style.transition = 'none';
+  container.style.left = `${position.left}px`;
+  container.style.top = `${position.top}px`;
+  if (prefersReducedWheelMotion()) {
+    container.style.removeProperty('transform');
+    container.style.removeProperty('transition');
+    return;
+  }
+  container.style.transform = `translate(${dx}px, ${dy}px)`;
+  void container.offsetWidth;
+  container.dataset.wheelRetargeting = 'true';
+  container.style.transition = `transform ${WHEEL_RETARGET_MS}ms cubic-bezier(0.22, 0.61, 0.36, 1)`;
+  container.style.transform = 'translate(0, 0)';
+  wheelRetargetTimer = window.setTimeout(finishWheelRetargetMotion, WHEEL_RETARGET_MS);
+}
+// Навигация стрелками не должна оставлять owner с обводкой за экраном.
+// Сначала двигаем ближайшие скролл-контейнеры (прежде всего zoomed
+// .squares-viewport), затем при необходимости сам документ. По оси
+// стрелки карточка паркуется у соответствующего края safe-area, а не
+// безусловно центрируется; так переход читается как продолжение движения.
+const WHEEL_KEYBOARD_REVEAL_PAD = 24;
+function getWheelKeyboardScrollBehavior() {
+  return prefersReducedWheelMotion() ? 'auto' : 'smooth';
+}
+function clampWheelKeyboardScroll(value, max) {
+  return Math.max(0, Math.min(Math.max(0, max), value));
+}
+function scrollWheelKeyboardContainer(container, axis, target, behavior) {
+  const isX = axis === 'x';
+  const current = isX ? container.scrollLeft : container.scrollTop;
+  const size = isX ? container.clientWidth : container.clientHeight;
+  const extent = isX ? container.scrollWidth : container.scrollHeight;
+  const next = clampWheelKeyboardScroll(target, extent - size);
+  if (!(size > 0) || Math.abs(next - current) <= 1) return false;
+  const options = isX ? { left: next, behavior } : { top: next, behavior };
+  if (typeof container.scrollTo === 'function') container.scrollTo(options);
+  else if (isX) container.scrollLeft = next;
+  else container.scrollTop = next;
+  return true;
+}
+function isWheelKeyboardScrollable(container, axis) {
+  const isX = axis === 'x';
+  const size = isX ? container.clientWidth : container.clientHeight;
+  const extent = isX ? container.scrollWidth : container.scrollHeight;
+  if (!(extent > size + 1)) return false;
+  // Zoomed section rows intentionally get a HORIZONTAL scrollport even if
+  // a browser normalises computed overflow. Их вертикальный overflow hidden
+  // — это клип, не самостоятельная прокрутка; по Y дальше ведём страницу.
+  if (container.classList?.contains('squares-viewport')) return isX;
+  const style = getComputedStyle(container);
+  const overflow = isX ? style.overflowX : style.overflowY;
+  return /(auto|scroll|overlay)/.test(overflow);
+}
+function getWheelKeyboardSafeViewport() {
+  const transport = document.querySelector('.transport-bar');
+  const transportRect = transport?.getBoundingClientRect();
+  const stickyTop = transport ? parseFloat(getComputedStyle(transport).top) || 0 : 0;
+  const transportIsCoveringTop = transportRect && transportRect.height > 0 && transportRect.top <= stickyTop + 1;
+  return {
+    top: transportIsCoveringTop ? transportRect.bottom + WHEEL_KEYBOARD_REVEAL_PAD : WHEEL_KEYBOARD_REVEAL_PAD,
+    right: WHEEL_KEYBOARD_REVEAL_PAD,
+    bottom: Math.max(WHEEL_KEYBOARD_REVEAL_PAD, window.innerHeight - WHEEL_KEYBOARD_REVEAL_PAD),
+    left: WHEEL_KEYBOARD_REVEAL_PAD,
+  };
+}
+function revealChordWheelOwnerForKeyboard(inp, key) {
+  const owner = wheelOwnerFor(inp);
+  if (!owner) return false;
+  const behavior = getWheelKeyboardScrollBehavior();
+  const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+  const positive = key === 'ArrowRight' || key === 'ArrowDown';
+  let moved = false;
+  // Вложенные скролл-контейнеры обрабатываем от ближайшего наружу. После
+  // него окно получает только ту часть смещения, которую секция не решает.
+  for (let container = owner.parentElement; container && container !== document.body; container = container.parentElement) {
+    const rect = owner.getBoundingClientRect();
+    const viewport = container.getBoundingClientRect();
+    const pad = WHEEL_KEYBOARD_REVEAL_PAD;
+    if (isWheelKeyboardScrollable(container, 'x')) {
+      const leftEdge = viewport.left + pad;
+      const rightEdge = viewport.right - pad;
+      let target = container.scrollLeft;
+      if (horizontal && key === 'ArrowRight' && rect.right > rightEdge) target += rect.right - rightEdge;
+      else if (horizontal && key === 'ArrowLeft' && rect.left < leftEdge) target -= leftEdge - rect.left;
+      else if (rect.left < leftEdge) target -= leftEdge - rect.left;
+      else if (rect.right > rightEdge) target += rect.right - rightEdge;
+      moved = scrollWheelKeyboardContainer(container, 'x', target, behavior) || moved;
+    }
+    if (isWheelKeyboardScrollable(container, 'y')) {
+      const topEdge = viewport.top + pad;
+      const bottomEdge = viewport.bottom - pad;
+      let target = container.scrollTop;
+      if (!horizontal && positive && rect.bottom > bottomEdge) target += rect.bottom - bottomEdge;
+      else if (!horizontal && !positive && rect.top < topEdge) target -= topEdge - rect.top;
+      else if (rect.top < topEdge) target -= topEdge - rect.top;
+      else if (rect.bottom > bottomEdge) target += rect.bottom - bottomEdge;
+      moved = scrollWheelKeyboardContainer(container, 'y', target, behavior) || moved;
+    }
+  }
+  const rect = owner.getBoundingClientRect();
+  const safe = getWheelKeyboardSafeViewport();
+  const pageY = window.scrollY || document.documentElement.scrollTop || 0;
+  const maxPageY = Math.max(0, (document.documentElement.scrollHeight || 0) - window.innerHeight);
+  let pageTarget = pageY;
+  if (!horizontal && positive && rect.bottom > safe.bottom) pageTarget += rect.bottom - safe.bottom;
+  else if (!horizontal && !positive && rect.top < safe.top) pageTarget -= safe.top - rect.top;
+  else if (rect.top < safe.top) pageTarget -= safe.top - rect.top;
+  else if (rect.bottom > safe.bottom) pageTarget += rect.bottom - safe.bottom;
+  pageTarget = clampWheelKeyboardScroll(pageTarget, maxPageY);
+  if (Math.abs(pageTarget - pageY) > 1) {
+    window.scrollTo({ top: pageTarget, behavior });
+    moved = true;
+  }
+  return moved;
+}
+function retargetChordWheel(inp, { suppressOwnerClick = false, revealDirection = null } = {}) {
+  const modal = DOM.chordWheelModal;
+  const container = wheelContainer();
+  if (!inp || inp === activeChordInput || !modal?.classList.contains('open') || !container) return false;
+  // Редактируемый input уже находится в прямом ручном вводе: его жест не
+  // перехватываем у обычной логики формы.
+  if (!inp.hasAttribute('readonly')) return false;
+  cancelWheelRetargetMotion({ keepVisualPosition: true });
+  clearWheelHover();
+  setChordCellSelected(activeChordInput, false);
+  wheelOwnerFor()?.classList.remove('wheel-owner-active');
+  activeChordInput = inp;
+  setChordCellSelected(inp, true);
+  wheelOwnerFor(inp)?.classList.add('wheel-owner-active');
+  if (revealDirection) revealChordWheelOwnerForKeyboard(inp, revealDirection);
+  const sec = sections.find((s) => s.id === +inp.dataset.sec);
+  activeSectionKey = sec?.key || null;
+  // Подписи и режим нового owner мягко перетекают вместе с движением, а
+  // не получают второй эффект после остановки круга.
+  setWheelMode(prepareWheelModeForChord(inp.value), { crossfade: true });
+  animateWheelRetarget(container, getContextualWheelPosition(container, wheelOwnerFor(inp)));
+  if (suppressOwnerClick) {
+    wheelRetargetClickInput = inp;
+    // preventDefault обычно подавляет click, а этот короткий guard нужен
+    // браузерам, которые всё же доставляют его после pointerdown.
+    window.setTimeout(() => {
+      if (wheelRetargetClickInput === inp) wheelRetargetClickInput = null;
+    }, 120);
+  }
+  return true;
+}
+// Возвращает ближайшую видимую readonly-ячейку в геометрическом направлении
+// стрелки. Так ←/→ остаются естественными внутри строки, а ↑/↓ выбирают
+// ближайшую ячейку соседнего визуального ряда даже при разных span-ширинах.
+function getDirectionalChordWheelInput(key) {
+  const current = activeChordInput;
+  const currentOwner = wheelOwnerFor(current);
+  if (!current || !currentOwner) return null;
+  const rect = currentOwner.getBoundingClientRect();
+  const cx = rect.left + rect.width / 2;
+  const cy = rect.top + rect.height / 2;
+  const horizontal = key === 'ArrowLeft' || key === 'ArrowRight';
+  const positive = key === 'ArrowRight' || key === 'ArrowDown';
+  // Для ←/→ приоритет у логического ряда текущего квадрата (data-ei),
+  // затем у текущей zoomed-секции. Геометрия всех секций недостаточна:
+  // при горизонтальном zoom нижний ряд иногда оказывается по метрике
+  // «ближе», хотя справа в текущем квадрате ещё есть аккорд.
+  const currentSquare = current.closest('.square');
+  const currentEventIndex = Number(current.dataset.ei);
+  const currentViewport = current.closest('.squares-viewport');
+  let best = null;
+  let bestScore = Infinity;
+  let sameViewportBest = null;
+  let sameViewportBestScore = Infinity;
+  let sameSquareBest = null;
+  let sameSquareBestScore = Infinity;
+  document.querySelectorAll('.chord-input[readonly]').forEach((input) => {
+    if (input === current || !input.isConnected) return;
+    const owner = wheelOwnerFor(input);
+    if (!owner) return;
+    const candidate = owner.getBoundingClientRect();
+    if (!candidate.width || !candidate.height) return;
+    const dx = candidate.left + candidate.width / 2 - cx;
+    const dy = candidate.top + candidate.height / 2 - cy;
+    const primaryDelta = horizontal ? dx : dy;
+    const candidateEventIndex = Number(input.dataset.ei);
+    const sameSquareByOrder =
+      horizontal &&
+      currentSquare &&
+      owner.closest('.square') === currentSquare &&
+      Number.isFinite(currentEventIndex) &&
+      Number.isFinite(candidateEventIndex) &&
+      (positive ? candidateEventIndex > currentEventIndex : candidateEventIndex < currentEventIndex);
+    // Внутри одного квадрата data-ei — канонический порядок слева направо.
+    // Поэтому он надёжнее screen-координат во время скролла/zoom-transition.
+    if (!sameSquareByOrder && (positive ? primaryDelta <= 1 : primaryDelta >= -1)) return;
+    const primary = Math.abs(primaryDelta);
+    const cross = Math.abs(horizontal ? dy : dx);
+    // Ведущее направление важнее, но близость к той же строке/колонке
+    // не даёт стрелке «перепрыгнуть» на далёкую ячейку по диагонали.
+    const score = primary + cross * 1.35;
+    if (score < bestScore) {
+      best = input;
+      bestScore = score;
+    }
+    if (horizontal && currentViewport && owner.closest('.squares-viewport') === currentViewport && score < sameViewportBestScore) {
+      sameViewportBest = input;
+      sameViewportBestScore = score;
+    }
+    if (sameSquareByOrder) {
+      const logicalDistance = Math.abs(candidateEventIndex - currentEventIndex);
+      if (logicalDistance < sameSquareBestScore) {
+        sameSquareBest = input;
+        sameSquareBestScore = logicalDistance;
+      }
+    }
+  });
+  return sameSquareBest || sameViewportBest || best;
+}
+function navigateChordWheelByArrow(event) {
+  // 0.410 был обычным modal-кругом: стрелки не ретаргетили owner.
+  if (isDevWheel410()) return false;
+  if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(event.key)) return false;
+  const modal = DOM.chordWheelModal;
+  if (
+    !modal?.classList.contains('open') ||
+    !activeChordInput?.hasAttribute('readonly') ||
+    event.altKey || event.ctrlKey || event.metaKey
+  ) return false;
+  event.preventDefault();
+  const next = getDirectionalChordWheelInput(event.key);
+  if (next) retargetChordWheel(next, { revealDirection: event.key });
+  return true;
+}
+function cancelWheelCloseAnimation() {
+  if (wheelCloseTimer) {
+    clearTimeout(wheelCloseTimer);
+    wheelCloseTimer = 0;
+  }
+  // Следующее open всегда строит кнопки под нового owner. Не даём старому
+  // close-timer'у позже пересобрать DOM уже начавшегося нового opening.
+  wheelCloseNeedsModeTabsRefresh = false;
+  DOM.chordWheelModal?.classList.remove('closing');
+}
+function finishWheelCloseAnimation() {
+  DOM.chordWheelModal?.classList.remove('closing');
+  wheelCloseTimer = 0;
+  if (!wheelCloseNeedsModeTabsRefresh) return;
+  wheelCloseNeedsModeTabsRefresh = false;
+  renderWheelModeTabs();
+}
+function triggerWheelCommitPop(owner) {
+  if (!owner) return;
+  owner.classList.remove('wheel-commit-pop');
+  // Повторный commit до завершения прошлой анимации должен снова быть
+  // видимым: перезапускаем именно класс на следующем reflow.
+  void owner.offsetWidth;
+  owner.classList.add('wheel-commit-pop');
+  window.setTimeout(() => owner.classList.remove('wheel-commit-pop'), 190);
+}
+function positionContextualChordWheel() {
+  wheelPositionRaf = 0;
+  // Legacy Dev-circle остаётся исходным fixed/modal layout и не получает
+  // document-якорь, FLIP или scroll-retarget современного B-40.
+  if (isDevWheel410()) return;
+  const modal = DOM.chordWheelModal;
+  const container = wheelContainer();
+  const owner = wheelOwnerFor();
+  if (!modal?.classList.contains('open') || !container || !owner) return;
+  // Scroll/zoom должен держать круг на owner, а не продолжать старую
+  // траекторию. При новой навигации retarget сам сохранит текущую точку.
+  cancelWheelRetargetMotion({ keepVisualPosition: true });
+  container.dataset.side = 'around';
+  const position = getContextualWheelPosition(container, owner);
+  container.style.left = `${position.left}px`;
+  container.style.top = `${position.top}px`;
+}
+function requestWheelPosition() {
+  if (isDevWheel410() || wheelPositionRaf) return;
+  wheelPositionRaf = requestAnimationFrame(positionContextualChordWheel);
+}
+// Раскрытие ряда «добавить / клонировать» меняет высоту предыдущей
+// секции через CSS, а значит owner в следующей секции движется без
+// scroll/resize event. Пока идёт такой layout-transition, держим круг
+// на живом rect owner каждый кадр. Это также ловит любой подобный hover
+// shift, если ResizeObserver недоступен в старом браузере.
+const WHEEL_LAYOUT_TRACK_MS = 280;
+function cancelWheelLayoutAnchorTracking() {
+  if (wheelLayoutTrackRaf) cancelAnimationFrame(wheelLayoutTrackRaf);
+  wheelLayoutTrackRaf = 0;
+  wheelLayoutTrackUntil = 0;
+}
+function trackWheelAnchorDuringLayout(duration = WHEEL_LAYOUT_TRACK_MS) {
+  if (!DOM.chordWheelModal?.classList.contains('open')) return;
+  wheelLayoutTrackUntil = Math.max(wheelLayoutTrackUntil, performance.now() + duration);
+  if (wheelLayoutTrackRaf) return;
+  const tick = (now) => {
+    wheelLayoutTrackRaf = 0;
+    if (!DOM.chordWheelModal?.classList.contains('open')) return;
+    requestWheelPosition();
+    if (now < wheelLayoutTrackUntil) wheelLayoutTrackRaf = requestAnimationFrame(tick);
+  };
+  wheelLayoutTrackRaf = requestAnimationFrame(tick);
+}
+function isWheelLayoutShiftTransition(event) {
+  const target = event.target;
+  if (!target?.matches) return false;
+  return (
+    (target.matches('.square-actions-row') && ['max-height', 'margin-top'].includes(event.propertyName)) ||
+    (target.matches('#sectionsContainer') && event.propertyName === 'padding-top')
+  );
+}
+function initContextualChordWheel() {
+  // Клик вне круга закрывает только слой выбора. Исключение для ячейки
+  // обязательно: её повторный клик — утверждённый жест перехода во ввод.
+  document.addEventListener('pointerdown', (event) => {
+    if (!DOM.chordWheelModal?.classList.contains('open')) return;
+    const container = wheelContainer();
+    const owner = wheelOwnerFor();
+    if (container?.contains(event.target) || owner?.contains(event.target)) return;
+    const nextOwner = event.target.closest?.('.chord-wrapper');
+    const nextInput = nextOwner?.querySelector('.chord-input');
+    // Один click по другой readonly-ячейке меняет owner: круг не исчезает,
+    // а спокойно переезжает. Контролы ячейки остаются обычными внешними
+    // действиями и, как прежде, закрывают круг.
+    if (
+      nextInput &&
+      !event.target.closest('.del-square-btn, .chord-btn, .square-resize-handle') &&
+      retargetChordWheel(nextInput, { suppressOwnerClick: true })
+    ) {
+      event.preventDefault();
+      return;
+    }
+    closeChordWheel();
+  });
+  window.addEventListener('resize', requestWheelPosition);
+  window.addEventListener('scroll', requestWheelPosition, true);
+  // Safari может не послать window resize во время pinch: повторяем
+  // проверенный маршрут тултипа аппликатуры для visual viewport/gesture.
+  window.visualViewport?.addEventListener('resize', requestWheelPosition);
+  window.visualViewport?.addEventListener('scroll', requestWheelPosition);
+  document.addEventListener('gesturechange', requestWheelPosition, { passive: true });
+  // pointerover/out запускают трекинг до первого transition frame: именно
+  // этот маршрут воспроизводит hover другой секции с add/clone-кнопками.
+  const trackSectionHoverShift = (event) => {
+    if (!DOM.chordWheelModal?.classList.contains('open')) return;
+    const section = event.target?.closest?.('.section-card');
+    const relatedSection = event.relatedTarget?.closest?.('.section-card');
+    if (section && section !== relatedSection) trackWheelAnchorDuringLayout();
+  };
+  document.addEventListener('pointerover', trackSectionHoverShift, true);
+  document.addEventListener('pointerout', trackSectionHoverShift, true);
+  document.addEventListener('transitionrun', (event) => {
+    if (isWheelLayoutShiftTransition(event)) trackWheelAnchorDuringLayout();
+  }, true);
+  document.addEventListener('transitionend', (event) => {
+    if (isWheelLayoutShiftTransition(event)) requestWheelPosition();
+  }, true);
+}
+function openChordWheel(inp) {
+  if (isDevWheel410()) return openChordWheel410(inp);
+  if (!inp) return;
+  cancelWheelRetargetMotion();
+  cancelWheelCloseAnimation();
+  suppressFingeringTooltips();
+  clearWheelHover();
+  // Короткий обратный fade после прежнего close может ещё идти. При
+  // немедленном повторном открытии новый круг всегда начинает с чистого
+  // owner-состояния, а не наследует старый preview-акцент/ghost.
+  clearStaleWheelPreviewPresentation(inp);
+  if (activeChordInput && !activeChordInput.hasAttribute('readonly')) saveCurrentChord();
+  activeChordInput = inp;
+  setChordCellSelected(inp, true);
+  wheelOwnerFor(inp)?.classList.add('wheel-owner-active');
+  const sid = +inp.dataset.sec;
+  const sec = sections.find((s) => s.id === sid);
+  activeSectionKey = sec && sec.key ? sec.key : null;
+  DOM.chordWheelModal.setAttribute('aria-hidden', 'false');
+  DOM.chordWheelModal.classList.add('open');
+  setWheelMode(prepareWheelModeForChord(inp.value), { crossfade: false });
+  requestWheelPosition();
+}
+function closeChordWheel() {
+  if (isDevWheel410()) return closeChordWheel410();
+  const modal = DOM.chordWheelModal;
+  if (!modal || modal.classList.contains('closing')) return;
+  const wasOpen = modal.classList.contains('open');
+  wheelRetargetClickInput = null;
+  cancelWheelRetargetMotion({ keepVisualPosition: true });
+  clearWheelHover({ stopIdleMotion: true });
+  setChordCellSelected(activeChordInput, false);
+  wheelOwnerFor()?.classList.remove('wheel-owner-active');
+  modal.classList.remove('open');
+  modal.setAttribute('aria-hidden', 'true');
+  activeSectionKey = null;
+  const animateClosing = wasOpen && !prefersReducedWheelMotion();
+  // Не уничтожаем pinned-кнопку до её fade-out: это был единственный
+  // маршрут, который срезал exit-анимацию посередине кадра.
+  wheelCloseNeedsModeTabsRefresh = clearPinnedWheelExtension({ render: !animateClosing }) && animateClosing;
+  if (wheelPositionRaf) {
+    cancelAnimationFrame(wheelPositionRaf);
+    wheelPositionRaf = 0;
+  }
+  cancelWheelLayoutAnchorTracking();
+  // Семантически круг закрыт сразу: commit/manual input и следующий click
+  // не ждут motion. Только его рисунок остаётся на короткий обратный pop.
+  if (animateClosing) {
+    modal.classList.add('closing');
+    wheelCloseTimer = window.setTimeout(finishWheelCloseAnimation, WHEEL_CLOSE_MS);
+  }
+  // На таче тултип аппликатуры остаётся висеть после закрытия колеса:
+  // прячет его mousemove, которого здесь не бывает. Снимаем сразу, чтобы
+  // первый следующий тап не ушёл в зависший тултип.
+  if (
+    window.matchMedia &&
+    window.matchMedia('(pointer: coarse)').matches &&
+    typeof hideFingeringTooltip === 'function'
+  ) {
+    hideFingeringTooltip();
+    currentTooltipWrapper = null;
   }
 }
 function selectChord(c) {
+  if (isDevWheel410()) return selectChord410(c);
   if (!activeChordInput) return;
+  clearWheelHover({ restorePreview: false });
   const sid = +activeChordInput.dataset.sec,
     sqid = +activeChordInput.dataset.square,
     ei = +activeChordInput.dataset.ei;
@@ -31210,8 +33617,12 @@ function selectChord(c) {
   } else {
     updateCellsDegrees();
   }
-  previewChordNow(activeChordInput.value, activeChordInput.closest('.chord-wrapper'));
+  const committedOwner = activeChordInput.closest('.chord-wrapper');
+  previewChordNow(activeChordInput.value, committedOwner);
   closeChordWheel();
+  // Preview уже показал итоговое имя до клика; теперь достаточно коротко
+  // подтвердить именно commit небольшим pop самого имени в ячейке.
+  triggerWheelCommitPop(committedOwner);
 }
 
 // ---------- прочие вспомогательные функции ----------
@@ -31288,6 +33699,9 @@ function writeUiScale(p) {
   const plus = document.getElementById('scalePlus');
   if (minus) minus.disabled = p <= UI_SCALE_MIN;
   if (plus) plus.disabled = p >= UI_SCALE_MAX;
+  // Масштаб интерфейса меняет rem-геометрию без window resize. Открытый
+  // круг пересчитываем сразу от живого rect ячейки, как тултип аппликатуры.
+  if (DOM.chordWheelModal?.classList.contains('open')) positionContextualChordWheel();
 }
 // Установить конкретный масштаб (в процентах) с клампом и сохранением.
 function setUiScale(pct) {
@@ -32065,6 +34479,7 @@ function devStormStateRows() {
     ['Версия', document.querySelector('.app-title span')?.textContent.replace('· ver','').trim() || '—'], ['Схема', activeSchemeId() || 'Дефолт'],
     ['Песня', songName], ['Seal', currentSongSeal || '—'],
     ['220', powerAchievementSeen ? 'получена' : 'нет'],
+    ['Круг Dev', isDevWheel410() ? '0.410' : 'текущий'],
     ['Грохочет гром', stormSeenAchievements.has(THUNDER_ACHIEVEMENT_ID) ? 'получена' : 'нет'],
     ['Плашка грома', 'production woodcut-плашка'],
     ['Гроза unlock', stormUnlocked ? 'да' : 'нет'], ['Тумблер', schemeSurprisesEnabled ? 'вкл' : 'выкл'],
@@ -32134,9 +34549,10 @@ function openDevPalette() {
   let folderPath=[];
   const entry=(iconName,title,desc,action,folder)=>({iconName,title,desc,action,folder});
   const folders={
-    root:[entry('ti-player-play','Звук','Recovery, тест физического выхода',null,'sound'),entry('ti-award','Ачивки','Секреты и визуальные варианты',null,'achievements')],
+    root:[entry('ti-player-play','Звук','Recovery, тест физического выхода',null,'sound'),entry('ti-circle','Круг аккордов','B-40: текущий круг или буквальный 0.410',null,'wheel'),entry('ti-award','Ачивки','Секреты и визуальные варианты',null,'achievements')],
     sound:[entry('ti-repeat','Восстановить звук','Пересоздать AudioContext и переподключить аудиограф',()=>{closeDevPalette();hardRecoverAudioContext('dev',true);}),entry('ti-player-play','Тест Web Audio','Короткая синтетическая нота через AudioContext',()=>{closeDevPalette();playAudioRecoveryTestTone();}),entry('ti-player-play','Тест HTMLAudio','Тот же физический выход через 220.mp3, без Web Audio',()=>{closeDevPalette();playAudioMediaElementTest();}),entry('ti-clipboard-copy','Журнал звука','События Safari сохраняются даже после перезапуска',null,'audio-report')],
     'audio-report':[entry('ti-folder-open','Просмотреть отчёт','Текущее состояние и последние 200 аудиособытий',openAudioDiagnosticReport),entry('ti-clipboard-copy','Копировать отчёт','Скопировать JSON для разбора',()=>{closeDevPalette();copyAudioDiagnosticReport();}),entry('ti-trash','Очистить журнал','Удалить сохранённую диагностику',()=>{closeDevPalette();clearAudioDiagnosticLog();showToast('Аудиожурнал очищен');})],
+    wheel:[entry('ti-history','Круг 0.410','Буквальный B-40 версии 0.410; текущий круг закроется',()=>{setDevWheelVariant('410');closeDevPalette();}),entry('ti-sparkles','Текущий круг','Вернуть production-вариант B-40; текущий круг закроется',()=>{setDevWheelVariant('current');closeDevPalette();})],
     achievements:[entry('ti-bolt','220 вольт','Молния + глобальный BPM 220, без unlock Грозы',null,'220'),entry('ti-cloud-bolt','Грохочет гром','B-66.2: подписанная песня + схема Гроза',null,'thunder')],
     '220':[entry('ti-repeat','Ручной генератор','Dev-прототип: погасить экран и восстановить 220 V',startPowerGeneratorPrototype),entry('ti-trash','Сбросить «220 вольт»','Забыть только эту ачивку',()=>{closeDevPalette();resetPowerAchievementForTesting();})],
     thunder:[entry('ti-cloud-bolt','Гроза','Dev-инструменты эффекта и production-маршрута',null,'storm'),entry('ti-rectangle','Превью плашки','Production-вариант: текст + видимая молния',previewThunderPlateForDev)],
@@ -34107,6 +36523,7 @@ function saveCurrentChord() {
     previewChordNow(chord, activeChordInput.closest('.chord-wrapper'));
   }
   activeChordInput.setAttribute('readonly', 'readonly');
+  setChordCellSelected(activeChordInput, false);
   return true;
 }
 let manualInputFingeringBtn = null;
@@ -34155,8 +36572,10 @@ function showManualInputFingeringHint(inp, onActivate) {
 function activateManualInput(inp) {
   if (!inp) return;
   if (longPressTimer) clearTimeout(longPressTimer);
+  suppressFingeringTooltips();
   if (DOM.chordWheelModal.classList.contains('open')) closeChordWheel();
   activeChordInput = inp;
+  setChordCellSelected(activeChordInput, true);
   activeChordInput.removeAttribute('readonly');
   activeChordInput.focus();
   activeChordInput.setSelectionRange(0, 0);
@@ -34165,6 +36584,9 @@ function activateManualInput(inp) {
     inp2.removeEventListener('blur', onBlur);
     inp2.removeEventListener('keydown', onKey);
     hideManualInputFingeringHint();
+    // При обычном save класс уже снят в saveCurrentChord; при переходе
+    // в редактор аппликатуры снимаем здесь, не оставляя selection-фантом.
+    if (!inp2.hasAttribute('readonly')) setChordCellSelected(inp2, false);
   };
   const onBlur = () => {
     saveCurrentChord();
@@ -34476,6 +36898,7 @@ function attachChordWheelEvents() {
           e.target.closest('.square-resize-handle')
         )
           return;
+        if (consumeWheelRetargetClick(inp)) return;
         if (playbackState.isPlaying) {
           const sid = +w.dataset.sec,
             sqid = +w.dataset.square,
@@ -34499,23 +36922,26 @@ function attachChordWheelEvents() {
           activateManualInput(inp);
           return;
         }
+        // B-40: слой больше не модальный, центр ячейки остаётся живым.
+        // Повторный клик по той же ячейке — явный переход к ручному
+        // вводу, без отдельного карандаша и без таймера double-click.
+        if (isChordWheelOpenFor(inp)) {
+          if (timer) clearTimeout(timer);
+          activateManualInput(inp);
+          return;
+        }
         if (timer) {
           clearTimeout(timer);
           timer = null;
           const c = inp.value.trim();
           if (c) playChord(c, w);
         } else {
-          // На ТАЧ-устройстве первый тап только ВЫБИРАЕТ ячейку: он
-          // открывает её кнопки (размер, ритм, + и −) через
-          // is-buttons-armed. Открывать вдобавок колесо аккордов
-          // нельзя — оно модальное, ложится поверх (z-index 10001), и
-          // wheel-overlay перехватывает нажатия. На iPad это выглядело
-          // как «не нажимается ни одна кнопка»: колесо всплывало от
-          // любого касания и накрывало интерфейс.
-          //
-          // Колесо на таче открывает ВТОРОЙ тап по уже выбранной
-          // ячейке. С мышью поведение прежнее: наведение показывает
-          // кнопки, одиночный клик ведёт в колесо.
+          // На таче первый тап только выбирает ячейку и открывает её
+          // локальные кнопки. B-40 больше не кладёт завесу на весь
+          // редактор, но это правило сохраняем: тач-сценарий отдельной
+          // мобильной волны не меняем случайной правкой круга.
+          // Колесо на таче открывает второй тап по уже выбранной ячейке;
+          // мышью по-прежнему достаточно обычного клика.
           const coarse =
             window.matchMedia && window.matchMedia('(pointer: coarse)').matches;
           if (coarse && justArmedByTouch === w) {
@@ -35288,7 +37714,12 @@ if (document.fonts && document.fonts.ready) {
 // разворачивания секции — делает кэш неактуальным. ResizeObserver ловит
 // это независимо от того, прошла ли перерисовка через render().
 if (typeof ResizeObserver !== 'undefined') {
-  const chordLayoutObserver = new ResizeObserver(invalidateChordWrapperRects);
+  const chordLayoutObserver = new ResizeObserver(() => {
+    invalidateChordWrapperRects();
+    // CSS-hover/layout и изменения высоты соседней секции не посылают
+    // scroll/resize. Открытый круг должен всё равно следовать за owner.
+    if (DOM.chordWheelModal?.classList.contains('open')) requestWheelPosition();
+  });
   const observeLayoutRoot = () => {
     const root = document.getElementById('sectionsContainer') || document.body;
     if (root) chordLayoutObserver.observe(root);
@@ -41215,6 +43646,7 @@ document.addEventListener('click', (e) => {
     DOM.toolsDropdown?.classList.remove('open');
 });
 document.addEventListener('keydown', (e) => {
+  if (navigateChordWheelByArrow(e)) return;
   if (e.key === 'Escape') closeChordWheel();
   if (e.key === ' ' && e.target.tagName !== 'INPUT' && e.target.tagName !== 'TEXTAREA') {
     e.preventDefault();
@@ -41256,6 +43688,7 @@ initTheme();
 initScheme();
 initUiScale();
 initFingersVisibility();
+initWheelAnimations();
 initThemeLongPress();
 initSchemeSurprises();
 attachDevPaletteTrigger();
@@ -41276,8 +43709,10 @@ document.addEventListener('input', function (e) {
 });
 initKeyChangeHandler();
 // Кнопки расширений под колесом больше не в разметке — строим их из
-// списка до первой отрисовки.
+// списка до первой отрисовки. Затем вешаем единые слушатели B-40 на
+// контекстное закрытие и перепозиционирование кольца.
 renderWheelModeTabs();
+initContextualChordWheel();
 drawWheel();
 toggleTimeAndBeats();
 // ========== СОХРАНЕНИЕ / ЗАГРУЗКА / ЭКСПОРТ ==========
