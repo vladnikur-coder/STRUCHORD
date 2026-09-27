@@ -5289,11 +5289,23 @@ html[data-theme='dark'] #circleSvg #wheel-card-volume-bottom {
    наклоняется и получает смещение поверхностного света. */
 #circleSvg .wheel-hoverable.is-wheel-hovered {
   translate: var(--wheel-cursor-x, 0px) var(--wheel-cursor-y, 0px);
-  scale: var(--wheel-cursor-scale, 1.03);
+  /* Новая card начинает действительно neutral: rAF набирает scale вместе
+     с магнитом, наклоном и light, а не выдаёт готовый 3% grow на входе. */
+  scale: var(--wheel-cursor-scale, 1);
   rotate: var(--wheel-cursor-rotate, 0deg);
 }
 #circleSvg .wheel-sector-volume.is-wheel-hovered {
   translate: var(--wheel-cursor-light-x, 0px) var(--wheel-cursor-light-y, 0px);
+}
+/* Короткий хвост предыдущей card: она отпускает все surface-каналы,
+   пока следующая спокойно набирает их от neutral. */
+#circleSvg .wheel-hoverable.is-wheel-hovered.is-wheel-handoff-out {
+  translate: 0 0;
+  scale: 1;
+  rotate: 0deg;
+}
+#circleSvg .wheel-sector-volume.is-wheel-hovered.is-wheel-handoff-out {
+  translate: 0 0;
 }
 /* Две соседние пары расходятся по касательной: ближайшая заметнее,
    следующая вдвое тише. Cursor дополнительно даёт им общий инерционный
@@ -10949,7 +10961,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.471</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.472</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31348,10 +31360,13 @@ function createChordGroup(
 let wheelHoverState = null;
 let wheelHoverMotionRaf = 0;
 let wheelCursorResponseState = null;
-let wheelCursorResponseCarry = null;
 let wheelCursorResponseRaf = 0;
 const WHEEL_CURSOR_RESPONSE_TAU_MS = 64;
-const WHEEL_CURSOR_HANDOFF_FRAMES = 6;
+const WHEEL_CURSOR_ENTRY_TAU_MS = 100;
+const WHEEL_CURSOR_ENTRY_FRAMES = 12;
+const WHEEL_CURSOR_TAIL_MS = 140;
+const wheelHoverTailTimers = new Map();
+const WHEEL_CURSOR_STYLE_PROPERTIES = ['--wheel-cursor-x', '--wheel-cursor-y', '--wheel-cursor-light-x', '--wheel-cursor-light-y', '--wheel-cursor-rotate', '--wheel-cursor-scale'];
 let wheelPreviewState = null;
 let wheelPreviewTransitionToken = 0;
 const WHEEL_PREVIEW_TRANSITION_MS = 175;
@@ -31465,21 +31480,46 @@ function restoreWheelNeighborBaseMotion(state) {
     if (y) node.style.setProperty('--wheel-neighbor-y', y);
   });
 }
-function clearWheelCursorResponse(state) {
-  cancelWheelCursorResponseFrame();
-  state?.nodes?.forEach((node) => {
-    ['--wheel-cursor-x', '--wheel-cursor-y', '--wheel-cursor-light-x', '--wheel-cursor-light-y', '--wheel-cursor-rotate', '--wheel-cursor-scale']
-      .forEach((property) => node.style.removeProperty(property));
+function clearWheelCursorNodeStyles(nodes) {
+  nodes?.forEach((node) => WHEEL_CURSOR_STYLE_PROPERTIES.forEach((property) => node.style.removeProperty(property)));
+}
+function clearWheelHoverTail(nodes) {
+  nodes?.forEach((node) => {
+    const timer = wheelHoverTailTimers.get(node);
+    if (timer) window.clearTimeout(timer);
+    wheelHoverTailTimers.delete(node);
+    node.classList.remove('is-wheel-handoff-out');
   });
+}
+function clearAllWheelHoverTails() {
+  const tailNodes = Array.from(wheelHoverTailTimers.keys());
+  clearWheelHoverTail(tailNodes);
+  tailNodes.forEach((node) => node.classList.remove('is-wheel-hovered'));
+  clearWheelCursorNodeStyles(tailNodes);
+}
+function beginWheelHoverTail(state) {
+  if (!state?.nodes?.length || prefersReducedWheelMotion()) return;
+  state.nodes.forEach((node) => {
+    clearWheelHoverTail([node]);
+    node.classList.add('is-wheel-handoff-out');
+    const timer = window.setTimeout(() => {
+      if (wheelHoverTailTimers.get(node) !== timer) return;
+      wheelHoverTailTimers.delete(node);
+      node.classList.remove('is-wheel-handoff-out', 'is-wheel-hovered');
+      clearWheelCursorNodeStyles([node]);
+    }, WHEEL_CURSOR_TAIL_MS);
+    wheelHoverTailTimers.set(node, timer);
+  });
+}
+function clearWheelCursorResponse(state, { preserveNodeStyles = false } = {}) {
+  cancelWheelCursorResponseFrame();
+  if (!preserveNodeStyles) clearWheelCursorNodeStyles(state?.nodes);
   restoreWheelNeighborBaseMotion(state);
 }
-function clearWheelHoverClasses(state) {
+function clearWheelHoverClasses(state, { preserveSurfaceTail = false } = {}) {
   cancelWheelHoverMotionFrame();
-  clearWheelCursorResponse(state);
-  // Carry задаётся только activateWheelHover для перехода card → card.
-  // Обычный leave/close не должен оставлять магнитное смещение следующему кругу.
-  wheelCursorResponseCarry = null;
-  state?.nodes?.forEach((node) => node.classList.remove('is-wheel-hovered'));
+  clearWheelCursorResponse(state, { preserveNodeStyles: preserveSurfaceTail });
+  if (!preserveSurfaceTail) state?.nodes?.forEach((node) => node.classList.remove('is-wheel-hovered'));
   state?.neighborNodes?.forEach((node) => {
     node.classList.remove('is-wheel-neighbor-spread');
     ['--wheel-neighbor-x', '--wheel-neighbor-y', '--wheel-neighbor-base-x', '--wheel-neighbor-base-y']
@@ -31489,7 +31529,10 @@ function clearWheelHoverClasses(state) {
 function applyWheelHoverClasses(state) {
   const apply = () => {
     if (wheelHoverState !== state) return;
-    state.nodes.forEach((node) => node.classList.add('is-wheel-hovered'));
+    state.nodes.forEach((node) => {
+      clearWheelHoverTail([node]);
+      node.classList.add('is-wheel-hovered');
+    });
     state.neighborNodes.forEach((node) => node.classList.add('is-wheel-neighbor-spread'));
     wheelHoverMotionRaf = 0;
   };
@@ -31572,6 +31615,7 @@ function getWheelNeighborSpreadNodes({ ring, index }) {
 }
 function clearWheelHover({ restorePreview = true } = {}) {
   clearWheelHoverClasses(wheelHoverState);
+  clearAllWheelHoverTails();
   wheelHoverState = null;
   if (restorePreview) clearWheelPreview();
   else discardWheelPreview();
@@ -31596,15 +31640,12 @@ function activateWheelHover(nodes, chord, position) {
     applyWheelHoverClasses(wheelHoverState);
     return;
   }
-  // Между соседними секторами не возвращаем исходный chord: тот же
-  // preview-state сохраняет исходное значение, а имена перетекают одно
-  // в другое без промежуточного мигания owner-ячейки. Также переносим
-  // текущую cursor-позицию: новый магнит не имеет права «прилипнуть» к
-  // медленно пересекаемому соседнему сектору одним кадром.
-  const cursorCarry = wheelCursorResponseState?.hoverState === wheelHoverState
-    ? { ...wheelCursorResponseState.current } : null;
-  clearWheelHoverClasses(wheelHoverState);
-  wheelCursorResponseCarry = cursorCarry;
+  // На границе card → card старая поверхность коротко затухает, а новая
+  // набирает все cursor-каналы из neutral. Поэтому магнит не переносит
+  // чужую локальную координату и не «прилипает» к новой карточке одним кадром.
+  const previousState = wheelHoverState;
+  beginWheelHoverTail(previousState);
+  clearWheelHoverClasses(previousState, { preserveSurfaceTail: !!previousState });
   wheelHoverState = {
     chord,
     nodes: [...nodes],
@@ -31653,11 +31694,10 @@ function runWheelCursorResponseFrame(timestamp) {
   }
   const elapsed = response.lastTimestamp === null ? 16 : Math.min(48, Math.max(1, timestamp - response.lastTimestamp));
   response.lastTimestamp = timestamp;
-  // Первые шесть кадров после card → card используют более длинную
-  // постоянную: большой магнит подхватывается постепенно, затем возвращается
-  // к обычной живой инерции pointer response.
-  const tau = response.handoffFrames > 0 ? 128 : WHEEL_CURSOR_RESPONSE_TAU_MS;
-  if (response.handoffFrames > 0) response.handoffFrames -= 1;
+  // Новая card набирает всю поверхность примерно за 200 мс: первые
+  // двенадцать кадров спокойнее, затем остаётся обычная живая инерция.
+  const tau = response.entryFrames > 0 ? WHEEL_CURSOR_ENTRY_TAU_MS : WHEEL_CURSOR_RESPONSE_TAU_MS;
+  if (response.entryFrames > 0) response.entryFrames -= 1;
   const alpha = 1 - Math.exp(-elapsed / tau);
   let distance = 0;
   Object.keys(response.current).forEach((key) => {
@@ -31678,16 +31718,13 @@ function updateWheelCursorResponse(nodes, event) {
   const energy = Math.min(1, Math.hypot(nx, ny));
   let response = wheelCursorResponseState;
   if (!response || response.hoverState !== wheelHoverState) {
-    const carry = wheelCursorResponseCarry;
-    wheelCursorResponseCarry = null;
     response = wheelCursorResponseState = {
       hoverState: wheelHoverState,
       lastTimestamp: null,
-      // Handoff хранит все каналы, не только x/y: scale, light и spread
-      // переходят между карточками в одной непрерывной фазе.
-      current: carry || { x: 0, y: 0, lightX: 0, lightY: 0, rotate: 0, scale: 1.03, factor: 1 },
+      // Все каналы начинают вместе: neutral surface → target новой card.
+      current: { x: 0, y: 0, lightX: 0, lightY: 0, rotate: 0, scale: 1, factor: 1 },
       target: {},
-      handoffFrames: carry ? WHEEL_CURSOR_HANDOFF_FRAMES : 0,
+      entryFrames: WHEEL_CURSOR_ENTRY_FRAMES,
     };
   }
   // Магнит возвращён к читаемому размаху, а rAF ведёт все cursor-каналы

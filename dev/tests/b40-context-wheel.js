@@ -125,7 +125,7 @@ w.addEventListener('load', () => {
       /wheel-quality-out 0\.12s ease-in-out both/.test(wheelSource));
     ok('hover сохраняет общий центр поверхности и подписи при spring/magnet-ответе',
       !/--wheel-hover-x/.test(wheelSource) &&
-      /#circleSvg \.wheel-hoverable\.is-wheel-hovered[\s\S]*?translate: var\(--wheel-cursor-x, 0px\) var\(--wheel-cursor-y, 0px\);[\s\S]*?scale: var\(--wheel-cursor-scale, 1\.03\);[\s\S]*?rotate: var\(--wheel-cursor-rotate, 0deg\);/.test(wheelSource) &&
+      /#circleSvg \.wheel-hoverable\.is-wheel-hovered[\s\S]*?translate: var\(--wheel-cursor-x, 0px\) var\(--wheel-cursor-y, 0px\);[\s\S]*?scale: var\(--wheel-cursor-scale, 1\);[\s\S]*?rotate: var\(--wheel-cursor-rotate, 0deg\);/.test(wheelSource) &&
       /transform-box: view-box;/.test(wheelSource) &&
       /--wheel-hover-origin-x/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
@@ -149,9 +149,13 @@ w.addEventListener('load', () => {
       /nx \* 1\.05/.test(wheelSource) &&
       /1\.03 \+ energy \* 0\.024/.test(wheelSource) &&
       /const WHEEL_CURSOR_RESPONSE_TAU_MS = 64/.test(wheelSource) &&
-      /const WHEEL_CURSOR_HANDOFF_FRAMES = 6/.test(wheelSource) &&
-      /wheelCursorResponseCarry/.test(wheelSource) &&
-      /handoffFrames: carry \? WHEEL_CURSOR_HANDOFF_FRAMES : 0/.test(wheelSource) &&
+      /const WHEEL_CURSOR_ENTRY_TAU_MS = 100/.test(wheelSource) &&
+      /const WHEEL_CURSOR_ENTRY_FRAMES = 12/.test(wheelSource) &&
+      /const WHEEL_CURSOR_TAIL_MS = 140/.test(wheelSource) &&
+      /function beginWheelHoverTail\(state\)/.test(wheelSource) &&
+      /preserveSurfaceTail: !!previousState/.test(wheelSource) &&
+      /is-wheel-handoff-out/.test(wheelSource) &&
+      /entryFrames: WHEEL_CURSOR_ENTRY_FRAMES/.test(wheelSource) &&
       /function runWheelCursorResponseFrame\(timestamp\)/.test(wheelSource) &&
       /factor: 1 \+ energy \* 0\.63/.test(wheelSource) &&
       /function updateWheelCursorResponse\(nodes, event\)/.test(wheelSource) &&
