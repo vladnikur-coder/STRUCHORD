@@ -149,6 +149,9 @@ w.addEventListener('load', () => {
       /nx \* 1\.05/.test(wheelSource) &&
       /1\.03 \+ energy \* 0\.024/.test(wheelSource) &&
       /const WHEEL_CURSOR_RESPONSE_TAU_MS = 64/.test(wheelSource) &&
+      /const WHEEL_CURSOR_HANDOFF_FRAMES = 6/.test(wheelSource) &&
+      /wheelCursorResponseCarry/.test(wheelSource) &&
+      /handoffFrames: carry \? WHEEL_CURSOR_HANDOFF_FRAMES : 0/.test(wheelSource) &&
       /function runWheelCursorResponseFrame\(timestamp\)/.test(wheelSource) &&
       /factor: 1 \+ energy \* 0\.63/.test(wheelSource) &&
       /function updateWheelCursorResponse\(nodes, event\)/.test(wheelSource) &&

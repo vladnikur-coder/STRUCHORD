@@ -10949,7 +10949,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.470</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.471</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31348,8 +31348,10 @@ function createChordGroup(
 let wheelHoverState = null;
 let wheelHoverMotionRaf = 0;
 let wheelCursorResponseState = null;
+let wheelCursorResponseCarry = null;
 let wheelCursorResponseRaf = 0;
 const WHEEL_CURSOR_RESPONSE_TAU_MS = 64;
+const WHEEL_CURSOR_HANDOFF_FRAMES = 6;
 let wheelPreviewState = null;
 let wheelPreviewTransitionToken = 0;
 const WHEEL_PREVIEW_TRANSITION_MS = 175;
@@ -31474,6 +31476,9 @@ function clearWheelCursorResponse(state) {
 function clearWheelHoverClasses(state) {
   cancelWheelHoverMotionFrame();
   clearWheelCursorResponse(state);
+  // Carry задаётся только activateWheelHover для перехода card → card.
+  // Обычный leave/close не должен оставлять магнитное смещение следующему кругу.
+  wheelCursorResponseCarry = null;
   state?.nodes?.forEach((node) => node.classList.remove('is-wheel-hovered'));
   state?.neighborNodes?.forEach((node) => {
     node.classList.remove('is-wheel-neighbor-spread');
@@ -31593,8 +31598,13 @@ function activateWheelHover(nodes, chord, position) {
   }
   // Между соседними секторами не возвращаем исходный chord: тот же
   // preview-state сохраняет исходное значение, а имена перетекают одно
-  // в другое без промежуточного мигания owner-ячейки.
+  // в другое без промежуточного мигания owner-ячейки. Также переносим
+  // текущую cursor-позицию: новый магнит не имеет права «прилипнуть» к
+  // медленно пересекаемому соседнему сектору одним кадром.
+  const cursorCarry = wheelCursorResponseState?.hoverState === wheelHoverState
+    ? { ...wheelCursorResponseState.current } : null;
   clearWheelHoverClasses(wheelHoverState);
+  wheelCursorResponseCarry = cursorCarry;
   wheelHoverState = {
     chord,
     nodes: [...nodes],
@@ -31643,7 +31653,12 @@ function runWheelCursorResponseFrame(timestamp) {
   }
   const elapsed = response.lastTimestamp === null ? 16 : Math.min(48, Math.max(1, timestamp - response.lastTimestamp));
   response.lastTimestamp = timestamp;
-  const alpha = 1 - Math.exp(-elapsed / WHEEL_CURSOR_RESPONSE_TAU_MS);
+  // Первые шесть кадров после card → card используют более длинную
+  // постоянную: большой магнит подхватывается постепенно, затем возвращается
+  // к обычной живой инерции pointer response.
+  const tau = response.handoffFrames > 0 ? 128 : WHEEL_CURSOR_RESPONSE_TAU_MS;
+  if (response.handoffFrames > 0) response.handoffFrames -= 1;
+  const alpha = 1 - Math.exp(-elapsed / tau);
   let distance = 0;
   Object.keys(response.current).forEach((key) => {
     const next = response.current[key] + (response.target[key] - response.current[key]) * alpha;
@@ -31663,11 +31678,16 @@ function updateWheelCursorResponse(nodes, event) {
   const energy = Math.min(1, Math.hypot(nx, ny));
   let response = wheelCursorResponseState;
   if (!response || response.hoverState !== wheelHoverState) {
+    const carry = wheelCursorResponseCarry;
+    wheelCursorResponseCarry = null;
     response = wheelCursorResponseState = {
       hoverState: wheelHoverState,
       lastTimestamp: null,
-      current: { x: 0, y: 0, lightX: 0, lightY: 0, rotate: 0, scale: 1.03, factor: 1 },
+      // Handoff хранит все каналы, не только x/y: scale, light и spread
+      // переходят между карточками в одной непрерывной фазе.
+      current: carry || { x: 0, y: 0, lightX: 0, lightY: 0, rotate: 0, scale: 1.03, factor: 1 },
       target: {},
+      handoffFrames: carry ? WHEEL_CURSOR_HANDOFF_FRAMES : 0,
     };
   }
   // Магнит возвращён к читаемому размаху, а rAF ведёт все cursor-каналы
@@ -31694,7 +31714,13 @@ function wireWheelSectorHover(nodes, chord, ring, index, centerX, centerY) {
     node.dataset.wheelHoverIndex = String(index);
     node.style.setProperty('--wheel-hover-origin-x', originX);
     node.style.setProperty('--wheel-hover-origin-y', originY);
-    node.addEventListener('pointerover', () => activateWheelHover(nodes.filter(Boolean), chord, { ring, index }));
+    node.addEventListener('pointerover', (event) => {
+      const hoverNodes = nodes.filter(Boolean);
+      activateWheelHover(hoverNodes, chord, { ring, index });
+      // На медленном переходе следующий pointermove может прийти поздно;
+      // используем уже имеющиеся координаты самого входа в карточку.
+      updateWheelCursorResponse(hoverNodes, event);
+    });
     node.addEventListener('pointermove', (event) => updateWheelCursorResponse(nodes.filter(Boolean), event));
   });
 }
