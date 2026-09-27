@@ -152,6 +152,11 @@ w.addEventListener('load', () => {
       /const WHEEL_CURSOR_ENTRY_TAU_MS = 100/.test(wheelSource) &&
       /const WHEEL_CURSOR_ENTRY_FRAMES = 12/.test(wheelSource) &&
       /const WHEEL_CURSOR_TAIL_MS = 140/.test(wheelSource) &&
+      /const WHEEL_CURSOR_GLOBAL_RANGE = 64/.test(wheelSource) &&
+      /function wheelSvgPointerPoint\(event\)/.test(wheelSource) &&
+      /Number\.isFinite\(event\?\.clientX\)/.test(wheelSource) &&
+      /response\.anchor\.x/.test(wheelSource) &&
+      !/sector\?\.getBoundingClientRect/.test(wheelSource) &&
       /function beginWheelHoverTail\(state\)/.test(wheelSource) &&
       /preserveSurfaceTail: !!previousState/.test(wheelSource) &&
       /is-wheel-handoff-out/.test(wheelSource) &&
@@ -284,6 +289,7 @@ w.addEventListener('load', () => {
       hoveredChordLabel?.style.getPropertyValue('--wheel-hover-origin-x') === hoverSector.style.getPropertyValue('--wheel-hover-origin-x') &&
       hoveredChordLabel?.style.getPropertyValue('--wheel-hover-origin-y') === hoverSector.style.getPropertyValue('--wheel-hover-origin-y'));
     hoverSector.getBoundingClientRect = () => ({ left: 20, top: 30, width: 100, height: 80, right: 120, bottom: 110 });
+    d.getElementById('circleSvg').getBoundingClientRect = () => ({ left: 20, top: 30, width: 100, height: 80, right: 120, bottom: 110 });
     const majorNear = Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="1"]'));
     const majorFar = Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="2"]'));
     const minorAligned = Array.from(d.querySelectorAll('[data-wheel-hover-ring="minor"][data-wheel-hover-index="0"]'));
@@ -310,6 +316,7 @@ w.addEventListener('load', () => {
     const queuedCursorFrames = [];
     w.eval('clearWheelCursorResponse(wheelHoverState)');
     w.requestAnimationFrame = (callback) => { queuedCursorFrames.push(callback); return queuedCursorFrames.length; };
+    hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 70, clientY: 70 }));
     hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 50 }));
     queuedCursorFrames.shift()?.(100);
     const firstInterpolatedX = Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-x'));
@@ -320,6 +327,7 @@ w.addEventListener('load', () => {
       secondInterpolatedX > firstInterpolatedX && secondInterpolatedX < 1.98);
     w.eval('cancelWheelCursorResponseFrame()');
     w.requestAnimationFrame = (callback) => { callback(); return 1; };
+    hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 70, clientY: 70 }));
     hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 50 }));
     ok('cursor инерционно усиливает разъезд соседей от центра карточки',
       spreadLength(majorNear[0]) > baselineNeighborSpread);
