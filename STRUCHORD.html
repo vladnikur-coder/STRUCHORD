@@ -5284,31 +5284,22 @@ html[data-theme='dark'] #circleSvg #wheel-card-volume-bottom {
   opacity: 0.965;
   filter: saturate(1.055) brightness(1.016) var(--wheel-card-depth-shadow);
 }
-/* Наведённая карточка остаётся на своём месте и слегка растёт из центра.
-   Разъезд остаётся только у окружающих карточек, поэтому читается логично. */
+/* Принятый объединённый ответ: сектор-карточка остаётся читаемой
+   системой с подписью, но пружинно растёт, чуть тянется к cursor, мягко
+   наклоняется и получает смещение поверхностного света. */
 #circleSvg .wheel-hoverable.is-wheel-hovered {
-  translate: 0 0;
-  scale: var(--wheel-cursor-scale, 1.03);
-}
-/* Две соседние пары расходятся по касательной: ближайшая заметнее,
-   следующая вдвое тише. Иными кольцами это движение не управляет. */
-#circleSvg .wheel-hoverable.is-wheel-neighbor-spread {
-  translate: var(--wheel-neighbor-x, 0px) var(--wheel-neighbor-y, 0px);
-}
-/* Dev-прототипы B-40: по умолчанию data-атрибута нет и production остаётся
-   на принятом spring-варианте. Каждый вариант получает реальные pointermove
-   координаты только активной сектор-карточки. */
-html[data-wheel-hover-prototype='magnet'] #circleSvg .wheel-hoverable.is-wheel-hovered {
   translate: var(--wheel-cursor-x, 0px) var(--wheel-cursor-y, 0px);
-}
-html[data-wheel-hover-prototype='tilt'] #circleSvg .wheel-hoverable.is-wheel-hovered {
+  scale: var(--wheel-cursor-scale, 1.03);
   rotate: var(--wheel-cursor-rotate, 0deg);
 }
-html[data-wheel-hover-prototype='tilt'] #circleSvg .wheel-sector-volume.is-wheel-hovered {
+#circleSvg .wheel-sector-volume.is-wheel-hovered {
   translate: var(--wheel-cursor-light-x, 0px) var(--wheel-cursor-light-y, 0px);
 }
-html[data-wheel-hover-prototype='pressure'] #circleSvg .wheel-hoverable.is-wheel-hovered {
-  scale: var(--wheel-cursor-pressure-scale, 1.03);
+/* Две соседние пары расходятся по касательной: ближайшая заметнее,
+   следующая вдвое тише. Cursor дополнительно даёт им общий инерционный
+   толчок, пропорциональный удалению от центра sector-карточки. */
+#circleSvg .wheel-hoverable.is-wheel-neighbor-spread {
+  translate: var(--wheel-neighbor-x, 0px) var(--wheel-neighbor-y, 0px);
 }
 #circleSvg .wheel-sector.is-wheel-hovered {
   opacity: 1;
@@ -10958,7 +10949,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.465</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.466</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31354,14 +31345,6 @@ function createChordGroup(
 // сохранённое значение. Между именами остаётся короткий ghost старого
 // текста — поэтому движение по секторам читается как crossfade, а не как
 // серия DOM-скачков в owner-ячейке.
-const WHEEL_HOVER_PROTOTYPES = Object.freeze({
-  baseline: { title: 'Тактильная пружина', description: 'Production: лёгкий spring, реакция на позицию курсора и инерционный разъезд соседей.' },
-  magnet: { title: 'Магнит', description: 'Сектор-карточка чуть тянется к курсору.' },
-  tilt: { title: 'Наклон и свет', description: 'Поверхность слегка наклоняется, а блик смещается к курсору.' },
-  pressure: { title: 'Живая поверхность', description: 'Карточка дышит масштабом в зависимости от позиции курсора.' },
-  push: { title: 'Курсор раздвигает круг', description: 'Движение курсора усиливает разъезд окружающих карточек.' },
-});
-let wheelHoverPrototype = 'baseline';
 let wheelHoverState = null;
 let wheelHoverMotionRaf = 0;
 let wheelPreviewState = null;
@@ -31474,19 +31457,10 @@ function restoreWheelNeighborBaseMotion(state) {
 }
 function clearWheelCursorResponse(state) {
   state?.nodes?.forEach((node) => {
-    ['--wheel-cursor-x', '--wheel-cursor-y', '--wheel-cursor-light-x', '--wheel-cursor-light-y', '--wheel-cursor-rotate', '--wheel-cursor-scale', '--wheel-cursor-pressure-scale']
+    ['--wheel-cursor-x', '--wheel-cursor-y', '--wheel-cursor-light-x', '--wheel-cursor-light-y', '--wheel-cursor-rotate', '--wheel-cursor-scale']
       .forEach((property) => node.style.removeProperty(property));
   });
   restoreWheelNeighborBaseMotion(state);
-}
-function setWheelHoverPrototype(prototype) {
-  if (!WHEEL_HOVER_PROTOTYPES[prototype]) return false;
-  wheelHoverPrototype = prototype;
-  const root = document.documentElement;
-  if (prototype === 'baseline') delete root.dataset.wheelHoverPrototype;
-  else root.dataset.wheelHoverPrototype = prototype;
-  clearWheelCursorResponse(wheelHoverState);
-  return true;
 }
 function clearWheelHoverClasses(state) {
   cancelWheelHoverMotionFrame();
@@ -31629,21 +31603,16 @@ function updateWheelCursorResponse(nodes, event) {
   const ny = Math.max(-1, Math.min(1, ((event.clientY - rect.top) / rect.height - 0.5) * 2));
   const energy = Math.min(1, Math.hypot(nx, ny));
   wheelHoverState.nodes.forEach((node) => {
-    node.style.setProperty('--wheel-cursor-x', `${(nx * 2.2).toFixed(2)}px`);
-    node.style.setProperty('--wheel-cursor-y', `${(ny * 2.2).toFixed(2)}px`);
-    node.style.setProperty('--wheel-cursor-light-x', `${(nx * 1.25).toFixed(2)}px`);
-    node.style.setProperty('--wheel-cursor-light-y', `${(ny * 1.25).toFixed(2)}px`);
-    node.style.setProperty('--wheel-cursor-rotate', `${(nx * 0.55).toFixed(2)}deg`);
-    // Production держит связь с курсором едва заметной; dev «Живая
-    // поверхность» может показать её усиленный вариант для сравнения.
-    node.style.setProperty('--wheel-cursor-scale', `${(1.03 + energy * 0.012).toFixed(4)}`);
-    node.style.setProperty('--wheel-cursor-pressure-scale', `${(1.03 + energy * 0.022).toFixed(4)}`);
+    node.style.setProperty('--wheel-cursor-x', `${(nx * 3.3).toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-y', `${(ny * 3.3).toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-light-x', `${(nx * 1.875).toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-light-y', `${(ny * 1.875).toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-rotate', `${(nx * 0.825).toFixed(2)}deg`);
+    // Объединённый production-ответ: заметнее исходных прототипов, но
+    // всё ещё тактильный, а не игровой — максимум 4.8% у кромки карточки.
+    node.style.setProperty('--wheel-cursor-scale', `${(1.03 + energy * 0.018).toFixed(4)}`);
   });
-  if (wheelHoverPrototype !== 'push') {
-    restoreWheelNeighborBaseMotion(wheelHoverState);
-    return;
-  }
-  const factor = 1 + energy * 0.42;
+  const factor = 1 + energy * 0.63;
   wheelHoverState.neighborNodes.forEach((node) => {
     const baseX = Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-base-x')) || 0;
     const baseY = Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-base-y')) || 0;
@@ -33448,8 +33417,7 @@ function devStormStateRows() {
     ['Audio time', audioCtx ? audioCtx.currentTime.toFixed(2) : '—'], ['Audio gen', audioContextGeneration],
     ['Blur', audioLastBlurDurationMs ? Math.round(audioLastBlurDurationMs/1000)+' c' : '—'], ['Recovery', audioRecoveryPending ? 'ожидает жест' : 'готов'],
     ['Audio error', audioRecoveryLastError || '—'],
-    ['Audio log', audioDiagnosticLog.length ? `${audioDiagnosticLog.length} · ${audioDiagnosticLog.at(-1).type}` : 'пусто'],
-    ['Круг hover', WHEEL_HOVER_PROTOTYPES[wheelHoverPrototype]?.title || 'Пружина']
+    ['Audio log', audioDiagnosticLog.length ? `${audioDiagnosticLog.length} · ${audioDiagnosticLog.at(-1).type}` : 'пусто']
   ];
 }
 function previewThunderPlateForDev() {
@@ -33510,15 +33478,9 @@ function openDevPalette() {
   let folderPath=[];
   const entry=(iconName,title,desc,action,folder)=>({iconName,title,desc,action,folder});
   const folders={
-    root:[entry('ti-player-play','Звук','Recovery, тест физического выхода',null,'sound'),entry('ti-circle','Круг аккордов','Dev-прототипы hover с реакцией на курсор',null,'wheel-hover'),entry('ti-award','Ачивки','Секреты и визуальные варианты',null,'achievements')],
+    root:[entry('ti-player-play','Звук','Recovery, тест физического выхода',null,'sound'),entry('ti-award','Ачивки','Секреты и визуальные варианты',null,'achievements')],
     sound:[entry('ti-repeat','Восстановить звук','Пересоздать AudioContext и переподключить аудиограф',()=>{closeDevPalette();hardRecoverAudioContext('dev',true);}),entry('ti-player-play','Тест Web Audio','Короткая синтетическая нота через AudioContext',()=>{closeDevPalette();playAudioRecoveryTestTone();}),entry('ti-player-play','Тест HTMLAudio','Тот же физический выход через 220.mp3, без Web Audio',()=>{closeDevPalette();playAudioMediaElementTest();}),entry('ti-clipboard-copy','Журнал звука','События Safari сохраняются даже после перезапуска',null,'audio-report')],
     'audio-report':[entry('ti-folder-open','Просмотреть отчёт','Текущее состояние и последние 200 аудиособытий',openAudioDiagnosticReport),entry('ti-clipboard-copy','Копировать отчёт','Скопировать JSON для разбора',()=>{closeDevPalette();copyAudioDiagnosticReport();}),entry('ti-trash','Очистить журнал','Удалить сохранённую диагностику',()=>{closeDevPalette();clearAudioDiagnosticLog();showToast('Аудиожурнал очищен');})],
-    'wheel-hover':Object.entries(WHEEL_HOVER_PROTOTYPES).map(([id, prototype])=>entry(
-      id === 'baseline' ? 'ti-sparkles' : id === 'magnet' ? 'ti-magnet' : id === 'tilt' ? 'ti-bulb' : id === 'pressure' ? 'ti-wave-sine' : 'ti-arrows-out',
-      prototype.title,
-      prototype.description,
-      ()=>{setWheelHoverPrototype(id);closeDevPalette();showToast(`Круг · ${prototype.title}`);}
-    )),
     achievements:[entry('ti-bolt','220 вольт','Молния + глобальный BPM 220, без unlock Грозы',null,'220'),entry('ti-cloud-bolt','Грохочет гром','B-66.2: подписанная песня + схема Гроза',null,'thunder')],
     '220':[entry('ti-repeat','Ручной генератор','Dev-прототип: погасить экран и восстановить 220 V',startPowerGeneratorPrototype),entry('ti-trash','Сбросить «220 вольт»','Забыть только эту ачивку',()=>{closeDevPalette();resetPowerAchievementForTesting();})],
     thunder:[entry('ti-cloud-bolt','Гроза','Dev-инструменты эффекта и production-маршрута',null,'storm'),entry('ti-rectangle','Превью плашки','Production-вариант: текст + видимая молния',previewThunderPlateForDev)],
