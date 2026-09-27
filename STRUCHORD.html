@@ -5223,9 +5223,9 @@ html[data-theme='dark'] #circleSvg {
 #circleSvg .wheel-sector-volume,
 #circleSvg .wheel-chord-label,
 #circleSvg .wheel-degree-label {
-  /* Быстрый quiet ease: поверхность сразу следует за pointer, но
-     мягко тормозит у цели — без overshoot, рывка на пороге и отскока. */
-  transition: translate 0.24s cubic-bezier(0.2, 0.65, 0.3, 1), scale 0.24s cubic-bezier(0.2, 0.65, 0.3, 1), rotate 0.24s cubic-bezier(0.2, 0.65, 0.3, 1), filter 0.18s ease-in-out, opacity 0.18s ease-in-out;
+  /* Непрерывную инерцию ведёт requestAnimationFrame; короткий quiet ease
+     лишь собирает вход/выход без overshoot и без рывка на пороге. */
+  transition: translate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), scale 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), rotate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), filter 0.16s ease-in-out, opacity 0.16s ease-in-out;
 }
 #circleSvg .wheel-hoverable {
   /* SVG-карточка заранее вынесена в compositing layer на время открытого
@@ -10949,7 +10949,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.469</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.470</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31347,6 +31347,9 @@ function createChordGroup(
 // серия DOM-скачков в owner-ячейке.
 let wheelHoverState = null;
 let wheelHoverMotionRaf = 0;
+let wheelCursorResponseState = null;
+let wheelCursorResponseRaf = 0;
+const WHEEL_CURSOR_RESPONSE_TAU_MS = 64;
 let wheelPreviewState = null;
 let wheelPreviewTransitionToken = 0;
 const WHEEL_PREVIEW_TRANSITION_MS = 175;
@@ -31447,6 +31450,11 @@ function cancelWheelHoverMotionFrame() {
   cancelAnimationFrame(wheelHoverMotionRaf);
   wheelHoverMotionRaf = 0;
 }
+function cancelWheelCursorResponseFrame() {
+  if (wheelCursorResponseRaf) cancelAnimationFrame(wheelCursorResponseRaf);
+  wheelCursorResponseRaf = 0;
+  wheelCursorResponseState = null;
+}
 function restoreWheelNeighborBaseMotion(state) {
   state?.neighborNodes?.forEach((node) => {
     const x = node.style.getPropertyValue('--wheel-neighbor-base-x');
@@ -31456,6 +31464,7 @@ function restoreWheelNeighborBaseMotion(state) {
   });
 }
 function clearWheelCursorResponse(state) {
+  cancelWheelCursorResponseFrame();
   state?.nodes?.forEach((node) => {
     ['--wheel-cursor-x', '--wheel-cursor-y', '--wheel-cursor-light-x', '--wheel-cursor-light-y', '--wheel-cursor-rotate', '--wheel-cursor-scale']
       .forEach((property) => node.style.removeProperty(property));
@@ -31594,6 +31603,56 @@ function activateWheelHover(nodes, chord, position) {
   applyWheelHoverClasses(wheelHoverState);
   previewWheelChord(chord);
 }
+function writeWheelCursorResponse(response) {
+  const { current, hoverState } = response;
+  hoverState.nodes.forEach((node) => {
+    node.style.setProperty('--wheel-cursor-x', `${current.x.toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-y', `${current.y.toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-light-x', `${current.lightX.toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-light-y', `${current.lightY.toFixed(2)}px`);
+    node.style.setProperty('--wheel-cursor-rotate', `${current.rotate.toFixed(2)}deg`);
+    node.style.setProperty('--wheel-cursor-scale', current.scale.toFixed(4));
+  });
+  hoverState.neighborNodes.forEach((node) => {
+    const baseX = Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-base-x')) || 0;
+    const baseY = Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-base-y')) || 0;
+    node.style.setProperty('--wheel-neighbor-x', `${(baseX * current.factor).toFixed(2)}px`);
+    node.style.setProperty('--wheel-neighbor-y', `${(baseY * current.factor).toFixed(2)}px`);
+  });
+}
+function requestWheelCursorResponseFrame() {
+  if (wheelCursorResponseRaf) return;
+  let ranSynchronously = false;
+  const handle = requestAnimationFrame((timestamp) => {
+    ranSynchronously = true;
+    runWheelCursorResponseFrame(timestamp);
+  });
+  // jsdom вызывает callback до возврата handle; браузер — на следующем кадре.
+  if (!ranSynchronously) wheelCursorResponseRaf = handle;
+}
+function runWheelCursorResponseFrame(timestamp) {
+  wheelCursorResponseRaf = 0;
+  const response = wheelCursorResponseState;
+  if (!response || response.hoverState !== wheelHoverState || prefersReducedWheelMotion()) return;
+  // jsdom-стенд вызывает rAF синхронно без timestamp: фиксируем target
+  // сразу, не создавая рекурсивную петлю. В браузере ниже идёт rAF-сглаживание.
+  if (!Number.isFinite(timestamp)) {
+    Object.assign(response.current, response.target);
+    writeWheelCursorResponse(response);
+    return;
+  }
+  const elapsed = response.lastTimestamp === null ? 16 : Math.min(48, Math.max(1, timestamp - response.lastTimestamp));
+  response.lastTimestamp = timestamp;
+  const alpha = 1 - Math.exp(-elapsed / WHEEL_CURSOR_RESPONSE_TAU_MS);
+  let distance = 0;
+  Object.keys(response.current).forEach((key) => {
+    const next = response.current[key] + (response.target[key] - response.current[key]) * alpha;
+    distance = Math.max(distance, Math.abs(response.target[key] - next));
+    response.current[key] = next;
+  });
+  writeWheelCursorResponse(response);
+  if (distance > 0.002) requestWheelCursorResponseFrame();
+}
 function updateWheelCursorResponse(nodes, event) {
   if (prefersReducedWheelMotion() || (event.pointerType && event.pointerType !== 'mouse') || !wheelHoverState) return;
   const sector = nodes.find((node) => node.classList.contains('wheel-sector')) || event.currentTarget;
@@ -31602,25 +31661,27 @@ function updateWheelCursorResponse(nodes, event) {
   const nx = Math.max(-1, Math.min(1, ((event.clientX - rect.left) / rect.width - 0.5) * 2));
   const ny = Math.max(-1, Math.min(1, ((event.clientY - rect.top) / rect.height - 0.5) * 2));
   const energy = Math.min(1, Math.hypot(nx, ny));
-  wheelHoverState.nodes.forEach((node) => {
-    // Магнит оставлен лишь как почти неощутимый micro-follow: визуально
-    // карточка остаётся на своей геометрической позиции, а не «едет» за pointer.
-    node.style.setProperty('--wheel-cursor-x', `${(nx * 0.8).toFixed(2)}px`);
-    node.style.setProperty('--wheel-cursor-y', `${(ny * 0.8).toFixed(2)}px`);
-    node.style.setProperty('--wheel-cursor-light-x', `${(nx * 1.875).toFixed(2)}px`);
-    node.style.setProperty('--wheel-cursor-light-y', `${(ny * 1.875).toFixed(2)}px`);
-    node.style.setProperty('--wheel-cursor-rotate', `${(nx * 0.825).toFixed(2)}deg`);
-    // Объединённый production-ответ: заметнее исходных прототипов, но
-    // всё ещё тактильный, а не игровой — максимум 4.8% у кромки карточки.
-    node.style.setProperty('--wheel-cursor-scale', `${(1.03 + energy * 0.018).toFixed(4)}`);
-  });
-  const factor = 1 + energy * 0.63;
-  wheelHoverState.neighborNodes.forEach((node) => {
-    const baseX = Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-base-x')) || 0;
-    const baseY = Number.parseFloat(node.style.getPropertyValue('--wheel-neighbor-base-y')) || 0;
-    node.style.setProperty('--wheel-neighbor-x', `${(baseX * factor).toFixed(2)}px`);
-    node.style.setProperty('--wheel-neighbor-y', `${(baseY * factor).toFixed(2)}px`);
-  });
+  let response = wheelCursorResponseState;
+  if (!response || response.hoverState !== wheelHoverState) {
+    response = wheelCursorResponseState = {
+      hoverState: wheelHoverState,
+      lastTimestamp: null,
+      current: { x: 0, y: 0, lightX: 0, lightY: 0, rotate: 0, scale: 1.03, factor: 1 },
+      target: {},
+    };
+  }
+  // Магнит возвращён к читаемому размаху, а rAF ведёт все cursor-каналы
+  // одним непрерывным мягко-инерционным потоком вместо ступеней pointermove.
+  response.target = {
+    x: nx * 3.3,
+    y: ny * 3.3,
+    lightX: nx * 2.25,
+    lightY: ny * 2.25,
+    rotate: nx * 1.05,
+    scale: 1.03 + energy * 0.024,
+    factor: 1 + energy * 0.63,
+  };
+  requestWheelCursorResponseFrame();
 }
 function wireWheelSectorHover(nodes, chord, ring, index, centerX, centerY) {
   // Проценты viewBox, а не fill-box отдельного текста: при scale имя

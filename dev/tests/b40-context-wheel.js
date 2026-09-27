@@ -129,9 +129,9 @@ w.addEventListener('load', () => {
       /transform-box: view-box;/.test(wheelSource) &&
       /--wheel-hover-origin-x/.test(wheelSource) &&
       /brightness\(1\.045\) saturate\(1\.06\)/.test(wheelSource) &&
-      /translate 0\.24s cubic-bezier\(0\.2, 0\.65, 0\.3, 1\)/.test(wheelSource) &&
-      /scale 0\.24s cubic-bezier\(0\.2, 0\.65, 0\.3, 1\)/.test(wheelSource) &&
-      /rotate 0\.24s cubic-bezier\(0\.2, 0\.65, 0\.3, 1\)/.test(wheelSource) &&
+      /translate 0\.18s cubic-bezier\(0\.2, 0\.65, 0\.3, 1\)/.test(wheelSource) &&
+      /scale 0\.18s cubic-bezier\(0\.2, 0\.65, 0\.3, 1\)/.test(wheelSource) &&
+      /rotate 0\.18s cubic-bezier\(0\.2, 0\.65, 0\.3, 1\)/.test(wheelSource) &&
       !/cubic-bezier\(0\.32, 1\.5, 0\.45, 1\)/.test(wheelSource) &&
       /function applyWheelHoverClasses\(state\)/.test(wheelSource) &&
       /requestAnimationFrame\(apply\)/.test(wheelSource));
@@ -144,11 +144,13 @@ w.addEventListener('load', () => {
     ok('production объединяет четыре cursor-эффекта и не оставляет dev-переключателей',
       /translate: var\(--wheel-cursor-x, 0px\)/.test(wheelSource) &&
       /rotate: var\(--wheel-cursor-rotate, 0deg\)/.test(wheelSource) &&
-      /nx \* 0\.8/.test(wheelSource) &&
-      /nx \* 1\.875/.test(wheelSource) &&
-      /nx \* 0\.825/.test(wheelSource) &&
-      /1\.03 \+ energy \* 0\.018/.test(wheelSource) &&
-      /const factor = 1 \+ energy \* 0\.63/.test(wheelSource) &&
+      /nx \* 3\.3/.test(wheelSource) &&
+      /nx \* 2\.25/.test(wheelSource) &&
+      /nx \* 1\.05/.test(wheelSource) &&
+      /1\.03 \+ energy \* 0\.024/.test(wheelSource) &&
+      /const WHEEL_CURSOR_RESPONSE_TAU_MS = 64/.test(wheelSource) &&
+      /function runWheelCursorResponseFrame\(timestamp\)/.test(wheelSource) &&
+      /factor: 1 \+ energy \* 0\.63/.test(wheelSource) &&
       /function updateWheelCursorResponse\(nodes, event\)/.test(wheelSource) &&
       !/WHEEL_HOVER_PROTOTYPES/.test(wheelSource) &&
       !/wheel-hover':Object\.entries/.test(wheelSource));
@@ -291,11 +293,27 @@ w.addEventListener('load', () => {
       Math.abs(spreadLength(minorSide[0]) - 1.6) < 0.02);
     const baselineNeighborSpread = spreadLength(majorNear[0]);
     hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 50 }));
-    ok('cursor тактильно объединяет рост, micro-magnet, наклон и свет сектор-карточки',
-      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-x')) > 0.45 &&
+    ok('rAF плавно объединяет рост, магнит, наклон и свет сектор-карточки',
+      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-x')) > 1.5 &&
       Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-scale')) > 1.03 &&
-      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-rotate')) > 0.4 &&
-      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-light-x')) > 1);
+      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-rotate')) > 0.6 &&
+      Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-light-x')) > 1.3);
+    // Настоящий rAF не должен перескакивать из нуля в target: два кадра
+    // обязаны давать две возрастающие промежуточные позиции.
+    const queuedCursorFrames = [];
+    w.eval('clearWheelCursorResponse(wheelHoverState)');
+    w.requestAnimationFrame = (callback) => { queuedCursorFrames.push(callback); return queuedCursorFrames.length; };
+    hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 50 }));
+    queuedCursorFrames.shift()?.(100);
+    const firstInterpolatedX = Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-x'));
+    queuedCursorFrames.shift()?.(116);
+    const secondInterpolatedX = Number.parseFloat(hoverSector.style.getPropertyValue('--wheel-cursor-x'));
+    ok('rAF ведёт cursor по непрерывным промежуточным кадрам, а не pointer-ступенями',
+      firstInterpolatedX > 0 && firstInterpolatedX < 1.98 &&
+      secondInterpolatedX > firstInterpolatedX && secondInterpolatedX < 1.98);
+    w.eval('cancelWheelCursorResponseFrame()');
+    w.requestAnimationFrame = (callback) => { callback(); return 1; };
+    hoverSector.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 100, clientY: 50 }));
     ok('cursor инерционно усиливает разъезд соседей от центра карточки',
       spreadLength(majorNear[0]) > baselineNeighborSpread);
     ok('hover раздвигает первую и вторую соседние пары пропорционально',
