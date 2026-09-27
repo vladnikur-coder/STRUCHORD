@@ -382,6 +382,9 @@ w.addEventListener('load', () => {
     // отдельный rAF применяет neutral surface новой hovered-карточки.
     releaseFrames.splice(0).forEach((callback) => callback(100));
     w.requestAnimationFrame = (callback) => { callback(); return 1; };
+    // Очередь выше намеренно исполнялась вручную; снятие её stale-handle
+    // освобождает следующий синхронный physical sample для fixture.
+    w.eval('cancelWheelCursorResponseFrame()');
     ok('выбранный marker не сдвигается, даже если он сосед hovered-карточки',
       !selectedMajor?.classList.contains('is-wheel-neighbor-spread') &&
       Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="0"]'))
