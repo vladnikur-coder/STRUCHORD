@@ -147,7 +147,7 @@ w.addEventListener('load', () => {
       /\.mode-tab-face \{[\s\S]*?transition: transform 0\.18s cubic-bezier\(0\.2, 0\.9, 0\.4, 1\);/.test(wheelSource) &&
       !/\.mode-tab-face \{[\s\S]*?transition: [^;]*background 0\.18s/.test(wheelSource) &&
       /\.mode-tab\.mode-tab-state-swap \.mode-tab-face \{[\s\S]*?transition: none;/.test(wheelSource) &&
-      /const modeChanged = wheelMode !== m;[\s\S]*?mode-tab-state-swap[\s\S]*?requestAnimationFrame\(\(\) => requestAnimationFrame/.test(wheelSource));
+      /const previousMode = wheelMode;[\s\S]*?const modeChanged = previousMode !== m;[\s\S]*?mode-tab-state-swap[\s\S]*?requestAnimationFrame\(\(\) => requestAnimationFrame/.test(wheelSource));
     ok('static-вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
     ok('закрытие зеркалит спокойную микрогеометрию static-opening',
@@ -174,9 +174,9 @@ w.addEventListener('load', () => {
       /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap,[\s\S]*?animation: none;/.test(wheelSource) &&
       /\.chord-wheel-modal\.open\.wheel-opening\.wheel-floating-surface \.mode-tab \{[\s\S]*?animation: none;[\s\S]*?transition: none;/.test(wheelSource) &&
       /\.chord-wheel-modal\.closing\.wheel-floating-surface \.mode-tab \{[\s\S]*?animation: none;[\s\S]*?transition: none;/.test(wheelSource) &&
-      /setWheelMode\(prepareWheelModeForChord\(inp\.value\)\);[\s\S]*?positionContextualChordWheel\(\);[\s\S]*?startWheelOpenAnimation\(\);/.test(wheelSource) &&
-      /function setWheelMode\(m\)[\s\S]*?drawWheel\(\);/.test(wheelSource) &&
-      !/crossfadeLabels|createWheelLabelExitLayer|wheel-label-entering|wheel-label-exiting/.test(wheelSource) &&
+      /setWheelMode\(prepareWheelModeForChord\(inp\.value\), \{ crossfade: false \}\);[\s\S]*?positionContextualChordWheel\(\);[\s\S]*?startWheelOpenAnimation\(\);/.test(wheelSource) &&
+      /function setWheelMode\(m, \{ crossfade = true \} = \{\}\)[\s\S]*?crossfadeLabels: crossfade && previousMode !== m/.test(wheelSource) &&
+      /function createWheelLabelExitLayer\(svg\)/.test(wheelSource) &&
       /wheel-floating-stone-rise 0\.3s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-rise-delay, 0ms\) both/.test(wheelSource) &&
       /wheel-floating-stone-rise 0\.3s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-sink-delay, 0ms\) reverse both/.test(wheelSource) &&
       !/wheel-floating-surface-in/.test(wheelSource) &&
@@ -486,9 +486,9 @@ w.addEventListener('load', () => {
       w.eval('wheelModeTabsIdleMotionState') === null &&
       !qualityIdleButtons.some((button) => button.style.getPropertyValue('--wheel-mode-idle-x') || button.style.getPropertyValue('--wheel-mode-idle-y')) &&
       w.localStorage.getItem('struchord-wheel-motion') === '0');
-    ok('user preference не подменяет системный reduced-motion; маршрут дублирующих label-слоёв удалён',
+    ok('user preference не подменяет системный reduced-motion и сохраняет sector-label crossfade',
       w.eval('prefersReducedWheelMotion()') === false && w.eval('allowsWheelHoverMotion()') === false &&
-      !/createWheelLabelExitLayer|wheel-label-entering|wheel-label-exiting/.test(wheelSource));
+      w.eval('(() => { const layer = createWheelLabelExitLayer(DOM.circleSvg); const result = !!layer; layer?.remove(); return result; })()') === true);
     const disabledHoverNodes = Array.from(d.querySelectorAll('[data-wheel-hover-ring="major"][data-wheel-hover-index="0"]'));
     disabledHoverNodes[0]?.dispatchEvent(new w.MouseEvent('pointerover', { bubbles: true, clientX: 280, clientY: 120 }));
     const disabledHoverSector = disabledHoverNodes.find((node) => node.classList.contains('wheel-sector'));
@@ -759,11 +759,11 @@ w.addEventListener('load', () => {
     ok('7 подсвечена в дуге качеств', d.querySelector('.mode-tab.active')?.dataset.wheelMode === '7');
     d.querySelector('.mode-tab.active').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     ok('повторный клик качества возвращает трезвучия', w.eval('wheelMode') === 'triads');
-    ok('смена качества сразу показывает один стабильный набор новых подписей',
-      d.querySelectorAll('#circleSvg .wheel-chord-label').length > 0 &&
-      d.querySelectorAll('#circleSvg .wheel-label-entering, #circleSvg .wheel-label-exiting').length === 0);
-    ok('смена качества не оставляет старые подписи в SVG одновременно с новыми',
-      !d.querySelector('#circleSvg .wheel-label-exit-layer'));
+    ok('смена качества мягко вводит новые подписи секторов', d.querySelectorAll('#circleSvg .wheel-label-entering').length > 0);
+    const labelExitLayer = d.querySelector('#circleSvg .wheel-label-exit-layer');
+    ok('смена качества сохраняет старые подписи до конца fade-out', !!labelExitLayer);
+    ok('уходящие подписи не получают одновременно entering-анимацию',
+      !labelExitLayer?.querySelector('.wheel-label-entering'));
     w.eval('closeChordWheel()');
 
     // Убираем 13 из живой очереди вручную, чтобы проверить именно

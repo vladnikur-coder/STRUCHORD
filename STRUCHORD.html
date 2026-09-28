@@ -5531,6 +5531,9 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
   stroke-width: 0.75px;
   filter: none;
 }
+#circleSvg .wheel-label-exit-layer {
+  pointer-events: none;
+}
 /* is-cell-selected — нейтральное семантическое выделение ячейки.
    Сейчас его используют круг и ручной ввод; B-33 сможет развить это
    состояние, не подменяя его фокусом поля или визуальным классом круга. */
@@ -5597,6 +5600,14 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
   to { opacity: 1; }
 }
 @keyframes wheel-quality-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+@keyframes wheel-label-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+@keyframes wheel-label-out {
   from { opacity: 1; }
   to { opacity: 0; }
 }
@@ -5671,6 +5682,12 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
   }
   .chord-wheel-modal.closing.wheel-floating-surface .wheel-surface-stone {
     animation: wheel-floating-stone-rise 0.3s cubic-bezier(0.22, 0.58, 0.35, 1) var(--wheel-surface-sink-delay, 0ms) reverse both;
+  }
+  #circleSvg .wheel-label-entering {
+    animation: wheel-label-in 0.18s ease both;
+  }
+  #circleSvg .wheel-label-exiting {
+    animation: wheel-label-out 0.18s ease both;
   }
   .chord-wrapper.wheel-preview .chord-display-inner.wheel-preview-incoming {
     animation: wheel-preview-name-in 0.17s ease both;
@@ -11302,7 +11319,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.532</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.533</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31432,9 +31449,10 @@ function clearPinnedWheelExtension({ render = true } = {}) {
   if (render) renderWheelModeTabs();
   return true;
 }
-function setWheelMode(m) {
+function setWheelMode(m, { crossfade = true } = {}) {
   if (isDevWheel410()) return setWheelMode410(m);
-  const modeChanged = wheelMode !== m;
+  const previousMode = wheelMode;
+  const modeChanged = previousMode !== m;
   wheelMode = m;
   const buttons = Array.from(document.querySelectorAll('.mode-tab'));
   // В видео 0.529 особенно на maj7 видно не сектор, а сам камушек:
@@ -31453,9 +31471,11 @@ function setWheelMode(m) {
     requestAnimationFrame(() => requestAnimationFrame(() =>
       buttons.forEach((b) => b.classList.remove('mode-tab-state-swap'))));
   }
-  // Качество меняет подписи сразу, без old/new transition-layer:
-  // всегда видна ровно одна корректная подпись card.
-  drawWheel();
+  // Сектора и их подписи не меняем: на открытом круге сохраняется их
+  // принятый incoming/outgoing crossfade, независимый от face кнопки.
+  drawWheel({
+    crossfadeLabels: crossfade && previousMode !== m && DOM.chordWheelModal?.classList.contains('open'),
+  });
 }
 // Два кольца (мажорное + минорное) рисуются не всем режимам, а только
 // там, где минорная форма аккорда отличается от мажорной на том же
@@ -32831,7 +32851,27 @@ function wireWheelSectorHover(nodes, chord, ring, index, centerX, centerY) {
     node.addEventListener('pointermove', (event) => updateWheelCursorResponse(nodes.filter(Boolean), event));
   });
 }
-function drawWheel() {
+function getWheelLabelMotionNodes(svg) {
+  // Degree is now a child of the chord-label group. Animate/clone that
+  // composite only once, otherwise a nested degree would double-fade.
+  return Array.from(svg?.querySelectorAll('.wheel-chord-label, .wheel-degree-label') || [])
+    .filter((node) => !node.classList.contains('wheel-degree-label') || !node.closest('.wheel-chord-label'));
+}
+function createWheelLabelExitLayer(svg) {
+  if (prefersReducedWheelMotion()) return null;
+  const priorLabels = getWheelLabelMotionNodes(svg);
+  if (!priorLabels.length) return null;
+  const layer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+  layer.classList.add('wheel-label-exit-layer');
+  priorLabels.forEach((label) => {
+    const ghost = label.cloneNode(true);
+    ghost.classList.remove('wheel-label-entering', 'is-wheel-hovered', 'wheel-hoverable');
+    ghost.classList.add('wheel-label-exiting');
+    layer.appendChild(ghost);
+  });
+  return layer;
+}
+function drawWheel({ crossfadeLabels = false } = {}) {
   stopWheelIdleMotion();
   // A redraw replaces SVG cards and may follow a quality queue reconciliation.
   // Restart the separate HTML-button water lifecycle only after the fresh
@@ -32840,6 +32880,7 @@ function drawWheel() {
   if (isDevWheel410()) return drawWheel410();
   const svg = DOM.circleSvg;
   clearWheelHover();
+  const labelExitLayer = crossfadeLabels ? createWheelLabelExitLayer(svg) : null;
   svg.innerHTML = '';
   // B-40: круг теперь действительно круглый (540×540), а центральное
   // окно достаточно велико, чтобы в варианте «вокруг» оставить ячейку
@@ -33150,6 +33191,13 @@ function drawWheel() {
     }
   }
   svg.appendChild(frag);
+  // Снимок берём до помещения уходящего слоя: entering- и exiting-labels
+  // никогда не оказываются на одном SVG-узле.
+  const incomingLabels = labelExitLayer ? getWheelLabelMotionNodes(svg) : [];
+  if (labelExitLayer) {
+    svg.appendChild(labelExitLayer);
+    window.setTimeout(() => labelExitLayer.remove(), WHEEL_PREVIEW_TRANSITION_MS + 15);
+  }
   // addEventListener вместо onpointerleave: в том числе Safari корректно
   // отдаёт уход курсора из SVG даже после пересборки его дочерних узлов.
   if (svg._wheelPointerLeave) svg.removeEventListener('pointerleave', svg._wheelPointerLeave);
@@ -33163,6 +33211,10 @@ function drawWheel() {
     startWheelIdleMotion(Array.from(svg.querySelectorAll('.wheel-hoverable')));
   }
   syncWheelModeTabsIdleMotion();
+  incomingLabels.forEach((node) => {
+    node.classList.add('wheel-label-entering');
+    node.addEventListener('animationend', () => node.classList.remove('wheel-label-entering'), { once: true });
+  });
 }
 function drawWheel410() {
   const svg = DOM.circleSvg;
@@ -33990,9 +34042,9 @@ function retargetChordWheel(inp, { suppressOwnerClick = false, revealDirection =
   // В том же key/mode карточки уже содержат все root-варианты. Меняем лишь
   // marker: сами SVG-узлы и их независимый idle-water остаются живыми во
   // время переезда группы. Другая тональность или quality честно
-  // перерисовывает подписи сразу: нет ghost-слоя со старым именем.
+  // перерисовывает подписи, сохраняя их принятый crossfade.
   if (wheelMode === nextMode && previousSectionKey === activeSectionKey) refreshWheelSelectedChord();
-  else setWheelMode(nextMode);
+  else setWheelMode(nextMode, { crossfade: true });
   animateWheelRetarget(
     container,
     getContextualWheelPosition(container, wheelOwnerFor(inp)),
@@ -34275,7 +34327,7 @@ function openChordWheel(inp) {
   // floating frame может прожить в CSS default-точке, а затем уехать на
   // owner целым кругом. Depth-route начинается только когда host уже стоит
   // в окончательной polar-позиции — как у SVG-секторов.
-  setWheelMode(prepareWheelModeForChord(inp.value));
+  setWheelMode(prepareWheelModeForChord(inp.value), { crossfade: false });
   positionContextualChordWheel();
   startWheelOpenAnimation();
 }
