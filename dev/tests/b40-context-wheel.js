@@ -134,9 +134,10 @@ w.addEventListener('load', () => {
       /width: 2\.75rem;[\s\S]*?height: 2\.75rem;[\s\S]*?border-radius: 50%;/.test(wheelSource) &&
       /rotate\(calc\(-1 \* var\(--wheel-mode-angle\)\)\) scale\(var\(--wheel-mode-scale\)\)/.test(wheelSource) &&
       !/\.mode-tab-label \{/.test(wheelSource) &&
-      /\.mode-tab:not\(\.active\) \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 78%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.26rem rgba\(20, 30, 45, 0\.11\)/.test(wheelSource) &&
-      /html\[data-theme='dark'\] \.mode-tab:not\(\.active\) \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 72%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.28rem rgba\(0, 0, 0, 0\.26\)/.test(wheelSource) &&
-      /\.mode-tab\.active \{[\s\S]*?background: var\(--color-tab-active-bg\);[\s\S]*?box-shadow: 0 0\.1875rem 0\.625rem rgba\(0, 0, 0, 0\.15\);/.test(wheelSource));
+      /\.mode-tab-surface \{[\s\S]*?border-radius: 50%;[\s\S]*?pointer-events: none;/.test(wheelSource) &&
+      /\.mode-tab:not\(\.active\) \.mode-tab-surface \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 78%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.26rem rgba\(20, 30, 45, 0\.11\)/.test(wheelSource) &&
+      /html\[data-theme='dark'\] \.mode-tab:not\(\.active\) \.mode-tab-surface \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 72%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.28rem rgba\(0, 0, 0, 0\.26\)/.test(wheelSource) &&
+      /\.mode-tab\.active \.mode-tab-surface \{[\s\S]*?background: var\(--color-tab-active-bg\);[\s\S]*?box-shadow: 0 0\.1875rem 0\.625rem rgba\(0, 0, 0, 0\.15\);/.test(wheelSource));
     ok('static-вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
     ok('закрытие зеркалит спокойную микрогеометрию static-opening',
@@ -155,9 +156,14 @@ w.addEventListener('load', () => {
       /const step = button \? 16 : 9;/.test(wheelSource) &&
       /sinkDelay: WHEEL_FLOATING_STONE_MAX_DELAY_MS - riseDelay/.test(wheelSource) &&
       /applyWheelFloatingStoneTiming\(nodes, ring, index\);/.test(wheelSource) &&
-      /applyWheelFloatingStoneTiming\(\[button\], 'quality', index\);/.test(wheelSource) &&
+      /function ensureWheelModeTabSurface\(button\)/.test(wheelSource) &&
+      /button\?\.replaceChildren\(surface\);/.test(wheelSource) &&
+      /applyWheelFloatingStoneTiming\(\[surface\], 'quality', index\);/.test(wheelSource) &&
+      /\.mode-tab-surface \{[\s\S]*?will-change: scale, opacity, filter;/.test(wheelSource) &&
       /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap,[\s\S]*?animation: none;/.test(wheelSource) &&
-      /\.chord-wheel-modal\.open\.wheel-opening\.wheel-floating-surface \.mode-tab \{\s*transition: none;/.test(wheelSource) &&
+      /\.chord-wheel-modal\.open\.wheel-opening\.wheel-floating-surface \.mode-tab \{[\s\S]*?animation: none;[\s\S]*?transition: none;/.test(wheelSource) &&
+      /\.chord-wheel-modal\.closing\.wheel-floating-surface \.mode-tab \{[\s\S]*?animation: none;[\s\S]*?transition: none;/.test(wheelSource) &&
+      /setWheelMode\(prepareWheelModeForChord\(inp\.value\), \{ crossfade: false \}\);[\s\S]*?positionContextualChordWheel\(\);[\s\S]*?startWheelOpenAnimation\(\);/.test(wheelSource) &&
       /wheel-floating-stone-rise 0\.3s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-rise-delay, 0ms\) both/.test(wheelSource) &&
       /wheel-floating-stone-rise 0\.3s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-sink-delay, 0ms\) reverse both/.test(wheelSource) &&
       !/wheel-floating-surface-in/.test(wheelSource) &&
@@ -392,7 +398,7 @@ w.addEventListener('load', () => {
     ok('floating даёт каждому SVG-камушку и quality-кнопке свой короткий depth-delay, а closing зеркалит его',
       (() => {
         const stones = Array.from(d.querySelectorAll('#circleSvg .wheel-surface-stone'));
-        const tabs = Array.from(d.querySelectorAll('.mode-tab.wheel-surface-stone'));
+        const tabs = Array.from(d.querySelectorAll('.mode-tab > .mode-tab-surface.wheel-surface-stone'));
         const riseDelays = stones.map((node) => Number.parseFloat(node.style.getPropertyValue('--wheel-surface-rise-delay')));
         const sinkDelays = tabs.map((node) => Number.parseFloat(node.style.getPropertyValue('--wheel-surface-sink-delay')));
         const reversed = [...stones, ...tabs].every((node) => {
@@ -400,7 +406,11 @@ w.addEventListener('load', () => {
           const sink = Number.parseFloat(node.style.getPropertyValue('--wheel-surface-sink-delay'));
           return sink === 120 - rise;
         });
-        return stones.length > 0 && tabs.length === 7 &&
+        const hosts = Array.from(d.querySelectorAll('.mode-tab'));
+        return stones.length > 0 && tabs.length === 7 && hosts.length === 7 &&
+          hosts.every((host) => host.children.length === 1 &&
+            host.firstElementChild?.classList.contains('mode-tab-surface') &&
+            !host.classList.contains('wheel-surface-stone')) &&
           Math.min(...riseDelays) === 0 && Math.max(...riseDelays) <= 120 &&
           new Set(riseDelays).size > 4 && new Set(sinkDelays).size > 3 && reversed;
       })());

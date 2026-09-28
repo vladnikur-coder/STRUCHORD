@@ -5143,29 +5143,46 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   position: absolute;
   top: 50%;
   left: 50%;
-  /* Кнопка вновь остаётся компактным кругляшком; её спокойная card-поверхность
-     при этом сохраняется, но без прежнего сильного объёма. */
+  /* Host хранит только точную polar-позицию и hit-target. Его нельзя
+     depth-scale-ить: scale целого host масштабирует translateY(radius) и
+     именно так визуально «вытаскивает кнопку снизу». */
   width: 2.75rem;
   height: 2.75rem;
   padding: 0;
-  border: 0.0625rem solid var(--color-border-medium);
+  border: 0;
   border-radius: 50%;
-  background: var(--color-background-primary);
+  background: transparent;
   color: var(--color-text-secondary);
   font-size: 0.8125rem;
   font-weight: 700;
-  display: flex;
-  align-items: center;
-  justify-content: center;
   cursor: pointer;
   pointer-events: auto;
   transform: translate(-50%, -50%) rotate(var(--wheel-mode-angle)) translateY(calc(-1 * var(--wheel-mode-radius))) rotate(calc(-1 * var(--wheel-mode-angle))) scale(var(--wheel-mode-scale));
-  /* Качество — такая же отдельная card поверхности: собственный тихий
-     water-vector и retarget-vector складываются, но hover остаётся простым
-     scale самой кнопки без cursor-магнита соседних кнопок. */
+  /* Water/retarget принадлежат неподвижному polar-host; hover scale остаётся
+     его принятой короткой реакцией, но floating depth живёт только внутри. */
   translate: calc(var(--wheel-mode-idle-x, 0px) + var(--wheel-mode-retarget-x, 0px)) calc(var(--wheel-mode-idle-y, 0px) + var(--wheel-mode-retarget-y, 0px));
   transform-origin: center;
-  transition: translate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.18s, border-color 0.18s, box-shadow 0.18s;
+  transition: translate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1);
+}
+/* Реальная круглая поверхность отделена от polar-host. Только этот внутренний
+   слой scale/blur/fade-ится вместе с SVG-card, поэтому центр кнопки не ездит
+   по радиусу во время появления. */
+.mode-tab-surface {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  border: 0.0625rem solid var(--color-border-medium);
+  border-radius: 50%;
+  background: var(--color-background-primary);
+  color: inherit;
+  font: inherit;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
+  transform-origin: center;
+  will-change: scale, opacity, filter;
+  transition: background 0.18s, border-color 0.18s, box-shadow 0.18s;
 }
 /* Quality-дуга — семь маленьких круглых card-камушков. По прямой
    проверке их прежняя quiet-depth растворялась в фоне, поэтому в обеих
@@ -5173,7 +5190,7 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
    и нижняя опора. Это остаётся спокойной card-поверхностью — без возврата
    заметного raised-stone эффекта. Active сохраняет знакомый
    current background/border/text-маркер. */
-.mode-tab:not(.active) {
+.mode-tab:not(.active) .mode-tab-surface {
   border-color: color-mix(in srgb, var(--color-border-medium) 78%, var(--color-text-secondary));
   background: linear-gradient(
     156deg,
@@ -5186,7 +5203,7 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
     inset 0 0.04rem 0.05rem rgba(255, 255, 255, 0.55),
     inset 0 -0.045rem 0.08rem rgba(20, 30, 45, 0.06);
 }
-html[data-theme='dark'] .mode-tab:not(.active) {
+html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-surface {
   border-color: color-mix(in srgb, var(--color-border-medium) 72%, var(--color-text-secondary));
   background: linear-gradient(
     156deg,
@@ -5201,6 +5218,8 @@ html[data-theme='dark'] .mode-tab:not(.active) {
 }
 .mode-tab:hover {
   --wheel-mode-scale: 1.06;
+}
+.mode-tab:hover .mode-tab-surface {
   background: var(--color-background-secondary);
   border-color: var(--color-text-secondary);
   box-shadow: 0 0.1rem 0.28rem rgba(0, 0, 0, 0.1);
@@ -5210,8 +5229,10 @@ html[data-theme='dark'] .mode-tab:not(.active) {
 }
 .mode-tab.active {
   --wheel-mode-scale: 1.05;
-  background: var(--color-tab-active-bg);
   color: var(--color-accent);
+}
+.mode-tab.active .mode-tab-surface {
+  background: var(--color-tab-active-bg);
   border-color: var(--color-accent);
   box-shadow: 0 0.1875rem 0.625rem rgba(0, 0, 0, 0.15);
 }
@@ -5624,6 +5645,13 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
      его обычный transform-transition догоняет CSS default нижней точки и
      выглядит как отдельное всплытие кнопки снизу, в отличие от SVG-sector. */
   .chord-wheel-modal.open.wheel-opening.wheel-floating-surface .mode-tab {
+    /* Outer generic quality fade/transition нельзя оставлять параллельно:
+       animируется только inner stone, fixed host остаётся на polar-точке. */
+    animation: none;
+    transition: none;
+  }
+  .chord-wheel-modal.closing.wheel-floating-surface .mode-tab {
+    animation: none;
     transition: none;
   }
   .chord-wheel-modal.open.wheel-opening.wheel-floating-surface .wheel-surface-stone {
@@ -11268,7 +11296,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.526</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.527</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31222,6 +31250,15 @@ function getWheelModeTabsArcRotation() {
     ? (index - WHEEL_MODE_TONAL_REFERENCE_INDEX) * WHEEL_MODE_TONAL_STEP_DEG
     : 0;
 }
+function ensureWheelModeTabSurface(button) {
+  let surface = button?.querySelector(':scope > .mode-tab-surface');
+  if (surface) return surface;
+  surface = document.createElement('span');
+  surface.className = 'mode-tab-surface';
+  surface.textContent = button?.textContent || '';
+  button?.replaceChildren(surface);
+  return surface;
+}
 function applyWheelModeTab(button, mode, index) {
   const active = wheelMode === mode;
   button.className = 'mode-tab';
@@ -31229,9 +31266,11 @@ function applyWheelModeTab(button, mode, index) {
   button.setAttribute('aria-pressed', String(active));
   button.dataset.wheelMode = mode;
   button.dataset.wheelModeIndex = String(index);
-  // Круглая quality-card входит/уходит сама, но её polar transform остаётся
-  // на button: отдельный CSS scale лишь выводит камушек из глубины.
-  applyWheelFloatingStoneTiming([button], 'quality', index);
+  // button — только fixed polar host/hit-target. Отдельный inner-surface
+  // получает ровно тот же depth-route, что SVG-card; поэтому scale никогда
+  // не умножает translateY(radius) и не вытаскивает кнопку снизу.
+  const surface = ensureWheelModeTabSurface(button);
+  applyWheelFloatingStoneTiming([surface], 'quality', index);
   // B-40: две короткие нижние дуги лежат ЦЕЛИКОМ вне кольца SVG.
   // Ближняя к кругу несёт четыре типа, дальняя — три.
   const nearAngles = [202, 187.5, 172.5, 158];
@@ -31249,7 +31288,7 @@ function applyWheelModeTab(button, mode, index) {
   button.style.setProperty('--wheel-mode-angle', `${angle}deg`);
   button.style.setProperty('--wheel-mode-radius', radius);
   button.style.removeProperty('font-size');
-  button.textContent = mode;
+  surface.textContent = mode;
   button.title = active ? `Качество ${mode}; нажмите, чтобы вернуться к трезвучиям` : `Выбрать качество ${mode}`;
   // Круг 44px рассчитан под короткие ярлыки вроде «sus4». Длинные
   // пользовательские типы ужимаем только по шрифту, не по цели клика.
@@ -31259,6 +31298,9 @@ function applyWheelModeTab(button, mode, index) {
 function createWheelModeTab() {
   const button = document.createElement('button');
   button.type = 'button';
+  // Inner visual surface must never be recreated during retarget: the host
+  // keeps its exact polar position while the stone itself changes depth.
+  button.appendChild(Object.assign(document.createElement('span'), { className: 'mode-tab-surface' }));
   // Listener reads the live data attribute. The same physical button stays
   // mounted when another owner requires a different quality queue.
   button.addEventListener('click', (event) => {
@@ -34234,9 +34276,14 @@ function openChordWheel(inp) {
   // отдельное выбранное «всплытие / погружение» только для open/close.
   syncWheelFloatingSurfaceMotion();
   DOM.chordWheelModal.classList.add('open');
-  startWheelOpenAnimation();
+  // Сначала синхронно ставим polar-host и всю поверхность на owner. Если
+  // wheel-opening поставить до requestAnimationFrame с геометрией, первый
+  // floating frame может прожить в CSS default-точке, а затем уехать на
+  // owner целым кругом. Depth-route начинается только когда host уже стоит
+  // в окончательной polar-позиции — как у SVG-секторов.
   setWheelMode(prepareWheelModeForChord(inp.value), { crossfade: false });
-  requestWheelPosition();
+  positionContextualChordWheel();
+  startWheelOpenAnimation();
 }
 function closeChordWheel() {
   if (isDevWheel410()) return closeChordWheel410();
