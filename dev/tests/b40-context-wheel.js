@@ -145,19 +145,20 @@ w.addEventListener('load', () => {
     ok('static opening и closing используют одинаковые тихие fade-дорожки',
       /wheel-surface-fade-in 0\.16s ease-in-out both/.test(wheelSource) &&
       /wheel-surface-fade-out 0\.16s ease-in-out both/.test(wheelSource));
-    ok('floating сразу показывает отдельные далёкие камушки и выпускает их из глубины за 620ms, без движения поверхности снизу страницы',
-      /const WHEEL_FLOATING_SURFACE_MS = 620;/.test(wheelSource) &&
-      /const WHEEL_FLOATING_STONE_MS = 480;/.test(wheelSource) &&
+    ok('floating сразу показывает отдельные далёкие камушки и выпускает их из глубины за быстрые 420ms; closing — точный reverse entry',
+      /const WHEEL_FLOATING_SURFACE_MS = 420;/.test(wheelSource) &&
+      /const WHEEL_FLOATING_STONE_MS = 300;/.test(wheelSource) &&
       /const WHEEL_FLOATING_STONE_MAX_DELAY_MS = WHEEL_FLOATING_SURFACE_MS - WHEEL_FLOATING_STONE_MS;/.test(wheelSource) &&
       /const WHEEL_FLOATING_STONE_RISE_ORDER = \[5, 0, 9, 2, 7, 11, 4, 1, 10, 6, 3, 8\];/.test(wheelSource) &&
       /@keyframes wheel-floating-stone-rise[\s\S]*?opacity: 0\.18; scale: 0\.72; filter: blur\(1\.65px\)[\s\S]*?scale: 1\.026[\s\S]*?scale: 1;/.test(wheelSource) &&
-      /@keyframes wheel-floating-stone-sink[\s\S]*?scale: 1;[\s\S]*?opacity: 0; scale: 0\.68; filter: blur\(2\.2px\)/.test(wheelSource) &&
-      /const step = button \? 18 : 10;/.test(wheelSource) &&
+      !/@keyframes wheel-floating-stone-sink/.test(wheelSource) &&
+      /const step = button \? 16 : 9;/.test(wheelSource) &&
+      /sinkDelay: WHEEL_FLOATING_STONE_MAX_DELAY_MS - riseDelay/.test(wheelSource) &&
       /applyWheelFloatingStoneTiming\(nodes, ring, index\);/.test(wheelSource) &&
       /applyWheelFloatingStoneTiming\(\[button\], 'quality', index\);/.test(wheelSource) &&
       /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap,[\s\S]*?animation: none;/.test(wheelSource) &&
-      /wheel-floating-stone-rise 0\.48s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-rise-delay, 0ms\) both/.test(wheelSource) &&
-      /wheel-floating-stone-sink 0\.48s cubic-bezier\(0\.44, 0, 0\.72, 0\.34\) var\(--wheel-surface-sink-delay, 0ms\) both/.test(wheelSource) &&
+      /wheel-floating-stone-rise 0\.3s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-rise-delay, 0ms\) both/.test(wheelSource) &&
+      /wheel-floating-stone-rise 0\.3s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-sink-delay, 0ms\) reverse both/.test(wheelSource) &&
       !/wheel-floating-surface-in/.test(wheelSource) &&
       !/wheel-floating-surface-out/.test(wheelSource) &&
       /function syncWheelFloatingSurfaceMotion\(\)/.test(wheelSource) &&
@@ -385,17 +386,22 @@ w.addEventListener('load', () => {
     d.getElementById('showDegrees').checked = true;
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');
     ok('слой открыт', modal.classList.contains('open'));
-    ok('при включённом floating opening помечен отдельной 620ms surface-дорожкой',
-      modal.classList.contains('wheel-floating-surface') && w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_OPEN_MS)') === 620);
-    ok('floating даёт каждому SVG-камушку и quality-кнопке свой depth-delay',
+    ok('при включённом floating opening помечен отдельной быстрой 420ms surface-дорожкой',
+      modal.classList.contains('wheel-floating-surface') && w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_OPEN_MS)') === 420);
+    ok('floating даёт каждому SVG-камушку и quality-кнопке свой короткий depth-delay, а closing зеркалит его',
       (() => {
         const stones = Array.from(d.querySelectorAll('#circleSvg .wheel-surface-stone'));
         const tabs = Array.from(d.querySelectorAll('.mode-tab.wheel-surface-stone'));
         const riseDelays = stones.map((node) => Number.parseFloat(node.style.getPropertyValue('--wheel-surface-rise-delay')));
         const sinkDelays = tabs.map((node) => Number.parseFloat(node.style.getPropertyValue('--wheel-surface-sink-delay')));
+        const reversed = [...stones, ...tabs].every((node) => {
+          const rise = Number.parseFloat(node.style.getPropertyValue('--wheel-surface-rise-delay'));
+          const sink = Number.parseFloat(node.style.getPropertyValue('--wheel-surface-sink-delay'));
+          return sink === 120 - rise;
+        });
         return stones.length > 0 && tabs.length === 7 &&
-          Math.min(...riseDelays) === 0 && Math.max(...riseDelays) <= 140 &&
-          new Set(riseDelays).size > 4 && new Set(sinkDelays).size > 3;
+          Math.min(...riseDelays) === 0 && Math.max(...riseDelays) <= 120 &&
+          new Set(riseDelays).size > 4 && new Set(sinkDelays).size > 3 && reversed;
       })());
     ok('entry-анимация камушков получает отдельный одноразовый класс', modal.classList.contains('wheel-opening'));
     ok('открытие круга сразу скрывает тултип аппликатуры', fingeringTooltip.style.display === 'none');
@@ -701,9 +707,9 @@ w.addEventListener('load', () => {
     const beforeOutside = input.value;
     d.body.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
     ok('клик вне круга закрыл слой', !modal.classList.contains('open'));
-    ok('floating close сохраняет собственную 620ms погружающую surface-фазу',
+    ok('floating close сохраняет собственную 420ms reverse-surface-фазу',
       modal.classList.contains('closing') && modal.classList.contains('wheel-floating-surface') &&
-      w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_CLOSE_MS)') === 620);
+      w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_CLOSE_MS)') === 420);
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
     ok('после закрытия у owner снят halo', !owner.classList.contains('wheel-owner-active'));
     ok('после обычного close у owner снят selection-state', !owner.classList.contains('is-cell-selected'));
@@ -757,8 +763,8 @@ w.addEventListener('load', () => {
     let finishClose = null;
     const closeTimerId = 981;
     w.setTimeout = (callback, delay, ...args) => {
-      // Static close остаётся 170ms, floating получает выбранные 620ms.
-      if (delay === 170 || delay === 620) {
+      // Static close остаётся 170ms, floating получает выбранные 420ms.
+      if (delay === 170 || delay === 420) {
         finishClose = () => callback(...args);
         return closeTimerId;
       }
