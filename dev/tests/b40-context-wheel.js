@@ -145,18 +145,19 @@ w.addEventListener('load', () => {
     ok('static opening и closing используют одинаковые тихие fade-дорожки',
       /wheel-surface-fade-in 0\.16s ease-in-out both/.test(wheelSource) &&
       /wheel-surface-fade-out 0\.16s ease-in-out both/.test(wheelSource));
-    ok('floating выпускает отдельные камушки из глубины за 620ms, без движения поверхности снизу страницы',
+    ok('floating сразу показывает отдельные далёкие камушки и выпускает их из глубины за 620ms, без движения поверхности снизу страницы',
       /const WHEEL_FLOATING_SURFACE_MS = 620;/.test(wheelSource) &&
-      /const WHEEL_FLOATING_STONE_MS = 380;/.test(wheelSource) &&
+      /const WHEEL_FLOATING_STONE_MS = 480;/.test(wheelSource) &&
       /const WHEEL_FLOATING_STONE_MAX_DELAY_MS = WHEEL_FLOATING_SURFACE_MS - WHEEL_FLOATING_STONE_MS;/.test(wheelSource) &&
       /const WHEEL_FLOATING_STONE_RISE_ORDER = \[5, 0, 9, 2, 7, 11, 4, 1, 10, 6, 3, 8\];/.test(wheelSource) &&
-      /@keyframes wheel-floating-stone-rise[\s\S]*?opacity: 0; scale: 0\.68; filter: blur\(2\.2px\)[\s\S]*?scale: 1\.026[\s\S]*?scale: 1;/.test(wheelSource) &&
-      /@keyframes wheel-floating-stone-sink[\s\S]*?scale: 1;[\s\S]*?scale: 0\.62; filter: blur\(2\.35px\)/.test(wheelSource) &&
+      /@keyframes wheel-floating-stone-rise[\s\S]*?opacity: 0\.18; scale: 0\.72; filter: blur\(1\.65px\)[\s\S]*?scale: 1\.026[\s\S]*?scale: 1;/.test(wheelSource) &&
+      /@keyframes wheel-floating-stone-sink[\s\S]*?scale: 1;[\s\S]*?opacity: 0; scale: 0\.68; filter: blur\(2\.2px\)/.test(wheelSource) &&
+      /const step = button \? 18 : 10;/.test(wheelSource) &&
       /applyWheelFloatingStoneTiming\(nodes, ring, index\);/.test(wheelSource) &&
       /applyWheelFloatingStoneTiming\(\[button\], 'quality', index\);/.test(wheelSource) &&
       /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap,[\s\S]*?animation: none;/.test(wheelSource) &&
-      /wheel-floating-stone-rise 0\.38s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-rise-delay, 0ms\) both/.test(wheelSource) &&
-      /wheel-floating-stone-sink 0\.38s cubic-bezier\(0\.44, 0, 0\.72, 0\.34\) var\(--wheel-surface-sink-delay, 0ms\) both/.test(wheelSource) &&
+      /wheel-floating-stone-rise 0\.48s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-rise-delay, 0ms\) both/.test(wheelSource) &&
+      /wheel-floating-stone-sink 0\.48s cubic-bezier\(0\.44, 0, 0\.72, 0\.34\) var\(--wheel-surface-sink-delay, 0ms\) both/.test(wheelSource) &&
       !/wheel-floating-surface-in/.test(wheelSource) &&
       !/wheel-floating-surface-out/.test(wheelSource) &&
       /function syncWheelFloatingSurfaceMotion\(\)/.test(wheelSource) &&
@@ -390,9 +391,11 @@ w.addEventListener('load', () => {
       (() => {
         const stones = Array.from(d.querySelectorAll('#circleSvg .wheel-surface-stone'));
         const tabs = Array.from(d.querySelectorAll('.mode-tab.wheel-surface-stone'));
-        const riseDelays = new Set(stones.map((node) => node.style.getPropertyValue('--wheel-surface-rise-delay')));
-        const sinkDelays = new Set(tabs.map((node) => node.style.getPropertyValue('--wheel-surface-sink-delay')));
-        return stones.length > 0 && tabs.length === 7 && riseDelays.size > 4 && sinkDelays.size > 3;
+        const riseDelays = stones.map((node) => Number.parseFloat(node.style.getPropertyValue('--wheel-surface-rise-delay')));
+        const sinkDelays = tabs.map((node) => Number.parseFloat(node.style.getPropertyValue('--wheel-surface-sink-delay')));
+        return stones.length > 0 && tabs.length === 7 &&
+          Math.min(...riseDelays) === 0 && Math.max(...riseDelays) <= 140 &&
+          new Set(riseDelays).size > 4 && new Set(sinkDelays).size > 3;
       })());
     ok('entry-анимация камушков получает отдельный одноразовый класс', modal.classList.contains('wheel-opening'));
     ok('открытие круга сразу скрывает тултип аппликатуры', fingeringTooltip.style.display === 'none');
