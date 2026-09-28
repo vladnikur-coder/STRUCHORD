@@ -1,7 +1,6 @@
-// B-40: real Chromium regression for the quality-name blink reported in 0.530.
-// A quality click must replace the SVG labels synchronously: no ghost exit layer,
-// no entering/exiting label class, and exactly one label group per sector on every
-// browser-compositor sample.
+// B-40: real Chromium regression for quality switching. A click commits both
+// one SVG label set and one stable quality-button face: no ghost label layer,
+// no entering/exiting class, no active face paint transition, and no host drift.
 const path = require('path');
 const { pathToFileURL } = require('url');
 const sparticuz = require('@sparticuz/chromium').default;
@@ -77,9 +76,12 @@ function ok(name, condition, detail = '') {
       const result = await page.evaluate(async (nextMode) => {
         const svg = document.getElementById('circleSvg');
         const tab = document.querySelector(`.mode-tab[data-wheel-mode="${nextMode}"]`);
+        const face = tab.querySelector('.mode-tab-face');
         const labels = () => Array.from(svg.querySelectorAll('.wheel-chord-label'));
+        const beforeHost = tab.getBoundingClientRect();
         const snapshot = (phase) => {
           const currentLabels = labels();
+          const host = tab.getBoundingClientRect();
           return {
             phase,
             labels: currentLabels.length,
@@ -88,6 +90,10 @@ function ok(name, condition, detail = '') {
             transitionLabels: svg.querySelectorAll('.wheel-label-entering, .wheel-label-exiting').length,
             labelAnimations: currentLabels.filter((node) => getComputedStyle(node).animationName !== 'none').length,
             active: document.querySelector('.mode-tab.active')?.dataset.wheelMode || 'triads',
+            stateSwap: tab.classList.contains('mode-tab-state-swap'),
+            faceTransition: getComputedStyle(face).transitionProperty,
+            faceAnimations: face.getAnimations().length,
+            hostDrift: Math.hypot(host.x - beforeHost.x, host.y - beforeHost.y),
           };
         };
         const observedAddedGhostLayers = [];
@@ -121,10 +127,13 @@ function ok(name, condition, detail = '') {
         sample.ghosts === 0 &&
         sample.transitionLabels === 0 &&
         sample.labelAnimations === 0 &&
-        sample.active === result.mode,
+        sample.active === result.mode &&
+        sample.hostDrift < 0.01,
       );
-      ok(`quality ${result.mode}: Chromium never composites old and new label layers together`,
-        stable && result.observedAddedGhostLayers.length === 0 && result.before !== result.after,
+      const committedAtomically = result.samples[0].stateSwap &&
+        result.samples[0].faceTransition === 'none' && result.samples[0].faceAnimations === 0;
+      ok(`quality ${result.mode}: labels and clicked face never take a flashing transition route`,
+        stable && committedAtomically && result.observedAddedGhostLayers.length === 0 && result.before !== result.after,
         JSON.stringify({ samples: result.samples, ghostAdds: result.observedAddedGhostLayers }));
     }
     ok('real-browser quality switching completed without page errors', pageErrors.length === 0, pageErrors.join(' | '));

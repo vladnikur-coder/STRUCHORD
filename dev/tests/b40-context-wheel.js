@@ -143,7 +143,11 @@ w.addEventListener('load', () => {
       /\.mode-tab \{[\s\S]*?translate: var\(--wheel-mode-retarget-x, 0px\) var\(--wheel-mode-retarget-y, 0px\);/.test(wheelSource) &&
       /\.mode-tab:not\(\.active\) \.mode-tab-face \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 78%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.26rem rgba\(20, 30, 45, 0\.11\)/.test(wheelSource) &&
       /html\[data-theme='dark'\] \.mode-tab:not\(\.active\) \.mode-tab-face \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 72%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.28rem rgba\(0, 0, 0, 0\.26\)/.test(wheelSource) &&
-      /\.mode-tab\.active \.mode-tab-face \{[\s\S]*?background: var\(--color-tab-active-bg\);[\s\S]*?box-shadow: 0 0\.1875rem 0\.625rem rgba\(0, 0, 0, 0\.15\);/.test(wheelSource));
+      /\.mode-tab\.active \.mode-tab-face \{[\s\S]*?background: var\(--color-tab-active-bg\);[\s\S]*?box-shadow: 0 0\.1875rem 0\.625rem rgba\(0, 0, 0, 0\.15\);/.test(wheelSource) &&
+      /\.mode-tab-face \{[\s\S]*?transition: transform 0\.18s cubic-bezier\(0\.2, 0\.9, 0\.4, 1\);/.test(wheelSource) &&
+      !/\.mode-tab-face \{[\s\S]*?transition: [^;]*background 0\.18s/.test(wheelSource) &&
+      /\.mode-tab\.mode-tab-state-swap \.mode-tab-face \{[\s\S]*?transition: none;/.test(wheelSource) &&
+      /const modeChanged = wheelMode !== m;[\s\S]*?mode-tab-state-swap[\s\S]*?requestAnimationFrame\(\(\) => requestAnimationFrame/.test(wheelSource));
     ok('static-вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
     ok('закрытие зеркалит спокойную микрогеометрию static-opening',

@@ -5193,7 +5193,18 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   pointer-events: none;
   transform-origin: center;
   will-change: transform;
-  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.18s, border-color 0.18s, box-shadow 0.18s;
+  /* Inactive face uses a painted gradient, while active uses a solid accent.
+     Safari can rasterize a transition between those different background
+     kinds as a brief empty/bright flash. Hover keeps its quiet geometric
+     response; paint state itself is applied atomically. */
+  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1);
+}
+/* A quality click used to hand the same face through hover → press → active
+   while transform/background/border/shadow transitions were all running.
+   Keep the fixed host and water surface alive, but commit old/new active
+   paint in one compositor frame; the next frames resume normal hover. */
+.mode-tab.mode-tab-state-swap .mode-tab-face {
+  transition: none;
 }
 /* Quality-дуга — семь маленьких круглых card-камушков. По прямой
    проверке их прежняя quiet-depth растворялась в фоне, поэтому в обеих
@@ -11291,7 +11302,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.531</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.532</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31423,17 +31434,27 @@ function clearPinnedWheelExtension({ render = true } = {}) {
 }
 function setWheelMode(m) {
   if (isDevWheel410()) return setWheelMode410(m);
+  const modeChanged = wheelMode !== m;
   wheelMode = m;
-  document.querySelectorAll('.mode-tab').forEach((b) => {
+  const buttons = Array.from(document.querySelectorAll('.mode-tab'));
+  // В видео 0.529 особенно на maj7 видно не сектор, а сам камушек:
+  // face успевал пройти hover → press → active, пока одновременно
+  // интерполировались gradient/color, border и shadow. На выбор качества
+  // фиксируем paint старого и нового face одним кадром; host/surface/water
+  // не пересоздаются и в следующем кадре обычный hover снова доступен.
+  if (modeChanged) buttons.forEach((b) => b.classList.add('mode-tab-state-swap'));
+  buttons.forEach((b) => {
     const active = m !== 'triads' && b.dataset.wheelMode === m;
     b.classList.toggle('active', active);
     b.setAttribute('aria-pressed', String(active));
     b.title = active ? `Качество ${m}; нажмите, чтобы вернуться к трезвучиям` : `Выбрать качество ${b.dataset.wheelMode}`;
   });
-  // В записи 0.529 морганием оказались не quality-hover, а одновременные
-  // clone old-label + incoming-label при смене режима: на один frame имена
-  // накладывались («CCmaj7» и т.п.). Качество меняет подписи сразу, без
-  // transition-layer: всегда видна ровно одна корректная подпись card.
+  if (modeChanged) {
+    requestAnimationFrame(() => requestAnimationFrame(() =>
+      buttons.forEach((b) => b.classList.remove('mode-tab-state-swap'))));
+  }
+  // Качество меняет подписи сразу, без old/new transition-layer:
+  // всегда видна ровно одна корректная подпись card.
   drawWheel();
 }
 // Два кольца (мажорное + минорное) рисуются не всем режимам, а только
