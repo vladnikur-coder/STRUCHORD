@@ -5533,8 +5533,22 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
   from { opacity: 1; }
   to { opacity: 0; }
 }
+/* Floating — отдельная наградная дорожка, когда локальные «Анимации круга»
+   включены. Он не трогает owner, polar transform или idle translate cards:
+   SVG мягко выныривает снизу из чуть меньшей прозрачной формы, а closing
+   зеркально погружает его обратно. Небольшой crest в 68% не даёт входу
+   выглядеть механическим, но остаётся без заметного bounce. */
+@keyframes wheel-floating-surface-in {
+  from { opacity: 0; transform: translateY(0.42rem) scale(0.975); filter: blur(0.6px); }
+  68% { opacity: 1; transform: translateY(-0.025rem) scale(1.002); filter: blur(0); }
+  to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+}
+@keyframes wheel-floating-surface-out {
+  from { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+  to { opacity: 0; transform: translateY(0.42rem) scale(0.975); filter: blur(0.6px); }
+}
 /* У кнопок transform — это их координаты на двух дугах. Анимация
-   намеренно меняет только opacity: transform в keyframes перезаписал бы
+   намеренно меняет только opacity/filter: transform в keyframes перезаписал бы
    rotate/translate позиционирования и сложил все семь кнопок в центр. */
 @keyframes wheel-quality-in {
   from { opacity: 0; }
@@ -5543,6 +5557,14 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
 @keyframes wheel-quality-out {
   from { opacity: 1; }
   to { opacity: 0; }
+}
+@keyframes wheel-floating-quality-in {
+  from { opacity: 0; filter: blur(0.45px); }
+  to { opacity: 1; filter: blur(0); }
+}
+@keyframes wheel-floating-quality-out {
+  from { opacity: 1; filter: blur(0); }
+  to { opacity: 0; filter: blur(0.45px); }
 }
 @keyframes wheel-label-in {
   from { opacity: 0; }
@@ -5594,6 +5616,21 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
   }
   .chord-wheel-modal.closing .mode-tab {
     animation: wheel-quality-out 0.12s ease-in-out both;
+  }
+  /* При активном floating спокойный 160ms fade заменяется его собственной
+     320ms surface-церемонией. Качества приходят слегка позже, но не получают
+     transform/translate keyframe и сохраняют точные полярные точки. */
+  .chord-wheel-modal.open.wheel-floating-surface .wheel-svg-wrap {
+    animation: wheel-floating-surface-in 0.32s cubic-bezier(0.2, 0.78, 0.28, 1) both;
+  }
+  .chord-wheel-modal.closing.wheel-floating-surface .wheel-svg-wrap {
+    animation: wheel-floating-surface-out 0.32s cubic-bezier(0.2, 0.78, 0.28, 1) both;
+  }
+  .chord-wheel-modal.open.wheel-opening.wheel-floating-surface .mode-tab {
+    animation: wheel-floating-quality-in 0.2s ease-out 0.1s both;
+  }
+  .chord-wheel-modal.closing.wheel-floating-surface .mode-tab {
+    animation: wheel-floating-quality-out 0.18s ease-in both;
   }
   #circleSvg .wheel-label-entering {
     animation: wheel-label-in 0.18s ease both;
@@ -11231,7 +11268,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.520</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.521</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31836,9 +31873,21 @@ function prefersReducedWheelMotion() {
 function allowsWheelHoverMotion() {
   return wheelAnimationsEnabled && !prefersReducedWheelMotion();
 }
+// Пока Ocean-ачивка B-66.3 не введена, enabled preference и есть доступ к
+// floating-варианту. Позднее unlock добавится только в этот predicate: static
+// маршрут и уже согласованная настройка не потребуют второй архитектуры.
+function allowsFloatingWheelSurfaceMotion() {
+  return allowsWheelHoverMotion();
+}
+function syncWheelFloatingSurfaceMotion() {
+  const modal = DOM.chordWheelModal;
+  if (!modal || isDevWheel410?.()) return;
+  modal.classList.toggle('wheel-floating-surface', allowsFloatingWheelSurfaceMotion());
+}
 function setWheelAnimationsEnabled(enabled, { persist = true, redraw = true } = {}) {
   wheelAnimationsEnabled = enabled !== false;
   document.documentElement.classList.toggle('wheel-motion-disabled', !wheelAnimationsEnabled);
+  syncWheelFloatingSurfaceMotion();
   const control = document.getElementById('wheelAnimations');
   if (control) control.checked = wheelAnimationsEnabled;
   if (persist) {
@@ -33408,6 +33457,9 @@ let wheelRetargetClickInput = null;
 let wheelCloseNeedsModeTabsRefresh = false;
 const WHEEL_CLOSE_MS = 170;
 const WHEEL_OPEN_MS = 160;
+// Выбранное floating «всплытие / погружение»: отдельный спокойный 320ms
+// ritual, только когда локальная animation preference действительно живая.
+const WHEEL_FLOATING_SURFACE_MS = 320;
 // Выбранный инерционный перенос: owner меняется сразу, но chord-карточки
 // сохраняют видимую старую точку и самостоятельно доплывают к новому кругу.
 // Это не animation ячеек редактора и не постоянный idle-эффект.
@@ -33978,6 +34030,11 @@ function cancelWheelOpenAnimation() {
   }
   DOM.chordWheelModal?.classList.remove('wheel-opening');
 }
+function getWheelSurfaceMotionDuration(modal, staticDuration) {
+  return modal?.classList.contains('wheel-floating-surface')
+    ? WHEEL_FLOATING_SURFACE_MS
+    : staticDuration;
+}
 function startWheelOpenAnimation() {
   const modal = DOM.chordWheelModal;
   if (!modal) return;
@@ -33986,7 +34043,7 @@ function startWheelOpenAnimation() {
   wheelOpenTimer = window.setTimeout(() => {
     if (DOM.chordWheelModal === modal) modal.classList.remove('wheel-opening');
     wheelOpenTimer = 0;
-  }, WHEEL_OPEN_MS);
+  }, getWheelSurfaceMotionDuration(modal, WHEEL_OPEN_MS));
 }
 function cancelWheelCloseAnimation() {
   if (wheelCloseTimer) {
@@ -33999,7 +34056,8 @@ function cancelWheelCloseAnimation() {
   DOM.chordWheelModal?.classList.remove('closing');
 }
 function finishWheelCloseAnimation() {
-  DOM.chordWheelModal?.classList.remove('closing');
+  const modal = DOM.chordWheelModal;
+  modal?.classList.remove('closing', 'wheel-floating-surface');
   wheelCloseTimer = 0;
   if (!wheelCloseNeedsModeTabsRefresh) return;
   wheelCloseNeedsModeTabsRefresh = false;
@@ -34134,6 +34192,9 @@ function openChordWheel(inp) {
   const sec = sections.find((s) => s.id === sid);
   activeSectionKey = sec && sec.key ? sec.key : null;
   DOM.chordWheelModal.setAttribute('aria-hidden', 'false');
+  // Static route сохраняет прежний тихий fade; active local floating получает
+  // отдельное выбранное «всплытие / погружение» только для open/close.
+  syncWheelFloatingSurfaceMotion();
   DOM.chordWheelModal.classList.add('open');
   startWheelOpenAnimation();
   setWheelMode(prepareWheelModeForChord(inp.value), { crossfade: false });
@@ -34167,7 +34228,14 @@ function closeChordWheel() {
   // не ждут motion. Только его рисунок остаётся на короткий обратный pop.
   if (animateClosing) {
     modal.classList.add('closing');
-    wheelCloseTimer = window.setTimeout(finishWheelCloseAnimation, WHEEL_CLOSE_MS);
+    wheelCloseTimer = window.setTimeout(
+      finishWheelCloseAnimation,
+      getWheelSurfaceMotionDuration(modal, WHEEL_CLOSE_MS)
+    );
+  } else {
+    // Reduced motion закрывается сразу и не оставляет floating lifecycle-class
+    // на следующем открытии.
+    modal.classList.remove('wheel-floating-surface');
   }
   // На таче тултип аппликатуры остаётся висеть после закрытия колеса:
   // прячет его mousemove, которого здесь не бывает. Снимаем сразу, чтобы
