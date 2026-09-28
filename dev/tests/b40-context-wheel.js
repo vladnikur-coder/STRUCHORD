@@ -130,12 +130,12 @@ w.addEventListener('load', () => {
     ok('ближняя дуга на 1rem ближе к грифу, но не наезжает на SVG-кольцо',
       Number.parseFloat(near?.style.getPropertyValue('--wheel-mode-radius')) >= 12.5);
     const wheelSource = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
-    ok('quality-кнопки вновь круглые, с тихой card-поверхностью и current active marker',
+    ok('quality-кнопки круглые, заметнее отделены от фона в обеих темах и сохраняют current active marker',
       /width: 2\.75rem;[\s\S]*?height: 2\.75rem;[\s\S]*?border-radius: 50%;/.test(wheelSource) &&
       /rotate\(calc\(-1 \* var\(--wheel-mode-angle\)\)\) scale\(var\(--wheel-mode-scale\)\)/.test(wheelSource) &&
       !/\.mode-tab-label \{/.test(wheelSource) &&
-      /\.mode-tab:not\(\.active\) \{[\s\S]*?0 0\.055rem 0\.16rem rgba\(20, 30, 45, 0\.075\)/.test(wheelSource) &&
-      /html\[data-theme='dark'\] \.mode-tab:not\(\.active\) \{[\s\S]*?0 0\.06rem 0\.18rem rgba\(0, 0, 0, 0\.18\)/.test(wheelSource) &&
+      /\.mode-tab:not\(\.active\) \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 78%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.26rem rgba\(20, 30, 45, 0\.11\)/.test(wheelSource) &&
+      /html\[data-theme='dark'\] \.mode-tab:not\(\.active\) \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 72%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.28rem rgba\(0, 0, 0, 0\.26\)/.test(wheelSource) &&
       /\.mode-tab\.active \{[\s\S]*?background: var\(--color-tab-active-bg\);[\s\S]*?box-shadow: 0 0\.1875rem 0\.625rem rgba\(0, 0, 0, 0\.15\);/.test(wheelSource));
     ok('вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
