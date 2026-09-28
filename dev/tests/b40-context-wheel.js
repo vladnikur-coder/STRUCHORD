@@ -134,16 +134,16 @@ w.addEventListener('load', () => {
       /width: 2\.75rem;[\s\S]*?height: 2\.75rem;[\s\S]*?border-radius: 50%;/.test(wheelSource) &&
       /rotate\(calc\(-1 \* var\(--wheel-mode-angle\)\)\) scale\(var\(--wheel-mode-scale\)\)/.test(wheelSource) &&
       !/\.mode-tab-label \{/.test(wheelSource) &&
-      /\.mode-tab-surface \{[\s\S]*?border-radius: 50%;[\s\S]*?pointer-events: none;/.test(wheelSource) &&
-      /\.mode-tab:hover \.mode-tab-surface \{[\s\S]*?transform: scale\(1\.06\);/.test(wheelSource) &&
-      /\.mode-tab:active \.mode-tab-surface \{[\s\S]*?transform: scale\(0\.96\);/.test(wheelSource) &&
-      /\.mode-tab\.active \.mode-tab-surface \{[\s\S]*?transform: scale\(1\.05\);/.test(wheelSource) &&
+      /\.mode-tab-surface \{[\s\S]*?pointer-events: none;[\s\S]*?translate: var\(--wheel-mode-idle-x, 0px\) var\(--wheel-mode-idle-y, 0px\);/.test(wheelSource) &&
+      /\.mode-tab-face \{[\s\S]*?border-radius: 50%;[\s\S]*?pointer-events: none;/.test(wheelSource) &&
+      /\.mode-tab:hover \.mode-tab-face \{[\s\S]*?transform: scale\(1\.06\);/.test(wheelSource) &&
+      /\.mode-tab:active \.mode-tab-face \{[\s\S]*?transform: scale\(0\.96\);/.test(wheelSource) &&
+      /\.mode-tab\.active \.mode-tab-face \{[\s\S]*?transform: scale\(1\.05\);/.test(wheelSource) &&
       !/\.mode-tab:hover \{\s*--wheel-mode-scale:/.test(wheelSource) &&
       /\.mode-tab \{[\s\S]*?translate: var\(--wheel-mode-retarget-x, 0px\) var\(--wheel-mode-retarget-y, 0px\);/.test(wheelSource) &&
-      /\.mode-tab-surface \{[\s\S]*?translate: var\(--wheel-mode-idle-x, 0px\) var\(--wheel-mode-idle-y, 0px\);/.test(wheelSource) &&
-      /\.mode-tab:not\(\.active\) \.mode-tab-surface \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 78%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.26rem rgba\(20, 30, 45, 0\.11\)/.test(wheelSource) &&
-      /html\[data-theme='dark'\] \.mode-tab:not\(\.active\) \.mode-tab-surface \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 72%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.28rem rgba\(0, 0, 0, 0\.26\)/.test(wheelSource) &&
-      /\.mode-tab\.active \.mode-tab-surface \{[\s\S]*?background: var\(--color-tab-active-bg\);[\s\S]*?box-shadow: 0 0\.1875rem 0\.625rem rgba\(0, 0, 0, 0\.15\);/.test(wheelSource));
+      /\.mode-tab:not\(\.active\) \.mode-tab-face \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 78%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.26rem rgba\(20, 30, 45, 0\.11\)/.test(wheelSource) &&
+      /html\[data-theme='dark'\] \.mode-tab:not\(\.active\) \.mode-tab-face \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 72%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.28rem rgba\(0, 0, 0, 0\.26\)/.test(wheelSource) &&
+      /\.mode-tab\.active \.mode-tab-face \{[\s\S]*?background: var\(--color-tab-active-bg\);[\s\S]*?box-shadow: 0 0\.1875rem 0\.625rem rgba\(0, 0, 0, 0\.15\);/.test(wheelSource));
     ok('static-вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
     ok('закрытие зеркалит спокойную микрогеометрию static-opening',
@@ -165,7 +165,8 @@ w.addEventListener('load', () => {
       /function ensureWheelModeTabSurface\(button\)/.test(wheelSource) &&
       /button\?\.replaceChildren\(surface\);/.test(wheelSource) &&
       /applyWheelFloatingStoneTiming\(\[surface\], 'quality', index\);/.test(wheelSource) &&
-      /\.mode-tab-surface \{[\s\S]*?will-change: translate, transform, scale, opacity, filter;/.test(wheelSource) &&
+      /\.mode-tab-surface \{[\s\S]*?will-change: translate, scale, opacity, filter;/.test(wheelSource) &&
+      /\.mode-tab-face \{[\s\S]*?will-change: transform;/.test(wheelSource) &&
       /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap,[\s\S]*?animation: none;/.test(wheelSource) &&
       /\.chord-wheel-modal\.open\.wheel-opening\.wheel-floating-surface \.mode-tab \{[\s\S]*?animation: none;[\s\S]*?transition: none;/.test(wheelSource) &&
       /\.chord-wheel-modal\.closing\.wheel-floating-surface \.mode-tab \{[\s\S]*?animation: none;[\s\S]*?transition: none;/.test(wheelSource) &&
@@ -416,6 +417,8 @@ w.addEventListener('load', () => {
         return stones.length > 0 && tabs.length === 7 && hosts.length === 7 &&
           hosts.every((host) => host.children.length === 1 &&
             host.firstElementChild?.classList.contains('mode-tab-surface') &&
+            host.firstElementChild?.children.length === 1 &&
+            host.firstElementChild?.firstElementChild?.classList.contains('mode-tab-face') &&
             !host.classList.contains('wheel-surface-stone')) &&
           Math.min(...riseDelays) === 0 && Math.max(...riseDelays) <= 120 &&
           new Set(riseDelays).size > 4 && new Set(sinkDelays).size > 3 && reversed;

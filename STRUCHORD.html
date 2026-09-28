@@ -5165,10 +5165,20 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   transform-origin: center;
   transition: translate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1);
 }
-/* Реальная круглая поверхность отделена от polar-host. Только этот внутренний
-   слой scale/blur/fade-ится вместе с SVG-card, поэтому центр кнопки не ездит
-   по радиусу во время появления. */
+/* Surface несёт только независимые depth / blur / opacity / idle-water
+   каналы. Face — отдельный visual-card для hover / press / active. Такое
+   разбиение не смешивает на одном compositor-layer CSS animation, translate
+   и transform transition: Safari больше не пересобирает камушек вспышкой. */
 .mode-tab-surface {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  translate: var(--wheel-mode-idle-x, 0px) var(--wheel-mode-idle-y, 0px);
+  transform-origin: center;
+  will-change: translate, scale, opacity, filter;
+  transition: translate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1);
+}
+.mode-tab-face {
   position: absolute;
   inset: 0;
   box-sizing: border-box;
@@ -5181,13 +5191,9 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   align-items: center;
   justify-content: center;
   pointer-events: none;
-  /* Water — только visual micro-vector. Сам host остаётся неподвижной
-     областью hover/click, иначе edge-hover способен мигать, когда камушек
-     делает очередной тихий water sample. */
-  translate: var(--wheel-mode-idle-x, 0px) var(--wheel-mode-idle-y, 0px);
   transform-origin: center;
-  will-change: translate, transform, scale, opacity, filter;
-  transition: translate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.18s, border-color 0.18s, box-shadow 0.18s;
+  will-change: transform;
+  transition: transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1), background 0.18s, border-color 0.18s, box-shadow 0.18s;
 }
 /* Quality-дуга — семь маленьких круглых card-камушков. По прямой
    проверке их прежняя quiet-depth растворялась в фоне, поэтому в обеих
@@ -5195,7 +5201,7 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
    и нижняя опора. Это остаётся спокойной card-поверхностью — без возврата
    заметного raised-stone эффекта. Active сохраняет знакомый
    current background/border/text-маркер. */
-.mode-tab:not(.active) .mode-tab-surface {
+.mode-tab:not(.active) .mode-tab-face {
   border-color: color-mix(in srgb, var(--color-border-medium) 78%, var(--color-text-secondary));
   background: linear-gradient(
     156deg,
@@ -5208,7 +5214,7 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
     inset 0 0.04rem 0.05rem rgba(255, 255, 255, 0.55),
     inset 0 -0.045rem 0.08rem rgba(20, 30, 45, 0.06);
 }
-html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-surface {
+html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
   border-color: color-mix(in srgb, var(--color-border-medium) 72%, var(--color-text-secondary));
   background: linear-gradient(
     156deg,
@@ -5221,24 +5227,22 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-surface {
     inset 0 0.04rem 0.05rem rgba(255, 255, 255, 0.14),
     inset 0 -0.045rem 0.08rem rgba(0, 0, 0, 0.19);
 }
-/* Hover/press/active scale теперь тоже живёт на visual surface, а не на
-   clickable polar-host. Раньше host менял собственную hit-геометрию во
-   время hover transition: cursor на кромке мог чередовать enter/leave и
-   заставлять подсветку мигать. Visual response сохраняет прежние 1.06 /
-   .96 / 1.05, но область hit-test остаётся постоянным кругом 44px. */
-.mode-tab:hover .mode-tab-surface {
+/* Hover/press/active scale живёт на третьем face-layer, а не на clickable
+   polar-host и не на depth/water-surface. Визуальный отклик 1.06 /.96 /
+   1.05 сохранён, но target и depth compositor-route никогда не мигают. */
+.mode-tab:hover .mode-tab-face {
   transform: scale(1.06);
   background: var(--color-background-secondary);
   border-color: var(--color-text-secondary);
   box-shadow: 0 0.1rem 0.28rem rgba(0, 0, 0, 0.1);
 }
-.mode-tab:active .mode-tab-surface {
+.mode-tab:active .mode-tab-face {
   transform: scale(0.96);
 }
 .mode-tab.active {
   color: var(--color-accent);
 }
-.mode-tab.active .mode-tab-surface {
+.mode-tab.active .mode-tab-face {
   transform: scale(1.05);
   background: var(--color-tab-active-bg);
   border-color: var(--color-accent);
@@ -11304,7 +11308,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.529</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.530</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31260,12 +31264,23 @@ function getWheelModeTabsArcRotation() {
 }
 function ensureWheelModeTabSurface(button) {
   let surface = button?.querySelector(':scope > .mode-tab-surface');
-  if (surface) return surface;
-  surface = document.createElement('span');
-  surface.className = 'mode-tab-surface';
-  surface.textContent = button?.textContent || '';
-  button?.replaceChildren(surface);
-  return surface;
+  if (!surface) {
+    surface = document.createElement('span');
+    surface.className = 'mode-tab-surface';
+    surface.textContent = button?.textContent || '';
+    button?.replaceChildren(surface);
+  }
+  // Face отделяет card-style hover от depth/water compositor surface. При
+  // reconciliation не пересоздаём ни surface, ни face: active transition
+  // продолжает живой DOM-узел и не даёт Safari flicker на hover.
+  let face = surface.querySelector(':scope > .mode-tab-face');
+  if (!face) {
+    face = document.createElement('span');
+    face.className = 'mode-tab-face';
+    face.textContent = surface.textContent || '';
+    surface.replaceChildren(face);
+  }
+  return { surface, face };
 }
 function applyWheelModeTab(button, mode, index) {
   const active = wheelMode === mode;
@@ -31277,7 +31292,7 @@ function applyWheelModeTab(button, mode, index) {
   // button — только fixed polar host/hit-target. Отдельный inner-surface
   // получает ровно тот же depth-route, что SVG-card; поэтому scale никогда
   // не умножает translateY(radius) и не вытаскивает кнопку снизу.
-  const surface = ensureWheelModeTabSurface(button);
+  const { surface, face } = ensureWheelModeTabSurface(button);
   applyWheelFloatingStoneTiming([surface], 'quality', index);
   // B-40: две короткие нижние дуги лежат ЦЕЛИКОМ вне кольца SVG.
   // Ближняя к кругу несёт четыре типа, дальняя — три.
@@ -31296,7 +31311,7 @@ function applyWheelModeTab(button, mode, index) {
   button.style.setProperty('--wheel-mode-angle', `${angle}deg`);
   button.style.setProperty('--wheel-mode-radius', radius);
   button.style.removeProperty('font-size');
-  surface.textContent = mode;
+  face.textContent = mode;
   button.title = active ? `Качество ${mode}; нажмите, чтобы вернуться к трезвучиям` : `Выбрать качество ${mode}`;
   // Круг 44px рассчитан под короткие ярлыки вроде «sus4». Длинные
   // пользовательские типы ужимаем только по шрифту, не по цели клика.
