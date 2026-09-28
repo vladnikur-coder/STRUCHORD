@@ -145,12 +145,12 @@ w.addEventListener('load', () => {
     ok('opening и closing используют одинаковые тихие fade-дорожки',
       /wheel-surface-fade-in 0\.16s ease-in-out both/.test(wheelSource) &&
       /wheel-surface-fade-out 0\.16s ease-in-out both/.test(wheelSource));
-    ok('floating получает отдельное спокойное 320ms всплытие и симметричное погружение, static-route не меняется',
-      /const WHEEL_FLOATING_SURFACE_MS = 320;/.test(wheelSource) &&
-      /@keyframes wheel-floating-surface-in[\s\S]*?translateY\(0\.42rem\) scale\(0\.975\)[\s\S]*?translateY\(-0\.025rem\) scale\(1\.002\)/.test(wheelSource) &&
-      /@keyframes wheel-floating-surface-out[\s\S]*?translateY\(0\.42rem\) scale\(0\.975\)/.test(wheelSource) &&
-      /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap \{\s*animation: wheel-floating-surface-in 0\.32s cubic-bezier\(0\.2, 0\.78, 0\.28, 1\) both;/.test(wheelSource) &&
-      /\.chord-wheel-modal\.closing\.wheel-floating-surface \.wheel-svg-wrap \{\s*animation: wheel-floating-surface-out 0\.32s cubic-bezier\(0\.2, 0\.78, 0\.28, 1\) both;/.test(wheelSource) &&
+    ok('floating заметно всплывает за 420ms, делает один buoyant bob и симметрично погружается; static-route не меняется',
+      /const WHEEL_FLOATING_SURFACE_MS = 420;/.test(wheelSource) &&
+      /@keyframes wheel-floating-surface-in[\s\S]*?translateY\(1\.1rem\) scale\(0\.91\)[\s\S]*?translateY\(-0\.15rem\) scale\(1\.018\)[\s\S]*?translateY\(0\.065rem\) scale\(0\.995\)/.test(wheelSource) &&
+      /@keyframes wheel-floating-surface-out[\s\S]*?translateY\(1\.1rem\) scale\(0\.91\)/.test(wheelSource) &&
+      /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap \{[\s\S]*?animation: wheel-floating-surface-in 0\.42s cubic-bezier\(0\.42, 0, 0\.58, 1\) both;/.test(wheelSource) &&
+      /\.chord-wheel-modal\.closing\.wheel-floating-surface \.wheel-svg-wrap \{\s*animation: wheel-floating-surface-out 0\.42s cubic-bezier\(0\.42, 0, 0\.58, 1\) both;/.test(wheelSource) &&
       /function syncWheelFloatingSurfaceMotion\(\)/.test(wheelSource) &&
       /modal\.classList\.toggle\('wheel-floating-surface', allowsFloatingWheelSurfaceMotion\(\)\);/.test(wheelSource));
     ok('дуги качеств тихо уходят вместе с closing, без мгновенного исчезновения',
@@ -377,7 +377,7 @@ w.addEventListener('load', () => {
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');
     ok('слой открыт', modal.classList.contains('open'));
     ok('при включённом floating opening помечен отдельной surface-дорожкой',
-      modal.classList.contains('wheel-floating-surface') && w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_OPEN_MS)') === 320);
+      modal.classList.contains('wheel-floating-surface') && w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_OPEN_MS)') === 420);
     ok('entry-анимация quality-дуги получает отдельный одноразовый класс', modal.classList.contains('wheel-opening'));
     ok('открытие круга сразу скрывает тултип аппликатуры', fingeringTooltip.style.display === 'none');
     ok('слой объявлен видимым для AT', modal.getAttribute('aria-hidden') === 'false');
@@ -682,9 +682,9 @@ w.addEventListener('load', () => {
     const beforeOutside = input.value;
     d.body.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
     ok('клик вне круга закрыл слой', !modal.classList.contains('open'));
-    ok('floating close сохраняет собственную 320ms погружающую surface-фазу',
+    ok('floating close сохраняет собственную 420ms погружающую surface-фазу',
       modal.classList.contains('closing') && modal.classList.contains('wheel-floating-surface') &&
-      w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_CLOSE_MS)') === 320);
+      w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_CLOSE_MS)') === 420);
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
     ok('после закрытия у owner снят halo', !owner.classList.contains('wheel-owner-active'));
     ok('после обычного close у owner снят selection-state', !owner.classList.contains('is-cell-selected'));
@@ -738,8 +738,8 @@ w.addEventListener('load', () => {
     let finishClose = null;
     const closeTimerId = 981;
     w.setTimeout = (callback, delay, ...args) => {
-      // Static close остаётся 170ms, floating получает выбранные 320ms.
-      if (delay === 170 || delay === 320) {
+      // Static close остаётся 170ms, floating получает выбранные 420ms.
+      if (delay === 170 || delay === 420) {
         finishClose = () => callback(...args);
         return closeTimerId;
       }
@@ -935,6 +935,8 @@ w.addEventListener('load', () => {
     w.eval('openChordWheel(document.querySelector(".chord-input")); retargetChordWheel(document.querySelectorAll(".chord-input")[1]); setWheelMode("7");');
     ok('при reduced motion переезд сразу стоит на новой ячейке, без transform-слоя',
       w.eval('activeChordInput') === targetInput && !container.dataset.wheelRetargeting && !container.style.transition);
+    ok('при reduced motion open не удерживает lifecycle-класс и сразу показывает финальное состояние',
+      !modal.classList.contains('wheel-opening') && !modal.classList.contains('wheel-floating-surface'));
     ok('при reduced motion нет уходящего слоя подписей', !d.querySelector('#circleSvg .wheel-label-exit-layer'));
     ok('при reduced motion SVG и quality idle water не запускаются и не оставляют vector-переменных',
       w.eval('wheelIdleMotionState') === null && w.eval('wheelModeTabsIdleMotionState') === null &&

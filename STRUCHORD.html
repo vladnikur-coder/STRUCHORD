@@ -5535,17 +5535,18 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
 }
 /* Floating — отдельная наградная дорожка, когда локальные «Анимации круга»
    включены. Он не трогает owner, polar transform или idle translate cards:
-   SVG мягко выныривает снизу из чуть меньшей прозрачной формы, а closing
-   зеркально погружает его обратно. Небольшой crest в 68% не даёт входу
-   выглядеть механическим, но остаётся без заметного bounce. */
+   SVG действительно всплывает от owner снизу — с заметной амплитудой 1.1rem,
+   а после выхода делает один спокойный buoyant bob. Closing без отскока
+   погружает поверхность обратно тем же вертикальным маршрутом. */
 @keyframes wheel-floating-surface-in {
-  from { opacity: 0; transform: translateY(0.42rem) scale(0.975); filter: blur(0.6px); }
-  68% { opacity: 1; transform: translateY(-0.025rem) scale(1.002); filter: blur(0); }
+  from { opacity: 0; transform: translateY(1.1rem) scale(0.91); filter: blur(1.1px); }
+  58% { opacity: 1; transform: translateY(-0.15rem) scale(1.018); filter: blur(0); }
+  78% { opacity: 1; transform: translateY(0.065rem) scale(0.995); filter: blur(0); }
   to { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
 }
 @keyframes wheel-floating-surface-out {
   from { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
-  to { opacity: 0; transform: translateY(0.42rem) scale(0.975); filter: blur(0.6px); }
+  to { opacity: 0; transform: translateY(1.1rem) scale(0.91); filter: blur(1.1px); }
 }
 /* У кнопок transform — это их координаты на двух дугах. Анимация
    намеренно меняет только opacity/filter: transform в keyframes перезаписал бы
@@ -5618,19 +5619,22 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
     animation: wheel-quality-out 0.12s ease-in-out both;
   }
   /* При активном floating спокойный 160ms fade заменяется его собственной
-     320ms surface-церемонией. Качества приходят слегка позже, но не получают
-     transform/translate keyframe и сохраняют точные полярные точки. */
+     заметной 420ms buoyant surface-церемонией. Качества приходят вместе с
+     подъёмом, но не получают transform/translate keyframe и сохраняют точные
+     полярные точки. */
   .chord-wheel-modal.open.wheel-floating-surface .wheel-svg-wrap {
-    animation: wheel-floating-surface-in 0.32s cubic-bezier(0.2, 0.78, 0.28, 1) both;
+    /* Ровный ease-in-out сохраняет нижнюю стартовую точку читаемой дольше:
+       это именно подъём круга, а не быстрый fade в почти готовую позицию. */
+    animation: wheel-floating-surface-in 0.42s cubic-bezier(0.42, 0, 0.58, 1) both;
   }
   .chord-wheel-modal.closing.wheel-floating-surface .wheel-svg-wrap {
-    animation: wheel-floating-surface-out 0.32s cubic-bezier(0.2, 0.78, 0.28, 1) both;
+    animation: wheel-floating-surface-out 0.42s cubic-bezier(0.42, 0, 0.58, 1) both;
   }
   .chord-wheel-modal.open.wheel-opening.wheel-floating-surface .mode-tab {
-    animation: wheel-floating-quality-in 0.2s ease-out 0.1s both;
+    animation: wheel-floating-quality-in 0.28s ease-out 0.14s both;
   }
   .chord-wheel-modal.closing.wheel-floating-surface .mode-tab {
-    animation: wheel-floating-quality-out 0.18s ease-in both;
+    animation: wheel-floating-quality-out 0.24s ease-in both;
   }
   #circleSvg .wheel-label-entering {
     animation: wheel-label-in 0.18s ease both;
@@ -11268,7 +11272,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.521</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.522</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -33457,9 +33461,9 @@ let wheelRetargetClickInput = null;
 let wheelCloseNeedsModeTabsRefresh = false;
 const WHEEL_CLOSE_MS = 170;
 const WHEEL_OPEN_MS = 160;
-// Выбранное floating «всплытие / погружение»: отдельный спокойный 320ms
-// ritual, только когда локальная animation preference действительно живая.
-const WHEEL_FLOATING_SURFACE_MS = 320;
+// Выбранное floating «всплыл и качнулся»: заметный 420ms buoyant ritual,
+// только когда локальная animation preference действительно живая.
+const WHEEL_FLOATING_SURFACE_MS = 420;
 // Выбранный инерционный перенос: owner меняется сразу, но chord-карточки
 // сохраняют видимую старую точку и самостоятельно доплывают к новому кругу.
 // Это не animation ячеек редактора и не постоянный idle-эффект.
@@ -34039,6 +34043,9 @@ function startWheelOpenAnimation() {
   const modal = DOM.chordWheelModal;
   if (!modal) return;
   cancelWheelOpenAnimation();
+  // Accessibility route has neither a visual keyframe nor a lifecycle hold:
+  // the fully placed wheel is available in the same frame.
+  if (prefersReducedWheelMotion()) return;
   modal.classList.add('wheel-opening');
   wheelOpenTimer = window.setTimeout(() => {
     if (DOM.chordWheelModal === modal) modal.classList.remove('wheel-opening');
