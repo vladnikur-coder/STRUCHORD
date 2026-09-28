@@ -137,20 +137,28 @@ w.addEventListener('load', () => {
       /\.mode-tab:not\(\.active\) \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 78%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.26rem rgba\(20, 30, 45, 0\.11\)/.test(wheelSource) &&
       /html\[data-theme='dark'\] \.mode-tab:not\(\.active\) \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 72%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.28rem rgba\(0, 0, 0, 0\.26\)/.test(wheelSource) &&
       /\.mode-tab\.active \{[\s\S]*?background: var\(--color-tab-active-bg\);[\s\S]*?box-shadow: 0 0\.1875rem 0\.625rem rgba\(0, 0, 0, 0\.15\);/.test(wheelSource));
-    ok('вход качеств не перезаписывает transform их позиционирования',
+    ok('static-вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
-    ok('закрытие зеркалит спокойную микрогеометрию opening',
+    ok('закрытие зеркалит спокойную микрогеометрию static-opening',
       /@keyframes wheel-surface-in[\s\S]*?scale\(0\.985\)[\s\S]*?scale\(1\)/.test(wheelSource) &&
       /@keyframes wheel-surface-out[\s\S]*?scale\(1\)[\s\S]*?scale\(0\.985\)/.test(wheelSource));
-    ok('opening и closing используют одинаковые тихие fade-дорожки',
+    ok('static opening и closing используют одинаковые тихие fade-дорожки',
       /wheel-surface-fade-in 0\.16s ease-in-out both/.test(wheelSource) &&
       /wheel-surface-fade-out 0\.16s ease-in-out both/.test(wheelSource));
-    ok('floating заметно всплывает за 420ms, делает один buoyant bob и симметрично погружается; static-route не меняется',
-      /const WHEEL_FLOATING_SURFACE_MS = 420;/.test(wheelSource) &&
-      /@keyframes wheel-floating-surface-in[\s\S]*?translateY\(1\.1rem\) scale\(0\.91\)[\s\S]*?translateY\(-0\.15rem\) scale\(1\.018\)[\s\S]*?translateY\(0\.065rem\) scale\(0\.995\)/.test(wheelSource) &&
-      /@keyframes wheel-floating-surface-out[\s\S]*?translateY\(1\.1rem\) scale\(0\.91\)/.test(wheelSource) &&
-      /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap \{[\s\S]*?animation: wheel-floating-surface-in 0\.42s cubic-bezier\(0\.42, 0, 0\.58, 1\) both;/.test(wheelSource) &&
-      /\.chord-wheel-modal\.closing\.wheel-floating-surface \.wheel-svg-wrap \{\s*animation: wheel-floating-surface-out 0\.42s cubic-bezier\(0\.42, 0, 0\.58, 1\) both;/.test(wheelSource) &&
+    ok('floating выпускает отдельные камушки из глубины за 620ms, без движения поверхности снизу страницы',
+      /const WHEEL_FLOATING_SURFACE_MS = 620;/.test(wheelSource) &&
+      /const WHEEL_FLOATING_STONE_MS = 380;/.test(wheelSource) &&
+      /const WHEEL_FLOATING_STONE_MAX_DELAY_MS = WHEEL_FLOATING_SURFACE_MS - WHEEL_FLOATING_STONE_MS;/.test(wheelSource) &&
+      /const WHEEL_FLOATING_STONE_RISE_ORDER = \[5, 0, 9, 2, 7, 11, 4, 1, 10, 6, 3, 8\];/.test(wheelSource) &&
+      /@keyframes wheel-floating-stone-rise[\s\S]*?opacity: 0; scale: 0\.68; filter: blur\(2\.2px\)[\s\S]*?scale: 1\.026[\s\S]*?scale: 1;/.test(wheelSource) &&
+      /@keyframes wheel-floating-stone-sink[\s\S]*?scale: 1;[\s\S]*?scale: 0\.62; filter: blur\(2\.35px\)/.test(wheelSource) &&
+      /applyWheelFloatingStoneTiming\(nodes, ring, index\);/.test(wheelSource) &&
+      /applyWheelFloatingStoneTiming\(\[button\], 'quality', index\);/.test(wheelSource) &&
+      /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap,[\s\S]*?animation: none;/.test(wheelSource) &&
+      /wheel-floating-stone-rise 0\.38s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-rise-delay, 0ms\) both/.test(wheelSource) &&
+      /wheel-floating-stone-sink 0\.38s cubic-bezier\(0\.44, 0, 0\.72, 0\.34\) var\(--wheel-surface-sink-delay, 0ms\) both/.test(wheelSource) &&
+      !/wheel-floating-surface-in/.test(wheelSource) &&
+      !/wheel-floating-surface-out/.test(wheelSource) &&
       /function syncWheelFloatingSurfaceMotion\(\)/.test(wheelSource) &&
       /modal\.classList\.toggle\('wheel-floating-surface', allowsFloatingWheelSurfaceMotion\(\)\);/.test(wheelSource));
     ok('дуги качеств тихо уходят вместе с closing, без мгновенного исчезновения',
@@ -376,9 +384,17 @@ w.addEventListener('load', () => {
     d.getElementById('showDegrees').checked = true;
     w.eval('openChordWheel(document.querySelector(".chord-input")); positionContextualChordWheel();');
     ok('слой открыт', modal.classList.contains('open'));
-    ok('при включённом floating opening помечен отдельной surface-дорожкой',
-      modal.classList.contains('wheel-floating-surface') && w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_OPEN_MS)') === 420);
-    ok('entry-анимация quality-дуги получает отдельный одноразовый класс', modal.classList.contains('wheel-opening'));
+    ok('при включённом floating opening помечен отдельной 620ms surface-дорожкой',
+      modal.classList.contains('wheel-floating-surface') && w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_OPEN_MS)') === 620);
+    ok('floating даёт каждому SVG-камушку и quality-кнопке свой depth-delay',
+      (() => {
+        const stones = Array.from(d.querySelectorAll('#circleSvg .wheel-surface-stone'));
+        const tabs = Array.from(d.querySelectorAll('.mode-tab.wheel-surface-stone'));
+        const riseDelays = new Set(stones.map((node) => node.style.getPropertyValue('--wheel-surface-rise-delay')));
+        const sinkDelays = new Set(tabs.map((node) => node.style.getPropertyValue('--wheel-surface-sink-delay')));
+        return stones.length > 0 && tabs.length === 7 && riseDelays.size > 4 && sinkDelays.size > 3;
+      })());
+    ok('entry-анимация камушков получает отдельный одноразовый класс', modal.classList.contains('wheel-opening'));
     ok('открытие круга сразу скрывает тултип аппликатуры', fingeringTooltip.style.display === 'none');
     ok('слой объявлен видимым для AT', modal.getAttribute('aria-hidden') === 'false');
     ok('owner получает halo-состояние на время круга', owner.classList.contains('wheel-owner-active'));
@@ -682,9 +698,9 @@ w.addEventListener('load', () => {
     const beforeOutside = input.value;
     d.body.dispatchEvent(new w.Event('pointerdown', { bubbles: true }));
     ok('клик вне круга закрыл слой', !modal.classList.contains('open'));
-    ok('floating close сохраняет собственную 420ms погружающую surface-фазу',
+    ok('floating close сохраняет собственную 620ms погружающую surface-фазу',
       modal.classList.contains('closing') && modal.classList.contains('wheel-floating-surface') &&
-      w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_CLOSE_MS)') === 420);
+      w.eval('getWheelSurfaceMotionDuration(DOM.chordWheelModal, WHEEL_CLOSE_MS)') === 620);
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
     ok('после закрытия у owner снят halo', !owner.classList.contains('wheel-owner-active'));
     ok('после обычного close у owner снят selection-state', !owner.classList.contains('is-cell-selected'));
@@ -738,8 +754,8 @@ w.addEventListener('load', () => {
     let finishClose = null;
     const closeTimerId = 981;
     w.setTimeout = (callback, delay, ...args) => {
-      // Static close остаётся 170ms, floating получает выбранные 420ms.
-      if (delay === 170 || delay === 420) {
+      // Static close остаётся 170ms, floating получает выбранные 620ms.
+      if (delay === 170 || delay === 620) {
         finishClose = () => callback(...args);
         return closeTimerId;
       }
