@@ -157,6 +157,7 @@ w.addEventListener('load', () => {
       /applyWheelFloatingStoneTiming\(nodes, ring, index\);/.test(wheelSource) &&
       /applyWheelFloatingStoneTiming\(\[button\], 'quality', index\);/.test(wheelSource) &&
       /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap,[\s\S]*?animation: none;/.test(wheelSource) &&
+      /\.chord-wheel-modal\.open\.wheel-opening\.wheel-floating-surface \.mode-tab \{\s*transition: none;/.test(wheelSource) &&
       /wheel-floating-stone-rise 0\.3s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-rise-delay, 0ms\) both/.test(wheelSource) &&
       /wheel-floating-stone-rise 0\.3s cubic-bezier\(0\.22, 0\.58, 0\.35, 1\) var\(--wheel-surface-sink-delay, 0ms\) reverse both/.test(wheelSource) &&
       !/wheel-floating-surface-in/.test(wheelSource) &&
