@@ -221,6 +221,12 @@ w.addEventListener('load', () => {
       /overlay\.setAttribute\('data-wheel-diatonic', sector\.getAttribute\('data-wheel-diatonic'\) \|\| 'false'\);/.test(wheelSource) &&
       /const incomingNeighborNodes = allowsWheelHoverMotion\(\)\s*\?\s*getWheelNeighborSpreadNodes\(position\)\s*:\s*\[\];/.test(wheelSource) &&
       /function startWheelIdleMotion\(nodes\)/.test(wheelSource) &&
+      /function pauseWheelIdleMotionForRetarget\(\)/.test(wheelSource) &&
+      /function resumeWheelIdleMotionAfterRetarget\(\)/.test(wheelSource) &&
+      /function pauseWheelModeTabsIdleMotionForRetarget\(\)/.test(wheelSource) &&
+      /function resumeWheelModeTabsIdleMotionAfterRetarget\(\)/.test(wheelSource) &&
+      /state\.frozenAt != null/.test(wheelSource) &&
+      /pauseWheelIdleMotionForRetarget\(\);\s*pauseWheelModeTabsIdleMotionForRetarget\(\);/.test(wheelSource) &&
       /if \(DOM\.chordWheelModal\?\.classList\.contains\('open'\)\) \{\s*startWheelIdleMotion\(Array\.from\(svg\.querySelectorAll\('\.wheel-hoverable'\)\)\);/.test(wheelSource) &&
       /!allowsWheelHoverMotion\(\) \|\| !nodes\?\.length/.test(wheelSource) &&
       /function beginWheelNeighborRelease\(nodes, visualSnapshot = null, incomingNodes = new Set\(\)\)/.test(wheelSource) &&
@@ -810,11 +816,29 @@ w.addEventListener('load', () => {
         `${button.dataset.wheelModeAngle}deg` !== qualityAnglesBeforeRetarget[index]) &&
       modeTabs.style.transform === '' && modeTabs.style.willChange === '' &&
       modal.classList.contains('wheel-retargeting') && !modal.classList.contains('wheel-opening'));
+    ok('на время card-transfer оба water-clock заморожены на последнем показанном sample',
+      w.eval('wheelIdleMotionState?.frozenAt != null') === true &&
+      w.eval('wheelModeTabsIdleMotionState?.frozenAt != null') === true &&
+      w.eval('wheelIdleMotionRaf') === 0 && w.eval('wheelModeTabsIdleMotionRaf') === 0);
+    const frozenSectorWater = d.querySelector('#circleSvg .wheel-sector')?.style.getPropertyValue('--wheel-idle-x');
+    const frozenQualityWater = d.querySelector('.mode-tab')?.style.getPropertyValue('--wheel-mode-idle-x');
+    w.eval(`{
+      writeWheelIdleWater((wheelIdleMotionState?.lastTimestamp || performance.now()) + 33.34);
+      writeWheelModeTabsIdleWater((wheelModeTabsIdleMotionState?.lastTimestamp || performance.now()) + 33.34);
+    }`);
+    ok('виртуальный 30 FPS rAF не переписывает translate water-vector во время transfer',
+      d.querySelector('#circleSvg .wheel-sector')?.style.getPropertyValue('--wheel-idle-x') === frozenSectorWater &&
+      d.querySelector('.mode-tab')?.style.getPropertyValue('--wheel-mode-idle-x') === frozenQualityWater);
     ok('режим нового owner обновлён в рамках того же переезда', w.eval('wheelMode') === 'add9');
     ok('переезд переносит выбранный marker на add9-сектор нового owner без пересборки water-карточек',
       d.querySelectorAll('#circleSvg .wheel-sector.is-wheel-selected').length === 1 &&
       d.querySelector('#circleSvg .wheel-sector.is-wheel-selected')?.dataset.wheelRing === 'major' &&
       w.eval('wheelIdleMotionState') !== null);
+    w.eval('finishWheelRetargetMotion()');
+    ok('после finish water-clock продолжают прежнюю phase без frozen transfer-слоя',
+      w.eval('wheelIdleMotionState?.frozenAt == null') === true &&
+      w.eval('wheelModeTabsIdleMotionState?.frozenAt == null') === true &&
+      !container.dataset.wheelRetargeting);
     w.eval('closeChordWheel()');
 
     console.log('\n=== 10.6. Стрелки сохраняют ряд zoomed-секции и показывают owner ===');

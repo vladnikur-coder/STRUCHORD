@@ -11227,7 +11227,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.518</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.519</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31875,6 +31875,27 @@ function stopWheelIdleMotion() {
   wheelIdleMotionState?.handoffs?.clear();
   wheelIdleMotionState = null;
 }
+// Retarget уже owns `translate` за 260ms. Если параллельно писать idle
+// vector на каждом 30fps rAF, CSS каждый раз перезапускает тот же transition
+// и card visibly chases its destination. Freezing one displayed water sample
+// makes transfer deterministic; virtual clock resumes from exactly that sample.
+function pauseWheelIdleMotionForRetarget() {
+  const state = wheelIdleMotionState;
+  if (!state || state.frozenAt != null) return;
+  state.frozenAt = Number.isFinite(state.lastTimestamp) ? state.lastTimestamp : performance.now();
+  if (wheelIdleMotionRaf) cancelAnimationFrame(wheelIdleMotionRaf);
+  wheelIdleMotionRaf = 0;
+}
+function resumeWheelIdleMotionAfterRetarget() {
+  const state = wheelIdleMotionState;
+  if (!state || state.frozenAt == null) return;
+  const now = performance.now();
+  const elapsed = Math.max(0, now - state.frozenAt);
+  state.startedAt += elapsed;
+  state.handoffs?.forEach((handoff) => { handoff.startedAt += elapsed; });
+  delete state.frozenAt;
+  requestWheelIdleMotionFrame();
+}
 function getWheelIdleWaterTarget(node, timestamp, state = wheelIdleMotionState) {
   if (!node || !state || !Number.isFinite(timestamp)) return { x: 0, y: 0 };
   const phaseTime = ((timestamp - state.startedAt) % WHEEL_IDLE_WATER_PERIOD_MS) / WHEEL_IDLE_WATER_PERIOD_MS;
@@ -31922,6 +31943,7 @@ function writeWheelIdleWater(timestamp) {
     stopWheelIdleMotion();
     return;
   }
+  if (state.frozenAt != null) return;
   // jsdom synchronously invokes rAF without timestamp. Write one stable
   // sample for tests, then do not create a synchronous self-recursion.
   if (!Number.isFinite(timestamp)) {
@@ -31931,6 +31953,7 @@ function writeWheelIdleWater(timestamp) {
     });
     return;
   }
+  state.lastTimestamp = timestamp;
   state.nodes.forEach((node) => {
     const target = getWheelIdleWaterTarget(node, timestamp, state);
     const handoff = state.handoffs.get(node);
@@ -31951,7 +31974,7 @@ function writeWheelIdleWater(timestamp) {
   requestWheelIdleMotionFrame();
 }
 function requestWheelIdleMotionFrame() {
-  if (wheelIdleMotionRaf || !wheelIdleMotionState) return;
+  if (wheelIdleMotionRaf || !wheelIdleMotionState || wheelIdleMotionState.frozenAt != null) return;
   let ranSynchronously = false;
   const handle = requestAnimationFrame((timestamp) => {
     ranSynchronously = true;
@@ -31993,6 +32016,21 @@ function stopWheelModeTabsIdleMotion() {
   });
   wheelModeTabsIdleMotionState = null;
 }
+function pauseWheelModeTabsIdleMotionForRetarget() {
+  const state = wheelModeTabsIdleMotionState;
+  if (!state || state.frozenAt != null) return;
+  state.frozenAt = Number.isFinite(state.lastTimestamp) ? state.lastTimestamp : performance.now();
+  if (wheelModeTabsIdleMotionRaf) cancelAnimationFrame(wheelModeTabsIdleMotionRaf);
+  wheelModeTabsIdleMotionRaf = 0;
+}
+function resumeWheelModeTabsIdleMotionAfterRetarget() {
+  const state = wheelModeTabsIdleMotionState;
+  if (!state || state.frozenAt == null) return;
+  const now = performance.now();
+  state.startedAt += Math.max(0, now - state.frozenAt);
+  delete state.frozenAt;
+  requestWheelModeTabsIdleMotionFrame();
+}
 function writeWheelModeTabsIdleWater(timestamp) {
   wheelModeTabsIdleMotionRaf = 0;
   const state = wheelModeTabsIdleMotionState;
@@ -32001,6 +32039,7 @@ function writeWheelModeTabsIdleWater(timestamp) {
     stopWheelModeTabsIdleMotion();
     return;
   }
+  if (state.frozenAt != null) return;
   // jsdom's synchronous rAF gets one deterministic neutral sample only.
   if (!Number.isFinite(timestamp)) {
     state.nodes.forEach((button) => {
@@ -32009,11 +32048,16 @@ function writeWheelModeTabsIdleWater(timestamp) {
     });
     return;
   }
+  state.lastTimestamp = timestamp;
   state.nodes.forEach((button) => {
     const target = getWheelModeTabIdleWaterTarget(button, timestamp, state);
     button.style.setProperty('--wheel-mode-idle-x', `${target.x.toFixed(2)}px`);
     button.style.setProperty('--wheel-mode-idle-y', `${target.y.toFixed(2)}px`);
   });
+  requestWheelModeTabsIdleMotionFrame();
+}
+function requestWheelModeTabsIdleMotionFrame() {
+  if (wheelModeTabsIdleMotionRaf || !wheelModeTabsIdleMotionState || wheelModeTabsIdleMotionState.frozenAt != null) return;
   let ranSynchronously = false;
   const handle = requestAnimationFrame((nextTimestamp) => {
     ranSynchronously = true;
@@ -33533,7 +33577,7 @@ function launchWheelRetargetCardInertia(inertia) {
     }, delay + WHEEL_RETARGET_CARD_BLUR_MS);
   });
 }
-function cancelWheelRetargetMotion({ keepVisualPosition = false } = {}) {
+function cancelWheelRetargetMotion({ keepVisualPosition = false, resumeIdleWater = true } = {}) {
   const container = wheelContainer();
   DOM.chordWheelModal?.classList.remove('wheel-retargeting');
   clearWheelRetargetCardMotion();
@@ -33544,6 +33588,10 @@ function cancelWheelRetargetMotion({ keepVisualPosition = false } = {}) {
   wheelRetargetStartTimer = 0;
   wheelRetargetTimer = 0;
   wheelRetargetSettleTimer = 0;
+  if (resumeIdleWater) {
+    resumeWheelIdleMotionAfterRetarget();
+    resumeWheelModeTabsIdleMotionAfterRetarget();
+  }
   if (!container || !container.dataset.wheelRetargeting) return;
   if (keepVisualPosition) {
     const rect = container.getBoundingClientRect();
@@ -33570,6 +33618,10 @@ function finishWheelRetargetMotion(token = wheelRetargetToken) {
   container.style.removeProperty('transition');
   container.style.removeProperty('will-change');
   clearWheelRetargetCardMotion();
+  // Отпускаем оба idle-clock только после удаления transfer transition:
+  // следующий 30fps water sample уже не способен перезапустить card travel.
+  resumeWheelIdleMotionAfterRetarget();
+  resumeWheelModeTabsIdleMotionAfterRetarget();
   wheelRetargetStartTimer = 0;
   wheelRetargetTimer = 0;
   wheelRetargetSettleTimer = 0;
@@ -33605,6 +33657,12 @@ function animateWheelRetarget(container, position, previousModeTabLayout = null)
   // container уже принимает новый semantic anchor.
   const useCardInertia = !prefersReducedWheelMotion() && wheelAnimationsEnabled;
   const preparedInertia = useCardInertia ? prepareWheelRetargetCardInertia(dx, dy, previousModeTabLayout) : false;
+  if (preparedInertia) {
+    // Retarget owns translate. Freeze water at the actual last displayed rAF
+    // sample so 30fps updates cannot restart seven CSS card transitions.
+    pauseWheelIdleMotionForRetarget();
+    pauseWheelModeTabsIdleMotionForRetarget();
+  }
   // FLIP: новая document-якорная точка ставится сразу, а transform держит
   // прежнюю видимую позицию до следующего кадра. Так перемещение не
   // конфликтует с scroll/zoom-перепозиционированием absolute контейнера.
@@ -33778,7 +33836,9 @@ function retargetChordWheel(inp, { suppressOwnerClick = false, revealDirection =
   // Snapshot именно persistent quality-кнопок нужен до того, как новая
   // секция сменит tonal center и тем самым повернёт их полярную дугу.
   const previousModeTabLayout = captureWheelModeTabLayout();
-  cancelWheelRetargetMotion({ keepVisualPosition: true });
+  // Следующий transfer starts synchronously below: не отдаём один rAF water
+  // между cancel и новым inverse-FLIP, иначе 30fps снова перезапустит easing.
+  cancelWheelRetargetMotion({ keepVisualPosition: true, resumeIdleWater: false });
   // Retarget может последовать тем же жестом сразу за opening. Отменяем
   // отложенное стартовое позиционирование прежнего owner, иначе его rAF
   // отменит свежий snap до первого кадра.
