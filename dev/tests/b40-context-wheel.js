@@ -135,6 +135,10 @@ w.addEventListener('load', () => {
       /rotate\(calc\(-1 \* var\(--wheel-mode-angle\)\)\) scale\(var\(--wheel-mode-scale\)\)/.test(wheelSource) &&
       !/\.mode-tab-label \{/.test(wheelSource) &&
       /\.mode-tab-surface \{[\s\S]*?border-radius: 50%;[\s\S]*?pointer-events: none;/.test(wheelSource) &&
+      /\.mode-tab:hover \.mode-tab-surface \{[\s\S]*?transform: scale\(1\.06\);/.test(wheelSource) &&
+      /\.mode-tab:active \.mode-tab-surface \{[\s\S]*?transform: scale\(0\.96\);/.test(wheelSource) &&
+      /\.mode-tab\.active \.mode-tab-surface \{[\s\S]*?transform: scale\(1\.05\);/.test(wheelSource) &&
+      !/\.mode-tab:hover \{\s*--wheel-mode-scale:/.test(wheelSource) &&
       /\.mode-tab:not\(\.active\) \.mode-tab-surface \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 78%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.26rem rgba\(20, 30, 45, 0\.11\)/.test(wheelSource) &&
       /html\[data-theme='dark'\] \.mode-tab:not\(\.active\) \.mode-tab-surface \{[\s\S]*?border-color: color-mix\(in srgb, var\(--color-border-medium\) 72%, var\(--color-text-secondary\)\);[\s\S]*?0 0\.09rem 0\.28rem rgba\(0, 0, 0, 0\.26\)/.test(wheelSource) &&
       /\.mode-tab\.active \.mode-tab-surface \{[\s\S]*?background: var\(--color-tab-active-bg\);[\s\S]*?box-shadow: 0 0\.1875rem 0\.625rem rgba\(0, 0, 0, 0\.15\);/.test(wheelSource));
@@ -159,7 +163,7 @@ w.addEventListener('load', () => {
       /function ensureWheelModeTabSurface\(button\)/.test(wheelSource) &&
       /button\?\.replaceChildren\(surface\);/.test(wheelSource) &&
       /applyWheelFloatingStoneTiming\(\[surface\], 'quality', index\);/.test(wheelSource) &&
-      /\.mode-tab-surface \{[\s\S]*?will-change: scale, opacity, filter;/.test(wheelSource) &&
+      /\.mode-tab-surface \{[\s\S]*?will-change: transform, scale, opacity, filter;/.test(wheelSource) &&
       /\.chord-wheel-modal\.open\.wheel-floating-surface \.wheel-svg-wrap,[\s\S]*?animation: none;/.test(wheelSource) &&
       /\.chord-wheel-modal\.open\.wheel-opening\.wheel-floating-surface \.mode-tab \{[\s\S]*?animation: none;[\s\S]*?transition: none;/.test(wheelSource) &&
       /\.chord-wheel-modal\.closing\.wheel-floating-surface \.mode-tab \{[\s\S]*?animation: none;[\s\S]*?transition: none;/.test(wheelSource) &&
