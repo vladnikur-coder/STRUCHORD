@@ -109,6 +109,14 @@ ok('выключенные «Ступени» выключают и расшир
   grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label') === null,
   `${d.body.className} | ${grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label')}`);
 
+w.eval('document.getElementById("wheelHarmonyLegendToggle").click();');
+const disabledMapStatus = d.getElementById('wheelHarmonyLegendStatus');
+ok('при выключенных цветах ? остаётся доступным и объясняет, как включить карту',
+  !legend.hidden && /Цвета круга выключены/.test(disabledMapStatus?.textContent || '') &&
+  /Ступени и цвета круга/.test(disabledMapStatus?.textContent || '') &&
+  toggle.getAttribute('aria-label') === 'Показать справку о ладовой карте круга',
+  `${toggle.getAttribute('aria-label')} | ${disabledMapStatus?.textContent}`);
+
 w.eval(`
   globalKey = 'Am';
   document.getElementById('showDegrees').checked = true;
@@ -136,6 +144,29 @@ ok('легенда круга называет профиль именно от�
   wheelCurrentProfiles.map((item) => item.profile).join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
   /Мелодический минор/.test(wheelCurrentProfiles[2].text) && /Гармонический минор/.test(wheelCurrentProfiles[3].text),
   JSON.stringify(wheelCurrentProfiles));
+
+const wheelMapByMode = w.eval(`(() => {
+  activeChordInput = document.querySelector('.chord-input[data-sec="51"][data-square="52"][data-ei="2"]');
+  activeSectionKey = null;
+  return ['triads', ...WHEEL_EXT_DEFAULTS].map((mode) => {
+    wheelMode = mode;
+    drawWheel();
+    const profiles = [...document.querySelectorAll('#circleSvg .wheel-sector')]
+      .map((sector) => sector.dataset.harmonyProfile || '');
+    return { mode, sectors: profiles.length, missing: profiles.filter((profile) => !profile).length, profiles };
+  });
+})()`);
+ok('статическая карта назначает цвет каждому сектору во всех встроенных качествах круга',
+  wheelMapByMode.every((item) => item.sectors > 0 && item.missing === 0) &&
+  new Set(wheelMapByMode.flatMap((item) => item.profiles)).size === 9,
+  JSON.stringify(wheelMapByMode.map(({ mode, sectors, missing }) => ({ mode, sectors, missing }))));
+
+const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
+ok('сектора имеют контрастный fallback без color-mix и усиленное смешение в современных браузерах',
+  /fill: var\(--harmony-profile-color, var\(--color-accent\)\);/.test(source) &&
+  /@supports \(color: color-mix\(in srgb, red 50%, blue\)\)/.test(source) &&
+  /var\(--wheel-segment-fill-out\) 58%/.test(source),
+  'fallback + color-mix 58/42');
 
 console.log(failures ? `\n${failures} FAIL` : '\nALL OK — B-99 modal-profile UI');
 process.exit(failures ? 1 : 0);

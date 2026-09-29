@@ -114,6 +114,30 @@ function ok(name, condition, detail = '') {
       minorLine.editorMarkers[0] !== minorLine.editorMarkers[1] &&
       minorLine.wheelCurrent.profile === 'melodic-minor' && /Мелодический минор/.test(minorLine.wheelCurrent.text) &&
       minorLine.wheelCurrent.profiles.every(Boolean) && minorLine.wheelCurrent.distinctProfiles.length === 9, JSON.stringify(minorLine));
+    const renderedStaticPalette = await page.evaluate(() => {
+      globalKey = 'Am';
+      document.getElementById('showDegrees').checked = true;
+      updateCellsDegrees();
+      activeChordInput = null;
+      activeSectionKey = null;
+      wheelMode = 'triads';
+      drawWheel();
+      const sectors = [...document.querySelectorAll('#circleSvg .wheel-sector')];
+      const profileColors = Object.fromEntries(sectors.map((sector) => [
+        sector.dataset.harmonyProfile,
+        getComputedStyle(sector).fill,
+      ]));
+      return {
+        highlightsOn: document.getElementById('chordWheelModal').classList.contains('is-harmony-highlights-on'),
+        mapped: sectors.every((sector) => !!sector.dataset.harmonyProfile),
+        profileColors,
+      };
+    });
+    ok('статическая карта видимо окрашивает все девять профилей, а не только ставит data-атрибуты',
+      renderedStaticPalette.highlightsOn && renderedStaticPalette.mapped &&
+      Object.keys(renderedStaticPalette.profileColors).length === 9 &&
+      new Set(Object.values(renderedStaticPalette.profileColors)).size === 9,
+      JSON.stringify(renderedStaticPalette));
     ok('выключенные «Ступени» не показывают B-99 marker',
       !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
     ok('editor shows ionian / V/x only; ambiguous Bb is visually neutral',
