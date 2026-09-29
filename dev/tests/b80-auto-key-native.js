@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// B-98: native #rootKey remains the source of truth in Auto mode, while the
+// B-80 follow-up: native #rootKey remains the source of truth in Auto mode, while the
 // editor and timeline pills must immediately mirror its dynamic "X (авто)"
 // option after a committed model refresh. No full render is allowed as the
 // adapter is also used by incremental B-25 commit paths.
@@ -93,5 +93,5 @@ w.eval(`toggleMetaPicker('tlKey', true);`);
 ok('список ленты получает тот же актуальный auto-label при открытии',
   d.querySelector('#tlKeyPickerList .meta-pill-item[data-value="auto"]')?.textContent.trim() === 'Автоматически');
 
-console.log(failed ? `\n${failed} FAIL` : '\nALL OK — B-98 native auto-key presentation');
+console.log(failed ? `\n${failed} FAIL` : '\nALL OK — B-80 native auto-key presentation');
 process.exit(failed ? 1 : 0);
