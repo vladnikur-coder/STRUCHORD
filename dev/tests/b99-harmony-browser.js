@@ -1,4 +1,4 @@
-// B-99: Chromium proof that colour-only harmony markers reach real layout,
+// B-99: Chromium proof that exact modal-profile colours reach real layout,
 // while the selected wheel sector remains the existing accent state.
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -60,11 +60,14 @@ function ok(name, condition, detail = '') {
         markerWhenDegreesOff,
         harmonyClassWhenDegreesOff,
         groups: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyGroup),
+        profiles: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyProfile),
         gridMarker: getComputedStyle(grid(1), '::before').backgroundColor,
         timelineGroups: [timeline(0), timeline(1), timeline(3)].map((cell) => cell.dataset.harmonyGroup),
+        timelineProfiles: [timeline(0), timeline(1), timeline(3)].map((cell) => cell.dataset.harmonyProfile),
         timelineMarker: getComputedStyle(timeline(1), '::after').backgroundColor,
         selected: d7.classList.contains('is-wheel-selected'),
         wheelGroup: d7.dataset.harmonyGroup,
+        wheelProfile: d7.dataset.harmonyProfile,
         legendOpen: !document.getElementById('wheelHarmonyLegend').hidden,
         legendExpanded: document.getElementById('wheelHarmonyLegendToggle').getAttribute('aria-expanded'),
       };
@@ -83,20 +86,28 @@ function ok(name, condition, detail = '') {
       return {
         editorDegrees: [0, 1, 2, 3].map((ei) => grid(ei).querySelector('.degree-hint')?.textContent),
         timelineDegrees: [0, 1, 2, 3].map((ei) => timeline(ei).querySelector('.tl-degree')?.textContent),
-        groups: [2, 3].map((ei) => grid(ei).dataset.harmonyGroup),
+        profiles: [0, 1, 2, 3].map((ei) => grid(ei).dataset.harmonyProfile),
+        editorMarkers: [2, 3].map((ei) => getComputedStyle(grid(ei), '::before').backgroundColor),
+        timelineProfiles: [0, 1, 2, 3].map((ei) => timeline(ei).dataset.harmonyProfile),
       };
     });
-    ok('Am–C–D–E visibly receives i–III–IV–V with minor-variant colour group',
+    ok('Am–C–D–E visibly receives i–III–IV–V and exact aeolian/melodic/harmonic-minor colours',
       minorLine.editorDegrees.join(',') === 'i,III,IV,V' && minorLine.timelineDegrees.join(',') === 'i,III,IV,V' &&
-      minorLine.groups.join(',') === 'minor-variant,minor-variant', JSON.stringify(minorLine));
+      minorLine.profiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
+      minorLine.timelineProfiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
+      minorLine.editorMarkers[0] !== minorLine.editorMarkers[1], JSON.stringify(minorLine));
     ok('выключенные «Ступени» не показывают B-99 marker',
       !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('editor shows distinct semantic groups and a painted applied-function marker',
-      state.groups.join(',') === 'diatonic,secondary-function,modal-borrowed' && state.gridMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('timeline carries the same groups and a painted marker',
-      state.timelineGroups.join(',') === 'diatonic,secondary-function,modal-borrowed' && state.timelineMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('wheel shows the separate applied V/V group for D7 → G while selected marker survives',
-      state.wheelGroup === 'secondary-function' && state.selected, JSON.stringify(state));
+    ok('editor shows exact ionian / V/x / ambiguous profiles and a painted applied-function marker',
+      state.groups.join(',') === 'diatonic,secondary-function,modal-borrowed' &&
+      state.profiles.join(',') === 'ionian,secondary-function,modal-ambiguous' &&
+      state.gridMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
+    ok('timeline carries the same groups, exact profiles and a painted marker',
+      state.timelineGroups.join(',') === 'diatonic,secondary-function,modal-borrowed' &&
+      state.timelineProfiles.join(',') === 'ionian,secondary-function,modal-ambiguous' &&
+      state.timelineMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
+    ok('wheel shows the separate applied V/V profile while selected marker survives',
+      state.wheelGroup === 'secondary-function' && state.wheelProfile === 'secondary-function' && state.selected, JSON.stringify(state));
     ok('legend ? opens accessibly', state.legendOpen && state.legendExpanded === 'true', JSON.stringify(state));
     ok('B-99 visual route completed without page errors', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
