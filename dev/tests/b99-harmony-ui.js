@@ -90,8 +90,9 @@ ok('выбранный аккорд сохраняет сильный establishe
 w.eval('bindWheelHarmonyLegend(); document.getElementById("wheelHarmonyLegendToggle").click();');
 const legend = d.getElementById('wheelHarmonyLegend');
 const toggle = d.getElementById('wheelHarmonyLegendToggle');
-ok('кнопка ? раскрывает легенду конкретных ладов и честных fallback-функций',
+ok('кнопка ? сначала называет профиль текущего аккорда, затем даёт полную легенду',
   !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' &&
+  /D7 — прикладная функция V\/V/.test(d.getElementById('wheelHarmonyLegendCurrent')?.textContent || '') &&
   /Ионийский/.test(legend.textContent) && /Эолийский/.test(legend.textContent) &&
   /Гармонический/.test(legend.textContent) && /Мелодический/.test(legend.textContent) &&
   /Дорийский/.test(legend.textContent) && /Фригийский/.test(legend.textContent) &&
@@ -120,6 +121,19 @@ ok('Am–C–D–E раскрашивает эолийский, мелодиче
     'aeolian,aeolian,melodic-minor,harmonic-minor' &&
   /Гармонический минор/.test(minorGrid(3)?.querySelector('.chord-input')?.getAttribute('aria-label') || ''),
   [0, 1, 2, 3].map((ei) => minorGrid(ei)?.dataset.harmonyProfile).join(','));
+
+const wheelCurrentProfiles = w.eval(`(() => [0, 1, 2, 3].map((ei) => {
+  activeChordInput = document.querySelector('.chord-input[data-sec="51"][data-square="52"][data-ei="' + ei + '"]');
+  activeSectionKey = null;
+  wheelMode = 'triads';
+  drawWheel();
+  const current = document.getElementById('wheelHarmonyLegendCurrent');
+  return { profile: current.dataset.harmonyProfile, text: current.textContent };
+}))()`);
+ok('легенда круга называет профиль именно открывшей его ячейки Am–C–D–E',
+  wheelCurrentProfiles.map((item) => item.profile).join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
+  /Мелодический минор/.test(wheelCurrentProfiles[2].text) && /Гармонический минор/.test(wheelCurrentProfiles[3].text),
+  JSON.stringify(wheelCurrentProfiles));
 
 console.log(failures ? `\n${failures} FAIL` : '\nALL OK — B-99 modal-profile UI');
 process.exit(failures ? 1 : 0);

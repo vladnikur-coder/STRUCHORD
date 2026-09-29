@@ -5402,7 +5402,24 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
 #chordWheelModal:not(.is-harmony-highlights-on) .wheel-harmony-legend-toggle,
 #chordWheelModal:not(.is-harmony-highlights-on) .wheel-harmony-legend { display: none; }
 .wheel-harmony-legend strong { font-size: 0.8125rem; }
+.wheel-harmony-legend .wheel-harmony-legend-scale-title {
+  margin-top: 0.25rem;
+  padding-top: 0.5rem;
+  border-top: 0.0625rem solid var(--color-border-medium);
+}
 .wheel-harmony-legend span { display: flex; align-items: flex-start; gap: 0.4375rem; }
+/* First line answers «what does the currently open cell mean?»; the list
+   below remains the static decoding key for every possible wheel colour. */
+.wheel-harmony-legend-current {
+  min-height: 1.25rem;
+  box-sizing: border-box;
+  padding: 0.4375rem 0.5rem;
+  border: 0.0625rem solid color-mix(in srgb, var(--color-border-medium) 65%, var(--harmony-profile-color, var(--color-accent)));
+  border-left: 0.1875rem solid var(--harmony-profile-color, var(--color-accent));
+  border-radius: 0.4375rem;
+  background: color-mix(in srgb, var(--color-background-primary) 92%, var(--harmony-profile-color, var(--color-accent)));
+  color: var(--color-text-primary);
+}
 .harmony-legend-swatch {
   display: inline-block;
   flex: 0 0 auto;
@@ -11488,7 +11505,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.540</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.541</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -12072,7 +12089,9 @@ body.power-ui-waking .pinned-fingering-dock {
           <svg id="circleSvg" viewBox="0 0 540 540" aria-label="Аккорды текущей тональности"></svg>
           <button id="wheelHarmonyLegendToggle" class="wheel-harmony-legend-toggle" type="button" aria-label="Показать легенду гармонических цветов" aria-expanded="false" aria-controls="wheelHarmonyLegend">?</button>
           <aside id="wheelHarmonyLegend" class="wheel-harmony-legend" role="tooltip" hidden>
-            <strong>Лад и функция</strong>
+            <strong>Текущий аккорд</strong>
+            <span id="wheelHarmonyLegendCurrent" class="wheel-harmony-legend-current">Откройте круг из ячейки с аккордом</span>
+            <strong class="wheel-harmony-legend-scale-title">Шкала цветов</strong>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--ionian" aria-hidden="true"></i>Ионийский — натуральный мажор</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--aeolian" aria-hidden="true"></i>Эолийский — натуральный минор</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--harmonic-minor" aria-hidden="true"></i>Гармонический минор — ведущий тон и V</span>
@@ -22428,6 +22447,23 @@ function getHarmonyAccessibleText(analysis) {
     return `${chord}${modeLabel}${context}${degreeText}`;
   }
   return `${chord}Модально-заимствованная функция; точный лад неоднозначен.${degreeText}`;
+}
+function getWheelHarmonyLegendCurrentText(analysis) {
+  const chord = analysis?.chord || activeChordInput?.value?.trim() || 'Аккорд';
+  if (!analysis || analysis.group === HARMONY_GROUP.UNKNOWN) return `${chord} — анализ пока недоступен`;
+  if (analysis.group === HARMONY_GROUP.SECONDARY_FUNCTION) return `${chord} — прикладная функция ${analysis.function || 'V/x'}`;
+  if (analysis.group === HARMONY_GROUP.CHROMATIC) return `${chord} — остаточная хроматика`;
+  const mode = getHarmonyModeLabel(analysis.mode);
+  if (mode) return `${chord} — ${mode}${analysis.function ? `, ${analysis.function}` : ''}`;
+  return `${chord} — лад не подтверждён`;
+}
+function syncWheelHarmonyLegendCurrent(analysis) {
+  const current = document.getElementById('wheelHarmonyLegendCurrent');
+  if (!current) return;
+  const profile = getHarmonyPresentationProfile(analysis);
+  if (profile) current.dataset.harmonyProfile = profile;
+  else delete current.dataset.harmonyProfile;
+  current.textContent = getWheelHarmonyLegendCurrentText(analysis);
 }
 function applyHarmonyPresentation(element, analysis, input = null) {
   if (!element) return;
@@ -33504,6 +33540,13 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     nextChord: harmonyContext.nextChord,
     contextualMode: harmonyContext.contextualMode,
   });
+  // The wheel contains selectable *candidates*, many of which cannot be
+  // assigned a mode without inventing a progression. The legend's lead line
+  // must instead describe the real owner chord that opened this wheel.
+  const activeWheelAnalysis = activeChordInput?.value?.trim()
+    ? analyzeWheelCandidate(activeChordInput.value.trim())
+    : null;
+  syncWheelHarmonyLegendCurrent(activeWheelAnalysis);
   const applyWheelHarmony = (sector, label, analysis) => {
     const group = analysis?.group;
     const profile = getHarmonyPresentationProfile(analysis);
@@ -34555,6 +34598,13 @@ function refreshWheelSelectedChord() {
 function refreshWheelHarmonyPresentation() {
   const key = activeSectionKey || getEffectiveKey();
   const context = getActiveWheelHarmonyContext(key);
+  const activeAnalysis = activeChordInput?.value?.trim()
+    ? analyzeChordHarmony(activeChordInput.value.trim(), context.key, {
+      nextChord: context.nextChord,
+      contextualMode: context.contextualMode,
+    })
+    : null;
+  syncWheelHarmonyLegendCurrent(activeAnalysis);
   document.querySelectorAll('#circleSvg [data-wheel-chord-identity]').forEach((node) => {
     const analysis = analyzeChordHarmony(node.dataset.wheelChordIdentity, context.key, {
       nextChord: context.nextChord,

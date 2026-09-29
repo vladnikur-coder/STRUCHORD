@@ -89,13 +89,22 @@ function ok(name, condition, detail = '') {
         profiles: [0, 1, 2, 3].map((ei) => grid(ei).dataset.harmonyProfile),
         editorMarkers: [2, 3].map((ei) => getComputedStyle(grid(ei), '::before').backgroundColor),
         timelineProfiles: [0, 1, 2, 3].map((ei) => timeline(ei).dataset.harmonyProfile),
+        wheelCurrent: (() => {
+          activeChordInput = grid(2).querySelector('.chord-input');
+          activeSectionKey = null;
+          wheelMode = 'triads';
+          drawWheel();
+          const current = document.getElementById('wheelHarmonyLegendCurrent');
+          return { profile: current.dataset.harmonyProfile, text: current.textContent };
+        })(),
       };
     });
     ok('Am–C–D–E visibly receives i–III–IV–V and exact aeolian/melodic/harmonic-minor colours',
       minorLine.editorDegrees.join(',') === 'i,III,IV,V' && minorLine.timelineDegrees.join(',') === 'i,III,IV,V' &&
       minorLine.profiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
       minorLine.timelineProfiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
-      minorLine.editorMarkers[0] !== minorLine.editorMarkers[1], JSON.stringify(minorLine));
+      minorLine.editorMarkers[0] !== minorLine.editorMarkers[1] &&
+      minorLine.wheelCurrent.profile === 'melodic-minor' && /Мелодический минор/.test(minorLine.wheelCurrent.text), JSON.stringify(minorLine));
     ok('выключенные «Ступени» не показывают B-99 marker',
       !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
     ok('editor shows exact ionian / V/x / ambiguous profiles and a painted applied-function marker',
