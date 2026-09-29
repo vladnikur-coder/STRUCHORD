@@ -1,8 +1,8 @@
 # STRUCHORD — ROADMAP (План развития и активный бэклог)
 
 Документ заведён: **2026-08-25** | Актуальная дата проекта: **2026-09-29**
-Текущая версия приложения: **0.533** (`struchord-v533`)
-**Текущий статус:** B-40 `готово — 0.533` — покадровый разбор записи показал, что заметный flicker находится на самом камушке quality (особенно при `aug → maj7`), а не на секторе. Поэтому трёхслойная модель сохранена: неподвижный polar host/hit-target, непрерывный depth/water surface (`scale(.72) → 1`, blur, opacity и individual water-vector) и внутренний face. При выборе качества face больше не интерполирует несовместимые gradient/background/border/shadow состояния через hover → press → active: старый и новый active paint фиксируются одним compositor frame, после чего остаётся обычный transform-only hover. Сектора и их подписи намеренно возвращены к принятому incoming/outgoing crossfade: их визуальный маршрут не менялся в исправлении кнопки. Перед `wheel-opening` геометрия синхронно ставится на owner; closing использует точный reverse. Static, reduced motion, круглая geometry, active marker, retarget continuity и visible individual water сохранены. Real Chromium кликнул все семь живых quality-кнопок: в same-task face имеет `transition: none`, нет CSS-анимаций, host drift равен нулю; затем возвращается только transform-hover.
+Текущая версия приложения: **0.534** (`struchord-v534`)
+**Текущий статус:** B-40 `готово — 0.534` — покадровый разбор записи показал, что заметный flicker находится на самом камушке quality (особенно при `aug → maj7`), а не на секторе. Поэтому трёхслойная модель сохранена: неподвижный polar host/hit-target, непрерывный depth/water surface (`scale(.72) → 1`, blur, opacity и individual water-vector) и внутренний face. При выборе качества face больше не интерполирует несовместимые gradient/background/border/shadow состояния через hover → press → active: старый и новый active paint фиксируются одним compositor frame, после чего остаётся обычный transform-only hover. Сектора и их подписи намеренно возвращены к принятому incoming/outgoing crossfade: их визуальный маршрут не менялся в исправлении кнопки. Перед `wheel-opening` геометрия синхронно ставится на owner; closing использует точный reverse. Static, reduced motion, круглая geometry, active marker, retarget continuity и visible individual water сохранены. Real Chromium кликнул все семь живых quality-кнопок: в same-task face имеет `transition: none`, нет CSS-анимаций, host drift равен нулю; затем возвращается только transform-hover. В 0.534 убран устаревший white SVG click-pulse внутри нажатого сектора; persistent marker выбранного аккорда, сегментация и hover не менялись.
 
 ---
 
@@ -162,6 +162,7 @@
 
 | Волна | Версия | Дата | SHA-256 (STRUCHORD.html) | Размер (байт) | SW Cache |
 |---|---|---|---|---|---|
+| **B-40 remove sector click-pulse** | 0.534 | 2026-09-29 | `c317da171301d057b24812c75637e2b9fabe7c04df1122617a7add581a8ea583` | 2387070 | `struchord-v534` |
 | **B-40 quality-face handoff; sector rollback** | 0.533 | 2026-09-29 | `b32a4cf0fd4979a2d33999f6c44b5dbf6b4460a0c439bc2745af4a7c1cabd4f3` | 2388370 | `struchord-v533` |
 | **B-40 atomic quality-face handoff** | 0.532 | 2026-09-29 | `d472b23c77c43d4b32169c9629fd9bd4f726596ddb6a6c30c6cfa61acb7d1915` | 2386043 | `struchord-v532` |
 | **B-40 immediate quality-label replacement** | 0.531 | 2026-09-29 | `9c53f0e655b7cebcc60aa2d6c502a00e19921ffc94f34a7e1a6c30f5227e16bd` | 2384831 | `struchord-v531` |

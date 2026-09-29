@@ -840,6 +840,8 @@ w.addEventListener('load', () => {
     firstSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
     const previewBeforeCommit = input.value;
     firstSector.dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    ok('клик по сектору не рисует устаревшее белое feedback-кольцо',
+      !/function addPulse\(/.test(wheelSource) && !d.querySelector('#circleSvg circle[stroke="#ffffff"]'));
     ok('клик по сектору закрыл слой', !modal.classList.contains('open'));
     ok('клик по сектору записал аккорд в модель', w.eval('sections[0].squares[0].events[0].chord') === 'C');
     ok('commit оставляет уже показанное preview-имя без обратной подмены', input.value === previewBeforeCommit);

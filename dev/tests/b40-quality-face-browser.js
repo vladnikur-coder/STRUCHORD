@@ -93,6 +93,18 @@ function ok(name, condition, detail = '') {
       ok(`quality ${result.mode}: clicked face has no flashing handoff`,
         stable && atomicallyCommitted && hoverRouteRestored, JSON.stringify(result.samples));
     }
+
+    const sectorClick = await page.evaluate(() => {
+      const svg = document.getElementById('circleSvg');
+      const sector = svg.querySelector('path.wheel-sector');
+      sector.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      return {
+        whitePulseRings: svg.querySelectorAll('circle[stroke="#ffffff"]').length,
+        directPulseFactory: typeof window.addPulse,
+      };
+    });
+    ok('sector click creates no white SVG feedback ring',
+      sectorClick.whitePulseRings === 0 && sectorClick.directPulseFactory === 'undefined', JSON.stringify(sectorClick));
     ok('real-browser quality handoff completed without page errors', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
     await browser.close();
