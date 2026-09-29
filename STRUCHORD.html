@@ -11319,7 +11319,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.535</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.536</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21957,6 +21957,166 @@ function getScaleDegree(cn, k) {
     return deg[st] || '';
   }
 }
+
+// ========== B-99: АНАЛИЗ ГАРМОНИЧЕСКОГО КОНТЕКСТА ==========
+// Первый этап намеренно ничего не красит и не меняет в UI. Он даёт одну
+// чистую, тестируемую семантику для будущих круга, ячеек и редактора мелодии:
+//
+//   diatonic        — обычная функция ионийского/эолийского набора;
+//   modal-borrowed  — модальная или заимствованная краска;
+//   chromatic       — хроматическая функция, в том числе V/x.
+//
+// Анализ не должен выдавать красивое, но ложное имя лада. Поэтому точный
+// mode появляется только если весь контекст секции согласован с ним и несёт
+// как минимум две разные характерные ступени. Один bVII в мажоре остаётся
+// честным «modal-or-borrowed»: это может быть и mixolydian, и смесь с
+// параллельным минором. Цвета/лейблы намеренно оставлены следующей UI-волне.
+const HARMONY_GROUP = Object.freeze({
+  DIATONIC: 'diatonic',
+  MODAL_BORROWED: 'modal-borrowed',
+  CHROMATIC: 'chromatic',
+  UNKNOWN: 'unknown',
+});
+const HARMONY_MODE_PROFILES = Object.freeze({
+  ionian: { intervals: [0, 2, 4, 5, 7, 9, 11], qualities: ['maj', 'min', 'min', 'maj', 'maj', 'min', 'dim'] },
+  dorian: { intervals: [0, 2, 3, 5, 7, 9, 10], qualities: ['min', 'min', 'maj', 'maj', 'min', 'dim', 'maj'] },
+  phrygian: { intervals: [0, 1, 3, 5, 7, 8, 10], qualities: ['min', 'maj', 'maj', 'min', 'dim', 'maj', 'min'] },
+  lydian: { intervals: [0, 2, 4, 6, 7, 9, 11], qualities: ['maj', 'maj', 'min', 'dim', 'maj', 'min', 'min'] },
+  mixolydian: { intervals: [0, 2, 4, 5, 7, 9, 10], qualities: ['maj', 'min', 'dim', 'maj', 'min', 'min', 'maj'] },
+  aeolian: { intervals: [0, 2, 3, 5, 7, 8, 10], qualities: ['min', 'dim', 'maj', 'min', 'min', 'maj', 'maj'] },
+  locrian: { intervals: [0, 1, 3, 5, 6, 8, 10], qualities: ['dim', 'maj', 'min', 'min', 'maj', 'maj', 'min'] },
+});
+function getHarmonyBaseMode(key) {
+  return String(key || '').endsWith('m') ? 'aeolian' : 'ionian';
+}
+function getHarmonyTonicIndex(key) {
+  const tonic = String(key || '').endsWith('m') ? String(key).slice(0, -1) : String(key || '');
+  return CHROMATIC.indexOf(FLAT_TO_SHARP[tonic] || tonic);
+}
+function getHarmonyModeDegree(parsed, key, mode) {
+  const profile = HARMONY_MODE_PROFILES[mode];
+  const tonicIndex = getHarmonyTonicIndex(key);
+  if (!profile || tonicIndex < 0 || !parsed) return -1;
+  const rootIndex = CHROMATIC.indexOf(parsed.root);
+  if (rootIndex < 0) return -1;
+  const interval = (rootIndex - tonicIndex + 12) % 12;
+  const degree = profile.intervals.indexOf(interval);
+  if (degree < 0) return -1;
+  // sus/power/aug do not state a triadic quality, but their root can still
+  // belong to a mode. Exact UI wording comes later; analysis stays cautious.
+  if (parsed.quality && profile.qualities[degree] !== parsed.quality) return -1;
+  return degree;
+}
+function isHarmonyChordInMode(parsed, key, mode) {
+  return getHarmonyModeDegree(parsed, key, mode) >= 0;
+}
+function getHarmonyDegreeNameForRoot(root, key) {
+  const parsed = { root, quality: null };
+  const degree = getHarmonyModeDegree(parsed, key, getHarmonyBaseMode(key));
+  if (degree < 0) return '';
+  const labels = String(key || '').endsWith('m')
+    ? ['i', 'ii', 'III', 'iv', 'v', 'VI', 'VII']
+    : ['I', 'ii', 'iii', 'IV', 'V', 'vi', 'vii'];
+  return labels[degree] || '';
+}
+function getHarmonySectionChordNames(section) {
+  return (section?.squares || []).flatMap((square) =>
+    (square?.events || []).map((event) => String(event?.chord || '').trim()).filter(Boolean)
+  );
+}
+function detectClearModalContext(chords, key) {
+  const baseMode = getHarmonyBaseMode(key);
+  const base = HARMONY_MODE_PROFILES[baseMode];
+  const parsed = (chords || []).map(parseChordForKeyDetection).filter(Boolean);
+  if (parsed.length < 2) return null;
+  const candidates = [];
+  for (const [mode, profile] of Object.entries(HARMONY_MODE_PROFILES)) {
+    if (mode === baseMode || !parsed.every((chord) => isHarmonyChordInMode(chord, key, mode))) continue;
+    const characteristicDegrees = new Set();
+    parsed.forEach((chord) => {
+      const degree = getHarmonyModeDegree(chord, key, mode);
+      if (degree < 0) return;
+      // A degree is characteristic when its root or expected triad differs
+      // from the song's ordinary ionian/aeolian basis.
+      if (base.intervals[degree] !== profile.intervals[degree] || base.qualities[degree] !== profile.qualities[degree]) {
+        characteristicDegrees.add(degree);
+      }
+    });
+    if (characteristicDegrees.size >= 2) candidates.push(mode);
+  }
+  return candidates.length === 1 ? candidates[0] : null;
+}
+function isSecondaryDominant(parsed, nextParsed, key) {
+  if (!parsed || !nextParsed || parsed.quality !== 'maj') return false;
+  const targetDegree = getHarmonyModeDegree(nextParsed, key, getHarmonyBaseMode(key));
+  if (targetDegree < 0) return false;
+  const sourceIndex = CHROMATIC.indexOf(parsed.root);
+  const targetIndex = CHROMATIC.indexOf(nextParsed.root);
+  return sourceIndex >= 0 && targetIndex >= 0 && (sourceIndex - targetIndex + 12) % 12 === 7;
+}
+function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', contextualMode = null } = {}) {
+  const normalized = String(chord || '').trim();
+  const parsed = parseChordForKeyDetection(normalized);
+  const baseMode = getHarmonyBaseMode(key);
+  if (!parsed || getHarmonyTonicIndex(key) < 0) {
+    return { chord: normalized, key, group: HARMONY_GROUP.UNKNOWN, detail: null, confidence: 'none' };
+  }
+  if (getScaleDegree(normalized, key)) {
+    return {
+      chord: normalized, key, group: HARMONY_GROUP.DIATONIC, detail: baseMode,
+      confidence: 'certain', degree: getScaleDegree(normalized, key),
+    };
+  }
+  const nextParsed = parseChordForKeyDetection(String(nextChord || '').trim());
+  if (isSecondaryDominant(parsed, nextParsed, key)) {
+    const target = getHarmonyDegreeNameForRoot(nextParsed.root, key);
+    return {
+      chord: normalized, key, group: HARMONY_GROUP.CHROMATIC,
+      detail: 'secondary-dominant', confidence: 'contextual',
+      function: target ? `V/${target}` : 'V/x',
+    };
+  }
+  if (contextualMode && isHarmonyChordInMode(parsed, key, contextualMode)) {
+    return {
+      chord: normalized, key, group: HARMONY_GROUP.MODAL_BORROWED,
+      detail: `modal-${contextualMode}`, confidence: 'contextual',
+    };
+  }
+  const parallelMode = baseMode === 'ionian' ? 'aeolian' : 'ionian';
+  const matchingModes = Object.keys(HARMONY_MODE_PROFILES)
+    .filter((mode) => mode !== baseMode && isHarmonyChordInMode(parsed, key, mode));
+  const isParallelBorrowing = isHarmonyChordInMode(parsed, key, parallelMode);
+  // A single borrowed chord can also fit a mode (C–Bb might be mixture or
+  // C mixolydian). Without a section-level signature we expose the broad
+  // category and candidates rather than inventing a precise explanation.
+  if (matchingModes.length) {
+    return {
+      chord: normalized, key, group: HARMONY_GROUP.MODAL_BORROWED,
+      detail: null, confidence: 'ambiguous',
+      candidates: isParallelBorrowing ? [...matchingModes, `borrowed-parallel-${parallelMode}`] : matchingModes,
+    };
+  }
+  if (isParallelBorrowing) {
+    return {
+      chord: normalized, key, group: HARMONY_GROUP.MODAL_BORROWED,
+      detail: `borrowed-parallel-${parallelMode}`, confidence: 'contextual',
+    };
+  }
+  return { chord: normalized, key, group: HARMONY_GROUP.CHROMATIC, detail: 'chromatic', confidence: 'certain' };
+}
+function analyzeSectionHarmony(section, key = section?.key || globalKey) {
+  const chords = getHarmonySectionChordNames(section);
+  const contextualMode = detectClearModalContext(chords, key);
+  return chords.map((chord, index) => analyzeChordHarmony(chord, key, {
+    previousChord: chords[index - 1] || '',
+    nextChord: chords[index + 1] || '',
+    contextualMode,
+  }));
+}
+window.HARMONY_GROUP = HARMONY_GROUP;
+window.analyzeChordHarmony = analyzeChordHarmony;
+window.analyzeSectionHarmony = analyzeSectionHarmony;
+
 let cachedChordWrappers = [];
 function syncDegreeHintForWrapper(w) {
   if (!w || !document.getElementById('showDegrees')?.checked) return;
