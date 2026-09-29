@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // B-99: functional harmony must carry a precise modal profile only when
-// analysis has enough evidence. The UI consumes `mode`; broad group remains
-// available for V/x, ambiguity and residual chromaticism.
+// analysis has enough evidence. The UI consumes `mode`; only confirmed
+// profiles and V/x receive a visible semantic marker.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -53,12 +53,12 @@ ok('D7 → G в C остаётся отдельной прикладной V/V, 
   secondary.detail === 'secondary-dominant' && secondary.function === 'V/V', JSON.stringify(secondary));
 
 const bareD = analyze('D', 'C');
-ok('D-мажор без контекста не получает ложного точного лада',
-  bareD.group === 'modal-borrowed' && bareD.mode === null && bareD.confidence === 'ambiguous', JSON.stringify(bareD));
+ok('D-мажор без контекста остаётся нейтральным, без ложного лада или категории',
+  bareD.group === 'unknown' && bareD.mode === null && bareD.confidence === 'none' && bareD.candidates.includes('lydian'), JSON.stringify(bareD));
 
 const bFlat = analyze('Bb', 'C');
-ok('один bVII в C остаётся неоднозначным между mode и mixture',
-  bFlat.group === 'modal-borrowed' && bFlat.mode === null &&
+ok('один bVII в C остаётся нейтральным: кандидаты не становятся пользовательской категорией',
+  bFlat.group === 'unknown' && bFlat.mode === null &&
   bFlat.candidates.includes('mixolydian') && bFlat.candidates.includes('borrowed-parallel-aeolian'), JSON.stringify(bFlat));
 
 const dorian = w.analyzeSectionHarmony(section('Cm', ['Cm', 'Dm', 'F', 'Gm']));
@@ -66,8 +66,8 @@ ok('достаточный C-dorian контекст раскладывает в
   dorian.every((item) => item.mode === 'dorian') && dorian.every((item) => item.confidence === 'contextual'), JSON.stringify(dorian));
 
 const weakDorian = w.analyzeSectionHarmony(section('Cm', ['Cm', 'Dm', 'Gm']));
-ok('одна характерная ступень не притворяется дорийским ладом',
-  weakDorian[1].mode === null && weakDorian[1].confidence === 'ambiguous', JSON.stringify(weakDorian));
+ok('одна характерная ступень не притворяется дорийским ладом и остаётся нейтральной',
+  weakDorian[1].group === 'unknown' && weakDorian[1].mode === null && weakDorian[1].confidence === 'none', JSON.stringify(weakDorian));
 
 ok('подтверждённые контексты получают свои конкретные modal profiles',
   modes('C', ['C', 'D', 'F#dim', 'G']) === 'lydian,lydian,lydian,lydian' &&
@@ -94,8 +94,8 @@ ok('Am–C–D–E раскладывается по эолийскому, ме�
   minorLine.map((item) => item.mode).join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor', JSON.stringify(minorLine));
 
 const residual = analyze('F#m', 'C');
-ok('необъяснённый F#-минор в C остаётся остаточной chromatic, а не modal bucket',
-  residual.group === 'chromatic' && residual.mode === null && residual.detail === 'unresolved-chromatic', JSON.stringify(residual));
+ok('необъяснённый F#-минор в C остаётся нейтральным без отдельной хроматической корзины',
+  residual.group === 'unknown' && residual.mode === null && residual.detail === null && residual.confidence === 'none', JSON.stringify(residual));
 
 const invalid = analyze('not-a-chord', 'C');
 ok('некорректный аккорд безопасно остаётся unknown', invalid.group === 'unknown' && invalid.mode === null, JSON.stringify(invalid));

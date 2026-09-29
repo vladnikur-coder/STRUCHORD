@@ -53,10 +53,11 @@ w.eval(`
 `);
 
 const grid = (ei) => d.querySelector(`.chord-wrapper[data-sec="41"][data-square="42"][data-ei="${ei}"]`);
-ok('ячейки редактора получают функциональную группу и точный ладовый профиль',
+ok('редактор показывает только подтверждённый профиль и V/x; Bb остаётся нейтральным',
   grid(0)?.dataset.harmonyGroup === 'diatonic' && grid(0)?.dataset.harmonyProfile === 'ionian' &&
   grid(1)?.dataset.harmonyGroup === 'secondary-function' && grid(1)?.dataset.harmonyProfile === 'secondary-function' &&
-  grid(3)?.dataset.harmonyGroup === 'modal-borrowed' && grid(3)?.dataset.harmonyProfile === 'modal-ambiguous' &&
+  grid(3)?.dataset.harmonyGroup === undefined && grid(3)?.dataset.harmonyProfile === undefined &&
+  grid(3)?.querySelector('.chord-input')?.getAttribute('aria-label') === null &&
   !grid(1)?.querySelector('.harmony-visible-label'),
   [0, 1, 3].map((ei) => `${grid(ei)?.dataset.harmonyGroup}/${grid(ei)?.dataset.harmonyProfile}`).join(', '));
 ok('цветовой маркер имеет текстовую альтернативу для скринридера',
@@ -65,10 +66,11 @@ ok('цветовой маркер имеет текстовую альтерна
 
 w.eval('timelineMode = true; renderTimeline();');
 const timeline = (ei) => d.querySelector(`.tl-cell[data-sec="41"][data-square="42"][data-ei="${ei}"]`);
-ok('лента несёт те же functional groups и ладовые profiles',
+ok('лента несёт те же подтверждённые profiles, а неоднозначный Bb не маркирует',
   timeline(0)?.dataset.harmonyGroup === 'diatonic' && timeline(0)?.dataset.harmonyProfile === 'ionian' &&
   timeline(1)?.dataset.harmonyGroup === 'secondary-function' && timeline(1)?.dataset.harmonyProfile === 'secondary-function' &&
-  timeline(3)?.dataset.harmonyGroup === 'modal-borrowed' && timeline(3)?.dataset.harmonyProfile === 'modal-ambiguous',
+  timeline(3)?.dataset.harmonyGroup === undefined && timeline(3)?.dataset.harmonyProfile === undefined &&
+  !timeline(3)?.querySelector('.harmony-a11y'),
   [0, 1, 3].map((ei) => `${timeline(ei)?.dataset.harmonyGroup}/${timeline(ei)?.dataset.harmonyProfile}`).join(', '));
 ok('лента содержит скрытое текстовое описание, а не полагается только на цвет',
   /Прикладная функция/.test(timeline(1)?.querySelector('.harmony-a11y')?.textContent || ''),
@@ -97,7 +99,7 @@ ok('кнопка ? сначала называет профиль текущег
   /Гармонический/.test(legend.textContent) && /Мелодический/.test(legend.textContent) &&
   /Дорийский/.test(legend.textContent) && /Фригийский/.test(legend.textContent) &&
   /Лидийский/.test(legend.textContent) && /Миксолидийский/.test(legend.textContent) && /Локрийский/.test(legend.textContent) &&
-  /Прикладная/.test(legend.textContent) && /не подтверждён/.test(legend.textContent) && /хроматика/i.test(legend.textContent),
+  /Прикладная/.test(legend.textContent) && !/не подтверждён/i.test(legend.textContent) && !/хроматика/i.test(legend.textContent),
   legend.textContent.replace(/\s+/g, ' ').trim());
 
 w.eval('document.getElementById("showDegrees").checked = false; updateCellsDegrees();');

@@ -62,9 +62,11 @@ function ok(name, condition, detail = '') {
         groups: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyGroup),
         profiles: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyProfile),
         gridMarker: getComputedStyle(grid(1), '::before').backgroundColor,
+        neutralGridMarker: getComputedStyle(grid(3), '::before').backgroundColor,
         timelineGroups: [timeline(0), timeline(1), timeline(3)].map((cell) => cell.dataset.harmonyGroup),
         timelineProfiles: [timeline(0), timeline(1), timeline(3)].map((cell) => cell.dataset.harmonyProfile),
         timelineMarker: getComputedStyle(timeline(1), '::after').backgroundColor,
+        neutralTimelineMarker: getComputedStyle(timeline(3), '::after').backgroundColor,
         selected: d7.classList.contains('is-wheel-selected'),
         wheelGroup: d7.dataset.harmonyGroup,
         wheelProfile: d7.dataset.harmonyProfile,
@@ -107,14 +109,14 @@ function ok(name, condition, detail = '') {
       minorLine.wheelCurrent.profile === 'melodic-minor' && /Мелодический минор/.test(minorLine.wheelCurrent.text), JSON.stringify(minorLine));
     ok('выключенные «Ступени» не показывают B-99 marker',
       !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('editor shows exact ionian / V/x / ambiguous profiles and a painted applied-function marker',
-      state.groups.join(',') === 'diatonic,secondary-function,modal-borrowed' &&
-      state.profiles.join(',') === 'ionian,secondary-function,modal-ambiguous' &&
-      state.gridMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('timeline carries the same groups, exact profiles and a painted marker',
-      state.timelineGroups.join(',') === 'diatonic,secondary-function,modal-borrowed' &&
-      state.timelineProfiles.join(',') === 'ionian,secondary-function,modal-ambiguous' &&
-      state.timelineMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
+    ok('editor shows ionian / V/x only; ambiguous Bb is visually neutral',
+      state.groups.join(',') === 'diatonic,secondary-function,' &&
+      state.profiles.join(',') === 'ionian,secondary-function,' &&
+      state.gridMarker !== 'rgba(0, 0, 0, 0)' && state.neutralGridMarker === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
+    ok('timeline carries the same confirmed profiles; ambiguous Bb has no marker',
+      state.timelineGroups.join(',') === 'diatonic,secondary-function,' &&
+      state.timelineProfiles.join(',') === 'ionian,secondary-function,' &&
+      state.timelineMarker !== 'rgba(0, 0, 0, 0)' && state.neutralTimelineMarker === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
     ok('wheel shows the separate applied V/V profile while selected marker survives',
       state.wheelGroup === 'secondary-function' && state.wheelProfile === 'secondary-function' && state.selected, JSON.stringify(state));
     ok('legend ? opens accessibly', state.legendOpen && state.legendExpanded === 'true', JSON.stringify(state));
