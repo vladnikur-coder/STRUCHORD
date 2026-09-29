@@ -69,14 +69,34 @@ function ok(name, condition, detail = '') {
         legendExpanded: document.getElementById('wheelHarmonyLegendToggle').getAttribute('aria-expanded'),
       };
     });
+    const minorLine = await page.evaluate(() => {
+      globalKey = 'Am';
+      sections = [{ id: 91, type: 'Verse', key: null, timeSig: '4/4', squares: [{ id: 92, events: [
+        { chord: 'Am', span: 1 }, { chord: 'C', span: 1 }, { chord: 'D', span: 1 }, { chord: 'E', span: 1 },
+      ] }] }];
+      document.getElementById('showDegrees').checked = true;
+      render();
+      timelineMode = true;
+      renderTimeline();
+      const grid = (ei) => document.querySelector(`.chord-wrapper[data-sec="91"][data-square="92"][data-ei="${ei}"]`);
+      const timeline = (ei) => document.querySelector(`.tl-cell[data-sec="91"][data-square="92"][data-ei="${ei}"]`);
+      return {
+        editorDegrees: [0, 1, 2, 3].map((ei) => grid(ei).querySelector('.degree-hint')?.textContent),
+        timelineDegrees: [0, 1, 2, 3].map((ei) => timeline(ei).querySelector('.tl-degree')?.textContent),
+        groups: [2, 3].map((ei) => grid(ei).dataset.harmonyGroup),
+      };
+    });
+    ok('Am–C–D–E visibly receives i–III–IV–V with minor-variant colour group',
+      minorLine.editorDegrees.join(',') === 'i,III,IV,V' && minorLine.timelineDegrees.join(',') === 'i,III,IV,V' &&
+      minorLine.groups.join(',') === 'minor-variant,minor-variant', JSON.stringify(minorLine));
     ok('выключенные «Ступени» не показывают B-99 marker',
       !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('editor shows distinct semantic groups and a painted chromatic marker',
-      state.groups.join(',') === 'diatonic,chromatic,modal-borrowed' && state.gridMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
+    ok('editor shows distinct semantic groups and a painted applied-function marker',
+      state.groups.join(',') === 'diatonic,secondary-function,modal-borrowed' && state.gridMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
     ok('timeline carries the same groups and a painted marker',
-      state.timelineGroups.join(',') === 'diatonic,chromatic,modal-borrowed' && state.timelineMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('wheel is chromatic for contextual D7 → G while its selected marker survives',
-      state.wheelGroup === 'chromatic' && state.selected, JSON.stringify(state));
+      state.timelineGroups.join(',') === 'diatonic,secondary-function,modal-borrowed' && state.timelineMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
+    ok('wheel shows the separate applied V/V group for D7 → G while selected marker survives',
+      state.wheelGroup === 'secondary-function' && state.selected, JSON.stringify(state));
     ok('legend ? opens accessibly', state.legendOpen && state.legendExpanded === 'true', JSON.stringify(state));
     ok('B-99 visual route completed without page errors', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {

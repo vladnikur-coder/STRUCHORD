@@ -42,12 +42,13 @@ ok('обычная ступень C-мажора остаётся diatonic',
   cMajor.group === 'diatonic' && cMajor.detail === 'ionian' && cMajor.degree === 'vi', JSON.stringify(cMajor));
 
 const aMinor = analyze('E', 'Am');
-ok('мажорная V в натуральном A-миноре не выдаётся за диатонику',
-  aMinor.group === 'modal-borrowed' || aMinor.group === 'chromatic', JSON.stringify(aMinor));
+ok('мажорная V в A-миноре — точная доминанта гармонического минора, не vague borrow',
+  aMinor.group === 'minor-variant' && aMinor.detail === 'harmonic-minor-dominant' &&
+  aMinor.function === 'V' && aMinor.degree === 'V', JSON.stringify(aMinor));
 
 const secondary = analyze('D7', 'C', { nextChord: 'G' });
-ok('D7 → G в C получает точную контекстную функцию V/V',
-  secondary.group === 'chromatic' && secondary.detail === 'secondary-dominant' && secondary.function === 'V/V' && secondary.confidence === 'contextual', JSON.stringify(secondary));
+ok('D7 → G в C получает отдельную прикладную функцию V/V',
+  secondary.group === 'secondary-function' && secondary.detail === 'secondary-dominant' && secondary.function === 'V/V' && secondary.confidence === 'contextual', JSON.stringify(secondary));
 
 const bareD = analyze('D', 'C');
 ok('D-мажор без разрешения не получает ложную точную функцию',
@@ -70,6 +71,16 @@ ok('одна характерная ступень не притворяется
 const sectionKey = w.analyzeSectionHarmony(section('Dm', ['Dm', 'Gm', 'A']));
 ok('анализ секции берёт её модулированную тональность, а не globalKey',
   sectionKey[0].key === 'Dm' && sectionKey[1].group === 'diatonic', JSON.stringify(sectionKey));
+
+const minorLine = w.analyzeSectionHarmony(section('Am', ['Am', 'C', 'D', 'E']));
+ok('Am–C–D–E показывает ступени i–III–IV–V и различает мелодический/гармонический минор',
+  minorLine.map((item) => item.degree).join(',') === 'i,III,IV,V' &&
+  minorLine[2].group === 'minor-variant' && minorLine[2].detail === 'melodic-minor-subdominant' &&
+  minorLine[3].group === 'minor-variant' && minorLine[3].detail === 'harmonic-minor-dominant', JSON.stringify(minorLine));
+
+const residual = analyze('F#m', 'C');
+ok('необъяснённый F#-минор в C остаётся остаточной chromatic, а не modal bucket',
+  residual.group === 'chromatic' && residual.detail === 'unresolved-chromatic', JSON.stringify(residual));
 
 const invalid = analyze('not-a-chord', 'C');
 ok('некорректный аккорд безопасно остаётся unknown', invalid.group === 'unknown', JSON.stringify(invalid));

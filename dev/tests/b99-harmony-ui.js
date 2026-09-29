@@ -55,7 +55,7 @@ w.eval(`
 const grid = (ei) => d.querySelector(`.chord-wrapper[data-sec="41"][data-square="42"][data-ei="${ei}"]`);
 ok('ячейки редактора получают все три группы без текстовых плашек',
   grid(0)?.dataset.harmonyGroup === 'diatonic' &&
-  grid(1)?.dataset.harmonyGroup === 'chromatic' &&
+  grid(1)?.dataset.harmonyGroup === 'secondary-function' &&
   grid(3)?.dataset.harmonyGroup === 'modal-borrowed' &&
   !grid(1)?.querySelector('.harmony-visible-label'),
   [0, 1, 3].map((ei) => grid(ei)?.dataset.harmonyGroup).join(', '));
@@ -67,11 +67,11 @@ w.eval('timelineMode = true; renderTimeline();');
 const timeline = (ei) => d.querySelector(`.tl-cell[data-sec="41"][data-square="42"][data-ei="${ei}"]`);
 ok('лента несёт те же semantic groups',
   timeline(0)?.dataset.harmonyGroup === 'diatonic' &&
-  timeline(1)?.dataset.harmonyGroup === 'chromatic' &&
+  timeline(1)?.dataset.harmonyGroup === 'secondary-function' &&
   timeline(3)?.dataset.harmonyGroup === 'modal-borrowed',
   [0, 1, 3].map((ei) => timeline(ei)?.dataset.harmonyGroup).join(', '));
 ok('лента содержит скрытое текстовое описание, а не полагается только на цвет',
-  /Хроматическая функция/.test(timeline(1)?.querySelector('.harmony-a11y')?.textContent || ''),
+  /Прикладная функция/.test(timeline(1)?.querySelector('.harmony-a11y')?.textContent || ''),
   timeline(1)?.querySelector('.harmony-a11y')?.textContent || '');
 
 w.eval(`
@@ -81,8 +81,8 @@ w.eval(`
   drawWheel();
 `);
 const d7 = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D7"]');
-ok('круг получает chromatic для D7 в контексте следующего G',
-  d7?.dataset.harmonyGroup === 'chromatic', d7?.outerHTML || 'D7 sector absent');
+ok('круг получает отдельную прикладную V/V для D7 в контексте следующего G',
+  d7?.dataset.harmonyGroup === 'secondary-function', d7?.outerHTML || 'D7 sector absent');
 ok('выбранный аккорд сохраняет сильный established selected marker',
   d7?.classList.contains('is-wheel-selected') && /\.wheel-sector\.is-wheel-selected/.test(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8')),
   d7?.className.baseVal || '');
@@ -90,9 +90,10 @@ ok('выбранный аккорд сохраняет сильный establishe
 w.eval('bindWheelHarmonyLegend(); document.getElementById("wheelHarmonyLegendToggle").click();');
 const legend = d.getElementById('wheelHarmonyLegend');
 const toggle = d.getElementById('wheelHarmonyLegendToggle');
-ok('кнопка ? раскрывает текстовую легенду трёх цветов',
+ok('кнопка ? раскрывает легенду групп, включая вариант минора и прикладную функцию',
   !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' &&
-  /Диатоника/.test(legend.textContent) && /Модально/.test(legend.textContent) && /Хроматика/.test(legend.textContent),
+  /Диатоника/.test(legend.textContent) && /Гармонический/.test(legend.textContent) &&
+  /Прикладная/.test(legend.textContent) && /Модально/.test(legend.textContent) && /хроматика/i.test(legend.textContent),
   legend.textContent.replace(/\s+/g, ' ').trim());
 
 w.eval('document.getElementById("showDegrees").checked = false; updateCellsDegrees();');
