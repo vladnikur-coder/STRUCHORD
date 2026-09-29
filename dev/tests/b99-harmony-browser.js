@@ -97,7 +97,13 @@ function ok(name, condition, detail = '') {
           wheelMode = 'triads';
           drawWheel();
           const current = document.getElementById('wheelHarmonyLegendCurrent');
-          return { profile: current.dataset.harmonyProfile, text: current.textContent };
+          const profiles = [...document.querySelectorAll('#circleSvg .wheel-sector')].map((sector) => sector.dataset.harmonyProfile);
+          return {
+            profile: current.dataset.harmonyProfile,
+            text: current.textContent,
+            profiles,
+            distinctProfiles: [...new Set(profiles)].sort(),
+          };
         })(),
       };
     });
@@ -106,7 +112,8 @@ function ok(name, condition, detail = '') {
       minorLine.profiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
       minorLine.timelineProfiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
       minorLine.editorMarkers[0] !== minorLine.editorMarkers[1] &&
-      minorLine.wheelCurrent.profile === 'melodic-minor' && /Мелодический минор/.test(minorLine.wheelCurrent.text), JSON.stringify(minorLine));
+      minorLine.wheelCurrent.profile === 'melodic-minor' && /Мелодический минор/.test(minorLine.wheelCurrent.text) &&
+      minorLine.wheelCurrent.profiles.every(Boolean) && minorLine.wheelCurrent.distinctProfiles.length === 9, JSON.stringify(minorLine));
     ok('выключенные «Ступени» не показывают B-99 marker',
       !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
     ok('editor shows ionian / V/x only; ambiguous Bb is visually neutral',
