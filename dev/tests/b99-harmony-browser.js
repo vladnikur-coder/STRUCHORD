@@ -35,13 +35,19 @@ function ok(name, condition, detail = '') {
       globalKey = 'C';
       globalTimeSig = '4/4';
       keyMode = 'manual';
-      sections = [{ id: 81, type: 'Verse', key: null, timeSig: '4/4', squares: [{ id: 82, events: [
+      document.getElementById('showDegrees').checked = false;
+      sections = [{ id: 81, type: 'Verse', key: null, timeSig: '4/4', squares: [{
+ id: 82, events: [
         { chord: 'C', span: 1 }, { chord: 'D7', span: 1 }, { chord: 'G', span: 1 }, { chord: 'Bb', span: 1 },
       ] }] }];
       render();
+      const grid = (ei) => document.querySelector(`.chord-wrapper[data-sec="81"][data-square="82"][data-ei="${ei}"]`);
+      const markerWhenDegreesOff = getComputedStyle(grid(1), '::before').backgroundColor;
+      const harmonyClassWhenDegreesOff = document.body.classList.contains('is-harmony-highlights-on');
+      document.getElementById('showDegrees').checked = true;
+      updateCellsDegrees();
       timelineMode = true;
       renderTimeline();
-      const grid = (ei) => document.querySelector(`.chord-wrapper[data-sec="81"][data-square="82"][data-ei="${ei}"]`);
       const timeline = (ei) => document.querySelector(`.tl-cell[data-sec="81"][data-square="82"][data-ei="${ei}"]`);
       activeChordInput = grid(1).querySelector('.chord-input');
       activeSectionKey = null;
@@ -51,6 +57,8 @@ function ok(name, condition, detail = '') {
       bindWheelHarmonyLegend();
       document.getElementById('wheelHarmonyLegendToggle').click();
       return {
+        markerWhenDegreesOff,
+        harmonyClassWhenDegreesOff,
         groups: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyGroup),
         gridMarker: getComputedStyle(grid(1), '::before').backgroundColor,
         timelineGroups: [timeline(0), timeline(1), timeline(3)].map((cell) => cell.dataset.harmonyGroup),
@@ -61,6 +69,8 @@ function ok(name, condition, detail = '') {
         legendExpanded: document.getElementById('wheelHarmonyLegendToggle').getAttribute('aria-expanded'),
       };
     });
+    ok('выключенные «Ступени» не показывают B-99 marker',
+      !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
     ok('editor shows distinct semantic groups and a painted chromatic marker',
       state.groups.join(',') === 'diatonic,chromatic,modal-borrowed' && state.gridMarker !== 'rgba(0, 0, 0, 0)', JSON.stringify(state));
     ok('timeline carries the same groups and a painted marker',

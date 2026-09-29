@@ -37,6 +37,7 @@ w.eval(`
   globalKey = 'C';
   globalTimeSig = '4/4';
   keyMode = 'manual';
+  document.getElementById('showDegrees').checked = true;
   sections = [{
     id: 41, type: 'Verse', customName: '', key: null, timeSig: '4/4', squares: [{
       id: 42,
@@ -93,6 +94,13 @@ ok('кнопка ? раскрывает текстовую легенду трё
   !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' &&
   /Диатоника/.test(legend.textContent) && /Модально/.test(legend.textContent) && /Хроматика/.test(legend.textContent),
   legend.textContent.replace(/\s+/g, ' ').trim());
+
+w.eval('document.getElementById("showDegrees").checked = false; updateCellsDegrees();');
+ok('выключенные «Ступени» выключают и расширенную гармоническую подсветку',
+  !d.body.classList.contains('is-harmony-highlights-on') &&
+  !d.getElementById('chordWheelModal').classList.contains('is-harmony-highlights-on') &&
+  grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label') === null,
+  `${d.body.className} | ${grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label')}`);
 
 console.log(failures ? `\n${failures} FAIL` : '\nALL OK — B-99 harmony UI');
 process.exit(failures ? 1 : 0);
