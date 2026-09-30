@@ -5411,8 +5411,9 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
   border-top: 0.0625rem solid var(--color-border-medium);
 }
 .wheel-harmony-legend span { display: flex; align-items: flex-start; gap: 0.4375rem; }
-/* First line answers «what does the currently open cell mean?»; the list
-   below remains the static decoding key for every possible wheel colour. */
+/* Первая строка отвечает, что означает открывшая круг ячейка; список ниже
+   расшифровывает цвета только тех кандидатов, которые проходят строгую
+   проверку относительно текущей тональности. */
 .wheel-harmony-legend-current {
   min-height: 1.25rem;
   box-sizing: border-box;
@@ -11516,7 +11517,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.544</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.545</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -12103,7 +12104,7 @@ body.power-ui-waking .pinned-fingering-dock {
             <strong>Текущий аккорд</strong>
             <span id="wheelHarmonyLegendCurrent" class="wheel-harmony-legend-current">Откройте круг из ячейки с аккордом</span>
             <span id="wheelHarmonyLegendStatus" class="wheel-harmony-legend-status" hidden></span>
-            <strong class="wheel-harmony-legend-scale-title">Статическая карта цветов круга</strong>
+            <strong class="wheel-harmony-legend-scale-title">Цвета относительно текущей тональности</strong>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--ionian" aria-hidden="true"></i>Ионийский — натуральный мажор</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--aeolian" aria-hidden="true"></i>Эолийский — натуральный минор</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--harmonic-minor" aria-hidden="true"></i>Гармонический минор — ведущий тон и V</span>
@@ -22281,44 +22282,11 @@ function getHarmonySectionChordNames(section) {
 function isMinorVariantMode(mode) {
   return mode === 'harmonic-minor' || mode === 'melodic-minor';
 }
-// Круг — это палитра кандидатов, а не только уже записанная прогрессия.
-// Для него выбран отдельный статический маршрут: он назначает каждому
-// сектору цвет лада по стабильному приоритету. Сначала берём настоящий
-// диатонический профиль и точные совпадения качества; если такого нет,
-// используем карту корней, чтобы круг оставался полной ладовой картой, а
-// не превращался в набор нейтральных секторов.
-const HARMONY_WHEEL_STATIC_ROOT_MODE = Object.freeze([
-  'ionian', 'phrygian', 'dorian', 'aeolian', 'lydian', 'mixolydian',
-  'locrian', 'mixolydian', 'aeolian', 'dorian', 'mixolydian', 'locrian',
-]);
-function getStaticWheelHarmonyMode(parsed, key) {
-  const baseMode = getHarmonyBaseMode(key);
-  if (isHarmonyChordInMode(parsed, key, baseMode)) return baseMode;
-  // Harmonic/melodic minor keep their recognisable altered functions even on
-  // the static palette: this preserves D → E as melodic IV → harmonic V.
-  const minorVariant = ['harmonic-minor', 'melodic-minor']
-    .find((mode) => isHarmonyChordInMode(parsed, key, mode));
-  if (minorVariant) return minorVariant;
-  const tonicIndex = getHarmonyTonicIndex(key);
-  const rootIndex = CHROMATIC.indexOf(parsed?.root);
-  if (tonicIndex < 0 || rootIndex < 0) return null;
-  return HARMONY_WHEEL_STATIC_ROOT_MODE[(rootIndex - tonicIndex + 12) % 12] || null;
-}
-function analyzeStaticWheelHarmony(chord, key) {
-  const normalized = String(chord || '').trim();
-  const parsed = parseChordForKeyDetection(normalized);
-  if (!parsed || getHarmonyTonicIndex(key) < 0) {
-    return { chord: normalized, key, group: HARMONY_GROUP.UNKNOWN, mode: null, detail: null, confidence: 'none' };
-  }
-  const mode = getStaticWheelHarmonyMode(parsed, key);
-  if (!mode) return { chord: normalized, key, group: HARMONY_GROUP.UNKNOWN, mode: null, detail: null, confidence: 'none' };
-  const baseMode = getHarmonyBaseMode(key);
-  return {
-    chord: normalized, key,
-    group: mode === baseMode ? HARMONY_GROUP.DIATONIC : (isMinorVariantMode(mode) ? HARMONY_GROUP.MINOR_VARIANT : HARMONY_GROUP.MODAL_BORROWED),
-    mode, detail: `wheel-map-${mode}`, confidence: 'static', degree: getHarmonyRootDegree(parsed, key),
-  };
-}
+// Круг остаётся палитрой кандидатов, но его цвета теперь подчиняются
+// той же строгой музыкальной проверке, что редактор и лента. Цвет означает
+// «этот аккорд действительно читается относительно выбранной тональности»,
+// а не «у корня нашёлся произвольный декоративный лад». Поэтому Fm при Am
+// не получает эолийский цвет: в A-эолийском VI — F, а не Fm.
 function detectClearModalContext(chords, key) {
   const baseMode = getHarmonyBaseMode(key);
   const base = HARMONY_MODE_PROFILES[baseMode];
@@ -22478,7 +22446,6 @@ function getHarmonyAccessibleText(analysis) {
     return `${chord}Прикладная функция: вторичная доминанта ${analysis.function || 'V/x'}.`;
   }
   const modeLabel = getHarmonyModeLabel(analysis.mode);
-  if (analysis.confidence === 'static') return `${chord}Ладовая карта круга: ${modeLabel}.${degreeText}`;
   if (analysis.detail === 'harmonic-minor-dominant') return `${chord}${modeLabel}: доминанта V.${degreeText}`;
   if (analysis.detail === 'melodic-minor-subdominant') return `${chord}${modeLabel}: субдоминанта IV в контексте следующей доминанты.${degreeText}`;
   if (modeLabel) {
@@ -22492,7 +22459,6 @@ function getWheelHarmonyLegendCurrentText(analysis) {
   if (!getHarmonyPresentationProfile(analysis)) return chord;
   if (analysis.group === HARMONY_GROUP.SECONDARY_FUNCTION) return `${chord} — прикладная функция ${analysis.function || 'V/x'}`;
   const mode = getHarmonyModeLabel(analysis.mode);
-  if (analysis.confidence === 'static') return mode ? `${chord} — карта круга: ${mode}` : chord;
   return mode ? `${chord} — ${mode}${analysis.function ? `, ${analysis.function}` : ''}` : chord;
 }
 function syncWheelHarmonyLegendCurrent(analysis) {
@@ -33592,23 +33558,15 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   const isSelectedWheelChord = (candidate) =>
     !!activeWheelChord && activeWheelChord === wheelChordIdentity(candidate);
   const harmonyContext = getActiveWheelHarmonyContext(sk);
-  const analyzeRecordedWheelChord = (candidate) => analyzeChordHarmony(candidate, harmonyContext.key, {
+  const analyzeWheelCandidate = (candidate) => analyzeChordHarmony(candidate, harmonyContext.key, {
     nextChord: harmonyContext.nextChord,
     contextualMode: harmonyContext.contextualMode,
   });
-  const analyzeWheelCandidate = (candidate) => {
-    const recorded = analyzeRecordedWheelChord(candidate);
-    // The owner keeps its real functional reading when one exists (notably
-    // V/x); every other candidate receives the chosen static mode-map colour.
-    if (wheelChordIdentity(candidate) === activeWheelChord && recorded.group !== HARMONY_GROUP.UNKNOWN) return recorded;
-    return analyzeStaticWheelHarmony(candidate, harmonyContext.key);
-  };
-  const ownerRecordedAnalysis = activeChordInput?.value?.trim()
-    ? analyzeRecordedWheelChord(activeChordInput.value.trim())
+  // Owner and candidates deliberately use one strict route. A selected Fm
+  // in Am must stay neutral rather than receiving a fabricated modal colour.
+  const activeWheelAnalysis = activeChordInput?.value?.trim()
+    ? analyzeWheelCandidate(activeChordInput.value.trim())
     : null;
-  const activeWheelAnalysis = ownerRecordedAnalysis?.group !== HARMONY_GROUP.UNKNOWN
-    ? ownerRecordedAnalysis
-    : (activeChordInput?.value?.trim() ? analyzeStaticWheelHarmony(activeChordInput.value.trim(), harmonyContext.key) : null);
   syncWheelHarmonyLegendCurrent(activeWheelAnalysis);
   const applyWheelHarmony = (sector, label, analysis) => {
     const group = analysis?.group;
@@ -34661,21 +34619,16 @@ function refreshWheelSelectedChord() {
 function refreshWheelHarmonyPresentation() {
   const key = activeSectionKey || getEffectiveKey();
   const context = getActiveWheelHarmonyContext(key);
-  const activeIdentity = wheelChordIdentity(activeChordInput?.value);
-  const analyzeRecorded = (chord) => analyzeChordHarmony(chord, context.key, {
+  const analyzeWheelCandidate = (chord) => analyzeChordHarmony(chord, context.key, {
     nextChord: context.nextChord,
     contextualMode: context.contextualMode,
   });
-  const ownerRecorded = activeChordInput?.value?.trim() ? analyzeRecorded(activeChordInput.value.trim()) : null;
-  const activeAnalysis = ownerRecorded?.group !== HARMONY_GROUP.UNKNOWN
-    ? ownerRecorded
-    : (activeChordInput?.value?.trim() ? analyzeStaticWheelHarmony(activeChordInput.value.trim(), context.key) : null);
+  const activeAnalysis = activeChordInput?.value?.trim()
+    ? analyzeWheelCandidate(activeChordInput.value.trim())
+    : null;
   syncWheelHarmonyLegendCurrent(activeAnalysis);
   document.querySelectorAll('#circleSvg [data-wheel-chord-identity]').forEach((node) => {
-    const recorded = analyzeRecorded(node.dataset.wheelChordIdentity);
-    const analysis = node.dataset.wheelChordIdentity === activeIdentity && recorded.group !== HARMONY_GROUP.UNKNOWN
-      ? recorded
-      : analyzeStaticWheelHarmony(node.dataset.wheelChordIdentity, context.key);
+    const analysis = analyzeWheelCandidate(node.dataset.wheelChordIdentity);
     const profile = getHarmonyPresentationProfile(analysis);
     if (analysis.group === HARMONY_GROUP.UNKNOWN || !profile) {
       delete node.dataset.harmonyGroup;

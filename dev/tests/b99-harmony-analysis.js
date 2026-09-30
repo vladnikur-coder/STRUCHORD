@@ -47,6 +47,11 @@ ok('мажорная V в A-миноре — гармонический мино
   aMinor.group === 'minor-variant' && aMinor.mode === 'harmonic-minor' &&
   aMinor.detail === 'harmonic-minor-dominant' && aMinor.function === 'V', JSON.stringify(aMinor));
 
+const fMinorInAMinor = analyze('Fm', 'Am', { nextChord: 'E' });
+ok('Fm в Am нейтрален даже перед E: VI A-эолийского — F, а не Fm',
+  fMinorInAMinor.group === 'unknown' && fMinorInAMinor.mode === null &&
+  fMinorInAMinor.confidence === 'none', JSON.stringify(fMinorInAMinor));
+
 const secondary = analyze('D7', 'C', { nextChord: 'G' });
 ok('D7 → G в C остаётся отдельной прикладной V/V, не притворяется ладом',
   secondary.group === 'secondary-function' && secondary.mode === null &&

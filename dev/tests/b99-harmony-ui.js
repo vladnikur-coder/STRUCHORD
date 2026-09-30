@@ -145,21 +145,33 @@ ok('легенда круга называет профиль именно от�
   /Мелодический минор/.test(wheelCurrentProfiles[2].text) && /Гармонический минор/.test(wheelCurrentProfiles[3].text),
   JSON.stringify(wheelCurrentProfiles));
 
-const wheelMapByMode = w.eval(`(() => {
-  activeChordInput = document.querySelector('.chord-input[data-sec="51"][data-square="52"][data-ei="2"]');
+const strictWheelCandidates = w.eval(`(() => {
+  const owner = document.querySelector('.chord-input[data-sec="51"][data-square="52"][data-ei="2"]');
+  activeChordInput = owner;
   activeSectionKey = null;
-  return ['triads', ...WHEEL_EXT_DEFAULTS].map((mode) => {
-    wheelMode = mode;
-    drawWheel();
-    const profiles = [...document.querySelectorAll('#circleSvg .wheel-sector')]
-      .map((sector) => sector.dataset.harmonyProfile || '');
-    return { mode, sectors: profiles.length, missing: profiles.filter((profile) => !profile).length, profiles };
-  });
+  wheelMode = 'triads';
+  drawWheel();
+  const candidateFm = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Fm"]');
+  const candidateE = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="E"]');
+  // Это тот же маршрут, что и выбор Fm из круга: владельцу подставляется
+  // Fm, а музыкальный контекст секции (следующий E) остаётся реальным.
+  owner.value = 'Fm';
+  drawWheel();
+  const ownerFm = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Fm"]');
+  const legend = document.getElementById('wheelHarmonyLegendCurrent');
+  return {
+    candidateFm: candidateFm?.dataset.harmonyProfile || '',
+    candidateE: candidateE?.dataset.harmonyProfile || '',
+    ownerFm: ownerFm?.dataset.harmonyProfile || '',
+    ownerSelected: ownerFm?.classList.contains('is-wheel-selected'),
+    ownerLegend: legend?.textContent || '',
+  };
 })()`);
-ok('статическая карта назначает цвет каждому сектору во всех встроенных качествах круга',
-  wheelMapByMode.every((item) => item.sectors > 0 && item.missing === 0) &&
-  new Set(wheelMapByMode.flatMap((item) => item.profiles)).size === 9,
-  JSON.stringify(wheelMapByMode.map(({ mode, sectors, missing }) => ({ mode, sectors, missing }))));
+ok('в Am Fm остаётся нейтральным и как кандидат, и как owner; E остаётся настоящим V гармонического минора',
+  strictWheelCandidates.candidateFm === '' && strictWheelCandidates.ownerFm === '' &&
+  strictWheelCandidates.ownerSelected && strictWheelCandidates.ownerLegend === 'Fm' &&
+  strictWheelCandidates.candidateE === 'harmonic-minor',
+  JSON.stringify(strictWheelCandidates));
 
 const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
 ok('сектора имеют контрастный fallback без color-mix и усиленное смешение в современных браузерах',

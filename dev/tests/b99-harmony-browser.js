@@ -97,12 +97,13 @@ function ok(name, condition, detail = '') {
           wheelMode = 'triads';
           drawWheel();
           const current = document.getElementById('wheelHarmonyLegendCurrent');
-          const profiles = [...document.querySelectorAll('#circleSvg .wheel-sector')].map((sector) => sector.dataset.harmonyProfile);
+          const fMinor = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Fm"]');
+          const eMajor = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="E"]');
           return {
             profile: current.dataset.harmonyProfile,
             text: current.textContent,
-            profiles,
-            distinctProfiles: [...new Set(profiles)].sort(),
+            fMinorProfile: fMinor?.dataset.harmonyProfile || '',
+            eMajorProfile: eMajor?.dataset.harmonyProfile || '',
           };
         })(),
       };
@@ -113,31 +114,29 @@ function ok(name, condition, detail = '') {
       minorLine.timelineProfiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
       minorLine.editorMarkers[0] !== minorLine.editorMarkers[1] &&
       minorLine.wheelCurrent.profile === 'melodic-minor' && /Мелодический минор/.test(minorLine.wheelCurrent.text) &&
-      minorLine.wheelCurrent.profiles.every(Boolean) && minorLine.wheelCurrent.distinctProfiles.length === 9, JSON.stringify(minorLine));
-    const renderedStaticPalette = await page.evaluate(() => {
-      globalKey = 'Am';
-      document.getElementById('showDegrees').checked = true;
-      updateCellsDegrees();
-      activeChordInput = null;
+      minorLine.wheelCurrent.fMinorProfile === '' && minorLine.wheelCurrent.eMajorProfile === 'harmonic-minor', JSON.stringify(minorLine));
+    const strictWheel = await page.evaluate(() => {
+      const owner = document.querySelector('.chord-input[data-sec="91"][data-square="92"][data-ei="2"]');
+      activeChordInput = owner;
       activeSectionKey = null;
       wheelMode = 'triads';
       drawWheel();
-      const sectors = [...document.querySelectorAll('#circleSvg .wheel-sector')];
-      const profileColors = Object.fromEntries(sectors.map((sector) => [
-        sector.dataset.harmonyProfile,
-        getComputedStyle(sector).fill,
-      ]));
+      const candidateFm = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Fm"]');
+      owner.value = 'Fm';
+      drawWheel();
+      const ownerFm = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Fm"]');
       return {
         highlightsOn: document.getElementById('chordWheelModal').classList.contains('is-harmony-highlights-on'),
-        mapped: sectors.every((sector) => !!sector.dataset.harmonyProfile),
-        profileColors,
+        candidateProfile: candidateFm?.dataset.harmonyProfile || '',
+        ownerProfile: ownerFm?.dataset.harmonyProfile || '',
+        ownerSelected: ownerFm?.classList.contains('is-wheel-selected'),
+        legend: document.getElementById('wheelHarmonyLegendCurrent')?.textContent || '',
       };
     });
-    ok('статическая карта видимо окрашивает все девять профилей, а не только ставит data-атрибуты',
-      renderedStaticPalette.highlightsOn && renderedStaticPalette.mapped &&
-      Object.keys(renderedStaticPalette.profileColors).length === 9 &&
-      new Set(Object.values(renderedStaticPalette.profileColors)).size === 9,
-      JSON.stringify(renderedStaticPalette));
+    ok('круг не приписывает Fm тональности Am: Fm нейтрален и как candidate, и как owner',
+      strictWheel.highlightsOn && strictWheel.candidateProfile === '' && strictWheel.ownerProfile === '' &&
+      strictWheel.ownerSelected && strictWheel.legend === 'Fm',
+      JSON.stringify(strictWheel));
     ok('выключенные «Ступени» не показывают B-99 marker',
       !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
     ok('editor shows ionian / V/x only; ambiguous Bb is visually neutral',
