@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// Геометрическая проверка меню-диаграммы: дуги радиальной диаграммы
-// внутри своей карточки, отступ от краёв сохранён, суммарная площадь
-// дуг — заметная доля карточки (цвет читается, а не точка).
+// Геометрическая проверка меню-диаграммы (круговая, на весь сектор):
+// у каждой карточки лучи сходятся в её центр, геометрия лучей накрывает
+// карточку целиком, и группа обрезана clipPath по форме карточки.
 const path = require('path');
 const { pathToFileURL } = require('url');
 const sparticuz = require('@sparticuz/chromium').default;
@@ -29,27 +29,44 @@ const puppeteer = require('puppeteer-core');
     DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
     wheelMode = 'triads';
     drawWheel();
-    const out = { diagrams: 0, wedges: 0, inside: 0, minMargin: 99, minCoverage: 99, maxCoverage: 0 };
-    document.querySelectorAll('#circleSvg .wheel-mode-diagram').forEach((diagram) => {
+    const out = { diagrams: 0, wedges: 0, clipped: 0, sameCenter: 0, covers: 0 };
+    document.querySelectorAll('#circleSvg .wheel-mode-diagram').forEach((dg) => {
       out.diagrams += 1;
-      const id = diagram.dataset.wheelChordIdentity;
-      const ring = diagram.dataset.wheelHoverRing;
+      const id = dg.dataset.wheelChordIdentity;
+      const ring = dg.dataset.wheelHoverRing;
       const sector = document.querySelector(`#circleSvg .wheel-sector[data-wheel-chord-identity="${id}"][data-wheel-ring="${ring}"]`);
       if (!sector) return;
+      if (/^url\(#wheel-menu-clip-/.test(dg.getAttribute('clip-path') || '')) out.clipped += 1;
+      const wedges = [...dg.querySelectorAll('.wheel-mode-wedge')];
+      out.wedges += wedges.length;
+      // Центр диаграммы: у лучей — первая точка M, у сплошного диска —
+      // середина между концами его дуги (M-точка диска лежит за радиус).
+      const centerOf = (w) => {
+        const d = w.getAttribute('d') || '';
+        const disc = d.match(/^M(-?[\d.]+) (-?[\d.]+) A[\d.]+ [\d.]+ 0 1 0 (-?[\d.]+) (-?[\d.]+)/);
+        if (disc && !/ L/.test(d)) {
+          return {
+            x: (Number.parseFloat(disc[1]) + Number.parseFloat(disc[3])) / 2,
+            y: (Number.parseFloat(disc[2]) + Number.parseFloat(disc[4])) / 2,
+          };
+        }
+        const m = d.match(/^M(-?[\d.]+) (-?[\d.]+)/);
+        return { x: Number.parseFloat(m[1]), y: Number.parseFloat(m[2]) };
+      };
+      const centers = wedges.map(centerOf).filter((c) => !Number.isNaN(c.x));
+      if (centers.length === wedges.length && centers.every((p) => Math.hypot(p.x - centers[0].x, p.y - centers[0].y) < 0.5)) out.sameCenter += 1;
+      // Неклипнутая геометрия лучей (их объединение) накрывает карточку
+      // целиком, а центр диаграммы лежит внутри самой карточки.
       const sb = sector.getBBox();
-      const cardArea = sb.width * sb.height;
-      let wedgeArea = 0;
-      diagram.querySelectorAll('.wheel-mode-wedge').forEach((wedge) => {
-        out.wedges += 1;
-        const wb = wedge.getBBox();
-        wedgeArea += wb.width * wb.height;
-        const margin = Math.min(wb.x - sb.x, sb.x + sb.width - (wb.x + wb.width), wb.y - sb.y, sb.y + sb.height - (wb.y + wb.height));
-        if (margin < out.minMargin) out.minMargin = Math.round(margin * 10) / 10;
-        if (wb.x >= sb.x - 0.5 && wb.x + wb.width <= sb.x + sb.width + 0.5 && wb.y >= sb.y - 0.5 && wb.y + wb.height <= sb.y + sb.height + 0.5) out.inside += 1;
-      });
-      const coverage = Math.round((wedgeArea / cardArea) * 1000) / 10;
-      if (coverage < out.minCoverage) out.minCoverage = coverage;
-      if (coverage > out.maxCoverage) out.maxCoverage = coverage;
+      const c0 = centers[0];
+      const inCard = c0.x > sb.x && c0.x < sb.x + sb.width && c0.y > sb.y && c0.y < sb.y + sb.height;
+      const boxes = wedges.map((w) => w.getBBox());
+      const ux = Math.min(...boxes.map((b) => b.x));
+      const uy = Math.min(...boxes.map((b) => b.y));
+      const ur = Math.max(...boxes.map((b) => b.x + b.width));
+      const ub = Math.max(...boxes.map((b) => b.y + b.height));
+      const covers = ux <= sb.x + 1 && uy <= sb.y + 1 && ur >= sb.x + sb.width - 1 && ub >= sb.y + sb.height - 1;
+      if (inCard && covers) out.covers += 1;
     });
     return out;
   });

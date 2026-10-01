@@ -5673,12 +5673,13 @@ html.wheel-motion-disabled #circleSvg .wheel-degree-label.is-wheel-hovered {
     stroke: color-mix(in srgb, var(--color-border-medium) 30%, var(--harmony-profile-color, var(--color-accent)));
   }
 }
-/* B-99 (0.546): меню заимствований в режиме трезвучий. Сектор несёт
-   радиальную диаграмму: каждый лад, в котором аккорд работает в текущей
-   тональности, — своя концентрическая дуга; базовый лад ближе к центру
-   круга. Полупрозрачная заливка сохраняет читаемость имени и степени;
-   в тёмной теме пастельные ладовые цвета кладутся плотнее (0.45).
-   Гейт — прежняя настройка «Ступени и цвета». */
+/* B-99 (0.546): меню заимствований в режиме трезвучий. Весь сектор
+   красится по принципу круговой диаграммы: лучи-секторы расходятся из
+   центра самой карточки, из-под имени аккорда; каждый лад, в котором
+   аккорд работает в текущей тональности, — свой сектор, базовый
+   начинается с двенадцати часов. Полупрозрачная заливка сохраняет
+   читаемость имени и степени; в тёмной теме пастельные ладовые цвета
+   кладутся плотнее (0.45). Гейт — прежняя настройка «Ступени и цвета». */
 #circleSvg .wheel-mode-diagram {
   pointer-events: none;
 }
@@ -12136,7 +12137,7 @@ body.power-ui-waking .pinned-fingering-dock {
             <span id="wheelHarmonyLegendCurrent" class="wheel-harmony-legend-current">Откройте круг из ячейки с аккордом</span>
             <span id="wheelHarmonyLegendStatus" class="wheel-harmony-legend-status" hidden></span>
             <strong class="wheel-harmony-legend-scale-title">Лады текущей тональности — меню заимствований</strong>
-            <span class="wheel-harmony-legend-note">Карточка трезвучия несёт радиальную диаграмму: каждый лад — своя дуга, базовый ближе к центру. Это все лады, в которых аккорд работает в этой тональности. Возьмёшь аккорд — получишь его ступень в каждом из них. Это меню для сочинения, а не анализ песни.</span>
+            <span class="wheel-harmony-legend-note">Весь сектор карточки красится, как круговая диаграмма: лучи расходятся из центра карточки, базовый лад — с двенадцати часов. Это все лады, в которых аккорд работает в этой тональности. Возьмёшь аккорд — получишь его ступень в каждом из них. Это меню для сочинения, а не анализ песни.</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--ionian" aria-hidden="true"></i>Ионийский — натуральный мажор</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--aeolian" aria-hidden="true"></i>Эолийский — натуральный минор</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--harmonic-minor" aria-hidden="true"></i>Гармонический минор — ведущий тон и V</span>
@@ -33741,45 +33742,71 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // отступают от краёв: контур и каменная кромка карточки остаются видимыми.
   // Группа входит в hover-каналы карточки (магнит, соседский разъезд, idle
   // water) и, как весь selected-marker, не участвует в разъезде соседей.
-  // Меню заимствований красит сектор радиальной диаграммой: карточка
-  // делится по радиусу, и каждый лад, в котором аккорд работает в этой
-  // тональности, получает свою концентрическую дугу через всю угловую
-  // ширину карточки. База — ближайшая к центру круга: чем дальше дуга,
-  // тем дальше лад от базового звучания. Дугам достаётся геометрия самой
-  // карточки (параллельные швы, пропорциональные скругления), угловой
-  // и радиальный отступы оставляют каменную рамку — соседние карточки
-  // не сливаются. Группа входит в hover-каналы карточки (магнит,
-  // соседский разъезд, idle water) и, как весь selected-marker,
-  // не участвует в разъезде соседей.
-  const appendWheelModeDiagram = (menu, start, end, cardOuter, cardInner, selected) => {
+  // Меню заимствований красит весь сектор по принципу круговой
+  // диаграммы: лучи-секторы расходятся из центра самой карточки —
+  // из-под имени аккорда, — и каждый лад, в котором аккорд работает в
+  // этой тональности, получает свой сектор. База начинается с двенадцати
+  // часов по часовой стрелке; между секторами тонкие каменные
+  // лучи-пробелы. Геометрия обрезается по форме карточки (clipPath),
+  // поэтому цвет не выходит за её швы и контур. Группа входит в
+  // hover-каналы карточки (магнит, соседский разъезд, idle water) и,
+  // как весь selected-marker, не участвует в разъезде соседей.
+  const appendWheelModeDiagram = (menu, start, end, cardOuter, cardInner, selected, clipKey) => {
     if (!menuMode || !menu) return null;
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.classList.add('wheel-mode-diagram');
     group.classList.toggle('is-wheel-selected', !!selected);
     group.setAttribute('aria-hidden', 'true');
     group.setAttribute('pointer-events', 'none');
-    const dA = 3 / ((cardOuter + cardInner) / 2);
-    const aStart = start + dA;
-    const aEnd = end - dA;
-    const rOut = cardOuter - 3;
-    const rIn = cardInner + 3;
+    const mid = start + (end - start) / 2;
+    const midR = (cardOuter + cardInner) / 2;
+    const c = polarPoint(midR, mid);
+    // Радиус диаграммы — до самого дальнего угла карточки: цвет
+    // дотягивается до каждого её края и обрезается контуром.
+    const corners = [
+      polarPoint(cardOuter, start),
+      polarPoint(cardOuter, end),
+      polarPoint(cardInner, start),
+      polarPoint(cardInner, end),
+    ];
+    const r = Math.max(...corners.map((p) => Math.hypot(p.x - c.x, p.y - c.y))) + 2;
+    const clip = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+    clip.id = `wheel-menu-clip-${clipKey}`;
+    const clipCard = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    // Радиальный отступ 1.2 оставляет видимым контур карточки.
+    clipCard.setAttribute('d', createWheelCardPath(start, end, cardOuter - 1.2, cardInner + 1.2));
+    clip.appendChild(clipCard);
+    frag.appendChild(clip);
+    group.setAttribute('clip-path', `url(#${clip.id})`);
     const count = menu.modes.length;
-    const gap = 2.2;
-    const step = ((rOut - rIn) - (count - 1) * gap) / count;
-    menu.modes.forEach((mode, k) => {
+    const sliceGap = 0.06;
+    if (count === 1) {
       const wedge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       wedge.classList.add('wheel-mode-wedge');
-      wedge.setAttribute('data-mode', mode);
-      // Скругление пропорционально толщине дуги: полные 10px съели бы
-      // тонкие кольца пятицветной тоники.
-      const corner = Math.min(WHEEL_CARD_CORNER, step * 0.45);
-      const ringInner = rIn + k * (step + gap);
+      wedge.setAttribute('data-mode', menu.modes[0]);
       wedge.setAttribute(
         'd',
-        createWheelCardPath(aStart, aEnd, ringInner + step, ringInner, corner)
+        `M${(c.x - r).toFixed(2)} ${c.y.toFixed(2)} A${r.toFixed(2)} ${r.toFixed(2)} 0 1 0 ${(c.x + r).toFixed(2)} ${c.y.toFixed(2)} A${r.toFixed(2)} ${r.toFixed(2)} 0 1 0 ${(c.x - r).toFixed(2)} ${c.y.toFixed(2)}Z`
       );
       group.appendChild(wedge);
-    });
+    } else {
+      const step = (2 * Math.PI) / count;
+      menu.modes.forEach((mode, k) => {
+        const wedge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        wedge.classList.add('wheel-mode-wedge');
+        wedge.setAttribute('data-mode', mode);
+        const a0 = -Math.PI / 2 + k * step + sliceGap / 2;
+        const a1 = a0 + step - sliceGap;
+        const p0 = { x: c.x + r * Math.cos(a0), y: c.y + r * Math.sin(a0) };
+        const p1 = { x: c.x + r * Math.cos(a1), y: c.y + r * Math.sin(a1) };
+        const large = step - sliceGap > Math.PI ? 1 : 0;
+        wedge.setAttribute(
+          'd',
+          `M${c.x.toFixed(2)} ${c.y.toFixed(2)} L${p0.x.toFixed(2)} ${p0.y.toFixed(2)} A${r.toFixed(2)} ${r.toFixed(2)} 0 ${large} 1 ${p1.x.toFixed(2)} ${p1.y.toFixed(2)}Z`
+        );
+        group.appendChild(wedge);
+      });
+    }
     frag.appendChild(group);
     return group;
   };
@@ -33922,7 +33949,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         end,
         Ro - WHEEL_CARD_PERIMETER,
         Rs + WHEEL_CARD_HALF_SEAM,
-        majorSelected
+        majorSelected,
+        `major-${i}`
       );
       const opVolume = addWheelCardVolume(op);
       applyWheelBorrowingMenu(opVolume, majorMenu);
@@ -33957,7 +33985,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         end,
         Rs - WHEEL_CARD_HALF_SEAM,
         Ri + WHEEL_CARD_PERIMETER,
-        minorSelected
+        minorSelected,
+        `minor-${i}`
       );
       const ipVolume = addWheelCardVolume(ip);
       applyWheelBorrowingMenu(ipVolume, minorMenu);
