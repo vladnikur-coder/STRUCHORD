@@ -92,10 +92,11 @@ w.addEventListener('load', () => {
   // У текущего B-40 pathCount включает 24 overlay + gap-catcher; source 0.410
   // под Dev остаётся отдельным вариантом и не меняет production contract.
   w.eval("setWheelMode('triads')");
-  // B-99 (0.546): меню заимствований — это circle-точки внутри label-групп,
-  // поэтому path-контракт не меняется; проверяем сами точки.
-  const menuDots = d.querySelectorAll('#circleSvg .wheel-mode-dot').length;
-  ok('triads — два кольца', sectorCount() === 24 && pathCount() === 49 && menuDots > 0, `${sectorCount()} cards / ${pathCount()} paths / ${menuDots} точек меню`);
+  // B-99 (0.546): меню заимствований красит сектор диаграммой — каждый
+  // клин отдельный path, поэтому контракт стал «49 базовых путей + ровно
+  // столько клиньев, сколько нарисовано».
+  const menuWedges = d.querySelectorAll('#circleSvg .wheel-mode-wedge').length;
+  ok('triads — два кольца', sectorCount() === 24 && pathCount() === 49 + menuWedges && menuWedges > 0, `${sectorCount()} cards / ${pathCount()} paths (+${menuWedges} клиньев меню)`);
   w.eval("setWheelMode('maj7')");
   ok('maj7 — два кольца', sectorCount() === 24 && pathCount() === 49, `${sectorCount()} cards / ${pathCount()} paths`);
   // В jsdom mock-метрика намеренно плоская, поэтому проверяем именно

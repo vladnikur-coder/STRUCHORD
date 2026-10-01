@@ -132,23 +132,24 @@ w.eval(`
   drawWheel();
 `);
 const sector = (identity) => d.querySelector(`#circleSvg .wheel-sector[data-wheel-chord-identity="${identity}"]`);
-const dotsGroupOf = (identity) =>
-  d.querySelector(`#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-mode-dots`);
-const dotModes = (identity) =>
-  [...d.querySelectorAll(`#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-mode-dot`)]
-    .map((c) => c.dataset.mode);
+const diagramOf = (identity) =>
+  d.querySelector(`#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="${identity}"]`);
+const wedgeModes = (identity) =>
+  [...d.querySelectorAll(`#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="${identity}"] .wheel-mode-wedge`)]
+    .map((w) => w.dataset.mode);
 const degreeTexts = () => [...d.querySelectorAll('#circleSvg .wheel-degree-label')].map((t) => t.textContent);
 
-ok('сектор D несёт ряд из трёх точек меню',
-  dotModes('D').join(',') === 'melodic-minor,dorian,mixolydian',
-  dotModes('D').join(','));
-ok('сектор Am несёт ряд из пяти точек, база первая',
-  dotModes('Am').join(',') === 'aeolian,harmonic-minor,melodic-minor,dorian,phrygian',
-  dotModes('Am').join(','));
-ok('точки живут внутри label-группы и ходят вместе с подписью карточки',
-  !!dotsGroupOf('D')?.closest('.wheel-chord-label.wheel-hoverable') &&
-  dotsGroupOf('D')?.getAttribute('pointer-events') === 'none',
-  `${dotsGroupOf('D')?.parentElement?.className?.baseVal || ''}`);
+ok('сектор D несёт диаграмму из трёх клиньев',
+  wedgeModes('D').join(',') === 'melodic-minor,dorian,mixolydian',
+  wedgeModes('D').join(','));
+ok('сектор Am несёт диаграмму из пяти клиньев, база первый',
+  wedgeModes('Am').join(',') === 'aeolian,harmonic-minor,melodic-minor,dorian,phrygian',
+  wedgeModes('Am').join(','));
+ok('диаграмма — hover-узел карточки: магнит/разъезд/selected её не бросают',
+  diagramOf('D')?.classList.contains('wheel-hoverable') &&
+  diagramOf('D')?.getAttribute('pointer-events') === 'none' &&
+  !!diagramOf('D')?.dataset.wheelHoverRing,
+  `${diagramOf('D')?.className?.baseVal || ''} / ring=${diagramOf('D')?.dataset.wheelHoverRing}`);
 ok('у сектора A# (=Bb) есть степень ♭II прямо на карточке',
   degreeTexts().includes('♭II') && degreeTexts().includes('♭V'),
   degreeTexts().join(' '));
@@ -160,9 +161,9 @@ ok('aria-альтернатива сообщает ступень и все ла
 ok('title-подсказка сектора дублирует меню для наведения мышью',
   (sector('E')?.querySelector('title')?.textContent || '').includes('гармонический минор'),
   sector('E')?.querySelector('title')?.textContent || '');
-ok('Fm без меню: ни точек, ни aria',
-  !dotsGroupOf('Fm') && !(sector('Fm')?.getAttribute('aria-label')),
-  `${!!dotsGroupOf('Fm')} / ${sector('Fm')?.getAttribute('aria-label')}`);
+ok('Fm без меню: ни диаграммы, ни aria',
+  !diagramOf('Fm') && !(sector('Fm')?.getAttribute('aria-label')),
+  `${!!diagramOf('Fm')} / ${sector('Fm')?.getAttribute('aria-label')}`);
 
 // ===== 4. Гейт настройкой «Ступени и цвета круга» =====
 w.eval("document.getElementById('showDegrees').checked = false; updateCellsDegrees();");
@@ -180,7 +181,7 @@ ok('возврат настройки возвращает текстовые а
 w.eval("wheelMode = '7'; drawWheel();");
 const e7 = sector('E7');
 ok('режим 7 без меню: строгий профиль по-прежнему работает',
-  d.querySelectorAll('#circleSvg .wheel-mode-dot').length === 0 &&
+  d.querySelectorAll('#circleSvg .wheel-mode-wedge').length === 0 &&
   (e7?.dataset.harmonyGroup === 'minor-variant' || e7?.dataset.harmonyProfile === 'harmonic-minor'),
   `${e7?.dataset.harmonyGroup || '—'}/${e7?.dataset.harmonyProfile || '—'}`);
 

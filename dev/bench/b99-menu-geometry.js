@@ -1,6 +1,7 @@
 #!/usr/bin/env node
-// Геометрическая проверка меню-точек: внутри своей карточки, под именем,
-// не пересекаются ни с именем, ни со степенью.
+// Геометрическая проверка меню-диаграммы: клинья внутри своей карточки,
+// отступ от краёв сохранён, суммарная площадь клиньев — заметная доля
+// карточки (цвет читается, а не точка).
 const path = require('path');
 const { pathToFileURL } = require('url');
 const sparticuz = require('@sparticuz/chromium').default;
@@ -28,27 +29,27 @@ const puppeteer = require('puppeteer-core');
     DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
     wheelMode = 'triads';
     drawWheel();
-    const out = { labels: 0, dots: 0, inside: 0, nameOverlap: 0, degreeOverlap: 0, radiusPx: [] };
-    document.querySelectorAll('#circleSvg .wheel-chord-label').forEach((label) => {
-      if (!label.querySelector('.wheel-mode-dot')) return;
-      out.labels += 1;
-      const id = label.dataset.wheelChordIdentity;
-      const ring = label.dataset.wheelHoverRing;
+    const out = { diagrams: 0, wedges: 0, inside: 0, minMargin: 99, minCoverage: 99, maxCoverage: 0 };
+    document.querySelectorAll('#circleSvg .wheel-mode-diagram').forEach((diagram) => {
+      out.diagrams += 1;
+      const id = diagram.dataset.wheelChordIdentity;
+      const ring = diagram.dataset.wheelHoverRing;
       const sector = document.querySelector(`#circleSvg .wheel-sector[data-wheel-chord-identity="${id}"][data-wheel-ring="${ring}"]`);
-      const lb = label.getBoundingClientRect();
-      const sb = sector.getBoundingClientRect();
-      const nameText = label.querySelector('text');
-      const nb = nameText.getBoundingClientRect();
-      const degreeText = label.querySelector('.wheel-degree-label');
-      label.querySelectorAll('.wheel-mode-dot').forEach((dot) => {
-        out.dots += 1;
-        const db = dot.getBoundingClientRect();
-        out.radiusPx.push(Math.round(db.width * 10) / 10);
-        if (db.left >= sb.left - 1 && db.right <= sb.right + 1 && db.top >= sb.top - 1 && db.bottom <= sb.bottom + 1) out.inside += 1;
-        const hit = (a, b) => !(a.right < b.left || b.right < a.left || a.bottom < b.top || b.bottom < a.top);
-        if (!hit(db, nb)) out.nameOverlap += 1;
-        if (!degreeText || !hit(db, degreeText.getBoundingClientRect())) out.degreeOverlap += 1;
+      if (!sector) return;
+      const sb = sector.getBBox();
+      const cardArea = sb.width * sb.height;
+      let wedgeArea = 0;
+      diagram.querySelectorAll('.wheel-mode-wedge').forEach((wedge) => {
+        out.wedges += 1;
+        const wb = wedge.getBBox();
+        wedgeArea += wb.width * wb.height;
+        const margin = Math.min(wb.x - sb.x, sb.x + sb.width - (wb.x + wb.width), wb.y - sb.y, sb.y + sb.height - (wb.y + wb.height));
+        if (margin < out.minMargin) out.minMargin = Math.round(margin * 10) / 10;
+        if (wb.x >= sb.x - 0.5 && wb.x + wb.width <= sb.x + sb.width + 0.5 && wb.y >= sb.y - 0.5 && wb.y + wb.height <= sb.y + sb.height + 0.5) out.inside += 1;
       });
+      const coverage = Math.round((wedgeArea / cardArea) * 1000) / 10;
+      if (coverage < out.minCoverage) out.minCoverage = coverage;
+      if (coverage > out.maxCoverage) out.maxCoverage = coverage;
     });
     return out;
   });
