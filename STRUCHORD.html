@@ -5673,12 +5673,12 @@ html.wheel-motion-disabled #circleSvg .wheel-degree-label.is-wheel-hovered {
     stroke: color-mix(in srgb, var(--color-border-medium) 30%, var(--harmony-profile-color, var(--color-accent)));
   }
 }
-/* B-99 (0.546): меню заимствований в режиме трезвучий. Сам сектор красится,
-   как диаграмма: угловой диапазон карточки делится между ладами, в которых
-   аккорд работает в текущей тональности; первый клин — базовый лад.
-   Полупрозрачная заливка сохраняет читаемость имени и степени; в тёмной
-   теме пастельные ладовые цвета кладутся плотнее (0.45). Гейт — прежняя настройка
-   «Ступени и цвета». */
+/* B-99 (0.546): меню заимствований в режиме трезвучий. Сектор несёт
+   радиальную диаграмму: каждый лад, в котором аккорд работает в текущей
+   тональности, — своя концентрическая дуга; базовый лад ближе к центру
+   круга. Полупрозрачная заливка сохраняет читаемость имени и степени;
+   в тёмной теме пастельные ладовые цвета кладутся плотнее (0.45).
+   Гейт — прежняя настройка «Ступени и цвета». */
 #circleSvg .wheel-mode-diagram {
   pointer-events: none;
 }
@@ -12136,7 +12136,7 @@ body.power-ui-waking .pinned-fingering-dock {
             <span id="wheelHarmonyLegendCurrent" class="wheel-harmony-legend-current">Откройте круг из ячейки с аккордом</span>
             <span id="wheelHarmonyLegendStatus" class="wheel-harmony-legend-status" hidden></span>
             <strong class="wheel-harmony-legend-scale-title">Лады текущей тональности — меню заимствований</strong>
-            <span class="wheel-harmony-legend-note">Карточка трезвучия красится, как диаграмма: все лады, в которых аккорд работает в этой тональности. Возьмёшь аккорд — получишь его ступень в каждом из них. Это меню для сочинения, а не анализ песни.</span>
+            <span class="wheel-harmony-legend-note">Карточка трезвучия несёт радиальную диаграмму: каждый лад — своя дуга, базовый ближе к центру. Это все лады, в которых аккорд работает в этой тональности. Возьмёшь аккорд — получишь его ступень в каждом из них. Это меню для сочинения, а не анализ песни.</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--ionian" aria-hidden="true"></i>Ионийский — натуральный мажор</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--aeolian" aria-hidden="true"></i>Эолийский — натуральный минор</span>
             <span><i class="harmony-legend-swatch harmony-legend-swatch--harmonic-minor" aria-hidden="true"></i>Гармонический минор — ведущий тон и V</span>
@@ -33741,33 +33741,49 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // отступают от краёв: контур и каменная кромка карточки остаются видимыми.
   // Группа входит в hover-каналы карточки (магнит, соседский разъезд, idle
   // water) и, как весь selected-marker, не участвует в разъезде соседей.
-  const WHEEL_MENU_DIAGRAM_INSET = 5;
-  const appendWheelModeDiagram = (menu, start, end, outerRadius, innerRadius, selected) => {
+  // Меню заимствований красит сектор радиальной диаграммой: карточка
+  // делится по радиусу, и каждый лад, в котором аккорд работает в этой
+  // тональности, получает свою концентрическую дугу через всю угловую
+  // ширину карточки. База — ближайшая к центру круга: чем дальше дуга,
+  // тем дальше лад от базового звучания. Дугам достаётся геометрия самой
+  // карточки (параллельные швы, пропорциональные скругления), угловой
+  // и радиальный отступы оставляют каменную рамку — соседние карточки
+  // не сливаются. Группа входит в hover-каналы карточки (магнит,
+  // соседский разъезд, idle water) и, как весь selected-marker,
+  // не участвует в разъезде соседей.
+  const appendWheelModeDiagram = (menu, start, end, cardOuter, cardInner, selected) => {
     if (!menuMode || !menu) return null;
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.classList.add('wheel-mode-diagram');
     group.classList.toggle('is-wheel-selected', !!selected);
     group.setAttribute('aria-hidden', 'true');
     group.setAttribute('pointer-events', 'none');
+    const dA = 3 / ((cardOuter + cardInner) / 2);
+    const aStart = start + dA;
+    const aEnd = end - dA;
+    const rOut = cardOuter - 3;
+    const rIn = cardInner + 3;
     const count = menu.modes.length;
-    const span = (end - start) / count;
+    const gap = 2.2;
+    const step = ((rOut - rIn) - (count - 1) * gap) / count;
     menu.modes.forEach((mode, k) => {
       const wedge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       wedge.classList.add('wheel-mode-wedge');
       wedge.setAttribute('data-mode', mode);
-      // Скругление пропорционально ширине клина: полные 10px съели бы
-      // узкие клинья пятицветной тоники вдоль внешней дуги.
-      const corner = Math.min(WHEEL_CARD_CORNER, span * innerRadius * 0.32);
-      const wedgeStart = start + k * span;
+      // Скругление пропорционально толщине дуги: полные 10px съели бы
+      // тонкие кольца пятицветной тоники.
+      const corner = Math.min(WHEEL_CARD_CORNER, step * 0.45);
+      const ringInner = rIn + k * (step + gap);
       wedge.setAttribute(
         'd',
-        createWheelCardPath(wedgeStart, wedgeStart + span, outerRadius, innerRadius, corner)
+        createWheelCardPath(aStart, aEnd, ringInner + step, ringInner, corner)
       );
       group.appendChild(wedge);
     });
     frag.appendChild(group);
     return group;
   };
+
   const frag = document.createDocumentFragment();
   // Единая лёгкая поверхностная засветка лежит над штатной заливкой каждой
   // карточки. SVG gradient не меняет path, поэтому сохраняются форма и gap.
@@ -33904,8 +33920,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         majorMenu,
         start,
         end,
-        Ro - WHEEL_CARD_PERIMETER - WHEEL_MENU_DIAGRAM_INSET,
-        Rs + WHEEL_CARD_HALF_SEAM + WHEEL_MENU_DIAGRAM_INSET,
+        Ro - WHEEL_CARD_PERIMETER,
+        Rs + WHEEL_CARD_HALF_SEAM,
         majorSelected
       );
       const opVolume = addWheelCardVolume(op);
@@ -33939,8 +33955,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         minorMenu,
         start,
         end,
-        Rs - WHEEL_CARD_HALF_SEAM - WHEEL_MENU_DIAGRAM_INSET,
-        Ri + WHEEL_CARD_PERIMETER + WHEEL_MENU_DIAGRAM_INSET,
+        Rs - WHEEL_CARD_HALF_SEAM,
+        Ri + WHEEL_CARD_PERIMETER,
         minorSelected
       );
       const ipVolume = addWheelCardVolume(ip);

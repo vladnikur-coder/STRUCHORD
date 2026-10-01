@@ -139,12 +139,29 @@ const wedgeModes = (identity) =>
     .map((w) => w.dataset.mode);
 const degreeTexts = () => [...d.querySelectorAll('#circleSvg .wheel-degree-label')].map((t) => t.textContent);
 
-ok('сектор D несёт диаграмму из трёх клиньев',
+ok('сектор D несёт радиальную диаграмму из трёх дуг',
   wedgeModes('D').join(',') === 'melodic-minor,dorian,mixolydian',
   wedgeModes('D').join(','));
-ok('сектор Am несёт диаграмму из пяти клиньев, база первый',
+ok('сектор Am несёт радиальную диаграмму из пяти дуг, база первая',
   wedgeModes('Am').join(',') === 'aeolian,harmonic-minor,melodic-minor,dorian,phrygian',
   wedgeModes('Am').join(','));
+ok('дуги Am — концентрические, на возрастающих радиусах от базы',
+  (() => {
+    // jsdom не имеет getBBox, но радиусы дуг зашиты в d: у каждой дуги
+    // внешняя арка «A<r> <r> 0 0 1» и внутренняя «A<r> <r> 0 0 0».
+    const rings = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"] .wheel-mode-wedge')]
+      .map((w) => {
+        const radii = [...w.getAttribute('d').matchAll(/A(\d+(?:\.\d+)?) \1 0 0 [01]/g)]
+          .map((m) => Number.parseFloat(m[1]));
+        return { mode: w.dataset.mode, rIn: Math.min(...radii), rOut: Math.max(...radii) };
+      });
+    if (rings.length !== 5) return false;
+    for (let i = 1; i < rings.length; i++) {
+      if (rings[i].rIn <= rings[i - 1].rOut) return false;
+    }
+    return rings[0].mode === 'aeolian' && rings[4].rOut > rings[0].rOut;
+  })(),
+  'база (эолийский) — ближайшая к центру дуга');
 ok('диаграмма — hover-узел карточки: магнит/разъезд/selected её не бросают',
   diagramOf('D')?.classList.contains('wheel-hoverable') &&
   diagramOf('D')?.getAttribute('pointer-events') === 'none' &&
