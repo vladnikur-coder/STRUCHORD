@@ -160,17 +160,21 @@ const strictWheelCandidates = w.eval(`(() => {
   const ownerFm = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Fm"]');
   const legend = document.getElementById('wheelHarmonyLegendCurrent');
   return {
-    candidateFm: candidateFm?.dataset.harmonyProfile || '',
-    candidateE: candidateE?.dataset.harmonyProfile || '',
-    ownerFm: ownerFm?.dataset.harmonyProfile || '',
+    candidateFm: candidateFm?.dataset.wheelModes || '',
+    candidateFmAria: candidateFm?.getAttribute('aria-label') || '',
+    candidateE: candidateE?.dataset.wheelModes || '',
+    candidateEAria: candidateE?.getAttribute('aria-label') || '',
+    ownerFm: ownerFm?.dataset.wheelModes || '',
     ownerSelected: ownerFm?.classList.contains('is-wheel-selected'),
     ownerLegend: legend?.textContent || '',
   };
 })()`);
 ok('в Am Fm остаётся нейтральным и как кандидат, и как owner; E остаётся настоящим V гармонического минора',
   strictWheelCandidates.candidateFm === '' && strictWheelCandidates.ownerFm === '' &&
+  strictWheelCandidates.candidateFmAria === '' &&
   strictWheelCandidates.ownerSelected && strictWheelCandidates.ownerLegend === 'Fm' &&
-  strictWheelCandidates.candidateE === 'harmonic-minor',
+  strictWheelCandidates.candidateE === 'harmonic-minor,melodic-minor,lydian' &&
+  /гармонический минор/.test(strictWheelCandidates.candidateEAria),
   JSON.stringify(strictWheelCandidates));
 
 const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');

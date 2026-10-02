@@ -102,8 +102,8 @@ function ok(name, condition, detail = '') {
           return {
             profile: current.dataset.harmonyProfile,
             text: current.textContent,
-            fMinorProfile: fMinor?.dataset.harmonyProfile || '',
-            eMajorProfile: eMajor?.dataset.harmonyProfile || '',
+            fMinorModes: fMinor?.dataset.wheelModes || '',
+            eMajorModes: eMajor?.dataset.wheelModes || '',
           };
         })(),
       };
@@ -114,7 +114,8 @@ function ok(name, condition, detail = '') {
       minorLine.timelineProfiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
       minorLine.editorMarkers[0] !== minorLine.editorMarkers[1] &&
       minorLine.wheelCurrent.profile === 'melodic-minor' && /Мелодический минор/.test(minorLine.wheelCurrent.text) &&
-      minorLine.wheelCurrent.fMinorProfile === '' && minorLine.wheelCurrent.eMajorProfile === 'harmonic-minor', JSON.stringify(minorLine));
+      minorLine.wheelCurrent.fMinorModes === '' &&
+      minorLine.wheelCurrent.eMajorModes === 'harmonic-minor,melodic-minor,lydian', JSON.stringify(minorLine));
     const strictWheel = await page.evaluate(() => {
       const owner = document.querySelector('.chord-input[data-sec="91"][data-square="92"][data-ei="2"]');
       activeChordInput = owner;
@@ -127,14 +128,14 @@ function ok(name, condition, detail = '') {
       const ownerFm = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Fm"]');
       return {
         highlightsOn: document.getElementById('chordWheelModal').classList.contains('is-harmony-highlights-on'),
-        candidateProfile: candidateFm?.dataset.harmonyProfile || '',
-        ownerProfile: ownerFm?.dataset.harmonyProfile || '',
+        candidateModes: candidateFm?.dataset.wheelModes || '',
+        ownerModes: ownerFm?.dataset.wheelModes || '',
         ownerSelected: ownerFm?.classList.contains('is-wheel-selected'),
         legend: document.getElementById('wheelHarmonyLegendCurrent')?.textContent || '',
       };
     });
     ok('круг не приписывает Fm тональности Am: Fm нейтрален и как candidate, и как owner',
-      strictWheel.highlightsOn && strictWheel.candidateProfile === '' && strictWheel.ownerProfile === '' &&
+      strictWheel.highlightsOn && strictWheel.candidateModes === '' && strictWheel.ownerModes === '' &&
       strictWheel.ownerSelected && strictWheel.legend === 'Fm',
       JSON.stringify(strictWheel));
     ok('выключенные «Ступени» не показывают B-99 marker',
