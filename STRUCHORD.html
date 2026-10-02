@@ -33705,7 +33705,12 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // Меню заимствований (B-99, 0.546) живёт только в режиме трезвучий:
   // септаккорды и прочие качества остаются на строгой раскраске до своего
   // кирпича. В dev-режиме «Круг 0.410» меню нет вовсе.
-  const menuMode = wheelMode === 'triads';
+  // ВРЕМЕННО (живая проверка направления): ?menu=pie|base|hover|plain|strict.
+  // pie — текущая круговая диаграмма на весь сектор; base — один цвет
+  // (базовый лад карточки); hover/plain — карточки без цвета (меню в
+  // подсказке/легенде); strict — строгая раскраска 0.545 в трезвучиях.
+  const WHEEL_MENU_STYLE = new URLSearchParams(location.search).get('menu') || 'pie';
+  const menuMode = wheelMode === 'triads' && WHEEL_MENU_STYLE !== 'strict';
   const activeWheelChord = wheelChordIdentity(activeChordInput?.value);
   const isSelectedWheelChord = (candidate) =>
     !!activeWheelChord && activeWheelChord === wheelChordIdentity(candidate);
@@ -33753,11 +33758,26 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // как весь selected-marker, не участвует в разъезде соседей.
   const appendWheelModeDiagram = (menu, start, end, cardOuter, cardInner, selected, clipKey) => {
     if (!menuMode || !menu) return null;
+    // Прототипы «без цвета на карточках»: меню остаётся в ступени,
+    // подсказке и aria, сама карточка — каменная.
+    if (WHEEL_MENU_STYLE === 'hover' || WHEEL_MENU_STYLE === 'plain') return null;
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.classList.add('wheel-mode-diagram');
+    group.dataset.menuStyle = WHEEL_MENU_STYLE;
     group.classList.toggle('is-wheel-selected', !!selected);
     group.setAttribute('aria-hidden', 'true');
     group.setAttribute('pointer-events', 'none');
+    if (WHEEL_MENU_STYLE === 'base') {
+      // Прототип «один цвет на карточку»: лёгкий тинт базового лада
+      // карточки (первого содержащего), полный список — в подсказке.
+      const wedge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+      wedge.classList.add('wheel-mode-wedge');
+      wedge.setAttribute('data-mode', menu.modes[0]);
+      wedge.setAttribute('d', createWheelCardPath(start, end, cardOuter - 1.2, cardInner + 1.2));
+      group.appendChild(wedge);
+      frag.appendChild(group);
+      return group;
+    }
     const mid = start + (end - start) / 2;
     const midR = (cardOuter + cardInner) / 2;
     const c = polarPoint(midR, mid);
@@ -34890,7 +34910,12 @@ function refreshWheelHarmonyPresentation() {
   // В режиме трезвучий круг несёт меню заимствований (B-99, 0.546):
   // смена настройки «Ступени» обновляет текстовые альтернативы секторов,
   // а не строгие профили анализа.
-  const menuMode = wheelMode === 'triads';
+  // ВРЕМЕННО (живая проверка направления): ?menu=pie|base|hover|plain|strict.
+  // pie — текущая круговая диаграмма на весь сектор; base — один цвет
+  // (базовый лад карточки); hover/plain — карточки без цвета (меню в
+  // подсказке/легенде); strict — строгая раскраска 0.545 в трезвучиях.
+  const WHEEL_MENU_STYLE = new URLSearchParams(location.search).get('menu') || 'pie';
+  const menuMode = wheelMode === 'triads' && WHEEL_MENU_STYLE !== 'strict';
   document.querySelectorAll('#circleSvg [data-wheel-chord-identity]').forEach((node) => {
     if (menuMode) {
       const menu = getBorrowingMenuProfile(node.dataset.wheelChordIdentity, context.key);
