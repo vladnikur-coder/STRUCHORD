@@ -1,17 +1,20 @@
 #!/usr/bin/env node
-// Скриншоты единственной production-раскладки B-99 (panes): покой и
-// hover одной карты. Opacity: 0.34 в светлой / 0.45 в тёмной теме.
+// Скриншоты единственной production-раскладки B-99: покой и hover карты
+// вместе с компактной интерактивной палитрой. Opacity: 0.34 / 0.45.
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const sparticuz = require('@sparticuz/chromium').default;
 const puppeteer = require('puppeteer-core');
 
+const OUTPUT_DIR = path.resolve(process.env.B99_CAPTURE_DIR || path.join(__dirname, 'captures'));
+fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
 const CAPTURES = [
   { theme: 'light', mode: 'rest', caption: 'Светлая тема — panes, покой' },
   { theme: 'dark', mode: 'rest', caption: 'Тёмная тема — panes, покой' },
-  { theme: 'light', mode: 'active', caption: 'Светлая тема — panes, hover по D' },
-  { theme: 'dark', mode: 'active', caption: 'Тёмная тема — panes, hover по D' },
+  { theme: 'light', mode: 'active', caption: 'Светлая тема — panes, hover по A#' },
+  { theme: 'dark', mode: 'active', caption: 'Тёмная тема — panes, hover по A#' },
 ];
 
 async function launch() {
@@ -48,24 +51,30 @@ async function shot(browser, mode, theme, caption) {
     if (sr.width < 100 || sr.height < 100) throw new Error('circleSvg не виден: ' + JSON.stringify(sr));
     let box = { left: sr.left, top: sr.top, right: sr.right, bottom: sr.bottom };
     if (frameMode === 'active') {
-      // Макет состояния наведения: подсветка карточки D + меню в легенде.
-      const sec = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"][data-wheel-ring="major"]');
-      sec?.classList.add('is-wheel-hovered');
+      // Hover-подпись у левого цветового поля остаётся видна рядом с открытой палитрой.
+      bindWheelHarmonyLegend();
       setWheelHarmonyLegendOpen(true);
-      const cur = document.getElementById('wheelHarmonyLegendCurrent');
-      const chip = (m) =>
-        `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--harmony-${m});margin:0 4px 0 0;vertical-align:-1px"></span>`;
-      cur.innerHTML =
-        '<strong>D: ступень IV</strong> — ' +
-        chip('melodic-minor') + 'мелодический минор · ' +
-        chip('dorian') + 'дорийский · ' +
-        chip('mixolydian') + 'миксолидийский';
+      const diagram = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="A#"][data-wheel-hover-ring="major"]');
+      const pane = diagram?.querySelector('.wheel-mode-pane[data-mode="phrygian"]');
+      const sector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="A#"][data-wheel-ring="major"]');
+      const start = Number(pane.dataset.paneStartAngle);
+      const end = Number(pane.dataset.paneEndAngle);
+      const inner = Number(pane.dataset.paneInnerRadius);
+      const outer = Number(pane.dataset.paneOuterRadius);
+      const point = document.getElementById('circleSvg').createSVGPoint();
+      point.x = 270 + ((inner + outer) / 2) * Math.cos((start + end) / 2);
+      point.y = 270 + ((inner + outer) / 2) * Math.sin((start + end) / 2);
+      const screen = point.matrixTransform(diagram.getScreenCTM());
+      const eventOptions = { bubbles: true, clientX: screen.x, clientY: screen.y, pointerType: 'mouse' };
+      sector.dispatchEvent(new PointerEvent('pointerover', eventOptions));
+      sector.dispatchEvent(new PointerEvent('pointermove', eventOptions));
       const lg = document.getElementById('wheelHarmonyLegend').getBoundingClientRect();
+      const label = document.getElementById('wheelModeHoverLabel').getBoundingClientRect();
       box = {
-        left: Math.min(box.left, lg.left),
-        top: Math.min(box.top, lg.top),
-        right: Math.max(box.right, lg.right),
-        bottom: Math.max(box.bottom, lg.bottom),
+        left: Math.min(box.left, lg.left, label.left),
+        top: Math.min(box.top, lg.top, label.top),
+        right: Math.max(box.right, lg.right, label.right),
+        bottom: Math.max(box.bottom, lg.bottom, label.bottom),
       };
     }
     const pad = 26;
@@ -86,7 +95,7 @@ async function shot(browser, mode, theme, caption) {
       "font:600 17px/1.25 system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);white-space:nowrap;";
     document.body.appendChild(el);
   }, caption);
-  const file = path.join(__dirname, `b99-menu-shot-${theme}-${mode}.png`);
+  const file = path.join(OUTPUT_DIR, `b99-menu-shot-${theme}-${mode}.png`);
   await page.screenshot({ path: file, clip });
   await page.close();
   console.log('  кадр panes/' + theme + '/' + mode + ' → ' + path.basename(file));
@@ -105,7 +114,7 @@ async function shot(browser, mode, theme, caption) {
         `<figure><img src="${path.basename(files[i])}"><figcaption>${capture.caption}</figcaption></figure>`
     ).join('\n');
     fs.writeFileSync(
-      path.join(__dirname, 'b99-menu-montage.html'),
+      path.join(OUTPUT_DIR, 'b99-menu-montage.html'),
       `<!doctype html><meta charset="utf-8"><style>
         body{margin:0;padding:20px;background:#f2efe9;font:500 15px/1.3 system-ui,sans-serif;
              display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;width:1480px;}
@@ -117,11 +126,11 @@ async function shot(browser, mode, theme, caption) {
     );
     const page = await browser.newPage();
     await page.setViewport({ width: 860, height: 600, deviceScaleFactor: 1.5 });
-    await page.goto('file://' + path.join(__dirname, 'b99-menu-montage.html'));
+    await page.goto('file://' + path.join(OUTPUT_DIR, 'b99-menu-montage.html'));
     await new Promise((r) => setTimeout(r, 900));
-    await page.screenshot({ path: path.join(__dirname, 'b99-menu-directions.png'), fullPage: true });
+    await page.screenshot({ path: path.join(OUTPUT_DIR, 'b99-menu-directions.png'), fullPage: true });
     await page.close();
-    console.log('saved dev/bench/b99-menu-directions.png');
+    console.log('saved ' + path.join(OUTPUT_DIR, 'b99-menu-directions.png'));
   } finally {
     await browser.close();
   }

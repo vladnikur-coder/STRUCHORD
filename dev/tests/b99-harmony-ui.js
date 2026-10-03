@@ -92,14 +92,15 @@ ok('выбранный аккорд сохраняет сильный establishe
 w.eval('bindWheelHarmonyLegend(); document.getElementById("wheelHarmonyLegendToggle").click();');
 const legend = d.getElementById('wheelHarmonyLegend');
 const toggle = d.getElementById('wheelHarmonyLegendToggle');
-ok('кнопка ? сначала называет профиль текущего аккорда, затем даёт полную легенду',
-  !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' &&
-  /D7 — прикладная функция V\/V/.test(d.getElementById('wheelHarmonyLegendCurrent')?.textContent || '') &&
+const legendModes = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
+ok('кнопка ? открывает компактную палитру с изменениями ступеней и переключателями',
+  !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' && legendModes.length === 10 &&
   /Ионийский/.test(legend.textContent) && /Эолийский/.test(legend.textContent) &&
-  /Гармонический/.test(legend.textContent) && /Мелодический/.test(legend.textContent) &&
-  /Дорийский/.test(legend.textContent) && /Фригийский/.test(legend.textContent) &&
-  /Лидийский/.test(legend.textContent) && /Миксолидийский/.test(legend.textContent) && /Локрийский/.test(legend.textContent) &&
-  /Прикладная/.test(legend.textContent) && !/не подтверждён/i.test(legend.textContent) && !/хроматика/i.test(legend.textContent),
+  /↑VII/.test(legend.textContent) && /↑VI/.test(legend.textContent) &&
+  /Дорийский/.test(legend.textContent) && /↓II/.test(legend.textContent) &&
+  /Лидийский/.test(legend.textContent) && /↓VII/.test(legend.textContent) &&
+  /Локрийский/.test(legend.textContent) && /V\/x/.test(legend.textContent) &&
+  legendModes.every((input) => input.checked) && !d.getElementById('wheelHarmonyLegendCurrent'),
   legend.textContent.replace(/\s+/g, ' ').trim());
 
 w.eval('document.getElementById("showDegrees").checked = false; updateCellsDegrees();');
@@ -110,12 +111,12 @@ ok('выключенные «Ступени» выключают и расшир
   `${d.body.className} | ${grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label')}`);
 
 w.eval('document.getElementById("wheelHarmonyLegendToggle").click();');
-const disabledMapStatus = d.getElementById('wheelHarmonyLegendStatus');
-ok('при выключенных цветах ? остаётся доступным и объясняет, как включить карту',
-  !legend.hidden && /Цвета круга выключены/.test(disabledMapStatus?.textContent || '') &&
-  /Ступени и цвета круга/.test(disabledMapStatus?.textContent || '') &&
-  toggle.getAttribute('aria-label') === 'Показать справку о ладовой карте круга',
-  `${toggle.getAttribute('aria-label')} | ${disabledMapStatus?.textContent}`);
+const legendNote = d.querySelector('.wheel-harmony-legend-note');
+ok('при выключенной общей карте ? остаётся доступен и объясняет независимые переключатели',
+  !legend.hidden && /Ступени и цвета круга/.test(legendNote?.textContent || '') &&
+  /только круг/.test(legendNote?.textContent || '') &&
+  toggle.getAttribute('aria-label') === 'Показать палитру ладов и настроек подсветки круга',
+  `${toggle.getAttribute('aria-label')} | ${legendNote?.textContent}`);
 
 w.eval(`
   globalKey = 'Am';
@@ -132,18 +133,22 @@ ok('Am–C–D–E раскрашивает эолийский, мелодиче
   /Гармонический минор/.test(minorGrid(3)?.querySelector('.chord-input')?.getAttribute('aria-label') || ''),
   [0, 1, 2, 3].map((ei) => minorGrid(ei)?.dataset.harmonyProfile).join(','));
 
-const wheelCurrentProfiles = w.eval(`(() => [0, 1, 2, 3].map((ei) => {
+const wheelPaletteIndependentOfOwner = w.eval(`(() => [0, 1, 2, 3].map((ei) => {
   activeChordInput = document.querySelector('.chord-input[data-sec="51"][data-square="52"][data-ei="' + ei + '"]');
   activeSectionKey = null;
   wheelMode = 'triads';
   drawWheel();
-  const current = document.getElementById('wheelHarmonyLegendCurrent');
-  return { profile: current.dataset.harmonyProfile, text: current.textContent };
+  return {
+    legendCurrentAbsent: !document.getElementById('wheelHarmonyLegendCurrent'),
+    paletteCount: document.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]').length,
+    menuProfile: getBorrowingMenuProfile(activeChordInput.value, 'Am')?.modes.join(',') || '',
+  };
 }))()`);
-ok('легенда круга называет профиль именно открывшей его ячейки Am–C–D–E',
-  wheelCurrentProfiles.map((item) => item.profile).join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
-  /Мелодический минор/.test(wheelCurrentProfiles[2].text) && /Гармонический минор/.test(wheelCurrentProfiles[3].text),
-  JSON.stringify(wheelCurrentProfiles));
+ok('единая компактная палитра не превращается в анализ owner-аккорда',
+  wheelPaletteIndependentOfOwner.every((item) => item.legendCurrentAbsent && item.paletteCount === 10) &&
+  wheelPaletteIndependentOfOwner.map((item) => item.menuProfile).join('|') ===
+    'aeolian,harmonic-minor,melodic-minor,dorian,phrygian|aeolian,dorian,phrygian|melodic-minor,dorian,mixolydian|harmonic-minor,melodic-minor,lydian',
+  JSON.stringify(wheelPaletteIndependentOfOwner));
 
 const strictWheelCandidates = w.eval(`(() => {
   const owner = document.querySelector('.chord-input[data-sec="51"][data-square="52"][data-ei="2"]');
@@ -158,7 +163,6 @@ const strictWheelCandidates = w.eval(`(() => {
   owner.value = 'Fm';
   drawWheel();
   const ownerFm = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Fm"]');
-  const legend = document.getElementById('wheelHarmonyLegendCurrent');
   return {
     candidateFm: candidateFm?.dataset.wheelModes || '',
     candidateFmAria: candidateFm?.getAttribute('aria-label') || '',
@@ -166,13 +170,13 @@ const strictWheelCandidates = w.eval(`(() => {
     candidateEAria: candidateE?.getAttribute('aria-label') || '',
     ownerFm: ownerFm?.dataset.wheelModes || '',
     ownerSelected: ownerFm?.classList.contains('is-wheel-selected'),
-    ownerLegend: legend?.textContent || '',
+    ownerLegendAbsent: !document.getElementById('wheelHarmonyLegendCurrent'),
   };
 })()`);
 ok('в Am Fm остаётся нейтральным и как кандидат, и как owner; E остаётся настоящим V гармонического минора',
   strictWheelCandidates.candidateFm === '' && strictWheelCandidates.ownerFm === '' &&
   strictWheelCandidates.candidateFmAria === '' &&
-  strictWheelCandidates.ownerSelected && strictWheelCandidates.ownerLegend === 'Fm' &&
+  strictWheelCandidates.ownerSelected && strictWheelCandidates.ownerLegendAbsent &&
   strictWheelCandidates.candidateE === 'harmonic-minor,melodic-minor,lydian' &&
   /гармонический минор/.test(strictWheelCandidates.candidateEAria),
   JSON.stringify(strictWheelCandidates));

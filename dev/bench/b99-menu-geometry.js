@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // Геометрическая проверка единственной pane-раскладки B-99: количество
-// полей, ожидаемые доли площади и обрезка по форме карточки.
+// полей, радиальная середина раскладок 2+1/3+2 и обрезка карточки.
 const path = require('path');
 const { pathToFileURL } = require('url');
 const sparticuz = require('@sparticuz/chromium').default;
@@ -28,7 +28,7 @@ const puppeteer = require('puppeteer-core');
     DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
     wheelMode = 'triads';
     drawWheel();
-    const out = { diagrams: 0, panes: 0, clipped: 0, complete: 0, equalAreaShares: 0, opacity: null, layouts: {} };
+    const out = { diagrams: 0, panes: 0, clipped: 0, complete: 0, midpointSplits: { three: 0, five: 0 }, unevenAreas: { three: 0, five: 0 }, opacity: null, layouts: {} };
     document.querySelectorAll('#circleSvg .wheel-mode-diagram').forEach((dg) => {
       out.diagrams += 1;
       const panes = [...dg.querySelectorAll('.wheel-mode-pane')];
@@ -39,8 +39,15 @@ const puppeteer = require('puppeteer-core');
       const clipId = (dg.getAttribute('clip-path') || '').match(/^url\(#([^)]+)\)$/)?.[1];
       if (clipId && document.getElementById(clipId)?.querySelector('path')) out.clipped += 1;
       if (panes.length === expectedCount && expectedCount >= 1 && expectedCount <= 5) out.complete += 1;
-      const shares = panes.map((pane) => Number.parseFloat(pane.dataset.paneAreaShare));
-      if (shares.length === expectedCount && shares.every((share) => Math.abs(share - 1 / expectedCount) < 0.0001)) out.equalAreaShares += 1;
+      if (expectedCount === 3 || expectedCount === 5) {
+        const band = expectedCount === 3 ? 'three' : 'five';
+        const inner = Number(dg.dataset.sectorInnerRadius);
+        const outer = Number(dg.dataset.sectorOuterRadius);
+        const split = Number(dg.dataset.radialBandSplitRadius);
+        if (Math.abs(split - ((inner + outer) / 2)) < 0.0051) out.midpointSplits[band] += 1;
+        const shares = panes.map((pane) => Number.parseFloat(pane.dataset.paneAreaShare));
+        if (Math.abs(shares.reduce((sum, share) => sum + share, 0) - 1) < 0.001 && new Set(shares).size > 1) out.unevenAreas[band] += 1;
+      }
       if (panes[0]) out.opacity = getComputedStyle(panes[0]).fillOpacity;
     });
     return out;

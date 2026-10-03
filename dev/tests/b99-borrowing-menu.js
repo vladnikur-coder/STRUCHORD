@@ -2,7 +2,7 @@
 // B-99 (0.546): меню заимствований на круге. Круг в режиме трезвучий —
 // меню для сочинения: у каждого сектора ступень и все лады этой тональности,
 // в которых аккорд работает. Это НЕ анализ прогрессии: строгие профили
-// остаются в редакторе/ленте и в строке «Текущий аккорд».
+// остаются в редакторе/ленте; круг отдельно показывает палитру ладов.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -226,12 +226,20 @@ ok('2 цвета: соседние двухцветные карточки че�
   twoPanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 2 && node.querySelectorAll('.wheel-mode-divider').length === 1),
   twoPanes.map((node) => node.dataset.paneLayout).join(', '));
 const threePanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pane-count="3"][data-wheel-hover-ring="major"]')];
-ok('3 цвета: равные поля 1+2, сторона цельного стекла чередуется',
+const radialMidpointMatches = (node) => {
+  const expected = (Number(node.dataset.sectorInnerRadius) + Number(node.dataset.sectorOuterRadius)) / 2;
+  return Math.abs(Number(node.dataset.radialBandSplitRadius) - expected) < 0.0051;
+};
+const sharesAreUnequalAndComplete = (node) => {
+  const shares = [...node.querySelectorAll('.wheel-mode-pane')].map((pane) => Number(pane.dataset.paneAreaShare));
+  return Math.abs(shares.reduce((sum, share) => sum + share, 0) - 1) < 0.001 && new Set(shares).size > 1;
+};
+ok('3 цвета: деление 1+2 проходит по середине радиальной ширины; сторона цельного поля чередуется',
   threePanes.some((node) => node.dataset.paneLayout === 'three-single-inner') &&
   threePanes.some((node) => node.dataset.paneLayout === 'three-single-outer') &&
   threePanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 3 &&
-    [...node.querySelectorAll('.wheel-mode-pane')].every((pane) => pane.dataset.paneAreaShare === '0.3333')),
-  threePanes.map((node) => node.dataset.paneLayout).join(', '));
+    radialMidpointMatches(node) && sharesAreUnequalAndComplete(node)),
+  threePanes.map((node) => `${node.dataset.paneLayout}:${node.dataset.radialBandSplitRadius}`).join(', '));
 const fourPanes = paneGroup('F', 'major');
 ok('4 цвета: окно 2×2, четыре равных поля и две перемычки',
   fourPanes?.dataset.paneLayout === 'four-window' &&
@@ -240,12 +248,12 @@ ok('4 цвета: окно 2×2, четыре равных поля и две п
   [...fourPanes.querySelectorAll('.wheel-mode-pane')].every((pane) => pane.dataset.paneAreaShare === '0.2500'),
   fourPanes?.dataset.paneLayout || 'нет диаграммы');
 const fivePanes = paneGroup('Am', 'minor');
-ok('5 цветов: окно 2+3, база внутри, площади равны, порядок ладов сохранён',
+ok('5 цветов: окно 2+3, база внутри, радиальная граница посередине, порядок ладов сохранён',
   fivePanes?.dataset.paneLayout === 'five-window-2-inner-3-outer' &&
   paneModes(fivePanes).join(',') === menu('Am', 'Am').modes.join(',') &&
   [...fivePanes.querySelectorAll('.wheel-mode-pane')].filter((pane) => pane.dataset.paneBand === 'inner').length === 2 &&
   [...fivePanes.querySelectorAll('.wheel-mode-pane')].filter((pane) => pane.dataset.paneBand === 'outer').length === 3 &&
-  [...fivePanes.querySelectorAll('.wheel-mode-pane')].every((pane) => pane.dataset.paneAreaShare === '0.2000') &&
+  radialMidpointMatches(fivePanes) && sharesAreUnequalAndComplete(fivePanes) &&
   fivePanes.querySelectorAll('.wheel-mode-divider').length === 4,
   `${fivePanes?.dataset.paneLayout || 'нет'} / ${paneModes(fivePanes).join(',')}`);
 ok('подписи сохраняют штатное оформление при новой раскладке полей',
@@ -260,19 +268,55 @@ ok('режим 7 без меню: строгий профиль по-прежн�
   (e7?.dataset.harmonyGroup === 'minor-variant' || e7?.dataset.harmonyProfile === 'harmonic-minor'),
   `${e7?.dataset.harmonyGroup || '—'}/${e7?.dataset.harmonyProfile || '—'}`);
 
-// ===== 6. Легенда «?» объясняет меню, а не анализ =====
+// ===== 6. Легенда «?» — компактная палитра и переключатели цветов =====
 w.eval(`
   wheelMode = 'triads'; drawWheel();
   bindWheelHarmonyLegend();
   document.getElementById('wheelHarmonyLegendToggle').click();
 `);
 const legend = d.getElementById('wheelHarmonyLegend');
-ok('легенда называет карту меню заимствований и сохраняет шкалу ладов',
-  /меню заимствований/i.test(legend?.textContent || '') &&
-  /Ионийский/.test(legend?.textContent || '') &&
-  /Локрийский/.test(legend?.textContent || '') &&
-  !/не подтверждён/i.test(legend?.textContent || ''),
-  (legend?.textContent || '').replace(/\s+/g, ' ').slice(0, 120));
+const modeInputs = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
+ok('легенда компактно показывает все лады/цвета и изменения ступеней',
+  !legend?.hidden && modeInputs.length === 10 &&
+  /Ионийский/.test(legend?.textContent || '') && /Эолийский/.test(legend?.textContent || '') &&
+  /↑VII/.test(legend?.textContent || '') && /↑VI/.test(legend?.textContent || '') &&
+  /↓II/.test(legend?.textContent || '') && /↓V/.test(legend?.textContent || '') &&
+  /V\/x/.test(legend?.textContent || '') && !d.getElementById('wheelHarmonyLegendCurrent') &&
+  modeInputs.every((input) => input.checked),
+  (legend?.textContent || '').replace(/\s+/g, ' ').slice(0, 180));
+const dorianPane = d.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="D"] .wheel-mode-pane[data-mode="dorian"]');
+const dorianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="dorian"]');
+const fakeEditor = d.createElement('div');
+fakeEditor.className = 'chord-wrapper';
+fakeEditor.dataset.harmonyProfile = 'dorian';
+const fakeTimeline = d.createElement('div');
+fakeTimeline.className = 'tl-cell';
+fakeTimeline.dataset.harmonyProfile = 'dorian';
+d.body.append(fakeEditor, fakeTimeline);
+dorianToggle.checked = false;
+dorianToggle.dispatchEvent(new w.Event('change', { bubbles: true }));
+ok('переключатель скрывает только дорийскую заливку круга, не редактор/ленту и не музыкальные данные',
+  dorianPane?.classList.contains('wheel-harmony-mode-muted') &&
+  d.getElementById('chordWheelModal').dataset.wheelHarmonyDisabledModes.includes('dorian') &&
+  !fakeEditor.classList.contains('wheel-harmony-mode-muted') && !fakeTimeline.classList.contains('wheel-harmony-mode-muted') &&
+  !d.body.classList.contains('is-harmony-mode-disabled') &&
+  JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]').includes('dorian'),
+  `${dorianPane?.className?.baseVal || ''} / ${d.getElementById('chordWheelModal').dataset.wheelHarmonyDisabledModes || ''}`);
+dorianToggle.checked = true;
+dorianToggle.dispatchEvent(new w.Event('change', { bubbles: true }));
+const orbitBefore = w.eval(`(() => ({
+  help: Number(document.getElementById('wheelHarmonyLegendToggle').dataset.wheelModeAngle),
+  quality: Number(document.querySelector('#wheelModeRow1 .mode-tab').dataset.wheelModeAngle)
+}))()`);
+w.eval("globalKey = 'F#'; activeSectionKey = null; drawWheel();");
+const orbitAfter = w.eval(`(() => ({
+  help: Number(document.getElementById('wheelHarmonyLegendToggle').dataset.wheelModeAngle),
+  quality: Number(document.querySelector('#wheelModeRow1 .mode-tab').dataset.wheelModeAngle)
+}))()`);
+ok('? synchronously follows the quality arc on key change',
+  Math.abs((orbitAfter.help - orbitBefore.help) - (orbitAfter.quality - orbitBefore.quality)) < 1e-8 &&
+  Math.abs(orbitAfter.help - orbitBefore.help) > 1 && Math.abs((orbitAfter.help - orbitAfter.quality) - 16) < 1e-8,
+  JSON.stringify({ orbitBefore, orbitAfter }));
 
 console.log(failures ? `\n${failures} FAIL` : '\nALL OK — B-99 borrowing menu');
 process.exit(failures ? 1 : 0);
