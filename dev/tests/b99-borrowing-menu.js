@@ -135,40 +135,27 @@ const sector = (identity) => d.querySelector(`#circleSvg .wheel-sector[data-whee
 const diagramOf = (identity) =>
   d.querySelector(`#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="${identity}"]`);
 const wedgeModes = (identity) =>
-  [...d.querySelectorAll(`#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="${identity}"] .wheel-mode-wedge`)]
+  [...d.querySelectorAll(`#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="${identity}"] .wheel-mode-pane`)]
     .map((w) => w.dataset.mode);
 const degreeTexts = () => [...d.querySelectorAll('#circleSvg .wheel-degree-label')].map((t) => t.textContent);
 
-ok('сектор D несёт диаграмму из трёх секторов-лучей',
+ok('сектор D несёт pane-раскладку из трёх цветовых полей',
   wedgeModes('D').join(',') === 'melodic-minor,dorian,mixolydian',
   wedgeModes('D').join(','));
-ok('сектор Am несёт диаграмму из пяти секторов-лучей, база первый',
+ok('сектор Am несёт pane-раскладку из пяти полей, база первая',
   wedgeModes('Am').join(',') === 'aeolian,harmonic-minor,melodic-minor,dorian,phrygian',
   wedgeModes('Am').join(','));
-ok('лучи Am сходятся в центр карточки и обрезаны по её форме',
+ok('поля Am обрезаны по форме карточки',
   (() => {
-    // jsdom не имеет getBBox: центр диаграммы — первая точка M каждого
-    // сектора-луча; обрезка — clip-path со ссылкой на clipPath карточки.
     const dg = d.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"]');
-    const wedges = [...dg.querySelectorAll('.wheel-mode-wedge')];
-    if (wedges.length !== 5) return false;
-    const centers = wedges.map((w) => {
-      const m = w.getAttribute('d').match(/^M(-?[\d.]+) (-?[\d.]+)/);
-      return { x: Number.parseFloat(m[1]), y: Number.parseFloat(m[2]) };
-    });
-    // все лучи расходятся из одной точки
-    if (!centers.every((p) => Math.hypot(p.x - centers[0].x, p.y - centers[0].y) < 0.5)) return false;
-    // центр лежит внутри самой карточки — между её радиусами
-    const dist = Math.hypot(centers[0].x - 270, centers[0].y - 270);
-    const sec = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
-    const sr = [...sec.getAttribute('d').matchAll(/A(\d+(?:\.\d+)?) \1 0 0 [01]/g)]
-      .map((m) => Number.parseFloat(m[1]));
-    if (!(Math.min(...sr) < dist && dist < Math.max(...sr))) return false;
-    // диаграмма обрезана по форме карточки
-    const clipRef = dg.getAttribute('clip-path') || '';
-    return /^url\(#wheel-menu-clip-/.test(clipRef) && !!d.getElementById(clipRef.slice(5, -1));
+    const panes = [...(dg?.querySelectorAll('.wheel-mode-pane') || [])];
+    const clipRef = dg?.getAttribute('clip-path') || '';
+    const clipId = clipRef.match(/^url\(#([^)]+)\)$/)?.[1];
+    const clip = clipId && d.getElementById(clipId);
+    return panes.length === 5 && panes.every((pane) => /^M-?[\d.]+ -?[\d.]+ A/.test(pane.getAttribute('d') || '')) &&
+      !!clip?.querySelector('path');
   })(),
-  'центр — внутри карточки, цвет обрезан контуром');
+  '5 оконных полей + clipPath по границе карточки');
 ok('диаграмма — hover-узел карточки: магнит/разъезд/selected её не бросают',
   diagramOf('D')?.classList.contains('wheel-hoverable') &&
   diagramOf('D')?.getAttribute('pointer-events') === 'none' &&
@@ -201,19 +188,36 @@ ok('возврат настройки возвращает текстовые а
   /ступень IV/.test(sector('D')?.getAttribute('aria-label') || ''),
   sector('D')?.getAttribute('aria-label') || '');
 
-// ===== 5. Оконный визуальный прототип (только ?menu=panes) =====
-w.history.replaceState({}, '', '/?menu=panes');
+// ===== 5. Оконная раскладка — единственная и включена по умолчанию =====
+w.history.replaceState({}, '', '/');
 w.eval(`
   globalKey = 'Am'; keyMode = 'manual'; activeSectionKey = null; activeChordInput = null;
   wheelMode = 'triads'; drawWheel();
 `);
+const defaultPaneGroups = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram')];
+ok('panes — единственная раскладка меню без query-параметров',
+  w.location.search === '' && defaultPaneGroups.length > 0 &&
+  defaultPaneGroups.every((group) => group.querySelectorAll('.wheel-mode-pane').length === Number(group.dataset.paneCount)),
+  `search=${w.location.search || 'пусто'}, groups=${defaultPaneGroups.length}`);
+const oldMenuQueries = ['pie', 'panes', 'base', 'hover', 'plain', 'strict'];
+const oldMenuQueryResults = oldMenuQueries.map((style) => {
+  w.history.replaceState({}, '', `/?menu=${style}`);
+  w.eval('drawWheel()');
+  const groups = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram')];
+  return groups.length > 0 && groups.every((group) =>
+    group.querySelectorAll('.wheel-mode-pane').length === Number(group.dataset.paneCount));
+});
+ok('ни один старый menu-query не переключает единственную раскладку panes',
+  oldMenuQueryResults.every(Boolean),
+  `проверены: ${oldMenuQueries.join(', ')}`);
+w.history.replaceState({}, '', '/');
 const paneGroup = (identity, ring) => [...d.querySelectorAll('#circleSvg .wheel-mode-diagram')]
   .find((node) => node.dataset.wheelChordIdentity === identity && node.dataset.wheelHoverRing === ring);
 const paneModes = (group) => [...(group?.querySelectorAll('.wheel-mode-pane') || [])].map((node) => node.dataset.mode);
 const onePane = paneGroup('B', 'major');
 ok('1 цвет: одна сплошная pane целиком внутри clip карточки',
   onePane?.dataset.paneLayout === 'solid' && onePane.querySelectorAll('.wheel-mode-pane').length === 1 &&
-  onePane.querySelector('.wheel-mode-pane')?.style.fillOpacity === '1' && /^url\(#wheel-menu-clip-/.test(onePane.getAttribute('clip-path') || ''),
+  w.getComputedStyle(d.documentElement).getPropertyValue('--wheel-menu-pane-opacity').trim() === '0.34' && /^url\(#wheel-menu-clip-/.test(onePane.getAttribute('clip-path') || ''),
   `${onePane?.dataset.paneLayout}/${onePane?.querySelector('.wheel-mode-pane')?.dataset.mode}`);
 const twoPanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pane-count="2"][data-wheel-hover-ring="major"]')];
 ok('2 цвета: соседние двухцветные карточки чередуют кольцевой и продольный разрез',
@@ -244,15 +248,15 @@ ok('5 цветов: окно 2+3, база внутри, площади равн
   [...fivePanes.querySelectorAll('.wheel-mode-pane')].every((pane) => pane.dataset.paneAreaShare === '0.2000') &&
   fivePanes.querySelectorAll('.wheel-mode-divider').length === 4,
   `${fivePanes?.dataset.paneLayout || 'нет'} / ${paneModes(fivePanes).join(',')}`);
-ok('подписи получают только локальный контур читаемости для плотной заливки',
-  d.querySelectorAll('#circleSvg .wheel-chord-label.wheel-mode-pane-label').length > 0 &&
-  /wheel-mode-pane-label text/.test(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8')));
+ok('подписи сохраняют штатное оформление при новой раскладке полей',
+  d.querySelectorAll('#circleSvg .wheel-mode-pane-label').length === 0 &&
+  !/wheel-mode-pane-label/.test(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8')));
 
 // ===== 6. Другие режимы круга остаются на строгой раскраске =====
 w.eval("wheelMode = '7'; drawWheel();");
 const e7 = sector('E7');
 ok('режим 7 без меню: строгий профиль по-прежнему работает',
-  d.querySelectorAll('#circleSvg .wheel-mode-wedge').length === 0 &&
+  d.querySelectorAll('#circleSvg .wheel-mode-pane').length === 0 &&
   (e7?.dataset.harmonyGroup === 'minor-variant' || e7?.dataset.harmonyProfile === 'harmonic-minor'),
   `${e7?.dataset.harmonyGroup || '—'}/${e7?.dataset.harmonyProfile || '—'}`);
 

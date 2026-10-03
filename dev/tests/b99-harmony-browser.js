@@ -29,7 +29,7 @@ function ok(name, condition, detail = '') {
   page.on('pageerror', (error) => pageErrors.push(String(error)));
   try {
     const appUrl = pathToFileURL(path.resolve(__dirname, '../../STRUCHORD.html')).href;
-    await page.goto(`${appUrl}?b99-harmony=${Date.now()}&menu=panes`, { waitUntil: 'load', timeout: 60000 });
+    await page.goto(`${appUrl}?b99-harmony=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction(() => typeof analyzeSectionHarmony === 'function' && typeof drawWheel === 'function');
     const state = await page.evaluate(() => {
       globalKey = 'C';
@@ -107,18 +107,17 @@ function ok(name, condition, detail = '') {
           };
         })(),
         panePresentation: (() => {
-          const groups = [...document.querySelectorAll('#circleSvg .wheel-mode-diagram[data-menu-style="panes"]')];
+          const groups = [...document.querySelectorAll('#circleSvg .wheel-mode-diagram')];
           const layouts = [...new Set(groups.map((group) => group.dataset.paneLayout))];
           const oneColor = groups.find((group) => group.dataset.paneLayout === 'solid');
           const divider = document.querySelector('#circleSvg .wheel-mode-divider');
-          const paneLabel = document.querySelector('#circleSvg .wheel-mode-pane-label text');
+          const paneLabelOverrideCount = document.querySelectorAll('#circleSvg .wheel-mode-pane-label').length;
           const previousTheme = document.documentElement.getAttribute('data-theme');
           const themePaint = (theme) => {
             document.documentElement.setAttribute('data-theme', theme);
             return {
               fillOpacity: oneColor && getComputedStyle(oneColor.querySelector('.wheel-mode-pane')).fillOpacity,
               dividerStroke: divider && getComputedStyle(divider).stroke,
-              labelStrokeWidth: paneLabel && getComputedStyle(paneLabel).strokeWidth,
             };
           };
           const light = themePaint('light');
@@ -131,6 +130,7 @@ function ok(name, condition, detail = '') {
             expectedLayouts: ['solid', 'two-inner-outer', 'two-clockwise-halves', 'three-single-inner',
               'three-single-outer', 'four-window', 'five-window-2-inner-3-outer'],
             paneCount: groups.length,
+            paneLabelOverrideCount,
             light,
             dark,
             selectedD: selectedD?.classList.contains('is-wheel-selected'),
@@ -149,10 +149,10 @@ function ok(name, condition, detail = '') {
     ok('B-99 pane layouts render from one to five colours without replacing selection or theme contrast',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
-      minorLine.panePresentation.light.fillOpacity === '1' && minorLine.panePresentation.dark.fillOpacity === '1' &&
+      minorLine.panePresentation.light.fillOpacity === '0.34' && minorLine.panePresentation.dark.fillOpacity === '0.45' &&
       minorLine.panePresentation.light.dividerStroke !== 'none' && minorLine.panePresentation.dark.dividerStroke !== 'none' &&
-      minorLine.panePresentation.light.labelStrokeWidth && minorLine.panePresentation.dark.labelStrokeWidth &&
-      minorLine.panePresentation.selectedD, JSON.stringify(minorLine.panePresentation));
+      minorLine.panePresentation.paneLabelOverrideCount === 0 && minorLine.panePresentation.selectedD,
+      JSON.stringify(minorLine.panePresentation));
     const strictWheel = await page.evaluate(() => {
       const owner = document.querySelector('.chord-input[data-sec="91"][data-square="92"][data-ei="2"]');
       activeChordInput = owner;

@@ -1,20 +1,17 @@
 #!/usr/bin/env node
-// Сравнение направлений меню заимствований (?menu=…) + монтаж.
-// Направления: base (один цвет), hover (покой/наведение — макет
-// состояния), plain (без цвета), strict (строгая раскраска 0.545).
-// Круг открывается программно; скрипт падает, если SVG не виден.
+// Скриншоты единственной production-раскладки B-99 (panes): покой и
+// hover одной карты. Opacity: 0.34 в светлой / 0.45 в тёмной теме.
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const sparticuz = require('@sparticuz/chromium').default;
 const puppeteer = require('puppeteer-core');
 
-const VARIANTS = [
-  ['base', 'default', 'Вариант 1 — один цвет на карточку: базовый лад карточки, полный список в подсказке'],
-  ['hover', 'rest', 'Вариант 2а — покой: круг полностью каменный, только ступени'],
-  ['hover', 'active', 'Вариант 2б — при наведении: подсветка карточки + меню в легенде (макет состояния)'],
-  ['plain', 'default', 'Вариант 3 — без цвета на карточках: ступени + текстовое меню в подсказке и легенде'],
-  ['strict', 'default', 'Вариант 4 — строгая раскраска 0.545 (один профиль на карточку) + ступени + текстовое меню'],
+const CAPTURES = [
+  { theme: 'light', mode: 'rest', caption: 'Светлая тема — panes, покой' },
+  { theme: 'dark', mode: 'rest', caption: 'Тёмная тема — panes, покой' },
+  { theme: 'light', mode: 'active', caption: 'Светлая тема — panes, hover по D' },
+  { theme: 'dark', mode: 'active', caption: 'Тёмная тема — panes, hover по D' },
 ];
 
 async function launch() {
@@ -31,11 +28,13 @@ async function launch() {
   });
 }
 
-async function shot(browser, style, mode, caption) {
+async function shot(browser, mode, theme, caption) {
   const page = await browser.newPage();
-  await page.goto(pathToFileURL(path.resolve(__dirname, '../../STRUCHORD.html')).href + '?menu=' + style, { waitUntil: 'load' });
+  await page.goto(pathToFileURL(path.resolve(__dirname, '../../STRUCHORD.html')).href, { waitUntil: 'load' });
   await page.waitForFunction(() => typeof drawWheel === 'function');
-  const clip = await page.evaluate((frameMode) => {
+  const clip = await page.evaluate(({ frameMode, themeName }) => {
+    if (themeName === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
     document.getElementById('showDegrees').checked = true;
     globalKey = 'Am';
     keyMode = 'manual';
@@ -76,7 +75,7 @@ async function shot(browser, style, mode, caption) {
       width: box.right - box.left + pad * 2,
       height: box.bottom - box.top + pad * 2,
     };
-  }, mode);
+  }, { frameMode: mode, themeName: theme });
   await new Promise((r) => setTimeout(r, 900));
   await page.evaluate((cap) => {
     const el = document.createElement('div');
@@ -87,10 +86,10 @@ async function shot(browser, style, mode, caption) {
       "font:600 17px/1.25 system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);white-space:nowrap;";
     document.body.appendChild(el);
   }, caption);
-  const file = path.join(__dirname, `b99-menu-shot-${style}-${mode}.png`);
+  const file = path.join(__dirname, `b99-menu-shot-${theme}-${mode}.png`);
   await page.screenshot({ path: file, clip });
   await page.close();
-  console.log('  кадр ' + style + '/' + mode + ' → ' + path.basename(file));
+  console.log('  кадр panes/' + theme + '/' + mode + ' → ' + path.basename(file));
   return file;
 }
 
@@ -98,16 +97,18 @@ async function shot(browser, style, mode, caption) {
   const browser = await launch();
   try {
     const files = [];
-    for (const [style, mode, caption] of VARIANTS) files.push(await shot(browser, style, mode, caption));
-    const cells = VARIANTS.map(
-      ([style, mode, caption], i) =>
-        `<figure><img src="${path.basename(files[i])}"><figcaption>${caption}</figcaption></figure>`
+    for (const capture of CAPTURES) {
+      files.push(await shot(browser, capture.mode, capture.theme, capture.caption));
+    }
+    const cells = CAPTURES.map(
+      (capture, i) =>
+        `<figure><img src="${path.basename(files[i])}"><figcaption>${capture.caption}</figcaption></figure>`
     ).join('\n');
     fs.writeFileSync(
       path.join(__dirname, 'b99-menu-montage.html'),
       `<!doctype html><meta charset="utf-8"><style>
         body{margin:0;padding:20px;background:#f2efe9;font:500 15px/1.3 system-ui,sans-serif;
-             display:grid;grid-template-columns:1fr;gap:18px;width:820px;}
+             display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;width:1480px;}
         figure{margin:0;background:#fff;border-radius:14px;overflow:hidden;
                box-shadow:0 3px 12px rgba(0,0,0,.12);}
         img{display:block;width:100%;}
