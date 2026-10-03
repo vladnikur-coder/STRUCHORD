@@ -92,7 +92,7 @@ w.addEventListener('load', () => {
   // У текущего B-40 pathCount включает 24 overlay + gap-catcher; source 0.410
   // под Dev остаётся отдельным вариантом и не меняет production contract.
   w.eval("setWheelMode('triads')");
-  // B-99 (0.553): panes, светло-серые перемычки и clipPath добавляют
+  // B-99 (0.554): panes, оттенок светлой темы 0.551 и clipPath добавляют
   // только собственные SVG paths поверх 49 базовых B-40 путей.
   const menuPanes = d.querySelectorAll('#circleSvg .wheel-mode-pane').length;
   const menuDividers = d.querySelectorAll('#circleSvg .wheel-mode-divider').length;

@@ -147,12 +147,12 @@ function ok(name, condition, detail = '') {
       minorLine.wheelCurrent.profile === 'melodic-minor' && /Мелодический минор/.test(minorLine.wheelCurrent.text) &&
       minorLine.wheelCurrent.fMinorModes === '' &&
       minorLine.wheelCurrent.eMajorModes === 'harmonic-minor,melodic-minor,lydian', JSON.stringify(minorLine));
-    ok('B-99 pane layouts retain selection and use one soft light-gray 2 px divider in both themes',
+    ok('B-99 pane layouts retain selection and use the 0.551 light-theme shade as a 2 px divider in both themes',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
       minorLine.panePresentation.light.fillOpacity === '0.34' && minorLine.panePresentation.dark.fillOpacity === '0.45' &&
-      minorLine.panePresentation.light.dividerStroke === 'rgb(217, 217, 217)' &&
-      minorLine.panePresentation.dark.dividerStroke === 'rgb(217, 217, 217)' &&
+      minorLine.panePresentation.light.dividerStroke === 'rgba(0, 0, 0, 0.15)' &&
+      minorLine.panePresentation.dark.dividerStroke === 'rgba(0, 0, 0, 0.15)' &&
       minorLine.panePresentation.light.dividerWidth === '2px' && minorLine.panePresentation.dark.dividerWidth === '2px' &&
       minorLine.panePresentation.paneLabelOverrideCount === 0 && minorLine.panePresentation.selectedD,
       JSON.stringify(minorLine.panePresentation));
