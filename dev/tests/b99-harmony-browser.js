@@ -118,6 +118,7 @@ function ok(name, condition, detail = '') {
             return {
               fillOpacity: oneColor && getComputedStyle(oneColor.querySelector('.wheel-mode-pane')).fillOpacity,
               dividerStroke: divider && getComputedStyle(divider).stroke,
+              dividerWidth: divider && getComputedStyle(divider).strokeWidth,
             };
           };
           const light = themePaint('light');
@@ -151,6 +152,7 @@ function ok(name, condition, detail = '') {
       minorLine.panePresentation.paneCount > 0 &&
       minorLine.panePresentation.light.fillOpacity === '0.34' && minorLine.panePresentation.dark.fillOpacity === '0.45' &&
       minorLine.panePresentation.light.dividerStroke !== 'none' && minorLine.panePresentation.dark.dividerStroke !== 'none' &&
+      minorLine.panePresentation.light.dividerWidth === '2px' && minorLine.panePresentation.dark.dividerWidth === '2px' &&
       minorLine.panePresentation.paneLabelOverrideCount === 0 && minorLine.panePresentation.selectedD,
       JSON.stringify(minorLine.panePresentation));
     const strictWheel = await page.evaluate(() => {
