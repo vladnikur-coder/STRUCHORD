@@ -201,7 +201,54 @@ ok('возврат настройки возвращает текстовые а
   /ступень IV/.test(sector('D')?.getAttribute('aria-label') || ''),
   sector('D')?.getAttribute('aria-label') || '');
 
-// ===== 5. Другие режимы круга остаются на строгой раскраске =====
+// ===== 5. Оконный визуальный прототип (только ?menu=panes) =====
+w.history.replaceState({}, '', '/?menu=panes');
+w.eval(`
+  globalKey = 'Am'; keyMode = 'manual'; activeSectionKey = null; activeChordInput = null;
+  wheelMode = 'triads'; drawWheel();
+`);
+const paneGroup = (identity, ring) => [...d.querySelectorAll('#circleSvg .wheel-mode-diagram')]
+  .find((node) => node.dataset.wheelChordIdentity === identity && node.dataset.wheelHoverRing === ring);
+const paneModes = (group) => [...(group?.querySelectorAll('.wheel-mode-pane') || [])].map((node) => node.dataset.mode);
+const onePane = paneGroup('B', 'major');
+ok('1 цвет: одна сплошная pane целиком внутри clip карточки',
+  onePane?.dataset.paneLayout === 'solid' && onePane.querySelectorAll('.wheel-mode-pane').length === 1 &&
+  onePane.querySelector('.wheel-mode-pane')?.style.fillOpacity === '1' && /^url\(#wheel-menu-clip-/.test(onePane.getAttribute('clip-path') || ''),
+  `${onePane?.dataset.paneLayout}/${onePane?.querySelector('.wheel-mode-pane')?.dataset.mode}`);
+const twoPanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pane-count="2"][data-wheel-hover-ring="major"]')];
+ok('2 цвета: соседние двухцветные карточки чередуют кольцевой и продольный разрез',
+  twoPanes.some((node) => node.dataset.paneLayout === 'two-inner-outer') &&
+  twoPanes.some((node) => node.dataset.paneLayout === 'two-clockwise-halves') &&
+  twoPanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 2 && node.querySelectorAll('.wheel-mode-divider').length === 1),
+  twoPanes.map((node) => node.dataset.paneLayout).join(', '));
+const threePanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pane-count="3"][data-wheel-hover-ring="major"]')];
+ok('3 цвета: равные поля 1+2, сторона цельного стекла чередуется',
+  threePanes.some((node) => node.dataset.paneLayout === 'three-single-inner') &&
+  threePanes.some((node) => node.dataset.paneLayout === 'three-single-outer') &&
+  threePanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 3 &&
+    [...node.querySelectorAll('.wheel-mode-pane')].every((pane) => pane.dataset.paneAreaShare === '0.3333')),
+  threePanes.map((node) => node.dataset.paneLayout).join(', '));
+const fourPanes = paneGroup('F', 'major');
+ok('4 цвета: окно 2×2, четыре равных поля и две перемычки',
+  fourPanes?.dataset.paneLayout === 'four-window' &&
+  fourPanes.querySelectorAll('.wheel-mode-pane').length === 4 &&
+  fourPanes.querySelectorAll('.wheel-mode-divider').length === 2 &&
+  [...fourPanes.querySelectorAll('.wheel-mode-pane')].every((pane) => pane.dataset.paneAreaShare === '0.2500'),
+  fourPanes?.dataset.paneLayout || 'нет диаграммы');
+const fivePanes = paneGroup('Am', 'minor');
+ok('5 цветов: окно 2+3, база внутри, площади равны, порядок ладов сохранён',
+  fivePanes?.dataset.paneLayout === 'five-window-2-inner-3-outer' &&
+  paneModes(fivePanes).join(',') === menu('Am', 'Am').modes.join(',') &&
+  [...fivePanes.querySelectorAll('.wheel-mode-pane')].filter((pane) => pane.dataset.paneBand === 'inner').length === 2 &&
+  [...fivePanes.querySelectorAll('.wheel-mode-pane')].filter((pane) => pane.dataset.paneBand === 'outer').length === 3 &&
+  [...fivePanes.querySelectorAll('.wheel-mode-pane')].every((pane) => pane.dataset.paneAreaShare === '0.2000') &&
+  fivePanes.querySelectorAll('.wheel-mode-divider').length === 4,
+  `${fivePanes?.dataset.paneLayout || 'нет'} / ${paneModes(fivePanes).join(',')}`);
+ok('подписи получают только локальный контур читаемости для плотной заливки',
+  d.querySelectorAll('#circleSvg .wheel-chord-label.wheel-mode-pane-label').length > 0 &&
+  /wheel-mode-pane-label text/.test(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8')));
+
+// ===== 6. Другие режимы круга остаются на строгой раскраске =====
 w.eval("wheelMode = '7'; drawWheel();");
 const e7 = sector('E7');
 ok('режим 7 без меню: строгий профиль по-прежнему работает',

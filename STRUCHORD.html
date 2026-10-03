@@ -5696,6 +5696,19 @@ html.wheel-motion-disabled #circleSvg .wheel-degree-label.is-wheel-hovered {
 #circleSvg .wheel-mode-wedge[data-mode='lydian'] { fill: var(--harmony-lydian); }
 #circleSvg .wheel-mode-wedge[data-mode='mixolydian'] { fill: var(--harmony-mixolydian); }
 #circleSvg .wheel-mode-wedge[data-mode='locrian'] { fill: var(--harmony-locrian); }
+/* B-99 visual prototype 0.547: `?menu=panes` fills every glass with its full
+   harmony hue. The pane rails stay neutral and thinner than the card gap. */
+#circleSvg .wheel-mode-diagram[data-menu-style='panes'] .wheel-mode-wedge {
+  fill-opacity: 1;
+}
+#circleSvg .wheel-mode-diagram[data-menu-style='panes'] .wheel-mode-divider {
+  fill: none;
+  stroke: var(--color-border-medium);
+  stroke-width: 1.4;
+  stroke-opacity: 0.9;
+  stroke-linecap: round;
+  pointer-events: none;
+}
 #chordWheelModal:not(.is-harmony-highlights-on) #circleSvg .wheel-mode-diagram {
   display: none;
 }
@@ -5746,6 +5759,15 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
   stroke: var(--color-background-primary);
   stroke-width: 0.75px;
   filter: none;
+}
+/* Полная заливка требует локального ореола у имени и степени: текст
+   сохраняет привычный цвет, но контур отделяет его от насыщенного стекла. */
+#circleSvg .wheel-chord-label.wheel-mode-pane-label text,
+#circleSvg .wheel-chord-label.wheel-mode-pane-label .wheel-degree-label {
+  paint-order: stroke fill;
+  stroke: var(--color-background-primary);
+  stroke-width: 2.25px;
+  stroke-linejoin: round;
 }
 #circleSvg .wheel-label-exit-layer {
   pointer-events: none;
@@ -11549,7 +11571,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.546</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.547</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -33705,12 +33727,27 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // Меню заимствований (B-99, 0.546) живёт только в режиме трезвучий:
   // септаккорды и прочие качества остаются на строгой раскраске до своего
   // кирпича. В dev-режиме «Круг 0.410» меню нет вовсе.
-  // ВРЕМЕННО (живая проверка направления): ?menu=pie|base|hover|plain|strict.
-  // pie — текущая круговая диаграмма на весь сектор; base — один цвет
-  // (базовый лад карточки); hover/plain — карточки без цвета (меню в
-  // подсказке/легенде); strict — строгая раскраска 0.545 в трезвучиях.
+  // Визуальные варианты B-99: ?menu=pie|panes|base|hover|plain|strict.
+  // pie остаётся default; panes — экспериментальная оконная раскраска;
+  // остальные варианты сохранены для сравнения и диагностики.
   const WHEEL_MENU_STYLE = new URLSearchParams(location.search).get('menu') || 'pie';
   const menuMode = wheelMode === 'triads' && WHEEL_MENU_STYLE !== 'strict';
+  // Порядковый номер считается отдельно для каждого числа профилей и кольца:
+  // соседние карточки одного типа чередуют геометрию, а разный счёт не сбивает ритм.
+  const buildWheelMenuPatternOrdinals = (chords) => {
+    const seen = new Map();
+    return chords.map((chord) => {
+      const menu = getBorrowingMenuProfile(correctChordName(chord, ks), sk);
+      const count = menu?.modes.length || 0;
+      if (!count) return 0;
+      const ordinal = seen.get(count) || 0;
+      seen.set(count, ordinal + 1);
+      return ordinal;
+    });
+  };
+  const wheelMenuPatternOrdinals = WHEEL_MENU_STYLE === 'panes' && menuMode
+    ? { major: buildWheelMenuPatternOrdinals(MAJOR_CHORDS), minor: buildWheelMenuPatternOrdinals(MINOR_CHORDS) }
+    : null;
   const activeWheelChord = wheelChordIdentity(activeChordInput?.value);
   const isSelectedWheelChord = (candidate) =>
     !!activeWheelChord && activeWheelChord === wheelChordIdentity(candidate);
@@ -33756,7 +33793,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // поэтому цвет не выходит за её швы и контур. Группа входит в
   // hover-каналы карточки (магнит, соседский разъезд, idle water) и,
   // как весь selected-marker, не участвует в разъезде соседей.
-  const appendWheelModeDiagram = (menu, start, end, cardOuter, cardInner, selected, clipKey) => {
+  const appendWheelModeDiagram = (menu, start, end, cardOuter, cardInner, selected, clipKey, patternOrdinal = 0) => {
     if (!menuMode || !menu) return null;
     // Прототипы «без цвета на карточках»: меню остаётся в ступени,
     // подсказке и aria, сама карточка — каменная.
@@ -33778,11 +33815,131 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       frag.appendChild(group);
       return group;
     }
+    const clip = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
+    clip.id = `wheel-menu-clip-${clipKey}`;
+    const clipCard = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+    // Небольшой отступ оставляет видимой принятую кромку карточки.
+    clipCard.setAttribute('d', createWheelCardPath(start, end, cardOuter - 1.2, cardInner + 1.2));
+    clip.appendChild(clipCard);
+    frag.appendChild(clip);
+    group.setAttribute('clip-path', `url(#${clip.id})`);
+    const count = menu.modes.length;
+    if (WHEEL_MENU_STYLE === 'panes' && count >= 1 && count <= 5) {
+      group.dataset.paneCount = String(count);
+      group.dataset.panePatternOrdinal = String(patternOrdinal);
+      const areaFractionRadius = (fraction) =>
+        Math.sqrt(cardInner * cardInner + (cardOuter * cardOuter - cardInner * cardInner) * fraction);
+      const halfAngle = start + (end - start) / 2;
+      const pointText = (point) => `${point.x.toFixed(2)} ${point.y.toFixed(2)}`;
+      const createPanePath = (paneStart, paneEnd, paneOuter, paneInner) => {
+        const outerStart = polarPoint(paneOuter, paneStart);
+        const outerEnd = polarPoint(paneOuter, paneEnd);
+        const innerEnd = polarPoint(paneInner, paneEnd);
+        const innerStart = polarPoint(paneInner, paneStart);
+        const largeArc = paneEnd - paneStart > Math.PI ? 1 : 0;
+        return `M${pointText(outerStart)} A${paneOuter.toFixed(2)} ${paneOuter.toFixed(2)} 0 ${largeArc} 1 ${pointText(outerEnd)} L${pointText(innerEnd)} A${paneInner.toFixed(2)} ${paneInner.toFixed(2)} 0 ${largeArc} 0 ${pointText(innerStart)}Z`;
+      };
+      let paneIndex = 0;
+      const appendPane = (mode, paneStart, paneEnd, paneOuter, paneInner, band) => {
+        const pane = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        pane.classList.add('wheel-mode-wedge', 'wheel-mode-pane');
+        pane.dataset.mode = mode;
+        pane.dataset.paneIndex = String(paneIndex);
+        pane.dataset.paneBand = band;
+        pane.dataset.paneAreaShare = (1 / count).toFixed(4);
+        pane.style.fillOpacity = '1';
+        pane.setAttribute('d', createPanePath(paneStart, paneEnd, paneOuter, paneInner));
+        group.appendChild(pane);
+        paneIndex += 1;
+      };
+      const appendDivider = (d, axis) => {
+        const divider = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+        divider.classList.add('wheel-mode-divider');
+        divider.dataset.dividerAxis = axis;
+        divider.setAttribute('d', d);
+        divider.setAttribute('aria-hidden', 'true');
+        group.appendChild(divider);
+      };
+      const appendRadialDivider = (angle, innerRadius = cardInner, outerRadius = cardOuter) => {
+        appendDivider(`M${pointText(polarPoint(innerRadius, angle))} L${pointText(polarPoint(outerRadius, angle))}`, 'radial');
+      };
+      const appendArcDivider = (radius, arcStart = start, arcEnd = end) => {
+        const arcFrom = polarPoint(radius, arcStart);
+        const arcTo = polarPoint(radius, arcEnd);
+        const largeArc = arcEnd - arcStart > Math.PI ? 1 : 0;
+        appendDivider(`M${pointText(arcFrom)} A${radius.toFixed(2)} ${radius.toFixed(2)} 0 ${largeArc} 1 ${pointText(arcTo)}`, 'arc');
+      };
+
+      if (count === 1) {
+        group.dataset.paneLayout = 'solid';
+        appendPane(menu.modes[0], start, end, cardOuter - 1.2, cardInner + 1.2, 'whole');
+      } else if (count === 2) {
+        const radialSplit = areaFractionRadius(0.5);
+        if (patternOrdinal % 2 === 0) {
+          group.dataset.paneLayout = 'two-inner-outer';
+          // Первый (базовый) лад — у центра, второй — снаружи.
+          appendPane(menu.modes[0], start, end, radialSplit - 0.7, cardInner, 'inner');
+          appendPane(menu.modes[1], start, end, cardOuter, radialSplit + 0.7, 'outer');
+          appendArcDivider(radialSplit);
+        } else {
+          group.dataset.paneLayout = 'two-clockwise-halves';
+          // В продольном разрезе первый лад занимает начало сектора по часовой стрелке.
+          appendPane(menu.modes[0], start, halfAngle, cardOuter, cardInner, 'clockwise');
+          appendPane(menu.modes[1], halfAngle, end, cardOuter, cardInner, 'counterclockwise');
+          appendRadialDivider(halfAngle);
+        }
+      } else if (count === 3) {
+        const singlePaneIsInner = patternOrdinal % 2 === 0;
+        const innerAreaFraction = singlePaneIsInner ? 1 / 3 : 2 / 3;
+        const radialSplit = areaFractionRadius(innerAreaFraction);
+        group.dataset.paneLayout = singlePaneIsInner ? 'three-single-inner' : 'three-single-outer';
+        if (singlePaneIsInner) {
+          appendPane(menu.modes[0], start, end, radialSplit, cardInner, 'inner');
+          appendPane(menu.modes[1], start, halfAngle, cardOuter, radialSplit, 'outer');
+          appendPane(menu.modes[2], halfAngle, end, cardOuter, radialSplit, 'outer');
+          appendRadialDivider(halfAngle, radialSplit, cardOuter);
+        } else {
+          appendPane(menu.modes[0], start, halfAngle, radialSplit, cardInner, 'inner');
+          appendPane(menu.modes[1], halfAngle, end, radialSplit, cardInner, 'inner');
+          appendPane(menu.modes[2], start, end, cardOuter, radialSplit, 'outer');
+          appendRadialDivider(halfAngle, cardInner, radialSplit);
+        }
+        appendArcDivider(radialSplit);
+      } else if (count === 4) {
+        const radialSplit = areaFractionRadius(0.5);
+        group.dataset.paneLayout = 'four-window';
+        appendPane(menu.modes[0], start, halfAngle, radialSplit, cardInner, 'inner');
+        appendPane(menu.modes[1], halfAngle, end, radialSplit, cardInner, 'inner');
+        appendPane(menu.modes[2], start, halfAngle, cardOuter, radialSplit, 'outer');
+        appendPane(menu.modes[3], halfAngle, end, cardOuter, radialSplit, 'outer');
+        appendArcDivider(radialSplit);
+        appendRadialDivider(halfAngle);
+      } else {
+        // Five equal panes: two у внутренней кромки и три снаружи.
+        // Радиальная граница смещена так, чтобы все пять полей имели равную площадь.
+        const radialSplit = areaFractionRadius(2 / 5);
+        const innerThird = start + (end - start) / 2;
+        const outerFirstThird = start + (end - start) / 3;
+        const outerSecondThird = start + ((end - start) * 2) / 3;
+        group.dataset.paneLayout = 'five-window-2-inner-3-outer';
+        appendPane(menu.modes[0], start, innerThird, radialSplit, cardInner, 'inner');
+        appendPane(menu.modes[1], innerThird, end, radialSplit, cardInner, 'inner');
+        appendPane(menu.modes[2], start, outerFirstThird, cardOuter, radialSplit, 'outer');
+        appendPane(menu.modes[3], outerFirstThird, outerSecondThird, cardOuter, radialSplit, 'outer');
+        appendPane(menu.modes[4], outerSecondThird, end, cardOuter, radialSplit, 'outer');
+        appendArcDivider(radialSplit);
+        appendRadialDivider(innerThird, cardInner, radialSplit);
+        appendRadialDivider(outerFirstThird, radialSplit, cardOuter);
+        appendRadialDivider(outerSecondThird, radialSplit, cardOuter);
+      }
+      frag.appendChild(group);
+      return group;
+    }
+    if (WHEEL_MENU_STYLE === 'panes') group.dataset.menuStyle = 'pie-fallback';
     const mid = start + (end - start) / 2;
     const midR = (cardOuter + cardInner) / 2;
     const c = polarPoint(midR, mid);
-    // Радиус диаграммы — до самого дальнего угла карточки: цвет
-    // дотягивается до каждого её края и обрезается контуром.
+    // Радиус круговой диаграммы — до самого дальнего угла карточки.
     const corners = [
       polarPoint(cardOuter, start),
       polarPoint(cardOuter, end),
@@ -33790,15 +33947,6 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       polarPoint(cardInner, end),
     ];
     const r = Math.max(...corners.map((p) => Math.hypot(p.x - c.x, p.y - c.y))) + 2;
-    const clip = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
-    clip.id = `wheel-menu-clip-${clipKey}`;
-    const clipCard = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    // Радиальный отступ 1.2 оставляет видимым контур карточки.
-    clipCard.setAttribute('d', createWheelCardPath(start, end, cardOuter - 1.2, cardInner + 1.2));
-    clip.appendChild(clipCard);
-    frag.appendChild(clip);
-    group.setAttribute('clip-path', `url(#${clip.id})`);
-    const count = menu.modes.length;
     const sliceGap = 0.06;
     if (count === 1) {
       const wedge = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -33970,7 +34118,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         Ro - WHEEL_CARD_PERIMETER,
         Rs + WHEEL_CARD_HALF_SEAM,
         majorSelected,
-        `major-${i}`
+        `major-${i}`,
+        wheelMenuPatternOrdinals?.major[i] || 0
       );
       const opVolume = addWheelCardVolume(op);
       applyWheelBorrowingMenu(opVolume, majorMenu);
@@ -34006,7 +34155,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         Rs - WHEEL_CARD_HALF_SEAM,
         Ri + WHEEL_CARD_PERIMETER,
         minorSelected,
-        `minor-${i}`
+        `minor-${i}`,
+        wheelMenuPatternOrdinals?.minor[i] || 0
       );
       const ipVolume = addWheelCardVolume(ip);
       applyWheelBorrowingMenu(ipVolume, minorMenu);
@@ -34016,6 +34166,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const { root: mr, suffix: ms } = splitRootSuffix(dmLabel);
       const mg = createChordGroup(mx, my, mr, ms, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
       mg.classList.add('wheel-chord-label');
+      if (menuMode && WHEEL_MENU_STYLE === 'panes') mg.classList.add('wheel-mode-pane-label');
       mg.classList.toggle('is-wheel-selected', majorSelected);
       if (menuMode) applyWheelBorrowingMenu(mg, majorMenu);
       else applyWheelHarmony(op, mg, majorHarmony);
@@ -34031,6 +34182,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const { root: mir, suffix: mis } = splitRootSuffix(dmi);
       const mig = createChordGroup(mix, miy, mir, mis, 24, 18, 'var(--wheel-chord-minor-text)', '600', '500', 6);
       mig.classList.add('wheel-chord-label');
+      if (menuMode && WHEEL_MENU_STYLE === 'panes') mig.classList.add('wheel-mode-pane-label');
       mig.classList.toggle('is-wheel-selected', minorSelected);
       if (menuMode) applyWheelBorrowingMenu(mig, minorMenu);
       else applyWheelHarmony(ip, mig, minorHarmony);
@@ -34089,6 +34241,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const { root, suffix } = splitRootSuffix(dcLabel);
       const cg = createChordGroup(tx, ty, root, suffix, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
       cg.classList.add('wheel-chord-label');
+      if (menuMode && WHEEL_MENU_STYLE === 'panes') cg.classList.add('wheel-mode-pane-label');
       cg.classList.toggle('is-wheel-selected', singleSelected);
       applyWheelHarmony(p, cg, singleHarmony);
       cg.style.cursor = 'pointer';
@@ -34910,10 +35063,9 @@ function refreshWheelHarmonyPresentation() {
   // В режиме трезвучий круг несёт меню заимствований (B-99, 0.546):
   // смена настройки «Ступени» обновляет текстовые альтернативы секторов,
   // а не строгие профили анализа.
-  // ВРЕМЕННО (живая проверка направления): ?menu=pie|base|hover|plain|strict.
-  // pie — текущая круговая диаграмма на весь сектор; base — один цвет
-  // (базовый лад карточки); hover/plain — карточки без цвета (меню в
-  // подсказке/легенде); strict — строгая раскраска 0.545 в трезвучиях.
+  // Визуальные варианты B-99: ?menu=pie|panes|base|hover|plain|strict.
+  // pie остаётся default; panes — экспериментальная оконная раскраска;
+  // остальные варианты сохранены для сравнения и диагностики.
   const WHEEL_MENU_STYLE = new URLSearchParams(location.search).get('menu') || 'pie';
   const menuMode = wheelMode === 'triads' && WHEEL_MENU_STYLE !== 'strict';
   document.querySelectorAll('#circleSvg [data-wheel-chord-identity]').forEach((node) => {
