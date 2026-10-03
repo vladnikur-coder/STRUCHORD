@@ -147,11 +147,12 @@ function ok(name, condition, detail = '') {
       minorLine.wheelCurrent.profile === 'melodic-minor' && /Мелодический минор/.test(minorLine.wheelCurrent.text) &&
       minorLine.wheelCurrent.fMinorModes === '' &&
       minorLine.wheelCurrent.eMajorModes === 'harmonic-minor,melodic-minor,lydian', JSON.stringify(minorLine));
-    ok('B-99 pane layouts render from one to five colours without replacing selection or theme contrast',
+    ok('B-99 pane layouts retain selection and use one light 2 px divider in both themes',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
       minorLine.panePresentation.light.fillOpacity === '0.34' && minorLine.panePresentation.dark.fillOpacity === '0.45' &&
-      minorLine.panePresentation.light.dividerStroke !== 'none' && minorLine.panePresentation.dark.dividerStroke !== 'none' &&
+      minorLine.panePresentation.light.dividerStroke === 'rgb(255, 255, 255)' &&
+      minorLine.panePresentation.dark.dividerStroke === 'rgb(255, 255, 255)' &&
       minorLine.panePresentation.light.dividerWidth === '2px' && minorLine.panePresentation.dark.dividerWidth === '2px' &&
       minorLine.panePresentation.paneLabelOverrideCount === 0 && minorLine.panePresentation.selectedD,
       JSON.stringify(minorLine.panePresentation));
