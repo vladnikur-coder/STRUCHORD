@@ -166,11 +166,11 @@ ok('у сектора A# (=Bb) есть степень ♭II прямо на к�
   degreeTexts().join(' '));
 ok('aria-альтернатива сообщает ступень и все лады сектора D',
   /ступень IV/.test(sector('D')?.getAttribute('aria-label') || '') &&
-  /мелодический минор/.test(sector('D')?.getAttribute('aria-label') || '') &&
-  /дорийский/.test(sector('D')?.getAttribute('aria-label') || ''),
+  /мелодический минор/i.test(sector('D')?.getAttribute('aria-label') || '') &&
+  /дорийский/i.test(sector('D')?.getAttribute('aria-label') || ''),
   sector('D')?.getAttribute('aria-label') || '');
 ok('title-подсказка сектора дублирует меню для наведения мышью',
-  (sector('E')?.querySelector('title')?.textContent || '').includes('гармонический минор'),
+  /гармонический минор/i.test(sector('E')?.querySelector('title')?.textContent || ''),
   sector('E')?.querySelector('title')?.textContent || '');
 ok('Fm без меню: ни диаграммы, ни aria',
   !diagramOf('Fm') && !(sector('Fm')?.getAttribute('aria-label')),
@@ -256,9 +256,10 @@ ok('5 цветов: окно 2+3, база внутри, радиальная г
   radialMidpointMatches(fivePanes) && sharesAreUnequalAndComplete(fivePanes) &&
   fivePanes.querySelectorAll('.wheel-mode-divider').length === 4,
   `${fivePanes?.dataset.paneLayout || 'нет'} / ${paneModes(fivePanes).join(',')}`);
-ok('подписи сохраняют штатное оформление при новой раскладке полей',
+ok('подписи сохраняют штатное оформление; отдельная pane-hover-подпись удалена',
   d.querySelectorAll('#circleSvg .wheel-mode-pane-label').length === 0 &&
-  !/wheel-mode-pane-label/.test(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8')));
+  !d.getElementById('wheelModeHoverLabel') &&
+  !/wheel-mode-pane-label|wheel-mode-hover-label/.test(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8')));
 
 // ===== 6. Другие режимы круга остаются на строгой раскраске =====
 w.eval("wheelMode = '7'; drawWheel();");
@@ -284,8 +285,9 @@ ok('легенда компактно показывает все лады/цв�
   /V\/x/.test(legend?.textContent || '') && !d.getElementById('wheelHarmonyLegendCurrent') &&
   modeInputs.every((input) => input.checked),
   (legend?.textContent || '').replace(/\s+/g, ' ').slice(0, 180));
-const dorianPane = d.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="D"] .wheel-mode-pane[data-mode="dorian"]');
 const dorianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="dorian"]');
+const amSectorBeforeToggle = sector('Am');
+const amPaneBeforeToggle = paneGroup('Am', 'minor');
 const fakeEditor = d.createElement('div');
 fakeEditor.className = 'chord-wrapper';
 fakeEditor.dataset.harmonyProfile = 'dorian';
@@ -295,13 +297,22 @@ fakeTimeline.dataset.harmonyProfile = 'dorian';
 d.body.append(fakeEditor, fakeTimeline);
 dorianToggle.checked = false;
 dorianToggle.dispatchEvent(new w.Event('change', { bubbles: true }));
-ok('переключатель скрывает только дорийскую заливку круга, не редактор/ленту и не музыкальные данные',
-  dorianPane?.classList.contains('wheel-harmony-mode-muted') &&
+const amPaneAfterToggle = paneGroup('Am', 'minor');
+const amSectorAfterToggle = sector('Am');
+ok('отключение одного лада пересчитывает 3+2/5-панель в 2+2/4, сохраняя полный музыкальный список и scope круга',
+  amPaneBeforeToggle?.dataset.paneLayout === 'five-window-2-inner-3-outer' &&
+  Number(amPaneBeforeToggle?.dataset.paneCount) === 5 &&
+  amPaneAfterToggle?.dataset.paneLayout === 'four-window' && Number(amPaneAfterToggle?.dataset.paneCount) === 4 &&
+  paneModes(amPaneAfterToggle).join(',') === 'aeolian,harmonic-minor,melodic-minor,phrygian' &&
+  amSectorBeforeToggle?.dataset.wheelModes.includes('dorian') &&
+  amSectorAfterToggle?.dataset.wheelModes.includes('dorian') &&
+  !amSectorAfterToggle?.dataset.wheelVisibleModes.includes('dorian') &&
+  !amSectorAfterToggle?.getAttribute('aria-label')?.includes('дорийский') &&
   d.getElementById('chordWheelModal').dataset.wheelHarmonyDisabledModes.includes('dorian') &&
   !fakeEditor.classList.contains('wheel-harmony-mode-muted') && !fakeTimeline.classList.contains('wheel-harmony-mode-muted') &&
   !d.body.classList.contains('is-harmony-mode-disabled') &&
   JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]').includes('dorian'),
-  `${dorianPane?.className?.baseVal || ''} / ${d.getElementById('chordWheelModal').dataset.wheelHarmonyDisabledModes || ''}`);
+  `${amPaneBeforeToggle?.dataset.paneLayout} (${amPaneBeforeToggle?.dataset.paneModes}) -> ${amPaneAfterToggle?.dataset.paneLayout} (${amPaneAfterToggle?.dataset.paneModes})`);
 dorianToggle.checked = true;
 dorianToggle.dispatchEvent(new w.Event('change', { bubbles: true }));
 const orbitBefore = w.eval(`(() => ({

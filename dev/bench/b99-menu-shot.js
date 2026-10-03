@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Скриншоты единственной production-раскладки B-99: покой и hover карты
-// вместе с компактной интерактивной палитрой. Opacity: 0.34 / 0.45.
+// Скриншоты panes B-99: 3+2-поля, секторная подсказка и компактная палитра.
+// Opacity: 0.34 / 0.45; Am в Am — пример пяти активных ладов.
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
@@ -11,10 +11,12 @@ const OUTPUT_DIR = path.resolve(process.env.B99_CAPTURE_DIR || path.join(__dirna
 fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
 const CAPTURES = [
-  { theme: 'light', mode: 'rest', caption: 'Светлая тема — panes, покой' },
-  { theme: 'dark', mode: 'rest', caption: 'Тёмная тема — panes, покой' },
-  { theme: 'light', mode: 'active', caption: 'Светлая тема — panes, hover по A#' },
-  { theme: 'dark', mode: 'active', caption: 'Тёмная тема — panes, hover по A#' },
+  { theme: 'light', mode: 'rest', caption: 'Светлая тема — круг Am, видна раскладка 3+2' },
+  { theme: 'dark', mode: 'rest', caption: 'Тёмная тема — круг Am, видна раскладка 3+2' },
+  { theme: 'light', mode: 'palette', caption: 'Светлая тема — компактная палитра ?' },
+  { theme: 'dark', mode: 'palette', caption: 'Тёмная тема — компактная палитра ?' },
+  { theme: 'light', mode: 'active', caption: 'Светлая тема — hover Am: все пять активных ладов' },
+  { theme: 'dark', mode: 'active', caption: 'Тёмная тема — hover Am: все пять активных ладов' },
 ];
 
 async function launch() {
@@ -43,6 +45,7 @@ async function shot(browser, mode, theme, caption) {
     keyMode = 'manual';
     activeSectionKey = null;
     activeChordInput = null;
+    try { localStorage.removeItem('struchord-wheel-harmony-visibility-v1'); } catch (_) {}
     updateCellsDegrees();
     DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
     wheelMode = 'triads';
@@ -50,31 +53,37 @@ async function shot(browser, mode, theme, caption) {
     const sr = document.getElementById('circleSvg').getBoundingClientRect();
     if (sr.width < 100 || sr.height < 100) throw new Error('circleSvg не виден: ' + JSON.stringify(sr));
     let box = { left: sr.left, top: sr.top, right: sr.right, bottom: sr.bottom };
-    if (frameMode === 'active') {
-      // Hover-подпись у левого цветового поля остаётся видна рядом с открытой палитрой.
+    if (frameMode === 'palette') {
       bindWheelHarmonyLegend();
       setWheelHarmonyLegendOpen(true);
-      const diagram = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="A#"][data-wheel-hover-ring="major"]');
-      const pane = diagram?.querySelector('.wheel-mode-pane[data-mode="phrygian"]');
-      const sector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="A#"][data-wheel-ring="major"]');
-      const start = Number(pane.dataset.paneStartAngle);
-      const end = Number(pane.dataset.paneEndAngle);
-      const inner = Number(pane.dataset.paneInnerRadius);
-      const outer = Number(pane.dataset.paneOuterRadius);
+      const lg = document.getElementById('wheelHarmonyLegend').getBoundingClientRect();
+      box = {
+        left: Math.min(box.left, lg.left),
+        top: Math.min(box.top, lg.top),
+        right: Math.max(box.right, lg.right),
+        bottom: Math.max(box.bottom, lg.bottom),
+      };
+    }
+    if (frameMode === 'active') {
+      // Am в Am — пятицветная карточка: показываем все текущие профили,
+      // а не отдельное имя одной pane под указателем.
+      const sector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
+      const diagram = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]');
+      if (!sector || diagram?.dataset.paneCount !== '5') throw new Error('Не найден пример Am с 3+2: ' + JSON.stringify({ sector: !!sector, count: diagram?.dataset.paneCount }));
+      const bounds = sector.getBBox();
       const point = document.getElementById('circleSvg').createSVGPoint();
-      point.x = 270 + ((inner + outer) / 2) * Math.cos((start + end) / 2);
-      point.y = 270 + ((inner + outer) / 2) * Math.sin((start + end) / 2);
-      const screen = point.matrixTransform(diagram.getScreenCTM());
-      const eventOptions = { bubbles: true, clientX: screen.x, clientY: screen.y, pointerType: 'mouse' };
+      point.x = bounds.x + bounds.width / 2;
+      point.y = bounds.y + bounds.height / 2;
+      const screen = point.matrixTransform(sector.getScreenCTM());
+      const eventOptions = { bubbles: true, clientX: screen.x, clientY: screen.y, pageX: screen.x + scrollX, pageY: screen.y + scrollY, pointerType: 'mouse' };
       sector.dispatchEvent(new PointerEvent('pointerover', eventOptions));
       sector.dispatchEvent(new PointerEvent('pointermove', eventOptions));
-      const lg = document.getElementById('wheelHarmonyLegend').getBoundingClientRect();
-      const label = document.getElementById('wheelModeHoverLabel').getBoundingClientRect();
+      const tooltip = document.getElementById('wheelHarmonyHoverTooltip').getBoundingClientRect();
       box = {
-        left: Math.min(box.left, lg.left, label.left),
-        top: Math.min(box.top, lg.top, label.top),
-        right: Math.max(box.right, lg.right, label.right),
-        bottom: Math.max(box.bottom, lg.bottom, label.bottom),
+        left: Math.min(box.left, tooltip.left),
+        top: Math.min(box.top, tooltip.top),
+        right: Math.max(box.right, tooltip.right),
+        bottom: Math.max(box.bottom, tooltip.bottom),
       };
     }
     const pad = 26;

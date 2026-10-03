@@ -5451,22 +5451,34 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
   font-size: 0.5625rem;
   font-weight: 500;
 }
-.wheel-mode-hover-label {
+.wheel-harmony-hover-tooltip {
   position: absolute;
-  z-index: 6;
-  max-width: 12rem;
-  padding: 0.2rem 0.45rem;
-  border: 0.0625rem solid var(--wheel-mode-hover-color, var(--color-border-medium));
-  border-radius: 0.4rem;
-  background: var(--color-background-primary);
-  color: var(--wheel-mode-hover-color, var(--color-text-primary));
-  font: 750 0.6875rem/1.2 Inter, system-ui, sans-serif;
-  white-space: nowrap;
-  pointer-events: none;
-  transform: translateY(-120%);
+  z-index: 10002;
+  display: grid;
+  gap: 0.32rem;
+  width: max-content;
+  max-width: min(18rem, calc(100vw - 1rem));
+  max-height: min(18rem, calc(100vh - 1rem));
+  overflow: auto;
+  box-sizing: border-box;
+  padding: 0.55rem 0.65rem;
+  border: 0.0625rem solid var(--color-border-medium);
+  border-left: 0.2rem solid var(--wheel-harmony-hover-accent, var(--color-accent));
+  border-radius: 0.55rem;
+  background: color-mix(in srgb, var(--color-background-primary) 97%, var(--color-accent));
+  color: var(--color-text-primary);
   box-shadow: var(--shadow-card);
+  pointer-events: none;
 }
-.wheel-mode-hover-label[hidden] { display: none; }
+.wheel-harmony-hover-tooltip[hidden] { display: none; }
+.wheel-harmony-hover-heading { display: grid; gap: 0.08rem; }
+.wheel-harmony-hover-chord { font-size: 0.75rem; font-weight: 800; }
+.wheel-harmony-hover-context { color: var(--color-text-secondary); font-size: 0.6rem; font-weight: 600; }
+.wheel-harmony-hover-modes { display: grid; gap: 0.16rem; }
+.wheel-harmony-hover-mode { display: flex; flex-wrap: wrap; align-items: baseline; column-gap: 0.35rem; row-gap: 0; }
+.wheel-harmony-hover-mode-degree { min-width: 1.1em; color: var(--color-text-secondary); font-size: 0.5625rem; font-weight: 750; }
+.wheel-harmony-hover-mode-name { color: var(--wheel-harmony-legend-color); font-size: 0.625rem; font-weight: 750; }
+.wheel-harmony-hover-mode-change { color: var(--color-text-secondary); font-size: 0.5625rem; }
 /* Контур не расширяет hit-area карточки. Прозрачный catcher лежит под
    секторами, ловит только реальные промежутки и гасит их без click-through. */
 #circleSvg .wheel-sector {
@@ -5720,7 +5732,6 @@ html.wheel-motion-disabled #circleSvg .wheel-degree-label.is-wheel-hovered {
 #circleSvg .wheel-mode-pane[data-mode='lydian'] { fill: var(--harmony-lydian); }
 #circleSvg .wheel-mode-pane[data-mode='mixolydian'] { fill: var(--harmony-mixolydian); }
 #circleSvg .wheel-mode-pane[data-mode='locrian'] { fill: var(--harmony-locrian); }
-#circleSvg .wheel-mode-pane.wheel-harmony-mode-muted { fill-opacity: 0 !important; }
 /* B-99 pane menu (0.555): restore the 0.551 theme-matched neutral divider
    token so rails stay visible in both light and dark themes. */
 #circleSvg .wheel-mode-divider {
@@ -11584,7 +11595,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.556</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.557</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -12178,7 +12189,6 @@ body.power-ui-waking .pinned-fingering-dock {
             <div class="mode-row" id="wheelModeRow2"></div>
             <button id="wheelHarmonyLegendToggle" class="wheel-harmony-legend-toggle" type="button" aria-label="Показать палитру ладов и настроек подсветки круга" aria-expanded="false" aria-controls="wheelHarmonyLegend">?</button>
           </div>
-          <div id="wheelModeHoverLabel" class="wheel-mode-hover-label" aria-hidden="true" hidden></div>
         </div>
       </div>
     </div>
@@ -22422,6 +22432,41 @@ function getBorrowingMenuText(menu) {
   if (!labels.length) return '';
   return `${menu.chord}: ступень ${menu.degree} — ${labels.join(', ')}`;
 }
+function getWheelBorrowingAccessibleText(menu, modes) {
+  if (!menu) return '';
+  const visibleModes = getEnabledWheelHarmonyModes(modes || menu.modes);
+  if (!visibleModes.length) {
+    return `${menu.chord}: ступень ${menu.degree} в ${menu.key}; подсветки подходящих ладов выключены.`;
+  }
+  const details = visibleModes.map((mode) => {
+    const info = getWheelHarmonyModeDetails(mode);
+    const modeDegree = menu.degree ? `${menu.degree} — ` : '';
+    return `${modeDegree}${info.name}${info.change ? ` — ${info.change}` : ''}`;
+  });
+  return `${menu.chord}: ступень ${menu.degree} в ${menu.key}. Подсветки включены для: ${details.join('; ')}.`;
+}
+function syncWheelBorrowingMenuAccessibility(sector) {
+  if (!sector || sector.dataset.wheelModePresentation !== 'menu') return;
+  const modes = (sector.dataset.wheelModes || '').split(',').filter(Boolean);
+  sector.dataset.wheelVisibleModes = getEnabledWheelHarmonyModes(modes).join(',');
+  const menu = {
+    chord: sector.dataset.wheelChord || sector.dataset.wheelChordIdentity || '',
+    key: sector.dataset.wheelKey || '',
+    degree: sector.dataset.wheelDegree || '',
+    modes,
+  };
+  const text = getWheelBorrowingAccessibleText(menu, modes);
+  if (isHarmonyPresentationEnabled() && text) sector.setAttribute('aria-label', text);
+  else sector.removeAttribute('aria-label');
+  let title = sector.querySelector('title');
+  if (isHarmonyPresentationEnabled() && text) {
+    if (!title) {
+      title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+      sector.appendChild(title);
+    }
+    title.textContent = text;
+  } else if (title) title.remove();
+}
 // Единая точка нанесения меню на узлы круга: drawWheel рисует с нуля,
 // refreshWheelHarmonyPresentation обновляет уже собранный SVG (переключение
 // настройки «Ступени», смена контекста). Цветовой слой гейтится той же
@@ -22430,26 +22475,25 @@ function applyWheelBorrowingMenu(node, menu, { isSector = false } = {}) {
   if (!node) return;
   if (!menu) {
     delete node.dataset.wheelModes;
+    delete node.dataset.wheelDegree;
+    delete node.dataset.wheelChord;
+    delete node.dataset.wheelKey;
+    delete node.dataset.wheelModePresentation;
+    delete node.dataset.wheelVisibleModes;
     if (isSector) {
       node.removeAttribute('aria-label');
       node.querySelector('title')?.remove();
     }
     return;
   }
+  node.dataset.wheelModePresentation = 'menu';
   node.dataset.wheelModes = menu.modes.join(',');
+  node.dataset.wheelDegree = menu.degree || '';
+  node.dataset.wheelChord = menu.chord || '';
+  node.dataset.wheelKey = menu.key || '';
+  node.dataset.wheelVisibleModes = getEnabledWheelHarmonyModes(menu.modes).join(',');
   if (!isSector) return;
-  const text = getBorrowingMenuText(menu);
-  const enabled = isHarmonyPresentationEnabled();
-  if (enabled && text) node.setAttribute('aria-label', text);
-  else node.removeAttribute('aria-label');
-  let title = node.querySelector('title');
-  if (enabled && text) {
-    if (!title) {
-      title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
-      node.appendChild(title);
-    }
-    title.textContent = text;
-  } else if (title) title.remove();
+  syncWheelBorrowingMenuAccessibility(node);
 }
 window.getBorrowingMenuProfile = getBorrowingMenuProfile;
 window.getBorrowingMenuText = getBorrowingMenuText;
@@ -22659,6 +22703,16 @@ function isWheelHarmonyModeEnabled(mode) {
   loadWheelHarmonyModeVisibility();
   return !wheelHarmonyDisabledModes.has(mode);
 }
+function getEnabledWheelHarmonyModes(modes) {
+  return Array.from(modes || []).filter(isWheelHarmonyModeEnabled);
+}
+function getWheelHarmonyModeDetails(mode) {
+  return WHEEL_HARMONY_LEGEND_MODES.find((item) => item.id === mode) || {
+    id: mode,
+    name: HARMONY_MODE_SHORT_LABELS[mode] || mode,
+    change: '',
+  };
+}
 function applyWheelHarmonyModeVisibility() {
   loadWheelHarmonyModeVisibility();
   const disabled = WHEEL_HARMONY_LEGEND_MODES
@@ -22669,12 +22723,10 @@ function applyWheelHarmonyModeVisibility() {
     if (disabled.length) modal.dataset.wheelHarmonyDisabledModes = disabled.join(' ');
     else delete modal.dataset.wheelHarmonyDisabledModes;
   }
-  DOM.circleSvg?.querySelectorAll('.wheel-mode-pane[data-mode]').forEach((pane) => {
-    pane.classList.toggle('wheel-harmony-mode-muted', wheelHarmonyDisabledModes.has(pane.dataset.mode));
-  });
   DOM.circleSvg?.querySelectorAll('[data-harmony-profile]').forEach((node) => {
     node.classList.toggle('wheel-harmony-mode-muted', wheelHarmonyDisabledModes.has(node.dataset.harmonyProfile));
   });
+  DOM.circleSvg?.querySelectorAll('.wheel-sector[data-wheel-mode-presentation="menu"]').forEach(syncWheelBorrowingMenuAccessibility);
   document.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]').forEach((input) => {
     input.checked = !wheelHarmonyDisabledModes.has(input.dataset.wheelHarmonyMode);
   });
@@ -22689,9 +22741,9 @@ function setWheelHarmonyModeEnabled(mode, enabled) {
   } catch (_) {
     // Storage is optional; the current page keeps the user's choice in memory.
   }
-  applyWheelHarmonyModeVisibility();
-  const hoverLabel = document.getElementById('wheelModeHoverLabel');
-  if (!enabled && hoverLabel?.dataset.mode === mode) hideWheelModeHoverLabel();
+  hideWheelHarmonyHoverTooltip();
+  if (!isDevWheel410()) drawWheel();
+  else applyWheelHarmonyModeVisibility();
 }
 function renderWheelHarmonyLegendModes() {
   const list = document.getElementById('wheelHarmonyModeList');
@@ -33513,7 +33565,7 @@ function scheduleWheelGapHoverClear() {
   if (!ranSynchronously) wheelGapHoverClearRaf = handle;
 }
 function clearWheelHover({ restorePreview = true, stopIdleMotion = false } = {}) {
-  hideWheelModeHoverLabel();
+  hideWheelHarmonyHoverTooltip();
   // Pointerleave or an actual gap clears only hover channels: water remains
   // alive for the entire open circle. Close/draw explicitly own its lifecycle.
   cancelWheelGapHoverClear();
@@ -33727,125 +33779,200 @@ function updateWheelCursorResponse(nodes, event) {
   };
   requestWheelCursorResponseFrame();
 }
-function hideWheelModeHoverLabel() {
-  const label = document.getElementById('wheelModeHoverLabel');
-  if (!label) return;
-  label.hidden = true;
-  label.textContent = '';
-  delete label.dataset.mode;
-  label.style.removeProperty('--wheel-mode-hover-color');
+let wheelHarmonyHoverPointer = null;
+let wheelHarmonyHoverSector = null;
+let wheelHarmonyHoverRepositionRaf = 0;
+let wheelHarmonyHoverViewportBound = false;
+function restoreWheelHarmonyNativeTitle(sector) {
+  if (!sector?.dataset || !Object.prototype.hasOwnProperty.call(sector.dataset, 'wheelSuppressedTitle')) return;
+  const title = document.createElementNS('http://www.w3.org/2000/svg', 'title');
+  title.textContent = sector.dataset.wheelSuppressedTitle;
+  sector.appendChild(title);
+  delete sector.dataset.wheelSuppressedTitle;
 }
-function getWheelModeDiagramPoint(event, diagram) {
-  const svg = DOM.circleSvg;
-  if (!Number.isFinite(event?.clientX) || !Number.isFinite(event?.clientY)) return null;
-  try {
-    const matrix = diagram?.getScreenCTM?.();
-    if (matrix && svg?.createSVGPoint) {
-      const point = svg.createSVGPoint();
-      point.x = event.clientX;
-      point.y = event.clientY;
-      const local = point.matrixTransform(matrix.inverse());
-      if (Number.isFinite(local.x) && Number.isFinite(local.y)) return { x: local.x, y: local.y };
-    }
-  } catch (_) {
-    // Fall back to the SVG viewBox when a browser cannot expose this CTM.
+function hideWheelHarmonyHoverTooltip() {
+  const tooltip = document.getElementById('wheelHarmonyHoverTooltip');
+  if (tooltip) {
+    tooltip.hidden = true;
+    tooltip.setAttribute('aria-hidden', 'true');
+    tooltip.replaceChildren();
   }
-  const point = wheelSvgPointerPoint(event);
-  return point ? { x: point.x, y: point.y } : null;
+  restoreWheelHarmonyNativeTitle(wheelHarmonyHoverSector);
+  wheelHarmonyHoverPointer = null;
+  wheelHarmonyHoverSector = null;
+  if (wheelHarmonyHoverRepositionRaf) {
+    cancelAnimationFrame(wheelHarmonyHoverRepositionRaf);
+    wheelHarmonyHoverRepositionRaf = 0;
+  }
 }
-function updateWheelModeHoverLabel(diagram, event) {
-  const label = document.getElementById('wheelModeHoverLabel');
-  const svg = DOM.circleSvg;
-  const wrap = svg?.closest('.wheel-svg-wrap');
-  if (
-    !label || !diagram || !event || event.pointerType === 'touch' ||
-    !DOM.chordWheelModal?.classList.contains('is-harmony-highlights-on') || !wrap
-  ) {
-    hideWheelModeHoverLabel();
-    return;
-  }
-  const point = getWheelModeDiagramPoint(event, diagram);
-  if (!point) {
-    hideWheelModeHoverLabel();
-    return;
-  }
-  const dx = point.x - 270;
-  const dy = point.y - 270;
-  const radius = Math.hypot(dx, dy);
-  const angle = Math.atan2(dy, dx);
-  const tau = 2 * Math.PI;
-  const pane = Array.from(diagram.querySelectorAll('.wheel-mode-pane')).find((candidate) => {
-    const inner = Number(candidate.dataset.paneInnerRadius);
-    const outer = Number(candidate.dataset.paneOuterRadius);
-    const start = Number(candidate.dataset.paneStartAngle);
-    const end = Number(candidate.dataset.paneEndAngle);
-    if (![inner, outer, start, end].every(Number.isFinite) || radius < inner || radius > outer) return false;
-    const angleFromStart = ((angle - start) % tau + tau) % tau;
-    return angleFromStart <= end - start + 1e-5;
-  });
-  const mode = pane?.dataset.mode;
-  if (!mode || !isWheelHarmonyModeEnabled(mode)) {
-    hideWheelModeHoverLabel();
-    return;
-  }
-  const text = mode === 'secondary-function'
-    ? 'V/x — вторичная доминанта'
-    : HARMONY_MODE_SHORT_LABELS[mode] || '';
-  if (!text) {
-    hideWheelModeHoverLabel();
-    return;
-  }
-  label.textContent = text;
-  label.dataset.mode = mode;
-  label.style.setProperty('--wheel-mode-hover-color', `var(--harmony-${mode})`);
-  label.hidden = false;
-  const wrapRect = wrap.getBoundingClientRect();
-  const labelRect = label.getBoundingClientRect();
-  const pointerX = event.clientX - wrapRect.left + 10;
-  const pointerY = event.clientY - wrapRect.top;
-  const maxLeft = Math.max(2, wrapRect.width - labelRect.width - 4);
-  const minTop = labelRect.height * 1.2 + 4;
-  const maxTop = Math.max(minTop, wrapRect.height + labelRect.height * 0.2 - 4);
-  const clampLeft = (left) => Math.max(2, Math.min(maxLeft, left));
-  const clampTop = (top) => Math.max(minTop, Math.min(maxTop, top));
+function getWheelHarmonyHoverModes(sector) {
+  const modes = (sector?.dataset?.wheelModes || '').split(',').filter(Boolean);
+  return getEnabledWheelHarmonyModes(modes);
+}
+function getWheelHarmonyHoverModeDetail(mode) {
+  return getWheelHarmonyModeDetails(mode);
+}
+function positionWheelHarmonyHoverTooltip(clientX, clientY) {
+  const tooltip = document.getElementById('wheelHarmonyHoverTooltip');
+  if (!tooltip || tooltip.hidden) return;
+  const visualViewport = window.visualViewport;
+  const viewportLeft = visualViewport?.offsetLeft || 0;
+  const viewportTop = visualViewport?.offsetTop || 0;
+  const viewportWidth = visualViewport?.width || document.documentElement.clientWidth || window.innerWidth;
+  const viewportHeight = visualViewport?.height || document.documentElement.clientHeight || window.innerHeight;
+  const scrollX = window.scrollX || document.documentElement.scrollLeft || 0;
+  const scrollY = window.scrollY || document.documentElement.scrollTop || 0;
+  const tooltipRect = tooltip.getBoundingClientRect();
+  const margin = 8;
+  const maxLeft = Math.max(viewportLeft + margin, viewportLeft + viewportWidth - tooltipRect.width - margin);
+  const maxTop = Math.max(viewportTop + margin, viewportTop + viewportHeight - tooltipRect.height - margin);
   const legend = document.getElementById('wheelHarmonyLegend');
   const legendRect = legend && !legend.hidden ? legend.getBoundingClientRect() : null;
-  const overlapsLegend = (rect) => legendRect &&
-    rect.left < legendRect.right && rect.right > legendRect.left &&
-    rect.top < legendRect.bottom && rect.bottom > legendRect.top;
-  const belowPointerOffset = labelRect.height * 1.4;
+  const circle = document.getElementById('circleSvg');
+  const circleRect = circle ? circle.getBoundingClientRect() : null;
+  const pointerGap = 14;
   const candidates = [
-    { left: pointerX, top: pointerY },
-    { left: pointerX - labelRect.width - 12, top: pointerY },
-    { left: pointerX, top: pointerY + belowPointerOffset },
-    { left: pointerX - labelRect.width - 12, top: pointerY + belowPointerOffset },
-    { left: pointerX, top: pointerY - belowPointerOffset },
-    { left: pointerX - labelRect.width - 12, top: pointerY - belowPointerOffset },
+    { left: clientX + pointerGap, top: clientY + pointerGap },
+    { left: clientX - tooltipRect.width - pointerGap, top: clientY + pointerGap },
+    { left: clientX + pointerGap, top: clientY - tooltipRect.height - pointerGap },
+    { left: clientX - tooltipRect.width - pointerGap, top: clientY - tooltipRect.height - pointerGap },
+    { left: clientX - tooltipRect.width / 2, top: clientY + pointerGap },
+    { left: clientX - tooltipRect.width / 2, top: clientY - tooltipRect.height - pointerGap },
+    ...(legendRect ? [
+      { left: legendRect.right + pointerGap, top: clientY + pointerGap },
+      { left: legendRect.right + pointerGap, top: clientY - tooltipRect.height - pointerGap },
+      { left: legendRect.left - tooltipRect.width - pointerGap, top: clientY + pointerGap },
+      { left: legendRect.left - tooltipRect.width - pointerGap, top: clientY - tooltipRect.height - pointerGap },
+      { left: clientX - tooltipRect.width / 2, top: legendRect.bottom + pointerGap },
+      { left: clientX - tooltipRect.width / 2, top: legendRect.top - tooltipRect.height - pointerGap },
+    ] : []),
+    ...(circleRect ? [
+      { left: circleRect.right + pointerGap, top: clientY - tooltipRect.height / 2 },
+      { left: circleRect.right + pointerGap, top: circleRect.top + pointerGap },
+      { left: circleRect.right + pointerGap, top: circleRect.bottom - tooltipRect.height - pointerGap },
+      { left: circleRect.left - tooltipRect.width - pointerGap, top: clientY - tooltipRect.height / 2 },
+      { left: circleRect.left - tooltipRect.width - pointerGap, top: circleRect.top + pointerGap },
+      { left: circleRect.left - tooltipRect.width - pointerGap, top: circleRect.bottom - tooltipRect.height - pointerGap },
+      { left: clientX - tooltipRect.width / 2, top: circleRect.top - tooltipRect.height - pointerGap },
+      { left: clientX - tooltipRect.width / 2, top: circleRect.bottom + pointerGap },
+    ] : []),
   ];
-  let placement = null;
+  const overlapArea = (rect, other) => {
+    if (!other) return 0;
+    const width = Math.max(0, Math.min(rect.right, other.right) - Math.max(rect.left, other.left));
+    const height = Math.max(0, Math.min(rect.bottom, other.bottom) - Math.max(rect.top, other.top));
+    return width * height;
+  };
+  let best = null;
   for (const candidate of candidates) {
-    label.style.left = `${clampLeft(candidate.left)}px`;
-    label.style.top = `${clampTop(candidate.top)}px`;
-    const rect = label.getBoundingClientRect();
-    if (!overlapsLegend(rect)) {
-      placement = { left: label.style.left, top: label.style.top };
-      break;
+    const left = Math.max(viewportLeft + margin, Math.min(maxLeft, candidate.left));
+    const top = Math.max(viewportTop + margin, Math.min(maxTop, candidate.top));
+    tooltip.style.left = `${scrollX + left}px`;
+    tooltip.style.top = `${scrollY + top}px`;
+    const rect = tooltip.getBoundingClientRect();
+    const collision = overlapArea(rect, legendRect) + overlapArea(rect, circleRect);
+    if (!best || collision < best.collision) best = { left: tooltip.style.left, top: tooltip.style.top, collision };
+    if (!collision) break;
+  }
+  if (best) {
+    tooltip.style.left = best.left;
+    tooltip.style.top = best.top;
+  }
+}
+function scheduleWheelHarmonyHoverReposition() {
+  if (!wheelHarmonyHoverPointer || wheelHarmonyHoverRepositionRaf) return;
+  wheelHarmonyHoverRepositionRaf = requestAnimationFrame(() => {
+    wheelHarmonyHoverRepositionRaf = 0;
+    if (wheelHarmonyHoverPointer) {
+      positionWheelHarmonyHoverTooltip(wheelHarmonyHoverPointer.clientX, wheelHarmonyHoverPointer.clientY);
     }
+  });
+}
+function bindWheelHarmonyHoverViewportEvents() {
+  if (wheelHarmonyHoverViewportBound) return;
+  wheelHarmonyHoverViewportBound = true;
+  window.addEventListener('resize', scheduleWheelHarmonyHoverReposition, { passive: true });
+  window.addEventListener('scroll', scheduleWheelHarmonyHoverReposition, { passive: true });
+  window.visualViewport?.addEventListener('resize', scheduleWheelHarmonyHoverReposition, { passive: true });
+  window.visualViewport?.addEventListener('scroll', scheduleWheelHarmonyHoverReposition, { passive: true });
+}
+function updateWheelHarmonyHoverTooltip(sector, event) {
+  const tooltip = document.getElementById('wheelHarmonyHoverTooltip');
+  const modes = getWheelHarmonyHoverModes(sector);
+  if (
+    !tooltip || !sector || !event || event.pointerType === 'touch' ||
+    !DOM.chordWheelModal?.classList.contains('is-harmony-highlights-on') || !modes.length
+  ) {
+    hideWheelHarmonyHoverTooltip();
+    return;
   }
-  if (placement) {
-    label.style.left = placement.left;
-    label.style.top = placement.top;
-  } else {
-    label.style.left = `${clampLeft(pointerX)}px`;
-    label.style.top = `${clampTop(pointerY)}px`;
+  const isNewSector = wheelHarmonyHoverSector !== sector;
+  if (isNewSector) {
+    restoreWheelHarmonyNativeTitle(wheelHarmonyHoverSector);
+    const title = sector.querySelector('title');
+    if (title) {
+      sector.dataset.wheelSuppressedTitle = title.textContent;
+      title.remove();
+    }
+    wheelHarmonyHoverSector = sector;
+    const chord = sector.dataset.wheelChord || sector.dataset.wheelChordIdentity || '';
+    const degree = sector.dataset.wheelDegree || '';
+    const key = sector.dataset.wheelKey || activeSectionKey || getEffectiveKey();
+    const heading = document.createElement('div');
+    heading.className = 'wheel-harmony-hover-heading';
+    const chordName = document.createElement('strong');
+    chordName.className = 'wheel-harmony-hover-chord';
+    chordName.textContent = chord;
+    const context = document.createElement('span');
+    context.className = 'wheel-harmony-hover-context';
+    const degreeLabel = /^V\//.test(degree) ? `Функция ${degree}` : degree ? `Ступень ${degree}` : '';
+    context.textContent = [degreeLabel, key].filter(Boolean).join(' · ');
+    heading.append(chordName, context);
+    const list = document.createElement('div');
+    list.className = 'wheel-harmony-hover-modes';
+    list.setAttribute('aria-hidden', 'true');
+    modes.forEach((mode) => {
+      const info = getWheelHarmonyHoverModeDetail(mode);
+      const row = document.createElement('div');
+      row.className = 'wheel-harmony-hover-mode';
+      row.style.setProperty('--wheel-harmony-legend-color', `var(--harmony-${mode})`);
+      if (degree) {
+        const modeDegree = document.createElement('span');
+        modeDegree.className = 'wheel-harmony-hover-mode-degree';
+        modeDegree.textContent = degree;
+        row.appendChild(modeDegree);
+      }
+      const name = document.createElement('strong');
+      name.className = 'wheel-harmony-hover-mode-name';
+      name.textContent = info.name;
+      row.appendChild(name);
+      if (info.change) {
+        const change = document.createElement('small');
+        change.className = 'wheel-harmony-hover-mode-change';
+        change.textContent = info.change;
+        row.appendChild(change);
+      }
+      list.appendChild(row);
+    });
+    tooltip.replaceChildren(heading, list);
+    tooltip.style.setProperty('--wheel-harmony-hover-accent', `var(--harmony-${modes[0]})`);
   }
+  tooltip.hidden = false;
+  tooltip.setAttribute('aria-hidden', 'true');
+  const pointer = {
+    clientX: Number.isFinite(event.clientX) ? event.clientX : 0,
+    clientY: Number.isFinite(event.clientY) ? event.clientY : 0,
+  };
+  wheelHarmonyHoverPointer = pointer;
+  bindWheelHarmonyHoverViewportEvents();
+  positionWheelHarmonyHoverTooltip(pointer.clientX, pointer.clientY);
 }
 function wireWheelSectorHover(nodes, chord, ring, index, centerX, centerY) {
   // Проценты viewBox, а не fill-box отдельного текста: при scale имя
   // движется как часть одной сектор-карточки, не «плавает» внутри неё.
   const originX = `${(centerX / 540) * 100}%`;
   const originY = `${(centerY / 540) * 100}%`;
-  const modeDiagram = nodes.find((node) => node?.classList?.contains('wheel-mode-diagram')) || null;
+  const sector = nodes.find((node) => node?.classList?.contains('wheel-sector')) || null;
   // Три SVG-узла одной card (surface, volume, label) получают один release
   // из глубины: они остаются одной карточкой, а не разъезжаются слоями.
   applyWheelFloatingStoneTiming(nodes, ring, index);
@@ -33861,13 +33988,13 @@ function wireWheelSectorHover(nodes, chord, ring, index, centerX, centerY) {
     node.addEventListener('pointerover', (event) => {
       const hoverNodes = nodes.filter(Boolean);
       activateWheelHover(hoverNodes, chord, { ring, index });
-      updateWheelModeHoverLabel(modeDiagram, event);
+      updateWheelHarmonyHoverTooltip(sector, event);
       // На медленном переходе следующий pointermove может прийти поздно;
       // используем уже имеющиеся координаты самого входа в карточку.
       updateWheelCursorResponse(hoverNodes, event);
     });
     node.addEventListener('pointermove', (event) => {
-      updateWheelModeHoverLabel(modeDiagram, event);
+      updateWheelHarmonyHoverTooltip(sector, event);
       updateWheelCursorResponse(nodes.filter(Boolean), event);
     });
   });
@@ -33970,7 +34097,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     const seen = new Map();
     return chords.map((chord) => {
       const menu = getBorrowingMenuProfile(correctChordName(chord, ks), sk);
-      const count = menu?.modes.length || 0;
+      const count = getEnabledWheelHarmonyModes(menu?.modes).length;
       if (!count) return 0;
       const ordinal = seen.get(count) || 0;
       seen.set(count, ordinal + 1);
@@ -33993,7 +34120,23 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   const applyWheelHarmony = (sector, label, analysis) => {
     const group = analysis?.group;
     const profile = getHarmonyPresentationProfile(analysis);
-    if (!group || group === HARMONY_GROUP.UNKNOWN || !profile) return;
+    if (!group || group === HARMONY_GROUP.UNKNOWN || !profile) {
+      [sector, label].filter(Boolean).forEach((node) => {
+        delete node.dataset.wheelModePresentation;
+        delete node.dataset.wheelModes;
+        delete node.dataset.wheelDegree;
+        delete node.dataset.wheelChord;
+        delete node.dataset.wheelKey;
+      });
+      return;
+    }
+    [sector, label].filter(Boolean).forEach((node) => {
+      node.dataset.wheelModePresentation = 'strict';
+      node.dataset.wheelModes = profile;
+      node.dataset.wheelDegree = analysis.function || getScaleDegree(analysis.chord, analysis.key) || analysis.degree || '';
+      node.dataset.wheelChord = analysis.chord || '';
+      node.dataset.wheelKey = analysis.key || '';
+    });
     sector.dataset.harmonyGroup = group;
     sector.dataset.harmonyProfile = profile;
     if (label?.dataset) {
@@ -34005,10 +34148,11 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     else sector.removeAttribute('aria-label');
   };
   // У каждой трезвучной карточки ладовые цвета разложены по её площади:
-  // база — первой и у внутреннего края. Раскладки 2+1 и 3+2 делят радиальную
+  // оставшийся первый профиль — у внутреннего края. Раскладки 2+1 и 3+2 делят радиальную
   // ширину пополам; поле и подпись остаются частью hover/selection-узла.
   const appendWheelModeDiagram = (menu, start, end, cardOuter, cardInner, selected, clipKey, patternOrdinal = 0) => {
-    const count = menu?.modes?.length || 0;
+    const modes = getEnabledWheelHarmonyModes(menu?.modes);
+    const count = modes.length;
     if (!menuMode || count < 1 || count > 5) return null;
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.classList.add('wheel-mode-diagram');
@@ -34024,6 +34168,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     frag.appendChild(clip);
     group.setAttribute('clip-path', `url(#${clip.id})`);
     group.dataset.paneCount = String(count);
+    group.dataset.paneModes = modes.join(',');
     group.dataset.panePatternOrdinal = String(patternOrdinal);
     group.dataset.sectorInnerRadius = cardInner.toFixed(2);
     group.dataset.sectorOuterRadius = cardOuter.toFixed(2);
@@ -34077,21 +34222,21 @@ function drawWheel({ crossfadeLabels = false } = {}) {
 
     if (count === 1) {
       group.dataset.paneLayout = 'solid';
-      appendPane(menu.modes[0], start, end, cardOuter - 1.2, cardInner + 1.2, 'whole');
+      appendPane(modes[0], start, end, cardOuter - 1.2, cardInner + 1.2, 'whole');
     } else if (count === 2) {
       const radialSplit = areaFractionRadius(0.5);
       group.dataset.radialBandSplitRadius = radialSplit.toFixed(2);
       if (patternOrdinal % 2 === 0) {
         group.dataset.paneLayout = 'two-inner-outer';
-        // Первый (базовый) лад — у центра, второй — снаружи.
-        appendPane(menu.modes[0], start, end, radialSplit - 0.7, cardInner, 'inner');
-        appendPane(menu.modes[1], start, end, cardOuter, radialSplit + 0.7, 'outer');
+        // Первый оставшийся включённый лад — у центра, второй — снаружи.
+        appendPane(modes[0], start, end, radialSplit - 0.7, cardInner, 'inner');
+        appendPane(modes[1], start, end, cardOuter, radialSplit + 0.7, 'outer');
         appendArcDivider(radialSplit);
       } else {
         group.dataset.paneLayout = 'two-clockwise-halves';
         // В продольном разрезе первый лад занимает начало сектора по часовой стрелке.
-        appendPane(menu.modes[0], start, halfAngle, cardOuter, cardInner, 'clockwise');
-        appendPane(menu.modes[1], halfAngle, end, cardOuter, cardInner, 'counterclockwise');
+        appendPane(modes[0], start, halfAngle, cardOuter, cardInner, 'clockwise');
+        appendPane(modes[1], halfAngle, end, cardOuter, cardInner, 'counterclockwise');
         appendRadialDivider(halfAngle);
       }
     } else if (count === 3) {
@@ -34102,14 +34247,14 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       group.dataset.radialBandSplitRadius = radialSplit.toFixed(2);
       group.dataset.paneLayout = singlePaneIsInner ? 'three-single-inner' : 'three-single-outer';
       if (singlePaneIsInner) {
-        appendPane(menu.modes[0], start, end, radialSplit, cardInner, 'inner');
-        appendPane(menu.modes[1], start, halfAngle, cardOuter, radialSplit, 'outer');
-        appendPane(menu.modes[2], halfAngle, end, cardOuter, radialSplit, 'outer');
+        appendPane(modes[0], start, end, radialSplit, cardInner, 'inner');
+        appendPane(modes[1], start, halfAngle, cardOuter, radialSplit, 'outer');
+        appendPane(modes[2], halfAngle, end, cardOuter, radialSplit, 'outer');
         appendRadialDivider(halfAngle, radialSplit, cardOuter);
       } else {
-        appendPane(menu.modes[0], start, halfAngle, radialSplit, cardInner, 'inner');
-        appendPane(menu.modes[1], halfAngle, end, radialSplit, cardInner, 'inner');
-        appendPane(menu.modes[2], start, end, cardOuter, radialSplit, 'outer');
+        appendPane(modes[0], start, halfAngle, radialSplit, cardInner, 'inner');
+        appendPane(modes[1], halfAngle, end, radialSplit, cardInner, 'inner');
+        appendPane(modes[2], start, end, cardOuter, radialSplit, 'outer');
         appendRadialDivider(halfAngle, cardInner, radialSplit);
       }
       appendArcDivider(radialSplit);
@@ -34117,10 +34262,10 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const radialSplit = areaFractionRadius(0.5);
       group.dataset.radialBandSplitRadius = radialSplit.toFixed(2);
       group.dataset.paneLayout = 'four-window';
-      appendPane(menu.modes[0], start, halfAngle, radialSplit, cardInner, 'inner');
-      appendPane(menu.modes[1], halfAngle, end, radialSplit, cardInner, 'inner');
-      appendPane(menu.modes[2], start, halfAngle, cardOuter, radialSplit, 'outer');
-      appendPane(menu.modes[3], halfAngle, end, cardOuter, radialSplit, 'outer');
+      appendPane(modes[0], start, halfAngle, radialSplit, cardInner, 'inner');
+      appendPane(modes[1], halfAngle, end, radialSplit, cardInner, 'inner');
+      appendPane(modes[2], start, halfAngle, cardOuter, radialSplit, 'outer');
+      appendPane(modes[3], halfAngle, end, cardOuter, radialSplit, 'outer');
       appendArcDivider(radialSplit);
       appendRadialDivider(halfAngle);
     } else {
@@ -34132,11 +34277,11 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const outerFirstThird = start + (end - start) / 3;
       const outerSecondThird = start + ((end - start) * 2) / 3;
       group.dataset.paneLayout = 'five-window-2-inner-3-outer';
-      appendPane(menu.modes[0], start, innerThird, radialSplit, cardInner, 'inner');
-      appendPane(menu.modes[1], innerThird, end, radialSplit, cardInner, 'inner');
-      appendPane(menu.modes[2], start, outerFirstThird, cardOuter, radialSplit, 'outer');
-      appendPane(menu.modes[3], outerFirstThird, outerSecondThird, cardOuter, radialSplit, 'outer');
-      appendPane(menu.modes[4], outerSecondThird, end, cardOuter, radialSplit, 'outer');
+      appendPane(modes[0], start, innerThird, radialSplit, cardInner, 'inner');
+      appendPane(modes[1], innerThird, end, radialSplit, cardInner, 'inner');
+      appendPane(modes[2], start, outerFirstThird, cardOuter, radialSplit, 'outer');
+      appendPane(modes[3], outerFirstThird, outerSecondThird, cardOuter, radialSplit, 'outer');
+      appendPane(modes[4], outerSecondThird, end, cardOuter, radialSplit, 'outer');
       appendArcDivider(radialSplit);
       appendRadialDivider(innerThird, cardInner, radialSplit);
       appendRadialDivider(outerFirstThird, radialSplit, cardOuter);
@@ -35222,6 +35367,7 @@ function refreshWheelSelectedChord() {
   });
 }
 function refreshWheelHarmonyPresentation() {
+  hideWheelHarmonyHoverTooltip();
   const key = activeSectionKey || getEffectiveKey();
   const context = getActiveWheelHarmonyContext(key);
   const analyzeWheelCandidate = (chord) => analyzeChordHarmony(chord, context.key, {
@@ -35246,9 +35392,19 @@ function refreshWheelHarmonyPresentation() {
     if (analysis.group === HARMONY_GROUP.UNKNOWN || !profile) {
       delete node.dataset.harmonyGroup;
       delete node.dataset.harmonyProfile;
+      delete node.dataset.wheelModePresentation;
+      delete node.dataset.wheelModes;
+      delete node.dataset.wheelDegree;
+      delete node.dataset.wheelChord;
+      delete node.dataset.wheelKey;
     } else {
       node.dataset.harmonyGroup = analysis.group;
       node.dataset.harmonyProfile = profile;
+      node.dataset.wheelModePresentation = 'strict';
+      node.dataset.wheelModes = profile;
+      node.dataset.wheelDegree = analysis.function || getScaleDegree(analysis.chord, analysis.key) || analysis.degree || '';
+      node.dataset.wheelChord = analysis.chord || '';
+      node.dataset.wheelKey = analysis.key || '';
     }
     if (node.classList.contains('wheel-sector')) {
       const text = isHarmonyPresentationEnabled() ? getHarmonyAccessibleText(analysis) : '';
@@ -46975,5 +47131,6 @@ toggleTimeAndBeats();
     <div class="scheme-popover" id="schemePopover" aria-hidden="true">
       <div class="scheme-popover-list" id="schemePopoverList" role="listbox" aria-label="Быстрый выбор цветовой схемы"></div>
     </div>
+    <div id="wheelHarmonyHoverTooltip" class="wheel-harmony-hover-tooltip" role="tooltip" aria-hidden="true" hidden></div>
 </body>
 </html>

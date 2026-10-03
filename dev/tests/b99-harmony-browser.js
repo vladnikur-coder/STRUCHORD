@@ -106,6 +106,7 @@ function ok(name, condition, detail = '') {
             legendCurrentAbsent: !document.getElementById('wheelHarmonyLegendCurrent'),
             fMinorModes: fMinor?.dataset.wheelModes || '',
             eMajorModes: eMajor?.dataset.wheelModes || '',
+            eMajorAria: eMajor?.getAttribute('aria-label') || '',
           };
         })(),
         panePresentation: (() => {
@@ -147,7 +148,9 @@ function ok(name, condition, detail = '') {
       minorLine.timelineProfiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
       minorLine.editorMarkers[0] !== minorLine.editorMarkers[1] &&
       minorLine.wheelMenu.legendCurrentAbsent && minorLine.wheelMenu.fMinorModes === '' &&
-      minorLine.wheelMenu.eMajorModes === 'harmonic-minor,melodic-minor,lydian', JSON.stringify(minorLine));
+      minorLine.wheelMenu.eMajorModes === 'harmonic-minor,melodic-minor,lydian' &&
+      /E: ступень V в Am/.test(minorLine.wheelMenu.eMajorAria) &&
+      /Гармонический минор/.test(minorLine.wheelMenu.eMajorAria), JSON.stringify(minorLine));
     ok('B-99 pane layouts retain selection and use the 0.551 theme-matched divider token in both themes',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
@@ -164,13 +167,21 @@ function ok(name, condition, detail = '') {
       const timelineColorBefore = getComputedStyle(timelineD, '::after').backgroundColor;
       const bodyMapClassBefore = document.body.classList.contains('is-harmony-highlights-on');
       const melodicToggle = document.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="melodic-minor"]');
-      const pane = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="D"] .wheel-mode-pane[data-mode="melodic-minor"]');
-      const menuSector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"][data-wheel-ring="major"]');
-      const menuModesBefore = menuSector?.dataset.wheelModes || '';
+      const amGroupBefore = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]');
+      const amSectorBefore = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
+      const fullModesBefore = amSectorBefore?.dataset.wheelModes || '';
       melodicToggle.checked = false;
       melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
-      const paneMuted = pane?.classList.contains('wheel-harmony-mode-muted') && getComputedStyle(pane).fillOpacity === '0';
-      const menuModesRetained = menuSector?.dataset.wheelModes === menuModesBefore && menuModesBefore.includes('melodic-minor');
+      const amGroupAfter = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]');
+      const amSectorAfter = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
+      const paneReflowed = amGroupBefore?.dataset.paneLayout === 'five-window-2-inner-3-outer' &&
+        Number(amGroupBefore?.dataset.paneCount) === 5 &&
+        amGroupAfter?.dataset.paneLayout === 'four-window' && Number(amGroupAfter?.dataset.paneCount) === 4 &&
+        amGroupAfter?.dataset.paneModes === 'aeolian,harmonic-minor,dorian,phrygian';
+      const menuDataPreserved = amSectorAfter?.dataset.wheelModes === fullModesBefore &&
+        fullModesBefore.includes('melodic-minor') &&
+        !amSectorAfter?.dataset.wheelVisibleModes.includes('melodic-minor') &&
+        !amSectorAfter?.getAttribute('aria-label')?.includes('мелодический минор');
       const editorColorAfter = getComputedStyle(editorD, '::before').backgroundColor;
       const timelineColorAfter = getComputedStyle(timelineD, '::after').backgroundColor;
       const bodyMapClassAfter = document.body.classList.contains('is-harmony-highlights-on');
@@ -184,8 +195,8 @@ function ok(name, condition, detail = '') {
       melodicToggle.checked = true;
       melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
       return {
-        paneMuted,
-        menuModesRetained,
+        paneReflowed,
+        menuDataPreserved,
         editorStable: editorColorBefore === editorColorAfter,
         timelineStable: timelineColorBefore === timelineColorAfter,
         bodyMapClassStable: bodyMapClassBefore === bodyMapClassAfter,
@@ -193,8 +204,8 @@ function ok(name, condition, detail = '') {
         disabledAttribute: DOM.chordWheelModal.dataset.wheelHarmonyDisabledModes || '',
       };
     });
-    ok('ладовые флажки управляют кругом и pane-полями, не редактором/лентой и не содержимым меню',
-      wheelToggleScope.paneMuted && wheelToggleScope.menuModesRetained && wheelToggleScope.editorStable &&
+    ok('флажки перестраивают круговые pane-поля 5→4 без изменения меню/редактора/ленты',
+      wheelToggleScope.paneReflowed && wheelToggleScope.menuDataPreserved && wheelToggleScope.editorStable &&
       wheelToggleScope.timelineStable && wheelToggleScope.bodyMapClassStable && wheelToggleScope.standardProfileMuted &&
       !wheelToggleScope.disabledAttribute.includes('melodic-minor'), JSON.stringify(wheelToggleScope));
 
@@ -235,61 +246,119 @@ function ok(name, condition, detail = '') {
     ok('legend ? opens accessibly', state.legendOpen && state.legendExpanded === 'true', JSON.stringify(state));
     ok('legend ? is a compact 10-color palette with raised/lowered-degree cues',
       state.legendModeCount === 10 && state.legendHasAlterations && !state.legendHasCurrentChord, JSON.stringify(state));
-    const hoverLabel = await page.evaluate(() => {
+    const sectorHoverTooltip = await page.evaluate(async () => {
       const setTheme = (theme) => document.documentElement.setAttribute('data-theme', theme);
       activeChordInput = document.querySelector('.chord-input[data-sec="91"][data-square="92"][data-ei="2"]');
       activeSectionKey = null;
       wheelMode = 'triads';
+      DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
       drawWheel();
       bindWheelHarmonyLegend();
       setWheelHarmonyLegendOpen(true);
-      const diagram = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="D"][data-wheel-hover-ring="major"]');
-      const pane = diagram?.querySelector('.wheel-mode-pane[data-mode="dorian"]');
-      const sector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"][data-wheel-ring="major"]');
-      const start = Number(pane.dataset.paneStartAngle);
-      const end = Number(pane.dataset.paneEndAngle);
-      const inner = Number(pane.dataset.paneInnerRadius);
-      const outer = Number(pane.dataset.paneOuterRadius);
-      const point = document.getElementById('circleSvg').createSVGPoint();
-      point.x = 270 + ((inner + outer) / 2) * Math.cos((start + end) / 2);
-      point.y = 270 + ((inner + outer) / 2) * Math.sin((start + end) / 2);
-      const screen = point.matrixTransform(diagram.getScreenCTM());
-      const sampleTheme = (theme) => {
-        setTheme(theme);
-        const reference = document.createElement('span');
-        reference.style.color = 'var(--harmony-dorian)';
-        document.body.appendChild(reference);
-        const expectedColor = getComputedStyle(reference).color;
-        reference.remove();
-        const eventOptions = { bubbles: true, clientX: screen.x, clientY: screen.y, pointerType: 'mouse' };
-        sector.dispatchEvent(new PointerEvent('pointerover', eventOptions));
-        sector.dispatchEvent(new PointerEvent('pointermove', eventOptions));
-        const label = document.getElementById('wheelModeHoverLabel');
+      const hoverModes = (target) => {
+        const rect = target.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+        const options = { bubbles: true, clientX, clientY, pageX: clientX + scrollX, pageY: clientY + scrollY, pointerType: 'mouse' };
+        target.dispatchEvent(new PointerEvent('pointerover', options));
+        target.dispatchEvent(new PointerEvent('pointermove', options));
         return {
-          text: label.textContent,
-          hidden: label.hidden,
-          customColor: label.style.getPropertyValue('--wheel-mode-hover-color'),
-          actualColor: getComputedStyle(label).color,
-          expectedColor,
-          overlapsLegend: (() => {
-            const legend = document.getElementById('wheelHarmonyLegend').getBoundingClientRect();
-            const bubble = label.getBoundingClientRect();
-            return bubble.left < legend.right && bubble.right > legend.left &&
-              bubble.top < legend.bottom && bubble.bottom > legend.top;
-          })(),
+          chord: document.querySelector('.wheel-harmony-hover-chord')?.textContent || '',
+          context: document.querySelector('.wheel-harmony-hover-context')?.textContent || '',
+          degrees: [...document.querySelectorAll('.wheel-harmony-hover-mode-degree')].map((node) => node.textContent),
+          modes: [...document.querySelectorAll('.wheel-harmony-hover-mode-name')].map((node) => node.textContent),
         };
       };
+      const amSectorBeforeToggle = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
+      const amAllModesTooltip = hoverModes(amSectorBeforeToggle);
+      const melodicToggle = document.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="melodic-minor"]');
+      melodicToggle.checked = false;
+      melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      const amSectorAfterToggle = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
+      const amFilteredTooltip = hoverModes(amSectorAfterToggle);
+      const amFourPaneCount = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]')?.dataset.paneCount;
+      melodicToggle.checked = true;
+      melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      const sector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"][data-wheel-ring="major"]');
+      const tooltip = document.getElementById('wheelHarmonyHoverTooltip');
+      const sampleTheme = (theme) => {
+        setTheme(theme);
+        const rect = sector.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+        const eventOptions = { bubbles: true, clientX, clientY, pageX: clientX + scrollX, pageY: clientY + scrollY, pointerType: 'mouse' };
+        sector.dispatchEvent(new PointerEvent('pointerover', eventOptions));
+        sector.dispatchEvent(new PointerEvent('pointermove', eventOptions));
+        const title = tooltip.querySelector('.wheel-harmony-hover-chord');
+        const context = tooltip.querySelector('.wheel-harmony-hover-context');
+        const modes = [...tooltip.querySelectorAll('.wheel-harmony-hover-mode')].map((row) => ({
+          degree: row.querySelector('.wheel-harmony-hover-mode-degree')?.textContent || '',
+          name: row.querySelector('.wheel-harmony-hover-mode-name')?.textContent || '',
+          change: row.querySelector('.wheel-harmony-hover-mode-change')?.textContent || '',
+          color: getComputedStyle(row.querySelector('.wheel-harmony-hover-mode-name')).color,
+        }));
+        const legendRect = document.getElementById('wheelHarmonyLegend').getBoundingClientRect();
+        const tooltipRect = tooltip.getBoundingClientRect();
+        const circleRect = document.getElementById('circleSvg').getBoundingClientRect();
+        const result = {
+          chord: title?.textContent || '',
+          context: context?.textContent || '',
+          hidden: tooltip.hidden,
+          modes,
+          overlapsLegend: tooltipRect.left < legendRect.right && tooltipRect.right > legendRect.left &&
+            tooltipRect.top < legendRect.bottom && tooltipRect.bottom > legendRect.top,
+          overlapsCircle: tooltipRect.left < circleRect.right && tooltipRect.right > circleRect.left &&
+            tooltipRect.top < circleRect.bottom && tooltipRect.bottom > circleRect.top,
+          hasNativeTitleWhileOpen: !!sector.querySelector('title'),
+          tooltipInsideViewport: tooltipRect.left >= 0 && tooltipRect.top >= 0 &&
+            tooltipRect.right <= innerWidth + 1 && tooltipRect.bottom <= innerHeight + 1,
+        };
+        return result;
+      };
       const light = sampleTheme('light');
+      setTheme('dark');
+      document.documentElement.style.setProperty('--ui-scale', '1.75');
+      window.dispatchEvent(new Event('resize'));
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      const rect = sector.getBoundingClientRect();
+      const clientX = rect.left + rect.width / 2;
+      const clientY = rect.top + rect.height / 2;
+      const zoomOptions = { bubbles: true, clientX, clientY, pageX: clientX + scrollX, pageY: clientY + scrollY, pointerType: 'mouse' };
+      sector.dispatchEvent(new PointerEvent('pointermove', zoomOptions));
       const dark = sampleTheme('dark');
       clearWheelHover();
+      document.documentElement.style.removeProperty('--ui-scale');
       setTheme('light');
-      return { light, dark, hiddenAfterLeave: document.getElementById('wheelModeHoverLabel').hidden };
+      return {
+        light,
+        dark,
+        amAllModesTooltip,
+        amFilteredTooltip,
+        amFourPaneCount,
+        hiddenAfterLeave: tooltip.hidden,
+        nativeTitleRestored: !!sector.querySelector('title'),
+      };
     });
-    ok('наведённое цветовое поле подписывается названием лада его цветом в обеих темах',
-      ['light', 'dark'].every((theme) => hoverLabel[theme].text === 'дорийский' && !hoverLabel[theme].hidden &&
-        hoverLabel[theme].customColor === 'var(--harmony-dorian)' && hoverLabel[theme].actualColor === hoverLabel[theme].expectedColor &&
-        !hoverLabel[theme].overlapsLegend) &&
-      hoverLabel.hiddenAfterLeave, JSON.stringify(hoverLabel));
+    ok('Am tooltip перечисляет все 5 активных ладов и после выключения Melodic Minor показывает только 4; геометрия тоже 5→4',
+      sectorHoverTooltip.amAllModesTooltip.chord === 'Am' &&
+      /Ступень i/.test(sectorHoverTooltip.amAllModesTooltip.context) &&
+      sectorHoverTooltip.amAllModesTooltip.degrees.join(',') === 'i,i,i,i,i' &&
+      sectorHoverTooltip.amAllModesTooltip.modes.join(',') ===
+        'Эолийский,Гармонический минор,Мелодический минор,Дорийский,Фригийский' &&
+      sectorHoverTooltip.amFilteredTooltip.degrees.join(',') === 'i,i,i,i' &&
+      sectorHoverTooltip.amFilteredTooltip.modes.join(',') ===
+        'Эолийский,Гармонический минор,Дорийский,Фригийский' &&
+      sectorHoverTooltip.amFourPaneCount === '4', JSON.stringify(sectorHoverTooltip));
+    ok('наведение на сектор показывает все включённые лады, ступень и изменения лада; tooltip не пропадает при zoom',
+      ['light', 'dark'].every((theme) => sectorHoverTooltip[theme].chord === 'D' &&
+        /Ступень IV/.test(sectorHoverTooltip[theme].context) &&
+        sectorHoverTooltip[theme].modes.map((mode) => mode.name).join(',') ===
+          'Мелодический минор,Дорийский,Миксолидийский' &&
+        sectorHoverTooltip[theme].modes.every((mode) => mode.degree === 'IV' && mode.change) &&
+        !sectorHoverTooltip[theme].hidden && !sectorHoverTooltip[theme].overlapsLegend &&
+        !sectorHoverTooltip[theme].overlapsCircle && !sectorHoverTooltip[theme].hasNativeTitleWhileOpen &&
+        sectorHoverTooltip[theme].tooltipInsideViewport) &&
+      sectorHoverTooltip.hiddenAfterLeave && sectorHoverTooltip.nativeTitleRestored, JSON.stringify(sectorHoverTooltip));
     ok('B-99 visual route completed without page errors', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
     await browser.close();

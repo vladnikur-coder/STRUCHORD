@@ -178,7 +178,8 @@ ok('в Am Fm остаётся нейтральным и как кандидат,
   strictWheelCandidates.candidateFmAria === '' &&
   strictWheelCandidates.ownerSelected && strictWheelCandidates.ownerLegendAbsent &&
   strictWheelCandidates.candidateE === 'harmonic-minor,melodic-minor,lydian' &&
-  /гармонический минор/.test(strictWheelCandidates.candidateEAria),
+  /E: ступень V в Am/.test(strictWheelCandidates.candidateEAria) &&
+  /Гармонический минор/.test(strictWheelCandidates.candidateEAria),
   JSON.stringify(strictWheelCandidates));
 
 const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
