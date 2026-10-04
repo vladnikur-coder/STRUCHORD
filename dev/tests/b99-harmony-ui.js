@@ -181,9 +181,12 @@ const legend = d.getElementById('wheelHarmonyLegend');
 const toggle = d.getElementById('wheelHarmonyLegendToggle');
 const legendModes = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
 const helpSurface = toggle.querySelector(':scope > .wheel-harmony-legend-toggle-surface');
-ok('кнопка ? открывает компактную палитру с изменениями ступеней и переключателями',
+ok('кнопка ? открывает компактную палитру с изменениями ступеней и объяснениями натуральных ладов',
   !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' && legendModes.length === 9 &&
-  /Ионийский/.test(legend.textContent) && /Эолийский/.test(legend.textContent) &&
+  /Ионийский/.test(legend.textContent) && /Натуральный мажор/.test(legend.textContent) &&
+  /Эолийский/.test(legend.textContent) && /Натуральный минор/.test(legend.textContent) &&
+  /Натуральный мажор/.test(d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="ionian"]')?.getAttribute('aria-label') || '') &&
+  /Натуральный минор/.test(d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="aeolian"]')?.getAttribute('aria-label') || '') &&
   /♯VII/.test(legend.textContent) && /♯VI/.test(legend.textContent) &&
   /Дорийский/.test(legend.textContent) && /♭II/.test(legend.textContent) &&
   /Лидийский/.test(legend.textContent) && /♭VII/.test(legend.textContent) &&
@@ -191,6 +194,12 @@ ok('кнопка ? открывает компактную палитру с и�
   legendModes.every((input) => input.checked === majorDefaultModes.includes(input.dataset.wheelHarmonyMode)) &&
   !legendModes.some((input) => input.disabled) && !d.getElementById('wheelHarmonyLegendCurrent'),
   legend.textContent.replace(/\s+/g, ' ').trim());
+const naturalMajorLabel = w.eval('getHarmonyModeLabel("ionian")');
+const naturalMinorLabel = w.eval('getHarmonyModeLabel("aeolian")');
+ok('текстовые описания ладов называют Ионийский натуральным мажором, а Эолийский — натуральным минором',
+  naturalMajorLabel === 'Ионийский (Натуральный мажор)' &&
+  naturalMinorLabel === 'Эолийский (Натуральный минор)',
+  `${naturalMajorLabel} / ${naturalMinorLabel}`);
 ok('? floats on its own inner surface using the circle depth timing',
   helpSurface?.textContent === '?' && helpSurface.classList.contains('wheel-surface-stone') &&
   helpSurface.style.getPropertyValue('--wheel-surface-rise-delay') === '52ms' &&

@@ -538,7 +538,10 @@ function ok(name, condition, detail = '') {
           chord: document.querySelector('.wheel-harmony-hover-chord')?.textContent || '',
           context: document.querySelector('.wheel-harmony-hover-context')?.textContent || '',
           degrees: [...document.querySelectorAll('.wheel-harmony-hover-mode-degree')].map((node) => node.textContent),
-          modes: [...document.querySelectorAll('.wheel-harmony-hover-mode-name')].map((node) => node.textContent),
+          modes: [...document.querySelectorAll('.wheel-harmony-hover-mode')].map((row) => ({
+            name: row.querySelector('.wheel-harmony-hover-mode-name')?.textContent || '',
+            change: row.querySelector('.wheel-harmony-hover-mode-change')?.textContent || '',
+          })),
         };
       };
       const amSectorBeforeToggle = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
@@ -615,11 +618,15 @@ function ok(name, condition, detail = '') {
       sectorHoverTooltip.amAllModesTooltip.chord === 'Am' &&
       /Ступень i/.test(sectorHoverTooltip.amAllModesTooltip.context) &&
       sectorHoverTooltip.amAllModesTooltip.degrees.join(',') === 'i,i,i,i,i' &&
-      sectorHoverTooltip.amAllModesTooltip.modes.join(',') ===
+      sectorHoverTooltip.amAllModesTooltip.modes.map(({ name }) => name).join(',') ===
         'Эолийский,Гармонический минор,Мелодический минор,Дорийский,Фригийский' &&
+      sectorHoverTooltip.amAllModesTooltip.modes.find(({ name }) => name === 'Эолийский')?.change
+        .includes('Натуральный минор') &&
       sectorHoverTooltip.amFilteredTooltip.degrees.join(',') === 'i,i,i,i' &&
-      sectorHoverTooltip.amFilteredTooltip.modes.join(',') ===
+      sectorHoverTooltip.amFilteredTooltip.modes.map(({ name }) => name).join(',') ===
         'Эолийский,Гармонический минор,Дорийский,Фригийский' &&
+      sectorHoverTooltip.amFilteredTooltip.modes.find(({ name }) => name === 'Эолийский')?.change
+        .includes('Натуральный минор') &&
       sectorHoverTooltip.amFourPaneCount === '4', JSON.stringify(sectorHoverTooltip));
     ok('наведение на сектор показывает все включённые лады, ступень и изменения лада; tooltip не пропадает при zoom',
       ['light', 'dark'].every((theme) => sectorHoverTooltip[theme].chord === 'D' &&

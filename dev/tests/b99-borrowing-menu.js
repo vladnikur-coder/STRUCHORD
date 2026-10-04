@@ -344,14 +344,23 @@ w.eval(`
 `);
 const legend = d.getElementById('wheelHarmonyLegend');
 const modeInputs = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
-ok('легенда компактно показывает все лады/цвета и изменения ступеней',
+const ionianModeInput = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="ionian"]');
+const aeolianModeInput = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="aeolian"]');
+ok('легенда компактно показывает все лады/цвета, изменения ступеней и названия натуральных ладов',
   !legend?.hidden && modeInputs.length === 9 &&
-  /Ионийский/.test(legend?.textContent || '') && /Эолийский/.test(legend?.textContent || '') &&
+  /Ионийский/.test(legend?.textContent || '') && /Натуральный мажор/.test(legend?.textContent || '') &&
+  /Эолийский/.test(legend?.textContent || '') && /Натуральный минор/.test(legend?.textContent || '') &&
+  /Натуральный мажор/.test(ionianModeInput?.getAttribute('aria-label') || '') &&
+  /Натуральный минор/.test(aeolianModeInput?.getAttribute('aria-label') || '') &&
   /♯VII/.test(legend?.textContent || '') && /♯VI/.test(legend?.textContent || '') &&
   /♭II/.test(legend?.textContent || '') && /♭V/.test(legend?.textContent || '') &&
   !/[↑↓]/.test(legend?.textContent || '') && !/V\/x/.test(legend?.textContent || '') && !d.getElementById('wheelHarmonyLegendCurrent') &&
   modeInputs.every((input) => input.checked),
   (legend?.textContent || '').replace(/\s+/g, ' ').slice(0, 180));
+const naturalAliasMenuText = w.getBorrowingMenuText({ chord: 'Am', degree: 'i', modes: ['ionian', 'aeolian'] });
+ok('текстовое описание меню тоже расшифровывает Ионийский и Эолийский',
+  /Ионийский \(Натуральный мажор\)/.test(naturalAliasMenuText) &&
+  /Эолийский \(Натуральный минор\)/.test(naturalAliasMenuText), naturalAliasMenuText);
 const dorianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="dorian"]');
 const amSectorBeforeToggle = sector('Am');
 const amPaneBeforeToggle = paneGroup('Am', 'minor');
