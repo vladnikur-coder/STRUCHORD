@@ -183,9 +183,20 @@ ok('выключенные «Ступени» убирают aria/title меню
   !(sector('D')?.getAttribute('aria-label')) &&
   !(sector('D')?.querySelector('title')),
   `${sector('D')?.getAttribute('aria-label') || '—'}`);
+const harmonyLegendButton = d.getElementById('wheelHarmonyLegendToggle');
+const hiddenLegendInRetarget = w.eval("wheelOrbitPositionNodes().includes(document.getElementById('wheelHarmonyLegendToggle'))");
+ok('отключение «Ступеней и цветов» скрывает ? и закрывает палитру',
+  harmonyLegendButton.hidden && d.getElementById('wheelHarmonyLegend').hidden &&
+  harmonyLegendButton.getAttribute('aria-expanded') === 'false');
+ok('скрытая ? не участвует в retarget-позиционировании вкладок', !hiddenLegendInRetarget);
+harmonyLegendButton.click();
+ok('скрытая ? не может повторно открыть палитру',
+  harmonyLegendButton.hidden && d.getElementById('wheelHarmonyLegend').hidden);
 w.eval("document.getElementById('showDegrees').checked = true; updateCellsDegrees();");
-ok('возврат настройки возвращает текстовые альтернативы без перерисовки',
-  /ступень IV/.test(sector('D')?.getAttribute('aria-label') || ''),
+const visibleLegendInRetarget = w.eval("wheelOrbitPositionNodes().includes(document.getElementById('wheelHarmonyLegendToggle'))");
+ok('возврат настройки возвращает текстовые альтернативы и делает ? доступной для retarget',
+  /ступень IV/.test(sector('D')?.getAttribute('aria-label') || '') &&
+  !harmonyLegendButton.hidden && visibleLegendInRetarget,
   sector('D')?.getAttribute('aria-label') || '');
 
 // ===== 5. Оконная раскладка — единственная и включена по умолчанию =====

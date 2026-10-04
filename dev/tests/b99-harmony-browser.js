@@ -41,11 +41,18 @@ function ok(name, condition, detail = '') {
         { chord: 'C', span: 1 }, { chord: 'D7', span: 1 }, { chord: 'G', span: 1 }, { chord: 'Bb', span: 1 },
       ] }] }];
       render();
+      updateCellsDegrees();
       const grid = (ei) => document.querySelector(`.chord-wrapper[data-sec="81"][data-square="82"][data-ei="${ei}"]`);
       const markerWhenDegreesOff = getComputedStyle(grid(1), '::before').backgroundColor;
       const harmonyClassWhenDegreesOff = document.body.classList.contains('is-harmony-highlights-on');
+      bindWheelHarmonyLegend();
+      const legendToggle = document.getElementById('wheelHarmonyLegendToggle');
+      const legendHiddenWhenDegreesOff = legendToggle.hidden && getComputedStyle(legendToggle).display === 'none';
+      legendToggle.click();
+      const legendStaysClosedWhenDegreesOff = document.getElementById('wheelHarmonyLegend').hidden;
       document.getElementById('showDegrees').checked = true;
       updateCellsDegrees();
+      const legendVisibleWhenDegreesOn = !legendToggle.hidden && getComputedStyle(legendToggle).display !== 'none';
       timelineMode = true;
       renderTimeline();
       const timeline = (ei) => document.querySelector(`.tl-cell[data-sec="81"][data-square="82"][data-ei="${ei}"]`);
@@ -68,6 +75,9 @@ function ok(name, condition, detail = '') {
       return {
         markerWhenDegreesOff,
         harmonyClassWhenDegreesOff,
+        legendHiddenWhenDegreesOff,
+        legendStaysClosedWhenDegreesOff,
+        legendVisibleWhenDegreesOn,
         groups: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyGroup),
         profiles: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyProfile),
         gridMarker: getComputedStyle(grid(1), '::before').backgroundColor,
@@ -279,6 +289,10 @@ function ok(name, condition, detail = '') {
     ok('wheel keeps V/V semantic and selected marker but draws no V/x profile color',
       state.wheelGroup === 'secondary-function' && state.wheelProfile === 'secondary-function' && state.selected &&
       /V\/V/.test(state.wheelAria) && state.wheelVxFill === state.wheelFillWithoutProfile, JSON.stringify(state));
+    ok('legend ? is hidden while degrees/colors are off and returns when enabled',
+      state.legendHiddenWhenDegreesOff && state.legendStaysClosedWhenDegreesOff && state.legendVisibleWhenDegreesOn,
+      JSON.stringify({ hiddenOff: state.legendHiddenWhenDegreesOff, staysClosed: state.legendStaysClosedWhenDegreesOff,
+        visibleOn: state.legendVisibleWhenDegreesOn }));
     ok('legend ? opens accessibly', state.legendOpen && state.legendExpanded === 'true', JSON.stringify(state));
     ok('legend ? is a compact nine-mode palette; V/x has no color toggle',
       state.legendModeCount === 9 && state.legendHasAlterations && !state.legendHasVx && !state.legendHasCurrentChord, JSON.stringify(state));

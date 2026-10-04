@@ -109,19 +109,25 @@ ok('secondary-function is not an enabled wheel scale-color mode, even if passed 
   'V/x analysis stays separate from the nine wheel scale colors');
 
 w.eval('document.getElementById("showDegrees").checked = false; updateCellsDegrees();');
-ok('выключенные «Ступени» выключают и расширенную гармоническую подсветку',
+ok('выключенные «Ступени» выключают подсветку и скрывают кнопку ? вместе с палитрой',
   !d.body.classList.contains('is-harmony-highlights-on') &&
   !d.getElementById('chordWheelModal').classList.contains('is-harmony-highlights-on') &&
-  grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label') === null,
-  `${d.body.className} | ${grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label')}`);
+  grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label') === null &&
+  toggle.hidden && legend.hidden && toggle.getAttribute('aria-expanded') === 'false',
+  `${d.body.className} | hidden=${toggle.hidden}, legend=${legend.hidden}`);
+toggle.click();
+ok('скрытая кнопка ? не открывает палитру', toggle.hidden && legend.hidden && toggle.getAttribute('aria-expanded') === 'false');
 
-w.eval('document.getElementById("wheelHarmonyLegendToggle").click();');
+w.eval('document.getElementById("showDegrees").checked = true; updateCellsDegrees();');
+ok('повторное включение «Ступени и цвета круга» возвращает кнопку ?', !toggle.hidden);
 const legendNote = d.querySelector('.wheel-harmony-legend-note');
-ok('при выключенной общей карте ? остаётся доступен и объясняет независимые переключатели',
+toggle.click();
+ok('после возврата настройки ? снова открывает палитру',
   !legend.hidden && /Ступени и цвета круга/.test(legendNote?.textContent || '') &&
   /только круг/.test(legendNote?.textContent || '') &&
   toggle.getAttribute('aria-label') === 'Показать палитру ладов и настроек подсветки круга',
   `${toggle.getAttribute('aria-label')} | ${legendNote?.textContent}`);
+w.eval('setWheelHarmonyLegendOpen(false);');
 
 w.eval(`
   globalKey = 'Am';
