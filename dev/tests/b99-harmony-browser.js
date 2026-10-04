@@ -210,6 +210,10 @@ function ok(name, condition, detail = '') {
             .find((layer) => layer.dataset.paneKey === group?.dataset.paneKey);
           const dividerLayer = dividerLayerFor(twoColorRing);
           const radialDividerLayer = dividerLayerFor(twoColorRadial);
+          const twoColorRingPanes = [...(twoColorRing?.querySelectorAll('.wheel-mode-pane') || [])];
+          const twoColorRingFillGap = twoColorRingPanes.length === 2
+            ? Number(twoColorRingPanes[1].dataset.paneInnerRadius) - Number(twoColorRingPanes[0].dataset.paneOuterRadius)
+            : null;
           const divider = dividerLayer?.querySelector('.wheel-mode-divider');
           const radialDivider = radialDividerLayer?.querySelector('.wheel-mode-divider');
           const multiColorDividerWidths = groups
@@ -286,6 +290,7 @@ function ok(name, condition, detail = '') {
             paneCount: groups.length,
             paneLabelOverrideCount,
             dividerSample,
+            twoColorRingFillGap,
             multiColorDividerWidths,
             light,
             dark,
@@ -310,7 +315,7 @@ function ok(name, condition, detail = '') {
       minorLine.wheelMenu.eMajorModes === 'harmonic-minor,melodic-minor,lydian' &&
       /E: ступень V в Am/.test(minorLine.wheelMenu.eMajorAria) &&
       /Гармонический минор/.test(minorLine.wheelMenu.eMajorAria), JSON.stringify(minorLine));
-    ok('B-99 dividers keep the theme-aware color and a shared 2px style across pane layouts',
+    ok('B-99 dividers share one theme-aware 2px style and two-color ring panes meet at the rail',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
       minorLine.panePresentation.light.fillOpacity === '0.34' && minorLine.panePresentation.dark.fillOpacity === '0.45' &&
@@ -318,6 +323,7 @@ function ok(name, condition, detail = '') {
       minorLine.panePresentation.dark.dividerStroke === 'rgba(255, 255, 255, 0.12)' &&
       minorLine.panePresentation.light.dividerWidth === '2px' && minorLine.panePresentation.dark.dividerWidth === '2px' &&
       minorLine.panePresentation.light.radialDividerWidth === '2px' && minorLine.panePresentation.dark.radialDividerWidth === '2px' &&
+      minorLine.panePresentation.twoColorRingFillGap === 0 &&
       minorLine.panePresentation.multiColorDividerWidths.length > 0 &&
       minorLine.panePresentation.multiColorDividerWidths.every((width) => width === '2px') &&
       minorLine.panePresentation.light.radialAxis === 'radial' && minorLine.panePresentation.dark.radialAxis === 'radial' &&

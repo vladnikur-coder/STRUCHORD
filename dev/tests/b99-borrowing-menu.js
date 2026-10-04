@@ -269,18 +269,23 @@ const twoPanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pan
 const twoColorRing = twoPanes.find((node) => node.dataset.paneLayout === 'two-inner-outer');
 const twoColorRadial = twoPanes.find((node) => node.dataset.paneLayout === 'two-clockwise-halves');
 const twoColorRingDivider = dividerLayerFor(twoColorRing)?.querySelector('.wheel-mode-divider');
+const twoColorRingPanes = [...(twoColorRing?.querySelectorAll('.wheel-mode-pane') || [])];
+const twoColorRingFillGap = twoColorRingPanes.length === 2
+  ? Number(twoColorRingPanes[1].dataset.paneInnerRadius) - Number(twoColorRingPanes[0].dataset.paneOuterRadius)
+  : Number.NaN;
 const twoColorRadialLayer = dividerLayerFor(twoColorRadial);
 const twoColorRadialDivider = twoColorRadialLayer?.querySelector('.wheel-mode-divider');
 const cssStrokeWidth = (node) => Number.parseFloat(w.getComputedStyle(node).strokeWidth ||
   w.getComputedStyle(node).getPropertyValue('stroke-width'));
-ok('2 цвета: обе раскладки используют общий разделитель 2px, как panes на 3–5 цветов',
+ok('2 цвета: оба разделителя имеют общий стиль 2px, а кольцевые поля сходятся без нейтрального зазора',
   twoPanes.some((node) => node.dataset.paneLayout === 'two-inner-outer') &&
   twoPanes.some((node) => node.dataset.paneLayout === 'two-clockwise-halves') &&
   twoPanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 2 && dividerCount(node) === 1) &&
   twoColorRingDivider?.dataset.dividerAxis === 'arc' && cssStrokeWidth(twoColorRingDivider) === 2 &&
+  twoColorRingFillGap === 0 &&
   twoColorRadialLayer?.dataset.paneLayout === 'two-clockwise-halves' &&
   twoColorRadialDivider?.dataset.dividerAxis === 'radial' && cssStrokeWidth(twoColorRadialDivider) === 2,
-  `${twoPanes.map((node) => node.dataset.paneLayout).join(', ')} / ${cssStrokeWidth(twoColorRingDivider)}px, ${cssStrokeWidth(twoColorRadialDivider)}px`);
+  `${twoPanes.map((node) => node.dataset.paneLayout).join(', ')} / ${cssStrokeWidth(twoColorRingDivider)}px, gap ${twoColorRingFillGap}px / ${cssStrokeWidth(twoColorRadialDivider)}px`);
 const threePanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pane-count="3"][data-wheel-hover-ring="major"]')];
 const radialMidpointMatches = (node) => {
   const expected = (Number(node.dataset.sectorInnerRadius) + Number(node.dataset.sectorOuterRadius)) / 2;
