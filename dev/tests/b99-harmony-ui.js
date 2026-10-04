@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // B-99 UI phase: keep V/x analysis/text semantics, but do not color-mark it
-// in the editor, timeline or wheel; other mode colors and selected markers stay.
+// in the editor, timeline or wheel; major-key wheel defaults and other mode
+// colors must preserve selected markers and the circle-only scope.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -129,8 +130,38 @@ ok('после возврата настройки ? снова открывае
   `${toggle.getAttribute('aria-label')} | ${legendNote?.textContent}`);
 w.eval('setWheelHarmonyLegendOpen(false);');
 
+w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false);");
+ok('ручное выключение сохраняет оба мажорных лада выключенными',
+  !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'));
+w.eval("DOM.rootKey.value = 'Am'; onKeyChange();");
+ok('переход в минор не включает Лидийский и Миксолидийский сам по себе',
+  !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'));
+w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
+const lydianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="lydian"]');
+const mixolydianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="mixolydian"]');
+const majorModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
+ok('переход из минора в мажор включает и сохраняет Лидийский + Миксолидийский, не меняя Ионийский',
+  w.isWheelHarmonyModeEnabled('ionian') && w.isWheelHarmonyModeEnabled('lydian') &&
+  w.isWheelHarmonyModeEnabled('mixolydian') && lydianToggle?.checked && mixolydianToggle?.checked &&
+  !majorModesSaved.includes('lydian') && !majorModesSaved.includes('mixolydian'),
+  JSON.stringify({ checked: [lydianToggle?.checked, mixolydianToggle?.checked], savedDisabled: majorModesSaved }));
+w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false);");
+w.eval("DOM.rootKey.value = 'Am'; onKeyChange();");
+w.eval("DOM.rootKey.value = 'G'; onKeyChange();");
+ok('повторный переход из минора в мажор снова включает оба профиля',
+  w.isWheelHarmonyModeEnabled('lydian') && w.isWheelHarmonyModeEnabled('mixolydian'));
+w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false); globalKey = 'Am'; DOM.rootKey.value = 'Am'; sections[0].key = 'Am'; activeSectionKey = 'Am';");
+w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
+ok('смена общей тональности не включает лады, пока активная секция остаётся в миноре',
+  w.eval("globalKey === 'C'") && !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'),
+  w.eval('JSON.stringify({ key: globalKey, sectionKey: sections[0]?.key, activeSectionKey, disabled: [...wheelHarmonyDisabledModes] })'));
+w.eval('setSectionKey(41, null);');
+ok('переход активной секции с минорной модуляции на общий мажор включает оба лада',
+  w.isWheelHarmonyModeEnabled('lydian') && w.isWheelHarmonyModeEnabled('mixolydian'));
+
 w.eval(`
   globalKey = 'Am';
+  DOM.rootKey.value = 'Am';
   document.getElementById('showDegrees').checked = true;
   sections = [{ id: 51, type: 'Verse', key: null, timeSig: '4/4', squares: [{ id: 52, events: [
     { chord: 'Am', span: 1 }, { chord: 'C', span: 1 }, { chord: 'D', span: 1 }, { chord: 'E', span: 1 }
