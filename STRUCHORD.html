@@ -5744,6 +5744,12 @@ html.wheel-motion-disabled #circleSvg .wheel-degree-label.is-wheel-hovered {
   stroke-linecap: round;
   pointer-events: none;
 }
+/* B-99 0.563: the theme border disappears on the curved inner/outer color
+   seam at 2 px. Widen only this ring split; keep the token and every other
+   pane layout unchanged. */
+#circleSvg .wheel-mode-divider-overlay[data-pane-layout='two-inner-outer'] .wheel-mode-divider[data-divider-axis='arc'] {
+  stroke-width: 4;
+}
 #circleSvg .wheel-mode-divider-overlay[data-pane-layout='two-clockwise-halves'] .wheel-mode-divider[data-divider-axis='radial'] {
   stroke-width: 3;
 }
@@ -11606,7 +11612,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.562</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.563</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -12264,7 +12270,7 @@ let playbackStartTime = 0,
 let globalKey = 'C',
   globalTimeSig = '4/4';
 let keyMode = 'auto'; // 'manual' | 'auto' — авто определяет тональность по добавленным аккордам (по умолчанию для новой песни)
-let autoDetectedKey = null; // последняя определённая автоматически тональность (для бейджа)
+let autoDetectedKey = null; // определённая авто-тональность для effective key и цветового контекста круга
 let sections = [],
   nextId = 1,
   activeChordInput = null,
@@ -21841,8 +21847,11 @@ function syncAutoKeyPresentation() {
 // смена тональности в авто-режиме (см. refreshAutoDetectedKey), когда
 // первичная правка уже синхронизирована локально и её settle-анимация
 // ещё играет — полный рендер здесь снёс бы её (репро — B-31.4).
-function applyKeyChangeOnly(newGlobalKey, oldGlobalKey, opts) {
-  const previousEffectiveKey = getActiveWheelHarmonyEffectiveKey(oldGlobalKey);
+function applyKeyChangeOnly(newGlobalKey, oldGlobalKey, opts, transition = {}) {
+  const hasPreviousOverride = Object.prototype.hasOwnProperty.call(transition, 'previousEffectiveKey');
+  const previousEffectiveKey = hasPreviousOverride
+    ? transition.previousEffectiveKey
+    : getActiveWheelHarmonyEffectiveKey(oldGlobalKey);
   songStore.dispatch('key/change-only', () => {
     for (const s of sections) {
       if (s.key) {
@@ -21855,52 +21864,63 @@ function applyKeyChangeOnly(newGlobalKey, oldGlobalKey, opts) {
     globalKey = newGlobalKey;
     applyEnharmonicCorrectionToAll();
   }, opts);
-  return enableWheelHarmonyModesOnTransition(
-    previousEffectiveKey,
-    getActiveWheelHarmonyEffectiveKey(newGlobalKey)
-  );
+  const hasNextOverride = Object.prototype.hasOwnProperty.call(transition, 'nextEffectiveKey');
+  const nextEffectiveKey = hasNextOverride
+    ? transition.nextEffectiveKey
+    : getActiveWheelHarmonyEffectiveKey(newGlobalKey);
+  return enableWheelHarmonyModesOnTransition(previousEffectiveKey, nextEffectiveKey);
 }
 
-// Включает авторежим: определяет тональность по текущим аккордам (или
-// оставляет 'C', если аккордов ещё нет) и сразу её проставляет.
+// Включает авторежим: автоопределение задаёт ключ только если в песне
+// действительно есть аккорд; пустая песня остаётся без ладовой подсветки.
 function switchToAutoKeyMode() {
+  const previousEffectiveKey = getActiveWheelHarmonyEffectiveKey();
+  const oldGlobalKey = globalKey;
+  const detected = detectKeyFromChords();
+  const nextGlobalKey = detected || oldGlobalKey || 'C';
   // Вложенный dispatch: внешний фиксирует смену режима, внутренний
   // (applyKeyChangeOnly) — саму перестановку тональностей. Дебаунс
   // истории схлопнет их в один шаг.
   songStore.dispatch('key/mode-auto', () => {
     keyMode = 'auto';
   });
-  const oldGlobalKey = globalKey;
-  const detected = detectKeyFromChords() || oldGlobalKey || 'C';
-  applyKeyChangeOnly(detected, oldGlobalKey);
-  autoDetectedKey = detected;
+  autoDetectedKey = detected || null;
+  applyKeyChangeOnly(nextGlobalKey, oldGlobalKey, undefined, {
+    previousEffectiveKey,
+    nextEffectiveKey: autoDetectedKey,
+  });
   syncAutoKeyPresentation();
   requestRender();
   drawWheel();
   updateCellsDegrees();
-  showToast(`Тональность будет определяться автоматически (сейчас: ${detected})`);
+  showToast(`Тональность будет определяться автоматически (сейчас: ${nextGlobalKey})`);
 }
 
-// Вызывается на каждом рендере, пока включён авторежим: если состав аккордов
-// изменился так, что определяемая тональность поменялась — переключает её
-// (без транспонирования, только перелейбловка) и обновляет бейдж.
+// Вызывается на каждом рендере в авто-режиме: обнаружение/потеря effective
+// key обновляет только цветовой контекст круга; ручные флажки переживают
+// смену корня, а переход в другой лад устанавливает его точный набор.
 function refreshAutoDetectedKey() {
   if (keyMode !== 'auto') return;
+  const previousEffectiveKey = getActiveWheelHarmonyEffectiveKey();
+  const oldGlobalKey = globalKey;
   const detected = detectKeyFromChords();
-  if (detected && detected !== globalKey) {
-    const oldGlobalKey = globalKey;
-    // Тихая команда: это ПРОИЗВОДНАЯ смена тональности — состав аккордов
-    // только что поменяла первичная правка, которая уже обновила свою
-    // часть DOM локально (B-25) и, возможно, ещё играет settle-анимацию
-    // (коммит правого края, B-31). Полный рендер здесь был бы повторной
-    // работой либо сносом анимации; очередной полный render() подхватит
-    // новую тональность сам (refreshAutoDetectedKey — его первый слой).
-    // История пишется и для тихих команд, дебаунс схлопывает смену
-    // тональности в один шаг с первичной правкой.
-    const harmonyModesChanged = applyKeyChangeOnly(detected, oldGlobalKey, { quiet: true });
-    autoDetectedKey = detected;
-    if (harmonyModesChanged && DOM.chordWheelModal?.classList.contains('open')) drawWheel();
+  autoDetectedKey = detected || null;
+  let harmonyModesChanged = false;
+  if (detected && detected !== oldGlobalKey) {
+    // Тихая команда: это производная смена тональности после правки аккорда;
+    // общий render подхватит ключ, не срывая settle-анимацию.
+    harmonyModesChanged = applyKeyChangeOnly(detected, oldGlobalKey, { quiet: true }, {
+      previousEffectiveKey,
+      nextEffectiveKey: detected,
+    });
+  } else {
+    harmonyModesChanged = enableWheelHarmonyModesOnTransition(
+      previousEffectiveKey,
+      autoDetectedKey
+    );
   }
+  const effectiveKeyChanged = previousEffectiveKey !== autoDetectedKey;
+  if ((harmonyModesChanged || effectiveKeyChanged) && DOM.chordWheelModal?.classList.contains('open')) drawWheel();
   syncAutoKeyPresentation();
 }
 
@@ -22698,7 +22718,7 @@ const WHEEL_HARMONY_LEGEND_MODES = Object.freeze([
 ]);
 const WHEEL_HARMONY_MODE_IDS = new Set(WHEEL_HARMONY_LEGEND_MODES.map(({ id }) => id));
 const WHEEL_HARMONY_MODE_VISIBILITY_KEY = 'struchord-wheel-harmony-visibility-v1';
-const WHEEL_HARMONY_MAJOR_ENTRY_MODES = Object.freeze(['lydian', 'mixolydian']);
+const WHEEL_HARMONY_MAJOR_ENTRY_MODES = Object.freeze(['ionian', 'lydian', 'mixolydian']);
 const WHEEL_HARMONY_MINOR_ENTRY_MODES = Object.freeze([
   'aeolian', 'dorian', 'phrygian', 'locrian', 'harmonic-minor', 'melodic-minor',
 ]);
@@ -22706,28 +22726,63 @@ let wheelHarmonyDisabledModes = new Set();
 let wheelHarmonyModeVisibilityLoaded = false;
 const wheelHarmonyModeListsBound = new WeakSet();
 const wheelHarmonyLegendButtonsBound = new WeakSet();
+function getWheelHarmonyGlobalEffectiveKey(globalKeyFallback = globalKey) {
+  if (keyMode === 'auto') return autoDetectedKey || null;
+  return typeof globalKeyFallback === 'string' && globalKeyFallback ? globalKeyFallback : null;
+}
+function getWheelHarmonyEffectiveKeyForSection(section, globalKeyFallback = globalKey) {
+  return section?.key || getWheelHarmonyGlobalEffectiveKey(globalKeyFallback);
+}
 function getActiveWheelHarmonyEffectiveKey(globalKeyFallback = globalKey) {
   const sectionId = Number(activeChordInput?.dataset?.sec);
-  const activeSection = Number.isInteger(sectionId)
-    ? sections.find((section) => section.id === sectionId)
-    : null;
-  return activeSection?.key || activeSectionKey || globalKeyFallback;
+  if (Number.isInteger(sectionId)) {
+    const activeSection = sections.find((section) => section.id === sectionId);
+    return activeSection
+      ? getWheelHarmonyEffectiveKeyForSection(activeSection, globalKeyFallback)
+      : getWheelHarmonyGlobalEffectiveKey(globalKeyFallback);
+  }
+  return activeSectionKey || getWheelHarmonyGlobalEffectiveKey(globalKeyFallback);
+}
+function getWheelHarmonyEntryModesForKey(key) {
+  if (typeof key !== 'string' || !key) return [];
+  return key.endsWith('m') ? WHEEL_HARMONY_MINOR_ENTRY_MODES : WHEEL_HARMONY_MAJOR_ENTRY_MODES;
+}
+function getWheelHarmonyDisabledModesForEntryModes(entryModes) {
+  const enabled = new Set(entryModes);
+  return new Set([...WHEEL_HARMONY_MODE_IDS].filter((mode) => !enabled.has(mode)));
 }
 function loadWheelHarmonyModeVisibility() {
   if (wheelHarmonyModeVisibilityLoaded) return;
-  wheelHarmonyModeVisibilityLoaded = true;
+  let storedValue = null;
   try {
-    const stored = JSON.parse(window.localStorage.getItem(WHEEL_HARMONY_MODE_VISIBILITY_KEY) || '[]');
-    if (Array.isArray(stored)) {
-      wheelHarmonyDisabledModes = new Set(stored.filter((mode) => WHEEL_HARMONY_MODE_IDS.has(mode)));
-    }
+    storedValue = window.localStorage.getItem(WHEEL_HARMONY_MODE_VISIBILITY_KEY);
   } catch (_) {
-    // Private browsing/file:// may deny storage; the in-memory controls still work.
+    // Private browsing/file:// may deny storage; the current page can still use defaults.
   }
+  if (storedValue !== null) {
+    try {
+      const stored = JSON.parse(storedValue);
+      if (Array.isArray(stored)) {
+        wheelHarmonyDisabledModes = new Set(stored.filter((mode) => WHEEL_HARMONY_MODE_IDS.has(mode)));
+        wheelHarmonyModeVisibilityLoaded = true;
+        return;
+      }
+    } catch (_) {
+      // A malformed saved value is treated like a first launch.
+    }
+  }
+  // A blank auto-key song has no selected tonal context: defer the first-run
+  // defaults until a manual/effective key exists, and never color the wheel meanwhile.
+  const entryModes = getWheelHarmonyEntryModesForKey(getActiveWheelHarmonyEffectiveKey());
+  if (!entryModes.length) return;
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(entryModes);
+  wheelHarmonyModeVisibilityLoaded = true;
+  persistWheelHarmonyModeVisibility();
 }
 function isWheelHarmonyModeEnabled(mode) {
+  if (!WHEEL_HARMONY_MODE_IDS.has(mode) || !getActiveWheelHarmonyEffectiveKey()) return false;
   loadWheelHarmonyModeVisibility();
-  return WHEEL_HARMONY_MODE_IDS.has(mode) && !wheelHarmonyDisabledModes.has(mode);
+  return !wheelHarmonyDisabledModes.has(mode);
 }
 function getEnabledWheelHarmonyModes(modes) {
   return Array.from(modes || []).filter(isWheelHarmonyModeEnabled);
@@ -22740,9 +22795,11 @@ function getWheelHarmonyModeDetails(mode) {
   };
 }
 function applyWheelHarmonyModeVisibility() {
-  loadWheelHarmonyModeVisibility();
+  const hasEffectiveKey = !!getActiveWheelHarmonyEffectiveKey();
+  if (hasEffectiveKey) loadWheelHarmonyModeVisibility();
+  const effectiveDisabledModes = hasEffectiveKey ? wheelHarmonyDisabledModes : WHEEL_HARMONY_MODE_IDS;
   const disabled = WHEEL_HARMONY_LEGEND_MODES
-    .filter(({ id }) => wheelHarmonyDisabledModes.has(id))
+    .filter(({ id }) => effectiveDisabledModes.has(id))
     .map(({ id }) => id);
   const modal = document.getElementById('chordWheelModal');
   if (modal) {
@@ -22752,11 +22809,12 @@ function applyWheelHarmonyModeVisibility() {
   DOM.circleSvg?.querySelectorAll('[data-harmony-profile]').forEach((node) => {
     const mode = node.dataset.harmonyProfile;
     node.classList.toggle('wheel-harmony-mode-muted',
-      WHEEL_HARMONY_MODE_IDS.has(mode) && wheelHarmonyDisabledModes.has(mode));
+      WHEEL_HARMONY_MODE_IDS.has(mode) && effectiveDisabledModes.has(mode));
   });
   DOM.circleSvg?.querySelectorAll('.wheel-sector[data-wheel-mode-presentation="menu"]').forEach(syncWheelBorrowingMenuAccessibility);
   document.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]').forEach((input) => {
-    input.checked = !wheelHarmonyDisabledModes.has(input.dataset.wheelHarmonyMode);
+    input.checked = hasEffectiveKey && !effectiveDisabledModes.has(input.dataset.wheelHarmonyMode);
+    input.disabled = !hasEffectiveKey;
   });
 }
 function persistWheelHarmonyModeVisibility() {
@@ -22767,32 +22825,39 @@ function persistWheelHarmonyModeVisibility() {
   }
 }
 function getWheelHarmonyEntryModesOnTransition(previousKey, nextKey) {
-  if (typeof previousKey !== 'string' || !previousKey ||
-      typeof nextKey !== 'string' || !nextKey) return [];
-  const previousIsMinor = previousKey.endsWith('m');
-  const nextIsMinor = nextKey.endsWith('m');
-  if (previousIsMinor === nextIsMinor) return [];
-  return nextIsMinor ? WHEEL_HARMONY_MINOR_ENTRY_MODES : WHEEL_HARMONY_MAJOR_ENTRY_MODES;
+  const nextModes = getWheelHarmonyEntryModesForKey(nextKey);
+  if (!nextModes.length) return [];
+  const previousModes = getWheelHarmonyEntryModesForKey(previousKey);
+  if (previousModes.length && previousKey.endsWith('m') === nextKey.endsWith('m')) return [];
+  return nextModes;
 }
 function enableWheelHarmonyModesOnTransition(previousKey, nextKey) {
-  // Обычный рендер и смена корня в том же ладу не трогают ручные флажки.
-  // При каждом входе в другой лад повторно включается только его набор.
+  // Смена корня в том же ладу не трогает ручной выбор; вход в другой лад
+  // (включая первое назначение ключа) устанавливает его полный точный набор.
   const entryModes = getWheelHarmonyEntryModesOnTransition(previousKey, nextKey);
-  if (!entryModes.length) return false;
+  if (!entryModes.length) {
+    const keyWasRemoved = !!previousKey && !nextKey;
+    if (keyWasRemoved) hideWheelHarmonyHoverTooltip();
+    applyWheelHarmonyModeVisibility();
+    return keyWasRemoved;
+  }
   loadWheelHarmonyModeVisibility();
-  let changed = false;
-  entryModes.forEach((mode) => {
-    if (wheelHarmonyDisabledModes.delete(mode)) changed = true;
-  });
-  if (!changed) return false;
-  persistWheelHarmonyModeVisibility();
+  const nextDisabledModes = getWheelHarmonyDisabledModesForEntryModes(entryModes);
+  const changed = nextDisabledModes.size !== wheelHarmonyDisabledModes.size ||
+    [...nextDisabledModes].some((mode) => !wheelHarmonyDisabledModes.has(mode));
+  if (changed) {
+    wheelHarmonyDisabledModes = nextDisabledModes;
+    persistWheelHarmonyModeVisibility();
+  }
   hideWheelHarmonyHoverTooltip();
   applyWheelHarmonyModeVisibility();
+  // The effective tonal mode changed even if its exact flags already matched;
+  // callers must rebuild the circle's panes against the new context.
   return true;
 }
 function setWheelHarmonyModeEnabled(mode, enabled) {
+  if (!getActiveWheelHarmonyEffectiveKey() || !WHEEL_HARMONY_LEGEND_MODES.some((item) => item.id === mode)) return;
   loadWheelHarmonyModeVisibility();
-  if (!WHEEL_HARMONY_LEGEND_MODES.some((item) => item.id === mode)) return;
   if (enabled) wheelHarmonyDisabledModes.delete(mode);
   else wheelHarmonyDisabledModes.add(mode);
   persistWheelHarmonyModeVisibility();
@@ -22815,7 +22880,9 @@ function renderWheelHarmonyLegendModes() {
       checkbox.dataset.wheelHarmonyMode = id;
       checkbox.setAttribute('aria-label', `${name}: ${change}; подсветка на круге`);
       checkbox.setAttribute('aria-describedby', `wheel-harmony-change-${id}`);
-      checkbox.checked = !wheelHarmonyDisabledModes.has(id);
+      const hasEffectiveKey = !!getActiveWheelHarmonyEffectiveKey();
+      checkbox.checked = hasEffectiveKey && !wheelHarmonyDisabledModes.has(id);
+      checkbox.disabled = !hasEffectiveKey;
       const swatch = document.createElement('span');
       swatch.className = 'wheel-harmony-mode-swatch';
       swatch.setAttribute('aria-hidden', 'true');
@@ -23315,7 +23382,7 @@ function setSectionKey(sid, nk) {
   fingeringCache.clear();
   preferredFingeringByChord.clear();
   if (!s) return;
-  const previousEffectiveKey = s.key || globalKey;
+  const previousEffectiveKey = getWheelHarmonyEffectiveKeyForSection(s);
   if (nk !== null) {
     const isGlobalMinor = globalKey.endsWith('m');
     const isNewMinor = nk.endsWith('m');
@@ -23336,7 +23403,7 @@ function setSectionKey(sid, nk) {
   }, { quiet: true });
   const harmonyModesChanged = enableWheelHarmonyModesOnTransition(
     previousEffectiveKey,
-    s.key || globalKey
+    getWheelHarmonyEffectiveKeyForSection(s)
   );
   // B-25: тональность секции меняет бейдж и ступени, не структуру DOM.
   if (!syncSectionHeaderDom(s)) requestRender();
@@ -23361,7 +23428,7 @@ function setSectionKey(sid, nk) {
 function setSectionModulation(sectionId, shift) {
   const sec = sections.find(s => s.id === sectionId);
   if (!sec) return;
-  const previousEffectiveKey = sec.key || globalKey;
+  const previousEffectiveKey = getWheelHarmonyEffectiveKeyForSection(sec);
   const prevShift = sec.shift != null ? sec.shift
     : (sec.key ? getRawSemitonesBetween(globalKey, sec.key) : 0);
   const delta = shift - prevShift;
@@ -23427,7 +23494,7 @@ function setSectionModulation(sectionId, shift) {
   if (activeChordInput && +activeChordInput.dataset.sec === sectionId) activeSectionKey = sec.key || null;
   const harmonyModesChanged = enableWheelHarmonyModesOnTransition(
     previousEffectiveKey,
-    sec.key || globalKey
+    getWheelHarmonyEffectiveKeyForSection(sec)
   );
   if (harmonyModesChanged && DOM.chordWheelModal?.classList.contains('open')) drawWheel();
   fingeringCache.clear();
@@ -35563,20 +35630,21 @@ function retargetChordWheel(inp, { suppressOwnerClick = false, revealDirection =
   wheelOwnerFor(inp)?.classList.add('wheel-owner-active');
   if (revealDirection) revealChordWheelOwnerForKeyboard(inp, revealDirection);
   const previousSectionKey = activeSectionKey;
-  const previousEffectiveKey = previousSectionKey || globalKey;
+  const previousEffectiveKey = previousSectionKey || getWheelHarmonyGlobalEffectiveKey();
   const sec = sections.find((s) => s.id === +inp.dataset.sec);
   activeSectionKey = sec?.key || null;
-  const nextEffectiveKey = activeSectionKey || globalKey;
+  const nextEffectiveKey = getWheelHarmonyEffectiveKeyForSection(sec);
   const harmonyModesChanged = enableWheelHarmonyModesOnTransition(
     previousEffectiveKey,
     nextEffectiveKey
   );
+  const effectiveKeyChanged = previousEffectiveKey !== nextEffectiveKey;
   const nextMode = prepareWheelModeForChord(inp.value);
   // В том же key/mode карточки уже содержат все root-варианты. Меняем лишь
   // marker: сами SVG-узлы и их независимый idle-water остаются живыми во
   // время переезда группы. Другая тональность или quality честно
   // перерисовывает подписи, сохраняя их принятый crossfade.
-  if (!harmonyModesChanged && wheelMode === nextMode && previousSectionKey === activeSectionKey) {
+  if (!harmonyModesChanged && !effectiveKeyChanged && wheelMode === nextMode && previousSectionKey === activeSectionKey) {
     refreshWheelSelectedChord();
     // Ключ тот же, поэтому B-40 сохраняет живые SVG nodes/water. Но
     // контекст V/x и подтверждённый лад принадлежат owner-ячейке, а не
@@ -35858,7 +35926,7 @@ function openChordWheel(inp) {
   activeSectionKey = sec && sec.key ? sec.key : null;
   enableWheelHarmonyModesOnTransition(
     previousEffectiveKey,
-    activeSectionKey || globalKey
+    getActiveWheelHarmonyEffectiveKey()
   );
   DOM.chordWheelModal.setAttribute('aria-hidden', 'false');
   DOM.chordWheelModal.classList.toggle('is-harmony-highlights-on', isHarmonyPresentationEnabled());
@@ -38071,8 +38139,10 @@ function clearAll() {
     globalTimeSig = '4/4';
     previousKey = 'C';
     });
-    const harmonyModesChanged = enableWheelHarmonyModesOnTransition(previousEffectiveKey, globalKey);
-    if (harmonyModesChanged && DOM.chordWheelModal?.classList.contains('open')) drawWheel();
+    const nextEffectiveKey = getActiveWheelHarmonyEffectiveKey();
+    const harmonyModesChanged = enableWheelHarmonyModesOnTransition(previousEffectiveKey, nextEffectiveKey);
+    if ((harmonyModesChanged || previousEffectiveKey !== nextEffectiveKey) &&
+        DOM.chordWheelModal?.classList.contains('open')) drawWheel();
     stopPlayback();
     requestRender();
     // Песня очищена: сравнивать не с чем, иначе пустой экран считался бы
@@ -38179,15 +38249,18 @@ function onKeyChange() {
     return;
   }
 
+  // Снимок делаем до выхода из авто-режима: пустая песня ещё не имеет
+  // effective key, даже если внутренний fallback равен C.
+  const previousEffectiveKey = getActiveWheelHarmonyEffectiveKey();
   // Пользователь выбрал конкретную ноту — выходим из авторежима как обычно.
   songStore.dispatch('key/mode-manual', () => {
     keyMode = 'manual';
+    autoDetectedKey = null;
   });
   updateAutoKeyBadge();
 
   const newGlobalKey = selected;
   const oldGlobalKey = globalKey;
-  const previousEffectiveKey = getActiveWheelHarmonyEffectiveKey(oldGlobalKey);
   const oldIsMinor = oldGlobalKey.endsWith('m');
   const newIsMinor = newGlobalKey.endsWith('m');
   if (oldIsMinor !== newIsMinor) {
@@ -38212,6 +38285,10 @@ function onKeyChange() {
     globalKey = newGlobalKey;
     applyEnharmonicCorrectionToAll();
     });
+    enableWheelHarmonyModesOnTransition(
+      previousEffectiveKey,
+      getActiveWheelHarmonyEffectiveKey(newGlobalKey)
+    );
     requestRender();
     drawWheel();
     updateCellsDegrees();
@@ -46766,6 +46843,7 @@ toggleTimeAndBeats();
     DOM.bpmInput.value = song.bpm || CONFIG.DEFAULT_BPM;
     globalKey = song.globalKey || 'C';
     keyMode = song.keyMode === 'auto' ? 'auto' : 'manual';
+    autoDetectedKey = null;
     DOM.rootKey.value = keyMode === 'auto' ? 'auto' : globalKey;
     updateAutoKeyBadge();
     globalTimeSig = song.globalTimeSig || '4/4';
@@ -46791,10 +46869,11 @@ toggleTimeAndBeats();
     const loadedActiveSection = Number.isInteger(loadedSectionId)
       ? sections.find((section) => section.id === loadedSectionId)
       : null;
-    enableWheelHarmonyModesOnTransition(
-      previousEffectiveKey,
-      loadedActiveSection?.key || globalKey
-    );
+    autoDetectedKey = keyMode === 'auto' ? detectKeyFromChords() : null;
+    const nextEffectiveKey = loadedActiveSection
+      ? getWheelHarmonyEffectiveKeyForSection(loadedActiveSection)
+      : getWheelHarmonyGlobalEffectiveKey();
+    enableWheelHarmonyModesOnTransition(previousEffectiveKey, nextEffectiveKey);
 
     nextId = song.nextId || 1;
 

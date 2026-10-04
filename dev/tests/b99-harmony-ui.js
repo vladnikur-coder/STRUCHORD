@@ -34,6 +34,91 @@ function ok(name, condition, detail = '') {
 }
 
 const d = w.document;
+const majorDefaultModes = ['ionian', 'lydian', 'mixolydian'];
+const allWheelModes = ['ionian', 'aeolian', 'harmonic-minor', 'melodic-minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'];
+w.eval(`
+  globalKey = 'C';
+  keyMode = 'auto';
+  autoDetectedKey = null;
+  activeChordInput = null;
+  activeSectionKey = null;
+  sections = [];
+  wheelMode = '7';
+  document.getElementById('showDegrees').checked = true;
+  localStorage.removeItem('struchord-wheel-harmony-visibility-v1');
+  wheelHarmonyModeVisibilityLoaded = false;
+  wheelHarmonyDisabledModes = new Set();
+  drawWheel();
+  bindWheelHarmonyLegend();
+`);
+const noKeyState = w.eval(`(() => {
+  const inputs = [...document.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
+  const coloredProfiles = [...DOM.circleSvg.querySelectorAll('[data-harmony-profile]')]
+    .filter((node) => WHEEL_HARMONY_MODE_IDS.has(node.dataset.harmonyProfile));
+  return {
+    key: getActiveWheelHarmonyEffectiveKey(),
+    visibilityLoaded: wheelHarmonyModeVisibilityLoaded,
+    enabledCheckboxes: inputs.filter((input) => input.checked).length,
+    disabledCheckboxes: inputs.filter((input) => input.disabled).length,
+    unmutedProfiles: coloredProfiles.filter((node) => !node.classList.contains('wheel-harmony-mode-muted')).length,
+    paneGroups: DOM.circleSvg.querySelectorAll('.wheel-mode-diagram').length,
+    stored: localStorage.getItem('struchord-wheel-harmony-visibility-v1'),
+  };
+})()`);
+ok('без выбранной тональности круг не подсвечивает лады и не сохраняет defaults',
+  noKeyState.key === null && !noKeyState.visibilityLoaded && noKeyState.enabledCheckboxes === 0 &&
+  noKeyState.disabledCheckboxes === 9 && noKeyState.unmutedProfiles === 0 &&
+  noKeyState.paneGroups === 0 && noKeyState.stored === null, JSON.stringify(noKeyState));
+w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
+const firstKeyModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
+ok('первый выбранный мажор применяет точный набор Ionian/Lydian/Mixolydian',
+  majorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
+  allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) =>
+    !w.isWheelHarmonyModeEnabled(mode) && firstKeyModesSaved.includes(mode)) &&
+  majorDefaultModes.every((mode) => !firstKeyModesSaved.includes(mode)),
+  JSON.stringify({ enabled: majorDefaultModes, savedDisabled: firstKeyModesSaved }));
+w.eval(`
+  localStorage.removeItem('struchord-wheel-harmony-visibility-v1');
+  wheelHarmonyModeVisibilityLoaded = false;
+  wheelHarmonyDisabledModes = new Set();
+  keyMode = 'auto';
+  globalKey = 'C';
+  autoDetectedKey = null;
+  activeChordInput = null;
+  activeSectionKey = null;
+  sections = [{ id: 30, type: 'Verse', key: null, timeSig: '4/4', squares: [{
+    id: 31, events: [{ chord: 'C', span: 1 }]
+  }]}];
+  refreshAutoDetectedKey();
+`);
+const firstAutoModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
+ok('первый автоопределённый ключ тоже включает точный набор, даже если совпал с fallback C',
+  w.eval('autoDetectedKey') === 'C' &&
+  majorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
+  allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) =>
+    !w.isWheelHarmonyModeEnabled(mode) && firstAutoModesSaved.includes(mode)),
+  JSON.stringify({ key: w.eval('autoDetectedKey'), savedDisabled: firstAutoModesSaved }));
+w.eval(`
+  localStorage.removeItem('struchord-wheel-harmony-visibility-v1');
+  wheelHarmonyModeVisibilityLoaded = false;
+  wheelHarmonyDisabledModes = new Set();
+  keyMode = 'manual';
+  globalKey = 'Am';
+  autoDetectedKey = null;
+  activeChordInput = null;
+  activeSectionKey = null;
+  sections = [];
+`);
+const firstMinorDefaultModes = ['aeolian', 'dorian', 'phrygian', 'locrian', 'harmonic-minor', 'melodic-minor'];
+const firstMinorEnabled = firstMinorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode));
+const firstMinorModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
+ok('первый выбранный минор применяет ровно шесть минорных defaults',
+  firstMinorEnabled &&
+  allWheelModes.filter((mode) => !firstMinorDefaultModes.includes(mode)).every((mode) =>
+    !w.isWheelHarmonyModeEnabled(mode) && firstMinorModesSaved.includes(mode)) &&
+  firstMinorDefaultModes.every((mode) => !firstMinorModesSaved.includes(mode)),
+  JSON.stringify({ enabled: firstMinorDefaultModes, savedDisabled: firstMinorModesSaved }));
+w.eval(`DOM.rootKey.value = 'C'; onKeyChange();`);
 w.eval(`
   globalKey = 'C';
   globalTimeSig = '4/4';
@@ -103,7 +188,8 @@ ok('кнопка ? открывает компактную палитру с и�
   /Дорийский/.test(legend.textContent) && /♭II/.test(legend.textContent) &&
   /Лидийский/.test(legend.textContent) && /♭VII/.test(legend.textContent) &&
   /Локрийский/.test(legend.textContent) && !/[↑↓]/.test(legend.textContent) && !/V\/x/.test(legend.textContent) &&
-  legendModes.every((input) => input.checked) && !d.getElementById('wheelHarmonyLegendCurrent'),
+  legendModes.every((input) => input.checked === majorDefaultModes.includes(input.dataset.wheelHarmonyMode)) &&
+  !legendModes.some((input) => input.disabled) && !d.getElementById('wheelHarmonyLegendCurrent'),
   legend.textContent.replace(/\s+/g, ' ').trim());
 ok('? floats on its own inner surface using the circle depth timing',
   helpSurface?.textContent === '?' && helpSurface.classList.contains('wheel-surface-stone') &&
@@ -155,32 +241,36 @@ w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
 const lydianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="lydian"]');
 const mixolydianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="mixolydian"]');
 const majorModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
-ok('переход из минора в мажор включает/сохраняет Лидийский + Миксолидийский, не меняя прочие флажки',
-  w.isWheelHarmonyModeEnabled('lydian') && w.isWheelHarmonyModeEnabled('mixolydian') &&
+ok('переход из минора в мажор устанавливает точный набор Ionian/Lydian/Mixolydian',
+  majorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
   lydianToggle?.checked && mixolydianToggle?.checked &&
-  !w.isWheelHarmonyModeEnabled('ionian') && !w.isWheelHarmonyModeEnabled('aeolian') &&
-  majorModesSaved.includes('ionian') && majorModesSaved.includes('aeolian') &&
-  !majorModesSaved.includes('lydian') && !majorModesSaved.includes('mixolydian'),
-  JSON.stringify({ checked: [lydianToggle?.checked, mixolydianToggle?.checked], savedDisabled: majorModesSaved }));
+  allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) =>
+    !w.isWheelHarmonyModeEnabled(mode) && majorModesSaved.includes(mode)) &&
+  majorDefaultModes.every((mode) => !majorModesSaved.includes(mode)),
+  JSON.stringify({ checked: majorDefaultModes, savedDisabled: majorModesSaved }));
 w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false); DOM.rootKey.value = 'Am'; onKeyChange();");
-ok('повторный вход в минор снова включает все шесть ладов, не меняя мажорную пару',
+ok('повторный вход в минор снова устанавливает только шесть минорных ладов',
   minorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
-  !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'));
+  allWheelModes.filter((mode) => !minorDefaultModes.includes(mode)).every((mode) => !w.isWheelHarmonyModeEnabled(mode)));
 w.eval("DOM.rootKey.value = 'G'; onKeyChange();");
-ok('повторный вход в мажор снова включает оба мажорных профиля',
-  w.isWheelHarmonyModeEnabled('lydian') && w.isWheelHarmonyModeEnabled('mixolydian'));
+ok('повторный вход в мажор снова устанавливает ровно Ionian/Lydian/Mixolydian',
+  majorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
+  allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) => !w.isWheelHarmonyModeEnabled(mode)));
 w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false); globalKey = 'Am'; DOM.rootKey.value = 'Am'; sections[0].key = 'Am'; activeSectionKey = 'Am';");
 w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
 ok('смена общей тональности не включает мажорные флажки, пока активная секция остаётся в миноре',
   w.eval("globalKey === 'C'") && !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'),
   w.eval('JSON.stringify({ key: globalKey, sectionKey: sections[0]?.key, activeSectionKey, disabled: [...wheelHarmonyDisabledModes] })'));
 w.eval('setSectionKey(41, null);');
-ok('переход активной секции с минорной модуляции на общий мажор включает оба мажорных лада',
-  w.isWheelHarmonyModeEnabled('lydian') && w.isWheelHarmonyModeEnabled('mixolydian'));
+ok('переход активной секции на общий мажор устанавливает точный мажорный набор',
+  majorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
+  allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) => !w.isWheelHarmonyModeEnabled(mode)));
 
 w.eval(`
   globalKey = 'Am';
+  keyMode = 'manual';
   DOM.rootKey.value = 'Am';
+  enableWheelHarmonyModesOnTransition('C', 'Am');
   document.getElementById('showDegrees').checked = true;
   sections = [{ id: 51, type: 'Verse', key: null, timeSig: '4/4', squares: [{ id: 52, events: [
     { chord: 'Am', span: 1 }, { chord: 'C', span: 1 }, { chord: 'D', span: 1 }, { chord: 'E', span: 1 }
@@ -240,7 +330,9 @@ ok('в Am Fm остаётся нейтральным и как кандидат,
   strictWheelCandidates.ownerSelected && strictWheelCandidates.ownerLegendAbsent &&
   strictWheelCandidates.candidateE === 'harmonic-minor,melodic-minor,lydian' &&
   /E: ступень V в Am/.test(strictWheelCandidates.candidateEAria) &&
-  /Гармонический минор/.test(strictWheelCandidates.candidateEAria),
+  /Гармонический минор/.test(strictWheelCandidates.candidateEAria) &&
+  /Мелодический минор/.test(strictWheelCandidates.candidateEAria) &&
+  !/Лидийский/.test(strictWheelCandidates.candidateEAria),
   JSON.stringify(strictWheelCandidates));
 
 const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');

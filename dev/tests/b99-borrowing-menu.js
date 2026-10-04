@@ -127,6 +127,10 @@ const d = w.document;
 w.eval(`
   globalKey = 'Am'; keyMode = 'manual';
   activeSectionKey = null; activeChordInput = null;
+  // Pane-geometry checks intentionally expose the full palette; exact minor
+  // defaults are asserted separately in b99-harmony-ui/browser tests.
+  wheelHarmonyModeVisibilityLoaded = true;
+  wheelHarmonyDisabledModes = new Set();
   wheelMode = 'triads';
   document.getElementById('showDegrees').checked = true;
   drawWheel();
@@ -269,11 +273,11 @@ const twoColorRadialLayer = dividerLayerFor(twoColorRadial);
 const twoColorRadialDivider = twoColorRadialLayer?.querySelector('.wheel-mode-divider');
 const cssStrokeWidth = (node) => Number.parseFloat(w.getComputedStyle(node).strokeWidth ||
   w.getComputedStyle(node).getPropertyValue('stroke-width'));
-ok('2 цвета: обе раскладки имеют разделитель; дуга 2px, радиальный разрез усилен до 3px',
+ok('2 цвета: обе раскладки имеют разделитель; кольцевая дуга виднее, радиальный разрез — 3px',
   twoPanes.some((node) => node.dataset.paneLayout === 'two-inner-outer') &&
   twoPanes.some((node) => node.dataset.paneLayout === 'two-clockwise-halves') &&
   twoPanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 2 && dividerCount(node) === 1) &&
-  twoColorRingDivider?.dataset.dividerAxis === 'arc' && cssStrokeWidth(twoColorRingDivider) === 2 &&
+  twoColorRingDivider?.dataset.dividerAxis === 'arc' && cssStrokeWidth(twoColorRingDivider) === 4 &&
   twoColorRadialLayer?.dataset.paneLayout === 'two-clockwise-halves' &&
   twoColorRadialDivider?.dataset.dividerAxis === 'radial' && cssStrokeWidth(twoColorRadialDivider) === 3,
   `${twoPanes.map((node) => node.dataset.paneLayout).join(', ')} / ${cssStrokeWidth(twoColorRingDivider)}px → ${cssStrokeWidth(twoColorRadialDivider)}px`);

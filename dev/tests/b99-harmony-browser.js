@@ -5,6 +5,7 @@ const { pathToFileURL } = require('url');
 process.env.AWS_EXECUTION_ENV ||= 'AWS_Lambda_nodejs22.x';
 const sparticuz = require('@sparticuz/chromium').default;
 const puppeteer = require('puppeteer-core');
+const { PNG } = require('pngjs');
 
 let failures = 0;
 function ok(name, condition, detail = '') {
@@ -159,9 +160,19 @@ function ok(name, condition, detail = '') {
     });
     const minorLine = await page.evaluate(() => {
       globalKey = 'Am';
+      keyMode = 'manual';
       sections = [{ id: 91, type: 'Verse', key: null, timeSig: '4/4', squares: [{ id: 92, events: [
         { chord: 'Am', span: 1 }, { chord: 'C', span: 1 }, { chord: 'D', span: 1 }, { chord: 'E', span: 1 },
       ] }] }];
+      enableWheelHarmonyModesOnTransition('C', 'Am');
+      const defaultEnabledModes = WHEEL_HARMONY_LEGEND_MODES
+        .filter(({ id }) => isWheelHarmonyModeEnabled(id)).map(({ id }) => id);
+      const defaultDisabledModes = WHEEL_HARMONY_LEGEND_MODES
+        .filter(({ id }) => !isWheelHarmonyModeEnabled(id)).map(({ id }) => id);
+      // Pane-layout coverage below intentionally uses all nine profiles;
+      // the exact production defaults are asserted before this fixture override.
+      wheelHarmonyDisabledModes.clear();
+      persistWheelHarmonyModeVisibility();
       document.getElementById('showDegrees').checked = true;
       render();
       timelineMode = true;
@@ -169,6 +180,7 @@ function ok(name, condition, detail = '') {
       const grid = (ei) => document.querySelector(`.chord-wrapper[data-sec="91"][data-square="92"][data-ei="${ei}"]`);
       const timeline = (ei) => document.querySelector(`.tl-cell[data-sec="91"][data-square="92"][data-ei="${ei}"]`);
       return {
+        defaultModes: { enabled: defaultEnabledModes, disabled: defaultDisabledModes },
         editorDegrees: [0, 1, 2, 3].map((ei) => grid(ei).querySelector('.degree-hint')?.textContent),
         timelineDegrees: [0, 1, 2, 3].map((ei) => timeline(ei).querySelector('.tl-degree')?.textContent),
         profiles: [0, 1, 2, 3].map((ei) => grid(ei).dataset.harmonyProfile),
@@ -210,6 +222,29 @@ function ok(name, condition, detail = '') {
           const followsInPaintOrder = (earlier, later) => !!(earlier && later &&
             (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING));
           const paneLabelOverrideCount = document.querySelectorAll('#circleSvg .wheel-mode-pane-label').length;
+          const dividerSample = (() => {
+            if (!divider) return null;
+            const length = divider.getTotalLength();
+            const distance = length * 0.1;
+            const screenPointAt = (offset) => {
+              const point = divider.getPointAtLength(offset);
+              const screen = new DOMPoint(point.x, point.y).matrixTransform(divider.getScreenCTM());
+              return { x: screen.x, y: screen.y };
+            };
+            const point = screenPointAt(distance);
+            const before = screenPointAt(Math.max(0, distance - 1));
+            const after = screenPointAt(Math.min(length, distance + 1));
+            const dx = after.x - before.x;
+            const dy = after.y - before.y;
+            const tangentLength = Math.hypot(dx, dy) || 1;
+            return {
+              paneKey: dividerLayer.dataset.paneKey,
+              x: point.x,
+              y: point.y,
+              normalX: -dy / tangentLength,
+              normalY: dx / tangentLength,
+            };
+          })();
           const previousTheme = document.documentElement.getAttribute('data-theme');
           const themePaint = (theme) => {
             document.documentElement.setAttribute('data-theme', theme);
@@ -244,6 +279,7 @@ function ok(name, condition, detail = '') {
               'three-single-outer', 'four-window', 'five-window-2-inner-3-outer'],
             paneCount: groups.length,
             paneLabelOverrideCount,
+            dividerSample,
             light,
             dark,
             selectedD: selectedD?.classList.contains('is-wheel-selected'),
@@ -251,6 +287,13 @@ function ok(name, condition, detail = '') {
         })(),
       };
     });
+    const exactMinorDefaults = ['aeolian', 'dorian', 'phrygian', 'locrian', 'harmonic-minor', 'melodic-minor'];
+    const allHarmonyModes = ['ionian', 'aeolian', 'harmonic-minor', 'melodic-minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'];
+    ok('в миноре по умолчанию включены только шесть минорных ладов',
+      [...minorLine.defaultModes.enabled].sort().join(',') === [...exactMinorDefaults].sort().join(',') &&
+      [...minorLine.defaultModes.disabled].sort().join(',') ===
+        allHarmonyModes.filter((mode) => !exactMinorDefaults.includes(mode)).sort().join(','),
+      JSON.stringify(minorLine.defaultModes));
     ok('Am–C–D–E visibly receives i–III–IV–V and exact aeolian/melodic/harmonic-minor colours',
       minorLine.editorDegrees.join(',') === 'i,III,IV,V' && minorLine.timelineDegrees.join(',') === 'i,III,IV,V' &&
       minorLine.profiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
@@ -260,13 +303,13 @@ function ok(name, condition, detail = '') {
       minorLine.wheelMenu.eMajorModes === 'harmonic-minor,melodic-minor,lydian' &&
       /E: ступень V в Am/.test(minorLine.wheelMenu.eMajorAria) &&
       /Гармонический минор/.test(minorLine.wheelMenu.eMajorAria), JSON.stringify(minorLine));
-    ok('B-99 dividers keep the theme-aware color; 2-color radial split is stronger in both themes',
+    ok('B-99 dividers keep the theme-aware color; ring and radial splits are visible in their layouts',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
       minorLine.panePresentation.light.fillOpacity === '0.34' && minorLine.panePresentation.dark.fillOpacity === '0.45' &&
       minorLine.panePresentation.light.dividerStroke === 'rgba(0, 0, 0, 0.15)' &&
       minorLine.panePresentation.dark.dividerStroke === 'rgba(255, 255, 255, 0.12)' &&
-      minorLine.panePresentation.light.dividerWidth === '2px' && minorLine.panePresentation.dark.dividerWidth === '2px' &&
+      minorLine.panePresentation.light.dividerWidth === '4px' && minorLine.panePresentation.dark.dividerWidth === '4px' &&
       minorLine.panePresentation.light.radialDividerWidth === '3px' && minorLine.panePresentation.dark.radialDividerWidth === '3px' &&
       minorLine.panePresentation.light.radialAxis === 'radial' && minorLine.panePresentation.dark.radialAxis === 'radial' &&
       minorLine.panePresentation.light.radialPaneLayout === 'two-clockwise-halves' &&
@@ -278,6 +321,85 @@ function ok(name, condition, detail = '') {
       minorLine.panePresentation.light.radialDividerAboveVolume && minorLine.panePresentation.dark.radialDividerAboveVolume &&
       minorLine.panePresentation.paneLabelOverrideCount === 0 && minorLine.panePresentation.selectedD,
       JSON.stringify(minorLine.panePresentation));
+    // Compare real pixels on a fresh page so the moving owner-circle in the
+    // main interaction test cannot shift the divider outside the viewport.
+    const dividerPixelVisibility = {};
+    const dividerPage = await browser.newPage();
+    dividerPage.on('pageerror', (error) => pageErrors.push(`divider screenshot: ${String(error)}`));
+    try {
+      await dividerPage.goto(`${appUrl}?b99-divider-pixel=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
+      await dividerPage.waitForFunction(() => typeof drawWheel === 'function');
+      await dividerPage.evaluate(() => {
+        globalKey = 'Am';
+        keyMode = 'manual';
+        autoDetectedKey = null;
+        activeChordInput = null;
+        activeSectionKey = null;
+        wheelMode = 'triads';
+        sections = [{ id: 1, type: 'Verse', key: null, timeSig: '4/4', squares: [{ id: 2, events: [
+          { chord: 'Am', span: 1 }, { chord: 'C', span: 1 }, { chord: 'D', span: 1 }, { chord: 'E', span: 1 },
+        ] }] }];
+        document.getElementById('showDegrees').checked = true;
+        wheelHarmonyModeVisibilityLoaded = true;
+        wheelHarmonyDisabledModes = new Set();
+        drawWheel();
+        DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
+      });
+      for (const theme of ['light', 'dark']) {
+        const sample = await dividerPage.evaluate((themeName) => {
+          document.documentElement.setAttribute('data-theme', themeName);
+          const group = [...document.querySelectorAll('#circleSvg .wheel-mode-diagram')]
+            .find((node) => node.dataset.paneLayout === 'two-inner-outer');
+          const layer = [...document.querySelectorAll('#circleSvg .wheel-mode-divider-overlay')]
+            .find((node) => node.dataset.paneKey === group?.dataset.paneKey);
+          const divider = layer?.querySelector('.wheel-mode-divider');
+          if (!divider) return null;
+          const length = divider.getTotalLength();
+          const point = divider.getPointAtLength(length * 0.1);
+          const screen = new DOMPoint(point.x, point.y).matrixTransform(divider.getScreenCTM());
+          divider.style.stroke = 'none';
+          return { x: screen.x, y: screen.y, paneKey: layer.dataset.paneKey };
+        }, theme);
+        if (!sample) {
+          dividerPixelVisibility[theme] = { meanChannelDelta: 0, changedPixels: 0 };
+          continue;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 60));
+        const withoutDivider = PNG.sync.read(await dividerPage.screenshot());
+        await dividerPage.evaluate((paneKey) => {
+          const layer = [...document.querySelectorAll('#circleSvg .wheel-mode-divider-overlay')]
+            .find((node) => node.dataset.paneKey === paneKey);
+          layer?.querySelector('.wheel-mode-divider')?.style.removeProperty('stroke');
+        }, sample.paneKey);
+        const withDivider = PNG.sync.read(await dividerPage.screenshot());
+        let totalDelta = 0;
+        let changedPixels = 0;
+        let pixelCount = 0;
+        const centerX = Math.round(sample.x);
+        const centerY = Math.round(sample.y);
+        for (let y = centerY - 5; y <= centerY + 5; y += 1) {
+          for (let x = centerX - 5; x <= centerX + 5; x += 1) {
+            if (x < 0 || y < 0 || x >= withDivider.width || y >= withDivider.height) continue;
+            const offset = (y * withDivider.width + x) * 4;
+            const delta = Math.abs(withDivider.data[offset] - withoutDivider.data[offset]) +
+              Math.abs(withDivider.data[offset + 1] - withoutDivider.data[offset + 1]) +
+              Math.abs(withDivider.data[offset + 2] - withoutDivider.data[offset + 2]);
+            totalDelta += delta;
+            if (delta >= 12) changedPixels += 1;
+            pixelCount += 1;
+          }
+        }
+        dividerPixelVisibility[theme] = {
+          meanChannelDelta: totalDelta / Math.max(1, pixelCount * 3),
+          changedPixels,
+        };
+      }
+    } finally {
+      await dividerPage.close();
+    }
+    ok('кольцевый разделитель меняет реальные пиксели в обеих темах, а не только CSS-ширину',
+      ['light', 'dark'].every((theme) => dividerPixelVisibility[theme]?.meanChannelDelta >= 3 &&
+        dividerPixelVisibility[theme]?.changedPixels >= 20), JSON.stringify(dividerPixelVisibility));
     const wheelToggleScope = await page.evaluate(() => {
       const editorD = document.querySelector('.chord-wrapper[data-sec="91"][data-square="92"][data-ei="2"]');
       const timelineD = document.querySelector('.tl-cell[data-sec="91"][data-square="92"][data-ei="2"]');
