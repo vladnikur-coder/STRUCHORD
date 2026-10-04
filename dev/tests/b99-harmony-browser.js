@@ -131,14 +131,27 @@ function ok(name, condition, detail = '') {
           const layouts = [...new Set(groups.map((group) => group.dataset.paneLayout))];
           const oneColor = groups.find((group) => group.dataset.paneLayout === 'solid');
           const divider = document.querySelector('#circleSvg .wheel-mode-divider');
+          const dividerLayer = divider?.closest('.wheel-mode-divider-overlay');
+          const dividerPaneGroup = groups.find((group) => group.dataset.paneKey === dividerLayer?.dataset.paneKey);
+          const dividerVolume = [...document.querySelectorAll('#circleSvg .wheel-sector-volume')].find((volume) =>
+            volume.dataset.wheelChordIdentity === dividerLayer?.dataset.wheelChordIdentity &&
+            volume.dataset.wheelHoverRing === dividerLayer?.dataset.wheelHoverRing);
+          const followsInPaintOrder = (earlier, later) => !!(earlier && later &&
+            (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING));
           const paneLabelOverrideCount = document.querySelectorAll('#circleSvg .wheel-mode-pane-label').length;
           const previousTheme = document.documentElement.getAttribute('data-theme');
           const themePaint = (theme) => {
             document.documentElement.setAttribute('data-theme', theme);
+            const dividerStyle = divider && getComputedStyle(divider);
             return {
               fillOpacity: oneColor && getComputedStyle(oneColor.querySelector('.wheel-mode-pane')).fillOpacity,
-              dividerStroke: divider && getComputedStyle(divider).stroke,
-              dividerWidth: divider && getComputedStyle(divider).strokeWidth,
+              dividerStroke: dividerStyle?.stroke,
+              dividerWidth: dividerStyle?.strokeWidth,
+              dividerVisible: !!dividerStyle && dividerStyle.stroke !== 'none' &&
+                Number.parseFloat(dividerStyle.strokeOpacity) > 0 && dividerStyle.display !== 'none' &&
+                dividerStyle.visibility !== 'hidden',
+              panesBelowVolume: followsInPaintOrder(dividerPaneGroup, dividerVolume),
+              dividersAboveVolume: followsInPaintOrder(dividerVolume, dividerLayer),
             };
           };
           const light = themePaint('light');
@@ -168,13 +181,16 @@ function ok(name, condition, detail = '') {
       minorLine.wheelMenu.eMajorModes === 'harmonic-minor,melodic-minor,lydian' &&
       /E: ступень V в Am/.test(minorLine.wheelMenu.eMajorAria) &&
       /Гармонический минор/.test(minorLine.wheelMenu.eMajorAria), JSON.stringify(minorLine));
-    ok('B-99 pane layouts retain selection and use the 0.551 theme-matched divider token in both themes',
+    ok('B-99 dividers are painted above the surface overlay with the theme-matched 2px token',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
       minorLine.panePresentation.light.fillOpacity === '0.34' && minorLine.panePresentation.dark.fillOpacity === '0.45' &&
       minorLine.panePresentation.light.dividerStroke === 'rgba(0, 0, 0, 0.15)' &&
       minorLine.panePresentation.dark.dividerStroke === 'rgba(255, 255, 255, 0.12)' &&
       minorLine.panePresentation.light.dividerWidth === '2px' && minorLine.panePresentation.dark.dividerWidth === '2px' &&
+      minorLine.panePresentation.light.dividerVisible && minorLine.panePresentation.dark.dividerVisible &&
+      minorLine.panePresentation.light.panesBelowVolume && minorLine.panePresentation.dark.panesBelowVolume &&
+      minorLine.panePresentation.light.dividersAboveVolume && minorLine.panePresentation.dark.dividersAboveVolume &&
       minorLine.panePresentation.paneLabelOverrideCount === 0 && minorLine.panePresentation.selectedD,
       JSON.stringify(minorLine.panePresentation));
     const wheelToggleScope = await page.evaluate(() => {

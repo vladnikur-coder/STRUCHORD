@@ -214,6 +214,37 @@ w.history.replaceState({}, '', '/');
 const paneGroup = (identity, ring) => [...d.querySelectorAll('#circleSvg .wheel-mode-diagram')]
   .find((node) => node.dataset.wheelChordIdentity === identity && node.dataset.wheelHoverRing === ring);
 const paneModes = (group) => [...(group?.querySelectorAll('.wheel-mode-pane') || [])].map((node) => node.dataset.mode);
+const dividerLayerFor = (group) => [...d.querySelectorAll('#circleSvg .wheel-mode-divider-overlay')]
+  .find((node) => node.dataset.paneKey === group?.dataset.paneKey);
+const dividerCount = (group) => dividerLayerFor(group)?.querySelectorAll('.wheel-mode-divider').length || 0;
+const cardVolumeFor = (group) => [...d.querySelectorAll('#circleSvg .wheel-sector-volume')]
+  .find((node) => node.dataset.wheelChordIdentity === group?.dataset.wheelChordIdentity &&
+    node.dataset.wheelHoverRing === group?.dataset.wheelHoverRing);
+const followsInPaintOrder = (earlier, later) => !!(earlier && later &&
+  (earlier.compareDocumentPosition(later) & w.Node.DOCUMENT_POSITION_FOLLOWING));
+const panePaintStackIsCorrect = (group) => {
+  const volume = cardVolumeFor(group);
+  const dividerLayer = dividerLayerFor(group);
+  return followsInPaintOrder(group, volume) &&
+    (Number(group?.dataset.paneCount) === 1 ||
+      (dividerLayer && dividerLayer.classList.contains('wheel-hoverable') &&
+        dividerLayer.classList.contains('wheel-surface-stone') &&
+        dividerLayer.getAttribute('clip-path') === group.getAttribute('clip-path') &&
+        dividerLayer.getAttribute('aria-hidden') === 'true' &&
+        dividerLayer.dataset.wheelHoverRing === group.dataset.wheelHoverRing &&
+        dividerLayer.dataset.wheelHoverIndex === group.dataset.wheelHoverIndex &&
+        dividerLayer.style.getPropertyValue('--wheel-hover-origin-x') === group.style.getPropertyValue('--wheel-hover-origin-x') &&
+        dividerLayer.style.getPropertyValue('--wheel-hover-origin-y') === group.style.getPropertyValue('--wheel-hover-origin-y') &&
+        followsInPaintOrder(volume, dividerLayer)));
+};
+const expectedDividerCount = (group) => Number(group?.dataset.paneCount) === 1 ? 0 :
+  Number(group?.dataset.paneCount) === 3 ? 2 : Number(group?.dataset.paneCount) === 5 ? 4 :
+    Number(group?.dataset.paneCount) === 4 ? 2 : 1;
+const currentPaneGroups = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram')];
+ok('заливки остаются под card-volume, а каждый divider-layer рисуется поверх него',
+  currentPaneGroups.length > 0 && currentPaneGroups.every((group) =>
+    panePaintStackIsCorrect(group) && dividerCount(group) === expectedDividerCount(group)),
+  `${currentPaneGroups.length} карточек; слои panes → volume → dividers`);
 const onePane = paneGroup('B', 'major');
 ok('1 цвет: одна сплошная pane целиком внутри clip карточки',
   onePane?.dataset.paneLayout === 'solid' && onePane.querySelectorAll('.wheel-mode-pane').length === 1 &&
@@ -223,7 +254,7 @@ const twoPanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pan
 ok('2 цвета: соседние двухцветные карточки чередуют кольцевой и продольный разрез',
   twoPanes.some((node) => node.dataset.paneLayout === 'two-inner-outer') &&
   twoPanes.some((node) => node.dataset.paneLayout === 'two-clockwise-halves') &&
-  twoPanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 2 && node.querySelectorAll('.wheel-mode-divider').length === 1),
+  twoPanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 2 && dividerCount(node) === 1),
   twoPanes.map((node) => node.dataset.paneLayout).join(', '));
 const threePanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pane-count="3"][data-wheel-hover-ring="major"]')];
 const radialMidpointMatches = (node) => {
@@ -234,17 +265,17 @@ const sharesAreUnequalAndComplete = (node) => {
   const shares = [...node.querySelectorAll('.wheel-mode-pane')].map((pane) => Number(pane.dataset.paneAreaShare));
   return Math.abs(shares.reduce((sum, share) => sum + share, 0) - 1) < 0.001 && new Set(shares).size > 1;
 };
-ok('3 цвета: деление 1+2 проходит по середине радиальной ширины; сторона цельного поля чередуется',
+ok('3 цвета: два разделителя; 1+2 делятся посередине радиальной ширины с чередованием стороны',
   threePanes.some((node) => node.dataset.paneLayout === 'three-single-inner') &&
   threePanes.some((node) => node.dataset.paneLayout === 'three-single-outer') &&
   threePanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 3 &&
-    radialMidpointMatches(node) && sharesAreUnequalAndComplete(node)),
+    dividerCount(node) === 2 && radialMidpointMatches(node) && sharesAreUnequalAndComplete(node)),
   threePanes.map((node) => `${node.dataset.paneLayout}:${node.dataset.radialBandSplitRadius}`).join(', '));
 const fourPanes = paneGroup('F', 'major');
-ok('4 цвета: окно 2×2, четыре равных поля и две перемычки',
+ok('4 цвета: окно 2×2, четыре равных поля и два разделителя поверх overlay',
   fourPanes?.dataset.paneLayout === 'four-window' &&
   fourPanes.querySelectorAll('.wheel-mode-pane').length === 4 &&
-  fourPanes.querySelectorAll('.wheel-mode-divider').length === 2 &&
+  dividerCount(fourPanes) === 2 &&
   [...fourPanes.querySelectorAll('.wheel-mode-pane')].every((pane) => pane.dataset.paneAreaShare === '0.2500'),
   fourPanes?.dataset.paneLayout || 'нет диаграммы');
 const fivePanes = paneGroup('Am', 'minor');
@@ -254,7 +285,7 @@ ok('5 цветов: окно 2+3, база внутри, радиальная г
   [...fivePanes.querySelectorAll('.wheel-mode-pane')].filter((pane) => pane.dataset.paneBand === 'inner').length === 2 &&
   [...fivePanes.querySelectorAll('.wheel-mode-pane')].filter((pane) => pane.dataset.paneBand === 'outer').length === 3 &&
   radialMidpointMatches(fivePanes) && sharesAreUnequalAndComplete(fivePanes) &&
-  fivePanes.querySelectorAll('.wheel-mode-divider').length === 4,
+  dividerCount(fivePanes) === 4 &&
   `${fivePanes?.dataset.paneLayout || 'нет'} / ${paneModes(fivePanes).join(',')}`);
 ok('подписи сохраняют штатное оформление; отдельная pane-hover-подпись удалена',
   d.querySelectorAll('#circleSvg .wheel-mode-pane-label').length === 0 &&

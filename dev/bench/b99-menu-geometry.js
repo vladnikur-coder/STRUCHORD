@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Геометрическая проверка единственной pane-раскладки B-99: количество
-// полей, радиальная середина раскладок 2+1/3+2 и обрезка карточки.
+// Геометрическая проверка единственной pane-раскладки B-99: поля,
+// радиальная середина 2+1/3+2, клип карточки и paint order разделителей.
 const path = require('path');
 const { pathToFileURL } = require('url');
 const sparticuz = require('@sparticuz/chromium').default;
@@ -28,7 +28,14 @@ const puppeteer = require('puppeteer-core');
     DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
     wheelMode = 'triads';
     drawWheel();
-    const out = { diagrams: 0, panes: 0, clipped: 0, complete: 0, midpointSplits: { three: 0, five: 0 }, unevenAreas: { three: 0, five: 0 }, opacity: null, layouts: {} };
+    const out = {
+      diagrams: 0, panes: 0, clipped: 0, complete: 0,
+      dividers: { paths: 0, complete: 0, clipped: 0, paintOrder: 0 },
+      midpointSplits: { three: 0, five: 0 }, unevenAreas: { three: 0, five: 0 },
+      opacity: null, layouts: {},
+    };
+    const followsInPaintOrder = (earlier, later) => !!(earlier && later &&
+      (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING));
     document.querySelectorAll('#circleSvg .wheel-mode-diagram').forEach((dg) => {
       out.diagrams += 1;
       const panes = [...dg.querySelectorAll('.wheel-mode-pane')];
@@ -39,6 +46,23 @@ const puppeteer = require('puppeteer-core');
       const clipId = (dg.getAttribute('clip-path') || '').match(/^url\(#([^)]+)\)$/)?.[1];
       if (clipId && document.getElementById(clipId)?.querySelector('path')) out.clipped += 1;
       if (panes.length === expectedCount && expectedCount >= 1 && expectedCount <= 5) out.complete += 1;
+      const dividerLayer = [...document.querySelectorAll('#circleSvg .wheel-mode-divider-overlay')]
+        .find((layer) => layer.dataset.paneKey === dg.dataset.paneKey);
+      const dividerCount = dividerLayer?.querySelectorAll('.wheel-mode-divider').length || 0;
+      const expectedDividerCount = ({ 1: 0, 2: 1, 3: 2, 4: 2, 5: 4 })[expectedCount];
+      out.dividers.paths += dividerCount;
+      if (dividerCount === expectedDividerCount) out.dividers.complete += 1;
+      const volume = [...document.querySelectorAll('#circleSvg .wheel-sector-volume')].find((node) =>
+        node.dataset.wheelChordIdentity === dg.dataset.wheelChordIdentity &&
+        node.dataset.wheelHoverRing === dg.dataset.wheelHoverRing);
+      const paneUnderVolume = followsInPaintOrder(dg, volume);
+      const dividerAboveVolume = expectedDividerCount === 0 ||
+        (dividerLayer && dividerLayer.getAttribute('clip-path') === dg.getAttribute('clip-path') &&
+          followsInPaintOrder(volume, dividerLayer));
+      if (expectedDividerCount === 0 || dividerLayer?.getAttribute('clip-path') === dg.getAttribute('clip-path')) {
+        out.dividers.clipped += 1;
+      }
+      if (paneUnderVolume && dividerAboveVolume) out.dividers.paintOrder += 1;
       if (expectedCount === 3 || expectedCount === 5) {
         const band = expectedCount === 3 ? 'three' : 'five';
         const inner = Number(dg.dataset.sectorInnerRadius);

@@ -5713,7 +5713,8 @@ html.wheel-motion-disabled #circleSvg .wheel-degree-label.is-wheel-hovered {
 /* B-99 (0.551): единственное pane-представление меню заимствований
    в режиме трезвучий. Возвращены прежние theme-specific opacity: 0.34
    в светлой и 0.45 в тёмной теме; «Ступени и цвета» сохраняет свой гейт. */
-#circleSvg .wheel-mode-diagram {
+#circleSvg .wheel-mode-diagram,
+#circleSvg .wheel-mode-divider-overlay {
   pointer-events: none;
 }
 #circleSvg .wheel-mode-pane {
@@ -5729,8 +5730,8 @@ html.wheel-motion-disabled #circleSvg .wheel-degree-label.is-wheel-hovered {
 #circleSvg .wheel-mode-pane[data-mode='lydian'] { fill: var(--harmony-lydian); }
 #circleSvg .wheel-mode-pane[data-mode='mixolydian'] { fill: var(--harmony-mixolydian); }
 #circleSvg .wheel-mode-pane[data-mode='locrian'] { fill: var(--harmony-locrian); }
-/* B-99 pane menu (0.555): restore the 0.551 theme-matched neutral divider
-   token so rails stay visible in both light and dark themes. */
+/* B-99 refinement (0.559): pane fills stay under the subtle card-volume
+   gradient; neutral rails are a sibling overlay painted above it. */
 #circleSvg .wheel-mode-divider {
   fill: none;
   stroke: var(--color-border-medium);
@@ -5739,7 +5740,8 @@ html.wheel-motion-disabled #circleSvg .wheel-degree-label.is-wheel-hovered {
   stroke-linecap: round;
   pointer-events: none;
 }
-#chordWheelModal:not(.is-harmony-highlights-on) #circleSvg .wheel-mode-diagram {
+#chordWheelModal:not(.is-harmony-highlights-on) #circleSvg .wheel-mode-diagram,
+#chordWheelModal:not(.is-harmony-highlights-on) #circleSvg .wheel-mode-divider-overlay {
   display: none;
 }
 /* Это не hover, а честное состояние уже записанного в owner аккорда.
@@ -11592,7 +11594,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.558</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.559</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -34153,10 +34155,15 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     const count = modes.length;
     if (!menuMode || count < 1 || count > 5) return null;
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
+    const dividerLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.classList.add('wheel-mode-diagram');
     group.classList.toggle('is-wheel-selected', !!selected);
     group.setAttribute('aria-hidden', 'true');
     group.setAttribute('pointer-events', 'none');
+    dividerLayer.classList.add('wheel-mode-divider-overlay');
+    dividerLayer.classList.toggle('is-wheel-selected', !!selected);
+    dividerLayer.setAttribute('aria-hidden', 'true');
+    dividerLayer.setAttribute('pointer-events', 'none');
     const clip = document.createElementNS('http://www.w3.org/2000/svg', 'clipPath');
     clip.id = `wheel-menu-clip-${clipKey}`;
     const clipCard = document.createElementNS('http://www.w3.org/2000/svg', 'path');
@@ -34165,6 +34172,9 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     clip.appendChild(clipCard);
     frag.appendChild(clip);
     group.setAttribute('clip-path', `url(#${clip.id})`);
+    dividerLayer.setAttribute('clip-path', `url(#${clip.id})`);
+    group.dataset.paneKey = clipKey;
+    dividerLayer.dataset.paneKey = clipKey;
     group.dataset.paneCount = String(count);
     group.dataset.paneModes = modes.join(',');
     group.dataset.panePatternOrdinal = String(patternOrdinal);
@@ -34206,7 +34216,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       divider.dataset.dividerAxis = axis;
       divider.setAttribute('d', d);
       divider.setAttribute('aria-hidden', 'true');
-      group.appendChild(divider);
+      dividerLayer.appendChild(divider);
     };
     const appendRadialDivider = (angle, innerRadius = cardInner, outerRadius = cardOuter) => {
       appendDivider(`M${pointText(polarPoint(innerRadius, angle))} L${pointText(polarPoint(outerRadius, angle))}`, 'radial');
@@ -34286,7 +34296,9 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       appendRadialDivider(outerSecondThird, radialSplit, cardOuter);
     }
     frag.appendChild(group);
-    return group;
+    // Card-volume gradient проходит над цветными полями, но внутренние рейки
+    // кладём поверх него, чтобы полупрозрачный overlay не ослаблял разделители.
+    return { diagram: group, dividerLayer: dividerLayer.childElementCount ? dividerLayer : null };
   };
 
   const frag = document.createDocumentFragment();
@@ -34433,6 +34445,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       );
       const opVolume = addWheelCardVolume(op);
       applyWheelBorrowingMenu(opVolume, majorMenu);
+      if (majorDiagram?.dividerLayer) frag.appendChild(majorDiagram.dividerLayer);
       const ip = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       ip.setAttribute(
         'd',
@@ -34470,6 +34483,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       );
       const ipVolume = addWheelCardVolume(ip);
       applyWheelBorrowingMenu(ipVolume, minorMenu);
+      if (minorDiagram?.dividerLayer) frag.appendChild(minorDiagram.dividerLayer);
       const Rmt = (Ro + Rs) / 2,
         mx = cx + Rmt * Math.cos(mid),
         my = cy + Rmt * Math.sin(mid);
@@ -34484,7 +34498,9 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         e.stopPropagation();
         selectChord(vm);
       });
-      const outerHoverNodes = majorDiagram ? [op, majorDiagram, opVolume, mg] : [op, opVolume, mg];
+      const outerHoverNodes = majorDiagram
+        ? [op, majorDiagram.diagram, opVolume, majorDiagram.dividerLayer, mg]
+        : [op, opVolume, mg];
       const Rmit = (Rs + Ri) / 2,
         mix = cx + Rmit * Math.cos(mid),
         miy = cy + Rmit * Math.sin(mid);
@@ -34499,7 +34515,9 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         e.stopPropagation();
         selectChord(vmi);
       });
-      const innerHoverNodes = minorDiagram ? [ip, minorDiagram, ipVolume, mig] : [ip, ipVolume, mig];
+      const innerHoverNodes = minorDiagram
+        ? [ip, minorDiagram.diagram, ipVolume, minorDiagram.dividerLayer, mig]
+        : [ip, ipVolume, mig];
       // The degree becomes part of the same label group, so hover applies one
       // transform to the complete label block instead of separately syncing a
       // second SVG text node beside it.
