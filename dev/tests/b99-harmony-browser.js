@@ -54,6 +54,15 @@ function ok(name, condition, detail = '') {
       wheelMode = '7';
       drawWheel();
       const d7 = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D7"]');
+      const d7Selected = d7.classList.contains('is-wheel-selected');
+      const wheelAria = d7.getAttribute('aria-label') || '';
+      const wheelTitle = d7.querySelector('title')?.textContent || '';
+      d7.classList.remove('is-wheel-selected');
+      const wheelVxFill = getComputedStyle(d7).fill;
+      d7.removeAttribute('data-harmony-profile');
+      const wheelFillWithoutProfile = getComputedStyle(d7).fill;
+      d7.setAttribute('data-harmony-profile', 'secondary-function');
+      d7.classList.toggle('is-wheel-selected', d7Selected);
       bindWheelHarmonyLegend();
       document.getElementById('wheelHarmonyLegendToggle').click();
       return {
@@ -62,19 +71,27 @@ function ok(name, condition, detail = '') {
         groups: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyGroup),
         profiles: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyProfile),
         gridMarker: getComputedStyle(grid(1), '::before').backgroundColor,
+        ionianGridMarker: getComputedStyle(grid(0), '::before').backgroundColor,
         neutralGridMarker: getComputedStyle(grid(3), '::before').backgroundColor,
+        gridFunctionText: grid(1).querySelector('.chord-input')?.getAttribute('aria-label') || '',
         timelineGroups: [timeline(0), timeline(1), timeline(3)].map((cell) => cell.dataset.harmonyGroup),
         timelineProfiles: [timeline(0), timeline(1), timeline(3)].map((cell) => cell.dataset.harmonyProfile),
         timelineMarker: getComputedStyle(timeline(1), '::after').backgroundColor,
+        ionianTimelineMarker: getComputedStyle(timeline(0), '::after').backgroundColor,
         neutralTimelineMarker: getComputedStyle(timeline(3), '::after').backgroundColor,
+        timelineFunctionText: timeline(1).querySelector('.harmony-a11y')?.textContent || '',
         selected: d7.classList.contains('is-wheel-selected'),
         wheelGroup: d7.dataset.harmonyGroup,
         wheelProfile: d7.dataset.harmonyProfile,
+        wheelAria: `${wheelAria} ${wheelTitle}`,
+        wheelVxFill,
+        wheelFillWithoutProfile,
         legendOpen: !document.getElementById('wheelHarmonyLegend').hidden,
         legendExpanded: document.getElementById('wheelHarmonyLegendToggle').getAttribute('aria-expanded'),
         legendModeCount: document.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]').length,
         legendHasAlterations: /↑VII/.test(document.getElementById('wheelHarmonyLegend').textContent) &&
           /↓II/.test(document.getElementById('wheelHarmonyLegend').textContent),
+        legendHasVx: /V\/x/.test(document.getElementById('wheelHarmonyLegend').textContent),
         legendHasCurrentChord: !!document.getElementById('wheelHarmonyLegendCurrent'),
       };
     });
@@ -233,19 +250,22 @@ function ok(name, condition, detail = '') {
       JSON.stringify(strictWheel));
     ok('выключенные «Ступени» не показывают B-99 marker',
       !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('editor shows ionian / V/x only; ambiguous Bb is visually neutral',
+    ok('editor keeps V/x text semantics without a colored marker; other profiles stay colored',
       state.groups.join(',') === 'diatonic,secondary-function,' &&
       state.profiles.join(',') === 'ionian,secondary-function,' &&
-      state.gridMarker !== 'rgba(0, 0, 0, 0)' && state.neutralGridMarker === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('timeline carries the same confirmed profiles; ambiguous Bb has no marker',
+      state.gridMarker === 'rgba(0, 0, 0, 0)' && state.ionianGridMarker !== 'rgba(0, 0, 0, 0)' &&
+      state.neutralGridMarker === 'rgba(0, 0, 0, 0)' && /вторичная доминанта V\/V/.test(state.gridFunctionText), JSON.stringify(state));
+    ok('timeline keeps V/x text semantics without a colored marker; other profiles stay colored',
       state.timelineGroups.join(',') === 'diatonic,secondary-function,' &&
       state.timelineProfiles.join(',') === 'ionian,secondary-function,' &&
-      state.timelineMarker !== 'rgba(0, 0, 0, 0)' && state.neutralTimelineMarker === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('wheel shows the separate applied V/V profile while selected marker survives',
-      state.wheelGroup === 'secondary-function' && state.wheelProfile === 'secondary-function' && state.selected, JSON.stringify(state));
+      state.timelineMarker === 'rgba(0, 0, 0, 0)' && state.ionianTimelineMarker !== 'rgba(0, 0, 0, 0)' &&
+      state.neutralTimelineMarker === 'rgba(0, 0, 0, 0)' && /вторичная доминанта V\/V/.test(state.timelineFunctionText), JSON.stringify(state));
+    ok('wheel keeps V/V semantic and selected marker but draws no V/x profile color',
+      state.wheelGroup === 'secondary-function' && state.wheelProfile === 'secondary-function' && state.selected &&
+      /V\/V/.test(state.wheelAria) && state.wheelVxFill === state.wheelFillWithoutProfile, JSON.stringify(state));
     ok('legend ? opens accessibly', state.legendOpen && state.legendExpanded === 'true', JSON.stringify(state));
-    ok('legend ? is a compact 10-color palette with raised/lowered-degree cues',
-      state.legendModeCount === 10 && state.legendHasAlterations && !state.legendHasCurrentChord, JSON.stringify(state));
+    ok('legend ? is a compact nine-mode palette; V/x has no color toggle',
+      state.legendModeCount === 9 && state.legendHasAlterations && !state.legendHasVx && !state.legendHasCurrentChord, JSON.stringify(state));
     const sectorHoverTooltip = await page.evaluate(async () => {
       const setTheme = (theme) => document.documentElement.setAttribute('data-theme', theme);
       activeChordInput = document.querySelector('.chord-input[data-sec="91"][data-square="92"][data-ei="2"]');

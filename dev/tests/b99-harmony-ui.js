@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// B-99 UI phase: keep the visual marker semantic, present on editor/timeline/
-// wheel, and subordinate to the established selected-chord accent marker.
+// B-99 UI phase: keep V/x analysis/text semantics, but do not color-mark it
+// in the editor, timeline or wheel; other mode colors and selected markers stay.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -53,14 +53,14 @@ w.eval(`
 `);
 
 const grid = (ei) => d.querySelector(`.chord-wrapper[data-sec="41"][data-square="42"][data-ei="${ei}"]`);
-ok('редактор показывает только подтверждённый профиль и V/x; Bb остаётся нейтральным',
+ok('редактор сохраняет классификацию V/x, а Bb остаётся без неподтверждённого профиля',
   grid(0)?.dataset.harmonyGroup === 'diatonic' && grid(0)?.dataset.harmonyProfile === 'ionian' &&
   grid(1)?.dataset.harmonyGroup === 'secondary-function' && grid(1)?.dataset.harmonyProfile === 'secondary-function' &&
   grid(3)?.dataset.harmonyGroup === undefined && grid(3)?.dataset.harmonyProfile === undefined &&
   grid(3)?.querySelector('.chord-input')?.getAttribute('aria-label') === null &&
   !grid(1)?.querySelector('.harmony-visible-label'),
   [0, 1, 3].map((ei) => `${grid(ei)?.dataset.harmonyGroup}/${grid(ei)?.dataset.harmonyProfile}`).join(', '));
-ok('цветовой маркер имеет текстовую альтернативу для скринридера',
+ok('V/x остаётся доступен текстом без цветового маркера',
   /вторичная доминанта V\/V/.test(grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label') || ''),
   grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label') || '');
 
@@ -83,8 +83,9 @@ w.eval(`
   drawWheel();
 `);
 const d7 = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D7"]');
-ok('круг получает отдельную прикладную V/V для D7 в контексте следующего G',
-  d7?.dataset.harmonyGroup === 'secondary-function', d7?.outerHTML || 'D7 sector absent');
+ok('круг сохраняет функциональную классификацию V/V для D7 → G без отдельного цветового режима',
+  d7?.dataset.harmonyGroup === 'secondary-function' && /V\/V/.test(d7?.getAttribute('aria-label') || ''),
+  d7?.getAttribute('aria-label') || d7?.outerHTML || 'D7 sector absent');
 ok('выбранный аккорд сохраняет сильный established selected marker',
   d7?.classList.contains('is-wheel-selected') && /\.wheel-sector\.is-wheel-selected/.test(fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8')),
   d7?.className.baseVal || '');
@@ -94,14 +95,18 @@ const legend = d.getElementById('wheelHarmonyLegend');
 const toggle = d.getElementById('wheelHarmonyLegendToggle');
 const legendModes = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
 ok('кнопка ? открывает компактную палитру с изменениями ступеней и переключателями',
-  !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' && legendModes.length === 10 &&
+  !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' && legendModes.length === 9 &&
   /Ионийский/.test(legend.textContent) && /Эолийский/.test(legend.textContent) &&
   /↑VII/.test(legend.textContent) && /↑VI/.test(legend.textContent) &&
   /Дорийский/.test(legend.textContent) && /↓II/.test(legend.textContent) &&
   /Лидийский/.test(legend.textContent) && /↓VII/.test(legend.textContent) &&
-  /Локрийский/.test(legend.textContent) && /V\/x/.test(legend.textContent) &&
+  /Локрийский/.test(legend.textContent) && !/V\/x/.test(legend.textContent) &&
   legendModes.every((input) => input.checked) && !d.getElementById('wheelHarmonyLegendCurrent'),
   legend.textContent.replace(/\s+/g, ' ').trim());
+ok('secondary-function is not an enabled wheel scale-color mode, even if passed directly',
+  w.eval('getEnabledWheelHarmonyModes(["secondary-function"]).length') === 0 &&
+  w.eval('WHEEL_HARMONY_LEGEND_MODES.some(({ id }) => id === "secondary-function")') === false,
+  'V/x analysis stays separate from the nine wheel scale colors');
 
 w.eval('document.getElementById("showDegrees").checked = false; updateCellsDegrees();');
 ok('выключенные «Ступени» выключают и расширенную гармоническую подсветку',
@@ -145,7 +150,7 @@ const wheelPaletteIndependentOfOwner = w.eval(`(() => [0, 1, 2, 3].map((ei) => {
   };
 }))()`);
 ok('единая компактная палитра не превращается в анализ owner-аккорда',
-  wheelPaletteIndependentOfOwner.every((item) => item.legendCurrentAbsent && item.paletteCount === 10) &&
+  wheelPaletteIndependentOfOwner.every((item) => item.legendCurrentAbsent && item.paletteCount === 9) &&
   wheelPaletteIndependentOfOwner.map((item) => item.menuProfile).join('|') ===
     'aeolian,harmonic-minor,melodic-minor,dorian,phrygian|aeolian,dorian,phrygian|melodic-minor,dorian,mixolydian|harmonic-minor,melodic-minor,lydian',
   JSON.stringify(wheelPaletteIndependentOfOwner));

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // B-99: functional harmony must carry a precise modal profile only when
 // analysis has enough evidence. The UI consumes `mode`; only confirmed
-// profiles and V/x receive a visible semantic marker.
+// mode profiles receive color markers; V/x stays functional/textual only.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 

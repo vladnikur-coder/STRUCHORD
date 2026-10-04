@@ -278,11 +278,11 @@ w.eval(`
 const legend = d.getElementById('wheelHarmonyLegend');
 const modeInputs = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
 ok('легенда компактно показывает все лады/цвета и изменения ступеней',
-  !legend?.hidden && modeInputs.length === 10 &&
+  !legend?.hidden && modeInputs.length === 9 &&
   /Ионийский/.test(legend?.textContent || '') && /Эолийский/.test(legend?.textContent || '') &&
   /↑VII/.test(legend?.textContent || '') && /↑VI/.test(legend?.textContent || '') &&
   /↓II/.test(legend?.textContent || '') && /↓V/.test(legend?.textContent || '') &&
-  /V\/x/.test(legend?.textContent || '') && !d.getElementById('wheelHarmonyLegendCurrent') &&
+  !/V\/x/.test(legend?.textContent || '') && !d.getElementById('wheelHarmonyLegendCurrent') &&
   modeInputs.every((input) => input.checked),
   (legend?.textContent || '').replace(/\s+/g, ' ').slice(0, 180));
 const dorianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="dorian"]');
