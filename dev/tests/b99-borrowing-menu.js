@@ -273,14 +273,14 @@ const twoColorRadialLayer = dividerLayerFor(twoColorRadial);
 const twoColorRadialDivider = twoColorRadialLayer?.querySelector('.wheel-mode-divider');
 const cssStrokeWidth = (node) => Number.parseFloat(w.getComputedStyle(node).strokeWidth ||
   w.getComputedStyle(node).getPropertyValue('stroke-width'));
-ok('2 цвета: обе раскладки имеют разделитель; кольцевая дуга виднее, радиальный разрез — 3px',
+ok('2 цвета: обе раскладки используют общий разделитель 2px, как panes на 3–5 цветов',
   twoPanes.some((node) => node.dataset.paneLayout === 'two-inner-outer') &&
   twoPanes.some((node) => node.dataset.paneLayout === 'two-clockwise-halves') &&
   twoPanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 2 && dividerCount(node) === 1) &&
-  twoColorRingDivider?.dataset.dividerAxis === 'arc' && cssStrokeWidth(twoColorRingDivider) === 4 &&
+  twoColorRingDivider?.dataset.dividerAxis === 'arc' && cssStrokeWidth(twoColorRingDivider) === 2 &&
   twoColorRadialLayer?.dataset.paneLayout === 'two-clockwise-halves' &&
-  twoColorRadialDivider?.dataset.dividerAxis === 'radial' && cssStrokeWidth(twoColorRadialDivider) === 3,
-  `${twoPanes.map((node) => node.dataset.paneLayout).join(', ')} / ${cssStrokeWidth(twoColorRingDivider)}px → ${cssStrokeWidth(twoColorRadialDivider)}px`);
+  twoColorRadialDivider?.dataset.dividerAxis === 'radial' && cssStrokeWidth(twoColorRadialDivider) === 2,
+  `${twoPanes.map((node) => node.dataset.paneLayout).join(', ')} / ${cssStrokeWidth(twoColorRingDivider)}px, ${cssStrokeWidth(twoColorRadialDivider)}px`);
 const threePanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pane-count="3"][data-wheel-hover-ring="major"]')];
 const radialMidpointMatches = (node) => {
   const expected = (Number(node.dataset.sectorInnerRadius) + Number(node.dataset.sectorOuterRadius)) / 2;
@@ -312,6 +312,12 @@ ok('5 цветов: окно 2+3, база внутри, радиальная г
   radialMidpointMatches(fivePanes) && sharesAreUnequalAndComplete(fivePanes) &&
   dividerCount(fivePanes) === 4 &&
   `${fivePanes?.dataset.paneLayout || 'нет'} / ${paneModes(fivePanes).join(',')}`);
+const colorPaneGroups = [...twoPanes, ...threePanes, fourPanes, fivePanes].filter(Boolean);
+const colorDividerWidths = colorPaneGroups.flatMap((group) =>
+  [...(dividerLayerFor(group)?.querySelectorAll('.wheel-mode-divider') || [])].map(cssStrokeWidth));
+ok('разделители в раскладках на 2–5 цветов имеют одинаковую толщину 2px',
+  colorDividerWidths.length > 0 && colorDividerWidths.every((width) => width === 2),
+  [...new Set(colorDividerWidths)].join(', ') + 'px');
 ok('подписи сохраняют штатное оформление; отдельная pane-hover-подпись удалена',
   d.querySelectorAll('#circleSvg .wheel-mode-pane-label').length === 0 &&
   !d.getElementById('wheelModeHoverLabel') &&

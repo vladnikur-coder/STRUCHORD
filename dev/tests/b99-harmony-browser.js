@@ -212,6 +212,13 @@ function ok(name, condition, detail = '') {
           const radialDividerLayer = dividerLayerFor(twoColorRadial);
           const divider = dividerLayer?.querySelector('.wheel-mode-divider');
           const radialDivider = radialDividerLayer?.querySelector('.wheel-mode-divider');
+          const multiColorDividerWidths = groups
+            .filter((group) => Number(group.dataset.paneCount) >= 3)
+            .flatMap((group) => {
+              const layer = dividerLayerFor(group);
+              return [...(layer?.querySelectorAll('.wheel-mode-divider') || [])]
+                .map((node) => getComputedStyle(node).strokeWidth);
+            });
           const dividerPaneGroup = groups.find((group) => group.dataset.paneKey === dividerLayer?.dataset.paneKey);
           const dividerVolume = [...document.querySelectorAll('#circleSvg .wheel-sector-volume')].find((volume) =>
             volume.dataset.wheelChordIdentity === dividerLayer?.dataset.wheelChordIdentity &&
@@ -256,7 +263,6 @@ function ok(name, condition, detail = '') {
               dividerVisible: !!dividerStyle && dividerStyle.stroke !== 'none' &&
                 Number.parseFloat(dividerStyle.strokeOpacity) > 0 && dividerStyle.display !== 'none' &&
                 dividerStyle.visibility !== 'hidden',
-              dividerWidth: dividerStyle?.strokeWidth,
               radialDividerWidth: radialDivider ? getComputedStyle(radialDivider).strokeWidth : null,
               radialDividerVisible: !!radialDivider && getComputedStyle(radialDivider).stroke !== 'none' &&
                 Number.parseFloat(getComputedStyle(radialDivider).strokeOpacity) > 0 &&
@@ -280,6 +286,7 @@ function ok(name, condition, detail = '') {
             paneCount: groups.length,
             paneLabelOverrideCount,
             dividerSample,
+            multiColorDividerWidths,
             light,
             dark,
             selectedD: selectedD?.classList.contains('is-wheel-selected'),
@@ -303,14 +310,16 @@ function ok(name, condition, detail = '') {
       minorLine.wheelMenu.eMajorModes === 'harmonic-minor,melodic-minor,lydian' &&
       /E: ступень V в Am/.test(minorLine.wheelMenu.eMajorAria) &&
       /Гармонический минор/.test(minorLine.wheelMenu.eMajorAria), JSON.stringify(minorLine));
-    ok('B-99 dividers keep the theme-aware color; ring and radial splits are visible in their layouts',
+    ok('B-99 dividers keep the theme-aware color and a shared 2px style across pane layouts',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
       minorLine.panePresentation.light.fillOpacity === '0.34' && minorLine.panePresentation.dark.fillOpacity === '0.45' &&
       minorLine.panePresentation.light.dividerStroke === 'rgba(0, 0, 0, 0.15)' &&
       minorLine.panePresentation.dark.dividerStroke === 'rgba(255, 255, 255, 0.12)' &&
-      minorLine.panePresentation.light.dividerWidth === '4px' && minorLine.panePresentation.dark.dividerWidth === '4px' &&
-      minorLine.panePresentation.light.radialDividerWidth === '3px' && minorLine.panePresentation.dark.radialDividerWidth === '3px' &&
+      minorLine.panePresentation.light.dividerWidth === '2px' && minorLine.panePresentation.dark.dividerWidth === '2px' &&
+      minorLine.panePresentation.light.radialDividerWidth === '2px' && minorLine.panePresentation.dark.radialDividerWidth === '2px' &&
+      minorLine.panePresentation.multiColorDividerWidths.length > 0 &&
+      minorLine.panePresentation.multiColorDividerWidths.every((width) => width === '2px') &&
       minorLine.panePresentation.light.radialAxis === 'radial' && minorLine.panePresentation.dark.radialAxis === 'radial' &&
       minorLine.panePresentation.light.radialPaneLayout === 'two-clockwise-halves' &&
       minorLine.panePresentation.dark.radialPaneLayout === 'two-clockwise-halves' &&
