@@ -11604,7 +11604,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.566</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.567</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22714,8 +22714,12 @@ const WHEEL_HARMONY_LEGEND_MODES = Object.freeze([
 ]);
 const WHEEL_HARMONY_MODE_IDS = new Set(WHEEL_HARMONY_LEGEND_MODES.map(({ id }) => id));
 const WHEEL_HARMONY_MODE_VISIBILITY_KEY = 'struchord-wheel-harmony-visibility-v1';
-const WHEEL_HARMONY_MAJOR_ENTRY_MODES = Object.freeze(['ionian', 'lydian', 'mixolydian']);
-const WHEEL_HARMONY_MINOR_ENTRY_MODES = Object.freeze([
+const WHEEL_HARMONY_MAJOR_ENTRY_MODES = Object.freeze(['ionian']);
+const WHEEL_HARMONY_MINOR_ENTRY_MODES = Object.freeze(['aeolian', 'harmonic-minor']);
+// Upgrades replace either exact previous default set; other saved combinations
+// are user choices and remain untouched.
+const WHEEL_HARMONY_PREVIOUS_MAJOR_ENTRY_MODES = Object.freeze(['ionian', 'lydian', 'mixolydian']);
+const WHEEL_HARMONY_PREVIOUS_MINOR_ENTRY_MODES = Object.freeze([
   'aeolian', 'dorian', 'phrygian', 'locrian', 'harmonic-minor', 'melodic-minor',
 ]);
 let wheelHarmonyDisabledModes = new Set();
@@ -22759,8 +22763,17 @@ function loadWheelHarmonyModeVisibility() {
     try {
       const stored = JSON.parse(storedValue);
       if (Array.isArray(stored)) {
-        wheelHarmonyDisabledModes = new Set(stored.filter((mode) => WHEEL_HARMONY_MODE_IDS.has(mode)));
+        const storedModes = new Set(stored.filter((mode) => WHEEL_HARMONY_MODE_IDS.has(mode)));
+        const effectiveKey = getActiveWheelHarmonyEffectiveKey();
+        const previousDefaultSets = [WHEEL_HARMONY_PREVIOUS_MAJOR_ENTRY_MODES, WHEEL_HARMONY_PREVIOUS_MINOR_ENTRY_MODES]
+          .map((entryModes) => getWheelHarmonyDisabledModesForEntryModes(entryModes));
+        const matchesPreviousDefault = !!effectiveKey && previousDefaultSets.some((previousModes) =>
+          previousModes.size === storedModes.size && [...previousModes].every((mode) => storedModes.has(mode)));
+        wheelHarmonyDisabledModes = matchesPreviousDefault
+          ? getWheelHarmonyDisabledModesForEntryModes(getWheelHarmonyEntryModesForKey(effectiveKey))
+          : storedModes;
         wheelHarmonyModeVisibilityLoaded = true;
+        if (matchesPreviousDefault) persistWheelHarmonyModeVisibility();
         return;
       }
     } catch (_) {

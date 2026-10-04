@@ -34,7 +34,7 @@ function ok(name, condition, detail = '') {
 }
 
 const d = w.document;
-const majorDefaultModes = ['ionian', 'lydian', 'mixolydian'];
+const majorDefaultModes = ['ionian'];
 const allWheelModes = ['ionian', 'aeolian', 'harmonic-minor', 'melodic-minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'];
 w.eval(`
   globalKey = 'C';
@@ -71,12 +71,32 @@ ok('без выбранной тональности круг не подсве�
   noKeyState.paneGroups === 0 && noKeyState.stored === null, JSON.stringify(noKeyState));
 w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
 const firstKeyModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
-ok('первый выбранный мажор применяет точный набор Ionian/Lydian/Mixolydian',
+ok('первый выбранный мажор применяет только Ionian (Натуральный мажор)',
   majorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
   allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) =>
     !w.isWheelHarmonyModeEnabled(mode) && firstKeyModesSaved.includes(mode)) &&
   majorDefaultModes.every((mode) => !firstKeyModesSaved.includes(mode)),
   JSON.stringify({ enabled: majorDefaultModes, savedDisabled: firstKeyModesSaved }));
+const previousMajorDefaults = ['ionian', 'lydian', 'mixolydian'];
+const previousMajorDisabled = allWheelModes.filter((mode) => !previousMajorDefaults.includes(mode));
+w.localStorage.setItem('struchord-wheel-harmony-visibility-v1', JSON.stringify(previousMajorDisabled));
+w.eval(`
+  wheelHarmonyModeVisibilityLoaded = false;
+  wheelHarmonyDisabledModes = new Set();
+  keyMode = 'manual';
+  globalKey = 'C';
+  autoDetectedKey = null;
+  activeChordInput = null;
+  activeSectionKey = null;
+  sections = [];
+`);
+const migratedMajorEnabled = allWheelModes.filter((mode) => w.isWheelHarmonyModeEnabled(mode));
+const migratedMajorDisabled = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
+ok('обновление заменяет прежний сохранённый набор defaults мажора новым точным набором',
+  migratedMajorEnabled.sort().join(',') === [...majorDefaultModes].sort().join(',') &&
+  allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) =>
+    !w.isWheelHarmonyModeEnabled(mode) && migratedMajorDisabled.includes(mode)),
+  JSON.stringify({ enabled: majorDefaultModes, savedDisabled: migratedMajorDisabled }));
 w.eval(`
   localStorage.removeItem('struchord-wheel-harmony-visibility-v1');
   wheelHarmonyModeVisibilityLoaded = false;
@@ -92,7 +112,7 @@ w.eval(`
   refreshAutoDetectedKey();
 `);
 const firstAutoModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
-ok('первый автоопределённый ключ тоже включает точный набор, даже если совпал с fallback C',
+ok('первый автоопределённый ключ включает только Ionian, даже если совпал с fallback C',
   w.eval('autoDetectedKey') === 'C' &&
   majorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
   allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) =>
@@ -109,15 +129,44 @@ w.eval(`
   activeSectionKey = null;
   sections = [];
 `);
-const firstMinorDefaultModes = ['aeolian', 'dorian', 'phrygian', 'locrian', 'harmonic-minor', 'melodic-minor'];
+const firstMinorDefaultModes = ['aeolian', 'harmonic-minor'];
 const firstMinorEnabled = firstMinorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode));
 const firstMinorModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
-ok('первый выбранный минор применяет ровно шесть минорных defaults',
+ok('первый выбранный минор включает только натуральный и гармонический минор',
   firstMinorEnabled &&
   allWheelModes.filter((mode) => !firstMinorDefaultModes.includes(mode)).every((mode) =>
     !w.isWheelHarmonyModeEnabled(mode) && firstMinorModesSaved.includes(mode)) &&
   firstMinorDefaultModes.every((mode) => !firstMinorModesSaved.includes(mode)),
   JSON.stringify({ enabled: firstMinorDefaultModes, savedDisabled: firstMinorModesSaved }));
+const previousMinorDefaults = ['aeolian', 'dorian', 'phrygian', 'locrian', 'harmonic-minor', 'melodic-minor'];
+const previousMinorDisabled = allWheelModes.filter((mode) => !previousMinorDefaults.includes(mode));
+w.localStorage.setItem('struchord-wheel-harmony-visibility-v1', JSON.stringify(previousMinorDisabled));
+w.eval(`
+  wheelHarmonyModeVisibilityLoaded = false;
+  wheelHarmonyDisabledModes = new Set();
+  keyMode = 'manual';
+  globalKey = 'Am';
+  autoDetectedKey = null;
+  activeChordInput = null;
+  activeSectionKey = null;
+  sections = [];
+`);
+const migratedMinorEnabled = allWheelModes.filter((mode) => w.isWheelHarmonyModeEnabled(mode));
+const migratedMinorDisabled = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
+ok('обновление заменяет прежний сохранённый набор defaults минора натуральным и гармоническим минором',
+  migratedMinorEnabled.sort().join(',') === [...firstMinorDefaultModes].sort().join(',') &&
+  allWheelModes.filter((mode) => !firstMinorDefaultModes.includes(mode)).every((mode) =>
+    !w.isWheelHarmonyModeEnabled(mode) && migratedMinorDisabled.includes(mode)),
+  JSON.stringify({ enabled: firstMinorDefaultModes, savedDisabled: migratedMinorDisabled }));
+const customDisabledModes = ['dorian', 'mixolydian'];
+w.localStorage.setItem('struchord-wheel-harmony-visibility-v1', JSON.stringify(customDisabledModes));
+w.eval('wheelHarmonyModeVisibilityLoaded = false; wheelHarmonyDisabledModes = new Set();');
+const customModeStatePreserved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
+ok('обновление сохраняет пользовательский набор ладов, отличный от прежних defaults',
+  customDisabledModes.every((mode) => !w.isWheelHarmonyModeEnabled(mode)) &&
+  allWheelModes.filter((mode) => !customDisabledModes.includes(mode)).every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
+  customModeStatePreserved.sort().join(',') === [...customDisabledModes].sort().join(','),
+  JSON.stringify({ disabled: customModeStatePreserved }));
 w.eval(`DOM.rootKey.value = 'C'; onKeyChange();`);
 w.eval(`
   globalKey = 'C';
@@ -228,16 +277,16 @@ ok('поясняющая строка удалена, палитра остаё�
   toggle.getAttribute('aria-label') === 'Показать палитру ладов и настроек подсветки круга');
 w.eval('setWheelHarmonyLegendOpen(false);');
 
-const minorDefaultModes = ['aeolian', 'dorian', 'phrygian', 'locrian', 'harmonic-minor', 'melodic-minor'];
+const minorDefaultModes = ['aeolian', 'harmonic-minor'];
 w.eval(`${JSON.stringify(minorDefaultModes)}.forEach((mode) => setWheelHarmonyModeEnabled(mode, false));
 ` +
   "setWheelHarmonyModeEnabled('ionian', false); setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false);");
-ok('ручное выключение сохраняет минорные, мажорные и ионийский флажки выключенными',
+ok('ручные выключения сохраняются до перехода в другую тональность',
   minorDefaultModes.every((mode) => !w.isWheelHarmonyModeEnabled(mode)) &&
   !w.isWheelHarmonyModeEnabled('ionian') && !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'));
 w.eval("DOM.rootKey.value = 'Am'; onKeyChange();");
 const minorModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
-ok('при входе в минор включаются/сохраняются шесть минорных ладов, но не Ионийский и не мажорная пара',
+ok('при входе в минор включаются только натуральный и гармонический минор',
   minorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode) && !minorModesSaved.includes(mode)) &&
   !w.isWheelHarmonyModeEnabled('ionian') && !w.isWheelHarmonyModeEnabled('lydian') &&
   !w.isWheelHarmonyModeEnabled('mixolydian') &&
@@ -247,22 +296,19 @@ w.eval(`${JSON.stringify(minorDefaultModes)}.forEach((mode) => setWheelHarmonyMo
 ok('смена минорного корня не сбрасывает ручное выключение минорных профилей',
   minorDefaultModes.every((mode) => !w.isWheelHarmonyModeEnabled(mode)));
 w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
-const lydianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="lydian"]');
-const mixolydianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="mixolydian"]');
 const majorModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
-ok('переход из минора в мажор устанавливает точный набор Ionian/Lydian/Mixolydian',
+ok('переход из минора в мажор включает только Ionian (Натуральный мажор)',
   majorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
-  lydianToggle?.checked && mixolydianToggle?.checked &&
   allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) =>
     !w.isWheelHarmonyModeEnabled(mode) && majorModesSaved.includes(mode)) &&
   majorDefaultModes.every((mode) => !majorModesSaved.includes(mode)),
   JSON.stringify({ checked: majorDefaultModes, savedDisabled: majorModesSaved }));
 w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false); DOM.rootKey.value = 'Am'; onKeyChange();");
-ok('повторный вход в минор снова устанавливает только шесть минорных ладов',
+ok('повторный вход в минор включает только натуральный и гармонический минор',
   minorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
   allWheelModes.filter((mode) => !minorDefaultModes.includes(mode)).every((mode) => !w.isWheelHarmonyModeEnabled(mode)));
 w.eval("DOM.rootKey.value = 'G'; onKeyChange();");
-ok('повторный вход в мажор снова устанавливает ровно Ionian/Lydian/Mixolydian',
+ok('повторный вход в мажор включает только натуральный мажор',
   majorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
   allWheelModes.filter((mode) => !majorDefaultModes.includes(mode)).every((mode) => !w.isWheelHarmonyModeEnabled(mode)));
 w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false); globalKey = 'Am'; DOM.rootKey.value = 'Am'; sections[0].key = 'Am'; activeSectionKey = 'Am';");
@@ -340,8 +386,7 @@ ok('в Am Fm остаётся нейтральным и как кандидат,
   strictWheelCandidates.candidateE === 'harmonic-minor,melodic-minor,lydian' &&
   /E: ступень V в Am/.test(strictWheelCandidates.candidateEAria) &&
   /Гармонический минор/.test(strictWheelCandidates.candidateEAria) &&
-  /Мелодический минор/.test(strictWheelCandidates.candidateEAria) &&
-  !/Лидийский/.test(strictWheelCandidates.candidateEAria),
+  !/Мелодический минор|Лидийский/.test(strictWheelCandidates.candidateEAria),
   JSON.stringify(strictWheelCandidates));
 
 const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');

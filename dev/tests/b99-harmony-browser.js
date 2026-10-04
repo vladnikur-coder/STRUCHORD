@@ -299,9 +299,9 @@ function ok(name, condition, detail = '') {
         })(),
       };
     });
-    const exactMinorDefaults = ['aeolian', 'dorian', 'phrygian', 'locrian', 'harmonic-minor', 'melodic-minor'];
+    const exactMinorDefaults = ['aeolian', 'harmonic-minor'];
     const allHarmonyModes = ['ionian', 'aeolian', 'harmonic-minor', 'melodic-minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'];
-    ok('в миноре по умолчанию включены только шесть минорных ладов',
+    ok('в миноре по умолчанию включены только натуральный и гармонический минор',
       [...minorLine.defaultModes.enabled].sort().join(',') === [...exactMinorDefaults].sort().join(',') &&
       [...minorLine.defaultModes.disabled].sort().join(',') ===
         allHarmonyModes.filter((mode) => !exactMinorDefaults.includes(mode)).sort().join(','),
