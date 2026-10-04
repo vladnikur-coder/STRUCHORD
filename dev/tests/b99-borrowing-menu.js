@@ -405,5 +405,92 @@ ok('? synchronously follows the quality arc on key change',
   Math.abs(orbitAfter.help - orbitBefore.help) > 1 && Math.abs((orbitAfter.help - orbitAfter.quality) - 16) < 1e-8,
   JSON.stringify({ orbitBefore, orbitAfter }));
 
+// ===== 7. Параллельные/альтерированные степени следуют за активным цветом =====
+const visibleDegree = (identity) => d.querySelector(
+  `#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-degree-label`
+)?.textContent || '';
+w.eval(`
+  globalKey = 'C'; keyMode = 'manual'; activeSectionKey = null; activeChordInput = null;
+  wheelMode = 'triads'; wheelHarmonyModeVisibilityLoaded = true;
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(WHEEL_HARMONY_MAJOR_ENTRY_MODES);
+  document.getElementById('showDegrees').checked = true;
+  drawWheel();
+`);
+const cMinorParallelOff = visibleDegree('Cm');
+const cFlatDegreeOff = visibleDegree('A#');
+const cMinorAriaOff = sector('Cm')?.getAttribute('aria-label') || '';
+const cFlatAriaOff = sector('A#')?.getAttribute('aria-label') || '';
+const cBaseDegreeOn = visibleDegree('C');
+ok('C-major baseline degree stays visible while parallel-minor and altered degrees follow their colors',
+  cBaseDegreeOn === 'I' && !cMinorParallelOff && !cFlatDegreeOff &&
+  !/ступень i/i.test(cMinorAriaOff) && !/ступень ♭VII/i.test(cFlatAriaOff),
+  JSON.stringify({ cBaseDegreeOn, cMinorParallelOff, cFlatDegreeOff, cMinorAriaOff, cFlatAriaOff }));
+w.eval(`
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(['ionian', 'harmonic-minor']);
+  drawWheel();
+`);
+const cMinorParallelOn = visibleDegree('Cm');
+const cMinorAriaOn = sector('Cm')?.getAttribute('aria-label') || '';
+const cFlatDegreeStillOff = visibleDegree('A#');
+w.eval(`
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(['ionian', 'harmonic-minor', 'mixolydian']);
+  drawWheel();
+`);
+const cFlatDegreeOn = visibleDegree('A#');
+const cFlatAriaOn = sector('A#')?.getAttribute('aria-label') || '';
+ok('parallel-minor i and ♭VII appear in labels/ARIA only after their matching colors are enabled',
+  cMinorParallelOn === 'i' && /ступень i/.test(cMinorAriaOn) &&
+  !cFlatDegreeStillOff && cFlatDegreeOn === '♭VII' && /ступень ♭VII/.test(cFlatAriaOn),
+  JSON.stringify({ cMinorParallelOn, cMinorAriaOn, cFlatDegreeStillOff, cFlatDegreeOn, cFlatAriaOn }));
+w.eval(`
+  globalKey = 'Am';
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(WHEEL_HARMONY_MINOR_ENTRY_MODES);
+  drawWheel();
+`);
+const aParallelMajorOff = visibleDegree('A');
+const amBaseDegreeOn = visibleDegree('Am');
+const harmonicFiveOn = visibleDegree('E');
+w.eval(`
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(['aeolian']);
+  drawWheel();
+`);
+const harmonicFiveOff = visibleDegree('E');
+w.eval(`
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(['aeolian', 'harmonic-minor', 'lydian', 'phrygian']);
+  drawWheel();
+`);
+const aParallelMajorOn = visibleDegree('A');
+const aFlatTwoOn = visibleDegree('A#');
+ok('parallel-major I and altered ♭II/V labels track Lydian, Phrygian and Harmonic-minor colors',
+  !aParallelMajorOff && amBaseDegreeOn === 'i' && harmonicFiveOn === 'V' && !harmonicFiveOff &&
+  aParallelMajorOn === 'I' && aFlatTwoOn === '♭II',
+  JSON.stringify({ aParallelMajorOff, amBaseDegreeOn, harmonicFiveOn, harmonicFiveOff, aParallelMajorOn, aFlatTwoOn }));
+
+// Degree analysis in the editor is independent from circle palette toggles.
+w.eval(`
+  globalKey = 'C'; keyMode = 'manual'; activeSectionKey = null; activeChordInput = null;
+  wheelHarmonyModeVisibilityLoaded = true;
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(WHEEL_HARMONY_MAJOR_ENTRY_MODES);
+  DOM.rootKey.value = 'C';
+  document.getElementById('showDegrees').checked = true;
+  sections = [{ id: 901, type: 'Verse', key: null, timeSig: '4/4', squares: [{ id: 902, events: [
+    { chord: 'Cm', span: 1 }, { chord: 'Bb', span: 1 }
+  ] }] }];
+  render();
+  drawWheel();
+`);
+const editorDegree = (index) => d.querySelector(
+  `.chord-wrapper[data-sec="901"][data-square="902"][data-ei="${index}"] .degree-hint`
+)?.textContent.trim() || '';
+const editorBeforeModeColors = [editorDegree(0), editorDegree(1)];
+const circleBeforeModeColors = [visibleDegree('Cm'), visibleDegree('A#')];
+w.eval("setWheelHarmonyModeEnabled('harmonic-minor', true); setWheelHarmonyModeEnabled('mixolydian', true);");
+const editorAfterModeColors = [editorDegree(0), editorDegree(1)];
+const circleAfterModeColors = [visibleDegree('Cm'), visibleDegree('A#')];
+ok('editor keeps parallel-minor and altered degrees regardless of circle palette toggles',
+  editorBeforeModeColors.join(',') === 'i,♭VII' && editorAfterModeColors.join(',') === 'i,♭VII' &&
+  circleBeforeModeColors.every((degree) => !degree) && circleAfterModeColors.join(',') === 'i,♭VII',
+  JSON.stringify({ editorBeforeModeColors, editorAfterModeColors, circleBeforeModeColors, circleAfterModeColors }));
+
 console.log(failures ? `\n${failures} FAIL` : '\nALL OK — B-99 borrowing menu');
 process.exit(failures ? 1 : 0);

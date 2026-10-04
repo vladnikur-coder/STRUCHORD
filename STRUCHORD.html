@@ -11619,7 +11619,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.568</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.569</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22482,18 +22482,34 @@ function getBorrowingMenuText(menu) {
   if (!labels.length) return '';
   return `${menu.chord}: ступень ${menu.degree} — ${labels.join(', ')}`;
 }
+function getWheelBorrowingDisplayDegree(menu, baseDegree = '', enabledModes = null) {
+  // Обычная ступень своей тональности остаётся видимой независимо от
+  // палитры. Параллельные и альтерированные ступени принадлежат только
+  // тем кандидатным профилям, цвет которых сейчас включён на круге.
+  if (baseDegree) return baseDegree;
+  if (!menu?.degree) return '';
+  const visibleModes = enabledModes || getEnabledWheelHarmonyModes(menu.modes);
+  return visibleModes.length ? menu.degree : '';
+}
 function getWheelBorrowingAccessibleText(menu, modes) {
   if (!menu) return '';
   const visibleModes = getEnabledWheelHarmonyModes(modes || menu.modes);
+  const displayDegree = getWheelBorrowingDisplayDegree(
+    menu,
+    getScaleDegree(menu.chord, menu.key),
+    visibleModes
+  );
   if (!visibleModes.length) {
-    return `${menu.chord}: ступень ${menu.degree} в ${menu.key}; подсветки подходящих ладов выключены.`;
+    const context = displayDegree ? `ступень ${displayDegree} в ${menu.key}` : `в ${menu.key}`;
+    return `${menu.chord}: ${context}; подсветки подходящих ладов выключены.`;
   }
   const details = visibleModes.map((mode) => {
     const info = getWheelHarmonyModeDetails(mode);
-    const modeDegree = menu.degree ? `${menu.degree} — ` : '';
+    const modeDegree = displayDegree ? `${displayDegree} — ` : '';
     return `${modeDegree}${info.name}${info.change ? ` — ${info.change}` : ''}`;
   });
-  return `${menu.chord}: ступень ${menu.degree} в ${menu.key}. Подсветки включены для: ${details.join('; ')}.`;
+  const degreeContext = displayDegree ? `ступень ${displayDegree} в ${menu.key}. ` : `${menu.key}. `;
+  return `${menu.chord}: ${degreeContext}Подсветки включены для: ${details.join('; ')}.`;
 }
 function syncWheelBorrowingMenuAccessibility(sector) {
   if (!sector || sector.dataset.wheelModePresentation !== 'menu') return;
@@ -34606,8 +34622,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       // (Bb в Am честно подписывается ♭II, а не остаётся безымянным).
       const majorMenu = menuMode ? getBorrowingMenuProfile(vm, sk) : null;
       const minorMenu = menuMode ? getBorrowingMenuProfile(vmi, sk) : null;
-      const mdShown = menuMode ? majorMenu?.degree || md : md;
-      const midDegShown = menuMode ? minorMenu?.degree || mid_deg : mid_deg;
+      const mdShown = menuMode ? getWheelBorrowingDisplayDegree(majorMenu, md) : md;
+      const midDegShown = menuMode ? getWheelBorrowingDisplayDegree(minorMenu, mid_deg) : mid_deg;
       const op = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       op.setAttribute(
         'd',
