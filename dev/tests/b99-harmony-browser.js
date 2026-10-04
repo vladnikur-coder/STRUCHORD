@@ -53,6 +53,52 @@ function ok(name, condition, detail = '') {
       document.getElementById('showDegrees').checked = true;
       updateCellsDegrees();
       const legendVisibleWhenDegreesOn = !legendToggle.hidden && getComputedStyle(legendToggle).display !== 'none';
+      const legendSurface = legendToggle.querySelector(':scope > .wheel-harmony-legend-toggle-surface');
+      const modal = document.getElementById('chordWheelModal');
+      modal.classList.add('open', 'wheel-opening', 'wheel-floating-surface');
+      const helpOpenAnimation = getComputedStyle(legendSurface).animationName;
+      const helpRiseDelay = getComputedStyle(legendSurface).getPropertyValue('--wheel-surface-rise-delay').trim();
+      modal.classList.remove('open', 'wheel-opening');
+      modal.classList.add('closing');
+      const helpCloseAnimation = getComputedStyle(legendSurface).animationName;
+      const helpCloseDirection = getComputedStyle(legendSurface).animationDirection;
+      modal.classList.remove('closing', 'wheel-floating-surface');
+      const modeNames = ['ionian', 'aeolian', 'harmonic-minor', 'melodic-minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'];
+      const previousTheme = document.documentElement.getAttribute('data-theme');
+      const modePalette = (theme) => {
+        document.documentElement.setAttribute('data-theme', theme);
+        return Object.fromEntries(modeNames.map((mode) => [mode,
+          getComputedStyle(document.documentElement).getPropertyValue(`--harmony-${mode}`).trim()]));
+      };
+      const toLab = (hex) => {
+        const rgb = hex.match(/[0-9a-f]{2}/gi).map((part) => parseInt(part, 16) / 255);
+        const linear = (value) => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+        const [r, g, b] = rgb.map(linear);
+        const x = (0.4124564 * r + 0.3575761 * g + 0.1804375 * b) / 0.95047;
+        const y = 0.2126729 * r + 0.7151522 * g + 0.072175 * b;
+        const z = (0.0193339 * r + 0.119192 * g + 0.9503041 * b) / 1.08883;
+        const f = (value) => value > (6 / 29) ** 3 ? value ** (1 / 3) : value / (3 * (6 / 29) ** 2) + 4 / 29;
+        const [fx, fy, fz] = [x, y, z].map(f);
+        return [116 * fy - 16, 500 * (fx - fy), 200 * (fy - fz)];
+      };
+      const minimumPaletteDistance = (palette) => {
+        const colors = Object.entries(palette).map(([mode, color]) => [mode, toLab(color)]);
+        let minimum = Infinity;
+        let closest = [];
+        for (let i = 0; i < colors.length; i += 1) for (let j = i + 1; j < colors.length; j += 1) {
+          const delta = Math.hypot(...colors[i][1].map((value, index) => value - colors[j][1][index]));
+          if (delta < minimum) { minimum = delta; closest = [colors[i][0], colors[j][0]]; }
+        }
+        return { minimum, closest };
+      };
+      const paletteLight = modePalette('light');
+      const paletteDark = modePalette('dark');
+      if (previousTheme === null) document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', previousTheme);
+      const modePaletteDistance = {
+        light: minimumPaletteDistance(paletteLight),
+        dark: minimumPaletteDistance(paletteDark),
+      };
       timelineMode = true;
       renderTimeline();
       const timeline = (ei) => document.querySelector(`.tl-cell[data-sec="81"][data-square="82"][data-ei="${ei}"]`);
@@ -78,6 +124,11 @@ function ok(name, condition, detail = '') {
         legendHiddenWhenDegreesOff,
         legendStaysClosedWhenDegreesOff,
         legendVisibleWhenDegreesOn,
+        legendToggleFloats: legendSurface?.classList.contains('wheel-surface-stone') &&
+          helpOpenAnimation === 'wheel-floating-stone-rise' &&
+          helpCloseAnimation === 'wheel-floating-stone-rise' && helpCloseDirection === 'reverse' && helpRiseDelay === '52ms',
+        legendNoteAbsent: !document.querySelector('.wheel-harmony-legend-note'),
+        modePalette: { light: paletteLight, dark: paletteDark, distances: modePaletteDistance },
         groups: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyGroup),
         profiles: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyProfile),
         gridMarker: getComputedStyle(grid(1), '::before').backgroundColor,
@@ -99,8 +150,9 @@ function ok(name, condition, detail = '') {
         legendOpen: !document.getElementById('wheelHarmonyLegend').hidden,
         legendExpanded: document.getElementById('wheelHarmonyLegendToggle').getAttribute('aria-expanded'),
         legendModeCount: document.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]').length,
-        legendHasAlterations: /↑VII/.test(document.getElementById('wheelHarmonyLegend').textContent) &&
-          /↓II/.test(document.getElementById('wheelHarmonyLegend').textContent),
+        legendHasAlterations: /♯VII/.test(document.getElementById('wheelHarmonyLegend').textContent) &&
+          /♭II/.test(document.getElementById('wheelHarmonyLegend').textContent),
+        legendHasNoArrows: !/[↑↓]/.test(document.getElementById('wheelHarmonyLegend').textContent),
         legendHasVx: /V\/x/.test(document.getElementById('wheelHarmonyLegend').textContent),
         legendHasCurrentChord: !!document.getElementById('wheelHarmonyLegendCurrent'),
       };
@@ -140,12 +192,21 @@ function ok(name, condition, detail = '') {
           const groups = [...document.querySelectorAll('#circleSvg .wheel-mode-diagram')];
           const layouts = [...new Set(groups.map((group) => group.dataset.paneLayout))];
           const oneColor = groups.find((group) => group.dataset.paneLayout === 'solid');
-          const divider = document.querySelector('#circleSvg .wheel-mode-divider');
-          const dividerLayer = divider?.closest('.wheel-mode-divider-overlay');
+          const twoColorRing = groups.find((group) => group.dataset.paneLayout === 'two-inner-outer');
+          const twoColorRadial = groups.find((group) => group.dataset.paneLayout === 'two-clockwise-halves');
+          const dividerLayerFor = (group) => [...document.querySelectorAll('#circleSvg .wheel-mode-divider-overlay')]
+            .find((layer) => layer.dataset.paneKey === group?.dataset.paneKey);
+          const dividerLayer = dividerLayerFor(twoColorRing);
+          const radialDividerLayer = dividerLayerFor(twoColorRadial);
+          const divider = dividerLayer?.querySelector('.wheel-mode-divider');
+          const radialDivider = radialDividerLayer?.querySelector('.wheel-mode-divider');
           const dividerPaneGroup = groups.find((group) => group.dataset.paneKey === dividerLayer?.dataset.paneKey);
           const dividerVolume = [...document.querySelectorAll('#circleSvg .wheel-sector-volume')].find((volume) =>
             volume.dataset.wheelChordIdentity === dividerLayer?.dataset.wheelChordIdentity &&
             volume.dataset.wheelHoverRing === dividerLayer?.dataset.wheelHoverRing);
+          const radialDividerVolume = [...document.querySelectorAll('#circleSvg .wheel-sector-volume')].find((volume) =>
+            volume.dataset.wheelChordIdentity === radialDividerLayer?.dataset.wheelChordIdentity &&
+            volume.dataset.wheelHoverRing === radialDividerLayer?.dataset.wheelHoverRing);
           const followsInPaintOrder = (earlier, later) => !!(earlier && later &&
             (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING));
           const paneLabelOverrideCount = document.querySelectorAll('#circleSvg .wheel-mode-pane-label').length;
@@ -160,8 +221,16 @@ function ok(name, condition, detail = '') {
               dividerVisible: !!dividerStyle && dividerStyle.stroke !== 'none' &&
                 Number.parseFloat(dividerStyle.strokeOpacity) > 0 && dividerStyle.display !== 'none' &&
                 dividerStyle.visibility !== 'hidden',
+              dividerWidth: dividerStyle?.strokeWidth,
+              radialDividerWidth: radialDivider ? getComputedStyle(radialDivider).strokeWidth : null,
+              radialDividerVisible: !!radialDivider && getComputedStyle(radialDivider).stroke !== 'none' &&
+                Number.parseFloat(getComputedStyle(radialDivider).strokeOpacity) > 0 &&
+                getComputedStyle(radialDivider).display !== 'none' && getComputedStyle(radialDivider).visibility !== 'hidden',
+              radialPaneLayout: radialDividerLayer?.dataset.paneLayout,
+              radialAxis: radialDivider?.dataset.dividerAxis,
               panesBelowVolume: followsInPaintOrder(dividerPaneGroup, dividerVolume),
               dividersAboveVolume: followsInPaintOrder(dividerVolume, dividerLayer),
+              radialDividerAboveVolume: followsInPaintOrder(radialDividerVolume, radialDividerLayer),
             };
           };
           const light = themePaint('light');
@@ -191,16 +260,22 @@ function ok(name, condition, detail = '') {
       minorLine.wheelMenu.eMajorModes === 'harmonic-minor,melodic-minor,lydian' &&
       /E: ступень V в Am/.test(minorLine.wheelMenu.eMajorAria) &&
       /Гармонический минор/.test(minorLine.wheelMenu.eMajorAria), JSON.stringify(minorLine));
-    ok('B-99 dividers are painted above the surface overlay with the theme-matched 2px token',
+    ok('B-99 dividers keep the theme-aware color; 2-color radial split is stronger in both themes',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
       minorLine.panePresentation.light.fillOpacity === '0.34' && minorLine.panePresentation.dark.fillOpacity === '0.45' &&
       minorLine.panePresentation.light.dividerStroke === 'rgba(0, 0, 0, 0.15)' &&
       minorLine.panePresentation.dark.dividerStroke === 'rgba(255, 255, 255, 0.12)' &&
       minorLine.panePresentation.light.dividerWidth === '2px' && minorLine.panePresentation.dark.dividerWidth === '2px' &&
+      minorLine.panePresentation.light.radialDividerWidth === '3px' && minorLine.panePresentation.dark.radialDividerWidth === '3px' &&
+      minorLine.panePresentation.light.radialAxis === 'radial' && minorLine.panePresentation.dark.radialAxis === 'radial' &&
+      minorLine.panePresentation.light.radialPaneLayout === 'two-clockwise-halves' &&
+      minorLine.panePresentation.dark.radialPaneLayout === 'two-clockwise-halves' &&
       minorLine.panePresentation.light.dividerVisible && minorLine.panePresentation.dark.dividerVisible &&
+      minorLine.panePresentation.light.radialDividerVisible && minorLine.panePresentation.dark.radialDividerVisible &&
       minorLine.panePresentation.light.panesBelowVolume && minorLine.panePresentation.dark.panesBelowVolume &&
       minorLine.panePresentation.light.dividersAboveVolume && minorLine.panePresentation.dark.dividersAboveVolume &&
+      minorLine.panePresentation.light.radialDividerAboveVolume && minorLine.panePresentation.dark.radialDividerAboveVolume &&
       minorLine.panePresentation.paneLabelOverrideCount === 0 && minorLine.panePresentation.selectedD,
       JSON.stringify(minorLine.panePresentation));
     const wheelToggleScope = await page.evaluate(() => {
@@ -294,8 +369,18 @@ function ok(name, condition, detail = '') {
       JSON.stringify({ hiddenOff: state.legendHiddenWhenDegreesOff, staysClosed: state.legendStaysClosedWhenDegreesOff,
         visibleOn: state.legendVisibleWhenDegreesOn }));
     ok('legend ? opens accessibly', state.legendOpen && state.legendExpanded === 'true', JSON.stringify(state));
-    ok('legend ? is a compact nine-mode palette; V/x has no color toggle',
-      state.legendModeCount === 9 && state.legendHasAlterations && !state.legendHasVx && !state.legendHasCurrentChord, JSON.stringify(state));
+    ok('legend ? is a compact nine-mode palette; V/x has no color toggle and arrows are replaced',
+      state.legendModeCount === 9 && state.legendHasAlterations && state.legendHasNoArrows &&
+      !state.legendHasVx && !state.legendHasCurrentChord && state.legendNoteAbsent, JSON.stringify(state));
+    ok('question mark floats with the wheel on open and sinks on close', state.legendToggleFloats,
+      JSON.stringify({ floats: state.legendToggleFloats }));
+    const paletteValues = [...Object.values(state.modePalette.light), ...Object.values(state.modePalette.dark)];
+    ok('mode palette has distinct, more separated colors in both themes',
+      Object.keys(state.modePalette.light).length === 9 && Object.keys(state.modePalette.dark).length === 9 &&
+      new Set(Object.values(state.modePalette.light)).size === 9 && new Set(Object.values(state.modePalette.dark)).size === 9 &&
+      state.modePalette.distances.light.minimum >= 25 && state.modePalette.distances.dark.minimum >= 25 &&
+      state.modePalette.light.mixolydian === '#4f8a32' && state.modePalette.dark.mixolydian === '#9bcb64',
+      JSON.stringify({ minimumLabDistance: state.modePalette.distances, paletteValues }));
     const sectorHoverTooltip = await page.evaluate(async () => {
       const setTheme = (theme) => document.documentElement.setAttribute('data-theme', theme);
       activeChordInput = document.querySelector('.chord-input[data-sec="91"][data-square="92"][data-ei="2"]');

@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// B-99 UI phase: keep V/x analysis/text semantics, but do not color-mark it
-// in the editor, timeline or wheel; major-key wheel defaults and other mode
-// colors must preserve selected markers and the circle-only scope.
+// B-99 UI phase: keep V/x analysis/text semantics, major/minor wheel-entry
+// defaults, distinct mode colors and the circle-only scope; preserve editor,
+// timeline, selected markers and all manual choices outside entry profiles.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -95,15 +95,21 @@ w.eval('bindWheelHarmonyLegend(); document.getElementById("wheelHarmonyLegendTog
 const legend = d.getElementById('wheelHarmonyLegend');
 const toggle = d.getElementById('wheelHarmonyLegendToggle');
 const legendModes = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
+const helpSurface = toggle.querySelector(':scope > .wheel-harmony-legend-toggle-surface');
 ok('кнопка ? открывает компактную палитру с изменениями ступеней и переключателями',
   !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' && legendModes.length === 9 &&
   /Ионийский/.test(legend.textContent) && /Эолийский/.test(legend.textContent) &&
-  /↑VII/.test(legend.textContent) && /↑VI/.test(legend.textContent) &&
-  /Дорийский/.test(legend.textContent) && /↓II/.test(legend.textContent) &&
-  /Лидийский/.test(legend.textContent) && /↓VII/.test(legend.textContent) &&
-  /Локрийский/.test(legend.textContent) && !/V\/x/.test(legend.textContent) &&
+  /♯VII/.test(legend.textContent) && /♯VI/.test(legend.textContent) &&
+  /Дорийский/.test(legend.textContent) && /♭II/.test(legend.textContent) &&
+  /Лидийский/.test(legend.textContent) && /♭VII/.test(legend.textContent) &&
+  /Локрийский/.test(legend.textContent) && !/[↑↓]/.test(legend.textContent) && !/V\/x/.test(legend.textContent) &&
   legendModes.every((input) => input.checked) && !d.getElementById('wheelHarmonyLegendCurrent'),
   legend.textContent.replace(/\s+/g, ' ').trim());
+ok('? floats on its own inner surface using the circle depth timing',
+  helpSurface?.textContent === '?' && helpSurface.classList.contains('wheel-surface-stone') &&
+  helpSurface.style.getPropertyValue('--wheel-surface-rise-delay') === '52ms' &&
+  helpSurface.style.getPropertyValue('--wheel-surface-sink-delay') === '68ms' && toggle.getAttribute('aria-label') === 'Показать палитру ладов и настроек подсветки круга',
+  `${helpSurface?.className} / ${helpSurface?.style.getPropertyValue('--wheel-surface-rise-delay')}`);
 ok('secondary-function is not an enabled wheel scale-color mode, even if passed directly',
   w.eval('getEnabledWheelHarmonyModes(["secondary-function"]).length') === 0 &&
   w.eval('WHEEL_HARMONY_LEGEND_MODES.some(({ id }) => id === "secondary-function")') === false,
@@ -121,42 +127,55 @@ ok('скрытая кнопка ? не открывает палитру', toggl
 
 w.eval('document.getElementById("showDegrees").checked = true; updateCellsDegrees();');
 ok('повторное включение «Ступени и цвета круга» возвращает кнопку ?', !toggle.hidden);
-const legendNote = d.querySelector('.wheel-harmony-legend-note');
 toggle.click();
-ok('после возврата настройки ? снова открывает палитру',
-  !legend.hidden && /Ступени и цвета круга/.test(legendNote?.textContent || '') &&
-  /только круг/.test(legendNote?.textContent || '') &&
-  toggle.getAttribute('aria-label') === 'Показать палитру ладов и настроек подсветки круга',
-  `${toggle.getAttribute('aria-label')} | ${legendNote?.textContent}`);
+ok('поясняющая строка удалена, палитра остаётся доступной',
+  !legend.hidden && !d.querySelector('.wheel-harmony-legend-note') &&
+  toggle.getAttribute('aria-label') === 'Показать палитру ладов и настроек подсветки круга');
 w.eval('setWheelHarmonyLegendOpen(false);');
 
-w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false);");
-ok('ручное выключение сохраняет оба мажорных лада выключенными',
-  !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'));
+const minorDefaultModes = ['aeolian', 'dorian', 'phrygian', 'locrian', 'harmonic-minor', 'melodic-minor'];
+w.eval(`${JSON.stringify(minorDefaultModes)}.forEach((mode) => setWheelHarmonyModeEnabled(mode, false));
+` +
+  "setWheelHarmonyModeEnabled('ionian', false); setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false);");
+ok('ручное выключение сохраняет минорные, мажорные и ионийский флажки выключенными',
+  minorDefaultModes.every((mode) => !w.isWheelHarmonyModeEnabled(mode)) &&
+  !w.isWheelHarmonyModeEnabled('ionian') && !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'));
 w.eval("DOM.rootKey.value = 'Am'; onKeyChange();");
-ok('переход в минор не включает Лидийский и Миксолидийский сам по себе',
-  !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'));
+const minorModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
+ok('при входе в минор включаются/сохраняются шесть минорных ладов, но не Ионийский и не мажорная пара',
+  minorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode) && !minorModesSaved.includes(mode)) &&
+  !w.isWheelHarmonyModeEnabled('ionian') && !w.isWheelHarmonyModeEnabled('lydian') &&
+  !w.isWheelHarmonyModeEnabled('mixolydian') &&
+  ['ionian', 'lydian', 'mixolydian'].every((mode) => minorModesSaved.includes(mode)),
+  JSON.stringify({ enabledMinor: minorDefaultModes, savedDisabled: minorModesSaved }));
+w.eval(`${JSON.stringify(minorDefaultModes)}.forEach((mode) => setWheelHarmonyModeEnabled(mode, false)); enableWheelHarmonyModesOnTransition('Am', 'Em');`);
+ok('смена минорного корня не сбрасывает ручное выключение минорных профилей',
+  minorDefaultModes.every((mode) => !w.isWheelHarmonyModeEnabled(mode)));
 w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
 const lydianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="lydian"]');
 const mixolydianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="mixolydian"]');
 const majorModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
-ok('переход из минора в мажор включает и сохраняет Лидийский + Миксолидийский, не меняя Ионийский',
-  w.isWheelHarmonyModeEnabled('ionian') && w.isWheelHarmonyModeEnabled('lydian') &&
-  w.isWheelHarmonyModeEnabled('mixolydian') && lydianToggle?.checked && mixolydianToggle?.checked &&
+ok('переход из минора в мажор включает/сохраняет Лидийский + Миксолидийский, не меняя прочие флажки',
+  w.isWheelHarmonyModeEnabled('lydian') && w.isWheelHarmonyModeEnabled('mixolydian') &&
+  lydianToggle?.checked && mixolydianToggle?.checked &&
+  !w.isWheelHarmonyModeEnabled('ionian') && !w.isWheelHarmonyModeEnabled('aeolian') &&
+  majorModesSaved.includes('ionian') && majorModesSaved.includes('aeolian') &&
   !majorModesSaved.includes('lydian') && !majorModesSaved.includes('mixolydian'),
   JSON.stringify({ checked: [lydianToggle?.checked, mixolydianToggle?.checked], savedDisabled: majorModesSaved }));
-w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false);");
-w.eval("DOM.rootKey.value = 'Am'; onKeyChange();");
+w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false); DOM.rootKey.value = 'Am'; onKeyChange();");
+ok('повторный вход в минор снова включает все шесть ладов, не меняя мажорную пару',
+  minorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode)) &&
+  !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'));
 w.eval("DOM.rootKey.value = 'G'; onKeyChange();");
-ok('повторный переход из минора в мажор снова включает оба профиля',
+ok('повторный вход в мажор снова включает оба мажорных профиля',
   w.isWheelHarmonyModeEnabled('lydian') && w.isWheelHarmonyModeEnabled('mixolydian'));
 w.eval("setWheelHarmonyModeEnabled('lydian', false); setWheelHarmonyModeEnabled('mixolydian', false); globalKey = 'Am'; DOM.rootKey.value = 'Am'; sections[0].key = 'Am'; activeSectionKey = 'Am';");
 w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
-ok('смена общей тональности не включает лады, пока активная секция остаётся в миноре',
+ok('смена общей тональности не включает мажорные флажки, пока активная секция остаётся в миноре',
   w.eval("globalKey === 'C'") && !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'),
   w.eval('JSON.stringify({ key: globalKey, sectionKey: sections[0]?.key, activeSectionKey, disabled: [...wheelHarmonyDisabledModes] })'));
 w.eval('setSectionKey(41, null);');
-ok('переход активной секции с минорной модуляции на общий мажор включает оба лада',
+ok('переход активной секции с минорной модуляции на общий мажор включает оба мажорных лада',
   w.isWheelHarmonyModeEnabled('lydian') && w.isWheelHarmonyModeEnabled('mixolydian'));
 
 w.eval(`

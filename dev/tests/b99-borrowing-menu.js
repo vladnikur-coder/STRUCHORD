@@ -262,11 +262,21 @@ ok('1 цвет: одна сплошная pane целиком внутри clip 
   w.getComputedStyle(d.documentElement).getPropertyValue('--wheel-menu-pane-opacity').trim() === '0.34' && /^url\(#wheel-menu-clip-/.test(onePane.getAttribute('clip-path') || ''),
   `${onePane?.dataset.paneLayout}/${onePane?.querySelector('.wheel-mode-pane')?.dataset.mode}`);
 const twoPanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pane-count="2"][data-wheel-hover-ring="major"]')];
-ok('2 цвета: соседние двухцветные карточки чередуют кольцевой и продольный разрез',
+const twoColorRing = twoPanes.find((node) => node.dataset.paneLayout === 'two-inner-outer');
+const twoColorRadial = twoPanes.find((node) => node.dataset.paneLayout === 'two-clockwise-halves');
+const twoColorRingDivider = dividerLayerFor(twoColorRing)?.querySelector('.wheel-mode-divider');
+const twoColorRadialLayer = dividerLayerFor(twoColorRadial);
+const twoColorRadialDivider = twoColorRadialLayer?.querySelector('.wheel-mode-divider');
+const cssStrokeWidth = (node) => Number.parseFloat(w.getComputedStyle(node).strokeWidth ||
+  w.getComputedStyle(node).getPropertyValue('stroke-width'));
+ok('2 цвета: обе раскладки имеют разделитель; дуга 2px, радиальный разрез усилен до 3px',
   twoPanes.some((node) => node.dataset.paneLayout === 'two-inner-outer') &&
   twoPanes.some((node) => node.dataset.paneLayout === 'two-clockwise-halves') &&
-  twoPanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 2 && dividerCount(node) === 1),
-  twoPanes.map((node) => node.dataset.paneLayout).join(', '));
+  twoPanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 2 && dividerCount(node) === 1) &&
+  twoColorRingDivider?.dataset.dividerAxis === 'arc' && cssStrokeWidth(twoColorRingDivider) === 2 &&
+  twoColorRadialLayer?.dataset.paneLayout === 'two-clockwise-halves' &&
+  twoColorRadialDivider?.dataset.dividerAxis === 'radial' && cssStrokeWidth(twoColorRadialDivider) === 3,
+  `${twoPanes.map((node) => node.dataset.paneLayout).join(', ')} / ${cssStrokeWidth(twoColorRingDivider)}px → ${cssStrokeWidth(twoColorRadialDivider)}px`);
 const threePanes = [...d.querySelectorAll('#circleSvg .wheel-mode-diagram[data-pane-count="3"][data-wheel-hover-ring="major"]')];
 const radialMidpointMatches = (node) => {
   const expected = (Number(node.dataset.sectorInnerRadius) + Number(node.dataset.sectorOuterRadius)) / 2;
@@ -322,9 +332,9 @@ const modeInputs = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-har
 ok('легенда компактно показывает все лады/цвета и изменения ступеней',
   !legend?.hidden && modeInputs.length === 9 &&
   /Ионийский/.test(legend?.textContent || '') && /Эолийский/.test(legend?.textContent || '') &&
-  /↑VII/.test(legend?.textContent || '') && /↑VI/.test(legend?.textContent || '') &&
-  /↓II/.test(legend?.textContent || '') && /↓V/.test(legend?.textContent || '') &&
-  !/V\/x/.test(legend?.textContent || '') && !d.getElementById('wheelHarmonyLegendCurrent') &&
+  /♯VII/.test(legend?.textContent || '') && /♯VI/.test(legend?.textContent || '') &&
+  /♭II/.test(legend?.textContent || '') && /♭V/.test(legend?.textContent || '') &&
+  !/[↑↓]/.test(legend?.textContent || '') && !/V\/x/.test(legend?.textContent || '') && !d.getElementById('wheelHarmonyLegendCurrent') &&
   modeInputs.every((input) => input.checked),
   (legend?.textContent || '').replace(/\s+/g, ' ').slice(0, 180));
 const dorianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="dorian"]');
