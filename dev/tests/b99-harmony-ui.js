@@ -57,6 +57,9 @@ const noKeyState = w.eval(`(() => {
     .filter((node) => WHEEL_HARMONY_MODE_IDS.has(node.dataset.harmonyProfile));
   return {
     key: getActiveWheelHarmonyEffectiveKey(),
+    effectiveKey: getEffectiveKey(),
+    detectedKey: autoDetectedKey,
+    baseDiatonicCount: DOM.circleSvg.querySelectorAll('.wheel-sector[data-wheel-diatonic="true"]').length,
     visibilityLoaded: wheelHarmonyModeVisibilityLoaded,
     enabledCheckboxes: inputs.filter((input) => input.checked).length,
     disabledCheckboxes: inputs.filter((input) => input.disabled).length,
@@ -65,8 +68,9 @@ const noKeyState = w.eval(`(() => {
     stored: localStorage.getItem('struchord-wheel-harmony-visibility-v1'),
   };
 })()`);
-ok('без выбранной тональности круг не подсвечивает лады и не сохраняет defaults',
-  noKeyState.key === null && !noKeyState.visibilityLoaded && noKeyState.enabledCheckboxes === 0 &&
+ok('без выбранной тональности авто-режим не определяет C и не даёт базовую подсветку',
+  noKeyState.key === null && noKeyState.effectiveKey === null && noKeyState.detectedKey === null &&
+  noKeyState.baseDiatonicCount === 0 && !noKeyState.visibilityLoaded && noKeyState.enabledCheckboxes === 0 &&
   noKeyState.disabledCheckboxes === 9 && noKeyState.unmutedProfiles === 0 &&
   noKeyState.paneGroups === 0 && noKeyState.stored === null, JSON.stringify(noKeyState));
 w.eval("DOM.rootKey.value = 'C'; onKeyChange();");

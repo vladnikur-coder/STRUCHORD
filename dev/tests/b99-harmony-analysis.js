@@ -38,6 +38,12 @@ const section = (key, chords) => ({
 });
 const modes = (key, chords) => w.analyzeSectionHarmony(section(key, chords)).map((item) => item.mode).join(',');
 
+const unresolvedKeyAnalysis = w.analyzeSectionHarmony(section(null, ['C', 'G', 'Am']));
+ok('auto mode with no detected key does not analyze an unkeyed section as fallback C',
+  unresolvedKeyAnalysis.length === 3 && unresolvedKeyAnalysis.every((item) =>
+    item.key === null && item.group === 'unknown' && item.mode === null && !item.degree),
+  JSON.stringify(unresolvedKeyAnalysis));
+
 const cMajor = analyze('Am7', 'C');
 ok('обычная ступень C-мажора получает точный ионийский профиль',
   cMajor.group === 'diatonic' && cMajor.mode === 'ionian' && cMajor.degree === 'vi', JSON.stringify(cMajor));

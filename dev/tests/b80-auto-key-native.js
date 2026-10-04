@@ -48,6 +48,50 @@ const state = () => ({
 w.eval(`
   sections = [];
   globalTimeSig = '4/4';
+  globalKey = 'C';
+  keyMode = 'auto';
+  autoDetectedKey = null;
+  DOM.rootKey.value = 'auto';
+  timelineMode = true;
+  refreshAutoDetectedKey();
+  updateAutoKeyBadge();
+  syncTimelineSongBar();
+`);
+const emptyAutoState = state();
+ok('empty auto mode stays unresolved instead of displaying fallback C',
+  emptyAutoState.rootValue === 'auto' && emptyAutoState.timelineValue === 'auto' &&
+  emptyAutoState.rootAuto === 'Автоматически' && emptyAutoState.editorPill === 'Автоматически' &&
+  emptyAutoState.timelineAuto === 'Автоматически' && emptyAutoState.timelinePill === 'Автоматически' &&
+  w.eval('autoDetectedKey === null && getEffectiveKey() === null && getEffectiveKeyForCurrentPosition() === null && detectKeyFromChords() === null'),
+  JSON.stringify(emptyAutoState));
+
+w.eval(`
+  sections = [];
+  globalKey = 'C';
+  keyMode = 'auto';
+  autoDetectedKey = null;
+  DOM.rootKey.value = 'auto';
+  addSection('Verse');
+  render();
+  activeChordInput = document.querySelector('.chord-input');
+  activeChordInput.value = 'G';
+  saveCurrentChord();
+`);
+const firstChordAutoState = w.eval(`({
+  chord: sections[0]?.squares[0]?.events[0]?.chord,
+  detectedKey: autoDetectedKey,
+  effectiveKey: getEffectiveKey(),
+  rootLabel: document.getElementById('autoKeyOption').textContent.trim(),
+})`);
+ok('the first chord is not Nashville-converted through the unresolved fallback C',
+  firstChordAutoState.chord === 'G' && !!firstChordAutoState.detectedKey &&
+  firstChordAutoState.effectiveKey === firstChordAutoState.detectedKey &&
+  firstChordAutoState.rootLabel === `${firstChordAutoState.detectedKey} (авто)`,
+  JSON.stringify(firstChordAutoState));
+
+w.eval(`
+  sections = [];
+  globalTimeSig = '4/4';
   addSection('Verse');
   sections[0].squares[0].events[0].chord = 'C';
   globalKey = 'G';
@@ -81,8 +125,11 @@ w.eval(`
   refreshAutoDetectedKey();
 `);
 current = state();
-ok('при отсутствии нового результата сохраняется последняя устойчивая тональность',
-  current.globalKey === 'D' && current.rootValue === 'auto' && current.timelineValue === 'auto', JSON.stringify(current));
+ok('после удаления последнего аккорда авто-тональность снова не определена',
+  current.globalKey === 'D' && current.rootValue === 'auto' && current.timelineValue === 'auto' &&
+  current.rootAuto === 'Автоматически' && current.editorPill === 'Автоматически' &&
+  current.timelineAuto === 'Автоматически' && current.timelinePill === 'Автоматически' &&
+  w.eval('autoDetectedKey === null && getEffectiveKey() === null && getEffectiveKeyForCurrentPosition() === null'), JSON.stringify(current));
 
 // The dropdowns are built from the same native source only when opened; this
 // catches stale cloned option text after the adapter has synchronised it.

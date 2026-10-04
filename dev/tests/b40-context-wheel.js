@@ -43,7 +43,7 @@ w.addEventListener('load', () => {
     // варианта «вокруг», а не его осознанный fallback у нижней кромки.
     Object.defineProperty(w, 'innerWidth', { value: 1400, configurable: true });
     Object.defineProperty(w, 'innerHeight', { value: 1200, configurable: true });
-    w.eval("addSection('Verse'); addSection('Chorus'); render();");
+    w.eval("keyMode = 'manual'; globalKey = 'C'; autoDetectedKey = null; addSection('Verse'); addSection('Chorus'); render();");
     const input = d.querySelector('.chord-input');
     w.eval(`{
       const inp = document.querySelector('.chord-input');
@@ -341,7 +341,7 @@ w.addEventListener('load', () => {
       /function launchWheelRetargetCardInertia\(inertia\)/.test(wheelSource) &&
       /const modeTabs = wheelContainer\(\)\?\.querySelector\('\.mode-tabs'\)/.test(wheelSource) &&
       /let wheelRetargetModeTabNodes = \[\]/.test(wheelSource) &&
-      /wheelRetargetModeTabNodes = Array\.from\(wheelContainer\(\)\?\.querySelectorAll\('\.mode-tab'\) \|\| \[\]\)/.test(wheelSource) &&
+      /wheelRetargetModeTabNodes = wheelOrbitPositionNodes\(\)/.test(wheelSource) &&
       /--wheel-mode-retarget-x/.test(wheelSource) &&
       /--wheel-mode-retarget-y/.test(wheelSource) &&
       /function captureWheelModeTabLayout\(\)/.test(wheelSource) &&

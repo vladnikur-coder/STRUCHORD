@@ -32,6 +32,98 @@ function ok(name, condition, detail = '') {
     const appUrl = pathToFileURL(path.resolve(__dirname, '../../STRUCHORD.html')).href;
     await page.goto(`${appUrl}?b99-harmony=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction(() => typeof analyzeSectionHarmony === 'function' && typeof drawWheel === 'function');
+    const tonalHighlightState = await page.evaluate(() => {
+      globalKey = 'C';
+      keyMode = 'auto';
+      autoDetectedKey = null;
+      activeChordInput = null;
+      activeSectionKey = null;
+      sections = [];
+      wheelMode = 'triads';
+      document.getElementById('showDegrees').checked = false;
+      DOM.rootKey.value = 'auto';
+      refreshAutoDetectedKey();
+      updateAutoKeyBadge();
+      wheelHarmonyModeVisibilityLoaded = false;
+      wheelHarmonyDisabledModes = new Set();
+      drawWheel();
+      const noKey = {
+        detectedKey: autoDetectedKey,
+        effectiveKey: getEffectiveKey(),
+        positionKey: getEffectiveKeyForCurrentPosition(),
+        activeWheelKey: getActiveWheelHarmonyEffectiveKey(),
+        autoLabel: document.getElementById('autoKeyOption').textContent.trim(),
+        diatonicCards: document.querySelectorAll('#circleSvg .wheel-sector[data-wheel-diatonic="true"]').length,
+      };
+      keyMode = 'manual';
+      globalKey = 'C';
+      DOM.rootKey.value = 'C';
+      activeChordInput = null;
+      activeSectionKey = null;
+      wheelHarmonyModeVisibilityLoaded = true;
+      wheelHarmonyDisabledModes = new Set([...WHEEL_HARMONY_MODE_IDS].filter((mode) => mode !== 'ionian'));
+      wheelMode = 'triads';
+      const previousTheme = document.documentElement.getAttribute('data-theme');
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.getElementById('showDegrees').checked = false;
+      drawWheel();
+      const sector = (chord) => document.querySelector(`#circleSvg .wheel-sector[data-wheel-chord-identity="${chord}"][data-wheel-ring="major"]`);
+      const cSector = sector('C');
+      const dSector = sector('D');
+      const aMinorSector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
+      const cVolume = document.querySelector('#circleSvg .wheel-sector-volume[data-wheel-diatonic="true"]');
+      const dVolume = document.querySelector('#circleSvg .wheel-sector-volume[data-wheel-diatonic="false"]');
+      const baselineOff = {
+        coloringClass: document.getElementById('chordWheelModal').classList.contains('is-wheel-mode-coloring-on'),
+        cDiatonic: cSector?.dataset.wheelDiatonic,
+        dDiatonic: dSector?.dataset.wheelDiatonic,
+        cFill: getComputedStyle(cSector).fill,
+        dFill: getComputedStyle(dSector).fill,
+        aMinorFill: getComputedStyle(aMinorSector).fill,
+        cVolumeFill: getComputedStyle(cVolume).fill,
+        dVolumeFill: getComputedStyle(dVolume).fill,
+      };
+      document.getElementById('showDegrees').checked = true;
+      wheelHarmonyDisabledModes = new Set(WHEEL_HARMONY_MODE_IDS);
+      updateCellsDegrees();
+      const baselineAllModesOff = {
+        coloringClass: document.getElementById('chordWheelModal').classList.contains('is-wheel-mode-coloring-on'),
+        cFill: getComputedStyle(cSector).fill,
+        dFill: getComputedStyle(dSector).fill,
+        aMinorFill: getComputedStyle(aMinorSector).fill,
+        cVolumeFill: getComputedStyle(cVolume).fill,
+      };
+      wheelHarmonyDisabledModes = new Set([...WHEEL_HARMONY_MODE_IDS].filter((mode) => mode !== 'ionian'));
+      updateCellsDegrees();
+      const baselineOn = {
+        coloringClass: document.getElementById('chordWheelModal').classList.contains('is-wheel-mode-coloring-on'),
+        cFill: getComputedStyle(cSector).fill,
+        dFill: getComputedStyle(dSector).fill,
+        cVolumeFill: getComputedStyle(cVolume).fill,
+        dVolumeFill: getComputedStyle(dVolume).fill,
+      };
+      if (previousTheme === null) document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', previousTheme);
+      return { noKey, baselineOff, baselineAllModesOff, baselineOn };
+    });
+    ok('empty auto mode has no effective C key or tonic tint',
+      tonalHighlightState.noKey.detectedKey === null && tonalHighlightState.noKey.effectiveKey === null &&
+      tonalHighlightState.noKey.positionKey === null && tonalHighlightState.noKey.activeWheelKey === null &&
+      tonalHighlightState.noKey.autoLabel === 'Автоматически' &&
+      tonalHighlightState.noKey.diatonicCards === 0, JSON.stringify(tonalHighlightState.noKey));
+    ok('baseline diatonic fill survives degrees/mode colors off and is removed beneath active mode colors',
+      tonalHighlightState.baselineOff.coloringClass === false &&
+      tonalHighlightState.baselineOff.cDiatonic === 'true' && tonalHighlightState.baselineOff.dDiatonic === 'false' &&
+      tonalHighlightState.baselineOff.cFill !== tonalHighlightState.baselineOff.dFill &&
+      tonalHighlightState.baselineAllModesOff.coloringClass === false &&
+      tonalHighlightState.baselineAllModesOff.cFill === tonalHighlightState.baselineOff.cFill &&
+      tonalHighlightState.baselineAllModesOff.dFill === tonalHighlightState.baselineOff.dFill &&
+      tonalHighlightState.baselineAllModesOff.aMinorFill === tonalHighlightState.baselineOff.aMinorFill &&
+      tonalHighlightState.baselineAllModesOff.cVolumeFill === tonalHighlightState.baselineOff.cVolumeFill &&
+      tonalHighlightState.baselineOn.coloringClass === true &&
+      tonalHighlightState.baselineOn.cFill === tonalHighlightState.baselineOn.dFill &&
+      tonalHighlightState.baselineOn.cVolumeFill === tonalHighlightState.baselineOn.dVolumeFill,
+      JSON.stringify(tonalHighlightState));
     const state = await page.evaluate(() => {
       globalKey = 'C';
       globalTimeSig = '4/4';
