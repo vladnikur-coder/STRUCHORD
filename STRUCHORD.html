@@ -4318,27 +4318,27 @@ body.is-zooming .squares-list {
    живёт отдельным псевдослоем, поэтому не меняет размеры сетки, не заслоняет
    текст и не спорит с более сильной accent-обводкой выбранной ячейки/круга. */
 :root {
-  --harmony-ionian: #b95520;
-  --harmony-aeolian: #15828d;
-  --harmony-harmonic-minor: #a33147;
-  --harmony-melodic-minor: #a47a09;
-  --harmony-dorian: #1a75b8;
-  --harmony-phrygian: #a94f92;
-  --harmony-lydian: #7444c4;
-  --harmony-mixolydian: #5b8e24;
-  --harmony-locrian: #00845b;
+  --harmony-ionian: #c27032;
+  --harmony-aeolian: #258fa5;
+  --harmony-harmonic-minor: #b84257;
+  --harmony-melodic-minor: #aa8c1e;
+  --harmony-dorian: #3268b7;
+  --harmony-phrygian: #ad4c8e;
+  --harmony-lydian: #7557c5;
+  --harmony-mixolydian: #548d2d;
+  --harmony-locrian: #13835f;
   --wheel-menu-pane-opacity: 0.34;
 }
 html[data-theme='dark'] {
-  --harmony-ionian: #ff9b54;
-  --harmony-aeolian: #52cad1;
-  --harmony-harmonic-minor: #db4c63;
-  --harmony-melodic-minor: #edc85d;
-  --harmony-dorian: #71a6db;
-  --harmony-phrygian: #db79bd;
-  --harmony-lydian: #a68cff;
-  --harmony-mixolydian: #a1cf5b;
-  --harmony-locrian: #41c98b;
+  --harmony-ionian: #f39b56;
+  --harmony-aeolian: #55bfd0;
+  --harmony-harmonic-minor: #df6878;
+  --harmony-melodic-minor: #e5c654;
+  --harmony-dorian: #77a3e5;
+  --harmony-phrygian: #d87bb7;
+  --harmony-lydian: #a88be7;
+  --harmony-mixolydian: #9dce5a;
+  --harmony-locrian: #43c594;
   --wheel-menu-pane-opacity: 0.45;
 }
 /* The nine scale-mode colors share one palette across editor, timeline and
@@ -11636,7 +11636,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.572</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.573</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22417,8 +22417,9 @@ function isMinorVariantMode(mode) {
 // в которых аккорд работает. Формулировка честная — «если возьмёшь этот
 // аккорд, он будет ступенью X такого-то лада», — поэтому она не спорит со
 // строгим анализом редактора/ленты: меню ничего не утверждает о песне.
-// Порядок сегментов = порядок легенды «?»: сначала базовый лад, затем
-// минорные варианты и остальные семейства.
+// Музыкальный порядок цветных полей меню фиксирован и не зависит от порядка
+// подписей легенды/подсказки: контекстная сортировка применяется только к
+// текстовому отображению, но не меняет состав и раскладку pane-профилей.
 const HARMONY_BORROWING_FAMILY_ORDER = Object.freeze([
   'harmonic-minor', 'melodic-minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian',
 ]);
@@ -22491,7 +22492,8 @@ function getBorrowingMenuDegree(parsed, key, modes) {
 }
 function getBorrowingMenuText(menu) {
   if (!menu?.modes?.length) return '';
-  const labels = menu.modes.map((mode) =>
+  const orderedModes = menu.key ? getWheelHarmonyOrderedModes(menu.modes, menu.key) : menu.modes;
+  const labels = orderedModes.map((mode) =>
     mode === 'ionian' || mode === 'aeolian'
       ? HARMONY_MODE_LABELS[mode]
       : HARMONY_MODE_SHORT_LABELS[mode]
@@ -22510,7 +22512,10 @@ function getWheelBorrowingDisplayDegree(menu, baseDegree = '', enabledModes = nu
 }
 function getWheelBorrowingAccessibleText(menu, modes) {
   if (!menu) return '';
-  const visibleModes = getEnabledWheelHarmonyModes(modes || menu.modes);
+  const visibleModes = getWheelHarmonyOrderedModes(
+    getEnabledWheelHarmonyModes(modes || menu.modes),
+    menu.key
+  );
   const displayDegree = getWheelBorrowingDisplayDegree(
     menu,
     getScaleDegree(menu.chord, menu.key),
@@ -22531,7 +22536,10 @@ function getWheelBorrowingAccessibleText(menu, modes) {
 function syncWheelBorrowingMenuAccessibility(sector) {
   if (!sector || sector.dataset.wheelModePresentation !== 'menu') return;
   const modes = (sector.dataset.wheelModes || '').split(',').filter(Boolean);
-  sector.dataset.wheelVisibleModes = getEnabledWheelHarmonyModes(modes).join(',');
+  sector.dataset.wheelVisibleModes = getWheelHarmonyOrderedModes(
+    getEnabledWheelHarmonyModes(modes),
+    sector.dataset.wheelKey
+  ).join(',');
   const menu = {
     chord: sector.dataset.wheelChord || sector.dataset.wheelChordIdentity || '',
     key: sector.dataset.wheelKey || '',
@@ -22574,7 +22582,10 @@ function applyWheelBorrowingMenu(node, menu, { isSector = false } = {}) {
   node.dataset.wheelDegree = menu.degree || '';
   node.dataset.wheelChord = menu.chord || '';
   node.dataset.wheelKey = menu.key || '';
-  node.dataset.wheelVisibleModes = getEnabledWheelHarmonyModes(menu.modes).join(',');
+  node.dataset.wheelVisibleModes = getWheelHarmonyOrderedModes(
+    getEnabledWheelHarmonyModes(menu.modes),
+    menu.key
+  ).join(',');
   if (!isSector) return;
   syncWheelBorrowingMenuAccessibility(node);
 }
@@ -22764,6 +22775,35 @@ const WHEEL_HARMONY_LEGEND_MODES = Object.freeze([
   { id: 'locrian', name: 'Локрийский', change: '♭II · ♭V от нат. минора' },
 ]);
 const WHEEL_HARMONY_MODE_IDS = new Set(WHEEL_HARMONY_LEGEND_MODES.map(({ id }) => id));
+// Pop/tonal context order for explanatory surfaces only. Keep this separate
+// from HARMONY_BORROWING_FAMILY_ORDER, which fixes the wheel-pane field layout.
+const WHEEL_HARMONY_MODE_ORDER_BY_TONALITY = Object.freeze({
+  major: Object.freeze([
+    'ionian', 'aeolian', 'mixolydian', 'dorian', 'lydian',
+    'harmonic-minor', 'melodic-minor', 'phrygian', 'locrian',
+  ]),
+  minor: Object.freeze([
+    'aeolian', 'harmonic-minor', 'dorian', 'melodic-minor', 'ionian',
+    'phrygian', 'mixolydian', 'lydian', 'locrian',
+  ]),
+});
+function getWheelHarmonyModeOrderForKey(key) {
+  if (typeof key !== 'string' || !key) return WHEEL_HARMONY_LEGEND_MODES.map(({ id }) => id);
+  return key.endsWith('m')
+    ? WHEEL_HARMONY_MODE_ORDER_BY_TONALITY.minor
+    : WHEEL_HARMONY_MODE_ORDER_BY_TONALITY.major;
+}
+function getWheelHarmonyOrderedModes(modes, key) {
+  const rank = new Map(getWheelHarmonyModeOrderForKey(key).map((mode, index) => [mode, index]));
+  return Array.from(modes || []).map((mode, index) => ({ mode, index }))
+    .sort((a, b) => (rank.get(a.mode) ?? Number.MAX_SAFE_INTEGER) -
+      (rank.get(b.mode) ?? Number.MAX_SAFE_INTEGER) || a.index - b.index)
+    .map(({ mode }) => mode);
+}
+function getWheelHarmonyLegendModesForKey(key) {
+  const modesById = new Map(WHEEL_HARMONY_LEGEND_MODES.map((mode) => [mode.id, mode]));
+  return getWheelHarmonyModeOrderForKey(key).map((id) => modesById.get(id)).filter(Boolean);
+}
 const WHEEL_HARMONY_MODE_VISIBILITY_KEY = 'struchord-wheel-harmony-visibility-v1';
 const WHEEL_HARMONY_MAJOR_ENTRY_MODES = Object.freeze(['ionian']);
 const WHEEL_HARMONY_MINOR_ENTRY_MODES = Object.freeze(['aeolian', 'harmonic-minor']);
@@ -22911,6 +22951,7 @@ function applyWheelHarmonyModeVisibility() {
     input.checked = hasEffectiveKey && !effectiveDisabledModes.has(input.dataset.wheelHarmonyMode);
     input.disabled = !hasEffectiveKey;
   });
+  syncWheelHarmonyLegendModeOrder(getActiveWheelHarmonyEffectiveKey());
 }
 function persistWheelHarmonyModeVisibility() {
   try {
@@ -22960,12 +23001,26 @@ function setWheelHarmonyModeEnabled(mode, enabled) {
   if (!isDevWheel410()) drawWheel();
   else applyWheelHarmonyModeVisibility();
 }
+function syncWheelHarmonyLegendModeOrder(key = getActiveWheelHarmonyEffectiveKey()) {
+  const list = document.getElementById('wheelHarmonyModeList');
+  if (!list || list.dataset.modesRendered !== 'true') return;
+  const orderedModes = getWheelHarmonyLegendModesForKey(key);
+  const currentOrder = Array.from(list.children).map((option) =>
+    option.querySelector('[data-wheel-harmony-mode]')?.dataset.wheelHarmonyMode || '');
+  if (currentOrder.length === orderedModes.length &&
+      currentOrder.every((id, index) => id === orderedModes[index].id)) return;
+  orderedModes.forEach(({ id }) => {
+    const option = list.querySelector(`[data-wheel-harmony-mode="${id}"]`)
+      ?.closest('.wheel-harmony-mode-option');
+    if (option && option.parentElement === list) list.appendChild(option);
+  });
+}
 function renderWheelHarmonyLegendModes() {
   const list = document.getElementById('wheelHarmonyModeList');
   if (!list) return;
   loadWheelHarmonyModeVisibility();
   if (list.dataset.modesRendered !== 'true') {
-    WHEEL_HARMONY_LEGEND_MODES.forEach(({ id, name, change }) => {
+    getWheelHarmonyLegendModesForKey(getActiveWheelHarmonyEffectiveKey()).forEach(({ id, name, change }) => {
       const option = document.createElement('label');
       option.className = 'wheel-harmony-mode-option';
       option.style.setProperty('--wheel-harmony-legend-color', `var(--harmony-${id})`);
@@ -34085,7 +34140,8 @@ function hideWheelHarmonyHoverTooltip() {
 }
 function getWheelHarmonyHoverModes(sector) {
   const modes = (sector?.dataset?.wheelModes || '').split(',').filter(Boolean);
-  return getEnabledWheelHarmonyModes(modes);
+  const key = sector?.dataset?.wheelKey || getActiveWheelHarmonyEffectiveKey();
+  return getWheelHarmonyOrderedModes(getEnabledWheelHarmonyModes(modes), key);
 }
 function getWheelHarmonyHoverModeDetail(mode) {
   return getWheelHarmonyModeDetails(mode);

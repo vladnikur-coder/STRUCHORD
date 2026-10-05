@@ -243,6 +243,8 @@ function ok(name, condition, detail = '') {
         legendOpen: !document.getElementById('wheelHarmonyLegend').hidden,
         legendExpanded: document.getElementById('wheelHarmonyLegendToggle').getAttribute('aria-expanded'),
         legendModeCount: document.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]').length,
+        legendModeOrder: [...document.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')]
+          .map((input) => input.dataset.wheelHarmonyMode),
         legendHasAlterations: /♯VII/.test(document.getElementById('wheelHarmonyLegend').textContent) &&
           /♭II/.test(document.getElementById('wheelHarmonyLegend').textContent),
         legendHasNoArrows: !/[↑↓]/.test(document.getElementById('wheelHarmonyLegend').textContent),
@@ -626,22 +628,26 @@ function ok(name, condition, detail = '') {
     ok('legend ? is a compact nine-mode palette; V/x has no color toggle and arrows are replaced',
       state.legendModeCount === 9 && state.legendHasAlterations && state.legendHasNoArrows &&
       !state.legendHasVx && !state.legendHasCurrentChord && state.legendNoteAbsent, JSON.stringify(state));
+    ok('legend ? uses the major-context order without changing the set of modes',
+      state.legendModeOrder.join(',') ===
+        'ionian,aeolian,mixolydian,dorian,lydian,harmonic-minor,melodic-minor,phrygian,locrian',
+      state.legendModeOrder.join(','));
     ok('question mark floats with the wheel on open and sinks on close', state.legendToggleFloats,
       JSON.stringify({ floats: state.legendToggleFloats }));
     const expectedModePalette = {
       light: {
-        ionian: '#b95520', aeolian: '#15828d', 'harmonic-minor': '#a33147', 'melodic-minor': '#a47a09',
-        dorian: '#1a75b8', phrygian: '#a94f92', lydian: '#7444c4', mixolydian: '#5b8e24', locrian: '#00845b',
+        ionian: '#c27032', aeolian: '#258fa5', 'harmonic-minor': '#b84257', 'melodic-minor': '#aa8c1e',
+        dorian: '#3268b7', phrygian: '#ad4c8e', lydian: '#7557c5', mixolydian: '#548d2d', locrian: '#13835f',
       },
       dark: {
-        ionian: '#ff9b54', aeolian: '#52cad1', 'harmonic-minor': '#db4c63', 'melodic-minor': '#edc85d',
-        dorian: '#71a6db', phrygian: '#db79bd', lydian: '#a68cff', mixolydian: '#a1cf5b', locrian: '#41c98b',
+        ionian: '#f39b56', aeolian: '#55bfd0', 'harmonic-minor': '#df6878', 'melodic-minor': '#e5c654',
+        dorian: '#77a3e5', phrygian: '#d87bb7', lydian: '#a88be7', mixolydian: '#9dce5a', locrian: '#43c594',
       },
     };
     const matchesExpectedPalette = ['light', 'dark'].every((theme) =>
       Object.entries(expectedModePalette[theme]).every(([mode, color]) => state.modePalette[theme][mode] === color));
     const paletteValues = [...Object.values(state.modePalette.light), ...Object.values(state.modePalette.dark)];
-    ok('mode palette keeps Aeolian, makes Ionian warm orange, and separates all modes in both themes',
+    ok('approved mode palette separates all nine modes in both themes',
       Object.keys(state.modePalette.light).length === 9 && Object.keys(state.modePalette.dark).length === 9 &&
       new Set(Object.values(state.modePalette.light)).size === 9 && new Set(Object.values(state.modePalette.dark)).size === 9 &&
       state.modePalette.distances.light.minimum >= 25 && state.modePalette.distances.dark.minimum >= 25 &&
@@ -656,6 +662,8 @@ function ok(name, condition, detail = '') {
       drawWheel();
       bindWheelHarmonyLegend();
       setWheelHarmonyLegendOpen(true);
+      const legendModeOrder = [...document.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')]
+        .map((input) => input.dataset.wheelHarmonyMode);
       const hoverModes = (target) => {
         const rect = target.getBoundingClientRect();
         const clientX = rect.left + rect.width / 2;
@@ -761,6 +769,7 @@ function ok(name, condition, detail = '') {
       return {
         light,
         dark,
+        legendModeOrder,
         amAllModesTooltip,
         amFilteredTooltip,
         amPaneCount,
@@ -769,12 +778,16 @@ function ok(name, condition, detail = '') {
         nativeTitleRestored: !!sector.querySelector('title'),
       };
     });
+    ok('legend ? and its existing checkbox nodes follow the minor-context priority order',
+      sectorHoverTooltip.legendModeOrder.join(',') ===
+        'aeolian,harmonic-minor,dorian,melodic-minor,ionian,phrygian,mixolydian,lydian,locrian',
+      sectorHoverTooltip.legendModeOrder.join(','));
     ok('Am tooltip сохраняет все включённые описания, а общая диатоническая тоника остаётся одноцветной',
       sectorHoverTooltip.amAllModesTooltip.chord === 'Am' &&
       /Ступень i/.test(sectorHoverTooltip.amAllModesTooltip.context) &&
       sectorHoverTooltip.amAllModesTooltip.degrees.join(',') === 'i,i,i,i,i' &&
       sectorHoverTooltip.amAllModesTooltip.modes.map(({ name }) => name).join(',') ===
-        'Эолийский,Гармонический минор,Мелодический минор,Дорийский,Фригийский' &&
+        'Эолийский,Гармонический минор,Дорийский,Мелодический минор,Фригийский' &&
       sectorHoverTooltip.amAllModesTooltip.modes.find(({ name }) => name === 'Эолийский')?.change
         .includes('Натуральный минор') &&
       sectorHoverTooltip.amAllModesTooltip.modes.find(({ name }) => name === 'Эолийский')?.references
@@ -796,7 +809,7 @@ function ok(name, condition, detail = '') {
             reference.tone === tone && reference.text === text && reference.color === expectedColor);
         return snapshot.chord === 'D' && /Ступень IV/.test(snapshot.context) &&
           snapshot.modes.map((mode) => mode.name).join(',') ===
-            'Мелодический минор,Дорийский,Миксолидийский' &&
+            'Дорийский,Мелодический минор,Миксолидийский' &&
           snapshot.modes.every((mode) => mode.degree === 'IV' && mode.change) &&
           hasReference('Мелодический минор', 'minor', 'минора', snapshot.referenceColors.minor) &&
           hasReference('Дорийский', 'minor', 'минора', snapshot.referenceColors.minor) &&

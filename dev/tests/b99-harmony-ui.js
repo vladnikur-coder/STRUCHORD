@@ -34,6 +34,8 @@ function ok(name, condition, detail = '') {
 }
 
 const d = w.document;
+const legendModeOrder = () => [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')]
+  .map((input) => input.dataset.wheelHarmonyMode).join(',');
 const majorDefaultModes = ['ionian'];
 const allWheelModes = ['ionian', 'aeolian', 'harmonic-minor', 'melodic-minor', 'dorian', 'phrygian', 'lydian', 'mixolydian', 'locrian'];
 w.eval(`
@@ -81,6 +83,11 @@ ok('первый выбранный мажор применяет только I
     !w.isWheelHarmonyModeEnabled(mode) && firstKeyModesSaved.includes(mode)) &&
   majorDefaultModes.every((mode) => !firstKeyModesSaved.includes(mode)),
   JSON.stringify({ enabled: majorDefaultModes, savedDisabled: firstKeyModesSaved }));
+const majorLegendOrder = legendModeOrder();
+ok('легенда ? переставляет существующие флажки в контекстный мажорный порядок',
+  majorLegendOrder === w.eval('getWheelHarmonyModeOrderForKey("C").join(",")') &&
+  majorLegendOrder.startsWith('ionian,aeolian,mixolydian,dorian'), majorLegendOrder);
+const legendCheckboxesBeforeMinorTransition = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
 const previousMajorDefaults = ['ionian', 'lydian', 'mixolydian'];
 const previousMajorDisabled = allWheelModes.filter((mode) => !previousMajorDefaults.includes(mode));
 w.localStorage.setItem('struchord-wheel-harmony-visibility-v1', JSON.stringify(previousMajorDisabled));
@@ -289,6 +296,13 @@ ok('ручные выключения сохраняются до переход
   minorDefaultModes.every((mode) => !w.isWheelHarmonyModeEnabled(mode)) &&
   !w.isWheelHarmonyModeEnabled('ionian') && !w.isWheelHarmonyModeEnabled('lydian') && !w.isWheelHarmonyModeEnabled('mixolydian'));
 w.eval("DOM.rootKey.value = 'Am'; onKeyChange();");
+const minorLegendOrder = legendModeOrder();
+const legendCheckboxNodesPreserved = legendCheckboxesBeforeMinorTransition.every((input) =>
+  d.querySelector(`#wheelHarmonyModeList [data-wheel-harmony-mode="${input.dataset.wheelHarmonyMode}"]`) === input);
+ok('легенда ? при смене тональности переставляет существующие флажки без пересоздания',
+  minorLegendOrder === w.eval('getWheelHarmonyModeOrderForKey("Am").join(",")') &&
+  minorLegendOrder.startsWith('aeolian,harmonic-minor,dorian,melodic-minor') && legendCheckboxNodesPreserved,
+  JSON.stringify({ order: minorLegendOrder, sameNodes: legendCheckboxNodesPreserved }));
 const minorModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
 ok('при входе в минор включаются только натуральный и гармонический минор',
   minorDefaultModes.every((mode) => w.isWheelHarmonyModeEnabled(mode) && !minorModesSaved.includes(mode)) &&

@@ -60,6 +60,19 @@ ok('Am: тоника несёт базу и все минорные семейс
   amTonic?.degree === 'i' && amTonic?.modes.length === 5 &&
   amTonic?.modes.join(',') === 'aeolian,harmonic-minor,melodic-minor,dorian,phrygian',
   JSON.stringify(amTonic));
+const minorDisplayText = w.getBorrowingMenuText(amTonic);
+const minorDisplayTextLower = minorDisplayText.toLocaleLowerCase('ru-RU');
+const majorDisplayText = w.getBorrowingMenuText(menu('Bb', 'C'));
+ok('поясняющие подписи сортируются по контексту без перестановки профилей меню',
+  w.eval('getWheelHarmonyModeOrderForKey("Am").join(",")') ===
+    'aeolian,harmonic-minor,dorian,melodic-minor,ionian,phrygian,mixolydian,lydian,locrian' &&
+  minorDisplayTextLower.indexOf('эолийский') < minorDisplayTextLower.indexOf('гармонический минор') &&
+  minorDisplayTextLower.indexOf('гармонический минор') < minorDisplayTextLower.indexOf('дорийский') &&
+  minorDisplayTextLower.indexOf('дорийский') < minorDisplayTextLower.indexOf('мелодический минор') &&
+  majorDisplayText.indexOf('миксолидийский') < majorDisplayText.indexOf('дорийский') &&
+  amTonic.modes.join(',') === 'aeolian,harmonic-minor,melodic-minor,dorian,phrygian' &&
+  amD.modes.join(',') === 'melodic-minor,dorian,mixolydian',
+  JSON.stringify({ minorDisplayText, majorDisplayText, paneSourceOrder: amTonic.modes, amDSourceOrder: amD.modes }));
 
 const amFm = menu('Fm', 'Am');
 ok('Am: Fm остаётся нейтральным — ни один классический лад его не содержит',
@@ -213,6 +226,13 @@ ok('aria-альтернатива сообщает ступень и все ла
   /мелодический минор/i.test(sector('D')?.getAttribute('aria-label') || '') &&
   /дорийский/i.test(sector('D')?.getAttribute('aria-label') || ''),
   sector('D')?.getAttribute('aria-label') || '');
+const minorDTooltipText = sector('D')?.getAttribute('aria-label') || '';
+ok('минорные aria/title-подсказки ставят Дорийский перед Мелодическим минором, не меняя поля D',
+  sector('D')?.dataset.wheelVisibleModes === 'dorian,melodic-minor,mixolydian' &&
+  minorDTooltipText.indexOf('Дорийский') < minorDTooltipText.indexOf('Мелодический минор') &&
+  minorDTooltipText.indexOf('Мелодический минор') < minorDTooltipText.indexOf('Миксолидийский') &&
+  wedgeModes('D').join(',') === 'melodic-minor,dorian,mixolydian',
+  JSON.stringify({ visible: sector('D')?.dataset.wheelVisibleModes, pane: wedgeModes('D'), text: minorDTooltipText }));
 ok('title-подсказка сектора дублирует меню для наведения мышью',
   /гармонический минор/i.test(sector('E')?.querySelector('title')?.textContent || ''),
   sector('E')?.querySelector('title')?.textContent || '');
