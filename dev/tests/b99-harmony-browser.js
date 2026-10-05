@@ -490,7 +490,7 @@ function ok(name, condition, detail = '') {
           const point = divider.getPointAtLength(length * 0.1);
           const screen = new DOMPoint(point.x, point.y).matrixTransform(divider.getScreenCTM());
           divider.style.stroke = 'none';
-          return { x: screen.x, y: screen.y, paneKey: layer.dataset.paneKey };
+          return { x: screen.x, y: screen.y, paneKey: layer.dataset.paneKey, paneModes: group.dataset.paneModes || '' };
         }, theme);
         if (!sample) {
           dividerPixelVisibility[theme] = { meanChannelDelta: 0, changedPixels: 0 };
@@ -524,6 +524,7 @@ function ok(name, condition, detail = '') {
         dividerPixelVisibility[theme] = {
           meanChannelDelta: totalDelta / Math.max(1, pixelCount * 3),
           changedPixels,
+          paneModes: sample.paneModes,
         };
       }
     } finally {
@@ -627,13 +628,25 @@ function ok(name, condition, detail = '') {
       !state.legendHasVx && !state.legendHasCurrentChord && state.legendNoteAbsent, JSON.stringify(state));
     ok('question mark floats with the wheel on open and sinks on close', state.legendToggleFloats,
       JSON.stringify({ floats: state.legendToggleFloats }));
+    const expectedModePalette = {
+      light: {
+        ionian: '#b95520', aeolian: '#15828d', 'harmonic-minor': '#a33147', 'melodic-minor': '#a47a09',
+        dorian: '#1a75b8', phrygian: '#a94f92', lydian: '#7444c4', mixolydian: '#5b8e24', locrian: '#00845b',
+      },
+      dark: {
+        ionian: '#ff9b54', aeolian: '#52cad1', 'harmonic-minor': '#db4c63', 'melodic-minor': '#edc85d',
+        dorian: '#71a6db', phrygian: '#db79bd', lydian: '#a68cff', mixolydian: '#a1cf5b', locrian: '#41c98b',
+      },
+    };
+    const matchesExpectedPalette = ['light', 'dark'].every((theme) =>
+      Object.entries(expectedModePalette[theme]).every(([mode, color]) => state.modePalette[theme][mode] === color));
     const paletteValues = [...Object.values(state.modePalette.light), ...Object.values(state.modePalette.dark)];
-    ok('mode palette has distinct, more separated colors in both themes',
+    ok('mode palette keeps Aeolian, makes Ionian warm orange, and separates all modes in both themes',
       Object.keys(state.modePalette.light).length === 9 && Object.keys(state.modePalette.dark).length === 9 &&
       new Set(Object.values(state.modePalette.light)).size === 9 && new Set(Object.values(state.modePalette.dark)).size === 9 &&
       state.modePalette.distances.light.minimum >= 25 && state.modePalette.distances.dark.minimum >= 25 &&
-      state.modePalette.light.mixolydian === '#4f8a32' && state.modePalette.dark.mixolydian === '#9bcb64',
-      JSON.stringify({ minimumLabDistance: state.modePalette.distances, paletteValues }));
+      matchesExpectedPalette,
+      JSON.stringify({ matchesExpectedPalette, minimumLabDistance: state.modePalette.distances, paletteValues }));
     const sectorHoverTooltip = await page.evaluate(async () => {
       const setTheme = (theme) => document.documentElement.setAttribute('data-theme', theme);
       activeChordInput = document.querySelector('.chord-input[data-sec="91"][data-square="92"][data-ei="2"]');
