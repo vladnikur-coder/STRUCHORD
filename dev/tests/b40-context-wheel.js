@@ -148,6 +148,12 @@ w.addEventListener('load', () => {
       !/\.mode-tab-face \{[\s\S]*?transition: [^;]*background 0\.18s/.test(wheelSource) &&
       /\.mode-tab\.mode-tab-state-swap \.mode-tab-face \{[\s\S]*?transition: none;/.test(wheelSource) &&
       /const previousMode = wheelMode;[\s\S]*?const modeChanged = previousMode !== m;[\s\S]*?mode-tab-state-swap[\s\S]*?requestAnimationFrame\(\(\) => requestAnimationFrame/.test(wheelSource));
+    ok('поверхность ? использует тот же idle-water-вектор и мгновенно останавливается с отключением motion',
+      /\.wheel-harmony-legend-toggle \{[\s\S]*?border: 0;[\s\S]*?background: transparent;/.test(wheelSource) &&
+      /\.wheel-harmony-legend-toggle-surface \{[\s\S]*?border: 0\.0625rem solid var\(--color-border-medium\);[\s\S]*?background: color-mix\(in srgb, var\(--color-background-primary\) 88%, var\(--color-accent\)\);[\s\S]*?translate: var\(--wheel-mode-idle-x, 0px\) var\(--wheel-mode-idle-y, 0px\);/.test(wheelSource) &&
+      /function syncWheelModeTabsIdleMotion\(\) \{[\s\S]*?const buttons = wheelOrbitPositionNodes\(\);/.test(wheelSource) &&
+      /html\.wheel-motion-disabled #circleSvg \.wheel-hoverable,[\s\S]*?html\.wheel-motion-disabled \.wheel-harmony-legend-toggle-surface \{\s*transition: none !important;/.test(wheelSource) &&
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\.wheel-harmony-legend-toggle-surface,[\s\S]*?transition: none !important;/.test(wheelSource));
     ok('static-вход качеств не перезаписывает transform их позиционирования',
       /@keyframes wheel-quality-in\s*\{\s*from\s*\{\s*opacity:\s*0;\s*\}\s*to\s*\{\s*opacity:\s*1;\s*\}/.test(wheelSource));
     ok('закрытие зеркалит спокойную микрогеометрию static-opening',
@@ -242,7 +248,7 @@ w.addEventListener('load', () => {
       /function allowsWheelHoverMotion\(\)/.test(wheelSource) &&
       /return wheelAnimationsEnabled && !prefersReducedWheelMotion\(\);/.test(wheelSource) &&
       /function initWheelAnimations\(\)/.test(wheelSource) &&
-      /html\.wheel-motion-disabled #circleSvg \.wheel-hoverable \{\s*transition: none !important;/.test(wheelSource) &&
+      /html\.wheel-motion-disabled #circleSvg \.wheel-hoverable,\s*html\.wheel-motion-disabled \.mode-tab-surface,\s*html\.wheel-motion-disabled \.wheel-harmony-legend-toggle-surface \{\s*transition: none !important;/.test(wheelSource) &&
       /const WHEEL_RETARGET_SIMPLE_TRAVEL_MS = 135/.test(wheelSource) &&
       /const WHEEL_RETARGET_SIMPLE_SETTLE_MS = 55/.test(wheelSource) &&
       /if \(!wheelAnimationsEnabled\) \{[\s\S]*?container\.style\.willChange = 'transform'[\s\S]*?WHEEL_RETARGET_SIMPLE_TRAVEL_MS/.test(wheelSource) &&
@@ -414,7 +420,10 @@ w.addEventListener('load', () => {
         const tabs = Array.from(d.querySelectorAll('.mode-tab > .mode-tab-surface.wheel-surface-stone'));
         const riseDelays = stones.map((node) => Number.parseFloat(node.style.getPropertyValue('--wheel-surface-rise-delay')));
         const sinkDelays = tabs.map((node) => Number.parseFloat(node.style.getPropertyValue('--wheel-surface-sink-delay')));
-        const reversed = [...stones, ...tabs].every((node) => {
+        const helpStone = d.querySelector('#wheelHarmonyLegendToggle > .wheel-harmony-legend-toggle-surface');
+        const helpRiseDelay = Number.parseFloat(helpStone?.style.getPropertyValue('--wheel-surface-rise-delay'));
+        const helpSinkDelay = Number.parseFloat(helpStone?.style.getPropertyValue('--wheel-surface-sink-delay'));
+        const reversed = [...stones, ...tabs, helpStone].filter(Boolean).every((node) => {
           const rise = Number.parseFloat(node.style.getPropertyValue('--wheel-surface-rise-delay'));
           const sink = Number.parseFloat(node.style.getPropertyValue('--wheel-surface-sink-delay'));
           return sink === 120 - rise;
@@ -426,6 +435,7 @@ w.addEventListener('load', () => {
             host.firstElementChild?.children.length === 1 &&
             host.firstElementChild?.firstElementChild?.classList.contains('mode-tab-face') &&
             !host.classList.contains('wheel-surface-stone')) &&
+          helpStone?.classList.contains('wheel-surface-stone') && helpRiseDelay >= 0 && helpRiseDelay <= 120 &&
           Math.min(...riseDelays) === 0 && Math.max(...riseDelays) <= 120 &&
           new Set(riseDelays).size > 4 && new Set(sinkDelays).size > 3 && reversed;
       })());
@@ -449,6 +459,7 @@ w.addEventListener('load', () => {
       idleNextCard.length >= 3 && (idleX(idleNextCard[0]) !== idleX(idleCard[0]) || idleY(idleNextCard[0]) !== idleY(idleCard[0])));
     w.eval('writeWheelModeTabsIdleWater(wheelModeTabsIdleMotionState.startedAt + WHEEL_IDLE_WATER_PERIOD_MS / 8)');
     const qualityIdleButtons = Array.from(modeTabs.querySelectorAll('.mode-tab'));
+    const helpIdleButton = d.getElementById('wheelHarmonyLegendToggle');
     const modeIdleVector = (button) => [
       button.style.getPropertyValue('--wheel-mode-idle-x'),
       button.style.getPropertyValue('--wheel-mode-idle-y'),
@@ -460,6 +471,19 @@ w.addEventListener('load', () => {
       /function getWheelModeTabIdleWaterTarget\(button, timestamp/.test(wheelSource) &&
       /function startWheelModeTabsIdleMotion\(buttons\)/.test(wheelSource) &&
       /function syncWheelModeTabsIdleMotion\(\)/.test(wheelSource));
+    ok('? теперь плавает со своей фазой на нижней дуге и входит в тот же motion lifecycle',
+      !helpIdleButton.hidden && w.eval('wheelModeTabsIdleMotionState.nodes.includes(document.getElementById("wheelHarmonyLegendToggle"))') &&
+      modeIdleVector(helpIdleButton) !== ' / ' && modeIdleVector(helpIdleButton) !== modeIdleVector(qualityIdleButtons[0]));
+    const showDegreesToggle = d.getElementById('showDegrees');
+    showDegreesToggle.checked = false;
+    w.eval('updateCellsDegrees()');
+    const hiddenHelpLeavesIdleMotion = helpIdleButton.hidden &&
+      !w.eval('wheelModeTabsIdleMotionState.nodes.includes(document.getElementById("wheelHarmonyLegendToggle"))');
+    showDegreesToggle.checked = true;
+    w.eval('updateCellsDegrees()');
+    ok('переключатель «Ступени» убирает ? из idle-water и возвращает вместе с кнопкой',
+      hiddenHelpLeavesIdleMotion && !helpIdleButton.hidden &&
+      w.eval('wheelModeTabsIdleMotionState.nodes.includes(document.getElementById("wheelHarmonyLegendToggle"))'));
     const diatonicVolume = d.querySelector('#circleSvg .wheel-sector-volume[data-wheel-diatonic="true"]');
     const nonDiatonicVolume = d.querySelector('#circleSvg .wheel-sector-volume[data-wheel-diatonic="false"]');
     ok('диатонические card-volume overlays получают собственный theme-aware маршрут глубины',
@@ -485,6 +509,7 @@ w.addEventListener('load', () => {
       w.eval('wheelIdleMotionState') === null &&
       w.eval('wheelModeTabsIdleMotionState') === null &&
       !qualityIdleButtons.some((button) => button.style.getPropertyValue('--wheel-mode-idle-x') || button.style.getPropertyValue('--wheel-mode-idle-y')) &&
+      !helpIdleButton.style.getPropertyValue('--wheel-mode-idle-x') && !helpIdleButton.style.getPropertyValue('--wheel-mode-idle-y') &&
       w.localStorage.getItem('struchord-wheel-motion') === '0');
     ok('user preference не подменяет системный reduced-motion и сохраняет sector-label crossfade',
       w.eval('prefersReducedWheelMotion()') === false && w.eval('allowsWheelHoverMotion()') === false &&
@@ -512,6 +537,8 @@ w.addEventListener('load', () => {
       w.eval('wheelIdleMotionState') !== null &&
       w.eval('wheelModeTabsIdleMotionState') !== null &&
       qualityIdleButtons.every((button) => button.style.getPropertyValue('--wheel-mode-idle-x') !== '') &&
+      helpIdleButton.style.getPropertyValue('--wheel-mode-idle-x') !== '' &&
+      w.eval('wheelModeTabsIdleMotionState.nodes.includes(document.getElementById("wheelHarmonyLegendToggle"))') &&
       w.localStorage.getItem('struchord-wheel-motion') === '1');
     // localStorage принадлежит пользователю и может быть вручную испорчен;
     // только literal "0" имеет право отключить motion.
@@ -739,12 +766,13 @@ w.addEventListener('load', () => {
     ok('клик вне круга не меняет аккорд', input.value === beforeOutside);
     ok('после закрытия у owner снят halo', !owner.classList.contains('wheel-owner-active'));
     ok('после обычного close у owner снят selection-state', !owner.classList.contains('is-cell-selected'));
-    ok('close останавливает SVG и quality idle water, очищая vector-переменные',
+    ok('close останавливает SVG, quality idle water и плавание ? без остаточных vector-переменных',
       w.eval('wheelIdleMotionState') === null && w.eval('wheelModeTabsIdleMotionState') === null &&
       !Array.from(d.querySelectorAll('#circleSvg .wheel-hoverable')).some((node) =>
         node.style.getPropertyValue('--wheel-idle-x') || node.style.getPropertyValue('--wheel-idle-y')) &&
       !Array.from(modeTabs.querySelectorAll('.mode-tab')).some((button) =>
-        button.style.getPropertyValue('--wheel-mode-idle-x') || button.style.getPropertyValue('--wheel-mode-idle-y')));
+        button.style.getPropertyValue('--wheel-mode-idle-x') || button.style.getPropertyValue('--wheel-mode-idle-y')) &&
+      !helpIdleButton.style.getPropertyValue('--wheel-mode-idle-x') && !helpIdleButton.style.getPropertyValue('--wheel-mode-idle-y'));
 
     console.log('\n=== 7. Качество текущей ячейки и редкое закрепление ===');
     // 7 есть в штатной живой очереди: C7 открывается сразу в этом режиме.
@@ -991,12 +1019,13 @@ w.addEventListener('load', () => {
     ok('при reduced motion open не удерживает lifecycle-класс и сразу показывает финальное состояние',
       !modal.classList.contains('wheel-opening') && !modal.classList.contains('wheel-floating-surface'));
     ok('при reduced motion нет уходящего слоя подписей', !d.querySelector('#circleSvg .wheel-label-exit-layer'));
-    ok('при reduced motion SVG и quality idle water не запускаются и не оставляют vector-переменных',
+    ok('при reduced motion SVG, quality idle water и ? не запускаются и не оставляют vector-переменных',
       w.eval('wheelIdleMotionState') === null && w.eval('wheelModeTabsIdleMotionState') === null &&
       !Array.from(d.querySelectorAll('#circleSvg .wheel-hoverable')).some((node) =>
         node.style.getPropertyValue('--wheel-idle-x') || node.style.getPropertyValue('--wheel-idle-y')) &&
       !Array.from(modeTabs.querySelectorAll('.mode-tab')).some((button) =>
-        button.style.getPropertyValue('--wheel-mode-idle-x') || button.style.getPropertyValue('--wheel-mode-idle-y')));
+        button.style.getPropertyValue('--wheel-mode-idle-x') || button.style.getPropertyValue('--wheel-mode-idle-y')) &&
+      !helpIdleButton.style.getPropertyValue('--wheel-mode-idle-x') && !helpIdleButton.style.getPropertyValue('--wheel-mode-idle-y'));
     const reducedSector = d.querySelectorAll('#circleSvg path.wheel-sector')[1];
     reducedSector.dispatchEvent(new w.Event('pointerover', { bubbles: true }));
     ok('при reduced motion preview не оставляет ghost', !targetOwner.querySelector('.wheel-preview-ghost'));

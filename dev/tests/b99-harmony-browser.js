@@ -792,6 +792,82 @@ function ok(name, condition, detail = '') {
           !snapshot.hasNativeTitleWhileOpen && snapshot.tooltipInsideViewport;
       }) && sectorHoverTooltip.hiddenAfterLeave && sectorHoverTooltip.nativeTitleRestored,
       JSON.stringify(sectorHoverTooltip));
+    const legendIdleMotion = await page.evaluate(async () => {
+      setWheelAnimationsEnabled(true, { persist: false, redraw: false });
+      const showDegrees = document.getElementById('showDegrees');
+      showDegrees.checked = true;
+      updateCellsDegrees();
+      const input = document.querySelector('.chord-input[data-sec="81"][data-square="82"][data-ei="1"]');
+      activeChordInput = input;
+      activeSectionKey = null;
+      openChordWheel(input);
+      const help = document.getElementById('wheelHarmonyLegendToggle');
+      const surface = help.querySelector(':scope > .wheel-harmony-legend-toggle-surface');
+      const hostBefore = help.getBoundingClientRect();
+      const state = wheelModeTabsIdleMotionState;
+      const tracked = !!state?.nodes.includes(help);
+      surface.style.transition = 'none';
+      if (state) writeWheelModeTabsIdleWater(state.startedAt + WHEEL_IDLE_WATER_PERIOD_MS / 8);
+      void surface.offsetWidth;
+      const idleX = help.style.getPropertyValue('--wheel-mode-idle-x');
+      const idleY = help.style.getPropertyValue('--wheel-mode-idle-y');
+      const surfaceStyle = getComputedStyle(surface);
+      const hostStyle = getComputedStyle(help);
+      const computedTranslate = surfaceStyle.translate;
+      const visualFaceOnSurface = surfaceStyle.backgroundColor !== 'rgba(0, 0, 0, 0)' &&
+        surfaceStyle.borderTopWidth === '1px' && hostStyle.backgroundColor === 'rgba(0, 0, 0, 0)' &&
+        hostStyle.borderTopWidth === '0px';
+      const hostAfter = help.getBoundingClientRect();
+      const surfaceAfter = surface.getBoundingClientRect();
+      const hostStationary = hostBefore.left === hostAfter.left && hostBefore.top === hostAfter.top;
+      const visualSurfaceMatchesHost = Math.abs(surfaceAfter.width - hostAfter.width) < 0.1 &&
+        Math.abs(surfaceAfter.height - hostAfter.height) < 0.1;
+      surface.style.removeProperty('transition');
+      closeChordWheel();
+      const clearedOnClose = wheelModeTabsIdleMotionState === null &&
+        !help.style.getPropertyValue('--wheel-mode-idle-x') && !help.style.getPropertyValue('--wheel-mode-idle-y');
+      await new Promise((resolve) => setTimeout(resolve, 460));
+      return {
+        visible: !help.hidden,
+        tracked,
+        idleX,
+        idleY,
+        computedTranslate,
+        vectorAppliedToSurface: computedTranslate === `${idleX} ${idleY}` && idleX !== '0px' && idleY !== '0px',
+        visualFaceOnSurface,
+        visualSurfaceMatchesHost,
+        hostStationary,
+        clearedOnClose,
+      };
+    });
+    ok('в Chromium ? плавает собственной фазой, не сдвигает hit-target и очищается при закрытии',
+      legendIdleMotion.visible && legendIdleMotion.tracked && legendIdleMotion.vectorAppliedToSurface &&
+      legendIdleMotion.visualFaceOnSurface && legendIdleMotion.visualSurfaceMatchesHost &&
+      legendIdleMotion.hostStationary && legendIdleMotion.clearedOnClose,
+      JSON.stringify(legendIdleMotion));
+    await page.emulateMediaFeatures([{ name: 'prefers-reduced-motion', value: 'reduce' }]);
+    const reducedLegendMotion = await page.evaluate(() => {
+      const input = document.querySelector('.chord-input[data-sec="81"][data-square="82"][data-ei="1"]');
+      activeChordInput = input;
+      activeSectionKey = null;
+      openChordWheel(input);
+      const help = document.getElementById('wheelHarmonyLegendToggle');
+      const surface = help.querySelector(':scope > .wheel-harmony-legend-toggle-surface');
+      const result = {
+        idleStateStopped: wheelModeTabsIdleMotionState === null,
+        vectorsCleared: !help.style.getPropertyValue('--wheel-mode-idle-x') && !help.style.getPropertyValue('--wheel-mode-idle-y'),
+        surfaceTransitionDuration: getComputedStyle(surface).transitionDuration,
+        noOpeningOrFloatingClass: !DOM.chordWheelModal.classList.contains('wheel-opening') &&
+          !DOM.chordWheelModal.classList.contains('wheel-floating-surface'),
+      };
+      closeChordWheel();
+      return result;
+    });
+    ok('prefers-reduced-motion не запускает ?-плавание и убирает transition поверхности',
+      reducedLegendMotion.idleStateStopped && reducedLegendMotion.vectorsCleared &&
+      reducedLegendMotion.surfaceTransitionDuration === '0s' && reducedLegendMotion.noOpeningOrFloatingClass,
+      JSON.stringify(reducedLegendMotion));
+    await page.emulateMediaFeatures([]);
     ok('B-99 visual route completed without page errors', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
     await browser.close();

@@ -5346,7 +5346,8 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
   pointer-events: visiblePainted;
 }
 /* Вопросительный знак — компактная палитра ладов и переключатель цвета.
-   Его полярная позиция принадлежит той же нижней дуге, что и качества. */
+   Полярный host остаётся hit-target, а вся видимая круглая surface плавает
+   внутри него на той же нижней дуге, что и кнопки качеств. */
 .wheel-harmony-legend-toggle {
   --wheel-mode-angle: 218deg;
   --wheel-mode-radius: 12.5rem;
@@ -5358,9 +5359,9 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
   width: 1.75rem;
   height: 1.75rem;
   padding: 0;
-  border: 0.0625rem solid var(--color-border-medium);
+  border: 0;
   border-radius: 50%;
-  background: color-mix(in srgb, var(--color-background-primary) 88%, var(--color-accent));
+  background: transparent;
   color: var(--color-text-primary);
   font: 800 1rem/1 Inter, system-ui, sans-serif;
   cursor: pointer;
@@ -5369,22 +5370,31 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
   translate: var(--wheel-mode-retarget-x, 0px) var(--wheel-mode-retarget-y, 0px);
   transform-origin: center;
   transition: translate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1), transform 0.18s cubic-bezier(0.2, 0.9, 0.4, 1);
-  box-shadow: var(--shadow-card);
+  box-shadow: none;
 }
 .wheel-harmony-legend-toggle-surface {
   display: grid;
+  box-sizing: border-box;
   width: 100%;
   height: 100%;
   place-items: center;
+  border: 0.0625rem solid var(--color-border-medium);
   border-radius: inherit;
+  background: color-mix(in srgb, var(--color-background-primary) 88%, var(--color-accent));
+  color: inherit;
+  box-shadow: var(--shadow-card);
+  translate: var(--wheel-mode-idle-x, 0px) var(--wheel-mode-idle-y, 0px);
+  transition: translate 0.18s cubic-bezier(0.2, 0.65, 0.3, 1);
   pointer-events: none;
 }
 .wheel-harmony-legend-toggle:hover { --wheel-mode-scale: 1.06; }
 .wheel-harmony-legend-toggle:active { --wheel-mode-scale: 0.96; }
-.wheel-harmony-legend-toggle:focus-visible {
+.wheel-harmony-legend-toggle:focus-visible .wheel-harmony-legend-toggle-surface {
   border-color: var(--color-accent);
+}
+.wheel-harmony-legend-toggle:focus-visible {
   outline: none;
-  box-shadow: 0 0 0 0.1875rem rgba(var(--color-accent-rgb), 0.2), var(--shadow-card);
+  box-shadow: 0 0 0 0.1875rem rgba(var(--color-accent-rgb), 0.2);
 }
 .wheel-harmony-legend-toggle[hidden] { display: none; }
 .wheel-harmony-legend {
@@ -5991,13 +6001,18 @@ html:not([data-theme='dark']) #circleSvg .wheel-degree-label.is-wheel-selected {
    hover-response и idle-water. Opening/closing, смена качеств, подписи,
    preview и переезд owner остаются обычными анимациями; системный
    prefers-reduced-motion по-прежнему отключает их все. */
-html.wheel-motion-disabled #circleSvg .wheel-hoverable {
+html.wheel-motion-disabled #circleSvg .wheel-hoverable,
+html.wheel-motion-disabled .mode-tab-surface,
+html.wheel-motion-disabled .wheel-harmony-legend-toggle-surface {
   transition: none !important;
 }
 @media (prefers-reduced-motion: reduce) {
   .wheel-container,
   .wheel-svg-wrap,
   .mode-tab,
+  .mode-tab-surface,
+  .wheel-harmony-legend-toggle,
+  .wheel-harmony-legend-toggle-surface,
   #circleSvg .wheel-sector,
   #circleSvg .wheel-sector-volume,
   #circleSvg .wheel-chord-label,
@@ -11621,7 +11636,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.570</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.571</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32341,6 +32356,8 @@ function syncWheelHarmonyLegendToggleVisibility() {
   const visible = isHarmonyPresentationEnabled();
   if (!visible) setWheelHarmonyLegendOpen(false);
   button.hidden = !visible;
+  // Кнопка справки входит в нижнюю дугу и выходит из неё вместе с тем же water-motion.
+  syncWheelModeTabsIdleMotion();
 }
 function ensureWheelHarmonyLegendToggleSurface(button) {
   if (!button) return null;
@@ -33333,23 +33350,33 @@ function startWheelIdleMotion(nodes) {
   wheelIdleMotionState = { nodes: [...nodes], startedAt: performance.now(), handoffs: new Map() };
   requestWheelIdleMotionFrame();
 }
-// Нижние quality-кнопки теперь тоже отдельные спокойные card-слои. Важно,
-// что это не hover-topology секторов: у кнопок остаётся их обычный scale,
-// но в покое каждая имеет собственный water-vector того же периода/амплитуды.
+// Нижние quality-кнопки и видимая кнопка ? используют отдельные спокойные
+// card-слои. Это не hover-topology секторов: полярные hit-target остаются
+// неподвижными, а каждая внутренняя поверхность получает свой water-vector.
 let wheelModeTabsIdleMotionState = null;
 let wheelModeTabsIdleMotionRaf = 0;
 function getWheelModeTabIdleWaterTarget(button, timestamp, state = wheelModeTabsIdleMotionState) {
   if (!button || !state || !Number.isFinite(timestamp)) return { x: 0, y: 0 };
   const phaseTime = ((timestamp - state.startedAt) % WHEEL_IDLE_WATER_PERIOD_MS) / WHEEL_IDLE_WATER_PERIOD_MS;
-  const index = Number(button.dataset.wheelModeIndex) || 0;
+  const isLegendToggle = button.id === 'wheelHarmonyLegendToggle';
+  const index = isLegendToggle ? 0 : (Number(button.dataset.wheelModeIndex) || 0);
   // Дальняя дуга — второй ряд той же поверхности, как minor-ring в SVG.
   const rowOffset = index >= 4 ? 0.57 : 0;
-  const phaseOffset = (index * index * 0.41 + index * 0.73 + rowOffset) % (Math.PI * 2);
+  // У ? своя фаза ближней дуги, не дублирующая quality-card 0.
+  const phaseOffset = isLegendToggle
+    ? 1.11
+    : (index * index * 0.41 + index * 0.73 + rowOffset) % (Math.PI * 2);
   const phase = phaseTime * Math.PI * 2 + phaseOffset;
   return {
     x: Math.sin(phase) * WHEEL_IDLE_WATER_MAX_X,
     y: Math.sin(phase + 0.2) * WHEEL_IDLE_WATER_MAX_Y,
   };
+}
+function wheelModeTabIdleMotionSurface(button) {
+  if (!button) return null;
+  return button.id === 'wheelHarmonyLegendToggle'
+    ? button.querySelector(':scope > .wheel-harmony-legend-toggle-surface')
+    : button.querySelector(':scope > .mode-tab-surface');
 }
 function stopWheelModeTabsIdleMotion() {
   if (wheelModeTabsIdleMotionRaf) cancelAnimationFrame(wheelModeTabsIdleMotionRaf);
@@ -33358,6 +33385,7 @@ function stopWheelModeTabsIdleMotion() {
     button.style.removeProperty('--wheel-mode-idle-x');
     button.style.removeProperty('--wheel-mode-idle-y');
     button.style.removeProperty('will-change');
+    wheelModeTabIdleMotionSurface(button)?.style.removeProperty('will-change');
   });
   wheelModeTabsIdleMotionState = null;
 }
@@ -33413,13 +33441,16 @@ function requestWheelModeTabsIdleMotionFrame() {
 function startWheelModeTabsIdleMotion(buttons) {
   stopWheelModeTabsIdleMotion();
   if (!allowsWheelHoverMotion() || !buttons?.length) return;
-  buttons.forEach((button) => { button.style.willChange = 'translate'; });
+  buttons.forEach((button) => {
+    button.style.willChange = 'translate';
+    wheelModeTabIdleMotionSurface(button)?.style.setProperty('will-change', 'translate');
+  });
   wheelModeTabsIdleMotionState = { nodes: [...buttons], startedAt: performance.now() };
   writeWheelModeTabsIdleWater(performance.now());
 }
 function syncWheelModeTabsIdleMotion() {
   const modal = DOM.chordWheelModal;
-  const buttons = Array.from(wheelContainer()?.querySelectorAll('.mode-tab') || []);
+  const buttons = wheelOrbitPositionNodes();
   if (isDevWheel410() || !modal?.classList.contains('open') || !allowsWheelHoverMotion() || !buttons.length) {
     stopWheelModeTabsIdleMotion();
     return;
