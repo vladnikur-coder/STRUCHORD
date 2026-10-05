@@ -261,8 +261,8 @@ function ok(name, condition, detail = '') {
         .filter(({ id }) => isWheelHarmonyModeEnabled(id)).map(({ id }) => id);
       const defaultDisabledModes = WHEEL_HARMONY_LEGEND_MODES
         .filter(({ id }) => !isWheelHarmonyModeEnabled(id)).map(({ id }) => id);
-      // Pane-layout coverage below intentionally uses all nine profiles;
-      // the exact production defaults are asserted before this fixture override.
+      // Defaults are asserted first; all profiles are then exposed so the
+      // base-color priority and the alternative pane layouts can be tested.
       wheelHarmonyDisabledModes.clear();
       persistWheelHarmonyModeVisibility();
       document.getElementById('showDegrees').checked = true;
@@ -285,14 +285,32 @@ function ok(name, condition, detail = '') {
           drawWheel();
           const fMinor = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Fm"]');
           const eMajor = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="E"]');
+          const paneModesFor = (identity, ring) => [...document.querySelectorAll('#circleSvg .wheel-mode-diagram')]
+            .find((group) => group.dataset.wheelChordIdentity === identity && group.dataset.wheelHoverRing === ring)
+            ?.dataset.paneModes || '';
+          const minorCorePaneModes = ['Am', 'C', 'Dm', 'Em', 'F', 'G']
+            .map((identity) => paneModesFor(identity, identity.endsWith('m') ? 'minor' : 'major'));
+          const minorDimModes = getWheelMenuPaneModes(getBorrowingMenuProfile('Bdim', 'Am')).join(',');
+          wheelHarmonyDisabledModes.add('aeolian');
+          drawWheel();
+          const minorCoreModesWithoutAeolian = paneModesFor('Am', 'minor');
+          wheelHarmonyDisabledModes.delete('aeolian');
+          drawWheel();
           return {
             legendCurrentAbsent: !document.getElementById('wheelHarmonyLegendCurrent'),
             fMinorModes: fMinor?.dataset.wheelModes || '',
             eMajorModes: eMajor?.dataset.wheelModes || '',
             eMajorAria: eMajor?.getAttribute('aria-label') || '',
+            naturalMinorCorePaneModes: minorCorePaneModes,
+            naturalMinorDimModes: minorDimModes,
+            minorCoreModesWithoutAeolian,
           };
         })(),
         panePresentation: (() => {
+          // Exercise 1–4 alternative colors after the natural-minor override;
+          // the Aeolian-on state is asserted above and restored before toggling.
+          wheelHarmonyDisabledModes.add('aeolian');
+          drawWheel();
           const groups = [...document.querySelectorAll('#circleSvg .wheel-mode-diagram')];
           const layouts = [...new Set(groups.map((group) => group.dataset.paneLayout))];
           const oneColor = groups.find((group) => group.dataset.paneLayout === 'solid');
@@ -375,10 +393,10 @@ function ok(name, condition, detail = '') {
           if (previousTheme === null) document.documentElement.removeAttribute('data-theme');
           else document.documentElement.setAttribute('data-theme', previousTheme);
           const selectedD = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"][data-wheel-ring="major"]');
-          return {
+          const presentation = {
             layouts,
             expectedLayouts: ['solid', 'two-inner-outer', 'two-clockwise-halves', 'three-single-inner',
-              'three-single-outer', 'four-window', 'five-window-2-inner-3-outer'],
+              'three-single-outer', 'four-window'],
             paneCount: groups.length,
             paneLabelOverrideCount,
             dividerSample,
@@ -388,6 +406,9 @@ function ok(name, condition, detail = '') {
             dark,
             selectedD: selectedD?.classList.contains('is-wheel-selected'),
           };
+          wheelHarmonyDisabledModes.delete('aeolian');
+          drawWheel();
+          return presentation;
         })(),
       };
     });
@@ -398,7 +419,7 @@ function ok(name, condition, detail = '') {
       [...minorLine.defaultModes.disabled].sort().join(',') ===
         allHarmonyModes.filter((mode) => !exactMinorDefaults.includes(mode)).sort().join(','),
       JSON.stringify(minorLine.defaultModes));
-    ok('Am–C–D–E visibly receives i–III–IV–V and exact aeolian/melodic/harmonic-minor colours',
+    ok('Am–C–D–E keeps analysis colors, while six natural-minor triads use Aeolian alone (except dim)',
       minorLine.editorDegrees.join(',') === 'i,III,IV,V' && minorLine.timelineDegrees.join(',') === 'i,III,IV,V' &&
       minorLine.profiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
       minorLine.timelineProfiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
@@ -406,7 +427,11 @@ function ok(name, condition, detail = '') {
       minorLine.wheelMenu.legendCurrentAbsent && minorLine.wheelMenu.fMinorModes === '' &&
       minorLine.wheelMenu.eMajorModes === 'harmonic-minor,melodic-minor,lydian' &&
       /E: ступень V в Am/.test(minorLine.wheelMenu.eMajorAria) &&
-      /Гармонический минор/.test(minorLine.wheelMenu.eMajorAria), JSON.stringify(minorLine));
+      /Гармонический минор/.test(minorLine.wheelMenu.eMajorAria) &&
+      minorLine.wheelMenu.naturalMinorCorePaneModes.every((modes) => modes === 'aeolian') &&
+      minorLine.wheelMenu.naturalMinorDimModes === 'aeolian,harmonic-minor' &&
+      minorLine.wheelMenu.minorCoreModesWithoutAeolian === 'harmonic-minor,melodic-minor,dorian,phrygian',
+      JSON.stringify(minorLine));
     ok('B-99 dividers share one theme-aware 2px style and two-color ring panes meet at the rail',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
@@ -514,21 +539,20 @@ function ok(name, condition, detail = '') {
       const timelineColorBefore = getComputedStyle(timelineD, '::after').backgroundColor;
       const bodyMapClassBefore = document.body.classList.contains('is-harmony-highlights-on');
       const melodicToggle = document.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="melodic-minor"]');
-      const amGroupBefore = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]');
-      const amSectorBefore = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
-      const fullModesBefore = amSectorBefore?.dataset.wheelModes || '';
+      const eGroupBefore = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="E"][data-wheel-hover-ring="major"]');
+      const eSectorBefore = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="E"][data-wheel-ring="major"]');
+      const fullModesBefore = eSectorBefore?.dataset.wheelModes || '';
       melodicToggle.checked = false;
       melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
-      const amGroupAfter = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]');
-      const amSectorAfter = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
-      const paneReflowed = amGroupBefore?.dataset.paneLayout === 'five-window-2-inner-3-outer' &&
-        Number(amGroupBefore?.dataset.paneCount) === 5 &&
-        amGroupAfter?.dataset.paneLayout === 'four-window' && Number(amGroupAfter?.dataset.paneCount) === 4 &&
-        amGroupAfter?.dataset.paneModes === 'aeolian,harmonic-minor,dorian,phrygian';
-      const menuDataPreserved = amSectorAfter?.dataset.wheelModes === fullModesBefore &&
+      const eGroupAfter = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="E"][data-wheel-hover-ring="major"]');
+      const eSectorAfter = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="E"][data-wheel-ring="major"]');
+      const paneReflowed = Number(eGroupBefore?.dataset.paneCount) === 3 &&
+        Number(eGroupAfter?.dataset.paneCount) === 2 &&
+        eGroupAfter?.dataset.paneModes === 'harmonic-minor,lydian';
+      const menuDataPreserved = eSectorAfter?.dataset.wheelModes === fullModesBefore &&
         fullModesBefore.includes('melodic-minor') &&
-        !amSectorAfter?.dataset.wheelVisibleModes.includes('melodic-minor') &&
-        !amSectorAfter?.getAttribute('aria-label')?.includes('мелодический минор');
+        !eSectorAfter?.dataset.wheelVisibleModes.includes('melodic-minor') &&
+        !eSectorAfter?.getAttribute('aria-label')?.includes('мелодический минор');
       const editorColorAfter = getComputedStyle(editorD, '::before').backgroundColor;
       const timelineColorAfter = getComputedStyle(timelineD, '::after').backgroundColor;
       const bodyMapClassAfter = document.body.classList.contains('is-harmony-highlights-on');
@@ -551,7 +575,7 @@ function ok(name, condition, detail = '') {
         disabledAttribute: DOM.chordWheelModal.dataset.wheelHarmonyDisabledModes || '',
       };
     });
-    ok('флажки перестраивают круговые pane-поля 5→4 без изменения меню/редактора/ленты',
+    ok('флажки перестраивают заимствованную pane-палитру 3→2, не меняя меню/редактор/ленту',
       wheelToggleScope.paneReflowed && wheelToggleScope.menuDataPreserved && wheelToggleScope.editorStable &&
       wheelToggleScope.timelineStable && wheelToggleScope.bodyMapClassStable && wheelToggleScope.standardProfileMuted &&
       !wheelToggleScope.disabledAttribute.includes('melodic-minor'), JSON.stringify(wheelToggleScope));
@@ -633,7 +657,19 @@ function ok(name, condition, detail = '') {
           modes: [...document.querySelectorAll('.wheel-harmony-hover-mode')].map((row) => ({
             name: row.querySelector('.wheel-harmony-hover-mode-name')?.textContent || '',
             change: row.querySelector('.wheel-harmony-hover-mode-change')?.textContent || '',
+            references: [...row.querySelectorAll('.wheel-harmony-reference-major, .wheel-harmony-reference-minor')]
+              .map((node) => ({
+                tone: node.classList.contains('wheel-harmony-reference-major') ? 'major' : 'minor',
+                text: node.textContent,
+                color: getComputedStyle(node).color,
+              })),
           })),
+          referenceColors: (() => {
+            const modeNameColor = (mode) => getComputedStyle(document.querySelector(
+              `#wheelHarmonyModeList [data-wheel-harmony-mode="${mode}"]`
+            )?.closest('.wheel-harmony-mode-option')?.querySelector('.wheel-harmony-mode-name')).color;
+            return { major: modeNameColor('ionian'), minor: modeNameColor('aeolian') };
+          })(),
         };
       };
       const amSectorBeforeToggle = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
@@ -643,7 +679,9 @@ function ok(name, condition, detail = '') {
       melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
       const amSectorAfterToggle = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
       const amFilteredTooltip = hoverModes(amSectorAfterToggle);
-      const amFourPaneCount = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]')?.dataset.paneCount;
+      const amPaneAfterToggle = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]');
+      const amPaneCount = amPaneAfterToggle?.dataset.paneCount;
+      const amPaneModes = amPaneAfterToggle?.dataset.paneModes || '';
       melodicToggle.checked = true;
       melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
       const sector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"][data-wheel-ring="major"]');
@@ -663,7 +701,17 @@ function ok(name, condition, detail = '') {
           name: row.querySelector('.wheel-harmony-hover-mode-name')?.textContent || '',
           change: row.querySelector('.wheel-harmony-hover-mode-change')?.textContent || '',
           color: getComputedStyle(row.querySelector('.wheel-harmony-hover-mode-name')).color,
+          references: [...row.querySelectorAll('.wheel-harmony-reference-major, .wheel-harmony-reference-minor')]
+            .map((node) => ({
+              tone: node.classList.contains('wheel-harmony-reference-major') ? 'major' : 'minor',
+              text: node.textContent,
+              color: getComputedStyle(node).color,
+            })),
         }));
+        const modeNameColor = (mode) => getComputedStyle(document.querySelector(
+          `#wheelHarmonyModeList [data-wheel-harmony-mode="${mode}"]`
+        )?.closest('.wheel-harmony-mode-option')?.querySelector('.wheel-harmony-mode-name')).color;
+        const referenceColors = { major: modeNameColor('ionian'), minor: modeNameColor('aeolian') };
         const legendRect = document.getElementById('wheelHarmonyLegend').getBoundingClientRect();
         const tooltipRect = tooltip.getBoundingClientRect();
         const circleRect = document.getElementById('circleSvg').getBoundingClientRect();
@@ -672,6 +720,7 @@ function ok(name, condition, detail = '') {
           context: context?.textContent || '',
           hidden: tooltip.hidden,
           modes,
+          referenceColors,
           overlapsLegend: tooltipRect.left < legendRect.right && tooltipRect.right > legendRect.left &&
             tooltipRect.top < legendRect.bottom && tooltipRect.bottom > legendRect.top,
           overlapsCircle: tooltipRect.left < circleRect.right && tooltipRect.right > circleRect.left &&
@@ -701,12 +750,13 @@ function ok(name, condition, detail = '') {
         dark,
         amAllModesTooltip,
         amFilteredTooltip,
-        amFourPaneCount,
+        amPaneCount,
+        amPaneModes,
         hiddenAfterLeave: tooltip.hidden,
         nativeTitleRestored: !!sector.querySelector('title'),
       };
     });
-    ok('Am tooltip перечисляет все 5 активных ладов и после выключения Melodic Minor показывает только 4; геометрия тоже 5→4',
+    ok('Am tooltip сохраняет все включённые описания, а общая диатоническая тоника остаётся одноцветной',
       sectorHoverTooltip.amAllModesTooltip.chord === 'Am' &&
       /Ступень i/.test(sectorHoverTooltip.amAllModesTooltip.context) &&
       sectorHoverTooltip.amAllModesTooltip.degrees.join(',') === 'i,i,i,i,i' &&
@@ -714,22 +764,34 @@ function ok(name, condition, detail = '') {
         'Эолийский,Гармонический минор,Мелодический минор,Дорийский,Фригийский' &&
       sectorHoverTooltip.amAllModesTooltip.modes.find(({ name }) => name === 'Эолийский')?.change
         .includes('Натуральный минор') &&
+      sectorHoverTooltip.amAllModesTooltip.modes.find(({ name }) => name === 'Эолийский')?.references
+        .some(({ tone, text }) => tone === 'minor' && text === 'минор') &&
+      sectorHoverTooltip.amAllModesTooltip.modes.find(({ name }) => name === 'Эолийский')?.references
+        .some(({ tone, text }) => tone === 'major' && text === 'мажора') &&
       sectorHoverTooltip.amFilteredTooltip.degrees.join(',') === 'i,i,i,i' &&
       sectorHoverTooltip.amFilteredTooltip.modes.map(({ name }) => name).join(',') ===
         'Эолийский,Гармонический минор,Дорийский,Фригийский' &&
       sectorHoverTooltip.amFilteredTooltip.modes.find(({ name }) => name === 'Эолийский')?.change
         .includes('Натуральный минор') &&
-      sectorHoverTooltip.amFourPaneCount === '4', JSON.stringify(sectorHoverTooltip));
-    ok('наведение на сектор показывает все включённые лады, ступень и изменения лада; tooltip не пропадает при zoom',
-      ['light', 'dark'].every((theme) => sectorHoverTooltip[theme].chord === 'D' &&
-        /Ступень IV/.test(sectorHoverTooltip[theme].context) &&
-        sectorHoverTooltip[theme].modes.map((mode) => mode.name).join(',') ===
-          'Мелодический минор,Дорийский,Миксолидийский' &&
-        sectorHoverTooltip[theme].modes.every((mode) => mode.degree === 'IV' && mode.change) &&
-        !sectorHoverTooltip[theme].hidden && !sectorHoverTooltip[theme].overlapsLegend &&
-        !sectorHoverTooltip[theme].overlapsCircle && !sectorHoverTooltip[theme].hasNativeTitleWhileOpen &&
-        sectorHoverTooltip[theme].tooltipInsideViewport) &&
-      sectorHoverTooltip.hiddenAfterLeave && sectorHoverTooltip.nativeTitleRestored, JSON.stringify(sectorHoverTooltip));
+      sectorHoverTooltip.amPaneCount === '1' && sectorHoverTooltip.amPaneModes === 'aeolian',
+      JSON.stringify(sectorHoverTooltip));
+    ok('tooltip сохраняет лады и окрашивает ссылки на натуральный мажор/минор верными цветами в обеих темах',
+      ['light', 'dark'].every((theme) => {
+        const snapshot = sectorHoverTooltip[theme];
+        const hasReference = (modeName, tone, text, expectedColor) =>
+          snapshot.modes.find((mode) => mode.name === modeName)?.references.some((reference) =>
+            reference.tone === tone && reference.text === text && reference.color === expectedColor);
+        return snapshot.chord === 'D' && /Ступень IV/.test(snapshot.context) &&
+          snapshot.modes.map((mode) => mode.name).join(',') ===
+            'Мелодический минор,Дорийский,Миксолидийский' &&
+          snapshot.modes.every((mode) => mode.degree === 'IV' && mode.change) &&
+          hasReference('Мелодический минор', 'minor', 'минора', snapshot.referenceColors.minor) &&
+          hasReference('Дорийский', 'minor', 'минора', snapshot.referenceColors.minor) &&
+          hasReference('Миксолидийский', 'major', 'мажора', snapshot.referenceColors.major) &&
+          !snapshot.hidden && !snapshot.overlapsLegend && !snapshot.overlapsCircle &&
+          !snapshot.hasNativeTitleWhileOpen && snapshot.tooltipInsideViewport;
+      }) && sectorHoverTooltip.hiddenAfterLeave && sectorHoverTooltip.nativeTitleRestored,
+      JSON.stringify(sectorHoverTooltip));
     ok('B-99 visual route completed without page errors', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
     await browser.close();

@@ -5452,6 +5452,8 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
   font-size: 0.5625rem;
   font-weight: 500;
 }
+.wheel-harmony-reference-major { color: var(--harmony-ionian); font-weight: 700; }
+.wheel-harmony-reference-minor { color: var(--harmony-aeolian); font-weight: 700; }
 .wheel-harmony-hover-tooltip {
   position: absolute;
   z-index: 10002;
@@ -11619,7 +11621,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.569</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.570</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22830,12 +22832,44 @@ function isWheelHarmonyModeEnabled(mode) {
 function getEnabledWheelHarmonyModes(modes) {
   return Array.from(modes || []).filter(isWheelHarmonyModeEnabled);
 }
+function getWheelMenuPaneModes(menu) {
+  const enabledModes = getEnabledWheelHarmonyModes(menu?.modes);
+  if (!menu || !enabledModes.length) return enabledModes;
+  const naturalMode = menu.baseMode || getHarmonyBaseMode(menu.key);
+  if (!['ionian', 'aeolian'].includes(naturalMode) || !enabledModes.includes(naturalMode)) return enabledModes;
+  const parsed = parseChordForKeyDetection(menu.chord);
+  // При включённом натуральном ладе шесть обычных диатонических трезвучий
+  // имеют один базовый цвет; уменьшённое трезвучие остаётся исключением.
+  if (!parsed || parsed.quality === 'dim' || !isHarmonyChordInMode(parsed, menu.key, naturalMode)) return enabledModes;
+  return [naturalMode];
+}
 function getWheelHarmonyModeDetails(mode) {
   return WHEEL_HARMONY_LEGEND_MODES.find((item) => item.id === mode) || {
     id: mode,
     name: HARMONY_MODE_SHORT_LABELS[mode] || mode,
     change: '',
   };
+}
+function appendWheelHarmonyModeChange(target, text) {
+  if (!target) return;
+  const description = String(text || '');
+  const referencePattern = /(мажора|мажор|минора|минор)/giu;
+  let textStart = 0;
+  let match;
+  while ((match = referencePattern.exec(description))) {
+    if (match.index > textStart) {
+      target.appendChild(document.createTextNode(description.slice(textStart, match.index)));
+    }
+    const tone = match[0].toLocaleLowerCase('ru-RU').startsWith('мажор') ? 'major' : 'minor';
+    const reference = document.createElement('span');
+    reference.className = `wheel-harmony-reference-${tone}`;
+    reference.textContent = match[0];
+    target.appendChild(reference);
+    textStart = referencePattern.lastIndex;
+  }
+  if (textStart < description.length) {
+    target.appendChild(document.createTextNode(description.slice(textStart)));
+  }
 }
 function applyWheelHarmonyModeVisibility() {
   const hasEffectiveKey = !!getActiveWheelHarmonyEffectiveKey();
@@ -22940,7 +22974,7 @@ function renderWheelHarmonyLegendModes() {
       const alteration = document.createElement('small');
       alteration.className = 'wheel-harmony-mode-change';
       alteration.id = `wheel-harmony-change-${id}`;
-      alteration.textContent = change;
+      appendWheelHarmonyModeChange(alteration, change);
       copy.append(title, alteration);
       option.append(checkbox, swatch, copy);
       list.appendChild(option);
@@ -34162,7 +34196,7 @@ function updateWheelHarmonyHoverTooltip(sector, event) {
       if (info.change) {
         const change = document.createElement('small');
         change.className = 'wheel-harmony-hover-mode-change';
-        change.textContent = info.change;
+        appendWheelHarmonyModeChange(change, info.change);
         row.appendChild(change);
       }
       list.appendChild(row);
@@ -34310,7 +34344,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     const seen = new Map();
     return chords.map((chord) => {
       const menu = getBorrowingMenuProfile(correctChordName(chord, ks), sk);
-      const count = getEnabledWheelHarmonyModes(menu?.modes).length;
+      const count = getWheelMenuPaneModes(menu).length;
       if (!count) return 0;
       const ordinal = seen.get(count) || 0;
       seen.set(count, ordinal + 1);
@@ -34364,7 +34398,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // оставшийся первый профиль — у внутреннего края. Раскладки 2+1 и 3+2 делят радиальную
   // ширину пополам; поле и подпись остаются частью hover/selection-узла.
   const appendWheelModeDiagram = (menu, start, end, cardOuter, cardInner, selected, clipKey, patternOrdinal = 0) => {
-    const modes = getEnabledWheelHarmonyModes(menu?.modes);
+    const modes = getWheelMenuPaneModes(menu);
     const count = modes.length;
     if (!menuMode || count < 1 || count > 5) return null;
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');

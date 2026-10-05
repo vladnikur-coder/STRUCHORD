@@ -1,8 +1,8 @@
 #!/usr/bin/env node
-// B-99 (0.546): меню заимствований на круге. Круг в режиме трезвучий —
-// меню для сочинения: у каждого сектора ступень и все лады этой тональности,
-// в которых аккорд работает. Это НЕ анализ прогрессии: строгие профили
-// остаются в редакторе/ленте; круг отдельно показывает палитру ладов.
+// B-99: меню заимствований на круге. Круг в режиме трезвучий — меню для
+// сочинения: доступны ступень и все подходящие лады, но при включённом
+// Ionian/Aeolian шесть обычных диатонических трезвучий используют только
+// базовый цвет (уменьшённый аккорд исключён). Это НЕ анализ прогрессии.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -143,11 +143,51 @@ const wedgeModes = (identity) =>
     .map((w) => w.dataset.mode);
 const degreeTexts = () => [...d.querySelectorAll('#circleSvg .wheel-degree-label')].map((t) => t.textContent);
 
+const naturalMinorCorePaneModes = ['Am', 'C', 'Dm', 'Em', 'F', 'G'].map((identity) => wedgeModes(identity).join(','));
+const naturalMinorDimPaneModes = w.eval("getWheelMenuPaneModes(getBorrowingMenuProfile('Bdim', 'Am')).join(',')");
+ok('в миноре активный Эолийский задаёт один цвет для шести обычных ступеней, но не для dim',
+  naturalMinorCorePaneModes.every((modes) => modes === 'aeolian') &&
+  naturalMinorDimPaneModes === 'aeolian,harmonic-minor',
+  JSON.stringify({ naturalMinorCorePaneModes, naturalMinorDimPaneModes }));
+
+w.eval(`
+  globalKey = 'C';
+  wheelHarmonyDisabledModes = new Set();
+  drawWheel();
+`);
+const naturalMajorCorePaneModes = ['C', 'Dm', 'Em', 'F', 'G', 'Am'].map((identity) => wedgeModes(identity).join(','));
+const naturalMajorDimPaneModes = w.eval("getWheelMenuPaneModes(getBorrowingMenuProfile('Bdim', 'C')).join(',')");
+ok('в мажоре активный Ионийский задаёт один цвет для шести обычных ступеней, но не для dim',
+  naturalMajorCorePaneModes.every((modes) => modes === 'ionian') &&
+  naturalMajorDimPaneModes === 'ionian,harmonic-minor,melodic-minor',
+  JSON.stringify({ naturalMajorCorePaneModes, naturalMajorDimPaneModes }));
+w.eval(`
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(['lydian', 'mixolydian']);
+  drawWheel();
+`);
+const majorColorDistributionWithoutIonian = wedgeModes('C').join(',');
+w.eval(`
+  globalKey = 'Am';
+  wheelHarmonyDisabledModes = getWheelHarmonyDisabledModesForEntryModes(['harmonic-minor', 'melodic-minor', 'dorian', 'phrygian']);
+  drawWheel();
+`);
+const minorColorDistributionWithoutAeolian = wedgeModes('Am').join(',');
+ok('при выключенном натуральном ладе другие включённые цвета снова делятся по профилям',
+  majorColorDistributionWithoutIonian === 'lydian,mixolydian' &&
+  minorColorDistributionWithoutAeolian === 'harmonic-minor,melodic-minor,dorian,phrygian',
+  JSON.stringify({ majorColorDistributionWithoutIonian, minorColorDistributionWithoutAeolian }));
+
+// Pane-geometry checks use all alternatives while the natural minor is off.
+w.eval(`
+  wheelHarmonyDisabledModes = new Set(['aeolian']);
+  drawWheel();
+`);
+
 ok('сектор D несёт pane-раскладку из трёх цветовых полей',
   wedgeModes('D').join(',') === 'melodic-minor,dorian,mixolydian',
   wedgeModes('D').join(','));
-ok('сектор Am несёт pane-раскладку из пяти полей, база первая',
-  wedgeModes('Am').join(',') === 'aeolian,harmonic-minor,melodic-minor,dorian,phrygian',
+ok('после выключения натурального минора альтернативные цвета Am распределяются по четырём полям',
+  wedgeModes('Am').join(',') === 'harmonic-minor,melodic-minor,dorian,phrygian',
   wedgeModes('Am').join(','));
 ok('поля Am обрезаны по форме карточки',
   (() => {
@@ -156,10 +196,10 @@ ok('поля Am обрезаны по форме карточки',
     const clipRef = dg?.getAttribute('clip-path') || '';
     const clipId = clipRef.match(/^url\(#([^)]+)\)$/)?.[1];
     const clip = clipId && d.getElementById(clipId);
-    return panes.length === 5 && panes.every((pane) => /^M-?[\d.]+ -?[\d.]+ A/.test(pane.getAttribute('d') || '')) &&
+    return panes.length === 4 && panes.every((pane) => /^M-?[\d.]+ -?[\d.]+ A/.test(pane.getAttribute('d') || '')) &&
       !!clip?.querySelector('path');
   })(),
-  '5 оконных полей + clipPath по границе карточки');
+  '4 альтернативных поля + clipPath по границе карточки');
 ok('диаграмма — hover-узел карточки: магнит/разъезд/selected её не бросают',
   diagramOf('D')?.classList.contains('wheel-hoverable') &&
   diagramOf('D')?.getAttribute('pointer-events') === 'none' &&
@@ -301,26 +341,18 @@ ok('3 цвета: два разделителя; 1+2 делятся посере
   threePanes.every((node) => node.querySelectorAll('.wheel-mode-pane').length === 3 &&
     dividerCount(node) === 2 && radialMidpointMatches(node) && sharesAreUnequalAndComplete(node)),
   threePanes.map((node) => `${node.dataset.paneLayout}:${node.dataset.radialBandSplitRadius}`).join(', '));
-const fourPanes = paneGroup('F', 'major');
-ok('4 цвета: окно 2×2, четыре равных поля и два разделителя поверх overlay',
+const fourPanes = paneGroup('Am', 'minor');
+ok('4 цвета без натурального минора: окно 2×2, четыре равных поля и два разделителя поверх overlay',
   fourPanes?.dataset.paneLayout === 'four-window' &&
+  paneModes(fourPanes).join(',') === 'harmonic-minor,melodic-minor,dorian,phrygian' &&
   fourPanes.querySelectorAll('.wheel-mode-pane').length === 4 &&
   dividerCount(fourPanes) === 2 &&
   [...fourPanes.querySelectorAll('.wheel-mode-pane')].every((pane) => pane.dataset.paneAreaShare === '0.2500'),
-  fourPanes?.dataset.paneLayout || 'нет диаграммы');
-const fivePanes = paneGroup('Am', 'minor');
-ok('5 цветов: окно 2+3, база внутри, радиальная граница посередине, порядок ладов сохранён',
-  fivePanes?.dataset.paneLayout === 'five-window-2-inner-3-outer' &&
-  paneModes(fivePanes).join(',') === menu('Am', 'Am').modes.join(',') &&
-  [...fivePanes.querySelectorAll('.wheel-mode-pane')].filter((pane) => pane.dataset.paneBand === 'inner').length === 2 &&
-  [...fivePanes.querySelectorAll('.wheel-mode-pane')].filter((pane) => pane.dataset.paneBand === 'outer').length === 3 &&
-  radialMidpointMatches(fivePanes) && sharesAreUnequalAndComplete(fivePanes) &&
-  dividerCount(fivePanes) === 4 &&
-  `${fivePanes?.dataset.paneLayout || 'нет'} / ${paneModes(fivePanes).join(',')}`);
-const colorPaneGroups = [...twoPanes, ...threePanes, fourPanes, fivePanes].filter(Boolean);
+  `${fourPanes?.dataset.paneLayout || 'нет'} / ${paneModes(fourPanes).join(',')}`);
+const colorPaneGroups = [...twoPanes, ...threePanes, fourPanes].filter(Boolean);
 const colorDividerWidths = colorPaneGroups.flatMap((group) =>
   [...(dividerLayerFor(group)?.querySelectorAll('.wheel-mode-divider') || [])].map(cssStrokeWidth));
-ok('разделители в раскладках на 2–5 цветов имеют одинаковую толщину 2px',
+ok('разделители в раскладках на 2–4 цвета имеют одинаковую толщину 2px',
   colorDividerWidths.length > 0 && colorDividerWidths.every((width) => width === 2),
   [...new Set(colorDividerWidths)].join(', ') + 'px');
 ok('подписи сохраняют штатное оформление; отдельная pane-hover-подпись удалена',
@@ -338,6 +370,7 @@ ok('режим 7 без меню: строгий профиль по-прежн�
 
 // ===== 6. Легенда «?» — компактная палитра и переключатели цветов =====
 w.eval(`
+  wheelHarmonyDisabledModes = new Set();
   wheelMode = 'triads'; drawWheel();
   bindWheelHarmonyLegend();
   document.getElementById('wheelHarmonyLegendToggle').click();
@@ -357,13 +390,30 @@ ok('легенда компактно показывает все лады/цв�
   !/[↑↓]/.test(legend?.textContent || '') && !/V\/x/.test(legend?.textContent || '') && !d.getElementById('wheelHarmonyLegendCurrent') &&
   modeInputs.every((input) => input.checked),
   (legend?.textContent || '').replace(/\s+/g, ' ').slice(0, 180));
+const modeChangeDescription = (id) => d.querySelector(
+  `#wheelHarmonyModeList [data-wheel-harmony-mode="${id}"]`
+)?.closest('.wheel-harmony-mode-option')?.querySelector('.wheel-harmony-mode-change');
+const modeReference = (id, tone) => modeChangeDescription(id)?.querySelector(`.wheel-harmony-reference-${tone}`);
+ok('в описаниях ладов слова «мажор/минор» окрашены в цвета натуральных ладов',
+  modeReference('ionian', 'major')?.textContent === 'мажор' &&
+  modeReference('aeolian', 'minor')?.textContent === 'минор' &&
+  modeReference('aeolian', 'major')?.textContent === 'мажора' &&
+  modeReference('harmonic-minor', 'minor')?.textContent === 'минора' &&
+  modeReference('lydian', 'major')?.textContent === 'мажора',
+  JSON.stringify({
+    ionian: modeReference('ionian', 'major')?.outerHTML,
+    aeolianMinor: modeReference('aeolian', 'minor')?.outerHTML,
+    aeolianMajor: modeReference('aeolian', 'major')?.outerHTML,
+    harmonicMinor: modeReference('harmonic-minor', 'minor')?.outerHTML,
+    lydianMajor: modeReference('lydian', 'major')?.outerHTML,
+  }));
 const naturalAliasMenuText = w.getBorrowingMenuText({ chord: 'Am', degree: 'i', modes: ['ionian', 'aeolian'] });
 ok('текстовое описание меню тоже расшифровывает Ионийский и Эолийский',
   /Ионийский \(Натуральный мажор\)/.test(naturalAliasMenuText) &&
   /Эолийский \(Натуральный минор\)/.test(naturalAliasMenuText), naturalAliasMenuText);
 const dorianToggle = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="dorian"]');
-const amSectorBeforeToggle = sector('Am');
-const amPaneBeforeToggle = paneGroup('Am', 'minor');
+const dSectorBeforeToggle = sector('D');
+const dPaneBeforeToggle = paneGroup('D', 'major');
 const fakeEditor = d.createElement('div');
 fakeEditor.className = 'chord-wrapper';
 fakeEditor.dataset.harmonyProfile = 'dorian';
@@ -373,22 +423,22 @@ fakeTimeline.dataset.harmonyProfile = 'dorian';
 d.body.append(fakeEditor, fakeTimeline);
 dorianToggle.checked = false;
 dorianToggle.dispatchEvent(new w.Event('change', { bubbles: true }));
-const amPaneAfterToggle = paneGroup('Am', 'minor');
-const amSectorAfterToggle = sector('Am');
-ok('отключение одного лада пересчитывает 3+2/5-панель в 2+2/4, сохраняя полный музыкальный список и scope круга',
-  amPaneBeforeToggle?.dataset.paneLayout === 'five-window-2-inner-3-outer' &&
-  Number(amPaneBeforeToggle?.dataset.paneCount) === 5 &&
-  amPaneAfterToggle?.dataset.paneLayout === 'four-window' && Number(amPaneAfterToggle?.dataset.paneCount) === 4 &&
-  paneModes(amPaneAfterToggle).join(',') === 'aeolian,harmonic-minor,melodic-minor,phrygian' &&
-  amSectorBeforeToggle?.dataset.wheelModes.includes('dorian') &&
-  amSectorAfterToggle?.dataset.wheelModes.includes('dorian') &&
-  !amSectorAfterToggle?.dataset.wheelVisibleModes.includes('dorian') &&
-  !amSectorAfterToggle?.getAttribute('aria-label')?.includes('дорийский') &&
+const dPaneAfterToggle = paneGroup('D', 'major');
+const dSectorAfterToggle = sector('D');
+ok('отключение одного лада пересчитывает альтернативную 3→2-панель, сохраняя меню и scope только на круге',
+  dPaneBeforeToggle?.dataset.paneLayout.startsWith('three-') &&
+  Number(dPaneBeforeToggle?.dataset.paneCount) === 3 &&
+  Number(dPaneAfterToggle?.dataset.paneCount) === 2 &&
+  paneModes(dPaneAfterToggle).join(',') === 'melodic-minor,mixolydian' &&
+  dSectorBeforeToggle?.dataset.wheelModes.includes('dorian') &&
+  dSectorAfterToggle?.dataset.wheelModes.includes('dorian') &&
+  !dSectorAfterToggle?.dataset.wheelVisibleModes.includes('dorian') &&
+  !dSectorAfterToggle?.getAttribute('aria-label')?.includes('дорийский') &&
   d.getElementById('chordWheelModal').dataset.wheelHarmonyDisabledModes.includes('dorian') &&
   !fakeEditor.classList.contains('wheel-harmony-mode-muted') && !fakeTimeline.classList.contains('wheel-harmony-mode-muted') &&
   !d.body.classList.contains('is-harmony-mode-disabled') &&
   JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]').includes('dorian'),
-  `${amPaneBeforeToggle?.dataset.paneLayout} (${amPaneBeforeToggle?.dataset.paneModes}) -> ${amPaneAfterToggle?.dataset.paneLayout} (${amPaneAfterToggle?.dataset.paneModes})`);
+  `${dPaneBeforeToggle?.dataset.paneLayout} (${dPaneBeforeToggle?.dataset.paneModes}) -> ${dPaneAfterToggle?.dataset.paneLayout} (${dPaneAfterToggle?.dataset.paneModes})`);
 dorianToggle.checked = true;
 dorianToggle.dispatchEvent(new w.Event('change', { bubbles: true }));
 const orbitBefore = w.eval(`(() => ({
