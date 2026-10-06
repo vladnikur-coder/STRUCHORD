@@ -64,6 +64,8 @@ const minorDisplayText = w.getBorrowingMenuText(amTonic);
 const minorDisplayTextLower = minorDisplayText.toLocaleLowerCase('ru-RU');
 const majorDisplayText = w.getBorrowingMenuText(menu('Bb', 'C'));
 ok('поясняющие подписи сортируются по контексту без перестановки профилей меню',
+  w.eval('getWheelHarmonyModeOrderForKey("C").join(",")') ===
+    'ionian,mixolydian,lydian,aeolian,dorian,harmonic-minor,melodic-minor,phrygian,locrian' &&
   w.eval('getWheelHarmonyModeOrderForKey("Am").join(",")') ===
     'aeolian,harmonic-minor,dorian,melodic-minor,ionian,phrygian,mixolydian,lydian,locrian' &&
   minorDisplayTextLower.indexOf('эолийский') < minorDisplayTextLower.indexOf('гармонический минор') &&

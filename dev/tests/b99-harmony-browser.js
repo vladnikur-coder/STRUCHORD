@@ -630,7 +630,7 @@ function ok(name, condition, detail = '') {
       !state.legendHasVx && !state.legendHasCurrentChord && state.legendNoteAbsent, JSON.stringify(state));
     ok('legend ? uses the major-context order without changing the set of modes',
       state.legendModeOrder.join(',') ===
-        'ionian,aeolian,mixolydian,dorian,lydian,harmonic-minor,melodic-minor,phrygian,locrian',
+        'ionian,mixolydian,lydian,aeolian,dorian,harmonic-minor,melodic-minor,phrygian,locrian',
       state.legendModeOrder.join(','));
     ok('question mark floats with the wheel on open and sinks on close', state.legendToggleFloats,
       JSON.stringify({ floats: state.legendToggleFloats }));

@@ -86,7 +86,7 @@ ok('первый выбранный мажор применяет только I
 const majorLegendOrder = legendModeOrder();
 ok('легенда ? переставляет существующие флажки в контекстный мажорный порядок',
   majorLegendOrder === w.eval('getWheelHarmonyModeOrderForKey("C").join(",")') &&
-  majorLegendOrder.startsWith('ionian,aeolian,mixolydian,dorian'), majorLegendOrder);
+  majorLegendOrder.startsWith('ionian,mixolydian,lydian,aeolian'), majorLegendOrder);
 const legendCheckboxesBeforeMinorTransition = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
 const previousMajorDefaults = ['ionian', 'lydian', 'mixolydian'];
 const previousMajorDisabled = allWheelModes.filter((mode) => !previousMajorDefaults.includes(mode));
