@@ -703,12 +703,28 @@ function ok(name, condition, detail = '') {
         d7DegreeWhenLydianEnabled: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="D7"] .wheel-degree-label')?.textContent || '',
         paneCountWhenLydianEnabled: document.querySelectorAll('#circleSvg .wheel-mode-pane').length,
       });
+      document.getElementById('showDegrees').checked = false;
+      toggleDegreesOnWheel();
+      const d7WithDegreesOff = sector('D7', 'major');
+      const offRect = d7WithDegreesOff.getBoundingClientRect();
+      d7WithDegreesOff.dispatchEvent(new PointerEvent('pointerover', {
+        bubbles: true, clientX: offRect.left + offRect.width / 2,
+        clientY: offRect.top + offRect.height / 2, pointerType: 'mouse',
+      }));
+      const tooltipWithDegreesOff = document.getElementById('wheelHarmonyHoverTooltip');
+      Object.assign(result, {
+        tooltipHiddenWhenDegreesOff: tooltipWithDegreesOff.hidden,
+        ariaRemovedWhenDegreesOff: !d7WithDegreesOff.hasAttribute('aria-label'),
+        titleRemovedWhenDegreesOff: !d7WithDegreesOff.querySelector('title'),
+      });
+      hideWheelHarmonyHoverTooltip();
       globalKey = previous.globalKey; keyMode = previous.keyMode; DOM.rootKey.value = previous.rootKey;
       sections = previous.sections; activeChordInput = previous.activeChordInput;
       activeSectionKey = previous.activeSectionKey; wheelMode = previous.wheelMode;
       wheelHarmonyModeVisibilityLoaded = previous.loaded;
       wheelHarmonyDisabledModes = new Set(previous.disabled);
       document.getElementById('showDegrees').checked = previous.showDegrees;
+      updateCellsDegrees();
       DOM.chordWheelModal.classList.toggle('open', previous.modalOpen);
       syntheticOwner.remove();
       drawWheel();
@@ -725,7 +741,8 @@ function ok(name, condition, detail = '') {
       fullSeventhWheel.d7FillWhenLydianEnabled !== fullSeventhWheel.neutralFill &&
       fullSeventhWheel.d7DegreeWhenLydianEnabled === 'II' &&
       fullSeventhWheel.paneCount === 0 && fullSeventhWheel.paneCountWhenLydianEnabled === 0 &&
-      fullSeventhWheel.profileColorVisible,
+      fullSeventhWheel.profileColorVisible && fullSeventhWheel.tooltipHiddenWhenDegreesOff &&
+      fullSeventhWheel.ariaRemovedWhenDegreesOff && fullSeventhWheel.titleRemovedWhenDegreesOff,
       JSON.stringify(fullSeventhWheel));
 
     const strictWheel = await page.evaluate(() => {
