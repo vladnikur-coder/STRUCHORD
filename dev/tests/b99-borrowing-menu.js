@@ -639,6 +639,29 @@ ok('другая вкладка качества оставляет строгу
   /возможная функция V\/V/.test(qualityHover.tooltipContext) &&
   /Лидийский/.test(qualityHover.tooltipModes) &&
   /может вести к V/.test(qualityHover.tooltipNote), JSON.stringify(qualityHover));
+const qualityCandidateColor = w.eval(`(() => {
+  globalKey = 'C'; DOM.rootKey.value = 'C'; keyMode = 'manual';
+  activeSectionKey = null; activeChordInput = null; wheelMode = '7';
+  wheelHarmonyModeVisibilityLoaded = true;
+  wheelHarmonyDisabledModes = new Set([...WHEEL_HARMONY_MODE_IDS].filter((mode) => mode !== 'lydian'));
+  document.getElementById('showDegrees').checked = true;
+  DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
+  drawWheel();
+  const d7 = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D7"][data-wheel-ring="major"]');
+  return {
+    enabled: isWheelHarmonyModeEnabled('lydian'),
+    candidates: getBorrowingMenuProfile('D7', 'C').modes.join(','),
+    profile: d7?.dataset.harmonyProfile || '',
+    muted: d7?.classList.contains('wheel-harmony-mode-muted'),
+    degree: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="D7"] .wheel-degree-label')?.textContent || '',
+    paneCount: document.querySelectorAll('#circleSvg .wheel-mode-pane').length,
+  };
+})()`);
+ok('quality tab colors an enabled full-chord candidate without adding pane fields',
+  qualityCandidateColor.enabled && qualityCandidateColor.candidates === 'lydian' &&
+  qualityCandidateColor.profile === 'lydian' && !qualityCandidateColor.muted &&
+  qualityCandidateColor.degree === 'II' && qualityCandidateColor.paneCount === 0,
+  JSON.stringify(qualityCandidateColor));
 
 // ===== 6. Легенда «?» — компактная палитра и переключатели цветов =====
 w.eval(`

@@ -614,8 +614,11 @@ function ok(name, condition, detail = '') {
       wheelMode = '7';
       drawWheel();
       const standardD = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D7"][data-wheel-ring="major"]');
-      const standardProfileMuted = standardD?.dataset.harmonyProfile === 'melodic-minor' &&
-        standardD.classList.contains('wheel-harmony-mode-muted');
+      const standardProfile = standardD?.dataset.harmonyProfile || '';
+      const qualityProfileTracksEnabledMode = !!standardProfile &&
+        (standardD?.dataset.wheelModes || '').split(',').includes(standardProfile) &&
+        isWheelHarmonyModeEnabled(standardProfile) &&
+        !standardD.classList.contains('wheel-harmony-mode-muted');
       melodicToggle.checked = true;
       melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
       return {
@@ -624,13 +627,14 @@ function ok(name, condition, detail = '') {
         editorStable: editorColorBefore === editorColorAfter,
         timelineStable: timelineColorBefore === timelineColorAfter,
         bodyMapClassStable: bodyMapClassBefore === bodyMapClassAfter,
-        standardProfileMuted,
+        qualityProfileTracksEnabledMode,
+        standardProfile,
         disabledAttribute: DOM.chordWheelModal.dataset.wheelHarmonyDisabledModes || '',
       };
     });
-    ok('флажки перестраивают заимствованную pane-палитру 4→3 после добавления Ionian, не меняя меню/редактор/ленту',
+    ok('флажки перестраивают panes в трезвучиях, а вкладка качества выбирает включённый профиль',
       wheelToggleScope.paneReflowed && wheelToggleScope.menuDataPreserved && wheelToggleScope.editorStable &&
-      wheelToggleScope.timelineStable && wheelToggleScope.bodyMapClassStable && wheelToggleScope.standardProfileMuted &&
+      wheelToggleScope.timelineStable && wheelToggleScope.bodyMapClassStable && wheelToggleScope.qualityProfileTracksEnabledMode &&
       !wheelToggleScope.disabledAttribute.includes('melodic-minor'), JSON.stringify(wheelToggleScope));
     const fullSeventhWheel = await page.evaluate(() => {
       const previous = {
@@ -689,6 +693,16 @@ function ok(name, condition, detail = '') {
         profileColorVisible: fill !== neutralFill,
       };
       hideWheelHarmonyHoverTooltip();
+      wheelHarmonyDisabledModes.delete('lydian');
+      drawWheel();
+      const d7WithLydian = sector('D7', 'major');
+      Object.assign(result, {
+        d7ProfileWhenLydianEnabled: d7WithLydian?.dataset.harmonyProfile || '',
+        d7MutedWhenLydianEnabled: d7WithLydian?.classList.contains('wheel-harmony-mode-muted'),
+        d7FillWhenLydianEnabled: getComputedStyle(d7WithLydian).fill,
+        d7DegreeWhenLydianEnabled: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="D7"] .wheel-degree-label')?.textContent || '',
+        paneCountWhenLydianEnabled: document.querySelectorAll('#circleSvg .wheel-mode-pane').length,
+      });
       globalKey = previous.globalKey; keyMode = previous.keyMode; DOM.rootKey.value = previous.rootKey;
       sections = previous.sections; activeChordInput = previous.activeChordInput;
       activeSectionKey = previous.activeSectionKey; wheelMode = previous.wheelMode;
@@ -700,13 +714,18 @@ function ok(name, condition, detail = '') {
       drawWheel();
       return result;
     });
-    ok('вкладка септаккордов красит подтверждённый Mixolydian по полным нотам, а tooltip остаётся при выключенном Lydian',
+    ok('вкладка септаккордов красит подтверждённый Mixolydian и включённый Lydian-кандидат без panes',
       fullSeventhWheel.contextualMode === 'mixolydian' && fullSeventhWheel.gm7Profile === 'mixolydian' &&
       !fullSeventhWheel.gm7Muted && fullSeventhWheel.gm7Degree === 'v' &&
       fullSeventhWheel.cMaj7Profile !== 'mixolydian' && !fullSeventhWheel.d7Profile &&
       fullSeventhWheel.d7Candidates === 'lydian' && fullSeventhWheel.d7Function === 'V/V' &&
       fullSeventhWheel.d7TooltipVisible && /Лидийский/.test(fullSeventhWheel.d7TooltipModes) &&
-      fullSeventhWheel.paneCount === 0 && fullSeventhWheel.profileColorVisible,
+      fullSeventhWheel.d7ProfileWhenLydianEnabled === 'lydian' &&
+      !fullSeventhWheel.d7MutedWhenLydianEnabled &&
+      fullSeventhWheel.d7FillWhenLydianEnabled !== fullSeventhWheel.neutralFill &&
+      fullSeventhWheel.d7DegreeWhenLydianEnabled === 'II' &&
+      fullSeventhWheel.paneCount === 0 && fullSeventhWheel.paneCountWhenLydianEnabled === 0 &&
+      fullSeventhWheel.profileColorVisible,
       JSON.stringify(fullSeventhWheel));
 
     const strictWheel = await page.evaluate(() => {

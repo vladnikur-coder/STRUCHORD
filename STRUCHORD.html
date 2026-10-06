@@ -11644,7 +11644,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.582</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.583</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22673,6 +22673,18 @@ function getWheelStrictDisplayDegree(analysis, baseDegree = '') {
   if (!analysis?.mode || analysis.group === HARMONY_GROUP.SECONDARY_FUNCTION ||
       !isWheelHarmonyModeEnabled(analysis.mode)) return '';
   return analysis.function || analysis.degree || '';
+}
+function getWheelQualityCandidateColorMode(menu) {
+  // Quality tabs have no multi-color pane geometry. Use one deterministic
+  // enabled candidate color instead; triads retain their existing pane menu.
+  return getWheelMenuPaneModes(menu)[0] || '';
+}
+function getWheelQualityDisplayDegree(menu, analysis, baseDegree = '') {
+  const enabledModes = getWheelMenuPaneModes(menu);
+  if (enabledModes.length) {
+    return getWheelBorrowingDisplayDegree(menu, baseDegree, enabledModes);
+  }
+  return getWheelStrictDisplayDegree(analysis, baseDegree);
 }
 function getWheelBorrowingAccessibleText(menu, modes) {
   if (!menu) return '';
@@ -34668,8 +34680,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   const sd = document.getElementById('showDegrees')?.checked === true;
   const dr = wheelModeIsDualRing(wheelMode);
   // Candidate panes are the established triad-menu presentation only. Other
-  // quality tabs retain strict confirmed-profile coloring, while their hover
-  // metadata may still explain full-chord candidates independently of color.
+  // quality tabs use one enabled full-chord candidate as a solid card color;
+  // strict section coloring remains the fallback when no candidate is enabled.
   const menuMode = wheelMode === 'triads';
   const tooltipMenuMode = !isDevWheel410();
   // Порядковый номер считается отдельно для каждого числа профилей и кольца:
@@ -34706,9 +34718,10 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     nextChord: harmonyContext.nextChord,
     contextualMode: harmonyContext.contextualMode,
   });
-  // Non-triad quality tabs use the strict section-analysis route: a selected
-  // Fm in Am must stay neutral rather than receiving a fabricated modal color.
-  // The triad tab's candidate panes remain a separate writing-menu surface.
+  // Quality tabs retain strict section analysis but can also show one enabled
+  // full-chord candidate as a solid circle color. This is a menu possibility,
+  // not a song-mode claim; unsupported Fm in Am stays neutral. Candidate panes
+  // remain exclusive to the triad tab.
   const applyWheelHarmony = (sector, label, analysis) => {
     const group = analysis?.group;
     const profile = getHarmonyPresentationProfile(analysis);
@@ -34747,9 +34760,14 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     }
     applyWheelHarmony(sector, label, analysis);
     if (tooltipMenuMode && menu) {
-      // Keep pane geometry exclusive to the triad tab, but let every other
-      // quality expose full-chord candidate explanations on hover. Strict
-      // harmony-profile data remains untouched and still drives sector colors.
+      // Pane geometry stays exclusive to triads. Other quality tabs can still
+      // color a full-chord candidate with one enabled mode, while hover lists
+      // every candidate regardless of palette visibility.
+      const candidateColorMode = getWheelQualityCandidateColorMode(menu);
+      if (candidateColorMode) {
+        sector.dataset.harmonyProfile = candidateColorMode;
+        if (label?.dataset) label.dataset.harmonyProfile = candidateColorMode;
+      }
       applyWheelBorrowingMenu(sector, menu, { isSector: true });
       if (label) applyWheelBorrowingMenu(label, menu);
     }
@@ -35032,10 +35050,10 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const minorMenu = tooltipMenuMode ? getBorrowingMenuProfile(vmi, sk) : null;
       const mdShown = menuMode
         ? getWheelBorrowingDisplayDegree(majorMenu, md)
-        : getWheelStrictDisplayDegree(majorHarmony, md);
+        : getWheelQualityDisplayDegree(majorMenu, majorHarmony, md);
       const midDegShown = menuMode
         ? getWheelBorrowingDisplayDegree(minorMenu, mid_deg)
-        : getWheelStrictDisplayDegree(minorHarmony, mid_deg);
+        : getWheelQualityDisplayDegree(minorMenu, minorHarmony, mid_deg);
       const op = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       op.setAttribute(
         'd',
@@ -35161,7 +35179,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const singleMenu = tooltipMenuMode ? getBorrowingMenuProfile(cv, sk) : null;
       const singleDegree = menuMode
         ? getWheelBorrowingDisplayDegree(singleMenu, deg)
-        : getWheelStrictDisplayDegree(singleHarmony, deg);
+        : getWheelQualityDisplayDegree(singleMenu, singleHarmony, deg);
       const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       p.setAttribute(
         'd',
@@ -36033,7 +36051,8 @@ function refreshWheelHarmonyPresentation() {
     contextualMode: context.contextualMode,
   });
   // Candidate panes остаются только в трезвучном режиме; остальные качества
-  // сохраняют строгую раскраску и получают candidate-текст отдельно для hover.
+  // получают однотонную заливку включённого candidate-профиля без утверждения
+  // о ладе песни. Строгий профиль остаётся fallback, а hover всегда раскрывает меню.
   const menuMode = wheelMode === 'triads' && !isDevWheel410();
   const tooltipMenuMode = !isDevWheel410();
   document.querySelectorAll('#circleSvg [data-wheel-chord-identity]').forEach((node) => {
@@ -36050,8 +36069,16 @@ function refreshWheelHarmonyPresentation() {
     delete node.dataset.wheelSecondaryTargetDegree;
     delete node.dataset.wheelSecondaryFunctionMode;
     const analysis = analyzeWheelCandidate(node.dataset.wheelChordIdentity);
-    const profile = getHarmonyPresentationProfile(analysis);
-    if (analysis.group === HARMONY_GROUP.UNKNOWN || !profile) {
+    const strictProfile = getHarmonyPresentationProfile(analysis);
+    const menu = tooltipMenuMode
+      ? getBorrowingMenuProfile(node.dataset.wheelChordIdentity, context.key)
+      : null;
+    const candidateColorMode = tooltipMenuMode && !menuMode
+      ? getWheelQualityCandidateColorMode(menu)
+      : '';
+    const profile = candidateColorMode || strictProfile;
+    const hasStrictAnalysis = analysis.group !== HARMONY_GROUP.UNKNOWN && !!strictProfile;
+    if (!profile) {
       delete node.dataset.harmonyGroup;
       delete node.dataset.harmonyProfile;
       delete node.dataset.wheelModePresentation;
@@ -36060,11 +36087,14 @@ function refreshWheelHarmonyPresentation() {
       delete node.dataset.wheelChord;
       delete node.dataset.wheelKey;
     } else {
-      node.dataset.harmonyGroup = analysis.group;
+      if (hasStrictAnalysis) node.dataset.harmonyGroup = analysis.group;
+      else delete node.dataset.harmonyGroup;
       node.dataset.harmonyProfile = profile;
       node.dataset.wheelModePresentation = 'strict';
-      node.dataset.wheelModes = profile;
-      node.dataset.wheelDegree = analysis.function || getScaleDegree(analysis.chord, analysis.key) || analysis.degree || '';
+      node.dataset.wheelModes = hasStrictAnalysis ? strictProfile : '';
+      node.dataset.wheelDegree = hasStrictAnalysis
+        ? (analysis.function || getScaleDegree(analysis.chord, analysis.key) || analysis.degree || '')
+        : '';
       node.dataset.wheelChord = analysis.chord || '';
       node.dataset.wheelKey = analysis.key || '';
     }
@@ -36072,10 +36102,7 @@ function refreshWheelHarmonyPresentation() {
       const text = isHarmonyPresentationEnabled() ? getHarmonyAccessibleText(analysis) : '';
       if (text) node.setAttribute('aria-label', text);
       else node.removeAttribute('aria-label');
-      if (tooltipMenuMode) {
-        const menu = getBorrowingMenuProfile(node.dataset.wheelChordIdentity, context.key);
-        if (menu) applyWheelBorrowingMenu(node, menu, { isSector: true });
-      }
+      if (tooltipMenuMode && menu) applyWheelBorrowingMenu(node, menu, { isSector: true });
     }
   });
   applyWheelHarmonyModeVisibility();
