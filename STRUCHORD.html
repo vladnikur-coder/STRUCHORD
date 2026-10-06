@@ -11644,7 +11644,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.581</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.582</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21496,9 +21496,9 @@ function parseChordForKeyDetection(chordName) {
   const root = FLAT_TO_SHARP[m[1]] || m[1];
   const suffix = m[2] || '';
   let quality;
-  if (/^dim|°/.test(suffix)) quality = 'dim';
+  if (/^(?:dim|°|m7b5|ø)/.test(suffix)) quality = 'dim';
   else if (/^m(?!aj)/.test(suffix)) quality = 'min';
-  else if (/^(aug|\+|sus|5)/.test(suffix)) quality = null; // без терции — неоднозначно
+  else if (/^(aug|\+|sus|5)/.test(suffix)) quality = null; // без терции / нераспознанная терция
   else quality = 'maj';
   const isDominant7 = quality === 'maj' && /^7/.test(suffix); // "G7", но не "Gmaj7"
 
@@ -21507,7 +21507,7 @@ function parseChordForKeyDetection(chordName) {
     const bm = parts[1].trim().match(/^([A-G][#b]?)/);
     if (bm) bassRoot = FLAT_TO_SHARP[bm[1]] || bm[1];
   }
-  return { root, spelling: m[1], quality, isDominant7, bassRoot };
+  return { root, spelling: m[1], quality, isDominant7, bassRoot, chordName: main };
 }
 
 // Шаблоны ладов для сопоставления диатонических ступеней. Веса ступеней для
@@ -22363,6 +22363,36 @@ function getHarmonyTonicIndex(key) {
   const tonic = String(key || '').endsWith('m') ? String(key).slice(0, -1) : String(key || '');
   return CHROMATIC.indexOf(FLAT_TO_SHARP[tonic] || tonic);
 }
+function getHarmonyChordPitchClasses(chord, key) {
+  const notes = getChordNotes(String(chord || ''), getKeyStyle(key));
+  return notes.map((note) => {
+    const match = String(note || '').match(/^([A-G][#b]?)/);
+    if (!match) return -1;
+    return CHROMATIC.indexOf(FLAT_TO_SHARP[match[1]] || match[1]);
+  }).filter((pitchClass) => pitchClass >= 0);
+}
+function getHarmonyChordTertianQuality(chord, key) {
+  const main = String(chord || '').split('/')[0].trim();
+  const rootMatch = main.match(/^([A-G][#b]?)/);
+  if (!rootMatch) return null;
+  const root = CHROMATIC.indexOf(FLAT_TO_SHARP[rootMatch[1]] || rootMatch[1]);
+  if (root < 0) return null;
+  const intervals = new Set(getHarmonyChordPitchClasses(main, key)
+    .map((pitchClass) => (pitchClass - root + 12) % 12));
+  if (intervals.has(3) && intervals.has(6)) return 'dim';
+  if (intervals.has(3) && intervals.has(7)) return 'min';
+  if (intervals.has(4) && intervals.has(8)) return 'aug';
+  if (intervals.has(4) && intervals.has(7)) return 'maj';
+  return null;
+}
+function harmonyChordTonesFitMode(chord, key, mode) {
+  const profile = HARMONY_MODE_PROFILES[mode];
+  const tonicIndex = getHarmonyTonicIndex(key);
+  const pitches = getHarmonyChordPitchClasses(chord, key);
+  if (!profile || tonicIndex < 0 || !pitches.length) return false;
+  const scalePitches = new Set(profile.intervals.map((interval) => (tonicIndex + interval) % 12));
+  return pitches.every((pitchClass) => scalePitches.has(pitchClass));
+}
 function getHarmonyModeDegree(parsed, key, mode) {
   const profile = HARMONY_MODE_PROFILES[mode];
   const tonicIndex = getHarmonyTonicIndex(key);
@@ -22372,7 +22402,11 @@ function getHarmonyModeDegree(parsed, key, mode) {
   const interval = (rootIndex - tonicIndex + 12) % 12;
   const degree = profile.intervals.indexOf(interval);
   if (degree < 0) return -1;
-  if (parsed.quality && profile.qualities[degree] !== parsed.quality) return -1;
+  const chordQuality = parsed.chordName
+    ? getHarmonyChordTertianQuality(parsed.chordName, key)
+    : parsed.quality;
+  if (chordQuality && profile.qualities[degree] !== chordQuality) return -1;
+  if (parsed.chordName && !harmonyChordTonesFitMode(parsed.chordName, key, mode)) return -1;
   return degree;
 }
 function isHarmonyChordInMode(parsed, key, mode) {
@@ -22450,11 +22484,12 @@ function isMinorVariantMode(mode) {
   return mode === 'harmonic-minor' || mode === 'melodic-minor';
 }
 // ========== B-99 (0.546): МЕНЮ ЗАИМСТВОВАНИЙ КРУГА ==========
-// Круг в режиме трезвучий — это меню для сочинения, а не анализ текущей
-// прогрессии: для каждого сектора перечисляются ВСЕ лады этой тональности,
-// в которых аккорд работает. Формулировка честная — «если возьмёшь этот
-// аккорд, он будет ступенью X такого-то лада», — поэтому она не спорит со
-// строгим анализом редактора/ленты: меню ничего не утверждает о песне.
+// В режиме трезвучий цветные panes образуют меню для сочинения, а не анализ
+// текущей прогрессии: для сектора перечисляются все лады этой тональности,
+// в которых работает весь аккорд. Другие quality tabs сохраняют строгую
+// контекстную раскраску, но могут использовать те же данные только в hover.
+// Формулировка честная — «если возьмёшь этот аккорд, он будет ступенью X
+// такого-то лада» — и не выдаёт палитру кандидатов за анализ песни.
 // Семейства цветных полей идут после базового и параллельного лада, когда
 // аккорд принадлежит им. Этот музыкальный порядок не зависит от сортировки
 // пояснений легенды/подсказки и сохраняет последовательность pane-профилей.
@@ -22488,7 +22523,20 @@ function getHarmonyModeDegreeNameForRoot(root, key, mode) {
   return numeral;
 }
 function getBorrowingMenuSecondaryFunction(parsed, key) {
-  if (!parsed || parsed.quality !== 'maj') return null;
+  if (!parsed) return null;
+  const main = parsed.chordName || '';
+  const suffix = main.split('/')[0].trim().replace(/^[A-G][#b]?/, '');
+  const rootIndex = CHROMATIC.indexOf(parsed.root);
+  const intervals = new Set(getHarmonyChordPitchClasses(main, key)
+    .map((pitchClass) => (pitchClass - rootIndex + 12) % 12));
+  const hasMinorSeventh = intervals.has(10);
+  const hasMajorSeventh = intervals.has(11);
+  const addedNotesOnly = suffix.replace(/add\d+/g, '') === '';
+  const isMajorTriadOrAdd = parsed.quality === 'maj' && !hasMinorSeventh &&
+    !hasMajorSeventh && addedNotesOnly;
+  const isDominantSeventh = !hasMajorSeventh && hasMinorSeventh &&
+    (parsed.quality === 'maj' || parsed.quality === null);
+  if (!isMajorTriadOrAdd && !isDominantSeventh) return null;
   const baseMode = getHarmonyBaseMode(key);
   // Keep the circle's V/x candidates in major contexts for now. In minor,
   // deriving them from the parallel Ionian labels borrowed harmony with the
@@ -22520,12 +22568,12 @@ function getBorrowingMenuProfile(chord, key) {
   const normalized = String(chord || '').trim();
   const parsed = parseChordForKeyDetection(normalized);
   if (!parsed || getHarmonyTonicIndex(key) < 0) return null;
-  // Общий парсер помечает aug как «без терции» ради определения тональности,
-  // но увеличенное трезвучие однозначно: III+ гармонического/мелодического
-  // минора честно попадает в меню.
-  const suffix = normalized.split('/')[0].trim().replace(/^[A-G][#b]?/, '');
-  if (!parsed.quality && /^(aug|\+)/.test(suffix)) parsed.quality = 'aug';
-  if (!parsed.quality) return null;
+  // Используем фактические терцию/квинту после модификаторов: aug, m7b5 и
+  // расширенные maj/min не должны терять качество при проверке полного набора
+  // нот. Неоднозначные sus/power-формы остаются вне трезвучного меню.
+  const chordQuality = getHarmonyChordTertianQuality(normalized, key);
+  if (!chordQuality || !getHarmonyChordPitchClasses(normalized, key).length) return null;
+  parsed.quality = chordQuality;
   const baseMode = getHarmonyBaseMode(key);
   const parallelMode = baseMode === 'ionian' ? 'aeolian' : 'ionian';
   const modes = [];
@@ -22620,6 +22668,12 @@ function getWheelBorrowingDisplayDegree(menu, baseDegree = '', enabledModes = nu
   const visibleModes = enabledModes || getEnabledWheelHarmonyModes(menu.modes);
   return visibleModes.length ? menu.degree : '';
 }
+function getWheelStrictDisplayDegree(analysis, baseDegree = '') {
+  if (baseDegree) return baseDegree;
+  if (!analysis?.mode || analysis.group === HARMONY_GROUP.SECONDARY_FUNCTION ||
+      !isWheelHarmonyModeEnabled(analysis.mode)) return '';
+  return analysis.function || analysis.degree || '';
+}
 function getWheelBorrowingAccessibleText(menu, modes) {
   if (!menu) return '';
   const visibleModes = getWheelHarmonyOrderedModes(
@@ -22683,10 +22737,10 @@ function syncWheelBorrowingMenuAccessibility(sector) {
     title.textContent = text;
   } else if (title) title.remove();
 }
-// Единая точка нанесения меню на узлы круга: drawWheel рисует с нуля,
-// refreshWheelHarmonyPresentation обновляет уже собранный SVG (переключение
-// настройки «Ступени», смена контекста). Цветовой слой гейтится той же
-// настройкой, но текстовая альтернатива сектора живёт с ней вместе.
+// Единая точка нанесения меню-кандидатов на SVG-узлы круга. drawWheel строит
+// их с нуля, а refreshWheelHarmonyPresentation обновляет данные после смены
+// контекста. Видимые ступени/ARIA следуют цветовым флажкам; hover-описание
+// кандидатов остаётся доступно независимо от их текущей видимости.
 function applyWheelBorrowingMenu(node, menu, { isSector = false } = {}) {
   if (!node) return;
   if (!menu) {
@@ -22733,14 +22787,20 @@ function detectClearModalContext(chords, key) {
   const base = HARMONY_MODE_PROFILES[baseMode];
   const parsed = (chords || []).map(parseChordForKeyDetection).filter(Boolean);
   if (parsed.length < 2) return null;
+  const tonicIndex = getHarmonyTonicIndex(key);
+  const basePitchClasses = new Set(base.intervals.map((interval) => (tonicIndex + interval) % 12));
   const candidates = [];
   for (const [mode, profile] of Object.entries(HARMONY_MODE_PROFILES)) {
     if (mode === baseMode || !parsed.every((chord) => isHarmonyChordInMode(chord, key, mode))) continue;
+    const profilePitchClasses = new Set(profile.intervals.map((interval) => (tonicIndex + interval) % 12));
     const characteristicDegrees = new Set();
     parsed.forEach((chord) => {
       const degree = getHarmonyModeDegree(chord, key, mode);
       if (degree < 0) return;
-      if (base.intervals[degree] !== profile.intervals[degree] || base.qualities[degree] !== profile.qualities[degree]) {
+      const chordAddsModalTone = getHarmonyChordPitchClasses(chord.chordName, key)
+        .some((pitchClass) => profilePitchClasses.has(pitchClass) && !basePitchClasses.has(pitchClass));
+      if (chordAddsModalTone || base.intervals[degree] !== profile.intervals[degree] ||
+          base.qualities[degree] !== profile.qualities[degree]) {
         characteristicDegrees.add(degree);
       }
     });
@@ -23028,9 +23088,11 @@ function getWheelMenuPaneModes(menu) {
   const naturalMode = menu.baseMode || getHarmonyBaseMode(menu.key);
   if (!['ionian', 'aeolian'].includes(naturalMode) || !enabledModes.includes(naturalMode)) return enabledModes;
   const parsed = parseChordForKeyDetection(menu.chord);
-  // При включённом натуральном ладе шесть обычных диатонических трезвучий
-  // имеют один базовый цвет; уменьшённое трезвучие остаётся исключением.
-  if (!parsed || parsed.quality === 'dim' || !isHarmonyChordInMode(parsed, menu.key, naturalMode)) return enabledModes;
+  const chordQuality = getHarmonyChordTertianQuality(menu.chord, menu.key);
+  // Подходящий натуральный профиль остаётся единым базовым цветом и для
+  // совместимых септаккордов; sus/power без терции и dim-профили не схлопываем.
+  if (!parsed || !chordQuality || chordQuality === 'dim' ||
+      !isHarmonyChordInMode(parsed, menu.key, naturalMode)) return enabledModes;
   return [naturalMode];
 }
 function getWheelHarmonyModeDetails(mode, key = null) {
@@ -34294,9 +34356,14 @@ function hideWheelHarmonyHoverTooltip() {
   }
 }
 function getWheelHarmonyHoverModes(sector) {
-  const modes = (sector?.dataset?.wheelModes || '').split(',').filter(Boolean);
+  // Hover is explanatory, not a color toggle: always disclose every candidate
+  // profile even when its wheel color is currently muted or globally disabled.
+  // Strict analysis may also store "secondary-function" in wheelModes; it is
+  // semantic text, never a scale-mode row or color.
+  const modes = (sector?.dataset?.wheelModes || '').split(',')
+    .filter((mode) => WHEEL_HARMONY_MODE_IDS.has(mode));
   const key = sector?.dataset?.wheelKey || getActiveWheelHarmonyEffectiveKey();
-  return getWheelHarmonyOrderedModes(getEnabledWheelHarmonyModes(modes), key);
+  return getWheelHarmonyOrderedModes(modes, key);
 }
 function getWheelHarmonyHoverModeDetail(mode, key) {
   return getWheelHarmonyModeDetails(mode, key);
@@ -34397,18 +34464,18 @@ function updateWheelHarmonyHoverTooltip(sector, event) {
   const isMenuPresentation = sector?.dataset?.wheelModePresentation === 'menu';
   const rawDegree = sector?.dataset?.wheelDegree || '';
   const degree = isMenuPresentation
-    ? getWheelBorrowingDisplayDegree({
+    ? (getWheelBorrowingDisplayDegree({
       chord,
       key,
       degree: rawDegree,
       modes: (sector?.dataset?.wheelModes || '').split(',').filter(Boolean),
       secondaryFunction,
-    }, getScaleDegree(chord, key), modes)
+    }, getScaleDegree(chord, key), modes) || (secondaryFunction ? rawDegree : ''))
     : rawDegree;
   const hasMenuExplanation = modes.length > 0 || !!secondaryFunction;
   if (
     !tooltip || !sector || !event || event.pointerType === 'touch' ||
-    !DOM.chordWheelModal?.classList.contains('is-harmony-highlights-on') || !hasMenuExplanation
+    !DOM.chordWheelModal?.classList.contains('open') || !hasMenuExplanation
   ) {
     hideWheelHarmonyHoverTooltip();
     return;
@@ -34600,9 +34667,11 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   const ks = getKeyStyle(sk);
   const sd = document.getElementById('showDegrees')?.checked === true;
   const dr = wheelModeIsDualRing(wheelMode);
-  // Меню заимствований B-99 использует оконные поля только в режиме
-  // трезвучий; септаккорды и остальные качества сохраняют строгую раскраску.
+  // Candidate panes are the established triad-menu presentation only. Other
+  // quality tabs retain strict confirmed-profile coloring, while their hover
+  // metadata may still explain full-chord candidates independently of color.
   const menuMode = wheelMode === 'triads';
+  const tooltipMenuMode = !isDevWheel410();
   // Порядковый номер считается отдельно для каждого числа профилей и кольца:
   // соседние карточки одного типа чередуют геометрию, а разный счёт не сбивает ритм.
   const buildWheelMenuPatternOrdinals = (chords) => {
@@ -34617,7 +34686,17 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     });
   };
   const wheelMenuPatternOrdinals = menuMode
-    ? { major: buildWheelMenuPatternOrdinals(MAJOR_CHORDS), minor: buildWheelMenuPatternOrdinals(MINOR_CHORDS) }
+    ? dr
+      ? {
+          major: buildWheelMenuPatternOrdinals(MAJOR_CHORDS.map((chord) =>
+            getChordValue(correctChordName(chord, ks), false))),
+          minor: buildWheelMenuPatternOrdinals(MINOR_CHORDS.map((chord) =>
+            getChordValue(correctChordName(chord, ks), true))),
+        }
+      : {
+          single: buildWheelMenuPatternOrdinals(MAJOR_CHORDS.map((chord) =>
+            getChordValue(correctChordName(chord, ks), false))),
+        }
     : null;
   const activeWheelChord = wheelChordIdentity(activeChordInput?.value);
   const isSelectedWheelChord = (candidate) =>
@@ -34627,8 +34706,9 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     nextChord: harmonyContext.nextChord,
     contextualMode: harmonyContext.contextualMode,
   });
-  // Owner and candidates deliberately use one strict route. A selected Fm
-  // in Am must stay neutral rather than receiving a fabricated modal colour.
+  // Non-triad quality tabs use the strict section-analysis route: a selected
+  // Fm in Am must stay neutral rather than receiving a fabricated modal color.
+  // The triad tab's candidate panes remain a separate writing-menu surface.
   const applyWheelHarmony = (sector, label, analysis) => {
     const group = analysis?.group;
     const profile = getHarmonyPresentationProfile(analysis);
@@ -34659,13 +34739,28 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     if (text) sector.setAttribute('aria-label', text);
     else sector.removeAttribute('aria-label');
   };
-  // У каждой трезвучной карточки ладовые цвета разложены по её площади:
-  // оставшийся первый профиль — у внутреннего края. Раскладки 2+1 и 3+2 делят радиальную
-  // ширину пополам; поле и подпись остаются частью hover/selection-узла.
+  const applyWheelCardPresentation = (sector, label, analysis, menu) => {
+    if (menuMode) {
+      applyWheelBorrowingMenu(sector, menu, { isSector: true });
+      if (label) applyWheelBorrowingMenu(label, menu);
+      return;
+    }
+    applyWheelHarmony(sector, label, analysis);
+    if (tooltipMenuMode && menu) {
+      // Keep pane geometry exclusive to the triad tab, but let every other
+      // quality expose full-chord candidate explanations on hover. Strict
+      // harmony-profile data remains untouched and still drives sector colors.
+      applyWheelBorrowingMenu(sector, menu, { isSector: true });
+      if (label) applyWheelBorrowingMenu(label, menu);
+    }
+  };
+  // В трезвучном меню кандидатные ладовые цвета разложены по площади карточки;
+  // первый профиль остаётся у внутреннего края. Раскладки 2+1 и 3+2 делят
+  // радиальную ширину пополам; поля остаются в hover/selection-узле.
   const appendWheelModeDiagram = (menu, start, end, cardOuter, cardInner, selected, clipKey, patternOrdinal = 0) => {
     const modes = getWheelMenuPaneModes(menu);
     const count = modes.length;
-    if (!menuMode || count < 1 || count > 5) return null;
+    if (!menuMode || count < 1 || count > WHEEL_HARMONY_LEGEND_MODES.length) return null;
     const group = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     const dividerLayer = document.createElementNS('http://www.w3.org/2000/svg', 'g');
     group.classList.add('wheel-mode-diagram');
@@ -34791,7 +34886,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       appendPane(modes[3], halfAngle, end, cardOuter, radialSplit, 'outer');
       appendArcDivider(radialSplit);
       appendRadialDivider(halfAngle);
-    } else {
+    } else if (count === 5) {
       // B-99: two inner + three outer fields keep the same-width radial bands.
       // Each individual pane may occupy a slightly different share of area.
       const radialSplit = (cardInner + cardOuter) / 2;
@@ -34809,6 +34904,18 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       appendRadialDivider(innerThird, cardInner, radialSplit);
       appendRadialDivider(outerFirstThird, radialSplit, cardOuter);
       appendRadialDivider(outerSecondThird, radialSplit, cardOuter);
+    } else {
+      // Six–nine profiles keep every candidate visible without a +N badge:
+      // ordered, equal-width radial bands flow from the base mode outward.
+      group.dataset.paneLayout = `radial-${count}`;
+      group.dataset.radialBandCount = String(count);
+      const bandWidth = (cardOuter - cardInner) / count;
+      for (let index = 0; index < count; index++) {
+        const inner = cardInner + bandWidth * index;
+        const outer = cardInner + bandWidth * (index + 1);
+        appendPane(modes[index], start, end, outer, inner, `radial-${index + 1}`);
+        if (index > 0) appendArcDivider(inner);
+      }
     }
     dividerLayer.dataset.paneCount = String(count);
     dividerLayer.dataset.paneLayout = group.dataset.paneLayout || 'solid';
@@ -34921,10 +35028,14 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       // Базовые ступени остаются видны всегда; ступени параллельных и
       // альтерированных кандидатов включаются только вместе с подходящей
       // подсветкой (например, ♭II у Bb в Am — при включённом Phrygian).
-      const majorMenu = menuMode ? getBorrowingMenuProfile(vm, sk) : null;
-      const minorMenu = menuMode ? getBorrowingMenuProfile(vmi, sk) : null;
-      const mdShown = menuMode ? getWheelBorrowingDisplayDegree(majorMenu, md) : md;
-      const midDegShown = menuMode ? getWheelBorrowingDisplayDegree(minorMenu, mid_deg) : mid_deg;
+      const majorMenu = tooltipMenuMode ? getBorrowingMenuProfile(vm, sk) : null;
+      const minorMenu = tooltipMenuMode ? getBorrowingMenuProfile(vmi, sk) : null;
+      const mdShown = menuMode
+        ? getWheelBorrowingDisplayDegree(majorMenu, md)
+        : getWheelStrictDisplayDegree(majorHarmony, md);
+      const midDegShown = menuMode
+        ? getWheelBorrowingDisplayDegree(minorMenu, mid_deg)
+        : getWheelStrictDisplayDegree(minorHarmony, mid_deg);
       const op = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       op.setAttribute(
         'd',
@@ -34936,8 +35047,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       op.classList.add('wheel-sector');
       op.classList.toggle('is-wheel-selected', majorSelected);
       op.setAttribute('data-wheel-selected', String(majorSelected));
-      if (menuMode) applyWheelBorrowingMenu(op, majorMenu, { isSector: true });
-      else applyWheelHarmony(op, null, majorHarmony);
+      applyWheelCardPresentation(op, null, majorHarmony, majorMenu);
       op.setAttribute('stroke', 'var(--color-border-medium)');
       op.setAttribute('stroke-width', String(WHEEL_CARD_OUTLINE));
       op.setAttribute('stroke-opacity', '0.72');
@@ -34960,7 +35070,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         wheelMenuPatternOrdinals?.major[i] || 0
       );
       const opVolume = addWheelCardVolume(op);
-      applyWheelBorrowingMenu(opVolume, majorMenu);
+      if (tooltipMenuMode && majorMenu) applyWheelBorrowingMenu(opVolume, majorMenu);
       if (majorDiagram?.dividerLayer) frag.appendChild(majorDiagram.dividerLayer);
       const ip = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       ip.setAttribute(
@@ -34973,8 +35083,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       ip.classList.add('wheel-sector');
       ip.classList.toggle('is-wheel-selected', minorSelected);
       ip.setAttribute('data-wheel-selected', String(minorSelected));
-      if (menuMode) applyWheelBorrowingMenu(ip, minorMenu, { isSector: true });
-      else applyWheelHarmony(ip, null, minorHarmony);
+      applyWheelCardPresentation(ip, null, minorHarmony, minorMenu);
       ip.setAttribute('stroke', 'var(--color-border-medium)');
       ip.setAttribute('stroke-width', String(WHEEL_CARD_OUTLINE));
       ip.setAttribute('stroke-opacity', '0.72');
@@ -34997,7 +35106,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         wheelMenuPatternOrdinals?.minor[i] || 0
       );
       const ipVolume = addWheelCardVolume(ip);
-      applyWheelBorrowingMenu(ipVolume, minorMenu);
+      if (tooltipMenuMode && minorMenu) applyWheelBorrowingMenu(ipVolume, minorMenu);
       if (minorDiagram?.dividerLayer) frag.appendChild(minorDiagram.dividerLayer);
       const Rmt = (Ro + Rs) / 2,
         mx = cx + Rmt * Math.cos(mid),
@@ -35006,8 +35115,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const mg = createChordGroup(mx, my, mr, ms, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
       mg.classList.add('wheel-chord-label');
       mg.classList.toggle('is-wheel-selected', majorSelected);
-      if (menuMode) applyWheelBorrowingMenu(mg, majorMenu);
-      else applyWheelHarmony(op, mg, majorHarmony);
+      applyWheelCardPresentation(op, mg, majorHarmony, majorMenu);
       mg.style.cursor = 'pointer';
       mg.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -35023,8 +35131,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const mig = createChordGroup(mix, miy, mir, mis, 24, 18, 'var(--wheel-chord-minor-text)', '600', '500', 6);
       mig.classList.add('wheel-chord-label');
       mig.classList.toggle('is-wheel-selected', minorSelected);
-      if (menuMode) applyWheelBorrowingMenu(mig, minorMenu);
-      else applyWheelHarmony(ip, mig, minorHarmony);
+      applyWheelCardPresentation(ip, mig, minorHarmony, minorMenu);
       mig.style.cursor = 'pointer';
       mig.addEventListener('click', (e) => {
         e.stopPropagation();
@@ -35051,6 +35158,10 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const deg = getScaleDegree(dc, sk);
       const idg = deg !== '';
       const singleHarmony = analyzeWheelCandidate(cv);
+      const singleMenu = tooltipMenuMode ? getBorrowingMenuProfile(cv, sk) : null;
+      const singleDegree = menuMode
+        ? getWheelBorrowingDisplayDegree(singleMenu, deg)
+        : getWheelStrictDisplayDegree(singleHarmony, deg);
       const p = document.createElementNS('http://www.w3.org/2000/svg', 'path');
       p.setAttribute(
         'd',
@@ -35062,7 +35173,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       p.classList.add('wheel-sector');
       p.classList.toggle('is-wheel-selected', singleSelected);
       p.setAttribute('data-wheel-selected', String(singleSelected));
-      applyWheelHarmony(p, null, singleHarmony);
+      applyWheelCardPresentation(p, null, singleHarmony, singleMenu);
       p.setAttribute('stroke', 'var(--color-border-medium)');
       p.setAttribute('stroke-width', String(WHEEL_CARD_OUTLINE));
       p.setAttribute('stroke-opacity', '0.72');
@@ -35074,7 +35185,19 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         selectChord(cv);
       });
       frag.appendChild(p);
+      const singleDiagram = appendWheelModeDiagram(
+        singleMenu,
+        start,
+        end,
+        Ro - WHEEL_CARD_PERIMETER,
+        Ri + WHEEL_CARD_PERIMETER,
+        singleSelected,
+        `single-${i}`,
+        wheelMenuPatternOrdinals?.single[i] || 0
+      );
       const pVolume = addWheelCardVolume(p);
+      if (tooltipMenuMode && singleMenu) applyWheelBorrowingMenu(pVolume, singleMenu);
+      if (singleDiagram?.dividerLayer) frag.appendChild(singleDiagram.dividerLayer);
       const tr = (Ro + Ri) / 2,
         tx = cx + tr * Math.cos(mid),
         ty = cy + tr * Math.sin(mid);
@@ -35082,14 +35205,16 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       const cg = createChordGroup(tx, ty, root, suffix, 28, 20, 'var(--wheel-chord-major-text)', '700', '500', 0);
       cg.classList.add('wheel-chord-label');
       cg.classList.toggle('is-wheel-selected', singleSelected);
-      applyWheelHarmony(p, cg, singleHarmony);
+      applyWheelCardPresentation(p, cg, singleHarmony, singleMenu);
       cg.style.cursor = 'pointer';
       cg.addEventListener('click', (e) => {
         e.stopPropagation();
         selectChord(cv);
       });
-      const singleHoverNodes = [p, pVolume, cg];
-      if (sd && idg && deg) appendWheelDegreeToChordGroup(cg, deg, -28, singleSelected);
+      const singleHoverNodes = singleDiagram
+        ? [p, singleDiagram.diagram, pVolume, singleDiagram.dividerLayer, cg]
+        : [p, pVolume, cg];
+      if (sd && singleDegree) appendWheelDegreeToChordGroup(cg, singleDegree, -28, singleSelected);
       frag.appendChild(cg);
       wireWheelSectorHover(singleHoverNodes, cv, 'single', i, tx, ty);
     }
@@ -35907,9 +36032,10 @@ function refreshWheelHarmonyPresentation() {
     nextChord: context.nextChord,
     contextualMode: context.contextualMode,
   });
-  // В режиме трезвучий круг всегда использует оконное меню B-99.
-  // Смена «Ступеней» обновляет его текстовые альтернативы, не строгий профиль анализа.
-  const menuMode = wheelMode === 'triads';
+  // Candidate panes остаются только в трезвучном режиме; остальные качества
+  // сохраняют строгую раскраску и получают candidate-текст отдельно для hover.
+  const menuMode = wheelMode === 'triads' && !isDevWheel410();
+  const tooltipMenuMode = !isDevWheel410();
   document.querySelectorAll('#circleSvg [data-wheel-chord-identity]').forEach((node) => {
     if (menuMode) {
       const menu = getBorrowingMenuProfile(node.dataset.wheelChordIdentity, context.key);
@@ -35946,6 +36072,10 @@ function refreshWheelHarmonyPresentation() {
       const text = isHarmonyPresentationEnabled() ? getHarmonyAccessibleText(analysis) : '';
       if (text) node.setAttribute('aria-label', text);
       else node.removeAttribute('aria-label');
+      if (tooltipMenuMode) {
+        const menu = getBorrowingMenuProfile(node.dataset.wheelChordIdentity, context.key);
+        if (menu) applyWheelBorrowingMenu(node, menu, { isSector: true });
+      }
     }
   });
   applyWheelHarmonyModeVisibility();

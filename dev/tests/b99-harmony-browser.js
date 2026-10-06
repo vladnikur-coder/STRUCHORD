@@ -632,6 +632,82 @@ function ok(name, condition, detail = '') {
       wheelToggleScope.paneReflowed && wheelToggleScope.menuDataPreserved && wheelToggleScope.editorStable &&
       wheelToggleScope.timelineStable && wheelToggleScope.bodyMapClassStable && wheelToggleScope.standardProfileMuted &&
       !wheelToggleScope.disabledAttribute.includes('melodic-minor'), JSON.stringify(wheelToggleScope));
+    const fullSeventhWheel = await page.evaluate(() => {
+      const previous = {
+        globalKey, keyMode, sections, activeChordInput, activeSectionKey, wheelMode,
+        disabled: [...wheelHarmonyDisabledModes], loaded: wheelHarmonyModeVisibilityLoaded,
+        showDegrees: document.getElementById('showDegrees').checked,
+        rootKey: DOM.rootKey.value,
+        modalOpen: DOM.chordWheelModal.classList.contains('open'),
+      };
+      globalKey = 'C'; keyMode = 'manual'; DOM.rootKey.value = 'C';
+      sections = [{ id: 901, key: 'C', squares: [{ id: 902, events: [
+        { chord: 'C7', span: 1 }, { chord: 'Gm7', span: 1 }, { chord: 'Bbmaj7', span: 1 },
+      ] }] }];
+      const syntheticOwner = document.createElement('div');
+      syntheticOwner.className = 'chord-wrapper';
+      const syntheticInput = document.createElement('input');
+      syntheticInput.className = 'chord-input'; syntheticInput.value = 'C7';
+      syntheticInput.dataset.sec = '901'; syntheticInput.dataset.square = '902'; syntheticInput.dataset.ei = '0';
+      syntheticOwner.appendChild(syntheticInput); document.body.appendChild(syntheticOwner);
+      activeChordInput = syntheticInput;
+      activeSectionKey = null;
+      wheelMode = '7';
+      wheelHarmonyModeVisibilityLoaded = true;
+      wheelHarmonyDisabledModes = new Set([...WHEEL_HARMONY_MODE_IDS].filter((mode) => mode !== 'mixolydian'));
+      document.getElementById('showDegrees').checked = true;
+      DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
+      drawWheel();
+      const sector = (identity, ring) => document.querySelector(
+        `#circleSvg .wheel-sector[data-wheel-chord-identity="${identity}"][data-wheel-ring="${ring}"]`);
+      const gm7 = sector('Gm7', 'minor');
+      const cMaj7 = sector('Cmaj7', 'major');
+      const d7 = sector('D7', 'major');
+      const fill = getComputedStyle(gm7).fill;
+      const neutralFill = getComputedStyle(d7).fill;
+      const d7Rect = d7.getBoundingClientRect();
+      const hover = new PointerEvent('pointerover', {
+        bubbles: true, clientX: d7Rect.left + d7Rect.width / 2,
+        clientY: d7Rect.top + d7Rect.height / 2, pointerType: 'mouse',
+      });
+      d7.dispatchEvent(hover);
+      const tooltip = document.getElementById('wheelHarmonyHoverTooltip');
+      const result = {
+        contextualMode: detectClearModalContext(['C7', 'Gm7', 'Bbmaj7'], 'C'),
+        gm7Profile: gm7?.dataset.harmonyProfile || '',
+        gm7Muted: gm7?.classList.contains('wheel-harmony-mode-muted'),
+        gm7Degree: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="Gm7"] .wheel-degree-label')?.textContent || '',
+        cMaj7Profile: cMaj7?.dataset.harmonyProfile || '',
+        d7Profile: d7?.dataset.harmonyProfile || '',
+        d7Candidates: getWheelHarmonyHoverModes(d7).join(','),
+        d7Function: d7?.dataset.wheelSecondaryFunction || '',
+        d7HoverBound: wheelHarmonyHoverSector === d7,
+        modalOpen: DOM.chordWheelModal.classList.contains('open'),
+        d7TooltipVisible: !tooltip.hidden,
+        d7TooltipModes: [...tooltip.querySelectorAll('.wheel-harmony-hover-mode-name')].map((node) => node.textContent).join(','),
+        paneCount: document.querySelectorAll('#circleSvg .wheel-mode-pane').length,
+        profileColorVisible: fill !== neutralFill,
+      };
+      hideWheelHarmonyHoverTooltip();
+      globalKey = previous.globalKey; keyMode = previous.keyMode; DOM.rootKey.value = previous.rootKey;
+      sections = previous.sections; activeChordInput = previous.activeChordInput;
+      activeSectionKey = previous.activeSectionKey; wheelMode = previous.wheelMode;
+      wheelHarmonyModeVisibilityLoaded = previous.loaded;
+      wheelHarmonyDisabledModes = new Set(previous.disabled);
+      document.getElementById('showDegrees').checked = previous.showDegrees;
+      DOM.chordWheelModal.classList.toggle('open', previous.modalOpen);
+      syntheticOwner.remove();
+      drawWheel();
+      return result;
+    });
+    ok('вкладка септаккордов красит подтверждённый Mixolydian по полным нотам, а tooltip остаётся при выключенном Lydian',
+      fullSeventhWheel.contextualMode === 'mixolydian' && fullSeventhWheel.gm7Profile === 'mixolydian' &&
+      !fullSeventhWheel.gm7Muted && fullSeventhWheel.gm7Degree === 'v' &&
+      fullSeventhWheel.cMaj7Profile !== 'mixolydian' && !fullSeventhWheel.d7Profile &&
+      fullSeventhWheel.d7Candidates === 'lydian' && fullSeventhWheel.d7Function === 'V/V' &&
+      fullSeventhWheel.d7TooltipVisible && /Лидийский/.test(fullSeventhWheel.d7TooltipModes) &&
+      fullSeventhWheel.paneCount === 0 && fullSeventhWheel.profileColorVisible,
+      JSON.stringify(fullSeventhWheel));
 
     const strictWheel = await page.evaluate(() => {
       const owner = document.querySelector('.chord-input[data-sec="91"][data-square="92"][data-ei="2"]');
@@ -835,6 +911,14 @@ function ok(name, condition, detail = '') {
       const amPaneAfterToggle = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]');
       const amPaneCount = amPaneAfterToggle?.dataset.paneCount;
       const amPaneModes = amPaneAfterToggle?.dataset.paneModes || '';
+      const priorDisabledModes = [...wheelHarmonyDisabledModes];
+      wheelHarmonyDisabledModes = new Set([...WHEEL_HARMONY_MODE_IDS]);
+      drawWheel();
+      const amSectorAllColorsOff = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
+      const amAllColorsOffTooltip = hoverModes(amSectorAllColorsOff);
+      const amAllColorsOffPaneCount = document.querySelectorAll('#circleSvg .wheel-mode-diagram').length;
+      wheelHarmonyDisabledModes = new Set(priorDisabledModes);
+      drawWheel();
       melodicToggle.checked = true;
       melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
       const sector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"][data-wheel-ring="major"]');
@@ -906,6 +990,8 @@ function ok(name, condition, detail = '') {
         amFilteredTooltip,
         amPaneCount,
         amPaneModes,
+        amAllColorsOffTooltip,
+        amAllColorsOffPaneCount,
         hiddenAfterLeave: tooltip.hidden,
         nativeTitleRestored: !!sector.querySelector('title'),
       };
@@ -914,7 +1000,7 @@ function ok(name, condition, detail = '') {
       sectorHoverTooltip.legendModeOrder.join(',') ===
         'aeolian,harmonic-minor,dorian,melodic-minor,ionian,phrygian,mixolydian,lydian,locrian',
       sectorHoverTooltip.legendModeOrder.join(','));
-    ok('Am tooltip сохраняет все включённые описания, а общая диатоническая тоника остаётся одноцветной',
+    ok('Am tooltip сохраняет полный список режимов/ступеней при выключенных цветах; pane-поля продолжают следовать флажкам',
       sectorHoverTooltip.amAllModesTooltip.chord === 'Am' &&
       /Ступень i/.test(sectorHoverTooltip.amAllModesTooltip.context) &&
       sectorHoverTooltip.amAllModesTooltip.degrees.join(',') === 'i,i,i,i,i' &&
@@ -926,12 +1012,16 @@ function ok(name, condition, detail = '') {
         .some(({ tone, text }) => tone === 'minor' && text === 'минор') &&
       sectorHoverTooltip.amAllModesTooltip.modes.find(({ name }) => name === 'Эолийский')?.references
         .some(({ tone, text }) => tone === 'major' && text === 'мажора') &&
-      sectorHoverTooltip.amFilteredTooltip.degrees.join(',') === 'i,i,i,i' &&
+      sectorHoverTooltip.amFilteredTooltip.degrees.join(',') === 'i,i,i,i,i' &&
       sectorHoverTooltip.amFilteredTooltip.modes.map(({ name }) => name).join(',') ===
-        'Эолийский,Гармонический минор,Дорийский,Фригийский' &&
-      sectorHoverTooltip.amFilteredTooltip.modes.find(({ name }) => name === 'Эолийский')?.change
-        .includes('Натуральный минор') &&
-      sectorHoverTooltip.amPaneCount === '1' && sectorHoverTooltip.amPaneModes === 'aeolian',
+        'Эолийский,Гармонический минор,Дорийский,Мелодический минор,Фригийский' &&
+      sectorHoverTooltip.amFilteredTooltip.modes.some(({ name }) => name === 'Мелодический минор') &&
+      sectorHoverTooltip.amPaneCount === '1' && sectorHoverTooltip.amPaneModes === 'aeolian' &&
+      sectorHoverTooltip.amAllColorsOffTooltip.chord === 'Am' &&
+      sectorHoverTooltip.amAllColorsOffTooltip.degrees.join(',') === 'i,i,i,i,i' &&
+      sectorHoverTooltip.amAllColorsOffTooltip.modes.map(({ name }) => name).join(',') ===
+        'Эолийский,Гармонический минор,Дорийский,Мелодический минор,Фригийский' &&
+      sectorHoverTooltip.amAllColorsOffPaneCount === 0,
       JSON.stringify(sectorHoverTooltip));
     ok('tooltip сохраняет лады и окрашивает ссылки на натуральный мажор/минор верными цветами в обеих темах',
       ['light', 'dark'].every((theme) => {

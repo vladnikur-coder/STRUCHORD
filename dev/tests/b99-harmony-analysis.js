@@ -48,6 +48,26 @@ const cMajor = analyze('Am7', 'C');
 ok('обычная ступень C-мажора получает точный ионийский профиль',
   cMajor.group === 'diatonic' && cMajor.mode === 'ionian' && cMajor.degree === 'vi', JSON.stringify(cMajor));
 
+const completeSeventhChecks = {
+  c7Mixolydian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('C7'), 'C', 'mixolydian'),
+  c7Ionian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('C7'), 'C', 'ionian'),
+  d7Lydian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('D7'), 'C', 'lydian'),
+  d7Ionian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('D7'), 'C', 'ionian'),
+  dMaj7Lydian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Dmaj7'), 'C', 'lydian'),
+  cMaj7Ionian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Cmaj7'), 'C', 'ionian'),
+  bDim7HarmonicMinor: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Bdim7'), 'C', 'harmonic-minor'),
+};
+const seventhModalLine = w.analyzeSectionHarmony(section('C', ['C7', 'Gm7', 'Bbmaj7']));
+const seventhFalsePositiveLine = w.analyzeSectionHarmony(section('C', ['Cmaj7', 'Gm7', 'Bbmaj7']));
+ok('септаккорды проверяются по полному составу: добавленная септима подтверждает или исключает лад',
+  completeSeventhChecks.c7Mixolydian === 0 && completeSeventhChecks.c7Ionian === -1 &&
+  completeSeventhChecks.d7Lydian === 1 && completeSeventhChecks.d7Ionian === -1 &&
+  completeSeventhChecks.dMaj7Lydian === -1 && completeSeventhChecks.cMaj7Ionian === 0 &&
+  completeSeventhChecks.bDim7HarmonicMinor === 6 &&
+  seventhModalLine.every((item) => item.mode === 'mixolydian') &&
+  seventhFalsePositiveLine.every((item) => item.mode !== 'mixolydian'),
+  JSON.stringify({ completeSeventhChecks, seventhModalLine, seventhFalsePositiveLine }));
+
 const melodicMinorSixth = {
   cAm: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Am'), 'C', 'melodic-minor'),
   cAdim: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Adim'), 'C', 'melodic-minor'),

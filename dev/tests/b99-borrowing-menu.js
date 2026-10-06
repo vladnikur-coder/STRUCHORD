@@ -209,6 +209,16 @@ ok('F#m: B — параллельный Ionian перед IV мелодичес�
   fshmB?.degree === 'IV' && fshmB?.modes.join(',') === 'ionian,melodic-minor,dorian,mixolydian',
   JSON.stringify(fshmB));
 
+const cD7Menu = menu('D7', 'C');
+const cC7Menu = menu('C7', 'C');
+const cDmaj7Menu = menu('Dmaj7', 'C');
+ok('candidate hover profiles for sevenths use every chord tone, including the seventh',
+  cD7Menu?.degree === 'II' && cD7Menu?.modes.join(',') === 'lydian' &&
+  cD7Menu?.secondaryFunction === 'V/V' &&
+  cC7Menu?.degree === 'I' && cC7Menu?.modes.join(',') === 'mixolydian' &&
+  cC7Menu?.secondaryFunction === 'V/IV' && cDmaj7Menu?.modes.length === 0,
+  JSON.stringify({ cD7Menu, cC7Menu, cDmaj7Menu }));
+
 ok('sus/power-аккорды не получают меню: качество неоднозначно',
   menu('D5', 'Am') === null && menu('Dsus4', 'C') === null);
 
@@ -587,13 +597,53 @@ ok('подписи сохраняют штатное оформление; от�
 // ===== 6. Другие режимы круга остаются на строгой раскраске =====
 w.eval("wheelMode = '7'; drawWheel();");
 const e7 = sector('E7');
-ok('режим 7 без меню: строгий профиль по-прежнему работает',
+ok('режим 7 сохраняет строгую раскраску и не добавляет candidate-pane',
   d.querySelectorAll('#circleSvg .wheel-mode-pane').length === 0 &&
   (e7?.dataset.harmonyGroup === 'minor-variant' || e7?.dataset.harmonyProfile === 'harmonic-minor'),
   `${e7?.dataset.harmonyGroup || '—'}/${e7?.dataset.harmonyProfile || '—'}`);
+const qualityHover = w.eval(`(() => {
+  globalKey = 'C'; keyMode = 'manual'; activeSectionKey = null; activeChordInput = null;
+  wheelHarmonyModeVisibilityLoaded = true;
+  wheelHarmonyDisabledModes = new Set([...WHEEL_HARMONY_MODE_IDS]);
+  wheelMode = '7';
+  document.getElementById('showDegrees').checked = true;
+  DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
+  drawWheel();
+  const sector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D7"][data-wheel-ring="major"]');
+  const rect = sector.getBoundingClientRect();
+  const event = new Event('pointerover', { bubbles: true });
+  Object.defineProperties(event, {
+    pointerType: { value: 'mouse' }, clientX: { value: rect.left + rect.width / 2 },
+    clientY: { value: rect.top + rect.height / 2 },
+  });
+  sector.dispatchEvent(event);
+  const tooltip = document.getElementById('wheelHarmonyHoverTooltip');
+  const result = {
+    paneCount: document.querySelectorAll('#circleSvg .wheel-mode-pane').length,
+    candidateModes: getWheelHarmonyHoverModes(sector).join(','),
+    function: sector.dataset.wheelSecondaryFunction,
+    degree: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="D7"] .wheel-degree-label')?.textContent || '',
+    tooltipVisible: !tooltip.hidden,
+    tooltipContext: tooltip.querySelector('.wheel-harmony-hover-context')?.textContent || '',
+    tooltipModes: [...tooltip.querySelectorAll('.wheel-harmony-hover-mode-name')].map((node) => node.textContent).join(','),
+    tooltipNote: tooltip.querySelector('.wheel-harmony-hover-note')?.textContent || '',
+  };
+  hideWheelHarmonyHoverTooltip();
+  DOM.chordWheelModal.classList.remove('open');
+  return result;
+})()`);
+ok('другая вкладка качества оставляет строгую заливку без panes, но hover сохраняет режим, ступень и V/x при выключенных цветах',
+  qualityHover.paneCount === 0 && qualityHover.candidateModes === 'lydian' &&
+  qualityHover.function === 'V/V' && qualityHover.degree === '' &&
+  qualityHover.tooltipVisible && /Ступень II/.test(qualityHover.tooltipContext) &&
+  /возможная функция V\/V/.test(qualityHover.tooltipContext) &&
+  /Лидийский/.test(qualityHover.tooltipModes) &&
+  /может вести к V/.test(qualityHover.tooltipNote), JSON.stringify(qualityHover));
 
 // ===== 6. Легенда «?» — компактная палитра и переключатели цветов =====
 w.eval(`
+  globalKey = 'Am'; keyMode = 'manual'; DOM.rootKey.value = 'Am';
+  activeSectionKey = null; activeChordInput = null;
   wheelHarmonyDisabledModes = new Set();
   wheelMode = 'triads'; drawWheel();
   bindWheelHarmonyLegend();
