@@ -524,8 +524,9 @@ ok('ячейки редактора получают 13/15% профильную
   /--harmony-cell-profile-mix:\s*13%/.test(source) &&
   /--harmony-cell-neutral-mix:\s*85%/.test(source) &&
   /--harmony-cell-profile-mix:\s*15%/.test(source) &&
-  /#sectionsContainer\.is-degrees-on \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\)\s*\{[\s\S]*?background-color:\s*color-mix\(/.test(source) &&
-  /#sectionsContainer\.is-degrees-on \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\):hover/.test(source) &&
+  /#sectionsContainer \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\)\s*\{[\s\S]*?background-color:\s*color-mix\(/.test(source) &&
+  /#sectionsContainer \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\):hover/.test(source) &&
+  !/#sectionsContainer\.is-degrees-on \.chord-wrapper\[data-harmony-profile\]/.test(source) &&
   !/#sectionsContainer\.is-degrees-on \.chord-wrapper\[data-harmony-profile\][^\n]*::before/.test(source),
   'light: 13%, dark: 15%, fill-only; playback state preserved');
 ok('сектора имеют контрастный fallback без color-mix и усиленное смешение в современных браузерах',

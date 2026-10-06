@@ -135,6 +135,7 @@ function ok(name, condition, detail = '') {
       ] }] }];
       render();
       updateCellsDegrees();
+      await new Promise((resolve) => setTimeout(resolve, 180));
       const grid = (ei) => document.querySelector(`.chord-wrapper[data-sec="81"][data-square="82"][data-ei="${ei}"]`);
       const cellFillWhenDegreesOff = getComputedStyle(grid(0)).backgroundColor;
       const neutralCellFillWhenDegreesOff = getComputedStyle(grid(3)).backgroundColor;
@@ -773,9 +774,9 @@ function ok(name, condition, detail = '') {
       strictWheel.candidateDegree === '' && strictWheel.candidateBadge === '' &&
       strictWheel.ownerSelected && strictWheel.legendCurrentAbsent,
       JSON.stringify(strictWheel));
-    ok('выключенные «Ступени» снимают ладовую заливку редактора',
+    ok('подтверждённая заливка ячейки сохраняется при выключенных «Ступенях» круга',
       !state.harmonyClassWhenDegreesOff &&
-      state.cellFillWhenDegreesOff === state.neutralCellFillWhenDegreesOff, JSON.stringify(state));
+      state.cellFillWhenDegreesOff !== state.neutralCellFillWhenDegreesOff, JSON.stringify(state));
     ok('editor tints confirmed profiles only; V/x and unprofiled cells remain neutral',
       state.groups.join(',') === 'diatonic,secondary-function,' &&
       state.profiles.join(',') === 'ionian,secondary-function,' &&
@@ -849,7 +850,9 @@ function ok(name, condition, detail = '') {
           globalKey = 'C';
           keyMode = 'manual';
           DOM.rootKey.value = 'C';
-          document.getElementById('showDegrees').checked = true;
+          wheelHarmonyModeVisibilityLoaded = true;
+          wheelHarmonyDisabledModes = new Set([...WHEEL_HARMONY_MODE_IDS]);
+          document.getElementById('showDegrees').checked = false;
           sections = fixtures.map((fixture, index) => ({
             id: 101 + index,
             type: fixture.mode,
@@ -878,6 +881,8 @@ function ok(name, condition, detail = '') {
             profiles,
             neutralProfile: neutral?.dataset.harmonyProfile || '',
             neutralFill: neutral ? getComputedStyle(neutral).backgroundColor : '',
+            masterCircleOptionOff: !document.getElementById('showDegrees').checked,
+            circleModesAllDisabled: wheelHarmonyDisabledModes.size === WHEEL_HARMONY_MODE_IDS.size,
           };
         }, theme);
         const light = await captureTheme('light');
@@ -893,8 +898,9 @@ function ok(name, condition, detail = '') {
         return sample?.profile === mode && sample.color === color && sample.fill !== allProfileCellTints[theme].neutralFill;
       }) && new Set(Object.values(allProfileCellTints[theme].profiles).map((sample) => sample.fill)).size === 9 &&
       allProfileCellTints[theme].neutralProfile === '' &&
-      allProfileCellTints[theme].profiles.ionian.fill !== allProfileCellTints[theme].neutralFill);
-    ok('editor surfaces receive distinct tints for all nine confirmed profiles; unconfirmed cells stay neutral',
+      allProfileCellTints[theme].profiles.ionian.fill !== allProfileCellTints[theme].neutralFill &&
+      allProfileCellTints[theme].masterCircleOptionOff && allProfileCellTints[theme].circleModesAllDisabled);
+    ok('editor surfaces keep all nine confirmed mode tints with circle colors off; unconfirmed cells stay neutral',
       everyConfirmedProfileTinted && allProfileCellTints.errors.length === 0,
       JSON.stringify(allProfileCellTints));
     const sectorHoverTooltip = await page.evaluate(async () => {
