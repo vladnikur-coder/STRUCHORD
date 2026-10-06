@@ -663,7 +663,7 @@ ok('quality tab colors an enabled full-chord candidate without adding pane field
   qualityCandidateColor.degree === 'II' && qualityCandidateColor.paneCount === 0,
   JSON.stringify(qualityCandidateColor));
 
-// ===== 6. Легенда «?» — компактная палитра и переключатели цветов =====
+// ===== 6. Легенда «?» — девять цветов и отдельная текстовая метка V/x =====
 w.eval(`
   globalKey = 'Am'; keyMode = 'manual'; DOM.rootKey.value = 'Am';
   activeSectionKey = null; activeChordInput = null;
@@ -676,7 +676,8 @@ const legend = d.getElementById('wheelHarmonyLegend');
 const modeInputs = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
 const ionianModeInput = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="ionian"]');
 const aeolianModeInput = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="aeolian"]');
-ok('легенда компактно показывает все лады; minor Ionian зеркально описан как натуральный мажор',
+const secondaryFunctionToggle = d.getElementById('wheelSecondaryFunctionLabelToggle');
+ok('легенда показывает девять ладов и отдельную выключенную метку V/x без цвета; minor Ionian зеркален',
   !legend?.hidden && modeInputs.length === 9 &&
   /Ионийский/.test(legend?.textContent || '') &&
   /Натуральный мажор · ♯III · ♯VI · ♯VII от нат\. минора/.test(ionianModeInput?.getAttribute('aria-label') || '') &&
@@ -684,8 +685,10 @@ ok('легенда компактно показывает все лады; mino
   /Натуральный минор/.test(aeolianModeInput?.getAttribute('aria-label') || '') &&
   /♯VII/.test(legend?.textContent || '') && /♯VI/.test(legend?.textContent || '') &&
   /♭II/.test(legend?.textContent || '') && /♭V/.test(legend?.textContent || '') &&
-  !/[↑↓]/.test(legend?.textContent || '') && !/V\/x/.test(legend?.textContent || '') && !d.getElementById('wheelHarmonyLegendCurrent') &&
-  modeInputs.every((input) => input.checked),
+  !/[↑↓]/.test(legend?.textContent || '') && /V\/x/.test(legend?.textContent || '') &&
+  !!secondaryFunctionToggle && !secondaryFunctionToggle.checked && !secondaryFunctionToggle.disabled &&
+  !d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="secondary-function"]') &&
+  !d.getElementById('wheelHarmonyLegendCurrent') && modeInputs.every((input) => input.checked),
   (legend?.textContent || '').replace(/\s+/g, ' ').slice(0, 180));
 const modeChangeDescription = (id) => d.querySelector(
   `#wheelHarmonyModeList [data-wheel-harmony-mode="${id}"]`

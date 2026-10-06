@@ -48,6 +48,9 @@ w.eval(`
   wheelMode = '7';
   document.getElementById('showDegrees').checked = true;
   localStorage.removeItem('struchord-wheel-harmony-visibility-v1');
+  localStorage.removeItem('struchord-wheel-secondary-function-labels-v1');
+  wheelSecondaryFunctionLabelsLoaded = false;
+  wheelSecondaryFunctionLabelsEnabled = false;
   wheelHarmonyModeVisibilityLoaded = false;
   wheelHarmonyDisabledModes = new Set();
   drawWheel();
@@ -67,6 +70,8 @@ const noKeyState = w.eval(`(() => {
     disabledCheckboxes: inputs.filter((input) => input.disabled).length,
     unmutedProfiles: coloredProfiles.filter((node) => !node.classList.contains('wheel-harmony-mode-muted')).length,
     paneGroups: DOM.circleSvg.querySelectorAll('.wheel-mode-diagram').length,
+    secondaryToggleChecked: document.getElementById('wheelSecondaryFunctionLabelToggle')?.checked,
+    secondaryToggleDisabled: document.getElementById('wheelSecondaryFunctionLabelToggle')?.disabled,
     stored: localStorage.getItem('struchord-wheel-harmony-visibility-v1'),
   };
 })()`);
@@ -74,7 +79,8 @@ ok('без выбранной тональности авто-режим не о
   noKeyState.key === null && noKeyState.effectiveKey === null && noKeyState.detectedKey === null &&
   noKeyState.baseDiatonicCount === 0 && !noKeyState.visibilityLoaded && noKeyState.enabledCheckboxes === 0 &&
   noKeyState.disabledCheckboxes === 9 && noKeyState.unmutedProfiles === 0 &&
-  noKeyState.paneGroups === 0 && noKeyState.stored === null, JSON.stringify(noKeyState));
+  noKeyState.paneGroups === 0 && noKeyState.secondaryToggleChecked === false &&
+  noKeyState.secondaryToggleDisabled === true && noKeyState.stored === null, JSON.stringify(noKeyState));
 w.eval("DOM.rootKey.value = 'C'; onKeyChange();");
 const firstKeyModesSaved = JSON.parse(w.localStorage.getItem('struchord-wheel-harmony-visibility-v1') || '[]');
 ok('первый выбранный мажор применяет только Ionian (Натуральный мажор)',
@@ -83,6 +89,13 @@ ok('первый выбранный мажор применяет только I
     !w.isWheelHarmonyModeEnabled(mode) && firstKeyModesSaved.includes(mode)) &&
   majorDefaultModes.every((mode) => !firstKeyModesSaved.includes(mode)),
   JSON.stringify({ enabled: majorDefaultModes, savedDisabled: firstKeyModesSaved }));
+const secondaryFunctionToggle = d.getElementById('wheelSecondaryFunctionLabelToggle');
+ok('галочка V/x отдельная от девяти цветов круга и выключена по умолчанию',
+  !!secondaryFunctionToggle && !secondaryFunctionToggle.checked && !secondaryFunctionToggle.disabled &&
+  d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]').length === 9 &&
+  w.eval('WHEEL_HARMONY_LEGEND_MODES.some(({ id }) => id === "secondary-function")') === false &&
+  /без цвета/.test(d.getElementById('wheel-harmony-secondary-description')?.textContent || ''),
+  `${secondaryFunctionToggle?.checked}/${secondaryFunctionToggle?.disabled}; modes=${d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]').length}`);
 const majorLegendOrder = legendModeOrder();
 ok('легенда ? переставляет существующие флажки в контекстный мажорный порядок',
   majorLegendOrder === w.eval('getWheelHarmonyModeOrderForKey("C").join(",")') &&
@@ -274,7 +287,7 @@ const legend = d.getElementById('wheelHarmonyLegend');
 const toggle = d.getElementById('wheelHarmonyLegendToggle');
 const legendModes = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
 const helpSurface = toggle.querySelector(':scope > .wheel-harmony-legend-toggle-surface');
-ok('кнопка ? открывает компактную палитру с изменениями ступеней и объяснениями натуральных ладов',
+ok('кнопка ? показывает девять ладов и отдельную текстовую опцию V/x без цвета',
   !legend.hidden && toggle.getAttribute('aria-expanded') === 'true' && legendModes.length === 9 &&
   /Ионийский/.test(legend.textContent) && /Натуральный мажор/.test(legend.textContent) &&
   /Эолийский/.test(legend.textContent) && /Натуральный минор/.test(legend.textContent) &&
@@ -283,7 +296,9 @@ ok('кнопка ? открывает компактную палитру с и�
   /♯VII/.test(legend.textContent) && /♯VI/.test(legend.textContent) &&
   /Дорийский/.test(legend.textContent) && /♭II/.test(legend.textContent) &&
   /Лидийский/.test(legend.textContent) && /♭VII/.test(legend.textContent) &&
-  /Локрийский/.test(legend.textContent) && !/[↑↓]/.test(legend.textContent) && !/V\/x/.test(legend.textContent) &&
+  /Локрийский/.test(legend.textContent) && !/[↑↓]/.test(legend.textContent) && /V\/x/.test(legend.textContent) &&
+  d.getElementById('wheelSecondaryFunctionLabelToggle') === secondaryFunctionToggle &&
+  !secondaryFunctionToggle.checked &&
   legendModes.every((input) => input.checked === majorDefaultModes.includes(input.dataset.wheelHarmonyMode)) &&
   !legendModes.some((input) => input.disabled) && !d.getElementById('wheelHarmonyLegendCurrent'),
   legend.textContent.replace(/\s+/g, ' ').trim());
@@ -314,10 +329,11 @@ ok('? floats on its own inner surface using the circle depth timing',
   helpSurface.style.getPropertyValue('--wheel-surface-rise-delay') === '52ms' &&
   helpSurface.style.getPropertyValue('--wheel-surface-sink-delay') === '68ms' && toggle.getAttribute('aria-label') === 'Показать палитру ладов и настроек подсветки круга',
   `${helpSurface?.className} / ${helpSurface?.style.getPropertyValue('--wheel-surface-rise-delay')}`);
-ok('secondary-function is not an enabled wheel scale-color mode, even if passed directly',
+ok('V/x checkbox is separate from the nine wheel scale-color modes',
+  !!d.getElementById('wheelSecondaryFunctionLabelToggle') &&
   w.eval('getEnabledWheelHarmonyModes(["secondary-function"]).length') === 0 &&
   w.eval('WHEEL_HARMONY_LEGEND_MODES.some(({ id }) => id === "secondary-function")') === false,
-  'V/x analysis stays separate from the nine wheel scale colors');
+  'V/x remains a text-only presentation setting');
 
 w.eval('document.getElementById("showDegrees").checked = false; updateCellsDegrees();');
 ok('выключенные «Ступени» выключают подсветку и скрывают кнопку ? вместе с палитрой',
@@ -488,7 +504,7 @@ const secondaryCircleCandidates = ['A', 'E', 'B', 'D'].map((identity) => {
     aria: node?.getAttribute('aria-label') || '',
   };
 });
-ok('secondaryFunction остаётся в данных и tooltip, но сектор показывает только ступень',
+ok('V/x остаётся в данных и tooltip, а текстовая метка выключена по умолчанию',
   secondaryCircleCandidates.map(({ function: candidateFunction }) => candidateFunction).join(',') ===
     'V/ii,V/vi,V/iii,V/V' &&
   secondaryCircleCandidates.every(({ label }) => label === '') &&
@@ -497,6 +513,22 @@ ok('secondaryFunction остаётся в данных и tooltip, но сект
   secondaryCircleCandidates[3].modes.includes('lydian') &&
   !secondaryCircleCandidates[3].harmonyProfile && secondaryCircleCandidates[3].degree === 'II',
   JSON.stringify(secondaryCircleCandidates));
+const secondaryFunctionCheckbox = d.getElementById('wheelSecondaryFunctionLabelToggle');
+const dSectorBeforeVx = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"]');
+const dFillBeforeVx = dSectorBeforeVx ? w.getComputedStyle(dSectorBeforeVx).fill : '';
+secondaryFunctionCheckbox.checked = true;
+secondaryFunctionCheckbox.dispatchEvent(new w.Event('change', { bubbles: true }));
+const secondaryLabelsOn = ['A', 'E', 'B', 'D'].map((identity) => functionLabel(identity));
+const dSectorWithVx = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"]');
+ok('галочка показывает нейтральные текстовые V/x-метки, не меняя цвет и девять ладовых режимов',
+  secondaryLabelsOn.join(',') === 'V/ii,V/vi,V/iii,V/V' &&
+  functionData('D') === 'V/V' &&
+  dSectorWithVx?.getAttribute('data-harmony-profile') === dSectorBeforeVx?.getAttribute('data-harmony-profile') &&
+  w.getComputedStyle(dSectorWithVx).fill === dFillBeforeVx &&
+  d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]').length === 9 &&
+  !d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="secondary-function"]') &&
+  w.localStorage.getItem('struchord-wheel-secondary-function-labels-v1') === '1',
+  JSON.stringify({ labels: secondaryLabelsOn, fillUnchanged: w.getComputedStyle(dSectorWithVx).fill === dFillBeforeVx }));
 w.eval(`wheelHarmonyDisabledModes = new Set(${JSON.stringify(allWheelModes)}); drawWheel();`);
 const allModeColorsOffDegrees = {
   base: visibleDegree('C'),
@@ -506,11 +538,36 @@ const allModeColorsOffDegrees = {
   outside: visibleDegree('F#m'),
   outsideAria: d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="F#m"]')?.getAttribute('aria-label') || '',
 };
-ok('базовая I остаётся; II скрыта, данные V/V сохранены без sector-label, неразобранный аккорд без ступени',
+ok('текст V/V остаётся по галочке при выключенных ладовых цветах; ступень-кандидат скрыта',
   allModeColorsOffDegrees.base === 'I' && allModeColorsOffDegrees.possibleFunction === '' &&
-  allModeColorsOffDegrees.functionLabel === '' && allModeColorsOffDegrees.functionData === 'V/V' &&
+  allModeColorsOffDegrees.functionLabel === 'V/V' && allModeColorsOffDegrees.functionData === 'V/V' &&
   allModeColorsOffDegrees.outside === '' &&
   allModeColorsOffDegrees.outsideAria === '', JSON.stringify(allModeColorsOffDegrees));
+d.getElementById('showDegrees').checked = false;
+w.toggleDegreesOnWheel();
+const secondaryLabelsWhenMasterOff = d.querySelectorAll('#circleSvg .wheel-secondary-function-label').length;
+const secondaryLegendHiddenWithMasterOff = d.getElementById('wheelHarmonyLegendToggle').hidden &&
+  d.getElementById('wheelHarmonyLegend').hidden;
+d.getElementById('showDegrees').checked = true;
+w.toggleDegreesOnWheel();
+const secondaryLabelRestoredWithMaster = functionLabel('D');
+ok('общая настройка скрывает V/x-метки вместе с ? и возвращает по отдельной галочке',
+  secondaryLabelsWhenMasterOff === 0 && secondaryLegendHiddenWithMasterOff &&
+  secondaryLabelRestoredWithMaster === 'V/V' && secondaryFunctionCheckbox.checked,
+  JSON.stringify({ secondaryLabelsWhenMasterOff, secondaryLegendHiddenWithMasterOff, secondaryLabelRestoredWithMaster }));
+w.eval("globalKey = 'Am'; drawWheel();");
+const minorFunctionLabels = d.querySelectorAll('#circleSvg .wheel-secondary-function-label').length;
+const minorFunctionData = [...d.querySelectorAll('#circleSvg .wheel-sector')]
+  .filter((sector) => sector.dataset.wheelSecondaryFunction)
+  .map((sector) => sector.dataset.wheelSecondaryFunction);
+w.eval("globalKey = 'C'; drawWheel();");
+secondaryFunctionCheckbox.checked = false;
+secondaryFunctionCheckbox.dispatchEvent(new w.Event('change', { bubbles: true }));
+ok('в минорном круге V/x скрыт даже при включённой настройке; выключение снимает метки',
+  minorFunctionLabels === 0 && minorFunctionData.length === 0 &&
+  functionLabel('D') === '' && !secondaryFunctionCheckbox.checked &&
+  w.localStorage.getItem('struchord-wheel-secondary-function-labels-v1') === '0',
+  JSON.stringify({ minorFunctionLabels, minorFunctionData, majorLabelAfterDisable: functionLabel('D') }));
 const unprofiledCircleFsm = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="F#m"]');
 ok('F#m без модального профиля остаётся без дополнительного цвета, ступени и поясняющей метки',
   !unprofiledCircleFsm?.dataset.harmonyProfile && !visibleDegree('F#m') &&

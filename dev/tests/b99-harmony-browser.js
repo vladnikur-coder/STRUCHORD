@@ -33,6 +33,9 @@ function ok(name, condition, detail = '') {
     await page.goto(`${appUrl}?b99-harmony=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction(() => typeof analyzeSectionHarmony === 'function' && typeof drawWheel === 'function');
     const tonalHighlightState = await page.evaluate(() => {
+      localStorage.removeItem('struchord-wheel-secondary-function-labels-v1');
+      wheelSecondaryFunctionLabelsLoaded = false;
+      wheelSecondaryFunctionLabelsEnabled = false;
       globalKey = 'C';
       keyMode = 'auto';
       autoDetectedKey = null;
@@ -253,6 +256,10 @@ function ok(name, condition, detail = '') {
           /♭II/.test(document.getElementById('wheelHarmonyLegend').textContent),
         legendHasNoArrows: !/[↑↓]/.test(document.getElementById('wheelHarmonyLegend').textContent),
         legendHasVx: /V\/x/.test(document.getElementById('wheelHarmonyLegend').textContent),
+        legendVxTogglePresent: !!document.getElementById('wheelSecondaryFunctionLabelToggle'),
+        legendVxToggleChecked: document.getElementById('wheelSecondaryFunctionLabelToggle')?.checked,
+        legendVxToggleDisabled: document.getElementById('wheelSecondaryFunctionLabelToggle')?.disabled,
+        legendHasVxColorMode: !!document.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="secondary-function"]'),
         legendHasCurrentChord: !!document.getElementById('wheelHarmonyLegendCurrent'),
       };
     });
@@ -644,6 +651,9 @@ function ok(name, condition, detail = '') {
         showDegrees: document.getElementById('showDegrees').checked,
         rootKey: DOM.rootKey.value,
         modalOpen: DOM.chordWheelModal.classList.contains('open'),
+        secondaryLabelsEnabled: wheelSecondaryFunctionLabelsEnabled,
+        secondaryLabelsLoaded: wheelSecondaryFunctionLabelsLoaded,
+        secondaryLabelsStorage: localStorage.getItem(WHEEL_SECONDARY_FUNCTION_LABEL_VISIBILITY_KEY),
       };
       globalKey = 'C'; keyMode = 'manual'; DOM.rootKey.value = 'C';
       sections = [{ id: 901, key: 'C', squares: [{ id: 902, events: [
@@ -693,6 +703,44 @@ function ok(name, condition, detail = '') {
         paneCount: document.querySelectorAll('#circleSvg .wheel-mode-pane').length,
         profileColorVisible: fill !== neutralFill,
       };
+      const secondaryLabelToggle = document.getElementById('wheelSecondaryFunctionLabelToggle');
+      const d7FillBeforeTextToggle = getComputedStyle(d7).fill;
+      const d7AriaBeforeTextToggle = d7.getAttribute('aria-label');
+      const tooltipTextBeforeTextToggle = tooltip.textContent;
+      secondaryLabelToggle.checked = true;
+      secondaryLabelToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      const d7WithSecondaryLabel = sector('D7', 'major');
+      const d7SecondaryLabel = document.querySelector(
+        '#circleSvg .wheel-chord-label[data-wheel-chord-identity="D7"][data-wheel-hover-ring="major"] .wheel-secondary-function-label');
+      Object.assign(result, {
+        secondaryLabelWhenChecked: d7SecondaryLabel?.textContent || '',
+        secondaryLabelSelectedMatchesSector: !!d7SecondaryLabel &&
+          d7SecondaryLabel.classList.contains('is-wheel-selected') === d7WithSecondaryLabel.classList.contains('is-wheel-selected'),
+        secondaryLabelStorageWhenChecked: localStorage.getItem(WHEEL_SECONDARY_FUNCTION_LABEL_VISIBILITY_KEY),
+        fillUnchangedByTextToggle: getComputedStyle(d7WithSecondaryLabel).fill === d7FillBeforeTextToggle,
+        ariaUnchangedByTextToggle: d7WithSecondaryLabel.getAttribute('aria-label') === d7AriaBeforeTextToggle,
+        tooltipUnchangedByTextToggle: !tooltip.hidden && tooltip.textContent === tooltipTextBeforeTextToggle,
+        vxModeStillAbsent: !document.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="secondary-function"]'),
+      });
+      const syntheticSection = sections.find((section) => section.id === 901);
+      syntheticSection.key = 'Am';
+      globalKey = 'Am'; activeSectionKey = 'Am'; DOM.rootKey.value = 'Am';
+      drawWheel();
+      Object.assign(result, {
+        minorMarkerCountWhileEnabled: document.querySelectorAll('#circleSvg .wheel-secondary-function-label').length,
+        minorFunctionDataWhileEnabled: [...document.querySelectorAll('#circleSvg .wheel-sector')]
+          .filter((sector) => sector.dataset.wheelSecondaryFunction).length,
+      });
+      syntheticSection.key = 'C';
+      globalKey = 'C'; activeSectionKey = null; DOM.rootKey.value = 'C';
+      drawWheel();
+      secondaryLabelToggle.checked = false;
+      secondaryLabelToggle.dispatchEvent(new Event('change', { bubbles: true }));
+      Object.assign(result, {
+        secondaryLabelRemovedWhenUnchecked: !document.querySelector(
+          '#circleSvg .wheel-chord-label[data-wheel-chord-identity="D7"] .wheel-secondary-function-label'),
+        secondaryLabelStorageWhenUnchecked: localStorage.getItem(WHEEL_SECONDARY_FUNCTION_LABEL_VISIBILITY_KEY),
+      });
       hideWheelHarmonyHoverTooltip();
       wheelHarmonyDisabledModes.delete('lydian');
       drawWheel();
@@ -724,6 +772,10 @@ function ok(name, condition, detail = '') {
       activeSectionKey = previous.activeSectionKey; wheelMode = previous.wheelMode;
       wheelHarmonyModeVisibilityLoaded = previous.loaded;
       wheelHarmonyDisabledModes = new Set(previous.disabled);
+      if (previous.secondaryLabelsStorage === null) localStorage.removeItem(WHEEL_SECONDARY_FUNCTION_LABEL_VISIBILITY_KEY);
+      else localStorage.setItem(WHEEL_SECONDARY_FUNCTION_LABEL_VISIBILITY_KEY, previous.secondaryLabelsStorage);
+      wheelSecondaryFunctionLabelsEnabled = previous.secondaryLabelsEnabled;
+      wheelSecondaryFunctionLabelsLoaded = previous.secondaryLabelsLoaded;
       document.getElementById('showDegrees').checked = previous.showDegrees;
       updateCellsDegrees();
       DOM.chordWheelModal.classList.toggle('open', previous.modalOpen);
@@ -744,6 +796,16 @@ function ok(name, condition, detail = '') {
       fullSeventhWheel.paneCount === 0 && fullSeventhWheel.paneCountWhenLydianEnabled === 0 &&
       fullSeventhWheel.profileColorVisible && fullSeventhWheel.tooltipHiddenWhenDegreesOff &&
       fullSeventhWheel.ariaRemovedWhenDegreesOff && fullSeventhWheel.titleRemovedWhenDegreesOff,
+      JSON.stringify(fullSeventhWheel));
+    ok('quality-tab circle shows optional V/V text without changing color/tooltip; minor still suppresses it',
+      fullSeventhWheel.secondaryLabelWhenChecked === 'V/V' &&
+      fullSeventhWheel.secondaryLabelSelectedMatchesSector &&
+      fullSeventhWheel.secondaryLabelStorageWhenChecked === '1' &&
+      fullSeventhWheel.secondaryLabelRemovedWhenUnchecked &&
+      fullSeventhWheel.secondaryLabelStorageWhenUnchecked === '0' &&
+      fullSeventhWheel.fillUnchangedByTextToggle && fullSeventhWheel.ariaUnchangedByTextToggle &&
+      fullSeventhWheel.tooltipUnchangedByTextToggle && fullSeventhWheel.vxModeStillAbsent && fullSeventhWheel.minorMarkerCountWhileEnabled === 0 &&
+      fullSeventhWheel.minorFunctionDataWhileEnabled === 0,
       JSON.stringify(fullSeventhWheel));
 
     const strictWheel = await page.evaluate(() => {
@@ -789,7 +851,7 @@ function ok(name, condition, detail = '') {
       state.timelineProfiles.join(',') === 'ionian,secondary-function,' &&
       state.timelineMarker === 'rgba(0, 0, 0, 0)' && state.ionianTimelineMarker !== 'rgba(0, 0, 0, 0)' &&
       state.neutralTimelineMarker === 'rgba(0, 0, 0, 0)' && /вторичная доминанта V\/V/.test(state.timelineFunctionText), JSON.stringify(state));
-    ok('wheel keeps V/V semantic and selected marker but draws no V/x profile color',
+    ok('wheel keeps V/V semantics and selected marker without a V/x color profile',
       state.wheelGroup === 'secondary-function' && state.wheelProfile === 'secondary-function' && state.selected &&
       /V\/V/.test(state.wheelAria) && state.wheelVxFill === state.wheelFillWithoutProfile, JSON.stringify(state));
     ok('legend ? is hidden while degrees/colors are off and returns when enabled',
@@ -797,9 +859,11 @@ function ok(name, condition, detail = '') {
       JSON.stringify({ hiddenOff: state.legendHiddenWhenDegreesOff, staysClosed: state.legendStaysClosedWhenDegreesOff,
         visibleOn: state.legendVisibleWhenDegreesOn }));
     ok('legend ? opens accessibly', state.legendOpen && state.legendExpanded === 'true', JSON.stringify(state));
-    ok('legend ? is a compact nine-mode palette; V/x has no color toggle and arrows are replaced',
+    ok('legend ? has nine color modes and a separate unchecked text-only V/x toggle',
       state.legendModeCount === 9 && state.legendHasAlterations && state.legendHasNoArrows &&
-      !state.legendHasVx && !state.legendHasCurrentChord && state.legendNoteAbsent, JSON.stringify(state));
+      state.legendHasVx && state.legendVxTogglePresent && !state.legendVxToggleChecked &&
+      !state.legendVxToggleDisabled && !state.legendHasVxColorMode &&
+      !state.legendHasCurrentChord && state.legendNoteAbsent, JSON.stringify(state));
     ok('legend ? uses the major-context order without changing the set of modes',
       state.legendModeOrder.join(',') ===
         'ionian,mixolydian,lydian,aeolian,dorian,harmonic-minor,melodic-minor,phrygian,locrian',
@@ -1131,7 +1195,7 @@ function ok(name, condition, detail = '') {
       clearWheelHover();
       return { possibleVii, unprofiled, possibleVvWithoutLydian, minorParallelMajorCandidate };
     });
-    ok('V/x хранится в меню и показывается в hover-tooltip, но не печатается на секторе; в миноре функций нет',
+    ok('V/x остаётся в меню/tooltip при выключенной метке; в миноре функций нет',
       menuAnnotations.possibleVii.modes === '' && menuAnnotations.possibleVii.function === 'V/ii' &&
       menuAnnotations.possibleVii.degree === '' && !/ступень VI/.test(menuAnnotations.possibleVii.aria) &&
       menuAnnotations.possibleVii.annotation === '' && menuAnnotations.possibleVii.paneCount === '0' &&
