@@ -124,7 +124,7 @@ function ok(name, condition, detail = '') {
       tonalHighlightState.baselineOn.cFill === tonalHighlightState.baselineOn.dFill &&
       tonalHighlightState.baselineOn.cVolumeFill === tonalHighlightState.baselineOn.dVolumeFill,
       JSON.stringify(tonalHighlightState));
-    const state = await page.evaluate(() => {
+    const state = await page.evaluate(async () => {
       globalKey = 'C';
       globalTimeSig = '4/4';
       keyMode = 'manual';
@@ -136,7 +136,8 @@ function ok(name, condition, detail = '') {
       render();
       updateCellsDegrees();
       const grid = (ei) => document.querySelector(`.chord-wrapper[data-sec="81"][data-square="82"][data-ei="${ei}"]`);
-      const markerWhenDegreesOff = getComputedStyle(grid(1), '::before').backgroundColor;
+      const cellFillWhenDegreesOff = getComputedStyle(grid(0)).backgroundColor;
+      const neutralCellFillWhenDegreesOff = getComputedStyle(grid(3)).backgroundColor;
       const harmonyClassWhenDegreesOff = document.body.classList.contains('is-harmony-highlights-on');
       bindWheelHarmonyLegend();
       const legendToggle = document.getElementById('wheelHarmonyLegendToggle');
@@ -145,6 +146,7 @@ function ok(name, condition, detail = '') {
       const legendStaysClosedWhenDegreesOff = document.getElementById('wheelHarmonyLegend').hidden;
       document.getElementById('showDegrees').checked = true;
       updateCellsDegrees();
+      await new Promise((resolve) => setTimeout(resolve, 180));
       const legendVisibleWhenDegreesOn = !legendToggle.hidden && getComputedStyle(legendToggle).display !== 'none';
       const legendSurface = legendToggle.querySelector(':scope > .wheel-harmony-legend-toggle-surface');
       const modal = document.getElementById('chordWheelModal');
@@ -212,7 +214,8 @@ function ok(name, condition, detail = '') {
       bindWheelHarmonyLegend();
       document.getElementById('wheelHarmonyLegendToggle').click();
       return {
-        markerWhenDegreesOff,
+        cellFillWhenDegreesOff,
+        neutralCellFillWhenDegreesOff,
         harmonyClassWhenDegreesOff,
         legendHiddenWhenDegreesOff,
         legendStaysClosedWhenDegreesOff,
@@ -224,9 +227,9 @@ function ok(name, condition, detail = '') {
         modePalette: { light: paletteLight, dark: paletteDark, distances: modePaletteDistance },
         groups: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyGroup),
         profiles: [grid(0), grid(1), grid(3)].map((cell) => cell.dataset.harmonyProfile),
-        gridMarker: getComputedStyle(grid(1), '::before').backgroundColor,
-        ionianGridMarker: getComputedStyle(grid(0), '::before').backgroundColor,
-        neutralGridMarker: getComputedStyle(grid(3), '::before').backgroundColor,
+        secondaryCellFill: getComputedStyle(grid(1)).backgroundColor,
+        ionianCellFill: getComputedStyle(grid(0)).backgroundColor,
+        neutralCellFill: getComputedStyle(grid(3)).backgroundColor,
         gridFunctionText: grid(1).querySelector('.chord-input')?.getAttribute('aria-label') || '',
         timelineGroups: [timeline(0), timeline(1), timeline(3)].map((cell) => cell.dataset.harmonyGroup),
         timelineProfiles: [timeline(0), timeline(1), timeline(3)].map((cell) => cell.dataset.harmonyProfile),
@@ -252,7 +255,7 @@ function ok(name, condition, detail = '') {
         legendHasCurrentChord: !!document.getElementById('wheelHarmonyLegendCurrent'),
       };
     });
-    const minorLine = await page.evaluate(() => {
+    const minorLine = await page.evaluate(async () => {
       globalKey = 'Am';
       keyMode = 'manual';
       sections = [{ id: 91, type: 'Verse', key: null, timeSig: '4/4', squares: [{ id: 92, events: [
@@ -271,14 +274,47 @@ function ok(name, condition, detail = '') {
       render();
       timelineMode = true;
       renderTimeline();
+      await new Promise((resolve) => setTimeout(resolve, 180));
       const grid = (ei) => document.querySelector(`.chord-wrapper[data-sec="91"][data-square="92"][data-ei="${ei}"]`);
       const timeline = (ei) => document.querySelector(`.tl-cell[data-sec="91"][data-square="92"][data-ei="${ei}"]`);
+      const editorFills = [2, 3].map((ei) => getComputedStyle(grid(ei)).backgroundColor);
+      const editorTintMixLight = getComputedStyle(document.documentElement)
+        .getPropertyValue('--harmony-cell-profile-mix').trim();
+      const previousCellTheme = document.documentElement.getAttribute('data-theme');
+      document.documentElement.setAttribute('data-theme', 'dark');
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      const editorFillsDark = [2, 3].map((ei) => getComputedStyle(grid(ei)).backgroundColor);
+      const editorTintMixDark = getComputedStyle(document.documentElement)
+        .getPropertyValue('--harmony-cell-profile-mix').trim();
+      if (previousCellTheme === null) document.documentElement.removeAttribute('data-theme');
+      else document.documentElement.setAttribute('data-theme', previousCellTheme);
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      const profileCell = grid(2);
+      profileCell.classList.add('is-cell-selected');
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      const selectedCellState = {
+        fill: getComputedStyle(profileCell).backgroundColor,
+        boxShadow: getComputedStyle(profileCell).boxShadow,
+      };
+      profileCell.classList.remove('is-cell-selected');
+      profileCell.classList.add('playback-active');
+      await new Promise((resolve) => setTimeout(resolve, 180));
+      const playbackCellState = {
+        fill: getComputedStyle(profileCell).backgroundColor,
+        boxShadow: getComputedStyle(profileCell).boxShadow,
+      };
+      profileCell.classList.remove('playback-active');
       return {
         defaultModes: { enabled: defaultEnabledModes, disabled: defaultDisabledModes },
         editorDegrees: [0, 1, 2, 3].map((ei) => grid(ei).querySelector('.degree-hint')?.textContent),
         timelineDegrees: [0, 1, 2, 3].map((ei) => timeline(ei).querySelector('.tl-degree')?.textContent),
         profiles: [0, 1, 2, 3].map((ei) => grid(ei).dataset.harmonyProfile),
-        editorMarkers: [2, 3].map((ei) => getComputedStyle(grid(ei), '::before').backgroundColor),
+        editorFills,
+        editorFillsDark,
+        editorTintMixLight,
+        editorTintMixDark,
+        selectedCellState,
+        playbackCellState,
         timelineProfiles: [0, 1, 2, 3].map((ei) => timeline(ei).dataset.harmonyProfile),
         wheelMenu: (() => {
           activeChordInput = grid(2).querySelector('.chord-input');
@@ -421,11 +457,18 @@ function ok(name, condition, detail = '') {
       [...minorLine.defaultModes.disabled].sort().join(',') ===
         allHarmonyModes.filter((mode) => !exactMinorDefaults.includes(mode)).sort().join(','),
       JSON.stringify(minorLine.defaultModes));
-    ok('Am–C–D–E keeps analysis colors, while six natural-minor triads use Aeolian alone (except dim)',
+    ok('Am–C–D–E stays intact; 13/15% profile tint, selection and playback',
       minorLine.editorDegrees.join(',') === 'i,III,IV,V' && minorLine.timelineDegrees.join(',') === 'i,III,IV,V' &&
       minorLine.profiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
       minorLine.timelineProfiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
-      minorLine.editorMarkers[0] !== minorLine.editorMarkers[1] &&
+      minorLine.editorFills[0] !== minorLine.editorFills[1] &&
+      minorLine.editorFillsDark[0] !== minorLine.editorFillsDark[1] &&
+      minorLine.editorTintMixLight === '13%' && minorLine.editorTintMixDark === '15%' &&
+      minorLine.selectedCellState.fill === minorLine.editorFills[0] &&
+      minorLine.selectedCellState.boxShadow !== 'none' &&
+      /^rgba\(/.test(minorLine.playbackCellState.fill) &&
+      minorLine.playbackCellState.fill !== minorLine.editorFills[0] &&
+      minorLine.playbackCellState.boxShadow !== 'none' &&
       minorLine.wheelMenu.legendCurrentAbsent && minorLine.wheelMenu.fMinorModes === '' &&
       minorLine.wheelMenu.eMajorModes === 'ionian,harmonic-minor,melodic-minor,lydian' &&
       /E: ступень V в Am/.test(minorLine.wheelMenu.eMajorAria) &&
@@ -434,6 +477,13 @@ function ok(name, condition, detail = '') {
       minorLine.wheelMenu.naturalMinorDimModes === 'aeolian,harmonic-minor' &&
       minorLine.wheelMenu.minorCoreModesWithoutAeolian === 'harmonic-minor,melodic-minor,dorian,phrygian',
       JSON.stringify(minorLine));
+    const hoverSelector = '.chord-wrapper[data-sec="91"][data-square="92"][data-ei="2"]';
+    await page.hover(hoverSelector);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    const editorHoverFill = await page.$eval(hoverSelector, (cell) => getComputedStyle(cell).backgroundColor);
+    await page.mouse.move(0, 0);
+    await new Promise((resolve) => setTimeout(resolve, 180));
+    ok('editor hover keeps the active profile tint', editorHoverFill !== minorLine.editorFills[0], editorHoverFill);
     ok('B-99 dividers share one theme-aware 2px style and two-color ring panes meet at the rail',
       minorLine.panePresentation.expectedLayouts.every((layout) => minorLine.panePresentation.layouts.includes(layout)) &&
       minorLine.panePresentation.paneCount > 0 &&
@@ -538,7 +588,7 @@ function ok(name, condition, detail = '') {
     const wheelToggleScope = await page.evaluate(() => {
       const editorD = document.querySelector('.chord-wrapper[data-sec="91"][data-square="92"][data-ei="2"]');
       const timelineD = document.querySelector('.tl-cell[data-sec="91"][data-square="92"][data-ei="2"]');
-      const editorColorBefore = getComputedStyle(editorD, '::before').backgroundColor;
+      const editorColorBefore = getComputedStyle(editorD).backgroundColor;
       const timelineColorBefore = getComputedStyle(timelineD, '::after').backgroundColor;
       const bodyMapClassBefore = document.body.classList.contains('is-harmony-highlights-on');
       const melodicToggle = document.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="melodic-minor"]');
@@ -556,7 +606,7 @@ function ok(name, condition, detail = '') {
         fullModesBefore.includes('melodic-minor') &&
         !eSectorAfter?.dataset.wheelVisibleModes.includes('melodic-minor') &&
         !eSectorAfter?.getAttribute('aria-label')?.includes('мелодический минор');
-      const editorColorAfter = getComputedStyle(editorD, '::before').backgroundColor;
+      const editorColorAfter = getComputedStyle(editorD).backgroundColor;
       const timelineColorAfter = getComputedStyle(timelineD, '::after').backgroundColor;
       const bodyMapClassAfter = document.body.classList.contains('is-harmony-highlights-on');
       activeChordInput = editorD.querySelector('.chord-input');
@@ -611,13 +661,16 @@ function ok(name, condition, detail = '') {
       strictWheel.candidateDegree === '' && strictWheel.candidateBadge === '' &&
       strictWheel.ownerSelected && strictWheel.legendCurrentAbsent,
       JSON.stringify(strictWheel));
-    ok('выключенные «Ступени» не показывают B-99 marker',
-      !state.harmonyClassWhenDegreesOff && state.markerWhenDegreesOff === 'rgba(0, 0, 0, 0)', JSON.stringify(state));
-    ok('editor keeps V/x text semantics without a colored marker; other profiles stay colored',
+    ok('выключенные «Ступени» снимают ладовую заливку редактора',
+      !state.harmonyClassWhenDegreesOff &&
+      state.cellFillWhenDegreesOff === state.neutralCellFillWhenDegreesOff, JSON.stringify(state));
+    ok('editor tints confirmed profiles only; V/x and unprofiled cells remain neutral',
       state.groups.join(',') === 'diatonic,secondary-function,' &&
       state.profiles.join(',') === 'ionian,secondary-function,' &&
-      state.gridMarker === 'rgba(0, 0, 0, 0)' && state.ionianGridMarker !== 'rgba(0, 0, 0, 0)' &&
-      state.neutralGridMarker === 'rgba(0, 0, 0, 0)' && /вторичная доминанта V\/V/.test(state.gridFunctionText), JSON.stringify(state));
+      state.secondaryCellFill === state.neutralCellFill &&
+      state.ionianCellFill !== state.neutralCellFill &&
+      state.neutralCellFill === state.neutralCellFillWhenDegreesOff &&
+      /вторичная доминанта V\/V/.test(state.gridFunctionText), JSON.stringify(state));
     ok('timeline keeps V/x text semantics without a colored marker; other profiles stay colored',
       state.timelineGroups.join(',') === 'diatonic,secondary-function,' &&
       state.timelineProfiles.join(',') === 'ionian,secondary-function,' &&
@@ -642,12 +695,12 @@ function ok(name, condition, detail = '') {
       JSON.stringify({ floats: state.legendToggleFloats }));
     const expectedModePalette = {
       light: {
-        ionian: '#c27032', aeolian: '#258fa5', 'harmonic-minor': '#b84257', 'melodic-minor': '#aa8c1e',
-        dorian: '#3268b7', phrygian: '#ad4c8e', lydian: '#7557c5', mixolydian: '#548d2d', locrian: '#13835f',
+        ionian: '#c27032', aeolian: '#258fa5', 'harmonic-minor': '#d24e6a', 'melodic-minor': '#ed79cd',
+        dorian: '#66c5ff', phrygian: '#7250b3', lydian: '#d8b819', mixolydian: '#6d501f', locrian: '#393d56',
       },
       dark: {
-        ionian: '#f39b56', aeolian: '#55bfd0', 'harmonic-minor': '#df6878', 'melodic-minor': '#e5c654',
-        dorian: '#77a3e5', phrygian: '#d87bb7', lydian: '#a88be7', mixolydian: '#9dce5a', locrian: '#43c594',
+        ionian: '#f39b56', aeolian: '#55bfd0', 'harmonic-minor': '#f45279', 'melodic-minor': '#ff8cce',
+        dorian: '#b0cffe', phrygian: '#6196fa', lydian: '#f1e388', mixolydian: '#926c40', locrian: '#675fb0',
       },
     };
     const matchesExpectedPalette = ['light', 'dark'].every((theme) =>
@@ -818,9 +871,10 @@ function ok(name, condition, detail = '') {
             'Дорийский,Мелодический минор,Ионийский,Миксолидийский' &&
           snapshot.modes.every((mode) => mode.degree === 'IV' && mode.change) &&
           snapshot.modes.find((mode) => mode.name === 'Ионийский')?.change ===
-            '♯III · ♯VI · ♯VII от нат. минора' &&
+            'Натуральный мажор · ♯III · ♯VI · ♯VII от нат. минора' &&
           hasReference('Мелодический минор', 'minor', 'минора', snapshot.referenceColors.minor) &&
           hasReference('Дорийский', 'minor', 'минора', snapshot.referenceColors.minor) &&
+          hasReference('Ионийский', 'major', 'мажор', snapshot.referenceColors.major) &&
           hasReference('Ионийский', 'minor', 'минора', snapshot.referenceColors.minor) &&
           hasReference('Миксолидийский', 'major', 'мажора', snapshot.referenceColors.major) &&
           !snapshot.hidden && !snapshot.overlapsLegend && !snapshot.overlapsCircle &&

@@ -4314,32 +4314,35 @@ body.is-zooming .squares-list {
 
 /* B-99 — редактор и лента окрашивают только подтверждённые ладовые профили;
    круг-трезвучия показывает кандидатные модальные профили. Возможная функция
-   V/x — нейтральная текстовая подпись, не цветовой профиль. Ступень
-   параллельного/альтерированного кандидата видна только при его подсветке.
-   Маркер отдельным слоем не меняет размеры сетки и не спорит с selection. */
+   V/x остаётся текстовой, не цветовой. Ступень параллельного/альтерированного
+   кандидата на круге видна только при его подсветке. */
 :root {
   --harmony-ionian: #c27032;
   --harmony-aeolian: #258fa5;
-  --harmony-harmonic-minor: #b84257;
-  --harmony-melodic-minor: #aa8c1e;
-  --harmony-dorian: #3268b7;
-  --harmony-phrygian: #ad4c8e;
-  --harmony-lydian: #7557c5;
-  --harmony-mixolydian: #548d2d;
-  --harmony-locrian: #13835f;
+  --harmony-harmonic-minor: #d24e6a;
+  --harmony-melodic-minor: #ed79cd;
+  --harmony-dorian: #66c5ff;
+  --harmony-phrygian: #7250b3;
+  --harmony-lydian: #d8b819;
+  --harmony-mixolydian: #6d501f;
+  --harmony-locrian: #393d56;
   --wheel-menu-pane-opacity: 0.34;
+  --harmony-cell-neutral-mix: 87%;
+  --harmony-cell-profile-mix: 13%;
 }
 html[data-theme='dark'] {
   --harmony-ionian: #f39b56;
   --harmony-aeolian: #55bfd0;
-  --harmony-harmonic-minor: #df6878;
-  --harmony-melodic-minor: #e5c654;
-  --harmony-dorian: #77a3e5;
-  --harmony-phrygian: #d87bb7;
-  --harmony-lydian: #a88be7;
-  --harmony-mixolydian: #9dce5a;
-  --harmony-locrian: #43c594;
+  --harmony-harmonic-minor: #f45279;
+  --harmony-melodic-minor: #ff8cce;
+  --harmony-dorian: #b0cffe;
+  --harmony-phrygian: #6196fa;
+  --harmony-lydian: #f1e388;
+  --harmony-mixolydian: #926c40;
+  --harmony-locrian: #675fb0;
   --wheel-menu-pane-opacity: 0.45;
+  --harmony-cell-neutral-mix: 85%;
+  --harmony-cell-profile-mix: 15%;
 }
 /* The nine scale-mode colors share one palette across editor, timeline and
    wheel. Secondary-dominant V/x remains semantic/textual, not color-coded. */
@@ -4363,17 +4366,23 @@ html[data-theme='dark'] {
   white-space: nowrap;
   border: 0;
 }
-#sectionsContainer.is-degrees-on .chord-wrapper[data-harmony-profile]:not([data-harmony-profile='secondary-function'])::before {
-  content: '';
-  position: absolute;
-  z-index: 3;
-  top: 0.625rem;
-  bottom: 0.625rem;
-  left: 0.25rem;
-  width: 0.1875rem;
-  border-radius: 999px;
-  background: var(--harmony-profile-color, var(--color-accent));
-  pointer-events: none;
+/* Editor fills follow the active profile on hover; playback keeps its own warm
+   background and selected cells keep their independent box-shadow. */
+@supports (color: color-mix(in srgb, red 50%, blue)) {
+  #sectionsContainer.is-degrees-on .chord-wrapper[data-harmony-profile]:not([data-harmony-profile='secondary-function']):not(.playback-active) {
+    background-color: color-mix(
+      in srgb,
+      var(--color-surface) var(--harmony-cell-neutral-mix),
+      var(--harmony-profile-color, var(--color-accent)) var(--harmony-cell-profile-mix)
+    );
+  }
+  #sectionsContainer.is-degrees-on .chord-wrapper[data-harmony-profile]:not([data-harmony-profile='secondary-function']):not(.playback-active):hover {
+    background-color: color-mix(
+      in srgb,
+      var(--color-surface-hover) var(--harmony-cell-neutral-mix),
+      var(--harmony-profile-color, var(--color-accent)) var(--harmony-cell-profile-mix)
+    );
+  }
 }
 .square-inner.is-live-resizing {
   /* contain:layout style убран (0.116) — та же причина, что и у
@@ -11634,7 +11643,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.578</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.580</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -23033,7 +23042,7 @@ function getWheelHarmonyModeDetails(mode, key = null) {
     };
   }
   if (mode === 'ionian' && typeof key === 'string' && key.endsWith('m')) {
-    return { ...details, change: '♯III · ♯VI · ♯VII от нат. минора' };
+    return { ...details, change: 'Натуральный мажор · ♯III · ♯VI · ♯VII от нат. минора' };
   }
   return details;
 }
@@ -23317,9 +23326,9 @@ function updateCellsDegrees() {
   // Лента строит ступени при сборке ячеек (buildTimelineCell), поэтому
   // на переключение галки её нужно пересобрать — сама она не обновится.
   if (typeof timelineMode !== 'undefined' && timelineMode) renderTimeline();
-  // Цветовой маркер B-99 не зависит от переключателя ступеней, но та же
-  // точка уже вызывается после смены тональности и после полного рендера.
-  // Так все ячейки остаются синхронны с effective key своей секции.
+  // Заливка ячеек берётся из строгого harmony-profile и не зависит от
+  // индивидуальных переключателей ладов круга. Та же точка обновляет профиль
+  // после смены тональности и полного рендера по effective key секции.
   syncAllHarmonyPresentation();
   // Палитра ладов — настройка круга, поэтому при выключении общей галки
   // закрываем её и скрываем «?», а при включении возвращаем кнопку.

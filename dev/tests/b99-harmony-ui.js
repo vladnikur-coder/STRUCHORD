@@ -302,10 +302,9 @@ const minorLegendOrderAfterIonianUpdate = legendModeOrder();
 w.eval("globalKey = 'C'; applyWheelHarmonyModeVisibility();");
 const majorIonianChange = ionianLegendCheckbox?.closest('.wheel-harmony-mode-option')
   ?.querySelector('.wheel-harmony-mode-change')?.textContent || '';
-ok('Ionian legend details update by key while preserving the checkbox node and major wording',
-  minorIonianChange === '♯III · ♯VI · ♯VII от нат. минора' &&
-  /♯III · ♯VI · ♯VII от нат. минора/.test(minorIonianAria) &&
-  !/Натуральный мажор/.test(minorIonianAria) &&
+ok('Ionian legend details update by key: natural major in minor, natural-major alias in major',
+  minorIonianChange === 'Натуральный мажор · ♯III · ♯VI · ♯VII от нат. минора' &&
+  /Натуральный мажор · ♯III · ♯VI · ♯VII от нат\. минора/.test(minorIonianAria) &&
   minorLegendOrderAfterIonianUpdate.startsWith('aeolian,harmonic-minor') &&
   majorIonianChange === 'Натуральный мажор · без альтераций' &&
   d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="ionian"]') === ionianLegendCheckbox,
@@ -520,6 +519,15 @@ ok('F#m без модального профиля остаётся без до�
   `${visibleDegree('F#m') || 'без ступени'} / ${unprofiledCircleFsm?.getAttribute('aria-label') || 'без ARIA-пояснения'}`);
 
 const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
+ok('ячейки редактора получают 13/15% профильную заливку без левой цветной рейки',
+  /--harmony-cell-neutral-mix:\s*87%/.test(source) &&
+  /--harmony-cell-profile-mix:\s*13%/.test(source) &&
+  /--harmony-cell-neutral-mix:\s*85%/.test(source) &&
+  /--harmony-cell-profile-mix:\s*15%/.test(source) &&
+  /#sectionsContainer\.is-degrees-on \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\)\s*\{[\s\S]*?background-color:\s*color-mix\(/.test(source) &&
+  /#sectionsContainer\.is-degrees-on \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\):hover/.test(source) &&
+  !/#sectionsContainer\.is-degrees-on \.chord-wrapper\[data-harmony-profile\][^\n]*::before/.test(source),
+  'light: 13%, dark: 15%, fill-only; playback state preserved');
 ok('сектора имеют контрастный fallback без color-mix и усиленное смешение в современных браузерах',
   /fill: var\(--harmony-profile-color, var\(--color-accent\)\);/.test(source) &&
   /@supports \(color: color-mix\(in srgb, red 50%, blue\)\)/.test(source) &&

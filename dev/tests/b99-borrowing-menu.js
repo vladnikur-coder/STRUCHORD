@@ -39,9 +39,8 @@ ok('Am: D — параллельный Ionian перед IV мелодическ
   amD?.degree === 'IV' && amD?.modes.join(',') === 'ionian,melodic-minor,dorian,mixolydian',
   JSON.stringify(amD));
 const amDText = w.getBorrowingMenuText(amD);
-ok('текст меню минорной тональности поясняет Ionian ступенями от натурального минора',
-  amDText.includes('Ионийский (♯III · ♯VI · ♯VII от нат. минора)') &&
-  !amDText.includes('Натуральный мажор'), amDText);
+ok('текст меню минорной тональности зеркально поясняет Ionian как натуральный мажор',
+  amDText.includes('Ионийский (Натуральный мажор · ♯III · ♯VI · ♯VII от нат. минора)'), amDText);
 
 const amE = menu('E', 'Am');
 ok('Am: E — параллельный Ionian перед V гармонического/мелодического и V лидийского',
@@ -427,12 +426,12 @@ ok('aria-альтернатива сообщает ступень и все ла
   /дорийский/i.test(sector('D')?.getAttribute('aria-label') || ''),
   sector('D')?.getAttribute('aria-label') || '');
 const minorDTooltipText = sector('D')?.getAttribute('aria-label') || '';
-ok('минорная подсказка сортирует пояснения отдельно от pane-порядка и описывает Ionian от нат. минора',
+ok('минорная подсказка отдельно сортируется от pane-порядка и зеркально описывает Ionian как натуральный мажор',
   sector('D')?.dataset.wheelVisibleModes === 'dorian,melodic-minor,ionian,mixolydian' &&
   minorDTooltipText.indexOf('Дорийский') < minorDTooltipText.indexOf('Мелодический минор') &&
   minorDTooltipText.indexOf('Мелодический минор') < minorDTooltipText.indexOf('Ионийский') &&
   minorDTooltipText.indexOf('Ионийский') < minorDTooltipText.indexOf('Миксолидийский') &&
-  minorDTooltipText.includes('♯III · ♯VI · ♯VII от нат. минора') &&
+  minorDTooltipText.includes('Натуральный мажор · ♯III · ♯VI · ♯VII от нат. минора') &&
   wedgeModes('D').join(',') === 'ionian,melodic-minor,dorian,mixolydian',
   JSON.stringify({ visible: sector('D')?.dataset.wheelVisibleModes, pane: wedgeModes('D'), text: minorDTooltipText }));
 ok('title-подсказка сектора дублирует меню для наведения мышью',
@@ -604,11 +603,10 @@ const legend = d.getElementById('wheelHarmonyLegend');
 const modeInputs = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
 const ionianModeInput = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="ionian"]');
 const aeolianModeInput = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="aeolian"]');
-ok('легенда компактно показывает все лады и контекстные изменения; минорный Ionian описан от натурального минора',
+ok('легенда компактно показывает все лады; minor Ionian зеркально описан как натуральный мажор',
   !legend?.hidden && modeInputs.length === 9 &&
   /Ионийский/.test(legend?.textContent || '') &&
-  !/Натуральный мажор/.test(ionianModeInput?.getAttribute('aria-label') || '') &&
-  /♯III · ♯VI · ♯VII от нат\. минора/.test(ionianModeInput?.getAttribute('aria-label') || '') &&
+  /Натуральный мажор · ♯III · ♯VI · ♯VII от нат\. минора/.test(ionianModeInput?.getAttribute('aria-label') || '') &&
   /Эолийский/.test(legend?.textContent || '') && /Натуральный минор/.test(legend?.textContent || '') &&
   /Натуральный минор/.test(aeolianModeInput?.getAttribute('aria-label') || '') &&
   /♯VII/.test(legend?.textContent || '') && /♯VI/.test(legend?.textContent || '') &&
@@ -620,10 +618,10 @@ const modeChangeDescription = (id) => d.querySelector(
   `#wheelHarmonyModeList [data-wheel-harmony-mode="${id}"]`
 )?.closest('.wheel-harmony-mode-option')?.querySelector('.wheel-harmony-mode-change');
 const modeReference = (id, tone) => modeChangeDescription(id)?.querySelector(`.wheel-harmony-reference-${tone}`);
-ok('в минорном контексте Ionian помечен повышениями от натурального минора',
-  modeChangeDescription('ionian')?.textContent === '♯III · ♯VI · ♯VII от нат. минора' &&
-  modeReference('ionian', 'minor')?.textContent === 'минора' &&
-  !modeReference('ionian', 'major'),
+ok('в минорном контексте Ionian объяснён как натуральный мажор с альтерациями от натурального минора',
+  modeChangeDescription('ionian')?.textContent === 'Натуральный мажор · ♯III · ♯VI · ♯VII от нат. минора' &&
+  modeReference('ionian', 'major')?.textContent === 'мажор' &&
+  modeReference('ionian', 'minor')?.textContent === 'минора',
   modeChangeDescription('ionian')?.outerHTML || '');
 w.eval("globalKey = 'C'; applyWheelHarmonyModeVisibility();");
 ok('в мажорном контексте Ionian остаётся натуральным мажором без альтераций',
