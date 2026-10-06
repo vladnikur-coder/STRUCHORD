@@ -1,7 +1,7 @@
 #!/usr/bin/env node
-// B-99: меню кандидатов на круге. В режиме трезвучий показываются ступень,
-// все подходящие ладовые профили, возможная вторичная функция и нейтральное
-// «вне орбиты» для оставшихся аккордов. Это НЕ анализ прогрессии.
+// B-99: меню кандидатов на круге. В режиме трезвучий показываются подходящие
+// ладовые профили и возможная вторичная функция; изменённые ступени следуют
+// соответствующим цветовым флажкам. Это НЕ анализ прогрессии.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -94,8 +94,9 @@ ok('поясняющие подписи сортируются по контек
   JSON.stringify({ minorDisplayText, majorDisplayText, paneSourceOrder: amTonic.modes, amDSourceOrder: amD.modes }));
 
 const amFm = menu('Fm', 'Am');
-ok('Am: Fm без ладового профиля и вторичной функции отмечен как «вне орбиты»',
-  amFm?.modes.length === 0 && !amFm?.secondaryFunction && amFm?.outsideOrbit && amFm?.degree === 'vi',
+ok('Am: Fm не получает искусственный ладовой профиль или вторичную функцию',
+  amFm?.modes.length === 0 && !amFm?.secondaryFunction && amFm?.degree === 'vi' &&
+  !Object.hasOwn(amFm || {}, 'outsideOrbit'),
   JSON.stringify(amFm));
 
 const amGdim = menu('G#dim', 'Am');
@@ -128,15 +129,59 @@ const cSecondaryMenus = ['A', 'E', 'B'].map((chord) => menu(chord, 'C'));
 const cDSecondaryMenu = menu('D', 'C');
 ok('C: A/E/B получают возможные V/ii, V/vi, V/iii, а D одновременно Lydian II и V/V',
   cSecondaryMenus.map((item) => item?.secondaryFunction).join(',') === 'V/ii,V/vi,V/iii' &&
-  cSecondaryMenus.every((item) => item?.modes.length === 0 && !item?.outsideOrbit) &&
+  cSecondaryMenus.every((item) => item?.modes.length === 0 && !Object.hasOwn(item, 'outsideOrbit')) &&
   cDSecondaryMenu?.degree === 'II' && cDSecondaryMenu?.modes.includes('lydian') &&
-  cDSecondaryMenu?.secondaryFunction === 'V/V' && !cDSecondaryMenu?.outsideOrbit,
+  cDSecondaryMenu?.secondaryFunction === 'V/V' && !Object.hasOwn(cDSecondaryMenu || {}, 'outsideOrbit'),
   JSON.stringify({ cSecondaryMenus, cDSecondaryMenu }));
-const cOutsideOrbit = ['F#m', 'C#m', 'G#m'].map((chord) => menu(chord, 'C'));
-ok('C: F#m/C#m/G#m остаются без цвета, но получают ступень и отметку «вне орбиты»',
-  cOutsideOrbit.every((item) => item?.modes.length === 0 && !item?.secondaryFunction &&
-    item?.outsideOrbit && !!item?.degree),
-  JSON.stringify(cOutsideOrbit));
+const cDSecondaryText = w.getBorrowingMenuText(cDSecondaryMenu);
+const cPreviousVisibilityState = w.eval(`({
+  loaded: wheelHarmonyModeVisibilityLoaded,
+  disabled: [...wheelHarmonyDisabledModes],
+})`);
+w.eval(`
+  wheelHarmonyModeVisibilityLoaded = true;
+  wheelHarmonyDisabledModes = new Set(Object.keys(HARMONY_MODE_PROFILES));
+`);
+const cDSecondaryTextWithPaletteOff = w.getBorrowingMenuText(cDSecondaryMenu);
+w.eval(`
+  wheelHarmonyModeVisibilityLoaded = ${JSON.stringify(cPreviousVisibilityState.loaded)};
+  wheelHarmonyDisabledModes = new Set(${JSON.stringify(cPreviousVisibilityState.disabled)});
+`);
+ok('getBorrowingMenuText описывает полный набор кандидатов независимо от видимости palette',
+  cDSecondaryTextWithPaletteOff === cDSecondaryText &&
+  /ступень II/.test(cDSecondaryTextWithPaletteOff) && /лидийский/.test(cDSecondaryTextWithPaletteOff) &&
+  /V\/V/.test(cDSecondaryTextWithPaletteOff), cDSecondaryTextWithPaletteOff);
+const cUnprofiled = ['F#m', 'C#m', 'G#m'].map((chord) => menu(chord, 'C'));
+ok('C: F#m/C#m/G#m не получают искусственных ладовых кандидатов или функций',
+  cUnprofiled.every((item) => item?.modes.length === 0 && !item?.secondaryFunction &&
+    !!item?.degree && !Object.hasOwn(item, 'outsideOrbit')),
+  JSON.stringify(cUnprofiled));
+const degreeVisibility = w.eval(`(() => {
+  const shown = (chord, key, enabled) => {
+    const profile = getBorrowingMenuProfile(chord, key);
+    return getWheelBorrowingDisplayDegree(profile, getScaleDegree(chord, key), enabled);
+  };
+  return {
+    baseWithoutColor: shown('C', 'C', []),
+    lydianOn: shown('D', 'C', ['lydian']),
+    lydianOff: shown('D', 'C', []),
+    functionWithoutMode: shown('A', 'C', []),
+    unprofiledWithoutMode: shown('F#m', 'C', []),
+    aeolianOn: shown('Bb', 'C', ['aeolian']),
+    aeolianOff: shown('Bb', 'C', []),
+  };
+})()`);
+ok('базовая ступень сохраняется; параллельная/альтерированная видна только с соответствующей подсветкой',
+  degreeVisibility.baseWithoutColor === 'I' && degreeVisibility.lydianOn === 'II' &&
+  degreeVisibility.lydianOff === '' && degreeVisibility.functionWithoutMode === '' &&
+  degreeVisibility.unprofiledWithoutMode === '' && degreeVisibility.aeolianOn === '♭VII' &&
+  degreeVisibility.aeolianOff === '', JSON.stringify(degreeVisibility));
+const cFunctionAccessible = w.getWheelBorrowingAccessibleText(menu('A', 'C'), []);
+const cUnprofiledAccessible = w.getWheelBorrowingAccessibleText(menu('F#m', 'C'), []);
+ok('ARIA не показывает ступень без соответствующего цвета; функция остаётся текстом, неразобранный сектор — без пояснения',
+  !/ступень VI/.test(cFunctionAccessible) && /возможная вторичная доминанта V\/ii/i.test(cFunctionAccessible) &&
+  cUnprofiledAccessible === '',
+  JSON.stringify({ cFunctionAccessible, cUnprofiledAccessible }));
 const cSecondaryAccessible = w.getWheelBorrowingAccessibleText(menu('A', 'C'));
 ok('текст кандидата называет возможную функцию и не выдаёт её за уже звучащую',
   /возможная вторичная доминанта V\/ii/i.test(cSecondaryAccessible) &&
@@ -148,7 +193,8 @@ ok('в минорных ключах возможные функции ищут 
   amPossibleFunctions.map((item) => item?.secondaryFunction).join(',') === 'V/ii,V/vi,V/iii' &&
   emPossibleFunctions.map((item) => item?.secondaryFunction).join(',') === 'V/ii,V/iii,V/vi' &&
   [...amPossibleFunctions, ...emPossibleFunctions].every((item) =>
-    item?.secondaryFunctionMode === 'ionian' && item?.modes.length === 0 && !item?.outsideOrbit) &&
+    item?.secondaryFunctionMode === 'ionian' && item?.modes.length === 0 &&
+    !Object.hasOwn(item, 'outsideOrbit')) &&
   /в контексте параллельного натурального мажора/.test(amFunctionAccessible),
   JSON.stringify({ amPossibleFunctions, emPossibleFunctions, amFunctionAccessible }));
 
@@ -169,16 +215,16 @@ const CHROMATIC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', '
 // Regression sweep: all 12 major + 12 minor triads in four representative
 // major/minor tonalities, under full-palette states (base mode on/off). No
 // profile may create a sixth pane, duplicate a color, or layer alternatives
-// over an enabled natural base; each key should have three true out-of-orbit
-// minor triads after the secondary-function layer is considered.
+// over an enabled natural base. The unprofiled minor triads remain neutral;
+// they do not get an extra classification or degree label.
 const wheelAuditKeys = ['C', 'Am', 'G', 'Em'];
-const expectedOutsideOrbitByKey = {
+const expectedUnprofiledByKey = {
   C: ['C#m', 'F#m', 'G#m'],
-  Am: null,
-  G: null,
-  Em: null,
+  Am: ['D#m', 'Fm', 'A#m'],
+  G: ['C#m', 'D#m', 'G#m'],
+  Em: ['Cm', 'Fm', 'A#m'],
 };
-const outsideOrbitByKey = new Map();
+const unprofiledByKey = new Map();
 const paneAuditErrors = [];
 let maxPaneFields = 0;
 let maxCandidateModes = 0;
@@ -213,14 +259,13 @@ for (const key of wheelAuditKeys) {
         maxPaneFields = Math.max(maxPaneFields, panes.length);
         maxCandidateModes = Math.max(maxCandidateModes, profile?.modes.length || 0);
         if (paletteState.name === 'all-enabled' && profile) {
-          if (profile.outsideOrbit) {
-            const chords = outsideOrbitByKey.get(key) || [];
+          if (profile.modes.length === 0 && !profile.secondaryFunction) {
+            const chords = unprofiledByKey.get(key) || [];
             chords.push(chord);
-            outsideOrbitByKey.set(key, chords);
+            unprofiledByKey.set(key, chords);
           }
-          const expectedOutside = profile.modes.length === 0 && !profile.secondaryFunction;
-          if (profile.outsideOrbit !== expectedOutside) {
-            paneAuditErrors.push(`${chord} in ${key}: inconsistent outside-orbit status`);
+          if (Object.hasOwn(profile, 'outsideOrbit')) {
+            paneAuditErrors.push(`${chord} in ${key}: obsolete outside-orbit state remains`);
           }
         }
         if (profile && new Set(profile.modes).size !== profile.modes.length) {
@@ -246,21 +291,20 @@ for (const key of wheelAuditKeys) {
     });
   }
 }
-const outsideOrbitSummary = Object.fromEntries(wheelAuditKeys.map((key) => [
+const unprofiledSummary = Object.fromEntries(wheelAuditKeys.map((key) => [
   key,
-  outsideOrbitByKey.get(key) || [],
+  unprofiledByKey.get(key) || [],
 ]));
 for (const key of wheelAuditKeys) {
-  const outside = outsideOrbitSummary[key];
-  const expected = expectedOutsideOrbitByKey[key];
-  const valid = expected
-    ? outside.join(',') === expected.join(',')
-    : outside.length === 3 && outside.every((chord) => chord.endsWith('m'));
-  if (!valid) paneAuditErrors.push(`${key}: unexpected outside-orbit candidates ${outside.join(',')}`);
+  const unprofiled = unprofiledSummary[key];
+  const expected = expectedUnprofiledByKey[key];
+  if (unprofiled.join(',') !== expected.join(',')) {
+    paneAuditErrors.push(`${key}: unexpected unprofiled candidates ${unprofiled.join(',')}`);
+  }
 }
-ok('все 24 трезвучия в C/Am/G/Em: максимум 5 pane-полей; три минорных аккорда вне орбиты; без двойной натуральной заливки',
+ok('все 24 трезвучия в C/Am/G/Em: максимум 5 pane-полей; неразобранные аккорды без профиля/классификатора',
   paneAuditErrors.length === 0 && maxPaneFields <= 5 && maxCandidateModes <= 5,
-  JSON.stringify({ keys: wheelAuditKeys, outsideOrbit: outsideOrbitSummary, maxPaneFields, maxCandidateModes, errors: paneAuditErrors.slice(0, 5) }));
+  JSON.stringify({ keys: wheelAuditKeys, unprofiled: unprofiledSummary, maxPaneFields, maxCandidateModes, errors: paneAuditErrors.slice(0, 5) }));
 
 for (const key of stabilityKeys) {
   for (const root of CHROMATIC) {
@@ -301,6 +345,9 @@ const wedgeModes = (identity) =>
   [...d.querySelectorAll(`#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="${identity}"] .wheel-mode-pane`)]
     .map((w) => w.dataset.mode);
 const degreeTexts = () => [...d.querySelectorAll('#circleSvg .wheel-degree-label')].map((t) => t.textContent);
+const visibleDegreeOf = (identity) => d.querySelector(
+  `#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-degree-label`
+)?.textContent || '';
 
 const naturalMinorCorePaneModes = ['Am', 'C', 'Dm', 'Em', 'F', 'G'].map((identity) => wedgeModes(identity).join(','));
 const naturalMinorDimPaneModes = w.eval("getWheelMenuPaneModes(getBorrowingMenuProfile('Bdim', 'Am')).join(',')");
@@ -384,11 +431,12 @@ ok('минорная подсказка сортирует пояснения о
 ok('title-подсказка сектора дублирует меню для наведения мышью',
   /гармонический минор/i.test(sector('E')?.querySelector('title')?.textContent || ''),
   sector('E')?.querySelector('title')?.textContent || '');
-ok('Fm без ладового поля получает нейтральную подпись «вне орбиты» и текстовую альтернативу',
-  !diagramOf('Fm') && sector('Fm')?.dataset.wheelOutsideOrbit === 'true' &&
-  /вне орбиты/i.test(sector('Fm')?.getAttribute('aria-label') || '') &&
-  !sector('Fm')?.dataset.harmonyProfile,
-  `diagram=${!!diagramOf('Fm')}, outside=${sector('Fm')?.dataset.wheelOutsideOrbit}, profile=${sector('Fm')?.dataset.harmonyProfile || '—'}, aria=${sector('Fm')?.getAttribute('aria-label')}`);
+ok('Fm без ладового профиля не получает дополнительную подпись, ступень или pane',
+  !diagramOf('Fm') && !visibleDegreeOf('Fm') &&
+  !sector('Fm')?.hasAttribute('aria-label') && !sector('Fm')?.querySelector('title') &&
+  !sector('Fm')?.dataset.harmonyProfile && !sector('Fm')?.dataset.wheelOutsideOrbit &&
+  !d.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="Fm"] .wheel-outside-orbit-label'),
+  `diagram=${!!diagramOf('Fm')}, degree=${visibleDegreeOf('Fm') || '—'}, aria=${sector('Fm')?.getAttribute('aria-label') || '—'}`);
 
 // ===== 4. Гейт настройкой «Ступени и цвета круга» =====
 w.eval("document.getElementById('showDegrees').checked = false; updateCellsDegrees();");

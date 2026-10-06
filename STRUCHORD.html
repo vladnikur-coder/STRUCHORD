@@ -4313,10 +4313,10 @@ body.is-zooming .squares-list {
 }
 
 /* B-99 — редактор и лента окрашивают только подтверждённые ладовые профили;
-   круг-трезвучия показывает кандидатные модальные профили. Вторичная функция
-   и «вне орбиты» остаются нейтральными текстовыми пояснениями, не цветами.
-   Маркер живёт отдельным псевдослоем, поэтому не меняет размеры сетки,
-   не заслоняет текст и не спорит с более сильной accent-обводкой выбора. */
+   круг-трезвучия показывает кандидатные модальные профили. Возможная функция
+   V/x — нейтральная текстовая подпись, не цветовой профиль. Ступень
+   параллельного/альтерированного кандидата видна только при его подсветке.
+   Маркер отдельным слоем не меняет размеры сетки и не спорит с selection. */
 :root {
   --harmony-ionian: #c27032;
   --harmony-aeolian: #258fa5;
@@ -5505,8 +5505,7 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
 /* Поясняющие подписи — не отдельные кнопки: клик проходит через них к
    сектору и выбирает тот же аккорд. */
 #circleSvg .wheel-degree-label,
-#circleSvg .wheel-secondary-function-label,
-#circleSvg .wheel-outside-orbit-label {
+#circleSvg .wheel-secondary-function-label {
   pointer-events: none;
 }
 /* B-40 visual pass: кольцо — не шкала с линиями, а ряд мягких
@@ -11639,7 +11638,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.576</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.577</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22538,7 +22537,6 @@ function getBorrowingMenuProfile(chord, key) {
     secondaryFunction: secondary?.label || '',
     secondaryTargetDegree: secondary?.targetDegree || '',
     secondaryFunctionMode: secondary?.mode || '',
-    outsideOrbit: modes.length === 0 && !secondary,
   };
 }
 // Ступень меню считается от позиции аккорда внутри содержащего лада, а не от
@@ -22603,20 +22601,15 @@ function getBorrowingMenuText(menu) {
   const functionText = menu.secondaryFunction
     ? `; возможная вторичная доминанта ${menu.secondaryFunction}${functionContext ? ` ${functionContext}` : ''} (ведёт к ${menu.secondaryTargetDegree})`
     : '';
-  const orbitText = menu.outsideOrbit
-    ? '; вне орбиты ладовых профилей и вторичных доминант'
-    : '';
-  return `${menu.chord}: ${degreeText}${modeText}${functionText}${orbitText}`;
+  return `${menu.chord}: ${degreeText}${modeText}${functionText}`;
 }
 function getWheelBorrowingDisplayDegree(menu, baseDegree = '', enabledModes = null) {
-  // Обычная ступень своей тональности остаётся видимой независимо от
-  // палитры. В меню возможная функция и «вне орбиты» тоже являются полезным
-  // текстовым ответом и сохраняют функциональную ступень даже без цвета.
+  // Базовые ступени натуральной тональности остаются видны. Параллельные и
+  // альтерированные ступени появляются только вместе с включённой
+  // ладовой подсветкой, которая обосновывает этот вариант. Функция V/x сама
+  // по себе цветом/ладом не является и не открывает ступень.
   if (baseDegree) return baseDegree;
   if (!menu?.degree) return '';
-  if (menu.secondaryFunction || menu.outsideOrbit) return menu.degree;
-  // Прочие параллельные/альтерированные ступени следуют только включённым
-  // кандидатным профилям, сохраняя прежнее поведение переключателей.
   const visibleModes = enabledModes || getEnabledWheelHarmonyModes(menu.modes);
   return visibleModes.length ? menu.degree : '';
 }
@@ -22637,15 +22630,15 @@ function getWheelBorrowingAccessibleText(menu, modes) {
     ? `Возможная вторичная доминанта ${menu.secondaryFunction}${functionContext ? ` ${functionContext}` : ''}: может вести к ${menu.secondaryTargetDegree}.`
     : '';
   if (!visibleModes.length) {
-    if (menu.outsideOrbit) {
-      return `${menu.chord}: ${degreeContext}. Вне орбиты доступных ладовых профилей и вторичных доминант.`;
-    }
     if (menu.secondaryFunction) {
       const colorNote = menu.modes?.length
         ? 'Ладовые цветовые профили выключены.'
         : 'Совместимого ладового цветового профиля нет.';
       return `${menu.chord}: ${degreeContext}. ${functionText} ${colorNote}`;
     }
+    // Не маркируем и не описываем сектор, которому нечем обосновать ни
+    // цвет, ни изменённую ступень. У базовой ступени остаётся обычный aria.
+    if (!menu.modes?.length && !displayDegree) return '';
     return `${menu.chord}: ${degreeContext}; подсветки подходящих ладов выключены.`;
   }
   const details = visibleModes.map((mode) => {
@@ -22670,7 +22663,6 @@ function syncWheelBorrowingMenuAccessibility(sector) {
     secondaryFunction: sector.dataset.wheelSecondaryFunction || '',
     secondaryTargetDegree: sector.dataset.wheelSecondaryTargetDegree || '',
     secondaryFunctionMode: sector.dataset.wheelSecondaryFunctionMode || '',
-    outsideOrbit: sector.dataset.wheelOutsideOrbit === 'true',
   };
   const text = getWheelBorrowingAccessibleText(menu, modes);
   if (isHarmonyPresentationEnabled() && text) sector.setAttribute('aria-label', text);
@@ -22700,7 +22692,6 @@ function applyWheelBorrowingMenu(node, menu, { isSector = false } = {}) {
     delete node.dataset.wheelSecondaryFunction;
     delete node.dataset.wheelSecondaryTargetDegree;
     delete node.dataset.wheelSecondaryFunctionMode;
-    delete node.dataset.wheelOutsideOrbit;
     if (isSector) {
       node.removeAttribute('aria-label');
       node.querySelector('title')?.remove();
@@ -22715,7 +22706,6 @@ function applyWheelBorrowingMenu(node, menu, { isSector = false } = {}) {
   node.dataset.wheelSecondaryFunction = menu.secondaryFunction || '';
   node.dataset.wheelSecondaryTargetDegree = menu.secondaryTargetDegree || '';
   node.dataset.wheelSecondaryFunctionMode = menu.secondaryFunctionMode || '';
-  node.dataset.wheelOutsideOrbit = String(!!menu.outsideOrbit);
   node.dataset.wheelVisibleModes = getWheelHarmonyOrderedModes(
     getEnabledWheelHarmonyModes(menu.modes),
     menu.key
@@ -22727,9 +22717,10 @@ window.getBorrowingMenuProfile = getBorrowingMenuProfile;
 window.getBorrowingMenuText = getBorrowingMenuText;
 // Круг — щедрая палитра кандидатов для сочинения, а редактор и лента остаются
 // строгим разбором уже звучащей песни. Ладовые цвета привязаны к реальным
-// профилям; вторичная функция и «вне орбиты» — отдельные нейтральные подписи,
-// не цветовые профили. Поэтому Fm при Am получает «вне орбиты», а не
-// эолийский цвет: в A-эолийском VI — F, а не Fm.
+// профилям; возможная вторичная функция — нейтральная подпись, не цветовой
+// профиль. Параллельные/альтерированные ступени видны только при включённой
+// соответствующей ладовой подсветке. Fm при Am остаётся без модального цвета
+// и без дополнительной классифицирующей подписи: A-eolian VI — F, а не Fm.
 function detectClearModalContext(chords, key) {
   const baseMode = getHarmonyBaseMode(key);
   const base = HARMONY_MODE_PROFILES[baseMode];
@@ -33338,20 +33329,18 @@ function appendWheelDegreeToChordGroup(group, degree, localY, selected) {
   return dt;
 }
 function appendWheelMenuAnnotation(group, menu, selected) {
-  if (!group || !menu) return null;
-  const label = menu.secondaryFunction || (menu.outsideOrbit ? 'вне орбиты' : '');
-  if (!label) return null;
+  if (!group || !menu?.secondaryFunction) return null;
   const annotation = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  annotation.classList.add(menu.secondaryFunction ? 'wheel-secondary-function-label' : 'wheel-outside-orbit-label');
+  annotation.classList.add('wheel-secondary-function-label');
   annotation.setAttribute('x', group.dataset.wheelLabelCenterX || '0');
   annotation.setAttribute('y', '23');
   annotation.setAttribute('text-anchor', 'middle');
   annotation.setAttribute('dominant-baseline', 'middle');
-  annotation.setAttribute('font-size', menu.secondaryFunction ? '12' : '10.5');
+  annotation.setAttribute('font-size', '12');
   annotation.setAttribute('font-weight', '650');
   annotation.setAttribute('fill', 'var(--wheel-degree-text)');
   annotation.setAttribute('aria-hidden', 'true');
-  annotation.textContent = label;
+  annotation.textContent = menu.secondaryFunction;
   annotation.classList.toggle('is-wheel-selected', !!selected);
   group.appendChild(annotation);
   return annotation;
@@ -34410,12 +34399,23 @@ function updateWheelHarmonyHoverTooltip(sector, event) {
   const tooltip = document.getElementById('wheelHarmonyHoverTooltip');
   const modes = getWheelHarmonyHoverModes(sector);
   const key = sector?.dataset?.wheelKey || activeSectionKey || getEffectiveKey();
+  const chord = sector?.dataset?.wheelChord || sector?.dataset?.wheelChordIdentity || '';
   const secondaryFunction = sector?.dataset?.wheelSecondaryFunction || '';
   const secondaryTargetDegree = sector?.dataset?.wheelSecondaryTargetDegree || '';
   const secondaryFunctionMode = sector?.dataset?.wheelSecondaryFunctionMode || '';
   const functionContext = getBorrowingMenuSecondaryContext({ key, secondaryFunctionMode });
-  const outsideOrbit = sector?.dataset?.wheelOutsideOrbit === 'true';
-  const hasMenuExplanation = modes.length > 0 || !!secondaryFunction || outsideOrbit;
+  const isMenuPresentation = sector?.dataset?.wheelModePresentation === 'menu';
+  const rawDegree = sector?.dataset?.wheelDegree || '';
+  const degree = isMenuPresentation
+    ? getWheelBorrowingDisplayDegree({
+      chord,
+      key,
+      degree: rawDegree,
+      modes: (sector?.dataset?.wheelModes || '').split(',').filter(Boolean),
+      secondaryFunction,
+    }, getScaleDegree(chord, key), modes)
+    : rawDegree;
+  const hasMenuExplanation = modes.length > 0 || !!secondaryFunction;
   if (
     !tooltip || !sector || !event || event.pointerType === 'touch' ||
     !DOM.chordWheelModal?.classList.contains('is-harmony-highlights-on') || !hasMenuExplanation
@@ -34432,8 +34432,6 @@ function updateWheelHarmonyHoverTooltip(sector, event) {
       title.remove();
     }
     wheelHarmonyHoverSector = sector;
-    const chord = sector.dataset.wheelChord || sector.dataset.wheelChordIdentity || '';
-    const degree = sector.dataset.wheelDegree || '';
     const heading = document.createElement('div');
     heading.className = 'wheel-harmony-hover-heading';
     const chordName = document.createElement('strong');
@@ -34443,8 +34441,7 @@ function updateWheelHarmonyHoverTooltip(sector, event) {
     context.className = 'wheel-harmony-hover-context';
     const degreeLabel = /^V\//.test(degree) ? `Функция ${degree}` : degree ? `Ступень ${degree}` : '';
     const functionLabel = secondaryFunction ? `возможная функция ${secondaryFunction}` : '';
-    const orbitLabel = outsideOrbit ? 'вне орбиты' : '';
-    context.textContent = [degreeLabel, functionLabel, orbitLabel, key].filter(Boolean).join(' · ');
+    context.textContent = [degreeLabel, functionLabel, key].filter(Boolean).join(' · ');
     heading.append(chordName, context);
     const list = document.createElement('div');
     list.className = 'wheel-harmony-hover-modes';
@@ -34476,12 +34473,6 @@ function updateWheelHarmonyHoverTooltip(sector, event) {
       const note = document.createElement('div');
       note.className = 'wheel-harmony-hover-note';
       note.textContent = `Возможная вторичная доминанта ${secondaryFunction}${functionContext ? ` ${functionContext}` : ''}: может вести к ${secondaryTargetDegree}.`;
-      list.appendChild(note);
-    }
-    if (outsideOrbit) {
-      const note = document.createElement('div');
-      note.className = 'wheel-harmony-hover-note';
-      note.textContent = 'Вне орбиты ладовых профилей и вторичных доминант.';
       list.appendChild(note);
     }
     tooltip.replaceChildren(heading, list);
@@ -34935,9 +34926,9 @@ function drawWheel({ crossfadeLabels = false } = {}) {
         imid = mid_deg !== '';
       const majorHarmony = analyzeWheelCandidate(vm);
       const minorHarmony = analyzeWheelCandidate(vmi);
-      // Меню заимствований: ступень известна каждому сектору, у которого
-      // есть хотя бы один лад в этой тональности — в том числе хроматическому
-      // (Bb в Am честно подписывается ♭II, а не остаётся безымянным).
+      // Базовые ступени остаются видны всегда; ступени параллельных и
+      // альтерированных кандидатов включаются только вместе с подходящей
+      // подсветкой (например, ♭II у Bb в Am — при включённом Phrygian).
       const majorMenu = menuMode ? getBorrowingMenuProfile(vm, sk) : null;
       const minorMenu = menuMode ? getBorrowingMenuProfile(vmi, sk) : null;
       const mdShown = menuMode ? getWheelBorrowingDisplayDegree(majorMenu, md) : md;
@@ -35944,7 +35935,6 @@ function refreshWheelHarmonyPresentation() {
     delete node.dataset.wheelSecondaryFunction;
     delete node.dataset.wheelSecondaryTargetDegree;
     delete node.dataset.wheelSecondaryFunctionMode;
-    delete node.dataset.wheelOutsideOrbit;
     const analysis = analyzeWheelCandidate(node.dataset.wheelChordIdentity);
     const profile = getHarmonyPresentationProfile(analysis);
     if (analysis.group === HARMONY_GROUP.UNKNOWN || !profile) {

@@ -596,19 +596,19 @@ function ok(name, condition, detail = '') {
       return {
         highlightsOn: document.getElementById('chordWheelModal').classList.contains('is-harmony-highlights-on'),
         candidateModes: candidateFm?.dataset.wheelModes || '',
-        candidateOutsideOrbit: candidateFm?.dataset.wheelOutsideOrbit || '',
         candidateProfile: candidateFm?.dataset.harmonyProfile || '',
         candidateAria: candidateFm?.getAttribute('aria-label') || '',
+        candidateDegree: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="Fm"] .wheel-degree-label')?.textContent || '',
         candidateBadge: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="Fm"] .wheel-outside-orbit-label')?.textContent || '',
         ownerModes: ownerFm?.dataset.wheelModes || '',
         ownerSelected: ownerFm?.classList.contains('is-wheel-selected'),
         legendCurrentAbsent: !document.getElementById('wheelHarmonyLegendCurrent'),
       };
     });
-    ok('круг оставляет Fm без ладовой окраски, но помечает candidate «вне орбиты»; owner selection сохраняется',
+    ok('круг не добавляет Fm искусственный профиль, ступень или текст; owner selection сохраняется',
       strictWheel.highlightsOn && strictWheel.candidateModes === '' && strictWheel.ownerModes === '' &&
-      strictWheel.candidateOutsideOrbit === 'true' && !strictWheel.candidateProfile &&
-      /вне орбиты/i.test(strictWheel.candidateAria) && strictWheel.candidateBadge === 'вне орбиты' &&
+      !strictWheel.candidateProfile && strictWheel.candidateAria === '' &&
+      strictWheel.candidateDegree === '' && strictWheel.candidateBadge === '' &&
       strictWheel.ownerSelected && strictWheel.legendCurrentAbsent,
       JSON.stringify(strictWheel));
     ok('выключенные «Ступени» не показывают B-99 marker',
@@ -847,10 +847,10 @@ function ok(name, condition, detail = '') {
           identity,
           modes: sector.dataset.wheelModes || '',
           function: sector.dataset.wheelSecondaryFunction || '',
-          outsideOrbit: sector.dataset.wheelOutsideOrbit || '',
           profile: sector.dataset.harmonyProfile || '',
           degree: document.querySelector(`#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-degree-label`)?.textContent || '',
-          annotation: document.querySelector(`#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-secondary-function-label, #circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-outside-orbit-label`)?.textContent || '',
+          annotation: document.querySelector(`#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-secondary-function-label`)?.textContent || '',
+          hoverContext: tooltip.querySelector('.wheel-harmony-hover-context')?.textContent || '',
           paneCount: document.querySelector(`#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="${identity}"]`)?.dataset.paneCount || '0',
           aria: sector.getAttribute('aria-label') || '',
           tooltipVisible: !tooltip.hidden,
@@ -858,19 +858,30 @@ function ok(name, condition, detail = '') {
         };
       };
       const possibleVii = hover('A');
-      const outside = hover('F#m');
+      const unprofiled = hover('F#m');
+      wheelHarmonyDisabledModes = new Set(['lydian']);
+      drawWheel();
+      const possibleVvWithoutLydian = hover('D');
+      wheelHarmonyDisabledModes = new Set();
+      drawWheel();
       clearWheelHover();
-      return { possibleVii, outside };
+      return { possibleVii, unprofiled, possibleVvWithoutLydian };
     });
-    ok('кандидат V/ii и «вне орбиты» доступны в tooltip/ARIA без ладового цвета и без mode pane',
+    ok('V/ii остаётся текстовой функцией без ступени; F#m без профиля не получает tooltip/метку',
       menuAnnotations.possibleVii.modes === '' && menuAnnotations.possibleVii.function === 'V/ii' &&
-      menuAnnotations.possibleVii.degree === 'VI' && menuAnnotations.possibleVii.annotation === 'V/ii' &&
-      menuAnnotations.possibleVii.paneCount === '0' && !menuAnnotations.possibleVii.profile && menuAnnotations.possibleVii.tooltipVisible &&
+      menuAnnotations.possibleVii.degree === '' && !/ступень VI/.test(menuAnnotations.possibleVii.aria) &&
+      menuAnnotations.possibleVii.annotation === 'V/ii' && menuAnnotations.possibleVii.paneCount === '0' &&
+      !menuAnnotations.possibleVii.profile && menuAnnotations.possibleVii.tooltipVisible &&
       /может вести к ii/.test(menuAnnotations.possibleVii.tooltipNote) &&
-      menuAnnotations.outside.outsideOrbit === 'true' && menuAnnotations.outside.degree === '#iv' &&
-      menuAnnotations.outside.annotation === 'вне орбиты' && menuAnnotations.outside.paneCount === '0' &&
-      !menuAnnotations.outside.profile && menuAnnotations.outside.tooltipVisible &&
-      /вне орбиты/i.test(menuAnnotations.outside.tooltipNote),
+      menuAnnotations.unprofiled.degree === '' && menuAnnotations.unprofiled.annotation === '' &&
+      menuAnnotations.unprofiled.paneCount === '0' && !menuAnnotations.unprofiled.profile &&
+      !menuAnnotations.unprofiled.aria && !menuAnnotations.unprofiled.tooltipVisible &&
+      !menuAnnotations.unprofiled.tooltipNote &&
+      menuAnnotations.possibleVvWithoutLydian.degree === '' &&
+      menuAnnotations.possibleVvWithoutLydian.annotation === 'V/V' &&
+      !/ступень II/.test(menuAnnotations.possibleVvWithoutLydian.aria) &&
+      menuAnnotations.possibleVvWithoutLydian.tooltipVisible &&
+      /может вести к V/.test(menuAnnotations.possibleVvWithoutLydian.tooltipNote),
       JSON.stringify(menuAnnotations));
     const legendIdleMotion = await page.evaluate(async () => {
       setWheelAnimationsEnabled(true, { persist: false, redraw: false });

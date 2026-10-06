@@ -440,7 +440,7 @@ const strictWheelCandidates = w.eval(`(() => {
   return {
     candidateFm: candidateFm?.dataset.wheelModes || '',
     candidateFmAria: candidateFm?.getAttribute('aria-label') || '',
-    candidateFmOutside: candidateFm?.dataset.wheelOutsideOrbit || '',
+    candidateFmDegree: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="Fm"] .wheel-degree-label')?.textContent || '',
     candidateFmProfile: candidateFm?.dataset.harmonyProfile || '',
     candidateFmBadge: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="Fm"] .wheel-outside-orbit-label')?.textContent || '',
     candidateE: candidateE?.dataset.wheelModes || '',
@@ -450,11 +450,10 @@ const strictWheelCandidates = w.eval(`(() => {
     ownerLegendAbsent: !document.getElementById('wheelHarmonyLegendCurrent'),
   };
 })()`);
-ok('в Am Fm остаётся без цветового профиля, но как кандидат подписан «вне орбиты»; E остаётся настоящим V гармонического минора',
+ok('в Am Fm без подходящего профиля не получает поясняющий текст/ступень; выбранный owner сохраняется',
   strictWheelCandidates.candidateFm === '' && strictWheelCandidates.ownerFm === '' &&
-  strictWheelCandidates.candidateFmOutside === 'true' && strictWheelCandidates.candidateFmProfile === '' &&
-  /вне орбиты/i.test(strictWheelCandidates.candidateFmAria) &&
-  strictWheelCandidates.candidateFmBadge === 'вне орбиты' &&
+  strictWheelCandidates.candidateFmProfile === '' && strictWheelCandidates.candidateFmAria === '' &&
+  strictWheelCandidates.candidateFmDegree === '' && strictWheelCandidates.candidateFmBadge === '' &&
   strictWheelCandidates.ownerSelected && strictWheelCandidates.ownerLegendAbsent &&
   strictWheelCandidates.candidateE === 'ionian,harmonic-minor,melodic-minor,lydian' &&
   /E: ступень V в Am/.test(strictWheelCandidates.candidateEAria) &&
@@ -491,17 +490,29 @@ ok('меню C показывает V/ii, V/vi, V/iii и D=Lydian II + V/V ка�
   secondaryCircleCandidates.map(({ function: candidateFunction }) => candidateFunction).join(',') ===
     'V/ii,V/vi,V/iii,V/V' &&
   secondaryCircleCandidates.map(({ label }) => label).join(',') === 'V/ii,V/vi,V/iii,V/V' &&
-  secondaryCircleCandidates.slice(0, 3).every(({ modes, harmonyProfile, aria }) =>
-    !modes && !harmonyProfile && /возможная вторичная доминанта/i.test(aria)) &&
+  secondaryCircleCandidates.slice(0, 3).every(({ modes, harmonyProfile, degree, aria }) =>
+    !modes && !harmonyProfile && degree === '' && /возможная вторичная доминанта/i.test(aria)) &&
   secondaryCircleCandidates[3].modes.includes('lydian') &&
   !secondaryCircleCandidates[3].harmonyProfile && secondaryCircleCandidates[3].degree === 'II',
   JSON.stringify(secondaryCircleCandidates));
-const outsideCircleFsm = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="F#m"]');
-ok('внеорбитальный F#m сохраняет нейтральный цвет и показывает функциональную ступень/подпись',
-  outsideCircleFsm?.dataset.wheelOutsideOrbit === 'true' &&
-  !outsideCircleFsm?.dataset.harmonyProfile && visibleDegree('F#m') === '#iv' &&
-  d.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="F#m"] .wheel-outside-orbit-label')?.textContent === 'вне орбиты',
-  `${visibleDegree('F#m')} / ${outsideCircleFsm?.getAttribute('aria-label') || ''}`);
+w.eval(`wheelHarmonyDisabledModes = new Set(${JSON.stringify(allWheelModes)}); drawWheel();`);
+const allModeColorsOffDegrees = {
+  base: visibleDegree('C'),
+  possibleFunction: visibleDegree('D'),
+  functionLabel: functionLabel('D'),
+  outside: visibleDegree('F#m'),
+  outsideAria: d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="F#m"]')?.getAttribute('aria-label') || '',
+};
+ok('базовая I остаётся; II скрыта без Lydian-подсветки, а внепрофильный аккорд не получает ступень',
+  allModeColorsOffDegrees.base === 'I' && allModeColorsOffDegrees.possibleFunction === '' &&
+  allModeColorsOffDegrees.functionLabel === 'V/V' && allModeColorsOffDegrees.outside === '' &&
+  allModeColorsOffDegrees.outsideAria === '', JSON.stringify(allModeColorsOffDegrees));
+const unprofiledCircleFsm = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="F#m"]');
+ok('F#m без модального профиля остаётся без дополнительного цвета, ступени и поясняющей метки',
+  !unprofiledCircleFsm?.dataset.harmonyProfile && !visibleDegree('F#m') &&
+  !unprofiledCircleFsm?.getAttribute('aria-label') &&
+  !d.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="F#m"] .wheel-outside-orbit-label'),
+  `${visibleDegree('F#m') || 'без ступени'} / ${unprofiledCircleFsm?.getAttribute('aria-label') || 'без ARIA-пояснения'}`);
 
 const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
 ok('сектора имеют контрастный fallback без color-mix и усиленное смешение в современных браузерах',
