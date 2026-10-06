@@ -317,7 +317,7 @@ w.addEventListener('load', () => {
       /function trackWheelAnchorDuringLayout\(duration = WHEEL_LAYOUT_TRACK_MS\)/.test(wheelSource) &&
       /document\.addEventListener\('transitionrun'/.test(wheelSource) &&
       /const chordLayoutObserver = new ResizeObserver\(\(\) =>/.test(wheelSource));
-    ok('card-gap узкий и постоянный, углы явно скруглены, круг без обводок',
+    ok('card-gap узкий и постоянный, полные силуэты секторов принимают события, углы скруглены',
       /const WHEEL_CARD_GAP = 2\.5;/.test(wheelSource) &&
       /Math\.asin\(WHEEL_CARD_HALF_SEAM \/ outerRadius\)/.test(wheelSource) &&
       /Math\.asin\(WHEEL_CARD_HALF_SEAM \/ innerRadius\)/.test(wheelSource) &&
@@ -327,7 +327,8 @@ w.addEventListener('load', () => {
       /Q\$\{outerEnd\.x\}/.test(wheelSource) &&
       /const WHEEL_CARD_OUTLINE = 1\.2;/.test(wheelSource) &&
       /setAttribute\('stroke', 'var\(--color-border-medium\)'\)/.test(wheelSource) &&
-      /setAttribute\('pointer-events', 'visibleFill'\)/.test(wheelSource) &&
+      /setAttribute\('pointer-events', 'all'\)/.test(wheelSource) &&
+      /pane\.setAttribute\('pointer-events', 'none'\)/.test(wheelSource) &&
       /gapCatcher\.setAttribute\('pointer-events', 'fill'\)/.test(wheelSource) &&
       !/classList\.add\('wheel-boundary'\)/.test(wheelSource));
     ok('переезд круга использует отдельный FLIP-retarget, не opening/closing',
@@ -559,7 +560,7 @@ w.addEventListener('load', () => {
     d.removeEventListener('pointerdown', noteGapAtDocument);
     ok('межкарточные зазоры некликабельны и не проваливаются в редактор',
       Array.from(d.querySelectorAll('#circleSvg path.wheel-sector')).every((sector) =>
-        sector.getAttribute('pointer-events') === 'visibleFill') &&
+        sector.getAttribute('pointer-events') === 'all') &&
       gapDown.defaultPrevented && gapClick.defaultPrevented && !gapReachedDocument &&
       modal.classList.contains('open') && input.value === beforeGapInput);
     ok('геометрия помечена вокруг', container.dataset.side === 'around');

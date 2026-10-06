@@ -695,12 +695,12 @@ function ok(name, condition, detail = '') {
       JSON.stringify({ floats: state.legendToggleFloats }));
     const expectedModePalette = {
       light: {
-        ionian: '#c27032', aeolian: '#258fa5', 'harmonic-minor': '#d24e6a', 'melodic-minor': '#ed79cd',
-        dorian: '#66c5ff', phrygian: '#7250b3', lydian: '#d8b819', mixolydian: '#6d501f', locrian: '#393d56',
+        ionian: '#d4774d', aeolian: '#0594b8', 'harmonic-minor': '#9e3250', 'melodic-minor': '#dd95aa',
+        dorian: '#8fb3fe', phrygian: '#7357bb', lydian: '#c8bd3c', mixolydian: '#6c5803', locrian: '#3c446a',
       },
       dark: {
-        ionian: '#f39b56', aeolian: '#55bfd0', 'harmonic-minor': '#f45279', 'melodic-minor': '#ff8cce',
-        dorian: '#b0cffe', phrygian: '#6196fa', lydian: '#f1e388', mixolydian: '#926c40', locrian: '#675fb0',
+        ionian: '#d89c47', aeolian: '#48b0a9', 'harmonic-minor': '#e55c85', 'melodic-minor': '#f8badf',
+        dorian: '#aec1ff', phrygian: '#2f89fa', lydian: '#f3e667', mixolydian: '#a65f44', locrian: '#39659d',
       },
     };
     const matchesExpectedPalette = ['light', 'dark'].every((theme) =>
@@ -712,6 +712,79 @@ function ok(name, condition, detail = '') {
       state.modePalette.distances.light.minimum >= 25 && state.modePalette.distances.dark.minimum >= 25 &&
       matchesExpectedPalette,
       JSON.stringify({ matchesExpectedPalette, minimumLabDistance: state.modePalette.distances, paletteValues }));
+    const allProfileCellTints = await (async () => {
+      const profilePage = await browser.newPage();
+      const errors = [];
+      profilePage.on('pageerror', (error) => errors.push(String(error)));
+      try {
+        await profilePage.goto(`${appUrl}?b99-confirmed-profile-tints=${Date.now()}`, {
+          waitUntil: 'load', timeout: 60000,
+        });
+        await profilePage.waitForFunction(() => typeof analyzeSectionHarmony === 'function');
+        const captureTheme = (theme) => profilePage.evaluate(async (nextTheme) => {
+          const fixtures = [
+            { mode: 'ionian', key: 'C', chords: ['C', 'Dm', 'G'], sample: 'Dm' },
+            { mode: 'aeolian', key: 'Am', chords: ['Am', 'Dm', 'Em'], sample: 'Am' },
+            { mode: 'harmonic-minor', key: 'Am', chords: ['Am', 'Bdim', 'Caug', 'Dm', 'E', 'F', 'G#dim'], sample: 'Bdim' },
+            { mode: 'melodic-minor', key: 'Am', chords: ['Am', 'Bm', 'Caug', 'D', 'E', 'F#dim', 'G#dim'], sample: 'Bm' },
+            { mode: 'dorian', key: 'Cm', chords: ['Cm', 'Dm', 'F', 'Gm'], sample: 'F' },
+            { mode: 'phrygian', key: 'Cm', chords: ['Cm', 'Db', 'Gdim', 'Bbm'], sample: 'Db' },
+            { mode: 'lydian', key: 'C', chords: ['C', 'D', 'F#dim', 'G'], sample: 'D' },
+            { mode: 'mixolydian', key: 'C', chords: ['C', 'Dm', 'F', 'Gm', 'Bb'], sample: 'Bb' },
+            { mode: 'locrian', key: 'C', chords: ['Cdim', 'Db', 'Fm', 'Gb'], sample: 'Gb' },
+          ];
+          document.documentElement.setAttribute('data-theme', nextTheme);
+          globalKey = 'C';
+          keyMode = 'manual';
+          DOM.rootKey.value = 'C';
+          document.getElementById('showDegrees').checked = true;
+          sections = fixtures.map((fixture, index) => ({
+            id: 101 + index,
+            type: fixture.mode,
+            key: fixture.key,
+            timeSig: '4/4',
+            squares: [{ id: 201 + index, events: fixture.chords.map((chord) => ({ chord, span: 1 })) }],
+          }));
+          sections.push({ id: 120, type: 'Neutral', key: 'C', timeSig: '4/4', squares: [{
+            id: 220, events: [{ chord: 'F#m', span: 1 }],
+          }] });
+          render();
+          updateCellsDegrees();
+          await new Promise((resolve) => setTimeout(resolve, 180));
+          const profiles = Object.fromEntries(fixtures.map((fixture, index) => {
+            const eventIndex = fixture.chords.indexOf(fixture.sample);
+            const cell = document.querySelector(`.chord-wrapper[data-sec="${101 + index}"][data-ei="${eventIndex}"]`);
+            const style = cell ? getComputedStyle(cell) : null;
+            return [fixture.mode, {
+              profile: cell?.dataset.harmonyProfile || '',
+              color: style?.getPropertyValue('--harmony-profile-color').trim().toLowerCase() || '',
+              fill: style?.backgroundColor || '',
+            }];
+          }));
+          const neutral = document.querySelector('.chord-wrapper[data-sec="120"][data-ei="0"]');
+          return {
+            profiles,
+            neutralProfile: neutral?.dataset.harmonyProfile || '',
+            neutralFill: neutral ? getComputedStyle(neutral).backgroundColor : '',
+          };
+        }, theme);
+        const light = await captureTheme('light');
+        const dark = await captureTheme('dark');
+        return { light, dark, errors };
+      } finally {
+        await profilePage.close();
+      }
+    })();
+    const everyConfirmedProfileTinted = ['light', 'dark'].every((theme) =>
+      Object.entries(expectedModePalette[theme]).every(([mode, color]) => {
+        const sample = allProfileCellTints[theme].profiles[mode];
+        return sample?.profile === mode && sample.color === color && sample.fill !== allProfileCellTints[theme].neutralFill;
+      }) && new Set(Object.values(allProfileCellTints[theme].profiles).map((sample) => sample.fill)).size === 9 &&
+      allProfileCellTints[theme].neutralProfile === '' &&
+      allProfileCellTints[theme].profiles.ionian.fill !== allProfileCellTints[theme].neutralFill);
+    ok('editor surfaces receive distinct tints for all nine confirmed profiles; unconfirmed cells stay neutral',
+      everyConfirmedProfileTinted && allProfileCellTints.errors.length === 0,
+      JSON.stringify(allProfileCellTints));
     const sectorHoverTooltip = await page.evaluate(async () => {
       const setTheme = (theme) => document.documentElement.setAttribute('data-theme', theme);
       activeChordInput = document.querySelector('.chord-input[data-sec="91"][data-square="92"][data-ei="2"]');
@@ -1025,6 +1098,89 @@ function ok(name, condition, detail = '') {
       reducedLegendMotion.surfaceTransitionDuration === '0s' && reducedLegendMotion.noOpeningOrFloatingClass,
       JSON.stringify(reducedLegendMotion));
     await page.emulateMediaFeatures([]);
+    const sectorClick = await (async () => {
+      const clickPage = await browser.newPage();
+      const errors = [];
+      clickPage.on('pageerror', (error) => errors.push(String(error)));
+      try {
+        await clickPage.goto(`${appUrl}?b99-sector-hit-test=${Date.now()}`, {
+          waitUntil: 'load', timeout: 60000,
+        });
+        await clickPage.waitForFunction(() => typeof openChordWheel === 'function');
+        const setup = await clickPage.evaluate(() => {
+          globalKey = 'C';
+          keyMode = 'manual';
+          DOM.rootKey.value = 'C';
+          wheelMode = 'triads';
+          wheelHarmonyModeVisibilityLoaded = true;
+          wheelHarmonyDisabledModes = new Set();
+          document.getElementById('showDegrees').checked = true;
+          sections = [{ id: 501, type: 'Verse', key: 'C', timeSig: '4/4', squares: [{
+            id: 502, events: [{ chord: 'C', span: 2 }, { chord: 'C', span: 2 }],
+          }] }];
+          render();
+          updateCellsDegrees();
+          return { initial: sections[0].squares[0].events.map((event) => event.chord) };
+        });
+        const clickCard = async ({ identity, ring, eventIndex, radius }) => {
+          await clickPage.evaluate((ei) => {
+            const input = document.querySelector(`.chord-input[data-sec="501"][data-square="502"][data-ei="${ei}"]`);
+            activeChordInput = input;
+            openChordWheel(input);
+          }, eventIndex);
+          await new Promise((resolve) => setTimeout(resolve, 230));
+          const point = await clickPage.evaluate(({ identity: targetIdentity, ring: targetRing, radius: targetRadius }) => {
+            const sectors = [...document.querySelectorAll(`#circleSvg .wheel-sector[data-wheel-ring="${targetRing}"]`)];
+            const sector = sectors.find((node) => node.dataset.wheelChordIdentity === targetIdentity);
+            if (!sector) throw new Error(`missing sector ${targetIdentity}/${targetRing}`);
+            const index = sectors.indexOf(sector);
+            const sectorAngle = -Math.PI / 2 - Math.PI / 12 + (index + 0.5) * (Math.PI / 6);
+            const screenPoint = new DOMPoint(
+              270 + targetRadius * Math.cos(sectorAngle),
+              270 + targetRadius * Math.sin(sectorAngle)
+            ).matrixTransform(sector.getScreenCTM());
+            const hit = document.elementFromPoint(screenPoint.x, screenPoint.y);
+            return {
+              x: screenPoint.x,
+              y: screenPoint.y,
+              hitClass: hit?.getAttribute('class') || '',
+              hitIdentity: hit?.dataset?.wheelChordIdentity || '',
+              pointerEvents: getComputedStyle(sector).pointerEvents,
+            };
+          }, { identity, ring, radius });
+          await clickPage.mouse.move(point.x, point.y);
+          await new Promise((resolve) => setTimeout(resolve, 160));
+          const hoverHit = await clickPage.evaluate(({ x, y }) => {
+            const target = document.elementFromPoint(x, y);
+            return {
+              className: target?.getAttribute('class') || '',
+              identity: target?.dataset?.wheelChordIdentity || '',
+            };
+          }, point);
+          await clickPage.mouse.click(point.x, point.y);
+          await new Promise((resolve) => setTimeout(resolve, 260));
+          const committed = await clickPage.evaluate((ei) => ({
+            value: document.querySelector(`.chord-input[data-sec="501"][data-square="502"][data-ei="${ei}"]`)?.value || '',
+            model: sections[0].squares[0].events[ei].chord,
+            open: DOM.chordWheelModal.classList.contains('open'),
+          }), eventIndex);
+          return { identity, ring, point, hoverHit, committed };
+        };
+        const major = await clickCard({ identity: 'D', ring: 'major', eventIndex: 0, radius: 230 });
+        const minor = await clickCard({ identity: 'Am', ring: 'minor', eventIndex: 1, radius: 160 });
+        return { setup, major, minor, errors };
+      } finally {
+        await clickPage.close();
+      }
+    })();
+    const sectorsSelectableBySurface = ['D', 'Am'].every((identity) => {
+      const result = identity === 'D' ? sectorClick.major : sectorClick.minor;
+      return result.point.hitClass.includes('wheel-sector') && result.point.hitIdentity === identity &&
+        result.point.pointerEvents === 'all' && result.hoverHit.className.includes('wheel-sector') &&
+        result.hoverHit.identity === identity && result.committed.model === identity && !result.committed.open;
+    });
+    ok('клик по пустой части внешнего/внутреннего SVG-сектора записывает аккорд без нажатия на подпись',
+      sectorsSelectableBySurface && sectorClick.errors.length === 0, JSON.stringify(sectorClick));
     ok('B-99 visual route completed without page errors', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
     await browser.close();
