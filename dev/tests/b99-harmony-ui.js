@@ -471,6 +471,9 @@ w.eval(`
 const functionLabel = (identity) => d.querySelector(
   `#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-secondary-function-label`
 )?.textContent || '';
+const functionData = (identity) => d.querySelector(
+  `#circleSvg .wheel-sector[data-wheel-chord-identity="${identity}"]`
+)?.dataset.wheelSecondaryFunction || '';
 const visibleDegree = (identity) => d.querySelector(
   `#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-degree-label`
 )?.textContent || '';
@@ -486,10 +489,10 @@ const secondaryCircleCandidates = ['A', 'E', 'B', 'D'].map((identity) => {
     aria: node?.getAttribute('aria-label') || '',
   };
 });
-ok('меню C показывает V/ii, V/vi, V/iii и D=Lydian II + V/V как подписи, не цветовой профиль',
+ok('secondaryFunction остаётся в данных и tooltip, но сектор показывает только ступень',
   secondaryCircleCandidates.map(({ function: candidateFunction }) => candidateFunction).join(',') ===
     'V/ii,V/vi,V/iii,V/V' &&
-  secondaryCircleCandidates.map(({ label }) => label).join(',') === 'V/ii,V/vi,V/iii,V/V' &&
+  secondaryCircleCandidates.every(({ label }) => label === '') &&
   secondaryCircleCandidates.slice(0, 3).every(({ modes, harmonyProfile, degree, aria }) =>
     !modes && !harmonyProfile && degree === '' && /возможная вторичная доминанта/i.test(aria)) &&
   secondaryCircleCandidates[3].modes.includes('lydian') &&
@@ -500,12 +503,14 @@ const allModeColorsOffDegrees = {
   base: visibleDegree('C'),
   possibleFunction: visibleDegree('D'),
   functionLabel: functionLabel('D'),
+  functionData: functionData('D'),
   outside: visibleDegree('F#m'),
   outsideAria: d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="F#m"]')?.getAttribute('aria-label') || '',
 };
-ok('базовая I остаётся; II скрыта без Lydian-подсветки, а внепрофильный аккорд не получает ступень',
+ok('базовая I остаётся; II скрыта, данные V/V сохранены без sector-label, неразобранный аккорд без ступени',
   allModeColorsOffDegrees.base === 'I' && allModeColorsOffDegrees.possibleFunction === '' &&
-  allModeColorsOffDegrees.functionLabel === 'V/V' && allModeColorsOffDegrees.outside === '' &&
+  allModeColorsOffDegrees.functionLabel === '' && allModeColorsOffDegrees.functionData === 'V/V' &&
+  allModeColorsOffDegrees.outside === '' &&
   allModeColorsOffDegrees.outsideAria === '', JSON.stringify(allModeColorsOffDegrees));
 const unprofiledCircleFsm = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="F#m"]');
 ok('F#m без модального профиля остаётся без дополнительного цвета, ступени и поясняющей метки',

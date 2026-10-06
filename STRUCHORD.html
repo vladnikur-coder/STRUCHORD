@@ -5502,12 +5502,8 @@ html[data-theme='dark'] .mode-tab:not(.active) .mode-tab-face {
   pointer-events: fill;
   cursor: default;
 }
-/* Поясняющие подписи — не отдельные кнопки: клик проходит через них к
-   сектору и выбирает тот же аккорд. */
-#circleSvg .wheel-degree-label,
-#circleSvg .wheel-secondary-function-label {
-  pointer-events: none;
-}
+/* Ступень не отдельная кнопка: клик проходит к сектору. */
+#circleSvg .wheel-degree-label { pointer-events: none; }
 /* B-40 visual pass: кольцо — не шкала с линиями, а ряд мягких
    карточных сегментов. Светлый фон в тонких зазорах работает отрицательным
    пространством; отдельная бумажная/физическая фактура здесь не нужна. */
@@ -11638,7 +11634,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.577</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.578</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22484,26 +22480,27 @@ function getHarmonyModeDegreeNameForRoot(root, key, mode) {
 function getBorrowingMenuSecondaryFunction(parsed, key) {
   if (!parsed || parsed.quality !== 'maj') return null;
   const baseMode = getHarmonyBaseMode(key);
-  const parallelMode = baseMode === 'ionian' ? 'aeolian' : 'ionian';
+  // Keep the circle's V/x candidates in major contexts for now. In minor,
+  // deriving them from the parallel Ionian labels borrowed harmony with the
+  // wrong tonal frame; the strict editor analysis remains independent.
+  if (baseMode === 'aeolian') return null;
+  const parallelMode = 'aeolian';
   const tonicIndex = getHarmonyTonicIndex(key);
   const sourceIndex = CHROMATIC.indexOf(parsed.root);
   if (tonicIndex < 0 || sourceIndex < 0) return null;
 
-  // A secondary-dominant candidate is a borrowed major triad that could lead
-  // by a fifth to a non-tonic degree in the base/parallel natural collections.
-  // Prefer same-tonic Ionian targets in minor keys (V/ii, V/vi, V/iii), then
-  // fall back to Aeolian. The circle is a palette, so no actual resolution in
-  // the song is required; the editor's stricter V/x analysis is untouched.
+  // A major triad outside the natural-major/parallel-minor collections may
+  // function as V/x. The circle is a palette, so resolution in the song is
+  // not required. Do not label a dominant to a diminished or augmented target.
   if ([baseMode, parallelMode].some((mode) => isHarmonyChordInMode(parsed, key, mode))) return null;
-  const functionModes = baseMode === 'aeolian'
-    ? [parallelMode, baseMode]
-    : [baseMode, parallelMode];
+  const functionModes = [baseMode, parallelMode];
   const targetIndex = (sourceIndex - 7 + 12) % 12;
   for (const mode of functionModes) {
     const profile = HARMONY_MODE_PROFILES[mode];
     const targetInterval = (targetIndex - tonicIndex + 12) % 12;
     const targetPosition = profile?.intervals.indexOf(targetInterval) ?? -1;
-    if (targetPosition <= 0) continue;
+    const targetQuality = profile?.qualities[targetPosition];
+    if (targetPosition <= 0 || targetQuality === 'dim' || targetQuality === 'aug') continue;
     const targetDegree = getHarmonyModeDegreeNameForRoot(CHROMATIC[targetIndex], key, mode);
     if (targetDegree) return { label: `V/${targetDegree}`, targetDegree, mode };
   }
@@ -33328,23 +33325,6 @@ function appendWheelDegreeToChordGroup(group, degree, localY, selected) {
   group.appendChild(dt);
   return dt;
 }
-function appendWheelMenuAnnotation(group, menu, selected) {
-  if (!group || !menu?.secondaryFunction) return null;
-  const annotation = document.createElementNS('http://www.w3.org/2000/svg', 'text');
-  annotation.classList.add('wheel-secondary-function-label');
-  annotation.setAttribute('x', group.dataset.wheelLabelCenterX || '0');
-  annotation.setAttribute('y', '23');
-  annotation.setAttribute('text-anchor', 'middle');
-  annotation.setAttribute('dominant-baseline', 'middle');
-  annotation.setAttribute('font-size', '12');
-  annotation.setAttribute('font-weight', '650');
-  annotation.setAttribute('fill', 'var(--wheel-degree-text)');
-  annotation.setAttribute('aria-hidden', 'true');
-  annotation.textContent = menu.secondaryFunction;
-  annotation.classList.toggle('is-wheel-selected', !!selected);
-  group.appendChild(annotation);
-  return annotation;
-}
 // Визуальный preview не меняет модель песни: временно подменяется
 // только отображение active input, а закрытие/уход курсора возвращают
 // сохранённое значение. Между именами остаётся короткий ghost старого
@@ -35048,10 +35028,6 @@ function drawWheel({ crossfadeLabels = false } = {}) {
       // second SVG text node beside it.
       if (sd && mdShown) appendWheelDegreeToChordGroup(mg, mdShown, -28, majorSelected);
       if (sd && midDegShown) appendWheelDegreeToChordGroup(mig, midDegShown, -30, minorSelected);
-      if (menuMode && sd) {
-        appendWheelMenuAnnotation(mg, majorMenu, majorSelected);
-        appendWheelMenuAnnotation(mig, minorMenu, minorSelected);
-      }
       frag.appendChild(mg);
       frag.appendChild(mig);
       wireWheelSectorHover(outerHoverNodes, vm, 'major', i, mx, my);

@@ -862,26 +862,38 @@ function ok(name, condition, detail = '') {
       wheelHarmonyDisabledModes = new Set(['lydian']);
       drawWheel();
       const possibleVvWithoutLydian = hover('D');
+      globalKey = 'Am'; keyMode = 'manual';
+      wheelHarmonyDisabledModes = new Set();
+      drawWheel();
+      const minorParallelMajorCandidate = hover('F#');
+      globalKey = 'C'; keyMode = 'manual';
       wheelHarmonyDisabledModes = new Set();
       drawWheel();
       clearWheelHover();
-      return { possibleVii, unprofiled, possibleVvWithoutLydian };
+      return { possibleVii, unprofiled, possibleVvWithoutLydian, minorParallelMajorCandidate };
     });
-    ok('V/ii остаётся текстовой функцией без ступени; F#m без профиля не получает tooltip/метку',
+    ok('V/x хранится в меню и показывается в hover-tooltip, но не печатается на секторе; в миноре функций нет',
       menuAnnotations.possibleVii.modes === '' && menuAnnotations.possibleVii.function === 'V/ii' &&
       menuAnnotations.possibleVii.degree === '' && !/ступень VI/.test(menuAnnotations.possibleVii.aria) &&
-      menuAnnotations.possibleVii.annotation === 'V/ii' && menuAnnotations.possibleVii.paneCount === '0' &&
+      menuAnnotations.possibleVii.annotation === '' && menuAnnotations.possibleVii.paneCount === '0' &&
       !menuAnnotations.possibleVii.profile && menuAnnotations.possibleVii.tooltipVisible &&
+      /возможная функция V\/ii/.test(menuAnnotations.possibleVii.hoverContext) &&
       /может вести к ii/.test(menuAnnotations.possibleVii.tooltipNote) &&
       menuAnnotations.unprofiled.degree === '' && menuAnnotations.unprofiled.annotation === '' &&
       menuAnnotations.unprofiled.paneCount === '0' && !menuAnnotations.unprofiled.profile &&
       !menuAnnotations.unprofiled.aria && !menuAnnotations.unprofiled.tooltipVisible &&
       !menuAnnotations.unprofiled.tooltipNote &&
       menuAnnotations.possibleVvWithoutLydian.degree === '' &&
-      menuAnnotations.possibleVvWithoutLydian.annotation === 'V/V' &&
+      menuAnnotations.possibleVvWithoutLydian.function === 'V/V' &&
+      menuAnnotations.possibleVvWithoutLydian.annotation === '' &&
       !/ступень II/.test(menuAnnotations.possibleVvWithoutLydian.aria) &&
       menuAnnotations.possibleVvWithoutLydian.tooltipVisible &&
-      /может вести к V/.test(menuAnnotations.possibleVvWithoutLydian.tooltipNote),
+      /возможная функция V\/V/.test(menuAnnotations.possibleVvWithoutLydian.hoverContext) &&
+      /может вести к V/.test(menuAnnotations.possibleVvWithoutLydian.tooltipNote) &&
+      !menuAnnotations.minorParallelMajorCandidate.function &&
+      !/возможная функция|secondaryFunction/i.test(menuAnnotations.minorParallelMajorCandidate.hoverContext) &&
+      !menuAnnotations.minorParallelMajorCandidate.tooltipNote &&
+      menuAnnotations.minorParallelMajorCandidate.annotation === '',
       JSON.stringify(menuAnnotations));
     const legendIdleMotion = await page.evaluate(async () => {
       setWheelAnimationsEnabled(true, { persist: false, redraw: false });

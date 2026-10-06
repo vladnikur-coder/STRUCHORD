@@ -186,17 +186,24 @@ const cSecondaryAccessible = w.getWheelBorrowingAccessibleText(menu('A', 'C'));
 ok('текст кандидата называет возможную функцию и не выдаёт её за уже звучащую',
   /возможная вторичная доминанта V\/ii/i.test(cSecondaryAccessible) &&
   /может вести к ii/.test(cSecondaryAccessible), cSecondaryAccessible);
-const amPossibleFunctions = ['F#', 'C#', 'G#'].map((chord) => menu(chord, 'Am'));
-const emPossibleFunctions = ['C#', 'D#', 'G#'].map((chord) => menu(chord, 'Em'));
+const amMinorDominants = ['F#', 'C#', 'G#'].map((chord) => menu(chord, 'Am'));
+const emMinorDominants = ['C#', 'D#', 'G#'].map((chord) => menu(chord, 'Em'));
 const amFunctionAccessible = w.getWheelBorrowingAccessibleText(menu('F#', 'Am'));
-ok('в минорных ключах возможные функции ищут цель сначала в одноимённом Ionian',
-  amPossibleFunctions.map((item) => item?.secondaryFunction).join(',') === 'V/ii,V/vi,V/iii' &&
-  emPossibleFunctions.map((item) => item?.secondaryFunction).join(',') === 'V/ii,V/iii,V/vi' &&
-  [...amPossibleFunctions, ...emPossibleFunctions].every((item) =>
-    item?.secondaryFunctionMode === 'ionian' && item?.modes.length === 0 &&
+ok('круг не заимствует secondary-function цели из параллельного Ionian в минорных тональностях',
+  [...amMinorDominants, ...emMinorDominants].every((item) =>
+    Object.hasOwn(item || {}, 'secondaryFunction') && item?.secondaryFunction === '' &&
+    item?.secondaryTargetDegree === '' && item?.secondaryFunctionMode === '' &&
     !Object.hasOwn(item, 'outsideOrbit')) &&
-  /в контексте параллельного натурального мажора/.test(amFunctionAccessible),
-  JSON.stringify({ amPossibleFunctions, emPossibleFunctions, amFunctionAccessible }));
+  !/возможная вторичная доминанта/i.test(amFunctionAccessible),
+  JSON.stringify({ amMinorDominants, emMinorDominants, amFunctionAccessible }));
+const cFsharpVii = menu('F#', 'C');
+const secondaryFunctionSource = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8')
+  .match(/function getBorrowingMenuSecondaryFunction[\s\S]*?\n}/)?.[0] || '';
+ok('V/vii° пропускается: F# в C сохраняет modal-profile, но не вторичную функцию',
+  cFsharpVii?.modes.length > 0 && !cFsharpVii?.secondaryFunction &&
+  /targetQuality === 'dim'/.test(secondaryFunctionSource) &&
+  /targetQuality === 'aug'/.test(secondaryFunctionSource),
+  JSON.stringify(cFsharpVii));
 
 const fshmB = menu('B', 'F#m');
 ok('F#m: B — параллельный Ionian перед IV мелодического/дорийского/миксолидийского в диезной тональности',
@@ -220,9 +227,9 @@ const CHROMATIC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', '
 const wheelAuditKeys = ['C', 'Am', 'G', 'Em'];
 const expectedUnprofiledByKey = {
   C: ['C#m', 'F#m', 'G#m'],
-  Am: ['D#m', 'Fm', 'A#m'],
+  Am: ['C#', 'D#m', 'Fm', 'F#', 'G#', 'A#m'],
   G: ['C#m', 'D#m', 'G#m'],
-  Em: ['Cm', 'Fm', 'A#m'],
+  Em: ['Cm', 'C#', 'D#', 'Fm', 'G#', 'A#m'],
 };
 const unprofiledByKey = new Map();
 const paneAuditErrors = [];
