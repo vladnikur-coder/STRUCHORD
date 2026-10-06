@@ -427,7 +427,7 @@ function ok(name, condition, detail = '') {
       minorLine.timelineProfiles.join(',') === 'aeolian,aeolian,melodic-minor,harmonic-minor' &&
       minorLine.editorMarkers[0] !== minorLine.editorMarkers[1] &&
       minorLine.wheelMenu.legendCurrentAbsent && minorLine.wheelMenu.fMinorModes === '' &&
-      minorLine.wheelMenu.eMajorModes === 'harmonic-minor,melodic-minor,lydian' &&
+      minorLine.wheelMenu.eMajorModes === 'ionian,harmonic-minor,melodic-minor,lydian' &&
       /E: ступень V в Am/.test(minorLine.wheelMenu.eMajorAria) &&
       /Гармонический минор/.test(minorLine.wheelMenu.eMajorAria) &&
       minorLine.wheelMenu.naturalMinorCorePaneModes.every((modes) => modes === 'aeolian') &&
@@ -549,9 +549,9 @@ function ok(name, condition, detail = '') {
       melodicToggle.dispatchEvent(new Event('change', { bubbles: true }));
       const eGroupAfter = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="E"][data-wheel-hover-ring="major"]');
       const eSectorAfter = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="E"][data-wheel-ring="major"]');
-      const paneReflowed = Number(eGroupBefore?.dataset.paneCount) === 3 &&
-        Number(eGroupAfter?.dataset.paneCount) === 2 &&
-        eGroupAfter?.dataset.paneModes === 'harmonic-minor,lydian';
+      const paneReflowed = Number(eGroupBefore?.dataset.paneCount) === 4 &&
+        Number(eGroupAfter?.dataset.paneCount) === 3 &&
+        eGroupAfter?.dataset.paneModes === 'ionian,harmonic-minor,lydian';
       const menuDataPreserved = eSectorAfter?.dataset.wheelModes === fullModesBefore &&
         fullModesBefore.includes('melodic-minor') &&
         !eSectorAfter?.dataset.wheelVisibleModes.includes('melodic-minor') &&
@@ -578,7 +578,7 @@ function ok(name, condition, detail = '') {
         disabledAttribute: DOM.chordWheelModal.dataset.wheelHarmonyDisabledModes || '',
       };
     });
-    ok('флажки перестраивают заимствованную pane-палитру 3→2, не меняя меню/редактор/ленту',
+    ok('флажки перестраивают заимствованную pane-палитру 4→3 после добавления Ionian, не меняя меню/редактор/ленту',
       wheelToggleScope.paneReflowed && wheelToggleScope.menuDataPreserved && wheelToggleScope.editorStable &&
       wheelToggleScope.timelineStable && wheelToggleScope.bodyMapClassStable && wheelToggleScope.standardProfileMuted &&
       !wheelToggleScope.disabledAttribute.includes('melodic-minor'), JSON.stringify(wheelToggleScope));
@@ -596,13 +596,19 @@ function ok(name, condition, detail = '') {
       return {
         highlightsOn: document.getElementById('chordWheelModal').classList.contains('is-harmony-highlights-on'),
         candidateModes: candidateFm?.dataset.wheelModes || '',
+        candidateOutsideOrbit: candidateFm?.dataset.wheelOutsideOrbit || '',
+        candidateProfile: candidateFm?.dataset.harmonyProfile || '',
+        candidateAria: candidateFm?.getAttribute('aria-label') || '',
+        candidateBadge: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="Fm"] .wheel-outside-orbit-label')?.textContent || '',
         ownerModes: ownerFm?.dataset.wheelModes || '',
         ownerSelected: ownerFm?.classList.contains('is-wheel-selected'),
         legendCurrentAbsent: !document.getElementById('wheelHarmonyLegendCurrent'),
       };
     });
-    ok('круг не приписывает Fm тональности Am: Fm нейтрален и как candidate, и как owner',
+    ok('круг оставляет Fm без ладовой окраски, но помечает candidate «вне орбиты»; owner selection сохраняется',
       strictWheel.highlightsOn && strictWheel.candidateModes === '' && strictWheel.ownerModes === '' &&
+      strictWheel.candidateOutsideOrbit === 'true' && !strictWheel.candidateProfile &&
+      /вне орбиты/i.test(strictWheel.candidateAria) && strictWheel.candidateBadge === 'вне орбиты' &&
       strictWheel.ownerSelected && strictWheel.legendCurrentAbsent,
       JSON.stringify(strictWheel));
     ok('выключенные «Ступени» не показывают B-99 marker',
@@ -809,15 +815,63 @@ function ok(name, condition, detail = '') {
             reference.tone === tone && reference.text === text && reference.color === expectedColor);
         return snapshot.chord === 'D' && /Ступень IV/.test(snapshot.context) &&
           snapshot.modes.map((mode) => mode.name).join(',') ===
-            'Дорийский,Мелодический минор,Миксолидийский' &&
+            'Дорийский,Мелодический минор,Ионийский,Миксолидийский' &&
           snapshot.modes.every((mode) => mode.degree === 'IV' && mode.change) &&
+          snapshot.modes.find((mode) => mode.name === 'Ионийский')?.change ===
+            '♯III · ♯VI · ♯VII от нат. минора' &&
           hasReference('Мелодический минор', 'minor', 'минора', snapshot.referenceColors.minor) &&
           hasReference('Дорийский', 'minor', 'минора', snapshot.referenceColors.minor) &&
+          hasReference('Ионийский', 'minor', 'минора', snapshot.referenceColors.minor) &&
           hasReference('Миксолидийский', 'major', 'мажора', snapshot.referenceColors.major) &&
           !snapshot.hidden && !snapshot.overlapsLegend && !snapshot.overlapsCircle &&
           !snapshot.hasNativeTitleWhileOpen && snapshot.tooltipInsideViewport;
       }) && sectorHoverTooltip.hiddenAfterLeave && sectorHoverTooltip.nativeTitleRestored,
       JSON.stringify(sectorHoverTooltip));
+    const menuAnnotations = await page.evaluate(() => {
+      globalKey = 'C'; keyMode = 'manual'; activeSectionKey = null; activeChordInput = null;
+      wheelMode = 'triads'; wheelHarmonyModeVisibilityLoaded = true;
+      wheelHarmonyDisabledModes = new Set();
+      document.getElementById('showDegrees').checked = true;
+      DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
+      drawWheel();
+      const tooltip = document.getElementById('wheelHarmonyHoverTooltip');
+      const hover = (identity) => {
+        const sector = document.querySelector(`#circleSvg .wheel-sector[data-wheel-chord-identity="${identity}"]`);
+        const rect = sector.getBoundingClientRect();
+        const clientX = rect.left + rect.width / 2;
+        const clientY = rect.top + rect.height / 2;
+        const options = { bubbles: true, clientX, clientY, pageX: clientX + scrollX, pageY: clientY + scrollY, pointerType: 'mouse' };
+        sector.dispatchEvent(new PointerEvent('pointerover', options));
+        sector.dispatchEvent(new PointerEvent('pointermove', options));
+        return {
+          identity,
+          modes: sector.dataset.wheelModes || '',
+          function: sector.dataset.wheelSecondaryFunction || '',
+          outsideOrbit: sector.dataset.wheelOutsideOrbit || '',
+          profile: sector.dataset.harmonyProfile || '',
+          degree: document.querySelector(`#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-degree-label`)?.textContent || '',
+          annotation: document.querySelector(`#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-secondary-function-label, #circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-outside-orbit-label`)?.textContent || '',
+          paneCount: document.querySelector(`#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="${identity}"]`)?.dataset.paneCount || '0',
+          aria: sector.getAttribute('aria-label') || '',
+          tooltipVisible: !tooltip.hidden,
+          tooltipNote: tooltip.querySelector('.wheel-harmony-hover-note')?.textContent || '',
+        };
+      };
+      const possibleVii = hover('A');
+      const outside = hover('F#m');
+      clearWheelHover();
+      return { possibleVii, outside };
+    });
+    ok('кандидат V/ii и «вне орбиты» доступны в tooltip/ARIA без ладового цвета и без mode pane',
+      menuAnnotations.possibleVii.modes === '' && menuAnnotations.possibleVii.function === 'V/ii' &&
+      menuAnnotations.possibleVii.degree === 'VI' && menuAnnotations.possibleVii.annotation === 'V/ii' &&
+      menuAnnotations.possibleVii.paneCount === '0' && !menuAnnotations.possibleVii.profile && menuAnnotations.possibleVii.tooltipVisible &&
+      /может вести к ii/.test(menuAnnotations.possibleVii.tooltipNote) &&
+      menuAnnotations.outside.outsideOrbit === 'true' && menuAnnotations.outside.degree === '#iv' &&
+      menuAnnotations.outside.annotation === 'вне орбиты' && menuAnnotations.outside.paneCount === '0' &&
+      !menuAnnotations.outside.profile && menuAnnotations.outside.tooltipVisible &&
+      /вне орбиты/i.test(menuAnnotations.outside.tooltipNote),
+      JSON.stringify(menuAnnotations));
     const legendIdleMotion = await page.evaluate(async () => {
       setWheelAnimationsEnabled(true, { persist: false, redraw: false });
       const showDegrees = document.getElementById('showDegrees');

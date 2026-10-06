@@ -48,6 +48,17 @@ const cMajor = analyze('Am7', 'C');
 ok('обычная ступень C-мажора получает точный ионийский профиль',
   cMajor.group === 'diatonic' && cMajor.mode === 'ionian' && cMajor.degree === 'vi', JSON.stringify(cMajor));
 
+const melodicMinorSixth = {
+  cAm: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Am'), 'C', 'melodic-minor'),
+  cAdim: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Adim'), 'C', 'melodic-minor'),
+  aFsm: w.getHarmonyModeDegree(w.parseChordForKeyDetection('F#m'), 'Am', 'melodic-minor'),
+  aFsdim: w.getHarmonyModeDegree(w.parseChordForKeyDetection('F#dim'), 'Am', 'melodic-minor'),
+};
+ok('VI ступень мелодического минора — уменьшённое трезвучие, не минорное',
+  melodicMinorSixth.cAm === -1 && melodicMinorSixth.cAdim === 5 &&
+  melodicMinorSixth.aFsm === -1 && melodicMinorSixth.aFsdim === 5,
+  JSON.stringify(melodicMinorSixth));
+
 const aMinor = analyze('E', 'Am');
 ok('мажорная V в A-миноре — гармонический минор, а не vague borrow',
   aMinor.group === 'minor-variant' && aMinor.mode === 'harmonic-minor' &&
@@ -66,6 +77,30 @@ ok('D7 → G в C остаётся отдельной прикладной V/V, 
 const bareD = analyze('D', 'C');
 ok('D-мажор без контекста остаётся нейтральным, без ложного лада или категории',
   bareD.group === 'unknown' && bareD.mode === null && bareD.confidence === 'none' && bareD.candidates.includes('lydian'), JSON.stringify(bareD));
+
+const majorDegreeCases = [
+  ['F', 'D', '♭III'],
+  ['C', 'D', '♭VII'],
+  ['G', 'A', '♭VII'],
+  ['D', 'E', '♭VII'],
+  ['A', 'B', '♭VII'],
+  ['G', 'B', '♭VI'],
+  ['F#dim', 'C', '#iv°'],
+  ['A#', 'C', '♭VII'],
+  ['Bb', 'C', '♭VII'],
+];
+const rootDegreeMismatches = majorDegreeCases.flatMap(([chord, key, expected]) => {
+  const analysis = analyze(chord, key);
+  const wheel = w.getBorrowingMenuProfile(chord, key);
+  return analysis.degree === expected && wheel?.degree === expected
+    ? []
+    : [`${chord} in ${key}: analysis=${analysis.degree}, wheel=${wheel?.degree}, expected=${expected}`];
+});
+const neutralFInD = analyze('F', 'D');
+ok('chromatic degrees use key/scale position, match wheel labels and keep an unconfirmed editor chord neutral',
+  rootDegreeMismatches.length === 0 && neutralFInD.degree === '♭III' &&
+  neutralFInD.group === 'unknown' && neutralFInD.mode === null && neutralFInD.confidence === 'none',
+  rootDegreeMismatches.join('; ') || JSON.stringify(neutralFInD));
 
 const bFlat = analyze('Bb', 'C');
 ok('один bVII в C остаётся нейтральным: кандидаты не становятся пользовательской категорией',

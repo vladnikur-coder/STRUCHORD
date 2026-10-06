@@ -1,8 +1,7 @@
 #!/usr/bin/env node
-// B-99: меню заимствований на круге. Круг в режиме трезвучий — меню для
-// сочинения: доступны ступень и все подходящие лады, но при включённом
-// Ionian/Aeolian шесть обычных диатонических трезвучий используют только
-// базовый цвет (уменьшённый аккорд исключён). Это НЕ анализ прогрессии.
+// B-99: меню кандидатов на круге. В режиме трезвучий показываются ступень,
+// все подходящие ладовые профили, возможная вторичная функция и нейтральное
+// «вне орбиты» для оставшихся аккордов. Это НЕ анализ прогрессии.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -36,19 +35,37 @@ const menu = (chord, key) => w.getBorrowingMenuProfile(chord, key);
 
 // ===== 1. Модель меню: классические заимствования на месте =====
 const amD = menu('D', 'Am');
-ok('Am: D — IV дорийского, миксолидийского и мелодического минора',
-  amD?.degree === 'IV' && amD?.modes.join(',') === 'melodic-minor,dorian,mixolydian',
+ok('Am: D — параллельный Ionian перед IV мелодического, дорийского и миксолидийского',
+  amD?.degree === 'IV' && amD?.modes.join(',') === 'ionian,melodic-minor,dorian,mixolydian',
   JSON.stringify(amD));
+const amDText = w.getBorrowingMenuText(amD);
+ok('текст меню минорной тональности поясняет Ionian ступенями от натурального минора',
+  amDText.includes('Ионийский (♯III · ♯VI · ♯VII от нат. минора)') &&
+  !amDText.includes('Натуральный мажор'), amDText);
 
 const amE = menu('E', 'Am');
-ok('Am: E — V гармонического минора (первым в списке)',
-  amE?.degree === 'V' && amE?.modes[0] === 'harmonic-minor',
+ok('Am: E — параллельный Ionian перед V гармонического/мелодического и V лидийского',
+  amE?.degree === 'V' && amE?.modes.join(',') === 'ionian,harmonic-minor,melodic-minor,lydian',
   JSON.stringify(amE));
 
 const amFsm = menu('F#m', 'Am');
-ok('Am: F#m — #vi мелодического минора (регресс качеств vi=min закрыт)',
-  amFsm?.degree === '#vi' && amFsm?.modes.includes('melodic-minor') && amFsm?.modes.includes('lydian'),
+ok('Am: F#m — #vi параллельного Ionian/лидийского, но не мелодического минора',
+  amFsm?.degree === '#vi' && !amFsm?.modes.includes('melodic-minor') &&
+  amFsm?.modes.join(',') === 'ionian,lydian,mixolydian',
   JSON.stringify(amFsm));
+
+const cAm = menu('Am', 'C');
+const cAdim = menu('Adim', 'C');
+const amFsharpMinor = menu('F#m', 'Am');
+const amFsharpDim = menu('F#dim', 'Am');
+ok('VI melodic minor is diminished: Am/F#m are excluded, Adim/F#dim are included in C/A minor',
+  !cAm?.modes.includes('melodic-minor') && cAdim?.modes.includes('melodic-minor') &&
+  !amFsharpMinor?.modes.includes('melodic-minor') && amFsharpDim?.modes.includes('melodic-minor') &&
+  w.getHarmonyModeDegree(w.parseChordForKeyDetection('Am'), 'C', 'melodic-minor') === -1 &&
+  w.getHarmonyModeDegree(w.parseChordForKeyDetection('Adim'), 'C', 'melodic-minor') === 5 &&
+  w.getHarmonyModeDegree(w.parseChordForKeyDetection('F#m'), 'Am', 'melodic-minor') === -1 &&
+  w.getHarmonyModeDegree(w.parseChordForKeyDetection('F#dim'), 'Am', 'melodic-minor') === 5,
+  JSON.stringify({ cAm, cAdim, amFsharpMinor, amFsharpDim }));
 
 const amBb = menu('A#', 'Am');
 ok('Am: A# (=Bb) — осмысленная ♭II фригийского, а не «#I» от энгармоники',
@@ -73,16 +90,17 @@ ok('поясняющие подписи сортируются по контек
   minorDisplayTextLower.indexOf('дорийский') < minorDisplayTextLower.indexOf('мелодический минор') &&
   majorDisplayText.indexOf('миксолидийский') < majorDisplayText.indexOf('дорийский') &&
   amTonic.modes.join(',') === 'aeolian,harmonic-minor,melodic-minor,dorian,phrygian' &&
-  amD.modes.join(',') === 'melodic-minor,dorian,mixolydian',
+  amD.modes.join(',') === 'ionian,melodic-minor,dorian,mixolydian',
   JSON.stringify({ minorDisplayText, majorDisplayText, paneSourceOrder: amTonic.modes, amDSourceOrder: amD.modes }));
 
 const amFm = menu('Fm', 'Am');
-ok('Am: Fm остаётся нейтральным — ни один классический лад его не содержит',
-  amFm === null, JSON.stringify(amFm));
+ok('Am: Fm без ладового профиля и вторичной функции отмечен как «вне орбиты»',
+  amFm?.modes.length === 0 && !amFm?.secondaryFunction && amFm?.outsideOrbit && amFm?.degree === 'vi',
+  JSON.stringify(amFm));
 
 const amGdim = menu('G#dim', 'Am');
-ok('Am: G#dim — #vii° гармонического и мелодического минора',
-  amGdim?.degree === '#vii°' && amGdim?.modes.join(',') === 'harmonic-minor,melodic-minor',
+ok('Am: G#dim — vii° параллельного Ionian и гармонического/мелодического минора',
+  amGdim?.degree === '#vii°' && amGdim?.modes.join(',') === 'ionian,harmonic-minor,melodic-minor',
   JSON.stringify(amGdim));
 
 const amCaug = menu('Caug', 'Am');
@@ -91,23 +109,52 @@ ok('Am: Caug — III+ гармонического и мелодического
   JSON.stringify(amCaug));
 
 const cFm = menu('Fm', 'C');
-ok('C: Fm — iv гармонического минора/фригийского/локрийского',
-  cFm?.degree === 'iv' && cFm?.modes.join(',') === 'harmonic-minor,phrygian,locrian',
+ok('C: Fm — Aeolian-параллельный iv перед гармоническим минором/фригийским/локрийским',
+  cFm?.degree === 'iv' && cFm?.modes.join(',') === 'aeolian,harmonic-minor,phrygian,locrian',
   JSON.stringify(cFm));
 
 const cBb = menu('Bb', 'C');
-ok('C: Bb — ♭VII дорийского и миксолидийского',
-  cBb?.degree === '♭VII' && cBb?.modes.join(',') === 'dorian,mixolydian',
+ok('C: Bb — параллельный Aeolian перед ♭VII дорийского и миксолидийского',
+  cBb?.degree === '♭VII' && cBb?.modes.join(',') === 'aeolian,dorian,mixolydian',
   JSON.stringify(cBb));
 
 const cCm = menu('Cm', 'C');
-ok('C: Cm — i параллельных минорных семейств',
-  cCm?.degree === 'i' && cCm?.modes.length === 4,
+ok('C: Cm — параллельный Aeolian перед четырьмя минорными семействами (всего 5)',
+  cCm?.degree === 'i' && cCm?.modes.length === 5 &&
+  cCm?.modes.join(',') === 'aeolian,harmonic-minor,melodic-minor,dorian,phrygian',
   JSON.stringify(cCm));
 
+const cSecondaryMenus = ['A', 'E', 'B'].map((chord) => menu(chord, 'C'));
+const cDSecondaryMenu = menu('D', 'C');
+ok('C: A/E/B получают возможные V/ii, V/vi, V/iii, а D одновременно Lydian II и V/V',
+  cSecondaryMenus.map((item) => item?.secondaryFunction).join(',') === 'V/ii,V/vi,V/iii' &&
+  cSecondaryMenus.every((item) => item?.modes.length === 0 && !item?.outsideOrbit) &&
+  cDSecondaryMenu?.degree === 'II' && cDSecondaryMenu?.modes.includes('lydian') &&
+  cDSecondaryMenu?.secondaryFunction === 'V/V' && !cDSecondaryMenu?.outsideOrbit,
+  JSON.stringify({ cSecondaryMenus, cDSecondaryMenu }));
+const cOutsideOrbit = ['F#m', 'C#m', 'G#m'].map((chord) => menu(chord, 'C'));
+ok('C: F#m/C#m/G#m остаются без цвета, но получают ступень и отметку «вне орбиты»',
+  cOutsideOrbit.every((item) => item?.modes.length === 0 && !item?.secondaryFunction &&
+    item?.outsideOrbit && !!item?.degree),
+  JSON.stringify(cOutsideOrbit));
+const cSecondaryAccessible = w.getWheelBorrowingAccessibleText(menu('A', 'C'));
+ok('текст кандидата называет возможную функцию и не выдаёт её за уже звучащую',
+  /возможная вторичная доминанта V\/ii/i.test(cSecondaryAccessible) &&
+  /может вести к ii/.test(cSecondaryAccessible), cSecondaryAccessible);
+const amPossibleFunctions = ['F#', 'C#', 'G#'].map((chord) => menu(chord, 'Am'));
+const emPossibleFunctions = ['C#', 'D#', 'G#'].map((chord) => menu(chord, 'Em'));
+const amFunctionAccessible = w.getWheelBorrowingAccessibleText(menu('F#', 'Am'));
+ok('в минорных ключах возможные функции ищут цель сначала в одноимённом Ionian',
+  amPossibleFunctions.map((item) => item?.secondaryFunction).join(',') === 'V/ii,V/vi,V/iii' &&
+  emPossibleFunctions.map((item) => item?.secondaryFunction).join(',') === 'V/ii,V/iii,V/vi' &&
+  [...amPossibleFunctions, ...emPossibleFunctions].every((item) =>
+    item?.secondaryFunctionMode === 'ionian' && item?.modes.length === 0 && !item?.outsideOrbit) &&
+  /в контексте параллельного натурального мажора/.test(amFunctionAccessible),
+  JSON.stringify({ amPossibleFunctions, emPossibleFunctions, amFunctionAccessible }));
+
 const fshmB = menu('B', 'F#m');
-ok('F#m: B — IV дорийского/миксолидийского/мелодического минора в минорной тональности с диезами',
-  fshmB?.degree === 'IV' && fshmB?.modes.join(',') === 'melodic-minor,dorian,mixolydian',
+ok('F#m: B — параллельный Ionian перед IV мелодического/дорийского/миксолидийского в диезной тональности',
+  fshmB?.degree === 'IV' && fshmB?.modes.join(',') === 'ionian,melodic-minor,dorian,mixolydian',
   JSON.stringify(fshmB));
 
 ok('sus/power-аккорды не получают меню: качество неоднозначно',
@@ -118,11 +165,108 @@ ok('sus/power-аккорды не получают меню: качество н
 const stabilityKeys = ['Am', 'C', 'Eb', 'F#m', 'Bb', 'C#m'];
 let stabilityBroken = [];
 const CHROMATIC = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
+
+// Regression sweep: all 12 major + 12 minor triads in four representative
+// major/minor tonalities, under full-palette states (base mode on/off). No
+// profile may create a sixth pane, duplicate a color, or layer alternatives
+// over an enabled natural base; each key should have three true out-of-orbit
+// minor triads after the secondary-function layer is considered.
+const wheelAuditKeys = ['C', 'Am', 'G', 'Em'];
+const expectedOutsideOrbitByKey = {
+  C: ['C#m', 'F#m', 'G#m'],
+  Am: null,
+  G: null,
+  Em: null,
+};
+const outsideOrbitByKey = new Map();
+const paneAuditErrors = [];
+let maxPaneFields = 0;
+let maxCandidateModes = 0;
+for (const key of wheelAuditKeys) {
+  const baseMode = key.endsWith('m') ? 'aeolian' : 'ionian';
+  const baseCoreChords = w.eval(`(() => {
+    const profile = HARMONY_MODE_PROFILES[${JSON.stringify(baseMode)}];
+    const tonic = getHarmonyTonicIndex(${JSON.stringify(key)});
+    return profile.intervals.map((interval, index) => {
+      const quality = profile.qualities[index];
+      const suffix = { maj: '', min: 'm', dim: 'dim', aug: 'aug' }[quality];
+      return { quality, chord: CHROMATIC[(tonic + interval) % 12] + suffix };
+    }).filter(({ quality }) => quality !== 'dim').map(({ chord }) => chord);
+  })()`);
+  for (const paletteState of [
+    { name: 'all-enabled', disabled: [] },
+    { name: 'natural-base-disabled', disabled: [baseMode] },
+  ]) {
+    w.eval(`
+      globalKey = ${JSON.stringify(key)}; keyMode = 'manual';
+      activeSectionKey = null; activeChordInput = null;
+      wheelHarmonyModeVisibilityLoaded = true;
+      wheelHarmonyDisabledModes = new Set(${JSON.stringify(paletteState.disabled)});
+      wheelMode = 'triads';
+    `);
+    for (const root of CHROMATIC) {
+      for (const suffix of ['', 'm']) {
+        const chord = root + suffix;
+        const profile = menu(chord, key);
+        const panes = profile ? w.getWheelMenuPaneModes(profile) : [];
+        if (!profile) paneAuditErrors.push(`${chord} in ${key}: no menu status for a valid triad`);
+        maxPaneFields = Math.max(maxPaneFields, panes.length);
+        maxCandidateModes = Math.max(maxCandidateModes, profile?.modes.length || 0);
+        if (paletteState.name === 'all-enabled' && profile) {
+          if (profile.outsideOrbit) {
+            const chords = outsideOrbitByKey.get(key) || [];
+            chords.push(chord);
+            outsideOrbitByKey.set(key, chords);
+          }
+          const expectedOutside = profile.modes.length === 0 && !profile.secondaryFunction;
+          if (profile.outsideOrbit !== expectedOutside) {
+            paneAuditErrors.push(`${chord} in ${key}: inconsistent outside-orbit status`);
+          }
+        }
+        if (profile && new Set(profile.modes).size !== profile.modes.length) {
+          paneAuditErrors.push(`${chord} in ${key}/${paletteState.name}: duplicate candidates ${profile.modes.join(',')}`);
+        }
+        if (panes.length > 5 || new Set(panes).size !== panes.length) {
+          paneAuditErrors.push(`${chord} in ${key}/${paletteState.name}: invalid panes ${panes.join(',')}`);
+        }
+        if (paletteState.name === 'all-enabled' && baseCoreChords.includes(chord) &&
+            panes.join(',') !== baseMode) {
+          paneAuditErrors.push(`${chord} in ${key}: natural triad double-colored as ${panes.join(',')}`);
+        }
+      }
+    }
+    w.eval('drawWheel()');
+    const renderedGroups = [...w.document.querySelectorAll('#circleSvg .wheel-mode-diagram')];
+    renderedGroups.forEach((group) => {
+      const modes = [...group.querySelectorAll('.wheel-mode-pane')].map((pane) => pane.dataset.mode);
+      if (modes.length > 5 || modes.length !== Number(group.dataset.paneCount) ||
+          new Set(modes).size !== modes.length) {
+        paneAuditErrors.push(`${group.dataset.wheelChordIdentity} in ${key}/${paletteState.name}: rendered ${modes.join(',')}`);
+      }
+    });
+  }
+}
+const outsideOrbitSummary = Object.fromEntries(wheelAuditKeys.map((key) => [
+  key,
+  outsideOrbitByKey.get(key) || [],
+]));
+for (const key of wheelAuditKeys) {
+  const outside = outsideOrbitSummary[key];
+  const expected = expectedOutsideOrbitByKey[key];
+  const valid = expected
+    ? outside.join(',') === expected.join(',')
+    : outside.length === 3 && outside.every((chord) => chord.endsWith('m'));
+  if (!valid) paneAuditErrors.push(`${key}: unexpected outside-orbit candidates ${outside.join(',')}`);
+}
+ok('все 24 трезвучия в C/Am/G/Em: максимум 5 pane-полей; три минорных аккорда вне орбиты; без двойной натуральной заливки',
+  paneAuditErrors.length === 0 && maxPaneFields <= 5 && maxCandidateModes <= 5,
+  JSON.stringify({ keys: wheelAuditKeys, outsideOrbit: outsideOrbitSummary, maxPaneFields, maxCandidateModes, errors: paneAuditErrors.slice(0, 5) }));
+
 for (const key of stabilityKeys) {
   for (const root of CHROMATIC) {
     for (const suffix of ['', 'm', 'dim', 'aug']) {
       const m = menu(root + suffix, key);
-      if (!m) continue;
+      if (!m?.modes.length) continue;
       // Каждая пара (ступень из содержащего лада) должна совпадать с menu.degree.
       const parsed = w.eval(`parseChordForKeyDetection(${JSON.stringify(root + suffix)})`);
       if (!parsed.quality && /aug|\+/.test(suffix)) parsed.quality = 'aug';
@@ -198,8 +342,8 @@ w.eval(`
   drawWheel();
 `);
 
-ok('сектор D несёт pane-раскладку из трёх цветовых полей',
-  wedgeModes('D').join(',') === 'melodic-minor,dorian,mixolydian',
+ok('сектор D в Am получает pane-поля параллельного Ionian перед семействами',
+  wedgeModes('D').join(',') === 'ionian,melodic-minor,dorian,mixolydian',
   wedgeModes('D').join(','));
 ok('после выключения натурального минора альтернативные цвета Am распределяются по четырём полям',
   wedgeModes('Am').join(',') === 'harmonic-minor,melodic-minor,dorian,phrygian',
@@ -229,18 +373,22 @@ ok('aria-альтернатива сообщает ступень и все ла
   /дорийский/i.test(sector('D')?.getAttribute('aria-label') || ''),
   sector('D')?.getAttribute('aria-label') || '');
 const minorDTooltipText = sector('D')?.getAttribute('aria-label') || '';
-ok('минорные aria/title-подсказки ставят Дорийский перед Мелодическим минором, не меняя поля D',
-  sector('D')?.dataset.wheelVisibleModes === 'dorian,melodic-minor,mixolydian' &&
+ok('минорная подсказка сортирует пояснения отдельно от pane-порядка и описывает Ionian от нат. минора',
+  sector('D')?.dataset.wheelVisibleModes === 'dorian,melodic-minor,ionian,mixolydian' &&
   minorDTooltipText.indexOf('Дорийский') < minorDTooltipText.indexOf('Мелодический минор') &&
-  minorDTooltipText.indexOf('Мелодический минор') < minorDTooltipText.indexOf('Миксолидийский') &&
-  wedgeModes('D').join(',') === 'melodic-minor,dorian,mixolydian',
+  minorDTooltipText.indexOf('Мелодический минор') < minorDTooltipText.indexOf('Ионийский') &&
+  minorDTooltipText.indexOf('Ионийский') < minorDTooltipText.indexOf('Миксолидийский') &&
+  minorDTooltipText.includes('♯III · ♯VI · ♯VII от нат. минора') &&
+  wedgeModes('D').join(',') === 'ionian,melodic-minor,dorian,mixolydian',
   JSON.stringify({ visible: sector('D')?.dataset.wheelVisibleModes, pane: wedgeModes('D'), text: minorDTooltipText }));
 ok('title-подсказка сектора дублирует меню для наведения мышью',
   /гармонический минор/i.test(sector('E')?.querySelector('title')?.textContent || ''),
   sector('E')?.querySelector('title')?.textContent || '');
-ok('Fm без меню: ни диаграммы, ни aria',
-  !diagramOf('Fm') && !(sector('Fm')?.getAttribute('aria-label')),
-  `${!!diagramOf('Fm')} / ${sector('Fm')?.getAttribute('aria-label')}`);
+ok('Fm без ладового поля получает нейтральную подпись «вне орбиты» и текстовую альтернативу',
+  !diagramOf('Fm') && sector('Fm')?.dataset.wheelOutsideOrbit === 'true' &&
+  /вне орбиты/i.test(sector('Fm')?.getAttribute('aria-label') || '') &&
+  !sector('Fm')?.dataset.harmonyProfile,
+  `diagram=${!!diagramOf('Fm')}, outside=${sector('Fm')?.dataset.wheelOutsideOrbit}, profile=${sector('Fm')?.dataset.harmonyProfile || '—'}, aria=${sector('Fm')?.getAttribute('aria-label')}`);
 
 // ===== 4. Гейт настройкой «Ступени и цвета круга» =====
 w.eval("document.getElementById('showDegrees').checked = false; updateCellsDegrees();");
@@ -401,11 +549,12 @@ const legend = d.getElementById('wheelHarmonyLegend');
 const modeInputs = [...d.querySelectorAll('#wheelHarmonyModeList [data-wheel-harmony-mode]')];
 const ionianModeInput = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="ionian"]');
 const aeolianModeInput = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="aeolian"]');
-ok('легенда компактно показывает все лады/цвета, изменения ступеней и названия натуральных ладов',
+ok('легенда компактно показывает все лады и контекстные изменения; минорный Ionian описан от натурального минора',
   !legend?.hidden && modeInputs.length === 9 &&
-  /Ионийский/.test(legend?.textContent || '') && /Натуральный мажор/.test(legend?.textContent || '') &&
+  /Ионийский/.test(legend?.textContent || '') &&
+  !/Натуральный мажор/.test(ionianModeInput?.getAttribute('aria-label') || '') &&
+  /♯III · ♯VI · ♯VII от нат\. минора/.test(ionianModeInput?.getAttribute('aria-label') || '') &&
   /Эолийский/.test(legend?.textContent || '') && /Натуральный минор/.test(legend?.textContent || '') &&
-  /Натуральный мажор/.test(ionianModeInput?.getAttribute('aria-label') || '') &&
   /Натуральный минор/.test(aeolianModeInput?.getAttribute('aria-label') || '') &&
   /♯VII/.test(legend?.textContent || '') && /♯VI/.test(legend?.textContent || '') &&
   /♭II/.test(legend?.textContent || '') && /♭V/.test(legend?.textContent || '') &&
@@ -416,7 +565,14 @@ const modeChangeDescription = (id) => d.querySelector(
   `#wheelHarmonyModeList [data-wheel-harmony-mode="${id}"]`
 )?.closest('.wheel-harmony-mode-option')?.querySelector('.wheel-harmony-mode-change');
 const modeReference = (id, tone) => modeChangeDescription(id)?.querySelector(`.wheel-harmony-reference-${tone}`);
-ok('в описаниях ладов слова «мажор/минор» окрашены в цвета натуральных ладов',
+ok('в минорном контексте Ionian помечен повышениями от натурального минора',
+  modeChangeDescription('ionian')?.textContent === '♯III · ♯VI · ♯VII от нат. минора' &&
+  modeReference('ionian', 'minor')?.textContent === 'минора' &&
+  !modeReference('ionian', 'major'),
+  modeChangeDescription('ionian')?.outerHTML || '');
+w.eval("globalKey = 'C'; applyWheelHarmonyModeVisibility();");
+ok('в мажорном контексте Ionian остаётся натуральным мажором без альтераций',
+  modeChangeDescription('ionian')?.textContent === 'Натуральный мажор · без альтераций' &&
   modeReference('ionian', 'major')?.textContent === 'мажор' &&
   modeReference('aeolian', 'minor')?.textContent === 'минор' &&
   modeReference('aeolian', 'major')?.textContent === 'мажора' &&
@@ -429,6 +585,7 @@ ok('в описаниях ладов слова «мажор/минор» окр
     harmonicMinor: modeReference('harmonic-minor', 'minor')?.outerHTML,
     lydianMajor: modeReference('lydian', 'major')?.outerHTML,
   }));
+w.eval("globalKey = 'Am'; applyWheelHarmonyModeVisibility();");
 const naturalAliasMenuText = w.getBorrowingMenuText({ chord: 'Am', degree: 'i', modes: ['ionian', 'aeolian'] });
 ok('текстовое описание меню тоже расшифровывает Ионийский и Эолийский',
   /Ионийский \(Натуральный мажор\)/.test(naturalAliasMenuText) &&
@@ -447,11 +604,11 @@ dorianToggle.checked = false;
 dorianToggle.dispatchEvent(new w.Event('change', { bubbles: true }));
 const dPaneAfterToggle = paneGroup('D', 'major');
 const dSectorAfterToggle = sector('D');
-ok('отключение одного лада пересчитывает альтернативную 3→2-панель, сохраняя меню и scope только на круге',
-  dPaneBeforeToggle?.dataset.paneLayout.startsWith('three-') &&
-  Number(dPaneBeforeToggle?.dataset.paneCount) === 3 &&
-  Number(dPaneAfterToggle?.dataset.paneCount) === 2 &&
-  paneModes(dPaneAfterToggle).join(',') === 'melodic-minor,mixolydian' &&
+ok('отключение одного лада пересчитывает альтернативную 4→3-панель, сохраняя меню и scope только на круге',
+  dPaneBeforeToggle?.dataset.paneLayout === 'four-window' &&
+  Number(dPaneBeforeToggle?.dataset.paneCount) === 4 &&
+  Number(dPaneAfterToggle?.dataset.paneCount) === 3 &&
+  paneModes(dPaneAfterToggle).join(',') === 'ionian,melodic-minor,mixolydian' &&
   dSectorBeforeToggle?.dataset.wheelModes.includes('dorian') &&
   dSectorAfterToggle?.dataset.wheelModes.includes('dorian') &&
   !dSectorAfterToggle?.dataset.wheelVisibleModes.includes('dorian') &&

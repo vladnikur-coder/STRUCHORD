@@ -210,6 +210,39 @@ ok('V/x остаётся доступен текстом без цветовог
   /вторичная доминанта V\/V/.test(grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label') || ''),
   grid(1)?.querySelector('.chord-input')?.getAttribute('aria-label') || '');
 
+const sectionSnapshotForDegree = JSON.parse(w.eval('JSON.stringify(sections.find((item) => item.id === 41))'));
+w.eval(`
+  sections = [{ id: 41, type: 'Verse', key: 'D', timeSig: '4/4', squares: [{
+    id: 42, events: [{ chord: 'F', span: 1 }]
+  }]}];
+  render();
+`);
+const neutralEditorF = grid(0);
+ok('редактор согласует F в D с круговым ♭III, не окрашивая неподтверждённый заимствованный аккорд',
+  neutralEditorF?.querySelector('.degree-hint')?.textContent === '♭III' &&
+  !neutralEditorF?.dataset.harmonyGroup && !neutralEditorF?.dataset.harmonyProfile &&
+  !neutralEditorF?.querySelector('.chord-input')?.getAttribute('aria-label'),
+  `${neutralEditorF?.querySelector('.degree-hint')?.textContent || '—'} / ${neutralEditorF?.dataset.harmonyProfile || 'нейтрально'}`);
+const sharpKeyDegreeCases = [
+  ['E', 'D', '♭VII'], ['B', 'A', '♭VII'], ['F#', 'E', '♭VII'], ['C#', 'B', '♭VII'],
+];
+const sharpKeyCellDegrees = sharpKeyDegreeCases.map(([key, chord]) => {
+  w.eval(`sections = [{ id: 41, type: 'Verse', key: ${JSON.stringify(key)}, timeSig: '4/4', squares: [{
+    id: 42, events: [{ chord: ${JSON.stringify(chord)}, span: 1 }]
+  }]}]; render();`);
+  const cell = grid(0);
+  return {
+    key,
+    chord,
+    degree: cell?.querySelector('.degree-hint')?.textContent || '',
+    profile: cell?.dataset.harmonyProfile || '',
+  };
+});
+ok('редактор показывает ♭VII, а не ♯VI, в тональностях с диезами и сохраняет неподтверждённый аккорд нейтральным',
+  sharpKeyCellDegrees.every(({ degree, profile }) => degree === '♭VII' && !profile),
+  JSON.stringify(sharpKeyCellDegrees));
+w.eval(`sections = [${JSON.stringify(sectionSnapshotForDegree)}]; render();`);
+
 w.eval('timelineMode = true; renderTimeline();');
 const timeline = (ei) => d.querySelector(`.tl-cell[data-sec="41"][data-square="42"][data-ei="${ei}"]`);
 ok('лента несёт те же подтверждённые profiles, а неоднозначный Bb не маркирует',
@@ -260,6 +293,23 @@ ok('текстовые описания ладов называют Ионийс
   naturalMajorLabel === 'Ионийский (Натуральный мажор)' &&
   naturalMinorLabel === 'Эолийский (Натуральный минор)',
   `${naturalMajorLabel} / ${naturalMinorLabel}`);
+const ionianLegendCheckbox = d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="ionian"]');
+w.eval("globalKey = 'Am'; applyWheelHarmonyModeVisibility();");
+const minorIonianChange = ionianLegendCheckbox?.closest('.wheel-harmony-mode-option')
+  ?.querySelector('.wheel-harmony-mode-change')?.textContent || '';
+const minorIonianAria = ionianLegendCheckbox?.getAttribute('aria-label') || '';
+const minorLegendOrderAfterIonianUpdate = legendModeOrder();
+w.eval("globalKey = 'C'; applyWheelHarmonyModeVisibility();");
+const majorIonianChange = ionianLegendCheckbox?.closest('.wheel-harmony-mode-option')
+  ?.querySelector('.wheel-harmony-mode-change')?.textContent || '';
+ok('Ionian legend details update by key while preserving the checkbox node and major wording',
+  minorIonianChange === '♯III · ♯VI · ♯VII от нат. минора' &&
+  /♯III · ♯VI · ♯VII от нат. минора/.test(minorIonianAria) &&
+  !/Натуральный мажор/.test(minorIonianAria) &&
+  minorLegendOrderAfterIonianUpdate.startsWith('aeolian,harmonic-minor') &&
+  majorIonianChange === 'Натуральный мажор · без альтераций' &&
+  d.querySelector('#wheelHarmonyModeList [data-wheel-harmony-mode="ionian"]') === ionianLegendCheckbox,
+  JSON.stringify({ minorIonianChange, minorIonianAria, minorLegendOrder: minorLegendOrderAfterIonianUpdate, majorIonianChange }));
 ok('? floats on its own inner surface using the circle depth timing',
   helpSurface?.textContent === '?' && helpSurface.classList.contains('wheel-surface-stone') &&
   helpSurface.style.getPropertyValue('--wheel-surface-rise-delay') === '52ms' &&
@@ -371,7 +421,7 @@ const wheelPaletteIndependentOfOwner = w.eval(`(() => [0, 1, 2, 3].map((ei) => {
 ok('единая компактная палитра не превращается в анализ owner-аккорда',
   wheelPaletteIndependentOfOwner.every((item) => item.legendCurrentAbsent && item.paletteCount === 9) &&
   wheelPaletteIndependentOfOwner.map((item) => item.menuProfile).join('|') ===
-    'aeolian,harmonic-minor,melodic-minor,dorian,phrygian|aeolian,dorian,phrygian|melodic-minor,dorian,mixolydian|harmonic-minor,melodic-minor,lydian',
+    'aeolian,harmonic-minor,melodic-minor,dorian,phrygian|aeolian,dorian,phrygian|ionian,melodic-minor,dorian,mixolydian|ionian,harmonic-minor,melodic-minor,lydian',
   JSON.stringify(wheelPaletteIndependentOfOwner));
 
 const strictWheelCandidates = w.eval(`(() => {
@@ -390,6 +440,9 @@ const strictWheelCandidates = w.eval(`(() => {
   return {
     candidateFm: candidateFm?.dataset.wheelModes || '',
     candidateFmAria: candidateFm?.getAttribute('aria-label') || '',
+    candidateFmOutside: candidateFm?.dataset.wheelOutsideOrbit || '',
+    candidateFmProfile: candidateFm?.dataset.harmonyProfile || '',
+    candidateFmBadge: document.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="Fm"] .wheel-outside-orbit-label')?.textContent || '',
     candidateE: candidateE?.dataset.wheelModes || '',
     candidateEAria: candidateE?.getAttribute('aria-label') || '',
     ownerFm: ownerFm?.dataset.wheelModes || '',
@@ -397,15 +450,58 @@ const strictWheelCandidates = w.eval(`(() => {
     ownerLegendAbsent: !document.getElementById('wheelHarmonyLegendCurrent'),
   };
 })()`);
-ok('в Am Fm остаётся нейтральным и как кандидат, и как owner; E остаётся настоящим V гармонического минора',
+ok('в Am Fm остаётся без цветового профиля, но как кандидат подписан «вне орбиты»; E остаётся настоящим V гармонического минора',
   strictWheelCandidates.candidateFm === '' && strictWheelCandidates.ownerFm === '' &&
-  strictWheelCandidates.candidateFmAria === '' &&
+  strictWheelCandidates.candidateFmOutside === 'true' && strictWheelCandidates.candidateFmProfile === '' &&
+  /вне орбиты/i.test(strictWheelCandidates.candidateFmAria) &&
+  strictWheelCandidates.candidateFmBadge === 'вне орбиты' &&
   strictWheelCandidates.ownerSelected && strictWheelCandidates.ownerLegendAbsent &&
-  strictWheelCandidates.candidateE === 'harmonic-minor,melodic-minor,lydian' &&
+  strictWheelCandidates.candidateE === 'ionian,harmonic-minor,melodic-minor,lydian' &&
   /E: ступень V в Am/.test(strictWheelCandidates.candidateEAria) &&
   /Гармонический минор/.test(strictWheelCandidates.candidateEAria) &&
   !/Мелодический минор|Лидийский/.test(strictWheelCandidates.candidateEAria),
   JSON.stringify(strictWheelCandidates));
+
+w.eval(`
+  globalKey = 'C'; keyMode = 'manual'; activeSectionKey = null; activeChordInput = null;
+  wheelMode = 'triads'; wheelHarmonyModeVisibilityLoaded = true;
+  wheelHarmonyDisabledModes = new Set();
+  document.getElementById('showDegrees').checked = true;
+  drawWheel();
+`);
+const functionLabel = (identity) => d.querySelector(
+  `#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-secondary-function-label`
+)?.textContent || '';
+const visibleDegree = (identity) => d.querySelector(
+  `#circleSvg .wheel-chord-label[data-wheel-chord-identity="${identity}"] .wheel-degree-label`
+)?.textContent || '';
+const secondaryCircleCandidates = ['A', 'E', 'B', 'D'].map((identity) => {
+  const node = d.querySelector(`#circleSvg .wheel-sector[data-wheel-chord-identity="${identity}"]`);
+  return {
+    chord: identity,
+    function: node?.dataset.wheelSecondaryFunction || '',
+    modes: node?.dataset.wheelModes || '',
+    harmonyProfile: node?.dataset.harmonyProfile || '',
+    degree: visibleDegree(identity),
+    label: functionLabel(identity),
+    aria: node?.getAttribute('aria-label') || '',
+  };
+});
+ok('меню C показывает V/ii, V/vi, V/iii и D=Lydian II + V/V как подписи, не цветовой профиль',
+  secondaryCircleCandidates.map(({ function: candidateFunction }) => candidateFunction).join(',') ===
+    'V/ii,V/vi,V/iii,V/V' &&
+  secondaryCircleCandidates.map(({ label }) => label).join(',') === 'V/ii,V/vi,V/iii,V/V' &&
+  secondaryCircleCandidates.slice(0, 3).every(({ modes, harmonyProfile, aria }) =>
+    !modes && !harmonyProfile && /возможная вторичная доминанта/i.test(aria)) &&
+  secondaryCircleCandidates[3].modes.includes('lydian') &&
+  !secondaryCircleCandidates[3].harmonyProfile && secondaryCircleCandidates[3].degree === 'II',
+  JSON.stringify(secondaryCircleCandidates));
+const outsideCircleFsm = d.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="F#m"]');
+ok('внеорбитальный F#m сохраняет нейтральный цвет и показывает функциональную ступень/подпись',
+  outsideCircleFsm?.dataset.wheelOutsideOrbit === 'true' &&
+  !outsideCircleFsm?.dataset.harmonyProfile && visibleDegree('F#m') === '#iv' &&
+  d.querySelector('#circleSvg .wheel-chord-label[data-wheel-chord-identity="F#m"] .wheel-outside-orbit-label')?.textContent === 'вне орбиты',
+  `${visibleDegree('F#m')} / ${outsideCircleFsm?.getAttribute('aria-label') || ''}`);
 
 const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
 ok('сектора имеют контрастный fallback без color-mix и усиленное смешение в современных браузерах',
