@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // B-99: functional harmony must carry a precise modal profile only when
 // analysis has enough evidence. The UI consumes `mode`; only confirmed
-// profiles and V/x receive a visible semantic marker.
+// mode profiles receive color markers; V/x stays functional/textual only.
 const fs = require('fs');
 const { JSDOM } = require('jsdom');
 
@@ -38,9 +38,46 @@ const section = (key, chords) => ({
 });
 const modes = (key, chords) => w.analyzeSectionHarmony(section(key, chords)).map((item) => item.mode).join(',');
 
+const unresolvedKeyAnalysis = w.analyzeSectionHarmony(section(null, ['C', 'G', 'Am']));
+ok('auto mode with no detected key does not analyze an unkeyed section as fallback C',
+  unresolvedKeyAnalysis.length === 3 && unresolvedKeyAnalysis.every((item) =>
+    item.key === null && item.group === 'unknown' && item.mode === null && !item.degree),
+  JSON.stringify(unresolvedKeyAnalysis));
+
 const cMajor = analyze('Am7', 'C');
 ok('обычная ступень C-мажора получает точный ионийский профиль',
   cMajor.group === 'diatonic' && cMajor.mode === 'ionian' && cMajor.degree === 'vi', JSON.stringify(cMajor));
+
+const completeSeventhChecks = {
+  c7Mixolydian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('C7'), 'C', 'mixolydian'),
+  c7Ionian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('C7'), 'C', 'ionian'),
+  d7Lydian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('D7'), 'C', 'lydian'),
+  d7Ionian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('D7'), 'C', 'ionian'),
+  dMaj7Lydian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Dmaj7'), 'C', 'lydian'),
+  cMaj7Ionian: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Cmaj7'), 'C', 'ionian'),
+  bDim7HarmonicMinor: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Bdim7'), 'C', 'harmonic-minor'),
+};
+const seventhModalLine = w.analyzeSectionHarmony(section('C', ['C7', 'Gm7', 'Bbmaj7']));
+const seventhFalsePositiveLine = w.analyzeSectionHarmony(section('C', ['Cmaj7', 'Gm7', 'Bbmaj7']));
+ok('септаккорды проверяются по полному составу: добавленная септима подтверждает или исключает лад',
+  completeSeventhChecks.c7Mixolydian === 0 && completeSeventhChecks.c7Ionian === -1 &&
+  completeSeventhChecks.d7Lydian === 1 && completeSeventhChecks.d7Ionian === -1 &&
+  completeSeventhChecks.dMaj7Lydian === -1 && completeSeventhChecks.cMaj7Ionian === 0 &&
+  completeSeventhChecks.bDim7HarmonicMinor === 6 &&
+  seventhModalLine.every((item) => item.mode === 'mixolydian') &&
+  seventhFalsePositiveLine.every((item) => item.mode !== 'mixolydian'),
+  JSON.stringify({ completeSeventhChecks, seventhModalLine, seventhFalsePositiveLine }));
+
+const melodicMinorSixth = {
+  cAm: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Am'), 'C', 'melodic-minor'),
+  cAdim: w.getHarmonyModeDegree(w.parseChordForKeyDetection('Adim'), 'C', 'melodic-minor'),
+  aFsm: w.getHarmonyModeDegree(w.parseChordForKeyDetection('F#m'), 'Am', 'melodic-minor'),
+  aFsdim: w.getHarmonyModeDegree(w.parseChordForKeyDetection('F#dim'), 'Am', 'melodic-minor'),
+};
+ok('VI ступень мелодического минора — уменьшённое трезвучие, не минорное',
+  melodicMinorSixth.cAm === -1 && melodicMinorSixth.cAdim === 5 &&
+  melodicMinorSixth.aFsm === -1 && melodicMinorSixth.aFsdim === 5,
+  JSON.stringify(melodicMinorSixth));
 
 const aMinor = analyze('E', 'Am');
 ok('мажорная V в A-миноре — гармонический минор, а не vague borrow',
@@ -60,6 +97,30 @@ ok('D7 → G в C остаётся отдельной прикладной V/V, 
 const bareD = analyze('D', 'C');
 ok('D-мажор без контекста остаётся нейтральным, без ложного лада или категории',
   bareD.group === 'unknown' && bareD.mode === null && bareD.confidence === 'none' && bareD.candidates.includes('lydian'), JSON.stringify(bareD));
+
+const majorDegreeCases = [
+  ['F', 'D', '♭III'],
+  ['C', 'D', '♭VII'],
+  ['G', 'A', '♭VII'],
+  ['D', 'E', '♭VII'],
+  ['A', 'B', '♭VII'],
+  ['G', 'B', '♭VI'],
+  ['F#dim', 'C', '#iv°'],
+  ['A#', 'C', '♭VII'],
+  ['Bb', 'C', '♭VII'],
+];
+const rootDegreeMismatches = majorDegreeCases.flatMap(([chord, key, expected]) => {
+  const analysis = analyze(chord, key);
+  const wheel = w.getBorrowingMenuProfile(chord, key);
+  return analysis.degree === expected && wheel?.degree === expected
+    ? []
+    : [`${chord} in ${key}: analysis=${analysis.degree}, wheel=${wheel?.degree}, expected=${expected}`];
+});
+const neutralFInD = analyze('F', 'D');
+ok('chromatic degrees use key/scale position, match wheel labels and keep an unconfirmed editor chord neutral',
+  rootDegreeMismatches.length === 0 && neutralFInD.degree === '♭III' &&
+  neutralFInD.group === 'unknown' && neutralFInD.mode === null && neutralFInD.confidence === 'none',
+  rootDegreeMismatches.join('; ') || JSON.stringify(neutralFInD));
 
 const bFlat = analyze('Bb', 'C');
 ok('один bVII в C остаётся нейтральным: кандидаты не становятся пользовательской категорией',
