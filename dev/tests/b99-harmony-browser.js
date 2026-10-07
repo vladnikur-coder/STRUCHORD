@@ -872,18 +872,18 @@ function ok(name, condition, detail = '') {
       JSON.stringify({ floats: state.legendToggleFloats }));
     const expectedModePalette = {
       light: {
-        ionian: '#d4774d', aeolian: '#0594b8', 'harmonic-minor': '#9e3250', 'melodic-minor': '#dd95aa',
+        ionian: '#d4774d', aeolian: '#0594b8', 'harmonic-minor': '#45a676', 'melodic-minor': '#a079ad',
         dorian: '#8fb3fe', phrygian: '#7357bb', lydian: '#c8bd3c', mixolydian: '#6c5803', locrian: '#3c446a',
       },
       dark: {
-        ionian: '#d89c47', aeolian: '#48b0a9', 'harmonic-minor': '#e55c85', 'melodic-minor': '#f8badf',
+        ionian: '#d89c47', aeolian: '#48b0a9', 'harmonic-minor': '#2f835b', 'melodic-minor': '#ad82d7',
         dorian: '#aec1ff', phrygian: '#2f89fa', lydian: '#f3e667', mixolydian: '#a65f44', locrian: '#39659d',
       },
     };
     const matchesExpectedPalette = ['light', 'dark'].every((theme) =>
       Object.entries(expectedModePalette[theme]).every(([mode, color]) => state.modePalette[theme][mode] === color));
     const paletteValues = [...Object.values(state.modePalette.light), ...Object.values(state.modePalette.dark)];
-    ok('approved mode palette separates all nine modes in both themes',
+    ok('0.588 palette keeps major modes warm and minor/diminished modes cool; all nine stay distinct',
       Object.keys(state.modePalette.light).length === 9 && Object.keys(state.modePalette.dark).length === 9 &&
       new Set(Object.values(state.modePalette.light)).size === 9 && new Set(Object.values(state.modePalette.dark)).size === 9 &&
       state.modePalette.distances.light.minimum >= 25 && state.modePalette.distances.dark.minimum >= 25 &&
