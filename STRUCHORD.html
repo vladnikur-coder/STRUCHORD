@@ -11717,7 +11717,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.588</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.590</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -19658,7 +19658,7 @@ function analyzeFingeringShape(shape, context = {}) {
       score += 85;
     } else if (chordName.endsWith('13') || chordName.endsWith('m13')) {
       score += 80;
-    } else if (chordName.includes('aug') || chordName.includes('dim') || chordName.includes('(♭5)') || chordName.includes('(♯5)')) {
+    } else if (chordName.includes('aug') || chordName.includes('dim') || /\([♭b]5\)/.test(chordName) || /\([♯#]5\)/.test(chordName)) {
       score += 60;
     } else if (chordName.includes('(no3')) {
       score += 70; // Явная отдельная корзина для аккордов без терции
@@ -20073,7 +20073,13 @@ function buildChordName(root, intervals) {
   const has11 = has(17) || (has(5) && hasSeventh);
   const has13 = has(21) || (has(9) && (has(10) || has(11)));
 
-  if (has(10) && has9 && !has11 && !has13 && !has(3)) {
+  // B-101: условие !has(3) отсекало аккорд Хендрикса (7♯9) вместе со ВСЕМИ
+  // минорными девятыми — C Eb G Bb D получал имя Cm7, девятая молча терялась.
+  // Хендрикс в этом представлении (интервалы — классы высот 0..11) и так не
+  // дойдёт до ветки: у (0,3,4,7,10) нет ноты 2/14, то есть has9 ложен, а имя
+  // C7(♯9) собирается ниже правилом альтераций. Поэтому достаточно запретить
+  // ОДНОВРЕМЕННЫЕ терции (б3+б3 = признак Хендрикса), а не всякую б3.
+  if (has(10) && has9 && !has11 && !has13 && !(has(3) && has(4))) {
     name = quality === '' ? root + '9' : (quality === 'm' ? root + 'm9' : name);
   } else if (has(10) && has11 && !has13) {
     name = quality === '' ? root + '11' : (quality === 'm' ? root + 'm11' : name);
@@ -21496,10 +21502,17 @@ function expandChordName(chord) {
     c = c.replace(/(?<!#)\+(?!\w*\+)/g, 'aug');
     if (c.endsWith('+')) c = c.slice(0, -1) + 'aug';
   }
-  if (c.endsWith('4') && !c.endsWith('sus4') && !c.match(/sus\d$/)) {
+  // B-101: add-хвост НЕ сворачивается в sus. «add4»/«add2» — это ДОБАВЛЕННАЯ
+  // нота поверх трезвучия, а sus4/sus2 заменяют терцию. Раньше правило смотрело
+  // только на последний символ: «Cadd4» становилось «Caddsus4» и теряло терцию
+  // (C F G вместо C E F G), «Cadd2» давало C D G вместо C D E G.
+  // Голые цифры (C4, C2) по-прежнему читаются как sus — их судьба отдельный
+  // открытый вопрос волны (см. журнал), здесь поведение не менялось.
+  const noAddTail = !/add\d+$/i.test(c);
+  if (noAddTail && c.endsWith('4') && !c.endsWith('sus4') && !c.match(/sus\d$/)) {
     c = c.slice(0, -1) + 'sus4';
   }
-  if (c.endsWith('2') && !c.endsWith('sus2') && !c.match(/sus\d$/)) {
+  if (noAddTail && c.endsWith('2') && !c.endsWith('sus2') && !c.match(/sus\d$/)) {
     c = c.slice(0, -1) + 'sus2';
   }
   return c;
@@ -21569,7 +21582,22 @@ function canonicalKeyFromRoot(sharpRoot, isMinor) {
 // значим), признак доминантсептаккорда ("G7", но не "Gmaj7"/"Gm7") и корень
 // баса (для слэш-аккордов вида "G/B" — бас несёт отдельную тональную
 // информацию, а не только зависит от корня основного аккорда).
+// B-101 (0.589): buildChordName пишет альтерации типографскими знаками
+// (♭/♯) — так имя выглядит в ячейке и в легенде (0.562). Все разборщики
+// суффиксов при этом написаны под ASCII: `b5`, `b9`, `#5`, `#11`. Из-за
+// этого «Cm7♭5» терял пониженную квинту и давал ноты обычного Cm7, а
+// «C7(♭9)» терял девятую; ошибочные ноты расходились дальше по ступеням,
+// подбору аппликатур и озвучке. Приводим знаки ТОЛЬКО внутри разборщиков —
+// написание в самой ячейке остаётся типографским.
+function normalizeAccidentals(name) {
+  return typeof name === 'string' ? name.replace(/♭/g, 'b').replace(/♯/g, '#') : name;
+}
+
 function parseChordForKeyDetection(chordName) {
+  // B-101: та же причина, что в getChordNotes — «Bm7♭5» не совпадал с
+  // /^m7b5/ и уходил в минор вместо уменьшённого, то есть не
+  // засчитывался как vii°.
+  chordName = normalizeAccidentals(chordName);
   const parts = chordName.split('/');
   const main = parts[0].trim();
   const m = main.match(/^([A-G][#b]?)(.*)$/);
@@ -22100,11 +22128,20 @@ function noteToFrequency(note) {
     'A#': 10,
     Bb: 10,
     B: 11,
+    // B-101 (кирпич 2): в бемольных тональностях SHARP_TO_FLAT пишет ноту B
+    // как Cb, а таблицы её не знали — semitone оставался undefined, частота
+    // выходила NaN, и strumChord отбрасывал её через .filter(Boolean). Из-за
+    // этого в F, Bb, Eb, Ab и Db любой аккорд с этой нотой (G7, Em, Bdim…)
+    // звучал без неё, если у ячейки нет своей аппликатуры. Cb — тот же класс
+    // высоты, что B (11); остальные дважды альтерированные имена приложение
+    // не производит, поэтому в таблице не нужны.
+    Cb: 11,
   };
   const m = note.match(/^([A-G][#b]?)(\d)?$/);
   if (!m) return null;
   const semitone = notes[m[1]],
     octave = m[2] ? parseInt(m[2]) : 4;
+  if (semitone === undefined) return null; // незнакомое написание — не NaN
   return 440 * Math.pow(2, (semitone - 9) / 12 + (octave - 4));
 }
 function normalizeChordCase(ch) {
@@ -22148,7 +22185,7 @@ function toSharpNote(note) {
   return root + octave;
 }
 function getChordNotes(cn, ks) {
-  cn = normalizeChordCase(cn);
+  cn = normalizeChordCase(normalizeAccidentals(cn));
   const rm = cn.match(/^([A-G][#b]?)/);
   if (!rm) return [];
   const root = rm[1];
@@ -22199,6 +22236,13 @@ function getChordNotes(cn, ks) {
   // (в тональности C он тоника, должен быть «I»).
   // Сами add-ноты добавляются ниже отдельными правилами.
   let extSuffix = suffix.replace(/add\d+/g, '');
+  // B-101: альтерация в скобках — это НЕ расширение. Цифровой стек ниже
+  // читает первое попавшееся число, поэтому «C(#11)» набирало септиму,
+  // нону и натуральную 11-ю плюс саму ♯11 (семь нот вместо четырёх), а
+  // «C(b9)» добавлял и ♭9, и натуральную 9. Скобки вырезаем из стека;
+  // сами альтерации по-прежнему кладутся правилами ниже — они читают
+  // `suffix`, а не `extSuffix`.
+  extSuffix = extSuffix.replace(/\((?:[#b]?\d+)(?:,[#b]?\d+)*\)/g, '');
   // '6/9' и слитное '69' — одно и то же: секста И нона. Не отдаём их
   // цифровому стеку ниже: тот читает только ПЕРВОЕ число, а parseInt
   // ('69') наставил бы ступени до тринадцатой.
@@ -22237,6 +22281,12 @@ function getChordNotes(cn, ks) {
   if (suffix.includes('m7b5') || suffix.includes('ø')) ints = [0, 3, 6, 10];
   if (suffix.includes('add9') && !ints.includes(14)) ints.push(14);
   if (suffix.includes('add11') && !ints.includes(17)) ints.push(17);
+  // B-101: add2/add4 — те же добавленные ступени, что add9/add11, только в
+  // гитарной записи «в пределах октавы» (Cadd2 = C D E G, Cadd4 = C E F G).
+  // Раньше этих правил не было вовсе: имя Cadd4 держало ноты обычного C —
+  // добавленная кварта пропадала из озвучки и из подбора аппликатур.
+  if (suffix.includes('add2') && !ints.includes(14)) ints.push(14);
+  if (suffix.includes('add4') && !ints.includes(17)) ints.push(17);
   ints = [...new Set(ints)].sort((a, b) => a - b);
 
   return ints.map((i) => {
