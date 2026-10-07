@@ -1,20 +1,22 @@
 #!/usr/bin/env node
-// Сравнение направлений меню заимствований (?menu=…) + монтаж.
-// Направления: base (один цвет), hover (покой/наведение — макет
-// состояния), plain (без цвета), strict (строгая раскраска 0.545).
-// Круг открывается программно; скрипт падает, если SVG не виден.
+// Скриншоты panes B-99: 3+2-поля, секторная подсказка и компактная палитра.
+// Opacity: 0.34 / 0.45; Am в Am — пример пяти активных ладов.
 const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const sparticuz = require('@sparticuz/chromium').default;
 const puppeteer = require('puppeteer-core');
 
-const VARIANTS = [
-  ['base', 'default', 'Вариант 1 — один цвет на карточку: базовый лад карточки, полный список в подсказке'],
-  ['hover', 'rest', 'Вариант 2а — покой: круг полностью каменный, только ступени'],
-  ['hover', 'active', 'Вариант 2б — при наведении: подсветка карточки + меню в легенде (макет состояния)'],
-  ['plain', 'default', 'Вариант 3 — без цвета на карточках: ступени + текстовое меню в подсказке и легенде'],
-  ['strict', 'default', 'Вариант 4 — строгая раскраска 0.545 (один профиль на карточку) + ступени + текстовое меню'],
+const OUTPUT_DIR = path.resolve(process.env.B99_CAPTURE_DIR || path.join(__dirname, 'captures'));
+fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+
+const CAPTURES = [
+  { theme: 'light', mode: 'rest', caption: 'Светлая тема — круг Am, видна раскладка 3+2' },
+  { theme: 'dark', mode: 'rest', caption: 'Тёмная тема — круг Am, видна раскладка 3+2' },
+  { theme: 'light', mode: 'palette', caption: 'Светлая тема — компактная палитра ?' },
+  { theme: 'dark', mode: 'palette', caption: 'Тёмная тема — компактная палитра ?' },
+  { theme: 'light', mode: 'active', caption: 'Светлая тема — hover Am: все пять активных ладов' },
+  { theme: 'dark', mode: 'active', caption: 'Тёмная тема — hover Am: все пять активных ладов' },
 ];
 
 async function launch() {
@@ -31,16 +33,19 @@ async function launch() {
   });
 }
 
-async function shot(browser, style, mode, caption) {
+async function shot(browser, mode, theme, caption) {
   const page = await browser.newPage();
-  await page.goto(pathToFileURL(path.resolve(__dirname, '../../STRUCHORD.html')).href + '?menu=' + style, { waitUntil: 'load' });
+  await page.goto(pathToFileURL(path.resolve(__dirname, '../../STRUCHORD.html')).href, { waitUntil: 'load' });
   await page.waitForFunction(() => typeof drawWheel === 'function');
-  const clip = await page.evaluate((frameMode) => {
+  const clip = await page.evaluate(({ frameMode, themeName }) => {
+    if (themeName === 'dark') document.documentElement.setAttribute('data-theme', 'dark');
+    else document.documentElement.removeAttribute('data-theme');
     document.getElementById('showDegrees').checked = true;
     globalKey = 'Am';
     keyMode = 'manual';
     activeSectionKey = null;
     activeChordInput = null;
+    try { localStorage.removeItem('struchord-wheel-harmony-visibility-v1'); } catch (_) {}
     updateCellsDegrees();
     DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
     wheelMode = 'triads';
@@ -48,25 +53,37 @@ async function shot(browser, style, mode, caption) {
     const sr = document.getElementById('circleSvg').getBoundingClientRect();
     if (sr.width < 100 || sr.height < 100) throw new Error('circleSvg не виден: ' + JSON.stringify(sr));
     let box = { left: sr.left, top: sr.top, right: sr.right, bottom: sr.bottom };
-    if (frameMode === 'active') {
-      // Макет состояния наведения: подсветка карточки D + меню в легенде.
-      const sec = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="D"][data-wheel-ring="major"]');
-      sec?.classList.add('is-wheel-hovered');
+    if (frameMode === 'palette') {
+      bindWheelHarmonyLegend();
       setWheelHarmonyLegendOpen(true);
-      const cur = document.getElementById('wheelHarmonyLegendCurrent');
-      const chip = (m) =>
-        `<span style="display:inline-block;width:11px;height:11px;border-radius:50%;background:var(--harmony-${m});margin:0 4px 0 0;vertical-align:-1px"></span>`;
-      cur.innerHTML =
-        '<strong>D: ступень IV</strong> — ' +
-        chip('melodic-minor') + 'мелодический минор · ' +
-        chip('dorian') + 'дорийский · ' +
-        chip('mixolydian') + 'миксолидийский';
       const lg = document.getElementById('wheelHarmonyLegend').getBoundingClientRect();
       box = {
         left: Math.min(box.left, lg.left),
         top: Math.min(box.top, lg.top),
         right: Math.max(box.right, lg.right),
         bottom: Math.max(box.bottom, lg.bottom),
+      };
+    }
+    if (frameMode === 'active') {
+      // Am в Am — пятицветная карточка: показываем все текущие профили,
+      // а не отдельное имя одной pane под указателем.
+      const sector = document.querySelector('#circleSvg .wheel-sector[data-wheel-chord-identity="Am"][data-wheel-ring="minor"]');
+      const diagram = document.querySelector('#circleSvg .wheel-mode-diagram[data-wheel-chord-identity="Am"][data-wheel-hover-ring="minor"]');
+      if (!sector || diagram?.dataset.paneCount !== '5') throw new Error('Не найден пример Am с 3+2: ' + JSON.stringify({ sector: !!sector, count: diagram?.dataset.paneCount }));
+      const bounds = sector.getBBox();
+      const point = document.getElementById('circleSvg').createSVGPoint();
+      point.x = bounds.x + bounds.width / 2;
+      point.y = bounds.y + bounds.height / 2;
+      const screen = point.matrixTransform(sector.getScreenCTM());
+      const eventOptions = { bubbles: true, clientX: screen.x, clientY: screen.y, pageX: screen.x + scrollX, pageY: screen.y + scrollY, pointerType: 'mouse' };
+      sector.dispatchEvent(new PointerEvent('pointerover', eventOptions));
+      sector.dispatchEvent(new PointerEvent('pointermove', eventOptions));
+      const tooltip = document.getElementById('wheelHarmonyHoverTooltip').getBoundingClientRect();
+      box = {
+        left: Math.min(box.left, tooltip.left),
+        top: Math.min(box.top, tooltip.top),
+        right: Math.max(box.right, tooltip.right),
+        bottom: Math.max(box.bottom, tooltip.bottom),
       };
     }
     const pad = 26;
@@ -76,7 +93,7 @@ async function shot(browser, style, mode, caption) {
       width: box.right - box.left + pad * 2,
       height: box.bottom - box.top + pad * 2,
     };
-  }, mode);
+  }, { frameMode: mode, themeName: theme });
   await new Promise((r) => setTimeout(r, 900));
   await page.evaluate((cap) => {
     const el = document.createElement('div');
@@ -87,10 +104,10 @@ async function shot(browser, style, mode, caption) {
       "font:600 17px/1.25 system-ui,sans-serif;box-shadow:0 4px 14px rgba(0,0,0,.25);white-space:nowrap;";
     document.body.appendChild(el);
   }, caption);
-  const file = path.join(__dirname, `b99-menu-shot-${style}-${mode}.png`);
+  const file = path.join(OUTPUT_DIR, `b99-menu-shot-${theme}-${mode}.png`);
   await page.screenshot({ path: file, clip });
   await page.close();
-  console.log('  кадр ' + style + '/' + mode + ' → ' + path.basename(file));
+  console.log('  кадр panes/' + theme + '/' + mode + ' → ' + path.basename(file));
   return file;
 }
 
@@ -98,16 +115,18 @@ async function shot(browser, style, mode, caption) {
   const browser = await launch();
   try {
     const files = [];
-    for (const [style, mode, caption] of VARIANTS) files.push(await shot(browser, style, mode, caption));
-    const cells = VARIANTS.map(
-      ([style, mode, caption], i) =>
-        `<figure><img src="${path.basename(files[i])}"><figcaption>${caption}</figcaption></figure>`
+    for (const capture of CAPTURES) {
+      files.push(await shot(browser, capture.mode, capture.theme, capture.caption));
+    }
+    const cells = CAPTURES.map(
+      (capture, i) =>
+        `<figure><img src="${path.basename(files[i])}"><figcaption>${capture.caption}</figcaption></figure>`
     ).join('\n');
     fs.writeFileSync(
-      path.join(__dirname, 'b99-menu-montage.html'),
+      path.join(OUTPUT_DIR, 'b99-menu-montage.html'),
       `<!doctype html><meta charset="utf-8"><style>
         body{margin:0;padding:20px;background:#f2efe9;font:500 15px/1.3 system-ui,sans-serif;
-             display:grid;grid-template-columns:1fr;gap:18px;width:820px;}
+             display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:18px;width:1480px;}
         figure{margin:0;background:#fff;border-radius:14px;overflow:hidden;
                box-shadow:0 3px 12px rgba(0,0,0,.12);}
         img{display:block;width:100%;}
@@ -116,11 +135,11 @@ async function shot(browser, style, mode, caption) {
     );
     const page = await browser.newPage();
     await page.setViewport({ width: 860, height: 600, deviceScaleFactor: 1.5 });
-    await page.goto('file://' + path.join(__dirname, 'b99-menu-montage.html'));
+    await page.goto('file://' + path.join(OUTPUT_DIR, 'b99-menu-montage.html'));
     await new Promise((r) => setTimeout(r, 900));
-    await page.screenshot({ path: path.join(__dirname, 'b99-menu-directions.png'), fullPage: true });
+    await page.screenshot({ path: path.join(OUTPUT_DIR, 'b99-menu-directions.png'), fullPage: true });
     await page.close();
-    console.log('saved dev/bench/b99-menu-directions.png');
+    console.log('saved ' + path.join(OUTPUT_DIR, 'b99-menu-directions.png'));
   } finally {
     await browser.close();
   }

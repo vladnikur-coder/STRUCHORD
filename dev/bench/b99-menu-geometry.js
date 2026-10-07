@@ -1,7 +1,6 @@
 #!/usr/bin/env node
-// Геометрическая проверка меню-диаграммы (круговая, на весь сектор):
-// у каждой карточки лучи сходятся в её центр, геометрия лучей накрывает
-// карточку целиком, и группа обрезана clipPath по форме карточки.
+// Геометрическая проверка единственной pane-раскладки B-99: поля,
+// радиальная середина 2+1/3+2, клип карточки и paint order разделителей.
 const path = require('path');
 const { pathToFileURL } = require('url');
 const sparticuz = require('@sparticuz/chromium').default;
@@ -29,44 +28,51 @@ const puppeteer = require('puppeteer-core');
     DOM.chordWheelModal.classList.add('open', 'is-harmony-highlights-on');
     wheelMode = 'triads';
     drawWheel();
-    const out = { diagrams: 0, wedges: 0, clipped: 0, sameCenter: 0, covers: 0 };
+    const out = {
+      diagrams: 0, panes: 0, clipped: 0, complete: 0,
+      dividers: { paths: 0, complete: 0, clipped: 0, paintOrder: 0 },
+      midpointSplits: { three: 0, five: 0 }, unevenAreas: { three: 0, five: 0 },
+      opacity: null, layouts: {},
+    };
+    const followsInPaintOrder = (earlier, later) => !!(earlier && later &&
+      (earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING));
     document.querySelectorAll('#circleSvg .wheel-mode-diagram').forEach((dg) => {
       out.diagrams += 1;
-      const id = dg.dataset.wheelChordIdentity;
-      const ring = dg.dataset.wheelHoverRing;
-      const sector = document.querySelector(`#circleSvg .wheel-sector[data-wheel-chord-identity="${id}"][data-wheel-ring="${ring}"]`);
-      if (!sector) return;
-      if (/^url\(#wheel-menu-clip-/.test(dg.getAttribute('clip-path') || '')) out.clipped += 1;
-      const wedges = [...dg.querySelectorAll('.wheel-mode-wedge')];
-      out.wedges += wedges.length;
-      // Центр диаграммы: у лучей — первая точка M, у сплошного диска —
-      // середина между концами его дуги (M-точка диска лежит за радиус).
-      const centerOf = (w) => {
-        const d = w.getAttribute('d') || '';
-        const disc = d.match(/^M(-?[\d.]+) (-?[\d.]+) A[\d.]+ [\d.]+ 0 1 0 (-?[\d.]+) (-?[\d.]+)/);
-        if (disc && !/ L/.test(d)) {
-          return {
-            x: (Number.parseFloat(disc[1]) + Number.parseFloat(disc[3])) / 2,
-            y: (Number.parseFloat(disc[2]) + Number.parseFloat(disc[4])) / 2,
-          };
-        }
-        const m = d.match(/^M(-?[\d.]+) (-?[\d.]+)/);
-        return { x: Number.parseFloat(m[1]), y: Number.parseFloat(m[2]) };
-      };
-      const centers = wedges.map(centerOf).filter((c) => !Number.isNaN(c.x));
-      if (centers.length === wedges.length && centers.every((p) => Math.hypot(p.x - centers[0].x, p.y - centers[0].y) < 0.5)) out.sameCenter += 1;
-      // Неклипнутая геометрия лучей (их объединение) накрывает карточку
-      // целиком, а центр диаграммы лежит внутри самой карточки.
-      const sb = sector.getBBox();
-      const c0 = centers[0];
-      const inCard = c0.x > sb.x && c0.x < sb.x + sb.width && c0.y > sb.y && c0.y < sb.y + sb.height;
-      const boxes = wedges.map((w) => w.getBBox());
-      const ux = Math.min(...boxes.map((b) => b.x));
-      const uy = Math.min(...boxes.map((b) => b.y));
-      const ur = Math.max(...boxes.map((b) => b.x + b.width));
-      const ub = Math.max(...boxes.map((b) => b.y + b.height));
-      const covers = ux <= sb.x + 1 && uy <= sb.y + 1 && ur >= sb.x + sb.width - 1 && ub >= sb.y + sb.height - 1;
-      if (inCard && covers) out.covers += 1;
+      const panes = [...dg.querySelectorAll('.wheel-mode-pane')];
+      const expectedCount = Number(dg.dataset.paneCount);
+      out.panes += panes.length;
+      const layout = dg.dataset.paneLayout || 'missing';
+      out.layouts[layout] = (out.layouts[layout] || 0) + 1;
+      const clipId = (dg.getAttribute('clip-path') || '').match(/^url\(#([^)]+)\)$/)?.[1];
+      if (clipId && document.getElementById(clipId)?.querySelector('path')) out.clipped += 1;
+      if (panes.length === expectedCount && expectedCount >= 1 && expectedCount <= 5) out.complete += 1;
+      const dividerLayer = [...document.querySelectorAll('#circleSvg .wheel-mode-divider-overlay')]
+        .find((layer) => layer.dataset.paneKey === dg.dataset.paneKey);
+      const dividerCount = dividerLayer?.querySelectorAll('.wheel-mode-divider').length || 0;
+      const expectedDividerCount = ({ 1: 0, 2: 1, 3: 2, 4: 2, 5: 4 })[expectedCount];
+      out.dividers.paths += dividerCount;
+      if (dividerCount === expectedDividerCount) out.dividers.complete += 1;
+      const volume = [...document.querySelectorAll('#circleSvg .wheel-sector-volume')].find((node) =>
+        node.dataset.wheelChordIdentity === dg.dataset.wheelChordIdentity &&
+        node.dataset.wheelHoverRing === dg.dataset.wheelHoverRing);
+      const paneUnderVolume = followsInPaintOrder(dg, volume);
+      const dividerAboveVolume = expectedDividerCount === 0 ||
+        (dividerLayer && dividerLayer.getAttribute('clip-path') === dg.getAttribute('clip-path') &&
+          followsInPaintOrder(volume, dividerLayer));
+      if (expectedDividerCount === 0 || dividerLayer?.getAttribute('clip-path') === dg.getAttribute('clip-path')) {
+        out.dividers.clipped += 1;
+      }
+      if (paneUnderVolume && dividerAboveVolume) out.dividers.paintOrder += 1;
+      if (expectedCount === 3 || expectedCount === 5) {
+        const band = expectedCount === 3 ? 'three' : 'five';
+        const inner = Number(dg.dataset.sectorInnerRadius);
+        const outer = Number(dg.dataset.sectorOuterRadius);
+        const split = Number(dg.dataset.radialBandSplitRadius);
+        if (Math.abs(split - ((inner + outer) / 2)) < 0.0051) out.midpointSplits[band] += 1;
+        const shares = panes.map((pane) => Number.parseFloat(pane.dataset.paneAreaShare));
+        if (Math.abs(shares.reduce((sum, share) => sum + share, 0) - 1) < 0.001 && new Set(shares).size > 1) out.unevenAreas[band] += 1;
+      }
+      if (panes[0]) out.opacity = getComputedStyle(panes[0]).fillOpacity;
     });
     return out;
   });

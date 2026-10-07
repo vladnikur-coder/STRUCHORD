@@ -92,13 +92,14 @@ w.addEventListener('load', () => {
   // У текущего B-40 pathCount включает 24 overlay + gap-catcher; source 0.410
   // под Dev остаётся отдельным вариантом и не меняет production contract.
   w.eval("setWheelMode('triads')");
-  // B-99 (0.546): меню заимствований красит весь сектор круговой
-  // диаграммой — каждый сектор-луч отдельный path, плюс по одному path
-  // внутри clipPath каждой карточки, поэтому контракт стал «49 базовых
-  // путей + лучи + клипы».
-  const menuWedges = d.querySelectorAll('#circleSvg .wheel-mode-wedge').length;
+  // B-99 (0.555): panes, theme-matched оттенок 0.551 и clipPath добавляют
+  // только собственные SVG paths поверх 49 базовых B-40 путей.
+  const menuPanes = d.querySelectorAll('#circleSvg .wheel-mode-pane').length;
+  const menuDividers = d.querySelectorAll('#circleSvg .wheel-mode-divider').length;
   const menuClips = d.querySelectorAll('#circleSvg clipPath').length;
-  ok('triads — два кольца', sectorCount() === 24 && pathCount() === 49 + menuWedges + menuClips && menuWedges > 0 && menuClips > 0, `${sectorCount()} cards / ${pathCount()} paths (+${menuWedges} лучей, ${menuClips} клипов)`);
+  ok('triads — два кольца', sectorCount() === 24 &&
+    pathCount() === 49 + menuPanes + menuDividers + menuClips && menuPanes > 0 && menuDividers > 0 && menuClips > 0,
+    `${sectorCount()} cards / ${pathCount()} paths (+${menuPanes} panes, ${menuDividers} dividers, ${menuClips} clips)`);
   w.eval("setWheelMode('maj7')");
   ok('maj7 — два кольца', sectorCount() === 24 && pathCount() === 49, `${sectorCount()} cards / ${pathCount()} paths`);
   // В jsdom mock-метрика намеренно плоская, поэтому проверяем именно
