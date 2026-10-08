@@ -349,5 +349,85 @@ check('мажор: 6.35,3.48,4.38,4.09,5.19,3.66,2.88 (было ...2.52)', MAJW 
 check('минор не тронут: 6.33,3.52,5.38,3.53,4.75,3.98,3.34', MINW === '6.33,3.52,5.38,3.53,4.75,3.98,3.34', MINW);
 
 
+console.log('=== 10. B-101 (кирпич 5): определение тональности по нотам, а не по корням — 0.593 ===');
+const DETECT = (chords, ts) => {
+  const timeSig = ts || '4/4';
+  const sections = [{ id: 1, timeSig, squares: [{ id: 1, events: chords.map((c) => ({ chord: c, span: 4 })) }] }];
+  return w.eval(`sections = ${JSON.stringify(sections)}; globalTimeSig = ${JSON.stringify(timeSig)}; detectKeyFromChords()`);
+};
+const TPL = (name) => w.eval(`KEY_TEMPLATES.find(t => t.name === ${JSON.stringify(name)})`);
+const CORR = (a, b) => w.eval(`pearsonCorrelation(${JSON.stringify(a)}, ${JSON.stringify(b)})`);
+
+// Профиль Крумхансла–Кесслера — это оценки УМЕСТНОСТИ ЗВУКА в тональности:
+// 12 значений, по одному на класс высоты. Раньше из профиля брали семь
+// диатонических значений и умножали на длительность АККОРДА С ЭТИМ КОРНЕМ —
+// вес звука применялся к корню. Теперь профиль сравнивается с гистограммой
+// реально звучащих нот, поэтому он нужен целиком.
+console.log('  -- профили K-K заданы целиком (12 классов высот) --');
+check('мажорный вектор K-K совпадает с опубликованным',
+  w.eval('KK_PROFILE_MAJOR.join(",")') === '6.35,2.23,3.48,2.33,4.38,4.09,2.52,5.19,2.39,3.66,2.29,2.88',
+  w.eval('KK_PROFILE_MAJOR.join(",")'));
+check('минорный вектор K-K совпадает с опубликованным',
+  w.eval('KK_PROFILE_MINOR.join(",")') === '6.33,2.68,3.52,5.38,2.6,3.53,2.54,4.75,3.98,2.69,3.34,3.17',
+  w.eval('KK_PROFILE_MINOR.join(",")'));
+check('мажорный профиль стоит в шаблоне major',
+  TPL('major').profile12.join(',') === w.eval('KK_PROFILE_MAJOR.join(",")'), show(TPL('major').profile12));
+check('минорный профиль стоит в шаблоне minor',
+  TPL('minor').profile12.join(',') === w.eval('KK_PROFILE_MINOR.join(",")'), show(TPL('minor').profile12));
+// Семь диатонических весов остались в шаблонах: это та же выборка profile12 на
+// диатонических позициях. Проверяем, чтобы две таблицы не разошлись.
+for (const name of ['major', 'minor']) {
+  const t = TPL(name);
+  const sampled = t.intervals.map((iv) => t.profile12[iv]).join(',');
+  check(`${name}: weights — это profile12 на диатонических ступенях`, t.weights.join(',') === sampled,
+    t.weights.join(',') + ' против ' + sampled);
+}
+// Эмпирического профиля для dorian/mixolydian нет: он строится из тех же
+// рукокалиброванных весов, а хроматика получает тот же пол, что в среднем у
+// эмпирических профилей (2.5). Без пола нулей профиль получался искусственно
+// контрастным, и dorian переигрывал мажор даже на мажорных песнях.
+for (const name of ['dorian', 'mixolydian']) {
+  const t = TPL(name);
+  const chromaticPcs = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11].filter((pc) => !t.intervals.includes(pc));
+  check(`${name}: хроматика профиля = ${w.eval('MODAL_CHROMATIC_FLOOR')}`,
+    chromaticPcs.every((pc) => t.profile12[pc] === w.eval('MODAL_CHROMATIC_FLOOR')), show(chromaticPcs.map((pc) => t.profile12[pc])));
+  check(`${name}: диатоника профиля = весам лада`,
+    t.intervals.every((iv, i) => t.profile12[iv] === t.weights[i]), show(t.intervals.map((iv) => t.profile12[iv])));
+}
+
+console.log('  -- корреляция Пирсона: мера похожести двух векторов --');
+check('себя с собой = 1', Math.abs(CORR([1, 2, 3, 4], [1, 2, 3, 4]) - 1) < 1e-12, show(CORR([1, 2, 3, 4], [1, 2, 3, 4])));
+check('в обратном порядке = -1', Math.abs(CORR([1, 2, 3, 4], [4, 3, 2, 1]) + 1) < 1e-12, show(CORR([1, 2, 3, 4], [4, 3, 2, 1])));
+check('ровный вектор даёт 0, а не NaN', CORR([5, 5, 5, 5], [1, 2, 3, 4]) === 0, show(CORR([5, 5, 5, 5], [1, 2, 3, 4])));
+check('значение попадает в диапазон [-1, 1]', Math.abs(CORR([3, 1, 4, 1, 5], [2, 7, 1, 8, 2])) <= 1, show(CORR([3, 1, 4, 1, 5], [2, 7, 1, 8, 2])));
+
+// Главный видимый результат: аккорд ВНЕ диатоники больше не обнуляется. E7 в C
+// не диатоничен, поэтому старый счёт не давал за него ни одного очка — и песня
+// C E7 Am F G C определялась как Am, хотя E7 здесь V/vi, типичная побочная
+// доминанта. Ноты E7 (E G# B D) при этом в основном «си-мажорные» и голосуют
+// за C: побеждает до мажор.
+console.log('  -- аккорд вне диатоники голосует своими нотами, а не молчит --');
+check('C E7 Am F G C -> C (было Am: E7 обнулялся)', DETECT(['C', 'E7', 'Am', 'F', 'G', 'C']) === 'C', DETECT(['C', 'E7', 'Am', 'F', 'G', 'C']));
+check('C Am F Fm C G C -> C (модальный обмен не ломает)', DETECT(['C', 'Am', 'F', 'Fm', 'C', 'G', 'C']) === 'C', DETECT(['C', 'Am', 'F', 'Fm', 'C', 'G', 'C']));
+check('Am A7 Dm E7 Am -> Am (побочные доминанты в миноре)', DETECT(['Am', 'A7', 'Dm', 'E7', 'Am']) === 'Am', DETECT(['Am', 'A7', 'Dm', 'E7', 'Am']));
+console.log('  -- регрессия: обычные случаи не поехали --');
+for (const [chords, want] of [
+  [['Dm', 'G', 'C'], 'C'], [['Dm7', 'G7', 'C'], 'C'], [['F', 'G', 'C'], 'C'], [['C', 'F', 'C'], 'C'],
+  [['Em', 'A7', 'D'], 'D'], [['Bm7b5', 'E7', 'Am'], 'Am'], [['Dm', 'E', 'Am'], 'Am'], [['F', 'G', 'Am'], 'Am'],
+  [['Am', 'Dm', 'Em', 'Am'], 'Am'], [['Am', 'F', 'C', 'G', 'Am'], 'Am'], [['C', 'G', 'Am', 'F', 'C'], 'C'],
+  [['C', 'Am', 'F', 'G', 'C'], 'C'], [['Am', 'D', 'Am', 'D'], 'Am'], [['C', 'Bb', 'F', 'C'], 'C'],
+  [['E7', 'A7', 'E7', 'B7', 'A7', 'E7'], 'E'], [['Am', 'G', 'F', 'E'], 'Am'],
+  [['Cmaj7', 'Am7', 'Dm7', 'G7', 'Cmaj7'], 'C'], [['C5', 'G5', 'F5', 'C5'], 'C'],
+  [['Csus4', 'Csus2', 'Csus4', 'Gsus4'], 'C'], [['Gm', 'C', 'F', 'Bb'], 'F'],
+]) {
+  check(`${chords.join(' ')} -> ${want}`, DETECT(chords) === want, DETECT(chords));
+}
+// sus/power-аккорды копят гистограмму наравне со всеми: звучат-то они своими
+// нотами полностью, в отличие от счёта диатонических ступеней, где им за
+// отсутствие терции полагался понижающий коэффициент.
+check('квинтаккорды C5 G5 F5 C5 -> C', DETECT(['C5', 'G5', 'F5', 'C5']) === 'C', DETECT(['C5', 'G5', 'F5', 'C5']));
+check('пустая песня -> null', w.eval('sections = []; detectKeyFromChords()') === null);
+check('одиночный sus-аккорд -> тоника', DETECT(['Csus4']) === 'C', DETECT(['Csus4']));
+
 console.log(`\nПРОВАЛОВ: ${fail}\n`);
 process.exit(fail === 0 ? 0 : 1);
