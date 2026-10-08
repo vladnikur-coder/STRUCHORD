@@ -223,14 +223,16 @@ w.addEventListener('load', () => {
 
   console.log('\n=== 12. Собранное с колеса имя полноценно работает дальше ===');
   w.eval("setWheelMode('add9')");
-  // Октава в getChordNotes всегда 4 — функция отвечает за набор нот.
+  // 0.592 (кирпич 4): октава больше не всегда 4 — аккорд раскладывается от
+  // корня вверх, нота выше корня уходит в следующую октаву (нона у Cadd9 —
+  // D5). Классы высот те же, набор нот тот же, проверяем его.
   ok('getChordNotes(Cadd9) — C E G D',
-     w.eval("JSON.stringify(getChordNotes('Cadd9'))") === JSON.stringify(['C4', 'E4', 'G4', 'D4']),
+     w.eval("JSON.stringify(getChordNotes('Cadd9'))") === JSON.stringify(['C4', 'E4', 'G4', 'D5']),
      w.eval("JSON.stringify(getChordNotes('Cadd9'))"));
   // Движок обязан читать минорную форму maj7 как минор — раньше
   // includes-проверка на 'maj' ломала это и Am(maj7) звучал мажором.
   ok('getChordNotes(Am(maj7)) — минор: A C E G#',
-     w.eval("JSON.stringify(getChordNotes('Am(maj7)'))") === JSON.stringify(['A4', 'C4', 'E4', 'G#4']),
+     w.eval("JSON.stringify(getChordNotes('Am(maj7)'))") === JSON.stringify(['A4', 'C5', 'E5', 'G#5']),
      w.eval("JSON.stringify(getChordNotes('Am(maj7)'))"));
   ok('getChordNotes(Cmaj7) — мажор без регрессии: C E G B',
      w.eval("JSON.stringify(getChordNotes('Cmaj7'))") === JSON.stringify(['C4', 'E4', 'G4', 'B4']),
@@ -365,21 +367,21 @@ w.addEventListener('load', () => {
      NCC('Cm7') === 'Cm7' && NCC('CMaj7') === 'Cmaj7');
   const GN = (x) => JSON.stringify(w.eval(`getChordNotes(${JSON.stringify(x)})`));
   const N = (...a) => JSON.stringify(a);
-  ok('звук: C7b9 теперь с b9', GN('C7b9') === N('C4','E4','G4','A#4','C#4'), GN('C7b9'));
-  ok('звук: C7#9 с #9', GN('C7#9') === N('C4','E4','G4','A#4','D#4'), GN('C7#9'));
-  ok('звук: C7#11 с #11', GN('C7#11') === N('C4','E4','G4','A#4','F#4'), GN('C7#11'));
-  ok('звук: C7b13 с b13 (G# = Ab)', GN('C7b13') === N('C4','E4','G4','A#4','G#4'), GN('C7b13'));
+  ok('звук: C7b9 теперь с b9', GN('C7b9') === N('C4','E4','G4','A#4','C#5'), GN('C7b9'));
+  ok('звук: C7#9 с #9', GN('C7#9') === N('C4','E4','G4','A#4','D#5'), GN('C7#9'));
+  ok('звук: C7#11 с #11', GN('C7#11') === N('C4','E4','G4','A#4','F#5'), GN('C7#11'));
+  ok('звук: C7b13 с b13 (G# = Ab)', GN('C7b13') === N('C4','E4','G4','A#4','G#5'), GN('C7b13'));
   ok('звук: C6/9 = C E G A D (нона не теряется)',
-     GN('C6/9') === N('C4','E4','G4','A4','D4'), GN('C6/9'));
+     GN('C6/9') === N('C4','E4','G4','A4','D5'), GN('C6/9'));
   ok('звук: слитное C69 — то же самое (не стек до 13-й)',
-     GN('C69') === N('C4','E4','G4','A4','D4'), GN('C69'));
+     GN('C69') === N('C4','E4','G4','A4','D5'), GN('C69'));
   ok('звук-регрессии: C7/Cmaj7/Cdim7/C9sus4 без изменений',
      GN('C7') === N('C4','E4','G4','A#4') &&
      GN('Cmaj7') === N('C4','E4','G4','B4') &&
      GN('Cdim7') === N('C4','D#4','F#4','A4') &&
-     GN('C9sus4') === N('C4','F4','G4','A#4','D4'));
+     GN('C9sus4') === N('C4','F4','G4','A#4','D5'));
   ok('осознанно не трогали: C5add9 остаётся мажорным add9',
-     GN('C5add9') === N('C4','E4','G4','D4'), GN('C5add9'));
+     GN('C5add9') === N('C4','E4','G4','D5'), GN('C5add9'));
 
   console.log(bad ? `\nПРОВАЛОВ: ${bad}` : '\nвсе проверки пройдены');
   if (bad) process.exitCode = 1;
