@@ -190,8 +190,12 @@ w.addEventListener('load', async () => {
   evalv(`showSectionModulationControls(${sid8})`); pbtn('✕').click();
   evalv("sections[0].squares[0].events.forEach((e, i) => { e.chord = ['Bb','Eb','Ab','F'][i]; }); render();");
   evalv(`showSectionModulationControls(${sid8})`); pbtn('+').click(); pbtn('+').click();
-  ok('F +2: секция G, бемоль Ab+Bb → диез A#',
-    st().key === 'G' && st().shift === 2 && JSON.stringify(chords()) === JSON.stringify(['C', 'F', 'A#', 'G']),
+  // 0.595 (патч пользователя): correctChordName со спеллом по ступени
+  // приоритетнее стилевого перевода — в диезной G звук bIII остаётся Bb
+  // (буква ступени), а не A#. Старое требование «бемоль → диез» для этого
+  // случая отменено; Ab+2=G# и остальные пары спелл по ступени даёт те же.
+  ok('F +2: секция G, спелл по ступени: Bb остаётся bIII (0.595)',
+    st().key === 'G' && st().shift === 2 && JSON.stringify(chords()) === JSON.stringify(['C', 'F', 'Bb', 'G']),
     JSON.stringify(st()) + ' ' + JSON.stringify(chords()));
 
   console.log('\n=== 9. Наследование модуляции и клон (0.263) ===');

@@ -19676,18 +19676,12 @@ function analyzeFingeringShape(shape, context = {}) {
       score -= 5;
     }
 
-    // 0.595: слепой тюнинг Dm6-A в Dm без A — штрафуем «6» без квинты:
-    // D F B vs Dm — Dm6 в составе без A заведомо хуже честного триадного
-    // читателя. Штраф −45 (нашёл у пользователя).
-    if (chordName.endsWith('m6') && Array.isArray(notesArr)) {
-      const rootIndex = chromatic.indexOf(FLAT_TO_SHARP[rootNote] || rootNote);
-      const hasFifth = rootIndex !== -1 && notesArr.some((n) => {
-        const ni = chromatic.indexOf(n.note);
-        return ni !== -1 && (((ni - rootIndex) % 12) + 12) % 12 === 7;
-      });
-      if (!hasFifth) score -= 45;
+    // Шестая без квинты (Dm6 = D F B без A) — это не шестой аккорд, а
+    // уменьшённое трезвучие от другого корня: штрафуем такие имена.
+    if (/^[A-G][#b]?m6(\/[A-G][#b]?)?$/.test(chordName)) {
+      const r = chromatic.indexOf(FLAT_TO_SHARP[rootNote] || rootNote);
+      if (!notesArr.some((n) => (chromatic.indexOf(n.note) - r + 12) % 12 === 7)) score -= 45;
     }
-
     const rootCount = notesArr.filter((n) => n.note === rootNote).length;
     score += rootCount * 2;
 
@@ -21628,8 +21622,7 @@ function parseChordForKeyDetection(chordName) {
   // B-101 (кирпич 4): доминантой с расширениями считаются и 9, и 11, и 13 —
   // раньше бонус получало только имя, начинающееся с 7, и G9/G11/G13 не
   // усиливали тонику. Порядок альтернатив важен: 13 раньше 1.
-  const isDominant7 = (quality === 'maj' && /^(?:13|11|9|7)(?!\d)/.test(suffix)) ||
-    /^(?:13|11|9|7)sus/.test(suffix); // "G7", но не "Gmaj7"
+  const isDominant7 = (quality === 'maj' && /^(?:13|11|9|7)(?!\d)/.test(suffix)) || /^(?:13|11|9|7)sus/.test(suffix); // "G7", но не "Gmaj7"
 
   let bassRoot = root;
   if (parts.length > 1) {
@@ -22387,6 +22380,7 @@ function getChordNotes(cn, ks) {
       ints.push(seventh);
     }
     if (n >= 9) ints.push(14);
+    // Доминантовая/мажорная 13: 11-я бьёт в большую терцию — опускаем.
     if (n >= 11 && !(n >= 13 && !isMin)) ints.push(17);
     if (n >= 13) ints.push(21);
     if (n === 6) ints.push(9);
@@ -22399,14 +22393,7 @@ function getChordNotes(cn, ks) {
   if (/b9/.test(suffix)) ints.push(13);
   if (/#9/.test(suffix)) ints.push(15);
   if (/#11/.test(suffix)) ints.push(18);
-  if (/b13/.test(suffix)) {
-    // 0.595: b13 и такая же натуральная квинта звучат секундой (5+12=17,
-    // 7+13=20 → разница 3 полутона) — в классике ступень b13 звучит без
-    // квинты (C7b13 = C E Bb Db). Как и 9b5 — оставляем b13/b9/#11/#9 без
-    // подавления: для расширенного доминанта подмена квинты не так критична.
-    ints = ints.filter((i) => i !== 7);
-    ints.push(20);
-  }
+  if (/b13/.test(suffix)) { ints = ints.filter((i) => i !== 7); ints.push(20); } // b13 = #5: заменяет квинту
 
   if (suffix.includes('m7b5') || suffix.includes('ø')) ints = [0, 3, 6, 10];
   if (suffix.includes('add9') && !ints.includes(14)) ints.push(14);
@@ -22458,63 +22445,40 @@ function normalizeChordPart(p, ks) {
   }
   return root + suffix;
 }
-const SPELL_DEG_TO_SEMITONE = { I: 0, II: 2, III: 4, IV: 5, V: 7, VI: 9, VII: 11 };
-const SPELL_DEGREE_ORDER = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
-const SPELL_RELATIVE_DEGREE = {
-  'I': { 'I': 0, 'II': 1, 'III': 2, 'IV': 3, 'V': 4, 'VI': 5, 'VII': 6 },
-  'bII': { 'bII': 0, 'bIII': 1, 'IV': 2, 'bV': 3, 'bVI': 4, 'bVII': 5, 'VI': 6 },
-  'II': { 'II': 0, 'III': 1, 'IV': 2, 'V': 3, 'VI': 4, 'VII': 5, 'bVII': 6 },
-  'bIII': { 'bIII': 0, 'IV': 1, 'bV': 2, 'bVI': 3, 'bVII': 4, 'VI': 5, 'bVII': 6 },
-  'III': { 'III': 0, 'IV': 1, 'V': 2, 'VI': 3, 'VII': 4, 'bVII': 5, 'bII': 6 },
-  'IV': { 'IV': 0, 'bV': 1, 'V': 2, 'bVI': 3, 'bVII': 4, 'VI': 5, 'bVII': 6 },
-  'bV': { 'bV': 0, 'bVI': 1, 'bVII': 2, 'VI': 3, 'bVII': 4, 'I': 5, 'II': 6 },
-  'V': { 'V': 0, 'bVI': 1, 'bVII': 2, 'VI': 3, 'bVII': 4, 'I': 5, 'II': 6 },
-  'bVI': { 'bVI': 0, 'bVII': 1, 'VI': 2, 'bVII': 3, 'I': 4, 'II': 5, 'bIII': 6 },
-  'VI': { 'VI': 0, 'bVII': 1, 'bVII': 2, 'I': 3, 'II': 4, 'III': 5, 'bVII': 6 },
-  'bVII': { 'bVII': 0, 'VI': 1, 'bVII': 2, 'I': 3, 'II': 4, 'III': 5, 'IV': 6 },
-  'VII': { 'VII': 0, 'bVII': 1, 'I': 2, 'II': 3, 'III': 4, 'IV': 5, 'bV': 6 }
-};
-function spellRootByDegree(root, degree, key) {
-  const ks = getKeyStyle(key);
-  // Адаптации к текущему коду (в базе патча были rootNoteForScale/getTonic):
-  // приведение стиля делает штатный normalizeChordPart, тонику — getHarmonyTonicIndex.
-  const spelled = normalizeChordPart(root, ks);
-  const rootIdx = CHROMATIC.indexOf(spelled);
-  const keyIdx = getHarmonyTonicIndex(key);
-  if (rootIdx < 0 || keyIdx < 0 || !degree) return spelled;
-  const rel = ((rootIdx - keyIdx) % 12 + 12) % 12;
-  // Фикс к исходному патчу: точная таблица вместо цикла — цикл ловил rel=5
-  // как 'bIII' (III+1) раньше, чем доходил до IV, и подменял F->G в C.
-  const REL_TO_DEGREE = ['I', 'bII', 'II', 'bIII', 'III', 'IV', 'bV', 'V', 'bVI', 'VI', 'bVII', 'VII'];
-  const relDeg = REL_TO_DEGREE[rel] || 'I';
-  const map = SPELL_RELATIVE_DEGREE[relDeg];
-  if (!map || !map[degree]) return spelled;
-  const targetSemis = ((SPELL_DEG_TO_SEMITONE[map[degree]] || 0) +
-    (((keyIdx - rootIdx) % 12) + 12) % 12) % 12;
-  // Переписываем ТОЛЬКО когда ступень даёт тот же звук иным написанием
-  // (энгармония), чужие звуки не трогаем — безопасный фильтр.
-  const pitch = CHROMATIC[(keyIdx + targetSemis) % 12];
-  // Фикс: FLAT_TO_SHARP не содержит белых нот -> undefined===undefined
-  // пропускало ложные подмены (F->G). Сравниваем через || x.
-  const pitchNorm = FLAT_TO_SHARP[pitch] || pitch;
-  const spelledNorm = FLAT_TO_SHARP[spelled] || spelled;
-  return pitchNorm === spelledNorm ? pitch : spelled;
+const SPELL_LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+const SPELL_LETTER_PC = [0, 2, 4, 5, 7, 9, 11];
+// интервал от тоники (полутоны) -> номер ступени (0..6) при написании
+const SPELL_DEGREE_MAJOR = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // ♭II ♭III ♯IV ♭VI ♭VII
+const SPELL_DEGREE_MINOR = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // ♭II, III, ♯III, ♯IV, VI, ♯VI, VII, ♯VII
+const SPELL_ALLOWED = new Set(['C','C#','Db','D','Eb','E','F','F#','Gb','G','Ab','A','Bb','B']);
+function spellRootByDegree(rootName, key) {
+  if (!key) return null;
+  const isMin = key.endsWith('m');
+  const tm = (isMin ? key.slice(0, -1) : key).match(/^([A-G])([#b]?)$/);
+  const rm = String(rootName).match(/^([A-G])([#b]?)$/);
+  if (!tm || !rm) return null;
+  const pcOf = (m) => (SPELL_LETTER_PC[SPELL_LETTERS.indexOf(m[1])] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + 12) % 12;
+  const tpc = pcOf(tm), pc = pcOf(rm);
+  const interval = (pc - tpc + 12) % 12;
+  // Ступень выбираем по таблице, букву — от буквы тоники.
+  const tab = isMin
+    ? [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]
+    : [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6];
+  const deg = tab[interval];
+  const li = (SPELL_LETTERS.indexOf(tm[1]) + deg) % 7;
+  const acc = ((pc - SPELL_LETTER_PC[li] + 18) % 12) - 6;
+  if (Math.abs(acc) > 1) return null;
+  const name = SPELL_LETTERS[li] + (acc === 1 ? '#' : acc === -1 ? 'b' : '');
+  return SPELL_ALLOWED.has(name) ? name : null;
 }
 function correctChordName(c, ks, key) {
   if (!c) return c;
   let corr = c
     .split('/')
     .map((p) => {
-      const base = normalizeChordPart(p, ks);
-      if (!key) return base;
-      const pr = parseChordForKeyDetection(base);
-      if (!pr || !pr.root) return base;
-      // Ступень корня — штатным определителем (в базе патча было несуществующее
-      // здесь pr.scaleDegree); для sus вернёт '' — переписывания не будет (ханк 7).
-      const degree = getHarmonyRootDegree(pr, key);
-      const spelled = spellRootByDegree(pr.root, degree, key);
-      if (spelled === pr.root) return base;
-      return spelled + base.slice(pr.root.length);
+      const m = key && p.match(/^([A-G][#b]?)(.*)$/);
+      const spelled = m ? spellRootByDegree(m[1], key) : null;
+      return spelled ? spelled + m[2] : normalizeChordPart(p, ks);
     })
     .join('/');
   return normalizeChordCase(corr);
@@ -22705,10 +22669,11 @@ function getHarmonyChordTertianQuality(chord, key) {
   if (root < 0) return null;
   const intervals = new Set(getHarmonyChordPitchClasses(main, key)
     .map((pitchClass) => (pitchClass - root + 12) % 12));
-  if (intervals.has(4) && intervals.has(7)) return 'maj';
-  if (intervals.has(3) && intervals.has(6) && !intervals.has(7)) return 'dim';
-  if (intervals.has(3) && intervals.has(7)) return 'min';
-  if (intervals.has(4) && intervals.has(8) && !intervals.has(7)) return 'aug';
+  const has = (i) => intervals.has(i);
+  if (has(4) && has(7)) return 'maj';            // C7#9, C7b13: большая терция + чистая квинта
+  if (has(3) && has(6) && !has(7)) return 'dim';
+  if (has(3) && has(7)) return 'min';
+  if (has(4) && has(8) && !has(7)) return 'aug';
   return null;
 }
 function harmonyChordTonesFitMode(chord, key, mode) {
@@ -22783,8 +22748,7 @@ function getHarmonyRootDegreeFromContext(parsed, key) {
   return prefix + numeral;
 }
 function getHarmonyRootDegree(parsed, key) {
-  if (parsed && ((typeof parsed.quality === 'string' && parsed.quality.includes('sus')) ||
-      /sus/.test(parsed.chordName || ''))) return '';
+  if (/sus/i.test(parsed?.chordName || '')) return ''; // в sus нет терции — ступень не пишем
   const tonicIndex = getHarmonyTonicIndex(key);
   const rootIndex = CHROMATIC.indexOf(parsed?.root);
   if (tonicIndex < 0 || rootIndex < 0) return '';
@@ -29616,14 +29580,8 @@ function scheduleClick(ctx, t, acc, mid) {
     const o = ctx.createOscillator(),
       g = ctx.createGain();
     o.type = 'sine';
-    if (acc && metronomeAccent) {
-      o.frequency.value = 1000;
-    } else if (mid && metronomeAccent) {
-      o.frequency.value = 850;
-    } else {
-      o.frequency.value = 700;
-    }
-    const vol = acc && metronomeAccent ? 0.28 : mid && metronomeAccent ? 0.2 : 0.14;
+    o.frequency.value = acc && metronomeAccent ? 1000 : (mid && metronomeAccent ? 850 : 700);
+    const vol = acc && metronomeAccent ? 0.28 : (mid && metronomeAccent ? 0.2 : 0.14);
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + (acc ? 0.08 : 0.04));
     o.connect(g);
@@ -29666,8 +29624,10 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm) {
   const qd = 60 / bpm;
   let effectiveSubdivision = metronomeSubdivision;
   let cd, cpb;
-  if (effectiveSubdivision === 1 && isCompoundMeter(ts)) {
-    // Compound meters: the beat is the dotted quarter (1.5 quarters).
+  const midClicks = new Set();
+  const compound = isCompoundMeter(ts);
+  if (effectiveSubdivision === 1 && compound) {
+    // Составной размер: пульс — долевая четверть (3 восьмые), а не четверть.
     cd = qd * 1.5;
     cpb = beats / 3;
   } else if (effectiveSubdivision === 1) {
@@ -29680,14 +29640,11 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm) {
     cd = qd / 4;
     cpb = beats * (4 / div) * 4;
   }
-  const midClicks = new Set();
-  if (div === 8 && !(metronomeSubdivision === 1 && isCompoundMeter(ts))) {
-    const clicksPerEighth = cd / (qd / 2);
+  // Вторичные акценты по группировке (6/8: 3+3, 7/8: 2+2+3) — когда клик идёт по восьмым и мельче.
+  if (div === 8 && !(effectiveSubdivision === 1 && compound)) {
+    const clicksPerEighth = (qd / 2) / cd;
     let acc8 = 0;
-    getBeatGrouping(ts).forEach((g) => {
-      if (acc8 > 0) midClicks.add(acc8 * clicksPerEighth);
-      acc8 += g;
-    });
+    getBeatGrouping(ts).forEach((g) => { if (acc8 > 0) midClicks.add(acc8 * clicksPerEighth); acc8 += g; });
   }
   let last = -1;
   function check() {
