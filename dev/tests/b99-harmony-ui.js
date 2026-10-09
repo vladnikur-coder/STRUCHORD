@@ -576,16 +576,21 @@ ok('F#m без модального профиля остаётся без до�
   `${visibleDegree('F#m') || 'без ступени'} / ${unprofiledCircleFsm?.getAttribute('aria-label') || 'без ARIA-пояснения'}`);
 
 const source = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
-ok('ячейки редактора получают 13/15% профильную заливку без левой цветной рейки',
+// 0.594 (B-99 follow-up): пользовательское правило — выключили в меню «Тык»
+// общую галку «Ступени и цвета круга», гаснут и подсветки ячеек. Заливка
+// обязана быть завязана на body.is-harmony-highlights-on (его toggлит
+// updateCellsDegrees), а не стоять безусловно, как в 0.579–0.585.
+ok('ячейки редактора получают 13/15% профильную заливку только через гейт общей опции',
   /--harmony-cell-neutral-mix:\s*87%/.test(source) &&
   /--harmony-cell-profile-mix:\s*13%/.test(source) &&
   /--harmony-cell-neutral-mix:\s*85%/.test(source) &&
   /--harmony-cell-profile-mix:\s*15%/.test(source) &&
-  /#sectionsContainer \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\)\s*\{[\s\S]*?background-color:\s*color-mix\(/.test(source) &&
-  /#sectionsContainer \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\):hover/.test(source) &&
+  /body\.is-harmony-highlights-on #sectionsContainer \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\)\s*\{[\s\S]*?background-color:\s*color-mix\(/.test(source) &&
+  /body\.is-harmony-highlights-on #sectionsContainer \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\):hover/.test(source) &&
+  !/(?<!is-harmony-highlights-on #)sectionsContainer \.chord-wrapper\[data-harmony-profile\]:not\(\[data-harmony-profile='secondary-function'\]\):not\(\.playback-active\)\s*\{/.test(source) &&
   !/#sectionsContainer\.is-degrees-on \.chord-wrapper\[data-harmony-profile\]/.test(source) &&
   !/#sectionsContainer\.is-degrees-on \.chord-wrapper\[data-harmony-profile\][^\n]*::before/.test(source),
-  'light: 13%, dark: 15%, fill-only; playback state preserved');
+  'light: 13%, dark: 15%, gated by body.is-harmony-highlights-on; playback state preserved');
 ok('сектора имеют контрастный fallback без color-mix и усиленное смешение в современных браузерах',
   /fill: var\(--harmony-profile-color, var\(--color-accent\)\);/.test(source) &&
   /@supports \(color: color-mix\(in srgb, red 50%, blue\)\)/.test(source) &&

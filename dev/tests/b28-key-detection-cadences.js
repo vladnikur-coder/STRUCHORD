@@ -147,6 +147,26 @@ const k_blues_E = testChords(['E7', 'A7', 'E7', 'B7', 'A7', 'E7']);
 check('блюзовый оборот на доминантсептах -> E', k_blues_E === 'E', `got ${k_blues_E}`);
 
 // 8. Песни из uploads/
+// Ожидание = сохранённая в файле тональность. ОДНО осознанное исключение
+// (B-101, кирпич 5, 0.593), и оно не «чтобы проходило»:
+//
+//   Police - Every breath you take: сохранено F#m, алгоритм теперь даёт A.
+//
+// Старый ответ F#m держался ТОЛЬКО на применении весов Крумхансла–Кесслера к
+// корням аккордов: аккорд A в F#m попадает на III ступень, а вес этой ступени
+// в минорном профиле высок (5.38 — это вес ЗВУКА b3, а не вес аккорда III).
+// Проверено: если в старом алгоритме заменить веса ступеней на единицу, он
+// тоже даёт A. То есть F#m был артефактом того самого искажения, которое
+// кирпич 5 убирает. За A говорят и остальные свидетельства:
+//   * гистограмма звучащих нот: r = 0.885 для A против 0.700 для F#m — тон E
+//     (доминанта в A, но ♭VII в F#m) звучит в песне одним из самых частых;
+//   * каденции и края песни тоже за A (213 очков против 167);
+//   * бридж — F G F G F: в A это классическая пара ♭VI–♭VII, а в F#m
+//     F натуральное вообще не входит в гамму (это ♭II).
+// Отрыв при этом вырос с 3% до 15%, то есть ответ стал устойчивее.
+const EXPECTED_OVERRIDE = {
+  'Police - Every breath you take.struchord-2.json': 'A',
+};
 const uploadsDir = path.join(__dirname, '..', '..', 'uploads');
 if (fs.existsSync(uploadsDir)) {
   const songFiles = fs.readdirSync(uploadsDir).filter(f => f.endsWith('.json'));
@@ -157,8 +177,9 @@ if (fs.existsSync(uploadsDir)) {
       globalTimeSig = ${JSON.stringify(data.globalTimeSig || '4/4')};
       detectKeyFromChords();
     `);
-    const expected = data.globalKey;
-    check(`Песня ${f} -> ${detected} (ожидалось ${expected})`, detected === expected, `got ${detected}, expected ${expected}`);
+    const expected = EXPECTED_OVERRIDE[f] || data.globalKey;
+    const note = EXPECTED_OVERRIDE[f] ? ' (осознанное исключение: сохранённый F#m был артефактом весов K-K на корнях)' : '';
+    check(`Песня ${f} -> ${detected} (ожидалось ${expected})${note}`, detected === expected, `got ${detected}, expected ${expected}`);
   }
 }
 

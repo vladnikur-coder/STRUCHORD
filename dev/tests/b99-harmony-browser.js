@@ -836,9 +836,12 @@ function ok(name, condition, detail = '') {
       strictWheel.candidateDegree === '' && strictWheel.candidateBadge === '' &&
       strictWheel.ownerSelected && strictWheel.legendCurrentAbsent,
       JSON.stringify(strictWheel));
-    ok('подтверждённая заливка ячейки сохраняется при выключенных «Ступенях» круга',
+    // 0.594: общая галка «Ступени и цвета круга» управляет и заливкой ячеек —
+    // выключили, профильная ячейка равна нейтральной (данные профиля целы,
+    // включает их обратно та же галка).
+    ok('выключенные «Ступени и цвета круга» гасят и заливку ячейки (равна нейтральной)',
       !state.harmonyClassWhenDegreesOff &&
-      state.cellFillWhenDegreesOff !== state.neutralCellFillWhenDegreesOff, JSON.stringify(state));
+      state.cellFillWhenDegreesOff === state.neutralCellFillWhenDegreesOff, JSON.stringify(state));
     ok('editor tints confirmed profiles only; V/x and unprofiled cells remain neutral',
       state.groups.join(',') === 'diatonic,secondary-function,' &&
       state.profiles.join(',') === 'ionian,secondary-function,' &&
@@ -898,6 +901,11 @@ function ok(name, condition, detail = '') {
           waitUntil: 'load', timeout: 60000,
         });
         await profilePage.waitForFunction(() => typeof analyzeSectionHarmony === 'function');
+        // Страница должна быть активной: иначе Chromium откладывает пересчёт
+        // стилей на фоновой вкладке, transition background (0.14s) стартует
+        // только в момент getComputedStyle, и замер ловит его t=0 — цвет в
+        // начале перехода, а не конечный тон.
+        await profilePage.bringToFront();
         const captureTheme = (theme) => profilePage.evaluate(async (nextTheme) => {
           const fixtures = [
             { mode: 'ionian', key: 'C', chords: ['C', 'Dm', 'G'], sample: 'Dm' },
@@ -930,7 +938,7 @@ function ok(name, condition, detail = '') {
           render();
           updateCellsDegrees();
           await new Promise((resolve) => setTimeout(resolve, 180));
-          const profiles = Object.fromEntries(fixtures.map((fixture, index) => {
+          const measure = () => Object.fromEntries(fixtures.map((fixture, index) => {
             const eventIndex = fixture.chords.indexOf(fixture.sample);
             const cell = document.querySelector(`.chord-wrapper[data-sec="${101 + index}"][data-ei="${eventIndex}"]`);
             const style = cell ? getComputedStyle(cell) : null;
@@ -941,11 +949,30 @@ function ok(name, condition, detail = '') {
             }];
           }));
           const neutral = document.querySelector('.chord-wrapper[data-sec="120"][data-ei="0"]');
+          // 0.594: master «Ступени и цвета круга» ВЫКЛЮЧЕН — ячейки обязаны
+          // остаться нейтральными (данные профиля при этом целы).
+          const masterOffForOffPhase = !document.getElementById('showDegrees').checked;
+          const profilesMasterOff = measure();
+          const neutralFillOff = neutral ? getComputedStyle(neutral).backgroundColor : '';
+          // Та же картинка с ВКЛЮЧЁННОЙ общей опцией при полностью выключенных
+          // индивидуальных флажках ладов: тон возвращается — значит, гейтит
+          // только общая галка, а не флажки круга.
+          document.getElementById('showDegrees').checked = true;
+          updateCellsDegrees();
+          // Явно запускаем пересчёт стилей сейчас, чтобы transition начался
+          // до паузы, а не в момент замера.
+          document.body.getBoundingClientRect();
+          await new Promise((resolve) => setTimeout(resolve, 180));
+          const masterOnForOnPhase = document.getElementById('showDegrees').checked;
+          const profiles = measure();
           return {
             profiles,
+            profilesMasterOff,
             neutralProfile: neutral?.dataset.harmonyProfile || '',
             neutralFill: neutral ? getComputedStyle(neutral).backgroundColor : '',
-            masterCircleOptionOff: !document.getElementById('showDegrees').checked,
+            neutralFillOff,
+            masterOffForOffPhase,
+            masterOnForOnPhase,
             circleModesAllDisabled: wheelHarmonyDisabledModes.size === WHEEL_HARMONY_MODE_IDS.size,
           };
         }, theme);
@@ -956,16 +983,29 @@ function ok(name, condition, detail = '') {
         await profilePage.close();
       }
     })();
-    const everyConfirmedProfileTinted = ['light', 'dark'].every((theme) =>
-      Object.entries(expectedModePalette[theme]).every(([mode, color]) => {
-        const sample = allProfileCellTints[theme].profiles[mode];
-        return sample?.profile === mode && sample.color === color && sample.fill !== allProfileCellTints[theme].neutralFill;
-      }) && new Set(Object.values(allProfileCellTints[theme].profiles).map((sample) => sample.fill)).size === 9 &&
-      allProfileCellTints[theme].neutralProfile === '' &&
-      allProfileCellTints[theme].profiles.ionian.fill !== allProfileCellTints[theme].neutralFill &&
-      allProfileCellTints[theme].masterCircleOptionOff && allProfileCellTints[theme].circleModesAllDisabled);
-    ok('editor surfaces keep all nine confirmed mode tints with circle colors off; unconfirmed cells stay neutral',
-      everyConfirmedProfileTinted && allProfileCellTints.errors.length === 0,
+    // 0.594 (следствие требования пользователя): выключили общую галку
+    // «Ступени и цвета круга» в меню «Тык» — на ячейках больше НЕТ подсветки;
+    // включили — все девять подтверждённых тонов возвращаются, даже когда
+    // индивидуальные флажки ладов выключены все до одного.
+    const masterOffKeepsCellsNeutral = ['light', 'dark'].every((theme) => {
+      const data = allProfileCellTints[theme];
+      return data.masterOffForOffPhase &&
+        Object.values(data.profilesMasterOff).every((sample) => sample.fill === data.neutralFillOff) &&
+        Object.entries(data.profilesMasterOff).every(([mode]) => data.profilesMasterOff[mode].profile === mode) &&
+        data.neutralProfile === '';
+    });
+    const everyConfirmedProfileTinted = ['light', 'dark'].every((theme) => {
+      const data = allProfileCellTints[theme];
+      return Object.entries(expectedModePalette[theme]).every(([mode, color]) => {
+        const sample = data.profiles[mode];
+        return sample?.profile === mode && sample.color === color && sample.fill !== data.neutralFill;
+      }) && new Set(Object.values(data.profiles).map((sample) => sample.fill)).size === 9 &&
+        data.neutralProfile === '' &&
+        data.profiles.ionian.fill !== data.neutralFill &&
+        data.masterOnForOnPhase && data.circleModesAllDisabled;
+    });
+    ok('общая галка гейтит заливку ячеек: off — нейтрально, on — все девять тонов даже с выключенными флажками ладов',
+      masterOffKeepsCellsNeutral && everyConfirmedProfileTinted && allProfileCellTints.errors.length === 0,
       JSON.stringify(allProfileCellTints));
     const sectorHoverTooltip = await page.evaluate(async () => {
       const setTheme = (theme) => document.documentElement.setAttribute('data-theme', theme);

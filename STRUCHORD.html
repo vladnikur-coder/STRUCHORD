@@ -4366,18 +4366,22 @@ html[data-theme='dark'] {
   white-space: nowrap;
   border: 0;
 }
-/* Confirmed editor-cell fills are independent of the circle's master and
-   per-mode switches; playback keeps its warm background and selected cells
-   keep their box-shadow. */
+/* B-99 follow-up (0.594): подтверждённая заливка ячеек редактора СЛЕДУЕТ
+   общей опции «Ступени и цвета круга» (body.is-harmony-highlights-on, её
+   переключает галка в меню «Тык») — выключили галку, гаснут и подсветки
+   ячеек, как и всё остальное. Индивидуальные ладовые флажки круга на неё
+   по-прежнему не влияют (в отличие от общей опции, они живут только на
+   круге). Playback-active сохраняет тёплый фон, выделенные ячейки —
+   box-shadow: это другие состояния, а не ладовая подсветка. */
 @supports (color: color-mix(in srgb, red 50%, blue)) {
-  #sectionsContainer .chord-wrapper[data-harmony-profile]:not([data-harmony-profile='secondary-function']):not(.playback-active) {
+  body.is-harmony-highlights-on #sectionsContainer .chord-wrapper[data-harmony-profile]:not([data-harmony-profile='secondary-function']):not(.playback-active) {
     background-color: color-mix(
       in srgb,
       var(--color-surface) var(--harmony-cell-neutral-mix),
       var(--harmony-profile-color, var(--color-accent)) var(--harmony-cell-profile-mix)
     );
   }
-  #sectionsContainer .chord-wrapper[data-harmony-profile]:not([data-harmony-profile='secondary-function']):not(.playback-active):hover {
+  body.is-harmony-highlights-on #sectionsContainer .chord-wrapper[data-harmony-profile]:not([data-harmony-profile='secondary-function']):not(.playback-active):hover {
     background-color: color-mix(
       in srgb,
       var(--color-surface-hover) var(--harmony-cell-neutral-mix),
@@ -11717,7 +11721,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.588</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.595</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -19658,7 +19662,7 @@ function analyzeFingeringShape(shape, context = {}) {
       score += 85;
     } else if (chordName.endsWith('13') || chordName.endsWith('m13')) {
       score += 80;
-    } else if (chordName.includes('aug') || chordName.includes('dim') || chordName.includes('(♭5)') || chordName.includes('(♯5)')) {
+    } else if (chordName.includes('aug') || chordName.includes('dim') || /\([♭b]5\)/.test(chordName) || /\([♯#]5\)/.test(chordName)) {
       score += 60;
     } else if (chordName.includes('(no3')) {
       score += 70; // Явная отдельная корзина для аккордов без терции
@@ -19672,6 +19676,12 @@ function analyzeFingeringShape(shape, context = {}) {
       score -= 5;
     }
 
+    // Шестая без квинты (Dm6 = D F B без A) — это не шестой аккорд, а
+    // уменьшённое трезвучие от другого корня: штрафуем такие имена.
+    if (/^[A-G][#b]?m6(\/[A-G][#b]?)?$/.test(chordName)) {
+      const r = chromatic.indexOf(FLAT_TO_SHARP[rootNote] || rootNote);
+      if (!notesArr.some((n) => (chromatic.indexOf(n.note) - r + 12) % 12 === 7)) score -= 45;
+    }
     const rootCount = notesArr.filter((n) => n.note === rootNote).length;
     score += rootCount * 2;
 
@@ -20073,7 +20083,13 @@ function buildChordName(root, intervals) {
   const has11 = has(17) || (has(5) && hasSeventh);
   const has13 = has(21) || (has(9) && (has(10) || has(11)));
 
-  if (has(10) && has9 && !has11 && !has13 && !has(3)) {
+  // B-101: условие !has(3) отсекало аккорд Хендрикса (7♯9) вместе со ВСЕМИ
+  // минорными девятыми — C Eb G Bb D получал имя Cm7, девятая молча терялась.
+  // Хендрикс в этом представлении (интервалы — классы высот 0..11) и так не
+  // дойдёт до ветки: у (0,3,4,7,10) нет ноты 2/14, то есть has9 ложен, а имя
+  // C7(♯9) собирается ниже правилом альтераций. Поэтому достаточно запретить
+  // ОДНОВРЕМЕННЫЕ терции (б3+б3 = признак Хендрикса), а не всякую б3.
+  if (has(10) && has9 && !has11 && !has13 && !(has(3) && has(4))) {
     name = quality === '' ? root + '9' : (quality === 'm' ? root + 'm9' : name);
   } else if (has(10) && has11 && !has13) {
     name = quality === '' ? root + '11' : (quality === 'm' ? root + 'm11' : name);
@@ -21496,10 +21512,17 @@ function expandChordName(chord) {
     c = c.replace(/(?<!#)\+(?!\w*\+)/g, 'aug');
     if (c.endsWith('+')) c = c.slice(0, -1) + 'aug';
   }
-  if (c.endsWith('4') && !c.endsWith('sus4') && !c.match(/sus\d$/)) {
+  // B-101: add-хвост НЕ сворачивается в sus. «add4»/«add2» — это ДОБАВЛЕННАЯ
+  // нота поверх трезвучия, а sus4/sus2 заменяют терцию. Раньше правило смотрело
+  // только на последний символ: «Cadd4» становилось «Caddsus4» и теряло терцию
+  // (C F G вместо C E F G), «Cadd2» давало C D G вместо C D E G.
+  // Голые цифры (C4, C2) по-прежнему читаются как sus — их судьба отдельный
+  // открытый вопрос волны (см. журнал), здесь поведение не менялось.
+  const noAddTail = !/add\d+$/i.test(c);
+  if (noAddTail && c.endsWith('4') && !c.endsWith('sus4') && !c.match(/sus\d$/)) {
     c = c.slice(0, -1) + 'sus4';
   }
-  if (c.endsWith('2') && !c.endsWith('sus2') && !c.match(/sus\d$/)) {
+  if (noAddTail && c.endsWith('2') && !c.endsWith('sus2') && !c.match(/sus\d$/)) {
     c = c.slice(0, -1) + 'sus2';
   }
   return c;
@@ -21569,7 +21592,22 @@ function canonicalKeyFromRoot(sharpRoot, isMinor) {
 // значим), признак доминантсептаккорда ("G7", но не "Gmaj7"/"Gm7") и корень
 // баса (для слэш-аккордов вида "G/B" — бас несёт отдельную тональную
 // информацию, а не только зависит от корня основного аккорда).
+// B-101 (0.589): buildChordName пишет альтерации типографскими знаками
+// (♭/♯) — так имя выглядит в ячейке и в легенде (0.562). Все разборщики
+// суффиксов при этом написаны под ASCII: `b5`, `b9`, `#5`, `#11`. Из-за
+// этого «Cm7♭5» терял пониженную квинту и давал ноты обычного Cm7, а
+// «C7(♭9)» терял девятую; ошибочные ноты расходились дальше по ступеням,
+// подбору аппликатур и озвучке. Приводим знаки ТОЛЬКО внутри разборщиков —
+// написание в самой ячейке остаётся типографским.
+function normalizeAccidentals(name) {
+  return typeof name === 'string' ? name.replace(/♭/g, 'b').replace(/♯/g, '#') : name;
+}
+
 function parseChordForKeyDetection(chordName) {
+  // B-101: та же причина, что в getChordNotes — «Bm7♭5» не совпадал с
+  // /^m7b5/ и уходил в минор вместо уменьшённого, то есть не
+  // засчитывался как vii°.
+  chordName = normalizeAccidentals(chordName);
   const parts = chordName.split('/');
   const main = parts[0].trim();
   const m = main.match(/^([A-G][#b]?)(.*)$/);
@@ -21579,9 +21617,12 @@ function parseChordForKeyDetection(chordName) {
   let quality;
   if (/^(?:dim|°|m7b5|ø)/.test(suffix)) quality = 'dim';
   else if (/^m(?!aj)/.test(suffix)) quality = 'min';
-  else if (/^(aug|\+|sus|5)/.test(suffix)) quality = null; // без терции / нераспознанная терция
+  else if (/^(aug|\+|\d*sus|5)/.test(suffix)) quality = null; // без терции / нераспознанная терция
   else quality = 'maj';
-  const isDominant7 = quality === 'maj' && /^7/.test(suffix); // "G7", но не "Gmaj7"
+  // B-101 (кирпич 4): доминантой с расширениями считаются и 9, и 11, и 13 —
+  // раньше бонус получало только имя, начинающееся с 7, и G9/G11/G13 не
+  // усиливали тонику. Порядок альтернатив важен: 13 раньше 1.
+  const isDominant7 = (quality === 'maj' && /^(?:13|11|9|7)(?!\d)/.test(suffix)) || /^(?:13|11|9|7)sus/.test(suffix); // "G7", но не "Gmaj7"
 
   let bassRoot = root;
   if (parts.length > 1) {
@@ -21600,12 +21641,29 @@ function parseChordForKeyDetection(chordName) {
 // литературе нет — их веса откалиброваны вручную по аналогии с
 // major/minor, с акцентом на характерную для лада ступень (повышенная VI у
 // dorian, пониженная VII у mixolydian).
+// Профили Крумхансла–Кесслера целиком — 12 классов высот, а не только семь
+// диатонических ступеней. Именно в таком виде они и публиковались (Krumhansl &
+// Kessler, 1982): значение показывает, насколько уместен этот звук в тональности.
+// Раньше из профиля брали только семь диатонических значений и умножали на
+// ДЛИТЕЛЬНОСТЬ АККОРДА С ЭТИМ КОРНЕМ — то есть вес звука применяли к корню
+// аккорда. Это подмена: профиль описывает звуки, а не аккорды. Теперь профиль
+// сравнивается с гистограммой реально звучащих нот (см. detectKeyFromChords).
+const KK_PROFILE_MAJOR = Object.freeze(
+  [6.35, 2.23, 3.48, 2.33, 4.38, 4.09, 2.52, 5.19, 2.39, 3.66, 2.29, 2.88]);
+const KK_PROFILE_MINOR = Object.freeze(
+  [6.33, 2.68, 3.52, 5.38, 2.60, 3.53, 2.54, 4.75, 3.98, 2.69, 3.34, 3.17]);
 const KEY_TEMPLATES = [
   {
     name: 'major', // I ii iii IV V vi vii°
     intervals: [0, 2, 4, 5, 7, 9, 11],
     qualities: ['maj', 'min', 'min', 'maj', 'maj', 'min', 'dim'],
-    weights: [6.35, 3.48, 4.38, 4.09, 5.19, 3.66, 2.52],
+    // B-101 (кирпич 4): 2.88 — значение B (вводящего тона) из профиля
+    // Крумхансла–Кесслера; раньше здесь стояло 2.52 — значение F#, взятого
+    // со сдвигом на одну позицию. Остальные шесть весов совпадают.
+    // `weights` — те же семь значений, что стоят в profile12 на диатонических
+    // позициях (это проверяется тестом, чтобы таблицы не расходились).
+    weights: [6.35, 3.48, 4.38, 4.09, 5.19, 3.66, 2.88],
+    profile12: KK_PROFILE_MAJOR,
     tonicMajor: true,
     harmonicV: false,
   },
@@ -21614,6 +21672,7 @@ const KEY_TEMPLATES = [
     intervals: [0, 2, 3, 5, 7, 8, 10],
     qualities: ['min', 'dim', 'maj', 'min', 'min', 'maj', 'maj'],
     weights: [6.33, 3.52, 5.38, 3.53, 4.75, 3.98, 3.34],
+    profile12: KK_PROFILE_MINOR,
     tonicMajor: false,
     harmonicV: true,
   },
@@ -21636,15 +21695,64 @@ const KEY_TEMPLATES = [
 ];
 // Во всех шаблонах ступень V/v лежит на интервале +7 от тоники (индекс 4) —
 // туда и вешаем бонус за доминантсептаккорд, независимо от лада.
+// Для dorian/mixolydian эмпирического 12-компонентного профиля в литературе
+// нет (их веса выше откалиброваны вручную). Строим профиль из тех же весов:
+// ставим их на диатонические ступени лада, а хроматическим классам даём тот же
+// пол, что в среднем у эмпирических профилей Крумхансла–Кесслера (2.5 против
+// 2.35 в мажоре и 2.74 в миноре). Без этого модальный профиль получался
+// искусственно контрастным — сплошные нули на хроматике завышали корреляцию, —
+// и dorian переигрывал мажор даже на мажорных песнях.
+const MODAL_CHROMATIC_FLOOR = 2.5;
+for (const tpl of KEY_TEMPLATES) {
+  if (tpl.profile12) continue;
+  const built = new Array(12).fill(MODAL_CHROMATIC_FLOOR);
+  tpl.intervals.forEach((iv, i) => { built[iv] = tpl.weights[i]; });
+  tpl.profile12 = Object.freeze(built);
+}
+// Коэффициент корреляции Пирсона: мера похожести двух 12-компонентных векторов
+// по ФОРМЕ (не по величине), поэтому результат не зависит от длины песни.
+function pearsonCorrelation(a, b) {
+  let sumA = 0, sumB = 0;
+  for (let i = 0; i < a.length; i++) { sumA += a[i]; sumB += b[i]; }
+  const meanA = sumA / a.length, meanB = sumB / b.length;
+  let num = 0, devA = 0, devB = 0;
+  for (let i = 0; i < a.length; i++) {
+    const x = a[i] - meanA, y = b[i] - meanB;
+    num += x * y; devA += x * x; devB += y * y;
+  }
+  const den = Math.sqrt(devA * devB);
+  return den > 0 ? num / den : 0; // пустая или ровная гистограмма — 0, не NaN
+}
 const DOMINANT_DEGREE_INDEX = 4;
 const AMBIGUOUS_ROOT_FACTOR = 0.55; // вес корня sus/power-аккорда относительно обычного трезвучия
+// Веса двух опор счёта (B-101, кирпич 5). DIATONIC_FIT_WEIGHT — сколько весит
+// доля звучащего времени, уложившаяся в диатонику лада С ПРАВИЛЬНЫМ качеством
+// аккорда (гармонический сигнал, вес ступени больше не подменяет вес звука).
+// TONE_PROFILE_WEIGHT — сколько весит похожесть гистограммы звучащих нот на
+// профиль Крумхансла–Кесслера (звуковысотный сигнал). Оба откалиброваны
+// замером: см. журнал 0.593 в README.
+// Числа подобраны перебором по 43 эталонным случаям (35 прогрессий + 8 песен
+// из uploads/): при них верных ответов больше, чем у старого счёта (43 из 43
+// против 41 из 43), средний отрыв лучшего ключа от второго вырос с 22% до 27%,
+// и — главное — худший случай перестал быть «орлом или решкой»: 0.0% -> 7.0%.
+const DIATONIC_FIT_WEIGHT = 2.0;
+const TONE_PROFILE_WEIGHT = 3.0;
+// Отдельный вес тонического трезвучия внутри гармонической пригонки. Без него
+// плоский счёт не различает параллельные тональности: у Am и C одни и те же
+// аккорды и одни и те же звуки, и вся разница — КАКОЙ аккорд держит тонику.
+// Раньше эту роль играли веса Крумхансла–Кесслера (i весил 6.33 против 3.66 у
+// vi) — работало, но по случайной причине: вес звука применялся к аккорду.
+// Здесь тоника выделена явно и одним числом.
+const TONIC_PROMINENCE_WEIGHT = 1.2;
 const DOMINANT7_BONUS = 2.2; // доп. вес доминантсептаккорда сверх обычного совпадения по трезвучию
 const BASS_TONIC_WEIGHT = 1.1; // вес тоники, встретившейся в басу (в т.ч. через слэш-аккорд)
 
 // Определяет наиболее вероятную тональность песни по всем добавленным
 // аккордам. Для каждого корня (0-11) и каждого лада из KEY_TEMPLATES
-// (мажор, натуральный минор, дорийский, миксолидийский) считаем, насколько
-// использованные аккорды укладываются в диатонические ступени этого лада,
+// (мажор, натуральный минор, дорийский, миксолидийский) считаем два
+// независимых свидетельства — гармоническое (аккорды укладываются в
+// диатонические ступени лада с правильным качеством) и звуковысотное
+// (гистограмма реально звучащих нот похожа на профиль Крумхансла–Кесслера),
 // с учётом:
 //  - реальной длительности аккорда (span), а не просто числа ячеек;
 //  - корня sus/power-аккордов (терции нет, но корень всё равно свидетельствует
@@ -21664,6 +21772,11 @@ function detectKeyFromChords() {
   const ambiguousWeights = new Map(); // root -> взвешенная длительность sus/power/aug аккордов на этом корне
   const dom7Weights = new Map(); // root -> взвешенная длительность доминантсептаккордов на этом корне
   const bassWeights = new Map(); // root, звучащий в басу (с учётом слэш-аккордов) -> взвешенная длительность
+  // B-101 (кирпич 5): гистограмма РЕАЛЬНО звучащих классов высот — по нотам
+  // аккордов, а не по их корням. Индекс — класс высоты 0..11, значение —
+  // суммарная длительность всех аккордов, в которых этот звук встречается.
+  const toneHist = new Array(12).fill(0);
+  let toneTotal = 0;
   let total = 0;
   const chordSeq = [];
   let firstChord = null;
@@ -21696,6 +21809,14 @@ function detectKeyFromChords() {
 
         bassWeights.set(parsed.bassRoot, (bassWeights.get(parsed.bassRoot) || 0) + w);
         if (parsed.isDominant7) dom7Weights.set(parsed.root, (dom7Weights.get(parsed.root) || 0) + w);
+        // Каждый звук аккорда получает ту же длительность, что и сам аккорд.
+        // sus/power-аккорды копят гистограмму наравне со всеми: звучат-то они
+        // своими нотами полностью — в отличие от счёта диатонических ступеней,
+        // где за отсутствие терции им полагался понижающий коэффициент.
+        for (const pc of getHarmonyChordPitchClasses(parsed.chordName, 'C')) {
+          if (pc >= 0) toneHist[pc] += w;
+        }
+        toneTotal += w;
 
         if (!parsed.quality) {
           ambiguousWeights.set(parsed.root, (ambiguousWeights.get(parsed.root) || 0) + w);
@@ -21746,21 +21867,44 @@ function detectKeyFromChords() {
     const bassBonus = (bassWeights.get(tonicSharp) || 0) * BASS_TONIC_WEIGHT;
 
     for (const tpl of KEY_TEMPLATES) {
-      let score = 0;
+      // 1. ГАРМОНИЧЕСКАЯ ПРИГОНКА: сколько звучащего времени уложилось в
+      // диатонику лада с правильным качеством аккорда. Вес ступени здесь
+      // больше не подмешивается: раньше длительность аккорда умножалась на
+      // вес Крумхансла–Кесслера, то есть вес ЗВУКА применялся к КОРНЮ
+      // аккорда (из-за этого iii весил больше IV — 4.38 против 4.09, — хотя
+      // как опора тональности медианта куда слабее субдоминанты).
+      let diatonicFit = 0;
       for (let deg = 0; deg < 7; deg++) {
         const noteRoot = CHROMATIC[(root + tpl.intervals[deg]) % 12];
-        let w2 = (counts.get(noteRoot + '|' + tpl.qualities[deg]) || 0) * tpl.weights[deg];
-        w2 += (ambiguousWeights.get(noteRoot) || 0) * tpl.weights[deg] * AMBIGUOUS_ROOT_FACTOR;
+        let w2 = counts.get(noteRoot + '|' + tpl.qualities[deg]) || 0;
+        w2 += (ambiguousWeights.get(noteRoot) || 0) * AMBIGUOUS_ROOT_FACTOR;
         if (tpl.harmonicV && deg === 4) {
           // Гармонический минор: V-ступень может звучать мажорным трезвучием.
           w2 = Math.max(
             w2,
-            (counts.get(noteRoot + '|maj') || 0) * tpl.weights[deg] +
-              (ambiguousWeights.get(noteRoot) || 0) * tpl.weights[deg] * AMBIGUOUS_ROOT_FACTOR
+            (counts.get(noteRoot + '|maj') || 0) +
+              (ambiguousWeights.get(noteRoot) || 0) * AMBIGUOUS_ROOT_FACTOR
           );
         }
-        score += w2;
+        diatonicFit += w2;
       }
+      // Тоническое трезвучие — самый частый и самый устойчивый аккорд песни.
+      const tonicChordFit =
+        (counts.get(tonicSharp + '|' + (tpl.tonicMajor ? 'maj' : 'min')) || 0) +
+        (ambiguousWeights.get(tonicSharp) || 0) * AMBIGUOUS_ROOT_FACTOR;
+      diatonicFit += TONIC_PROMINENCE_WEIGHT * tonicChordFit;
+      // 2. ЗВУКОВЫСОТНАЯ ПРИГОНКА: похожесть гистограммы звучащих нот на
+      // профиль Крумхансла–Кесслера, повёрнутый на этот корень. Профиль
+      // сравнивается с нотами — так он и задумывался, — поэтому аккорд вне
+      // диатоники больше не обнуляется: его звуки всё равно голосуют за те
+      // тональности, которым свойственны. Корреляция берётся по форме, а не
+      // по величине, поэтому длинная песня не получает преимущества перед
+      // короткой; множитель toneTotal возвращает слагаемому масштаб длины,
+      // сопоставимый с гармонической пригонкой и каденционными бонусами.
+      const rotated = new Array(12);
+      for (let pc = 0; pc < 12; pc++) rotated[pc] = tpl.profile12[(pc - root + 12) % 12];
+      const toneCorr = pearsonCorrelation(toneHist, rotated);
+      let score = DIATONIC_FIT_WEIGHT * diatonicFit + TONE_PROFILE_WEIGHT * toneCorr * toneTotal;
       score += dom7Bonus + bassBonus;
       const isMinorTonic = !tpl.tonicMajor;
       if (firstChord && firstChord.root === tonicSharp && !firstChord.quality) {
@@ -22100,11 +22244,20 @@ function noteToFrequency(note) {
     'A#': 10,
     Bb: 10,
     B: 11,
+    // B-101 (кирпич 2): в бемольных тональностях SHARP_TO_FLAT пишет ноту B
+    // как Cb, а таблицы её не знали — semitone оставался undefined, частота
+    // выходила NaN, и strumChord отбрасывал её через .filter(Boolean). Из-за
+    // этого в F, Bb, Eb, Ab и Db любой аккорд с этой нотой (G7, Em, Bdim…)
+    // звучал без неё, если у ячейки нет своей аппликатуры. Cb — тот же класс
+    // высоты, что B (11); остальные дважды альтерированные имена приложение
+    // не производит, поэтому в таблице не нужны.
+    Cb: 11,
   };
   const m = note.match(/^([A-G][#b]?)(\d)?$/);
   if (!m) return null;
   const semitone = notes[m[1]],
     octave = m[2] ? parseInt(m[2]) : 4;
+  if (semitone === undefined) return null; // незнакомое написание — не NaN
   return 440 * Math.pow(2, (semitone - 9) / 12 + (octave - 4));
 }
 function normalizeChordCase(ch) {
@@ -22148,7 +22301,7 @@ function toSharpNote(note) {
   return root + octave;
 }
 function getChordNotes(cn, ks) {
-  cn = normalizeChordCase(cn);
+  cn = normalizeChordCase(normalizeAccidentals(cn));
   const rm = cn.match(/^([A-G][#b]?)/);
   if (!rm) return [];
   const root = rm[1];
@@ -22199,6 +22352,13 @@ function getChordNotes(cn, ks) {
   // (в тональности C он тоника, должен быть «I»).
   // Сами add-ноты добавляются ниже отдельными правилами.
   let extSuffix = suffix.replace(/add\d+/g, '');
+  // B-101: альтерация в скобках — это НЕ расширение. Цифровой стек ниже
+  // читает первое попавшееся число, поэтому «C(#11)» набирало септиму,
+  // нону и натуральную 11-ю плюс саму ♯11 (семь нот вместо четырёх), а
+  // «C(b9)» добавлял и ♭9, и натуральную 9. Скобки вырезаем из стека;
+  // сами альтерации по-прежнему кладутся правилами ниже — они читают
+  // `suffix`, а не `extSuffix`.
+  extSuffix = extSuffix.replace(/\((?:[#b]?\d+)(?:,[#b]?\d+)*\)/g, '');
   // '6/9' и слитное '69' — одно и то же: секста И нона. Не отдаём их
   // цифровому стеку ниже: тот читает только ПЕРВОЕ число, а parseInt
   // ('69') наставил бы ступени до тринадцатой.
@@ -22220,7 +22380,8 @@ function getChordNotes(cn, ks) {
       ints.push(seventh);
     }
     if (n >= 9) ints.push(14);
-    if (n >= 11) ints.push(17);
+    // Доминантовая/мажорная 13: 11-я бьёт в большую терцию — опускаем.
+    if (n >= 11 && !(n >= 13 && !isMin)) ints.push(17);
     if (n >= 13) ints.push(21);
     if (n === 6) ints.push(9);
   }
@@ -22232,18 +22393,28 @@ function getChordNotes(cn, ks) {
   if (/b9/.test(suffix)) ints.push(13);
   if (/#9/.test(suffix)) ints.push(15);
   if (/#11/.test(suffix)) ints.push(18);
-  if (/b13/.test(suffix)) ints.push(20);
+  if (/b13/.test(suffix)) { ints = ints.filter((i) => i !== 7); ints.push(20); } // b13 = #5: заменяет квинту
 
   if (suffix.includes('m7b5') || suffix.includes('ø')) ints = [0, 3, 6, 10];
   if (suffix.includes('add9') && !ints.includes(14)) ints.push(14);
   if (suffix.includes('add11') && !ints.includes(17)) ints.push(17);
+  // B-101: add2/add4 — те же добавленные ступени, что add9/add11, только в
+  // гитарной записи «в пределах октавы» (Cadd2 = C D E G, Cadd4 = C E F G).
+  // Раньше этих правил не было вовсе: имя Cadd4 держало ноты обычного C —
+  // добавленная кварта пропадала из озвучки и из подбора аппликатур.
+  if (suffix.includes('add2') && !ints.includes(14)) ints.push(14);
+  if (suffix.includes('add4') && !ints.includes(17)) ints.push(17);
   ints = [...new Set(ints)].sort((a, b) => a - b);
 
   return ints.map((i) => {
     let ni = (ri + i) % 12;
     let note = CHROMATIC[ni];
     if (ks === 'flat') note = SHARP_TO_FLAT[note] || note;
-    return note + '4';
+    // B-101 (кирпич 4): октава растёт вместе с интервалом. Раньше все ноты
+    // шли в четвёртой октаве, и G7 давал G4 B4 D4 F4 — D и F оказывались
+    // НИЖЕ корня, а озвучка без аппликатуры собирала аккорд обратной
+    // расстановкой. Теперь звук поднимается от корня вверх: G4 B4 D5 F5.
+    return note + (4 + Math.floor((ri + i) / 12));
   });
 }
 function getKeyStyle(k) {
@@ -22274,11 +22445,41 @@ function normalizeChordPart(p, ks) {
   }
   return root + suffix;
 }
-function correctChordName(c, ks) {
+const SPELL_LETTERS = ['C', 'D', 'E', 'F', 'G', 'A', 'B'];
+const SPELL_LETTER_PC = [0, 2, 4, 5, 7, 9, 11];
+// интервал от тоники (полутоны) -> номер ступени (0..6) при написании
+const SPELL_DEGREE_MAJOR = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // ♭II ♭III ♯IV ♭VI ♭VII
+const SPELL_DEGREE_MINOR = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // ♭II, III, ♯III, ♯IV, VI, ♯VI, VII, ♯VII
+const SPELL_ALLOWED = new Set(['C','C#','Db','D','Eb','E','F','F#','Gb','G','Ab','A','Bb','B']);
+function spellRootByDegree(rootName, key) {
+  if (!key) return null;
+  const isMin = key.endsWith('m');
+  const tm = (isMin ? key.slice(0, -1) : key).match(/^([A-G])([#b]?)$/);
+  const rm = String(rootName).match(/^([A-G])([#b]?)$/);
+  if (!tm || !rm) return null;
+  const pcOf = (m) => (SPELL_LETTER_PC[SPELL_LETTERS.indexOf(m[1])] + (m[2] === '#' ? 1 : m[2] === 'b' ? -1 : 0) + 12) % 12;
+  const tpc = pcOf(tm), pc = pcOf(rm);
+  const interval = (pc - tpc + 12) % 12;
+  // Ступень выбираем по таблице, букву — от буквы тоники.
+  const tab = isMin
+    ? [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]
+    : [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6];
+  const deg = tab[interval];
+  const li = (SPELL_LETTERS.indexOf(tm[1]) + deg) % 7;
+  const acc = ((pc - SPELL_LETTER_PC[li] + 18) % 12) - 6;
+  if (Math.abs(acc) > 1) return null;
+  const name = SPELL_LETTERS[li] + (acc === 1 ? '#' : acc === -1 ? 'b' : '');
+  return SPELL_ALLOWED.has(name) ? name : null;
+}
+function correctChordName(c, ks, key) {
   if (!c) return c;
   let corr = c
     .split('/')
-    .map((p) => normalizeChordPart(p, ks))
+    .map((p) => {
+      const m = key && p.match(/^([A-G][#b]?)(.*)$/);
+      const spelled = m ? spellRootByDegree(m[1], key) : null;
+      return spelled ? spelled + m[2] : normalizeChordPart(p, ks);
+    })
     .join('/');
   return normalizeChordCase(corr);
 }
@@ -22300,7 +22501,7 @@ function applyEnharmonicCorrectionToSection(s) {
     for (let i = 0; i < sq.events.length; i++) {
       const orig = sq.events[i].chord;
       if (orig && orig.trim()) {
-        const corr = correctChordName(orig, sectionKeyStyle);
+        const corr = correctChordName(orig, sectionKeyStyle, sectionKey);
         if (corr !== orig) {
           sq.events[i].chord = corr;
           ch = true;
@@ -22371,9 +22572,17 @@ function getScaleDegree(cn, k) {
   const ti = CHROMATIC.indexOf(tonicSharp);
   if (ti === -1) return '';
   const wb = cn.split('/')[0].trim();
+  // B-101 (кирпич 4): у sus-аккорда нет терции, значит ступень в ладу для
+  // него не определена. Раньше Dsus4 в C показывался как ii — подпись
+  // врала, потому что проверялись только корень и вхождение нот в гамму.
+  if (/sus/i.test(wb)) return '';
   const ks = getKeyStyle(k);
-  const cnotes = getChordNotes(wb, ks);
-  const snotes = getScaleNotes(k);
+  // Сравниваем КЛАССЫ высот, а не строки с октавой: ниже getChordNotes
+  // раскладывает аккорд от корня вверх (G7 = G4 B4 D5 F5), и строковое
+  // сравнение с гаммой перестало бы работать.
+  const pcOf = (n) => String(n).replace(/\d+$/, '');
+  const cnotes = getChordNotes(wb, ks).map(pcOf);
+  const snotes = getScaleNotes(k).map(pcOf);
   if (!cnotes.every((n) => snotes.includes(n))) return '';
   const rm = wb.match(/^([A-G][#b]?)/);
   if (!rm) return '';
@@ -22460,10 +22669,11 @@ function getHarmonyChordTertianQuality(chord, key) {
   if (root < 0) return null;
   const intervals = new Set(getHarmonyChordPitchClasses(main, key)
     .map((pitchClass) => (pitchClass - root + 12) % 12));
-  if (intervals.has(3) && intervals.has(6)) return 'dim';
-  if (intervals.has(3) && intervals.has(7)) return 'min';
-  if (intervals.has(4) && intervals.has(8)) return 'aug';
-  if (intervals.has(4) && intervals.has(7)) return 'maj';
+  const has = (i) => intervals.has(i);
+  if (has(4) && has(7)) return 'maj';            // C7#9, C7b13: большая терция + чистая квинта
+  if (has(3) && has(6) && !has(7)) return 'dim';
+  if (has(3) && has(7)) return 'min';
+  if (has(4) && has(8) && !has(7)) return 'aug';
   return null;
 }
 function harmonyChordTonesFitMode(chord, key, mode) {
@@ -22538,6 +22748,7 @@ function getHarmonyRootDegreeFromContext(parsed, key) {
   return prefix + numeral;
 }
 function getHarmonyRootDegree(parsed, key) {
+  if (/sus/i.test(parsed?.chordName || '')) return ''; // в sus нет терции — ступень не пишем
   const tonicIndex = getHarmonyTonicIndex(key);
   const rootIndex = CHROMATIC.indexOf(parsed?.root);
   if (tonicIndex < 0 || rootIndex < 0) return '';
@@ -22903,6 +23114,9 @@ function detectClearModalContext(chords, key) {
 }
 function isSecondaryDominant(parsed, nextParsed, key) {
   if (!parsed || !nextParsed || parsed.quality !== 'maj') return false;
+  // B-101 (кирпич 4): уменьшённое трезвучие обычно не тонизируют, поэтому
+  // V/vii° функцией не считается. Раньше F#7 -> Bdim в C давало true.
+  if (nextParsed.quality === 'dim') return false;
   const targetDegree = getHarmonyModeDegree(nextParsed, key, getHarmonyBaseMode(key));
   if (targetDegree < 0) return false;
   const sourceIndex = CHROMATIC.indexOf(parsed.root);
@@ -23541,9 +23755,10 @@ function updateCellsDegrees() {
   // Лента строит ступени при сборке ячеек (buildTimelineCell), поэтому
   // на переключение галки её нужно пересобрать — сама она не обновится.
   if (typeof timelineMode !== 'undefined' && timelineMode) renderTimeline();
-  // Заливка ячеек следует только строгому harmony-profile секции и не зависит
-  // от общей опции/индивидуальных ладовых флажков круга. Глобальная опция
-  // продолжает управлять ступенями и подсказками, а не фоном ячеек.
+  // Заливка ячеек (0.594) целиком следует общей опции «Ступени и цвета
+  // круга»: тело выше toggлит body.is-harmony-highlights-on, а CSS-правило
+  // заливки завязано на этот класс. Индивидуальные ладовые флажки круга на
+  // фон ячеек по-прежнему не влияют — только на сам круг.
   // Та же точка обновляет профиль по effective key секции.
   syncAllHarmonyPresentation();
   // Палитра ладов — настройка круга, поэтому при выключении общей галки
@@ -29358,15 +29573,15 @@ function initMetronomeGain() {
     metronomeGainNode.connect(ctx.destination);
   }
 }
-function scheduleClick(ctx, t, acc) {
+function scheduleClick(ctx, t, acc, mid) {
   if (metronomeMuted || !ctx) return;
   initMetronomeGain();
   try {
     const o = ctx.createOscillator(),
       g = ctx.createGain();
     o.type = 'sine';
-    o.frequency.value = acc && metronomeAccent ? 1000 : 700;
-    const vol = acc && metronomeAccent ? 0.28 : 0.14;
+    o.frequency.value = acc && metronomeAccent ? 1000 : (mid && metronomeAccent ? 850 : 700);
+    const vol = acc && metronomeAccent ? 0.28 : (mid && metronomeAccent ? 0.2 : 0.14);
     g.gain.setValueAtTime(vol, t);
     g.gain.exponentialRampToValueAtTime(0.001, t + (acc ? 0.08 : 0.04));
     o.connect(g);
@@ -29409,7 +29624,13 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm) {
   const qd = 60 / bpm;
   let effectiveSubdivision = metronomeSubdivision;
   let cd, cpb;
-  if (effectiveSubdivision === 1) {
+  const midClicks = new Set();
+  const compound = isCompoundMeter(ts);
+  if (effectiveSubdivision === 1 && compound) {
+    // Составной размер: пульс — долевая четверть (3 восьмые), а не четверть.
+    cd = qd * 1.5;
+    cpb = beats / 3;
+  } else if (effectiveSubdivision === 1) {
     cd = qd;
     cpb = beats * (4 / div);
   } else if (effectiveSubdivision === 2) {
@@ -29418,6 +29639,12 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm) {
   } else {
     cd = qd / 4;
     cpb = beats * (4 / div) * 4;
+  }
+  // Вторичные акценты по группировке (6/8: 3+3, 7/8: 2+2+3) — когда клик идёт по восьмым и мельче.
+  if (div === 8 && !(effectiveSubdivision === 1 && compound)) {
+    const clicksPerEighth = (qd / 2) / cd;
+    let acc8 = 0;
+    getBeatGrouping(ts).forEach((g) => { if (acc8 > 0) midClicks.add(acc8 * clicksPerEighth); acc8 += g; });
   }
   let last = -1;
   function check() {
@@ -29433,7 +29660,7 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm) {
       for (let cn = last + 1; cn <= cur; cn++) {
         const ct = st + cn * cd;
         const acc = cn % cpb === 0;
-        scheduleClick(ctx, ct, acc);
+        scheduleClick(ctx, ct, acc, !acc && midClicks.has(cn % cpb));
       }
       last = cur;
     }
@@ -34935,7 +35162,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   const buildWheelMenuPatternOrdinals = (chords) => {
     const seen = new Map();
     return chords.map((chord) => {
-      const menu = getBorrowingMenuProfile(correctChordName(chord, ks), sk);
+      const menu = getBorrowingMenuProfile(correctChordName(chord, ks, sk), sk);
       const count = getWheelMenuPaneModes(menu).length;
       if (!count) return 0;
       const ordinal = seen.get(count) || 0;
@@ -34947,13 +35174,13 @@ function drawWheel({ crossfadeLabels = false } = {}) {
     ? dr
       ? {
           major: buildWheelMenuPatternOrdinals(MAJOR_CHORDS.map((chord) =>
-            getChordValue(correctChordName(chord, ks), false))),
+            getChordValue(correctChordName(chord, ks, sk), false))),
           minor: buildWheelMenuPatternOrdinals(MINOR_CHORDS.map((chord) =>
-            getChordValue(correctChordName(chord, ks), true))),
+            getChordValue(correctChordName(chord, ks, sk), true))),
         }
       : {
           single: buildWheelMenuPatternOrdinals(MAJOR_CHORDS.map((chord) =>
-            getChordValue(correctChordName(chord, ks), false))),
+            getChordValue(correctChordName(chord, ks, sk), false))),
         }
     : null;
   const activeWheelChord = wheelChordIdentity(activeChordInput?.value);
@@ -35270,8 +35497,8 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   for (let i = 0; i < n; i++) {
     const rm = MAJOR_CHORDS[i],
       rmi = MINOR_CHORDS[i];
-    const cm = correctChordName(rm, ks),
-      cmi = correctChordName(rmi, ks);
+    const cm = correctChordName(rm, ks, sk),
+      cmi = correctChordName(rmi, ks, sk);
     const start = ao + i * sa,
       end = ao + (i + 1) * sa;
     // Mid остаётся музыкальным центром сектора; реальные card-gap и
@@ -35537,8 +35764,8 @@ function drawWheel410() {
   for (let i = 0; i < n; i++) {
     const rm = MAJOR_CHORDS[i],
       rmi = MINOR_CHORDS[i];
-    const cm = correctChordName(rm, ks),
-      cmi = correctChordName(rmi, ks);
+    const cm = correctChordName(rm, ks, sk),
+      cmi = correctChordName(rmi, ks, sk);
     const start = ao + i * sa,
       end = ao + (i + 1) * sa;
     const cos1 = Math.cos(start),
@@ -39512,131 +39739,155 @@ function normalizeRussianChord(input) {
 }
 function nashvilleToChord(input, key) {
   if (!input) return null;
-  const str = input.trim().toLowerCase();
+  const raw = input.trim();
+  // Раньше здесь всё приводилось к нижнему регистру, и I/i, V/v были
+  // неразличимы. Регистр нужен римским цифрам — сохраняем исходную строку.
+  const str = raw.toLowerCase();
   const isMinorKey = key.endsWith('m');
   const tonicRaw = isMinorKey ? key.slice(0, -1) : key;
   let tonic = FLAT_TO_SHARP[tonicRaw] || tonicRaw;
   const tonicIndex = CHROMATIC.indexOf(tonic);
   if (tonicIndex === -1) return null;
-  function getNote(semitones) {
-    let idx = (tonicIndex + semitones + 12) % 12;
-    let note = CHROMATIC[idx];
-    const keyStyle = getKeyStyle(key);
-    if (keyStyle === 'flat') note = SHARP_TO_FLAT[note] || note;
+  // Русские порядковые ступени: «шестая», «шестая в миноре», «шестая в
+  // мажоре». Раньше таблица перебиралась в порядке объявления, и «шестая»
+  // совпадала раньше «шестая в миноре»: остаток « в миноре» просто
+  // приклеивался к имени аккорда и в ячейку уходило «F#mвминоре». Кроме
+  // того, полутоны брались всегда из мажорной гаммы, из-за чего «шестая»
+  // в Am давала F#, а не F. Теперь полутоны берутся из гаммы, названной
+  // самим уточнением, а без уточнения — из гаммы текущей тональности.
+  const NASHVILLE_ORDINALS = {
+    первая: 1,
+    вторая: 2,
+    третья: 3,
+    четвёртая: 4,
+    пятая: 5,
+    шестая: 6,
+    седьмая: 7,
+  };
+  const NASHVILLE_ROMAN = [
+    { symbol: 'vii', degree: 7 },
+    { symbol: 'iii', degree: 3 },
+    { symbol: 'vi', degree: 6 },
+    { symbol: 'iv', degree: 4 },
+    { symbol: 'ii', degree: 2 },
+    { symbol: 'v', degree: 5 },
+    { symbol: 'i', degree: 1 },
+  ];
+  // Римские цифры считаются от тоники ТЕКУЩЕЙ тональности: в Am это
+  // i=Am, III=C, VI=F, VII=G (натуральный минор). Качество задаёт регистр:
+  // I — мажор, i — минор, vii° — уменьшённое, III+ — увеличенное.
+  const NASHVILLE_SCALE = {
+    major: { steps: [0, 2, 4, 5, 7, 9, 11], qualities: ['', 'm', 'm', '', '', 'm', 'dim'] },
+    minor: { steps: [0, 2, 3, 5, 7, 8, 10], qualities: ['m', 'dim', '', 'm', 'm', '', ''] },
+  };
+  // Числа Нэшвилла в миноре идут от ОТНОСИТЕЛЬНОГО мажора (конвенция,
+  // выбранная пользователем): в Am нумерация та же, что в C — 1=C, 6m=Am,
+  // то есть тоника минорной песни имеет номер 6.
+  const NASHVILLE_NUMBER_STEPS = [0, 2, 4, 5, 7, 9, 11];
+  const NASHVILLE_NUMBER_QUALITY = ['', 'm', 'm', '', '', 'm', 'dim'];
+  // Остаток после ступени должен быть похож на суффикс аккорда. Без этого
+  // проверки мусор вида «Ci» (от «ii», где совпало «i») уходил в файл песни
+  // как имя аккорда: валидатора имён в приложении нет.
+  const NASHVILLE_SUFFIX_RE =
+    /^(?:m|maj|min|dim|aug|sus|add|\d|\(|\)|,|#|b|-|\+|Δ|°|ø|\/[A-G][#b]?)*$/i;
+
+  const numberTonicIndex = isMinorKey ? (tonicIndex + 3) % 12 : tonicIndex;
+
+  // Написание: по стилю тональности, но альтерированная ступень пишется по
+  // СВОЕМУ знаку — иначе «b7» в C давало A#, а не Bb (жалоба из списка).
+  function spellFrom(index, preferFlat, preferSharp) {
+    let note = CHROMATIC[(index + 12) % 12];
+    if (preferSharp) return note; // CHROMATIC уже в диезной записи
+    if (preferFlat && SHARP_TO_FLAT[note]) return SHARP_TO_FLAT[note];
+    if (getKeyStyle(key) === 'flat') note = SHARP_TO_FLAT[note] || note;
     return note;
   }
-  const stepQualifiers = {
-    первая: { semitones: 0, forcedQuality: null },
-    вторая: { semitones: 2, forcedQuality: null },
-    третья: { semitones: 4, forcedQuality: null },
-    четвёртая: { semitones: 5, forcedQuality: null },
-    пятая: { semitones: 7, forcedQuality: null },
-    шестая: { semitones: 9, forcedQuality: null },
-    седьмая: { semitones: 11, forcedQuality: null },
-    'первая в миноре': { semitones: 0, forcedQuality: 'm' },
-    'вторая в миноре': { semitones: 2, forcedQuality: 'm' },
-    'третья в миноре': { semitones: 4, forcedQuality: 'm' },
-    'четвёртая в миноре': { semitones: 5, forcedQuality: 'm' },
-    'пятая в миноре': { semitones: 7, forcedQuality: 'm' },
-    'шестая в миноре': { semitones: 9, forcedQuality: 'm' },
-    'седьмая в миноре': { semitones: 11, forcedQuality: 'm' },
-    'первая в мажоре': { semitones: 0, forcedQuality: '' },
-    'вторая в мажоре': { semitones: 2, forcedQuality: '' },
-    'третья в мажоре': { semitones: 4, forcedQuality: '' },
-    'четвёртая в мажоре': { semitones: 5, forcedQuality: '' },
-    'пятая в мажоре': { semitones: 7, forcedQuality: '' },
-    'шестая в мажоре': { semitones: 9, forcedQuality: '' },
-    'седьмая в мажоре': { semitones: 11, forcedQuality: '' },
-  };
-  const numbers = {
-    1: 0,
-    2: 2,
-    3: 4,
-    4: 5,
-    5: 7,
-    6: 9,
-    7: 11,
-    i: 0,
-    ii: 2,
-    iii: 4,
-    iv: 5,
-    v: 7,
-    vi: 9,
-    vii: 11,
-    'i°': 0,
-    'ii°': 2,
-    'iii°': 4,
-    'iv°': 5,
-    'v°': 7,
-    'vi°': 9,
-    'vii°': 11,
-    'i+': 0,
-    'ii+': 2,
-    'iii+': 4,
-    'iv+': 5,
-    'v+': 7,
-    'vi+': 9,
-    'vii+': 11,
-    i7: 0,
-    ii7: 2,
-    iii7: 4,
-    iv7: 5,
-    v7: 7,
-    vi7: 9,
-    vii7: 11,
-    imaj7: 0,
-    iimaj7: 2,
-    iiimaj7: 4,
-    ivmaj7: 5,
-    vmaj7: 7,
-    vimaj7: 9,
-    viimaj7: 11,
-    iΔ: 0,
-    iiΔ: 2,
-    iiiΔ: 4,
-    ivΔ: 5,
-    vΔ: 7,
-    viΔ: 9,
-    viiΔ: 11,
-  };
-  let step = null,
+
+  let step = null, // полутоны от тоники — для русских слов
+    rootIndex = null, // абсолютный индекс корня — для римских цифр и чисел
     forcedQuality = null,
+    remainingSuffix = '',
+    preferFlat = false,
+    preferSharp = false;
+
+  // 1. Русские порядковые ступени — считаются от тоники текущей
+  //    тональности; уточнение «в миноре»/«в мажоре» берёт ступень из
+  //    одноимённой минорной/мажорной гаммы.
+  for (const [word, degree] of Object.entries(NASHVILLE_ORDINALS)) {
+    if (!str.startsWith(word)) continue;
+    const rest = str.slice(word.length).trim();
+    if (rest === '') {
+      const scale = isMinorKey ? NASHVILLE_SCALE.minor : NASHVILLE_SCALE.major;
+      step = scale.steps[degree - 1];
+      forcedQuality = scale.qualities[degree - 1];
+    } else if (rest === 'в миноре') {
+      step = NASHVILLE_SCALE.minor.steps[degree - 1];
+      forcedQuality = 'm';
+    } else if (rest === 'в мажоре') {
+      step = NASHVILLE_SCALE.major.steps[degree - 1];
+      forcedQuality = '';
+    } else continue; // не ступень — пусть разберут римские цифры или аккорд
     remainingSuffix = '';
-  for (let [phrase, data] of Object.entries(stepQualifiers)) {
-    if (str.startsWith(phrase)) {
-      step = data.semitones;
-      forcedQuality = data.forcedQuality;
-      remainingSuffix = str.slice(phrase.length);
+    break;
+  }
+
+  // 2. Римские цифры: знак альтерации — в начале, регистр важен.
+  if (step === null && rootIndex === null) {
+    let head = raw;
+    const acc = head.match(/^[#♯]/) ? 1 : head.match(/^[b♭]/) ? -1 : 0;
+    const alter = acc;
+    if (acc !== 0) head = head.slice(1);
+    const lower = head.toLowerCase();
+    for (const { symbol, degree } of NASHVILLE_ROMAN) {
+      if (!lower.startsWith(symbol)) continue;
+      let rest = head.slice(symbol.length);
+      let quality;
+      if (/^[°øo]/.test(rest)) {
+        quality = 'dim';
+        rest = rest.slice(1);
+      } else if (/^\+/.test(rest)) {
+        quality = 'aug';
+        rest = rest.slice(1);
+      } else {
+        // Заглавная — мажорное трезвучие, строчная — минорное.
+        const first = head.charAt(0);
+        quality = first !== first.toLowerCase() ? '' : 'm';
+      }
+      const scale = isMinorKey ? NASHVILLE_SCALE.minor : NASHVILLE_SCALE.major;
+      rootIndex = (tonicIndex + scale.steps[degree - 1] + alter + 24) % 12;
+      forcedQuality = quality;
+      remainingSuffix = rest;
+      if (acc > 0) preferSharp = true;
+      if (acc < 0) preferFlat = true;
       break;
     }
   }
-  if (step === null) {
-    for (let [symbol, val] of Object.entries(numbers)) {
-      if (str.startsWith(symbol)) {
-        step = val;
-        remainingSuffix = str.slice(symbol.length);
-        break;
-      }
-    }
-  }
-  if (step === null) {
-    const match = str.match(/^([#b♭♯]?)(\d+)(.*)$/);
-    if (match) {
-      let alter = match[1],
-        num = parseInt(match[2], 10);
+
+  // 3. Числа Нэшвилла: 1..7, со знаком альтерации и суффиксом.
+  if (step === null && rootIndex === null) {
+    const m = raw.match(/^([#♯b♭]?)(\d+)(.*)$/);
+    if (m) {
+      const alter = m[1] === '#' || m[1] === '♯' ? 1 : m[1] ? -1 : 0;
+      const num = parseInt(m[2], 10);
       if (num >= 1 && num <= 7) {
-        let baseStep = [0, 2, 4, 5, 7, 9, 11][num - 1];
-        if (alter === 'b' || alter === '♭') baseStep = (baseStep - 1 + 12) % 12;
-        if (alter === '#' || alter === '♯') baseStep = (baseStep + 1) % 12;
-        step = baseStep;
-        remainingSuffix = match[3];
+        const base = NASHVILLE_NUMBER_STEPS[num - 1];
+        rootIndex = (numberTonicIndex + base + alter + 24) % 12;
+        // Альтерированная ступень читается как мажорное трезвучие (b7 = bVII),
+        // обычная — диатоническим качеством мажорной сетки нумерации.
+        forcedQuality = alter !== 0 ? '' : NASHVILLE_NUMBER_QUALITY[num - 1];
+        remainingSuffix = m[3];
+        if (alter > 0) preferSharp = true;
+        if (alter < 0) preferFlat = true;
       }
     }
   }
-  if (step === null) return null;
+
+  if (step === null && rootIndex === null) return null;
+  if (!NASHVILLE_SUFFIX_RE.test(remainingSuffix)) return null;
+
   let chordType = '';
   if (forcedQuality !== null) chordType = forcedQuality;
-  else {
+  else if (step !== null) {
     if (isMinorKey) {
       const minorSteps = [0, 5, 7],
         majorSteps = [3, 8, 10],
@@ -39644,7 +39895,6 @@ function nashvilleToChord(input, key) {
       if (minorSteps.includes(step)) chordType = 'm';
       else if (majorSteps.includes(step)) chordType = '';
       else if (dimSteps.includes(step)) chordType = 'dim';
-      else chordType = '';
     } else {
       const majorSteps = [0, 5, 7],
         minorSteps = [2, 4, 9],
@@ -39652,22 +39902,28 @@ function nashvilleToChord(input, key) {
       if (majorSteps.includes(step)) chordType = '';
       else if (minorSteps.includes(step)) chordType = 'm';
       else if (dimStep.includes(step)) chordType = 'dim';
-      else chordType = '';
     }
   }
-  let chordRoot = getNote(step);
+  const finalIndex = rootIndex !== null ? rootIndex : (tonicIndex + step + 12) % 12;
+  const chordRoot = spellFrom(finalIndex, preferFlat, preferSharp);
   let chord = chordRoot + chordType + remainingSuffix.trim();
   return chord.replace(/\s+/g, '').replace(/m\s*m/, 'm');
 }
 function saveCurrentChord() {
   if (!activeChordInput) return false;
-  let chord = activeChordInput.value.trim();
+  const rawChord = activeChordInput.value.trim();
+  let chord = rawChord;
   if (chord) {
-    chord = normalizeChordCase(chord);
     const currentKey = getEffectiveKey();
-    const nashville = currentKey ? nashvilleToChord(chord, currentKey) : null;
+    // B-101 (кирпич 3): Нэшвилл разбирается ДО нормализации регистра.
+    // «bVII» начинается со знака альтерации, и normalizeChordCase превращала
+    // её в «Bvii» — то есть в аккорд B, а не в пониженную VII ступень.
+    const nashville = currentKey ? nashvilleToChord(rawChord, currentKey) : null;
     if (nashville) chord = nashville;
-    else chord = normalizeRussianChord(chord);
+    else {
+      chord = normalizeChordCase(rawChord);
+      chord = normalizeRussianChord(chord);
+    }
     // Канонизируем алиасы (C(9) -> Cadd9, C° -> Cdim...) — ровно так же
     // поступает выбор с колеса (selectChord), иначе ячейка и кнопки
     // колеса начинали бы говорить на разных записях одного аккорда.
