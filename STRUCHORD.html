@@ -11721,7 +11721,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.595</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.596</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -19623,7 +19623,27 @@ function circleOfFifthsDist(semitoneA, semitoneB) {
   return Math.min(diff, 12 - diff);
 }
 
+// B-101 (0.596): имя, которое распознавание даёт аппликатуре, пишется по
+// тональности, как и имена в ячейках. Раньше та же форма в C давала A#, а в Bb —
+// Bb. Меняются только строки имён; корни и басы в коде распознавания не трогаем.
+function respellFingeringAnalysis(res, key) {
+  if (!res || !key || typeof correctChordName !== 'function') return res;
+  const ks = getKeyStyle(key);
+  const fixName = (name) => (typeof name === 'string' && name && name !== '?' ? correctChordName(name, ks, key) : name);
+  const out = Object.assign({}, res);
+  if (out.chordName) out.chordName = fixName(out.chordName);
+  if (Array.isArray(out.candidates)) {
+    out.candidates = out.candidates.map((c) => (c && c.chordName ? Object.assign({}, c, { chordName: fixName(c.chordName) }) : c));
+  }
+  if (out.altCandidate && out.altCandidate.chordName) {
+    out.altCandidate = Object.assign({}, out.altCandidate, { chordName: fixName(out.altCandidate.chordName) });
+  }
+  return out;
+}
 function analyzeFingeringShape(shape, context = {}) {
+  return respellFingeringAnalysis(analyzeFingeringShapeRaw(shape, context), context && context.key);
+}
+function analyzeFingeringShapeRaw(shape, context = {}) {
   // Разбор «что за аккорд нарисован на грифе» зависит от строя и контекста (B-81).
   const stringNotes = songStringNotes();
   const chromatic = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
@@ -19765,6 +19785,8 @@ function analyzeFingeringShape(shape, context = {}) {
       .sort((a, b) => a - b);
 
     if (!intervals.includes(0)) continue;
+    // B-101 (0.596): три ноты D F B — это Bdim (D в басу), а не «Dm6 без квинты».
+    if (intervals.length === 3 && intervals[1] === 3 && intervals[2] === 9) continue;
 
     const chordName = buildChordName(rootNote, intervals);
     if (chordName === '?') continue;
@@ -20039,6 +20061,9 @@ function buildChordName(root, intervals) {
     if (has(9) && allIn([0, 9])) return root + '6(no3,no5)';
     if (has(2) && has(10) && allIn([0, 2, 7, 10])) return root + '9' + (has(7) ? '(no3)' : '(no3,no5)');
     if (has(2) && has(10) && allIn([0, 2, 10])) return root + '9(no3,no5)';
+    // B-101 (0.596): доминантовая 11-я без терции (C G Bb D F) — C11. Раньше
+    // та же форма давала Gm11/C: одни и те же ноты, но имя с другим корнем.
+    if (has(2) && has(5) && has(7) && has(10) && allIn([0, 2, 5, 7, 10])) return root + '11';
     return '?';
   }
 
@@ -21600,7 +21625,17 @@ function canonicalKeyFromRoot(sharpRoot, isMinor) {
 // подбору аппликатур и озвучке. Приводим знаки ТОЛЬКО внутри разборщиков —
 // написание в самой ячейке остаётся типографским.
 function normalizeAccidentals(name) {
-  return typeof name === 'string' ? name.replace(/♭/g, 'b').replace(/♯/g, '#') : name;
+  if (typeof name !== 'string') return name;
+  // B-101 (0.596): нотация «C-7», «C-9», «C-maj7», «C-M7» — минор с мажорной
+  // септимой или без неё, а не доминанта. Минус перед 5 («C-5») остаётся
+  // альтерацией квинты и сюда не попадает.
+  return name
+    .replace(/♭/g, 'b')
+    .replace(/♯/g, '#')
+    .replace(/^([A-G][#b]?)-(?:M|Δ)(?=\d|$)/, '$1mmaj')
+    // «C-m7» — минус уже означает минор, буква m рядом не даёт доминанты.
+    .replace(/^([A-G][#b]?)-m(?!aj)/, '$1m')
+    .replace(/^([A-G][#b]?)-(?=maj\d|13|11|9|7|6)/, '$1m');
 }
 
 function parseChordForKeyDetection(chordName) {
@@ -22223,6 +22258,10 @@ const FLAT_TO_SHARP = {
   Ebm: 'D#m',
   Abm: 'G#m',
   Bbm: 'A#m',
+  // B-101 (0.596): энгармонические корни E#/B#/Fb — тот же звук, что F/C/E.
+  'E#': 'F',
+  'B#': 'C',
+  Fb: 'E',
 };
 
 function noteToFrequency(note) {
@@ -22273,7 +22312,10 @@ function normalizeChordCase(ch) {
     // Джазовая конвенция: ЗАГЛАВНАЯ M — мажор (CM7 = Cmaj7, CM = C).
     // Слепой toLowerCase превращал её в минор: 'CM7' становился 'Cm7'.
     // Запись 'Maj' в любом регистре как работала нижним, так и работает.
-    if (/^M\d/.test(suffix)) suffix = 'maj' + suffix.slice(1).toLowerCase();
+    // B-101 (0.596): «C-M7» (минор с большой септимой) — то же, что и «CM7»: M
+    // после минуса сохраняем как maj, иначе «C-M7» становился «C-m7» (дом. септима).
+    if (/^-M\d/.test(suffix)) suffix = '-maj' + suffix.slice(2).toLowerCase();
+    else if (/^M\d/.test(suffix)) suffix = 'maj' + suffix.slice(1).toLowerCase();
     else if (suffix === 'M') suffix = '';
     else suffix = suffix.toLowerCase();
     f = root + suffix;
@@ -22306,7 +22348,11 @@ function getChordNotes(cn, ks) {
   if (!rm) return [];
   const root = rm[1];
   let suffix = cn.slice(root.length).toLowerCase();
-  const ri = CHROMATIC.indexOf(FLAT_TO_SHARP[root] || root);
+  // B-101 (0.596): E#, B#, Fb — не в хроматической таблице с диезами, и раньше
+  // такой аккорд давал пустой набор нот (тихий аккорд, без ступени). Высота та
+  // же, что у соседней ноты: E#=F, B#=C, Fb=E. Октава Cb/B# пока считается
+  // по высоте класса (как и раньше), это отдельный вопрос регистра.
+  const ri = CHROMATIC.indexOf(FLAT_TO_SHARP[root] || { 'E#': 'F', 'B#': 'C', Fb: 'E' }[root] || root);
   if (ri === -1) return [];
   let ints = [];
 
@@ -22390,6 +22436,9 @@ function getChordNotes(cn, ks) {
   // поэтому b9/#9/#11/b13 до сих пор просто терялись — C7b9 звучал
   // ровно как C7. Кладём поверх базового аккорда; если записана и
   // натуральная ступень (C13b9), обе звучат — принятое приближение.
+  // B-101 (0.596): «♭6» — малая секста (8 полутонов). Раньше «Cmb6» давал
+  // Cm6 (A вместо Ab), а «Cm(b6)» терял ноту: цифра 6 читалась как натуральная.
+  if (/b6/.test(suffix)) { ints = ints.filter((i) => i !== 9); ints.push(8); }
   if (/b9/.test(suffix)) ints.push(13);
   if (/#9/.test(suffix)) ints.push(15);
   if (/#11/.test(suffix)) ints.push(18);
@@ -22450,7 +22499,12 @@ const SPELL_LETTER_PC = [0, 2, 4, 5, 7, 9, 11];
 // интервал от тоники (полутоны) -> номер ступени (0..6) при написании
 const SPELL_DEGREE_MAJOR = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // ♭II ♭III ♯IV ♭VI ♭VII
 const SPELL_DEGREE_MINOR = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // ♭II, III, ♯III, ♯IV, VI, ♯VI, VII, ♯VII
-const SPELL_ALLOWED = new Set(['C','C#','Db','D','Eb','E','F','F#','Gb','G','Ab','A','Bb','B']);
+const SPELL_ALLOWED = new Set(['C','C#','Db','D','D#','Eb','E','E#','F','F#','Gb','G','G#','Ab','A','A#','Bb','B','B#','Cb','Fb']);
+// B-101 (0.596): читаемый набор для хроматических корней и замены E#/B#/Fb/Cb.
+const SPELL_READABLE = new Set(['C','C#','Db','D','Eb','E','F','F#','Gb','G','Ab','A','Bb','B']);
+const SPELL_READABLE_FALLBACK = { 'E#': 'F', 'B#': 'C', Fb: 'E', Cb: 'B' };
+const SPELL_SCALE_MAJOR = [0, 2, 4, 5, 7, 9, 11];
+const SPELL_SCALE_MINOR = [0, 2, 3, 5, 7, 8, 10];
 function spellRootByDegree(rootName, key) {
   if (!key) return null;
   const isMin = key.endsWith('m');
@@ -22464,12 +22518,21 @@ function spellRootByDegree(rootName, key) {
   const tab = isMin
     ? [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]
     : [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6];
-  const deg = tab[interval];
-  const li = (SPELL_LETTERS.indexOf(tm[1]) + deg) % 7;
+  // B-101 (0.596), правила написания по решению пользователя:
+  // 1) диатонический корень (есть в гамме тональности) пишем по гамме, даже если
+  //    выходит E#, B#, Fb или Cb (F# мажор: VII = E#dim; Ebm: VI = Cb);
+  // 2) хроматический корень — по ступени, но только в читаемом наборе; E#/B#/Fb/Cb
+  //    заменяем энгармоническим именем из набора; остальные случаи — как раньше (null);
+  // 3) тритон (6 полутонов) — по стилю тональности: бемоль в бемольных, диез в диезных.
+  const diatonic = (isMin ? SPELL_SCALE_MINOR : SPELL_SCALE_MAJOR).includes(interval);
+  let li = (SPELL_LETTERS.indexOf(tm[1]) + tab[interval]) % 7;
+  if (interval === 6) li = (SPELL_LETTERS.indexOf(tm[1]) + (getKeyStyle(key) === 'flat' ? 4 : 3)) % 7;
   const acc = ((pc - SPELL_LETTER_PC[li] + 18) % 12) - 6;
   if (Math.abs(acc) > 1) return null;
   const name = SPELL_LETTERS[li] + (acc === 1 ? '#' : acc === -1 ? 'b' : '');
-  return SPELL_ALLOWED.has(name) ? name : null;
+  if (diatonic) return SPELL_ALLOWED.has(name) ? name : null;
+  if (SPELL_READABLE.has(name)) return name;
+  return SPELL_READABLE_FALLBACK[name] || null;
 }
 function correctChordName(c, ks, key) {
   if (!c) return c;
@@ -22906,7 +22969,11 @@ function getBorrowingMenuDegree(parsed, key, modes) {
       const familyPosition = HARMONY_MODE_PROFILES[mode]?.intervals.indexOf(interval);
       if (familyPosition >= 0 && familyPosition < HARMONY_ROMAN.length) {
         position = familyPosition;
-        alteration = interval - baseProfile.intervals[familyPosition];
+        // B-101 (0.596): ведущий тон минорной тональности (G# в Am) — это vii°,
+        // а не #vii°: поднятая VII — норма гармонического минора (подтверждено).
+        alteration = familyPosition === 6 && interval === 11
+          ? 0
+          : interval - baseProfile.intervals[familyPosition];
         break;
       }
     }
@@ -23175,10 +23242,14 @@ function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', c
   }
   if (isSecondaryDominant(parsed, nextParsed, key)) {
     const target = getHarmonyDegreeNameForRoot(nextParsed.root, key);
+    // B-101 (0.596): у sus-цели нет терции, поэтому цель пишем с пометкой sus,
+    // а не голой ступенью: A7 → Dsus4 — «V/ii sus4».
+    const nextChordName = String(nextParsed.chordName || '');
+    const susSuffix = /sus2/i.test(nextChordName) ? ' sus2' : /sus/i.test(nextChordName) ? ' sus4' : '';
     return {
       chord: normalized, key, group: HARMONY_GROUP.SECONDARY_FUNCTION, mode: null,
       detail: 'secondary-dominant', confidence: 'contextual', degree,
-      function: target ? `V/${target}` : 'V/x',
+      function: target ? `V/${target}${susSuffix}` : 'V/x',
     };
   }
   if (contextualMode && isHarmonyChordInMode(parsed, key, contextualMode)) {
@@ -29639,6 +29710,12 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm) {
   } else {
     cd = qd / 4;
     cpb = beats * (4 / div) * 4;
+  }
+  // B-101 (0.596): в составном размере пульс — долевая четверть, и граница
+  // группы (6/8: 3+3, 9/8: 3+3+3) — это вторая доля. Раньше она не выделялась.
+  if (effectiveSubdivision === 1 && compound) {
+    let acc8 = 0;
+    getBeatGrouping(ts).forEach((g) => { if (acc8 > 0) midClicks.add(acc8 / 3); acc8 += g; });
   }
   // Вторичные акценты по группировке (6/8: 3+3, 7/8: 2+2+3) — когда клик идёт по восьмым и мельче.
   if (div === 8 && !(effectiveSubdivision === 1 && compound)) {
