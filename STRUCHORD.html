@@ -6617,6 +6617,26 @@ html.wheel-motion-disabled .wheel-harmony-legend-toggle-surface {
   padding-top: 0.5rem;
   border-top: 0.0625rem solid var(--color-border-light);
 }
+.tools-sub-group {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+.tools-sub-group.is-open {
+  grid-template-rows: 1fr;
+}
+.tools-sub-group-inner {
+  min-height: 0;
+  overflow: hidden;
+  padding-left: 1.25rem;
+}
+.tools-sublabel {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tools-sub-group { transition: none; }
+}
 .tools-label--head {
   display: block;
   padding: 0.25rem 0.75rem 0.375rem;
@@ -11724,7 +11744,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.604</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.605</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -11761,10 +11781,22 @@ body.power-ui-waking .pinned-fingering-dock {
           <i class="ti ti-adjustments-plus"></i> Тык
         </button>
         <div class="tools-dropdown" id="toolsDropdown">
-          <label class="tools-label" title="Показывает ступени в ячейках и включает ладовую цветовую карту круга"
-            ><input type="checkbox" id="showDegrees" onchange="toggleDegreesOnWheel()" />
-            Ступени и цвета круга</label
+          <label class="tools-label" title="Ступени в ячейках и на круге; подсветка ладов включается отдельной галочкой"
+            ><input type="checkbox" id="showDegrees" onchange="onDegreesParentChange()" />
+            Ступени и лады</label
           >
+          <div class="tools-sub-group" id="degreesSubOptions">
+            <div class="tools-sub-group-inner">
+              <label class="tools-label tools-sublabel"
+                ><input type="checkbox" id="showDegreeLabels" onchange="onDegreesChildChange()" checked />
+                Показывать ступени</label
+              >
+              <label class="tools-label tools-sublabel"
+                ><input type="checkbox" id="showHarmonyHighlights" onchange="onDegreesChildChange()" checked />
+                Показывать подсветку ладов</label
+              >
+            </div>
+          </div>
           <label class="tools-label"
             ><input type="checkbox" id="wheelAnimations" onchange="toggleWheelAnimations()" checked />
             Анимации круга</label
@@ -23436,7 +23468,7 @@ function getSectionHarmonyEventMap(section, key = section?.key || getEffectiveKe
 function isHarmonyPresentationEnabled() {
   // B-99 — расширенная расшифровка ступеней: пользователь видит её только
   // вместе с явно включённой настройкой «Ступени».
-  return document.getElementById('showDegrees')?.checked === true;
+  return isHarmonyHighlightsOptionOn();
 }
 function getHarmonyPresentationProfile(analysis) {
   if (!analysis || analysis.group === HARMONY_GROUP.UNKNOWN) return null;
@@ -23931,7 +23963,7 @@ function getHarmonyChainTooltip(section, key, squareId, eventIndex) {
   return `Цепочка вторичных доминант: ${entries.slice(first, end + 1).map((e) => e.chord).join(' → ')} (${fn(first)})`;
 }
 function syncDegreeHintForWrapper(w) {
-  if (!w || !document.getElementById('showDegrees')?.checked) return;
+  if (!w || !isDegreeLabelsOptionOn()) return;
   const inp = w.querySelector('.chord-input');
   if (!inp) return;
   const secId = +w.dataset.sec;
@@ -23972,17 +24004,18 @@ function syncDegreeHintForWrapper(w) {
   w.classList.toggle('is-degree-tight', deg && needed > w.offsetWidth);
 }
 function renderDegreesInCells() {
-  if (!document.getElementById('showDegrees')?.checked) return;
+  if (!isDegreeLabelsOptionOn()) return;
   for (const w of cachedChordWrappers) syncDegreeHintForWrapper(w);
 }
 function updateCellsDegrees() {
-  const show = document.getElementById('showDegrees')?.checked;
+  const show = isDegreeLabelsOptionOn();
+  const highlights = isHarmonyHighlightsOptionOn();
   // Класс на контейнере: по нему CSS сдвигает превью боя вправо, чтобы
   // освободить угол под цифру ступени. Ставим на контейнер, а не на
   // каждую ячейку — одна запись вместо сотни.
   DOM.sectionsContainer?.classList.toggle('is-degrees-on', !!show);
-  document.body.classList.toggle('is-harmony-highlights-on', !!show);
-  DOM.chordWheelModal?.classList.toggle('is-harmony-highlights-on', !!show);
+  document.body.classList.toggle('is-harmony-highlights-on', !!highlights);
+  DOM.chordWheelModal?.classList.toggle('is-harmony-highlights-on', !!highlights);
   syncWheelHarmonyLegendToggleVisibility();
   if (show) renderDegreesInCells();
   else
@@ -35397,7 +35430,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   };
   const sk = activeSectionKey || getEffectiveKey();
   const ks = getKeyStyle(sk);
-  const sd = document.getElementById('showDegrees')?.checked === true;
+  const sd = isDegreeLabelsOptionOn();
   const dr = wheelModeIsDualRing(wheelMode);
   // Candidate panes are the established triad-menu presentation only. Other
   // quality tabs use one enabled full-chord candidate as a solid card color;
@@ -36005,7 +36038,7 @@ function drawWheel410() {
     ao = -Math.PI / 2 - sa / 2;
   const sk = activeSectionKey || getEffectiveKey();
   const ks = getKeyStyle(sk);
-  const sd = document.getElementById('showDegrees')?.checked === true;
+  const sd = isDegreeLabelsOptionOn();
   const dr = wheelModeIsDualRing(wheelMode);
   const frag = document.createDocumentFragment();
   for (let i = 0; i < n; i++) {
@@ -36267,8 +36300,49 @@ function selectChord410(chord) {
 }
 
 function toggleDegreesOnWheel() {
+  syncDegreesSubOptions();
   drawWheel();
   updateCellsDegrees();
+}
+// 0.605: пункт «Ступени и лады» — родитель с двумя подпунктами. Родитель
+// включает оба подпункта и раскрывает их; снятие родителя выключает и
+// сворачивает. Снятие обоих подпунктов сворачивает группу и снимает родителя.
+// Ступени (подписи в ячейках, ленте и на секторах круга) и подсветка ладов
+// управляются независимо друг от друга.
+function isDegreeLabelsOptionOn() {
+  const parent = document.getElementById('showDegrees');
+  if (!parent || parent.checked !== true) return false;
+  return document.getElementById('showDegreeLabels')?.checked !== false;
+}
+function isHarmonyHighlightsOptionOn() {
+  const parent = document.getElementById('showDegrees');
+  if (!parent || parent.checked !== true) return false;
+  return document.getElementById('showHarmonyHighlights')?.checked !== false;
+}
+function syncDegreesSubOptions() {
+  const parent = document.getElementById('showDegrees');
+  const group = document.getElementById('degreesSubOptions');
+  if (!group) return;
+  const open = parent?.checked === true;
+  group.classList.toggle('is-open', open);
+  const inner = group.firstElementChild;
+  if (inner) inner.inert = !open;
+}
+function onDegreesParentChange() {
+  const parent = document.getElementById('showDegrees');
+  const on = parent?.checked === true;
+  const labels = document.getElementById('showDegreeLabels');
+  const highlights = document.getElementById('showHarmonyHighlights');
+  if (labels) labels.checked = on;
+  if (highlights) highlights.checked = on;
+  toggleDegreesOnWheel();
+}
+function onDegreesChildChange() {
+  const parent = document.getElementById('showDegrees');
+  const labels = document.getElementById('showDegreeLabels');
+  const highlights = document.getElementById('showHarmonyHighlights');
+  if (parent) parent.checked = labels?.checked === true || highlights?.checked === true;
+  toggleDegreesOnWheel();
 }
 
 // ========== B-40: КОНТЕКСТНЫЙ КРУГ ==========
@@ -41597,7 +41671,7 @@ function buildTimelineCell(sec, sq, ev, ei, parentTs, dist, secPass, sqPass, har
     // в меню «Тык»). Раньше в ленте её не было вовсе: renderDegreesInCells
     // обходит cachedChordWrappers, то есть ТОЛЬКО ячейки редактора.
     // Тональность берём как там же: своя у секции, иначе общая.
-    if (document.getElementById('showDegrees')?.checked) {
+    if (isDegreeLabelsOptionOn()) {
       const deg = harmony?.function || harmony?.degree || getScaleDegree(chord, sec.key || getEffectiveKey());
       if (deg) {
         const d = document.createElement('span');
@@ -45085,7 +45159,7 @@ function syncEventChordDom(sec, sq, ei) {
       inp.value = ev.chord || '';
       syncChordDisplay(inp);
     }
-    if (document.getElementById('showDegrees')?.checked) syncDegreeHintForWrapper(cw);
+    if (isDegreeLabelsOptionOn()) syncDegreeHintForWrapper(cw);
     else {
       const hint = cw.querySelector('.degree-hint');
       if (hint) hint.remove();
