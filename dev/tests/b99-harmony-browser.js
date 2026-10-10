@@ -134,7 +134,7 @@ function ok(name, condition, detail = '') {
       document.getElementById('showDegrees').checked = false;
       sections = [{ id: 81, type: 'Verse', key: null, timeSig: '4/4', squares: [{
  id: 82, events: [
-        { chord: 'C', span: 1 }, { chord: 'D7', span: 1 }, { chord: 'G', span: 1 }, { chord: 'Bb', span: 1 },
+        { chord: 'C', span: 1 }, { chord: 'D7', span: 1 }, { chord: 'G', span: 1 }, { chord: 'Caug', span: 1 }, // 0.599: Bb теперь слабое заимствование; нейтральный эталон — Caug (без лада)
       ] }] }];
       render();
       updateCellsDegrees();

@@ -4355,6 +4355,9 @@ html[data-theme='dark'] {
 [data-harmony-profile='lydian'] { --harmony-profile-color: var(--harmony-lydian); }
 [data-harmony-profile='mixolydian'] { --harmony-profile-color: var(--harmony-mixolydian); }
 [data-harmony-profile='locrian'] { --harmony-profile-color: var(--harmony-locrian); }
+/* 0.599: слабая подсветка неподтверждённого заимствования — нейтральный серый и меньшая доля цвета */
+[data-harmony-profile='borrowed-unconfirmed'] { --harmony-profile-color: #8a8a8a; }
+body.is-harmony-highlights-on #sectionsContainer .chord-wrapper[data-harmony-profile='borrowed-unconfirmed'] { --harmony-cell-profile-mix: 7%; }
 .harmony-a11y {
   position: absolute;
   width: 0.0625rem;
@@ -11721,7 +11724,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.599</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.600</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22719,6 +22722,9 @@ const HARMONY_GROUP = Object.freeze({
   MINOR_VARIANT: 'minor-variant',
   SECONDARY_FUNCTION: 'secondary-function',
   MODAL_BORROWED: 'modal-borrowed',
+  // 0.599 (решение пользователя): одиночный заимствованный аккорд, который укладывается
+  // хотя бы в один лад — слабая подсветка, степень из круга; лад называется, только если единственный.
+  BORROWED_UNCONFIRMED: 'borrowed-unconfirmed',
   UNKNOWN: 'unknown',
 });
 const HARMONY_MODE_PROFILES = Object.freeze({
@@ -22750,6 +22756,7 @@ const HARMONY_MODE_LABELS = Object.freeze({
 });
 const HARMONY_PRESENTATION_PROFILE = Object.freeze({
   SECONDARY: 'secondary-function',
+  BORROWED_UNCONFIRMED: 'borrowed-unconfirmed',
 });
 const HARMONY_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 function getHarmonyBaseMode(key) {
@@ -23308,6 +23315,18 @@ function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', c
   const matchingModes = Object.keys(HARMONY_MODE_PROFILES)
     .filter((mode) => mode !== baseMode && !isMinorVariantMode(mode) && isHarmonyChordInMode(parsed, key, mode));
   const isParallelBorrowing = isHarmonyChordInMode(parsed, key, parallelMode);
+  // 0.599: одиночный заимствованный аккорд (Bb в C) получает слабую группу и степень
+  // из круга — тот же getBorrowingMenuProfile. Лад называется, только если он единственный.
+  // mode остаётся null: круг и логика кандидатов от этого не меняются.
+  const menuProfile = getBorrowingMenuProfile(normalized, key);
+  const borrowedModes = menuProfile?.modes || [];
+  if (menuProfile?.degree && borrowedModes.length) {
+    return {
+      chord: normalized, key, group: HARMONY_GROUP.BORROWED_UNCONFIRMED, mode: null,
+      detail: 'borrowed-unconfirmed', confidence: 'weak', degree: menuProfile.degree,
+      candidates: borrowedModes,
+    };
+  }
   // Без подтверждённого контекста интерфейс остаётся нейтральным: он не
   // выдумывает лад и не добавляет отдельную категорию. Кандидаты остаются
   // только диагностическими данными анализатора.
@@ -23320,11 +23339,34 @@ function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', c
 function analyzeSectionHarmony(section, key = section?.key || getEffectiveKey()) {
   const chords = getHarmonySectionChordNames(section);
   const contextualMode = detectClearModalContext(chords, key);
-  return chords.map((chord, index) => analyzeChordHarmony(chord, key, {
+  const answers = chords.map((chord, index) => analyzeChordHarmony(chord, key, {
     previousChord: chords[index - 1] || '',
     nextChord: chords[index + 1] || '',
     contextualMode,
   }));
+  applySecondaryDominantChains(chords, answers);
+  return answers;
+}
+// 0.599 (решение пользователя): цепочка вторичных доминант считается С КОНЦА. Цель
+// (диатоничная или уже подписанная вторичная доминанта) задаёт метку звена слева:
+// E → A → D → G даёт D = V/V, A = V/V/V, E = V/V/V/V.
+function applySecondaryDominantChains(chords, answers) {
+  for (let i = answers.length - 2; i >= 0; i--) {
+    const next = answers[i + 1];
+    const cur = answers[i];
+    if (!next || !cur || next.group !== HARMONY_GROUP.SECONDARY_FUNCTION || !next.function) continue;
+    if (cur.group === HARMONY_GROUP.SECONDARY_FUNCTION) continue;
+    const parsed = parseChordForKeyDetection(chords[i]);
+    const nextParsed = parseChordForKeyDetection(chords[i + 1]);
+    if (!parsed || !nextParsed || parsed.harmonyQuality !== 'maj' || nextParsed.quality === 'dim') continue;
+    const rootIdx = CHROMATIC.indexOf(parsed.root);
+    const targetIdx = CHROMATIC.indexOf(nextParsed.root);
+    if (rootIdx < 0 || targetIdx < 0 || (rootIdx - targetIdx + 12) % 12 !== 7) continue;
+    answers[i] = {
+      ...cur, group: HARMONY_GROUP.SECONDARY_FUNCTION, mode: null,
+      detail: 'secondary-dominant', confidence: 'contextual', function: `V/${next.function}`,
+    };
+  }
 }
 window.HARMONY_GROUP = HARMONY_GROUP;
 window.HARMONY_MODE_LABELS = HARMONY_MODE_LABELS;
@@ -23352,6 +23394,7 @@ function isHarmonyPresentationEnabled() {
 }
 function getHarmonyPresentationProfile(analysis) {
   if (!analysis || analysis.group === HARMONY_GROUP.UNKNOWN) return null;
+  if (analysis.group === HARMONY_GROUP.BORROWED_UNCONFIRMED) return HARMONY_PRESENTATION_PROFILE.BORROWED_UNCONFIRMED;
   if (analysis.mode && HARMONY_MODE_PROFILES[analysis.mode]) return analysis.mode;
   if (analysis.group === HARMONY_GROUP.SECONDARY_FUNCTION) return HARMONY_PRESENTATION_PROFILE.SECONDARY;
   return null;
@@ -23366,6 +23409,10 @@ function getHarmonyAccessibleText(analysis) {
   const degreeText = degree ? ` Ступень ${degree}.` : '';
   if (analysis.group === HARMONY_GROUP.SECONDARY_FUNCTION) {
     return `${chord}Прикладная функция: вторичная доминанта ${analysis.function || 'V/x'}.`;
+  }
+  if (analysis.group === HARMONY_GROUP.BORROWED_UNCONFIRMED) {
+    const named = analysis.candidates?.length === 1 ? ` Лад: ${getHarmonyModeLabel(analysis.candidates[0])}.` : '';
+    return `${chord}Заимствованный аккорд, не подтверждён контекстом секции.${named}${degreeText}`;
   }
   const modeLabel = getHarmonyModeLabel(analysis.mode);
   if (analysis.detail === 'harmonic-minor-dominant') return `${chord}${modeLabel}: доминанта V.${degreeText}`;
@@ -35320,7 +35367,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // remain exclusive to the triad tab.
   const applyWheelHarmony = (sector, label, analysis) => {
     const group = analysis?.group;
-    const profile = getHarmonyPresentationProfile(analysis);
+    const profile = group === HARMONY_GROUP.BORROWED_UNCONFIRMED ? null : getHarmonyPresentationProfile(analysis);
     if (!group || group === HARMONY_GROUP.UNKNOWN || !profile) {
       [sector, label].filter(Boolean).forEach((node) => {
         delete node.dataset.wheelModePresentation;
@@ -36677,7 +36724,8 @@ function refreshWheelHarmonyPresentation() {
     delete node.dataset.wheelSecondaryTargetDegree;
     delete node.dataset.wheelSecondaryFunctionMode;
     const analysis = analyzeWheelCandidate(node.dataset.wheelChordIdentity);
-    const strictProfile = getHarmonyPresentationProfile(analysis);
+    const strictProfile = analysis.group === HARMONY_GROUP.BORROWED_UNCONFIRMED
+      ? null : getHarmonyPresentationProfile(analysis);
     const menu = tooltipMenuMode
       ? getBorrowingMenuProfile(node.dataset.wheelChordIdentity, context.key)
       : null;
