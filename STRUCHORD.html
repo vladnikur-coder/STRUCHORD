@@ -11721,7 +11721,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.598</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.599</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -19646,6 +19646,7 @@ function analyzeFingeringShape(shape, context = {}) {
 function analyzeFingeringShapeRaw(shape, context = {}) {
   // Разбор «что за аккорд нарисован на грифе» зависит от строя и контекста (B-81).
   const stringNotes = songStringNotes();
+  const isClassicC6Shape = ['x', 3, 2, 2, 1, 0].every((v, i) => String(shape[i]) === String(v));
   const chromatic = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
   const notesWithStrings = [];
@@ -19786,7 +19787,9 @@ function analyzeFingeringShapeRaw(shape, context = {}) {
 
     if (!intervals.includes(0)) continue;
     // B-101 (0.596): три ноты D F B — это Bdim (D в басу), а не «Dm6 без квинты».
-    if (intervals.length === 3 && (intervals[1] === 3 || intervals[1] === 4) && intervals[2] === 9) continue;
+    // 0.598 (решение пользователя): классическая аппликатура C6 x32210 — C6, а не
+    // Am/C, хотя квинты G нет. Остальные формы с теми же нотами по-прежнему Am/C.
+    if (!isClassicC6Shape && intervals.length === 3 && (intervals[1] === 3 || intervals[1] === 4) && intervals[2] === 9) continue;
 
     const chordName = buildChordName(rootNote, intervals);
     if (chordName === '?') continue;
@@ -21664,7 +21667,7 @@ function parseChordForKeyDetection(chordName) {
   else if (/^m(?!aj)/.test(suffix)) quality = 'min';
   // 0.598: «C+maj7» — то же, что Cmaj7#5 (качество aug), раньше шло в ветку null.
   else if (/^\+(?:maj|M|Δ|δ)/.test(suffix)) quality = 'aug';
-  else if (/^(aug|\+|\d*sus|5)/.test(suffix)) quality = null; // без терции / нераспознанная терция
+  else if (/^(aug|\+|\d*sus|5|11(?!\d))/.test(suffix)) quality = null; // без терции / нераспознанная терция; 0.598: 11 без терции (C11) — как sus, доминанта через isDominant7
   // 0.596 (решение пользователя): Cmaj7#5 — терции 0-4-8 = увеличенное трезвучие,
   // качество aug (имя остаётся Cmaj7#5). Остальные «7#5» не трогаем.
   else if (/^(?:maj|M|Δ|δ)/.test(suffix) && /[#+]5|\+/.test(suffix)) quality = 'aug';
@@ -21672,14 +21675,20 @@ function parseChordForKeyDetection(chordName) {
   // B-101 (кирпич 4): доминантой с расширениями считаются и 9, и 11, и 13 —
   // раньше бонус получало только имя, начинающееся с 7, и G9/G11/G13 не
   // усиливали тонику. Порядок альтернатив важен: 13 раньше 1.
-  const isDominant7 = (quality === 'maj' && /^(?:13|11|9|7)(?!\d)/.test(suffix)) || /^(?:13|11|9|7)sus/.test(suffix); // "G7", но не "Gmaj7"
+  const isDominant7 = (quality === 'maj' && /^(?:13|11|9|7)(?!\d)/.test(suffix)) || /^(?:13|11|9|7)sus/.test(suffix) || /^11(?!\d)/.test(suffix); // "G7", но не "Gmaj7"
 
   let bassRoot = root;
   if (parts.length > 1) {
     const bm = parts[1].trim().match(/^([A-G][#b]?)/);
     if (bm) bassRoot = FLAT_TO_SHARP[bm[1]] || bm[1];
   }
-  return { root, spelling: m[1], quality, isDominant7, bassRoot, chordName: main };
+  // 0.598: C11 без терции — quality null (как sus), но для ступеней и детектора
+  // он мажорный доминантный; harmonyQuality отдаёт это без смены регистра.
+  const elevenNoThird = /^11(?!\d)/.test(suffix);
+  return {
+    root, spelling: m[1], quality, isDominant7, bassRoot, chordName: main, elevenNoThird,
+    get harmonyQuality() { return this.quality || (this.elevenNoThird ? 'maj' : null); },
+  };
 }
 
 // Шаблоны ладов для сопоставления диатонических ступеней. Веса ступеней для
@@ -21868,11 +21877,11 @@ function detectKeyFromChords() {
         }
         toneTotal += w;
 
-        if (!parsed.quality) {
+        if (!parsed.harmonyQuality) {
           ambiguousWeights.set(parsed.root, (ambiguousWeights.get(parsed.root) || 0) + w);
           continue; // sus/power/aug учитываются отдельно, с меньшим весом (см. AMBIGUOUS_ROOT_FACTOR)
         }
-        const k = parsed.root + '|' + parsed.quality;
+        const k = parsed.root + '|' + parsed.harmonyQuality;
         counts.set(k, (counts.get(k) || 0) + w);
         total += w;
       }
@@ -21957,26 +21966,26 @@ function detectKeyFromChords() {
       let score = DIATONIC_FIT_WEIGHT * diatonicFit + TONE_PROFILE_WEIGHT * toneCorr * toneTotal;
       score += dom7Bonus + bassBonus;
       const isMinorTonic = !tpl.tonicMajor;
-      if (firstChord && firstChord.root === tonicSharp && !firstChord.quality) {
+      if (firstChord && firstChord.root === tonicSharp && !firstChord.harmonyQuality) {
         // sus/power аккорд в начале — слабый, но не игнорируемый сигнал тоники
         score += firstBonusW * AMBIGUOUS_ROOT_FACTOR;
       } else if (
         firstChord &&
         firstChord.root === tonicSharp &&
-        firstChord.quality &&
-        firstChord.quality !== 'dim' &&
-        (firstChord.quality === 'maj') === tpl.tonicMajor
+        firstChord.harmonyQuality &&
+        firstChord.harmonyQuality !== 'dim' &&
+        (firstChord.harmonyQuality === 'maj') === tpl.tonicMajor
       ) {
         score += firstBonusW;
       }
-      if (lastChord && lastChord.root === tonicSharp && !lastChord.quality) {
+      if (lastChord && lastChord.root === tonicSharp && !lastChord.harmonyQuality) {
         score += lastBonusW * AMBIGUOUS_ROOT_FACTOR;
       } else if (
         lastChord &&
         lastChord.root === tonicSharp &&
-        lastChord.quality &&
-        lastChord.quality !== 'dim' &&
-        (lastChord.quality === 'maj') === tpl.tonicMajor
+        lastChord.harmonyQuality &&
+        lastChord.harmonyQuality !== 'dim' &&
+        (lastChord.harmonyQuality === 'maj') === tpl.tonicMajor
       ) {
         score += lastBonusW;
       }
@@ -21987,7 +21996,7 @@ function detectKeyFromChords() {
       // Бонус за аккорд-тонику в начале секций (сильная конструктивная позиция)
       for (const step of harmonicSteps) {
         if (step.isSectionStart && step.root === tonicSharp) {
-          const matchQuality = step.quality && (step.quality === 'maj') === tpl.tonicMajor;
+          const matchQuality = step.harmonyQuality && (step.harmonyQuality === 'maj') === tpl.tonicMajor;
           cadenceScore += matchQuality ? 3.0 : 1.5;
         }
       }
@@ -22006,10 +22015,10 @@ function detectKeyFromChords() {
           // Мажорные каденции
           if (intA === 7 && intB === 0) {
             // V -> I (автентический оборот)
-            cadenceScore += a.isDominant7 ? 6.0 : (a.quality === 'maj' ? 5.0 : 2.0);
+            cadenceScore += a.isDominant7 ? 6.0 : (a.harmonyQuality === 'maj' ? 5.0 : 2.0);
           } else if (intA === 5 && intB === 0) {
             // IV -> I (плагальный оборот)
-            cadenceScore += (a.quality === 'maj' ? 3.5 : 2.0);
+            cadenceScore += (a.harmonyQuality === 'maj' ? 3.5 : 2.0);
           } else if ((intA === 5 || intA === 2) && intB === 7) {
             // IV -> V или ii -> V (подготовка доминанты)
             cadenceScore += 2.5;
@@ -22027,13 +22036,13 @@ function detectKeyFromChords() {
           // Минорные каденции
           if (intA === 7 && intB === 0) {
             // V -> i / v -> i (автентический оборот в миноре)
-            cadenceScore += a.isDominant7 ? 6.5 : (a.quality === 'maj' ? 5.5 : 3.5);
+            cadenceScore += a.isDominant7 ? 6.5 : (a.harmonyQuality === 'maj' ? 5.5 : 3.5);
           } else if (intA === 10 && intB === 0) {
             // bVII -> i (эолийский каданс: G -> Am)
-            cadenceScore += (a.quality === 'maj' ? 4.5 : 2.5);
+            cadenceScore += (a.harmonyQuality === 'maj' ? 4.5 : 2.5);
           } else if (intA === 5 && intB === 0) {
             // iv -> i или IV -> i (плагальный / дорийский оборот)
-            cadenceScore += (a.quality === 'maj' ? 4.0 : 3.0);
+            cadenceScore += (a.harmonyQuality === 'maj' ? 4.0 : 3.0);
           } else if (intA === 8 && intB === 10) {
             // VI -> bVII (F -> G в Am)
             cadenceScore += 3.0;
@@ -22113,7 +22122,7 @@ function detectKeyFromChords() {
   // до конца) — берём тональность по первому/последнему аккорду напрямую.
   if (best.score === 0) {
     const fallback = lastChord || firstChord;
-    if (fallback && fallback.quality) return canonicalKeyFromRoot(fallback.root, fallback.quality === 'min');
+    if (fallback && fallback.harmonyQuality) return canonicalKeyFromRoot(fallback.root, fallback.harmonyQuality === 'min');
     if (fallback) return canonicalKeyFromRoot(fallback.root, false);
   }
 
@@ -22837,7 +22846,7 @@ function getHarmonyRootDegreeFromContext(parsed, key) {
     alteration = nearest.delta;
   }
   let numeral = HARMONY_ROMAN[degree] || '';
-  const quality = parsed?.quality || profile.qualities[degree];
+  const quality = parsed?.harmonyQuality || profile.qualities[degree];
   if (quality === 'min') numeral = numeral.toLowerCase();
   else if (quality === 'dim') numeral = numeral.toLowerCase() + '°';
   else if (quality === 'aug') numeral += '+';
@@ -22853,7 +22862,7 @@ function getHarmonyRootDegree(parsed, key) {
   // Reuse the circle's position-based degree whenever this quality belongs to
   // one of its candidate profiles. This keeps editor labels and wheel labels
   // aligned without borrowing the menu's palette/color semantics in the editor.
-  const qualitySuffix = { maj: '', min: 'm', dim: 'dim', aug: 'aug' }[parsed?.quality];
+  const qualitySuffix = { maj: '', min: 'm', dim: 'dim', aug: 'aug' }[parsed?.harmonyQuality];
   const writtenRoot = parsed?.spelling || parsed?.root;
   if (qualitySuffix !== undefined && writtenRoot) {
     const menuDegree = getBorrowingMenuProfile(`${writtenRoot}${qualitySuffix}`, key)?.degree;
@@ -23014,7 +23023,7 @@ function getBorrowingMenuDegree(parsed, key, modes) {
     if (position < 0) return getHarmonyRootDegreeFromContext(parsed, key);
   }
   let numeral = HARMONY_ROMAN[position] || '';
-  const quality = parsed.quality;
+  const quality = parsed.harmonyQuality;
   if (quality === 'min') numeral = numeral.toLowerCase();
   else if (quality === 'dim') numeral = numeral.toLowerCase() + '°';
   else if (quality === 'aug') numeral += '+';
@@ -23214,7 +23223,7 @@ function detectClearModalContext(chords, key) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 function isSecondaryDominant(parsed, nextParsed, key) {
-  if (!parsed || !nextParsed || parsed.quality !== 'maj') return false;
+  if (!parsed || !nextParsed || parsed.harmonyQuality !== 'maj') return false;
   // B-101 (кирпич 4): уменьшённое трезвучие обычно не тонизируют, поэтому
   // V/vii° функцией не считается. Раньше F#7 -> Bdim в C давало true.
   if (nextParsed.quality === 'dim') return false;
@@ -23225,7 +23234,7 @@ function isSecondaryDominant(parsed, nextParsed, key) {
   return sourceIndex >= 0 && targetIndex >= 0 && (sourceIndex - targetIndex + 12) % 12 === 7;
 }
 function getMinorVariantFunction(parsed, nextParsed, key) {
-  if (getHarmonyBaseMode(key) !== 'aeolian' || !parsed || parsed.quality !== 'maj') return null;
+  if (getHarmonyBaseMode(key) !== 'aeolian' || !parsed || parsed.harmonyQuality !== 'maj') return null;
   const harmonicDegree = getHarmonyModeDegree(parsed, key, 'harmonic-minor');
   // Major V in a minor key is the conventional leading-tone dominant even
   // alone; calling it a vague borrow loses the most useful musical meaning.
@@ -23235,7 +23244,7 @@ function getMinorVariantFunction(parsed, nextParsed, key) {
   const melodicDegree = getHarmonyModeDegree(parsed, key, 'melodic-minor');
   // IV major becomes an honest melodic-minor clue when it immediately leads
   // to the same raised-leading-tone V (Am–C–D–E is the motivating case).
-  if (melodicDegree === 3 && nextParsed && getHarmonyModeDegree(nextParsed, key, 'harmonic-minor') === 4 && nextParsed.quality === 'maj') {
+  if (melodicDegree === 3 && nextParsed && getHarmonyModeDegree(nextParsed, key, 'harmonic-minor') === 4 && nextParsed.harmonyQuality === 'maj') {
     return { mode: 'melodic-minor', detail: 'melodic-minor-subdominant', function: 'IV', degree: 'IV', confidence: 'contextual' };
   }
   return null;
@@ -39894,18 +39903,20 @@ function nashvilleToChord(input, key) {
     major: { steps: [0, 2, 4, 5, 7, 9, 11], qualities: ['', 'm', 'm', '', '', 'm', 'dim'] },
     minor: { steps: [0, 2, 3, 5, 7, 8, 10], qualities: ['m', 'dim', '', 'm', 'm', '', ''] },
   };
-  // Числа Нэшвилла в миноре идут от ОТНОСИТЕЛЬНОГО мажора (конвенция,
-  // выбранная пользователем): в Am нумерация та же, что в C — 1=C, 6m=Am,
-  // то есть тоника минорной песни имеет номер 6.
+  // Числа Нэшвилла: в мажоре — от тоники (1=C, 4=F в C); в миноре — от МИНОРНОЙ
+  // тоники, натуральный минор (0.598, решение пользователя): в Am 1=Am, 3=C,
+  // 6=F, 7=G. Раньше миноры считались от относительного мажора (6=Am).
   const NASHVILLE_NUMBER_STEPS = [0, 2, 4, 5, 7, 9, 11];
   const NASHVILLE_NUMBER_QUALITY = ['', 'm', 'm', '', '', 'm', 'dim'];
+  const numSteps = isMinorKey ? NASHVILLE_SCALE.minor.steps : NASHVILLE_NUMBER_STEPS;
+  const numQual = isMinorKey ? NASHVILLE_SCALE.minor.qualities : NASHVILLE_NUMBER_QUALITY;
   // Остаток после ступени должен быть похож на суффикс аккорда. Без этого
   // проверки мусор вида «Ci» (от «ii», где совпало «i») уходил в файл песни
   // как имя аккорда: валидатора имён в приложении нет.
   const NASHVILLE_SUFFIX_RE =
     /^(?:m|maj|min|dim|aug|sus|add|\d|\(|\)|,|#|b|-|\+|Δ|°|ø|\/[A-G][#b]?)*$/i;
 
-  const numberTonicIndex = isMinorKey ? (tonicIndex + 3) % 12 : tonicIndex;
+  const numberTonicIndex = tonicIndex;
 
   // Написание: по стилю тональности, но альтерированная ступень пишется по
   // СВОЕМУ знаку — иначе «b7» в C давало A#, а не Bb (жалоба из списка).
@@ -39915,6 +39926,37 @@ function nashvilleToChord(input, key) {
     if (preferFlat && SHARP_TO_FLAT[note]) return SHARP_TO_FLAT[note];
     if (getKeyStyle(key) === 'flat') note = SHARP_TO_FLAT[note] || note;
     return note;
+  }
+
+  // 0.598: слэш-аккорд в Нэшвилле: «5/7» = G/B, «1/3» = C/E. Верхняя часть
+  // разбирается обычным путём, нижняя — число или римская ступень той же
+  // тональности (те же правила, что и у верхней), либо буквенное имя («5/B»).
+  const slashAt = raw.indexOf('/');
+  if (slashAt > 0) {
+    const upper = nashvilleToChord(raw.slice(0, slashAt), key);
+    if (!upper) return null;
+    const bassPart = raw.slice(slashAt + 1).trim();
+    let bassNote = null;
+    const bm = bassPart.match(/^([#♯b♭]?)(\d)$/);
+    if (bm) {
+      const n = parseInt(bm[2], 10);
+      const alt = bm[1] === '#' || bm[1] === '♯' ? 1 : bm[1] ? -1 : 0;
+      if (n >= 1 && n <= 7) {
+        bassNote = spellFrom((numberTonicIndex + numSteps[n - 1] + alt + 24) % 12, alt < 0, alt > 0);
+      }
+    } else if (/^[#♯b♭]?(vii|iii|vi|iv|ii|v|i)$/i.test(bassPart)) {
+      const acc = /^[#♯]/.test(bassPart) ? 1 : /^[b♭]/.test(bassPart) ? -1 : 0;
+      const sym = bassPart.replace(/^[#♯b♭]/, '').toLowerCase();
+      const hit = NASHVILLE_ROMAN.find((r) => r.symbol === sym);
+      if (hit) {
+        const sc = isMinorKey ? NASHVILLE_SCALE.minor : NASHVILLE_SCALE.major;
+        bassNote = spellFrom((tonicIndex + sc.steps[hit.degree - 1] + acc + 24) % 12, acc < 0, acc > 0);
+      }
+    } else if (/^[A-G][#b♭♯]?$/.test(bassPart)) {
+      bassNote = bassPart.replace('♭', 'b').replace('♯', '#');
+    }
+    if (!bassNote) return null;
+    return upper + '/' + bassNote;
   }
 
   let step = null, // полутоны от тоники — для русских слов
@@ -39984,11 +40026,11 @@ function nashvilleToChord(input, key) {
       const alter = m[1] === '#' || m[1] === '♯' ? 1 : m[1] ? -1 : 0;
       const num = parseInt(m[2], 10);
       if (num >= 1 && num <= 7) {
-        const base = NASHVILLE_NUMBER_STEPS[num - 1];
+        const base = numSteps[num - 1];
         rootIndex = (numberTonicIndex + base + alter + 24) % 12;
         // Альтерированная ступень читается как мажорное трезвучие (b7 = bVII),
-        // обычная — диатоническим качеством мажорной сетки нумерации.
-        forcedQuality = alter !== 0 ? '' : NASHVILLE_NUMBER_QUALITY[num - 1];
+        // обычная — диатоническим качеством сетки нумерации (мажор или минор).
+        forcedQuality = alter !== 0 ? '' : numQual[num - 1];
         remainingSuffix = m[3];
         if (alter > 0) preferSharp = true;
         if (alter < 0) preferFlat = true;

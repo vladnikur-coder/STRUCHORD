@@ -237,10 +237,10 @@ console.log('  -- числа: в миноре отсчёт от относите
 check('1 в C = C', NASH('1', 'C') === 'C', show(NASH('1', 'C')));
 check('6 в C = Am', NASH('6', 'C') === 'Am', show(NASH('6', 'C')));
 check('7 в C = Bdim', NASH('7', 'C') === 'Bdim', show(NASH('7', 'C')));
-check('6 в Am = Am — тоника (конвенция Нэшвилла)', NASH('6', 'Am') === 'Am', show(NASH('6', 'Am')));
-check('1 в Am = C', NASH('1', 'Am') === 'C', show(NASH('1', 'Am')));
-check('2 в Am = Dm', NASH('2', 'Am') === 'Dm', show(NASH('2', 'Am')));
-check('5 в Am = G', NASH('5', 'Am') === 'G', show(NASH('5', 'Am')));
+check('6 в Am = F (0.598: миноры от минорной тоники)', NASH('6', 'Am') === 'F', show(NASH('6', 'Am')));
+check('1 в Am = Am (0.598: минорная тоника)', NASH('1', 'Am') === 'Am', show(NASH('1', 'Am')));
+check('2 в Am = Bdim (натуральный минор)', NASH('2', 'Am') === 'Bdim', show(NASH('2', 'Am')));
+check('5 в Am = Em (натуральный минор)', NASH('5', 'Am') === 'Em', show(NASH('5', 'Am')));
 console.log('  -- валидатор: мусор больше не уходит в файл песни --');
 for (const garbage of ['Ci', 'Cv', 'Amii', 'Bvii', 'Biii', 'xx', 'i9x', '17']) {
   check(`«${garbage}» отклонён`, NASH(garbage, 'C') === null, show(NASH(garbage, 'C')));

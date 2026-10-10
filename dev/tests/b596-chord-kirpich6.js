@@ -211,8 +211,39 @@ check('B в Ebm (диатонический, Cb по гамме)', spell('B', 'f
   check('CΔ (прямой вызов getChordNotes): C E G B, не C E G', PCS('CΔ') === 'C E G B', PCS('CΔ'));
   check('CΔ+ ступень I+ в C', ev('analyzeChordHarmony("CΔ+","C").degree') === 'I+', ev('analyzeChordHarmony("CΔ+","C").degree'));
   check('C+ (Caug) по-прежнему null (как и было)', P('C+').quality === null, String(P('C+').quality));
-  check('C11: quality остаётся maj, isDominant7 true (null менял регистр ступеней)', P('C11').quality === 'maj' && P('C11').isDominant7 === true, JSON.stringify(P('C11')));
+  // 0.598 (решение пользователя): C11 без терции — quality null, как у sus; ступени и
+  // детектор читают harmonyQuality = maj, поэтому регистр и тональность не меняются.
+  check('C11: quality null, isDominant7 true, harmonyQuality maj', P('C11').quality === null && P('C11').isDominant7 === true && P('C11').harmonyQuality === 'maj', JSON.stringify(P('C11')));
   check('D11 в C = II (доминанта, заглавная)', ev('analyzeChordHarmony("D11","C").degree') === 'II', ev('analyzeChordHarmony("D11","C").degree'));
+}
+
+// --- 0.598: слэш-аккорды в Нэшвилле ---
+{
+  const NV = (c, k) => ev(`nashvilleToChord(${JSON.stringify(c)}, ${JSON.stringify(k)})`);
+  check('Нэшвилл 5/7 в C = G/B', NV('5/7', 'C') === 'G/B', String(NV('5/7', 'C')));
+  check('Нэшвилл 1/3 в C = C/E', NV('1/3', 'C') === 'C/E', String(NV('1/3', 'C')));
+  check('Нэшвилл 1/3 в F = F/A', NV('1/3', 'F') === 'F/A', String(NV('1/3', 'F')));
+  check('Нэшвилл vi/i в C = Am/C (римский бас)', NV('vi/i', 'C') === 'Am/C', String(NV('vi/i', 'C')));
+  check('Нэшвилл 5/B в C = G/B (буквенный бас)', NV('5/B', 'C') === 'G/B', String(NV('5/B', 'C')));
+  check('Нэшвилл b7/1 в C = Bb/C', NV('b7/1', 'C') === 'Bb/C', String(NV('b7/1', 'C')));
+  check('Нэшвилл 1/x (мусор в басу) = null', NV('1/x', 'C') === null, String(NV('1/x', 'C')));
+  check('буквенный слэш C/E не перехватывается Нэшвиллом', NV('C/E', 'C') === null, String(NV('C/E', 'C')));
+  check('Нэшвилл 1 без слэша по-прежнему C', NV('1', 'C') === 'C', String(NV('1', 'C')));
+}
+
+// 0.599 (решения пользователя): C6 для аппликатуры x,3,2,2,1,0; остальные C E A с басом C — Am/C;
+// Нэшвилл в миноре от минорной тоники (1=Am, 3=C, 6=F, 7=G); слэш 5/7 → G/B, 1/3 → C/E.
+{
+  const shapeName = (sh) => ev(`analyzeFingeringShape(${JSON.stringify(sh)},{key:"C"}).chordName`);
+  check('x,3,2,2,1,0 = C6 (классическая аппликатура C6)', shapeName(['x', 3, 2, 2, 1, 0]) === 'C6', shapeName(['x', 3, 2, 2, 1, 0]));
+  check('x,3,2,2,1,x (та же форма без 6-й струны) = Am/C', shapeName(['x', 3, 2, 2, 1, 'x']) === 'Am/C', shapeName(['x', 3, 2, 2, 1, 'x']));
+  check('x,3,2,0,1,0 = C (мажор, не C6)', shapeName(['x', 3, 2, 0, 1, 0]) === 'C', shapeName(['x', 3, 2, 0, 1, 0]));
+  const nash = (c, k) => ev(`nashvilleToChord(${JSON.stringify(c)}, ${JSON.stringify(k)})`);
+  check('Нэшвилл: 1 в Am = Am', nash('1', 'Am') === 'Am', nash('1', 'Am'));
+  check('Нэшвилл: 3 в Am = C', nash('3', 'Am') === 'C', nash('3', 'Am'));
+  check('Нэшвилл: 6 в Am = F', nash('6', 'Am') === 'F', nash('6', 'Am'));
+  check('Нэшвилл: 7 в Am = G', nash('7', 'Am') === 'G', nash('7', 'Am'));
+  check('Нэшвилл: 5/7 в Am = Em/G (минорная тоника)', nash('5/7', 'Am') === 'Em/G', nash('5/7', 'Am'));
 }
 
 console.log(`\nПРОВАЛОВ: ${fail}  (ок: ${pass})`);
