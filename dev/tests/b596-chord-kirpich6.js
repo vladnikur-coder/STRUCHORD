@@ -199,5 +199,21 @@ check('B в Ebm (диатонический, Cb по гамме)', spell('B', 'f
   check('C6 с квинтой G по-прежнему C6 (x,3,2,2,1,0 — C6/9 без G не берём)', ev('analyzeFingeringShape(["x",3,2,2,3,3],{key:"C"}).chordName') === 'C6/9', ev('analyzeFingeringShape(["x",3,2,2,3,3],{key:"C"}).chordName'));
 }
 
+// --- 0.598: алиасы большой септимы с «+» и Δ ---
+{
+  const X = (c) => ev(`expandChordName(${JSON.stringify(c)})`);
+  const P = (c) => ev(`parseChordForKeyDetection(${JSON.stringify(c)})`);
+  const PCS = (c) => ev(`getChordNotes(${JSON.stringify(c)}, "sharp")`).map((n) => ev(`toSharpNote(${JSON.stringify(n.replace(/\d+$/, ''))})`)).join(' ');
+  for (const c of ['CΔ+', 'CM7+', 'C+maj7', 'Cmaj7+', 'CΔ#5', 'Cmaj7+5']) {
+    check(`${c} → Cmaj7#5/CM7#5 (алиас), качество aug`, /^C(maj7|M7)#5$/.test(X(c)) && P(c).quality === 'aug', `${X(c)} / ${P(c).quality}`);
+  }
+  check('CΔ+ по нотам: C E G# B', PCS('CΔ+') === 'C E G# B', PCS('CΔ+'));
+  check('CΔ (прямой вызов getChordNotes): C E G B, не C E G', PCS('CΔ') === 'C E G B', PCS('CΔ'));
+  check('CΔ+ ступень I+ в C', ev('analyzeChordHarmony("CΔ+","C").degree') === 'I+', ev('analyzeChordHarmony("CΔ+","C").degree'));
+  check('C+ (Caug) по-прежнему null (как и было)', P('C+').quality === null, String(P('C+').quality));
+  check('C11: quality остаётся maj, isDominant7 true (null менял регистр ступеней)', P('C11').quality === 'maj' && P('C11').isDominant7 === true, JSON.stringify(P('C11')));
+  check('D11 в C = II (доминанта, заглавная)', ev('analyzeChordHarmony("D11","C").degree') === 'II', ev('analyzeChordHarmony("D11","C").degree'));
+}
+
 console.log(`\nПРОВАЛОВ: ${fail}  (ок: ${pass})`);
 process.exit(fail ? 1 : 0);

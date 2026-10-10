@@ -11721,7 +11721,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.597</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.598</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21533,7 +21533,15 @@ function expandChordName(chord) {
   if (c.endsWith('(9)')) {
     c = c.slice(0, -3) + 'add9';
   }
-  if (c.includes('+') && !c.includes('aug')) {
+  // 0.597: у большой септимы «+» — это #5 (CΔ+, CM7+, C+maj7, Cmaj7+ = Cmaj7#5).
+  // Раньше получалось «Cmaj7aug» / «Caugmaj7», и качество читалось как maj/null.
+  const expParts = c.split('/');
+  if (expParts[0].includes('+') && /maj|M\d/.test(expParts[0]) && !expParts[0].includes('aug')) {
+    let m0 = expParts[0].replace(/\+5?/g, '');
+    if (!m0.includes('#5')) m0 += '#5';
+    expParts[0] = m0;
+    c = expParts.join('/');
+  } else if (c.includes('+') && !c.includes('aug')) {
     c = c.replace(/(?<!#)\+(?!\w*\+)/g, 'aug');
     if (c.endsWith('+')) c = c.slice(0, -1) + 'aug';
   }
@@ -21654,10 +21662,12 @@ function parseChordForKeyDetection(chordName) {
   let quality;
   if (/^(?:dim|°|m7b5|ø)/.test(suffix)) quality = 'dim';
   else if (/^m(?!aj)/.test(suffix)) quality = 'min';
+  // 0.598: «C+maj7» — то же, что Cmaj7#5 (качество aug), раньше шло в ветку null.
+  else if (/^\+(?:maj|M|Δ|δ)/.test(suffix)) quality = 'aug';
   else if (/^(aug|\+|\d*sus|5)/.test(suffix)) quality = null; // без терции / нераспознанная терция
   // 0.596 (решение пользователя): Cmaj7#5 — терции 0-4-8 = увеличенное трезвучие,
   // качество aug (имя остаётся Cmaj7#5). Остальные «7#5» не трогаем.
-  else if (/^maj.*[#+]5/.test(suffix)) quality = 'aug';
+  else if (/^(?:maj|M|Δ|δ)/.test(suffix) && /[#+]5|\+/.test(suffix)) quality = 'aug';
   else quality = 'maj';
   // B-101 (кирпич 4): доминантой с расширениями считаются и 9, и 11, и 13 —
   // раньше бонус получало только имя, начинающееся с 7, и G9/G11/G13 не
@@ -22353,6 +22363,9 @@ function toSharpNote(note) {
   return root + octave;
 }
 function getChordNotes(cn, ks) {
+  // 0.597: Δ — то же, что maj7 (как в expandChordName); без этого суффикс
+  // уходит в toLowerCase как «δ», и септима теряется (CΔ давал C E G).
+  cn = String(cn).replace(/Δ(\d)/g, 'maj$1').replace(/Δ/g, 'maj7');
   cn = normalizeChordCase(normalizeAccidentals(cn));
   const rm = cn.match(/^([A-G][#b]?)/);
   if (!rm) return [];
