@@ -99,8 +99,9 @@ ok('Am: Fm не получает искусственный ладовой пр�
   JSON.stringify(amFm));
 
 const amGdim = menu('G#dim', 'Am');
+// B-101 (0.596): ведущий тон минора — vii°, а не #vii° (решение пользователя).
 ok('Am: G#dim — vii° параллельного Ionian и гармонического/мелодического минора',
-  amGdim?.degree === '#vii°' && amGdim?.modes.join(',') === 'ionian,harmonic-minor,melodic-minor',
+  amGdim?.degree === 'vii°' && amGdim?.modes.join(',') === 'ionian,harmonic-minor,melodic-minor',
   JSON.stringify(amGdim));
 
 const amCaug = menu('Caug', 'Am');

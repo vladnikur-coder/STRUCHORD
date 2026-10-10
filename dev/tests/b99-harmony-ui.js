@@ -212,11 +212,11 @@ w.eval(`
 `);
 
 const grid = (ei) => d.querySelector(`.chord-wrapper[data-sec="41"][data-square="42"][data-ei="${ei}"]`);
-ok('редактор сохраняет классификацию V/x, а Bb остаётся без неподтверждённого профиля',
+ok('редактор сохраняет классификацию V/x, а Bb — слабое заимствование без имени лада (0.599)',
   grid(0)?.dataset.harmonyGroup === 'diatonic' && grid(0)?.dataset.harmonyProfile === 'ionian' &&
   grid(1)?.dataset.harmonyGroup === 'secondary-function' && grid(1)?.dataset.harmonyProfile === 'secondary-function' &&
-  grid(3)?.dataset.harmonyGroup === undefined && grid(3)?.dataset.harmonyProfile === undefined &&
-  grid(3)?.querySelector('.chord-input')?.getAttribute('aria-label') === null &&
+  grid(3)?.dataset.harmonyGroup === 'borrowed-unconfirmed' && grid(3)?.dataset.harmonyProfile === 'borrowed-unconfirmed' &&
+  !/Лад:/.test(grid(3)?.querySelector('.chord-input')?.getAttribute('aria-label') || '') &&
   !grid(1)?.querySelector('.harmony-visible-label'),
   [0, 1, 3].map((ei) => `${grid(ei)?.dataset.harmonyGroup}/${grid(ei)?.dataset.harmonyProfile}`).join(', '));
 ok('V/x остаётся доступен текстом без цветового маркера',
@@ -231,10 +231,9 @@ w.eval(`
   render();
 `);
 const neutralEditorF = grid(0);
-ok('редактор согласует F в D с круговым ♭III, не окрашивая неподтверждённый заимствованный аккорд',
+ok('редактор согласует F в D с круговым ♭III: слабая подсветка неподтверждённого заимствования (0.599)',
   neutralEditorF?.querySelector('.degree-hint')?.textContent === '♭III' &&
-  !neutralEditorF?.dataset.harmonyGroup && !neutralEditorF?.dataset.harmonyProfile &&
-  !neutralEditorF?.querySelector('.chord-input')?.getAttribute('aria-label'),
+  neutralEditorF?.dataset.harmonyGroup === 'borrowed-unconfirmed' && neutralEditorF?.dataset.harmonyProfile === 'borrowed-unconfirmed',
   `${neutralEditorF?.querySelector('.degree-hint')?.textContent || '—'} / ${neutralEditorF?.dataset.harmonyProfile || 'нейтрально'}`);
 const sharpKeyDegreeCases = [
   ['E', 'D', '♭VII'], ['B', 'A', '♭VII'], ['F#', 'E', '♭VII'], ['C#', 'B', '♭VII'],
@@ -251,18 +250,17 @@ const sharpKeyCellDegrees = sharpKeyDegreeCases.map(([key, chord]) => {
     profile: cell?.dataset.harmonyProfile || '',
   };
 });
-ok('редактор показывает ♭VII, а не ♯VI, в тональностях с диезами и сохраняет неподтверждённый аккорд нейтральным',
-  sharpKeyCellDegrees.every(({ degree, profile }) => degree === '♭VII' && !profile),
+ok('редактор показывает ♭VII, а не ♯VI, в тональностях с диезами; неподтверждённый аккорд — слабый профиль (0.599)',
+  sharpKeyCellDegrees.every(({ degree, profile }) => degree === '♭VII' && profile === 'borrowed-unconfirmed'),
   JSON.stringify(sharpKeyCellDegrees));
 w.eval(`sections = [${JSON.stringify(sectionSnapshotForDegree)}]; render();`);
 
 w.eval('timelineMode = true; renderTimeline();');
 const timeline = (ei) => d.querySelector(`.tl-cell[data-sec="41"][data-square="42"][data-ei="${ei}"]`);
-ok('лента несёт те же подтверждённые profiles, а неоднозначный Bb не маркирует',
+ok('лента несёт те же profiles; неподтверждённый Bb — слабый профиль borrowed-unconfirmed (0.599)',
   timeline(0)?.dataset.harmonyGroup === 'diatonic' && timeline(0)?.dataset.harmonyProfile === 'ionian' &&
   timeline(1)?.dataset.harmonyGroup === 'secondary-function' && timeline(1)?.dataset.harmonyProfile === 'secondary-function' &&
-  timeline(3)?.dataset.harmonyGroup === undefined && timeline(3)?.dataset.harmonyProfile === undefined &&
-  !timeline(3)?.querySelector('.harmony-a11y'),
+  timeline(3)?.dataset.harmonyGroup === 'borrowed-unconfirmed' && timeline(3)?.dataset.harmonyProfile === 'borrowed-unconfirmed',
   [0, 1, 3].map((ei) => `${timeline(ei)?.dataset.harmonyGroup}/${timeline(ei)?.dataset.harmonyProfile}`).join(', '));
 ok('лента содержит скрытое текстовое описание, а не полагается только на цвет',
   /Прикладная функция/.test(timeline(1)?.querySelector('.harmony-a11y')?.textContent || ''),

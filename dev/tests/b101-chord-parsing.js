@@ -179,7 +179,9 @@ const KEPT = (chord, key) => {
   const ks = w.eval(`getKeyStyle(${JSON.stringify(key)})`);
   return NOTES(chord, ks).filter((n) => w.eval(`noteToFrequency(${JSON.stringify(n)})`) !== null);
 };
-check('Cb4 = та же высота, что B4 (было NaN)', FREQ('Cb4') === FREQ('B4') && FREQ('Cb4') > 0, String(FREQ('Cb4')));
+// B-101 (0.596): научная нотация — Cb4 = B3 (раньше тест фиксировал Cb4 = B4).
+check('Cb4 = B3 (научная нотация, 0.596)', FREQ('Cb4') === FREQ('B3') && FREQ('Cb4') > 0, String(FREQ('Cb4')));
+check('B#4 = C5, E#4 = F4, Fb4 = E4 (0.596)', FREQ('B#4') === FREQ('C5') && FREQ('E#4') === FREQ('F4') && FREQ('Fb4') === FREQ('E4'), [FREQ('B#4'), FREQ('E#4'), FREQ('Fb4')].join(' '));
 check('Cb без октавы тоже считается', FREQ('Cb') > 0, String(FREQ('Cb')));
 check('незнакомое написание даёт null, а не NaN', FREQ('H') === null, String(FREQ('H')));
 check('G7 в Bb звучит всеми 4 нотами (было 3)', KEPT('G7', 'Bb').length === 4, show(KEPT('G7', 'Bb')));
@@ -235,10 +237,10 @@ console.log('  -- числа: в миноре отсчёт от относите
 check('1 в C = C', NASH('1', 'C') === 'C', show(NASH('1', 'C')));
 check('6 в C = Am', NASH('6', 'C') === 'Am', show(NASH('6', 'C')));
 check('7 в C = Bdim', NASH('7', 'C') === 'Bdim', show(NASH('7', 'C')));
-check('6 в Am = Am — тоника (конвенция Нэшвилла)', NASH('6', 'Am') === 'Am', show(NASH('6', 'Am')));
-check('1 в Am = C', NASH('1', 'Am') === 'C', show(NASH('1', 'Am')));
-check('2 в Am = Dm', NASH('2', 'Am') === 'Dm', show(NASH('2', 'Am')));
-check('5 в Am = G', NASH('5', 'Am') === 'G', show(NASH('5', 'Am')));
+check('6 в Am = F (0.598: миноры от минорной тоники)', NASH('6', 'Am') === 'F', show(NASH('6', 'Am')));
+check('1 в Am = Am (0.598: минорная тоника)', NASH('1', 'Am') === 'Am', show(NASH('1', 'Am')));
+check('2 в Am = Bdim (натуральный минор)', NASH('2', 'Am') === 'Bdim', show(NASH('2', 'Am')));
+check('5 в Am = Em (натуральный минор)', NASH('5', 'Am') === 'Em', show(NASH('5', 'Am')));
 console.log('  -- валидатор: мусор больше не уходит в файл песни --');
 for (const garbage of ['Ci', 'Cv', 'Amii', 'Bvii', 'Biii', 'xx', 'i9x', '17']) {
   check(`«${garbage}» отклонён`, NASH(garbage, 'C') === null, show(NASH(garbage, 'C')));
@@ -303,9 +305,11 @@ for (const chord of ['Gmaj7', 'Gmaj9', 'Gm7', 'Gm9', 'G', 'G6', 'Gsus4', 'Gdim7'
 // Уменьшённое трезвучие обычно не тонизируют, поэтому V/vii° — не функция.
 console.log('  -- V/vii° больше не считается функцией --');
 check('F#7 -> Bdim в C = false (было true)', SDOM('F#7', 'Bdim', 'C') === false, show(SDOM('F#7', 'Bdim', 'C')));
-for (const [a, b] of [['D7', 'G'], ['A7', 'Dm'], ['E7', 'Am'], ['C7', 'F'], ['B7', 'Em'], ['G7', 'C']]) {
+for (const [a, b] of [['D7', 'G'], ['A7', 'Dm'], ['E7', 'Am'], ['C7', 'F'], ['B7', 'Em']]) {
   check(`${a} -> ${b} в C = true (без изменений)`, SDOM(a, b, 'C') === true, show(SDOM(a, b, 'C')));
 }
+// 0.601: тоника не бывает целью вторичной функции. G7 → C в C — диатоничная V, не V/I.
+check('G7 -> C в C = false (тоника не цель, диатоничная V)', SDOM('G7', 'C', 'C') === false, show(SDOM('G7', 'C', 'C')));
 for (const [a, b] of [['D7', 'Dm'], ['A7', 'A']]) {
   check(`${a} -> ${b} в C = false (без изменений)`, SDOM(a, b, 'C') === false, show(SDOM(a, b, 'C')));
 }

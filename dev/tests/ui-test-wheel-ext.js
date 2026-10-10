@@ -57,8 +57,12 @@ w.addEventListener('load', () => {
 
   console.log('\n=== 1а. Дуга качеств следует tonal center, с калибровкой D#m / F# ===');
   const modeAngles = () => Array.from(d.querySelectorAll('.mode-tab')).map((button) => button.style.getPropertyValue('--wheel-mode-angle'));
-  w.eval(`{ activeSectionKey = null; globalKey = 'C'; renderWheelModeTabs(); }`);
+  // Тональность C задаём явно: в авто-режиме без детекции globalKey не является
+  // тональным центром секции, и дуга остаётся на калибровочной F#.
+  w.eval(`{ activeSectionKey = 'C'; renderWheelModeTabs(); }`);
   const cAngles = modeAngles();
+  ok('C сверху (круг неподвижен): дуга 4+3 повёрнута на −180°, центр около 0°',
+    cAngles.join(' / ') === '22deg / 7.5deg / -7.5deg / -22deg / 12deg / 0deg / -12deg', cAngles.join(' / '));
   w.eval(`{ activeSectionKey = 'F#'; renderWheelModeTabs(); }`);
   const fsAngles = modeAngles();
   ok('F# возвращает утверждённую прежнюю нижнюю дугу 4 + 3',
@@ -91,16 +95,24 @@ w.addEventListener('load', () => {
   // Кольца: triads/7/6/maj7 — два (24 logical cards), sus/dim/aug — одно.
   // У текущего B-40 pathCount включает 24 overlay + gap-catcher; source 0.410
   // под Dev остаётся отдельным вариантом и не меняет production contract.
-  w.eval("setWheelMode('triads')");
+  // Декор (panes, dividers, clips) строится только при menuMode = triads И при
+  // заданной тональности И после drawWheel(): render() круг не перерисовывает.
+  // Поэтому два отдельных теста: без menuMode декора нет, с menuMode он есть.
+  const decorCount = () => d.querySelectorAll('#circleSvg .wheel-mode-pane, #circleSvg .wheel-mode-divider, #circleSvg clipPath').length;
+  w.eval("setWheelMode('maj7')");
+  ok('без menuMode (maj7): декор 0, два кольца 24 сектора / 49 путей',
+    decorCount() === 0 && sectorCount() === 24 && pathCount() === 49,
+    `${sectorCount()} cards / ${pathCount()} paths (+${decorCount()} decor)`);
+  w.eval("setWheelMode('triads'); activeSectionKey = 'C'; drawWheel();");
   // B-99 (0.555): panes, theme-matched оттенок 0.551 и clipPath добавляют
   // только собственные SVG paths поверх 49 базовых B-40 путей.
   const menuPanes = d.querySelectorAll('#circleSvg .wheel-mode-pane').length;
   const menuDividers = d.querySelectorAll('#circleSvg .wheel-mode-divider').length;
   const menuClips = d.querySelectorAll('#circleSvg clipPath').length;
-  ok('triads — два кольца', sectorCount() === 24 &&
-    pathCount() === 49 + menuPanes + menuDividers + menuClips && menuPanes > 0 && menuDividers > 0 && menuClips > 0,
+  ok('с menuMode и тональностью C: декор есть и совпадает с ожидаемым', sectorCount() === 24 &&
+    pathCount() === 49 + menuPanes + menuDividers + menuClips && menuPanes > 0 && menuClips === menuPanes,
     `${sectorCount()} cards / ${pathCount()} paths (+${menuPanes} panes, ${menuDividers} dividers, ${menuClips} clips)`);
-  w.eval("setWheelMode('maj7')");
+  w.eval("activeSectionKey = null; setWheelMode('maj7')");
   ok('maj7 — два кольца', sectorCount() === 24 && pathCount() === 49, `${sectorCount()} cards / ${pathCount()} paths`);
   // В jsdom mock-метрика намеренно плоская, поэтому проверяем именно
   // production-fit с честной шириной символов, а не псевдоразмер <text>.
@@ -370,7 +382,11 @@ w.addEventListener('load', () => {
   ok('звук: C7b9 теперь с b9', GN('C7b9') === N('C4','E4','G4','A#4','C#5'), GN('C7b9'));
   ok('звук: C7#9 с #9', GN('C7#9') === N('C4','E4','G4','A#4','D#5'), GN('C7#9'));
   ok('звук: C7#11 с #11', GN('C7#11') === N('C4','E4','G4','A#4','F#5'), GN('C7#11'));
-  ok('звук: C7b13 с b13 (G# = Ab)', GN('C7b13') === N('C4','E4','G4','A#4','G#5'), GN('C7b13'));
+  // b13 — та же высота, что #5 (G# = Ab). Квинта заменена, как у C7#5: чистой G в аккорде нет.
+  ok('звук: C7b13 = C E Bb G# (b13 вместо квинты)', GN('C7b13') === N('C4','E4','A#4','G#5'), GN('C7b13'));
+  ok('звук: в C7b13 нет чистой квинты G', !JSON.parse(GN('C7b13')).some((n) => /^G\d/.test(n)), GN('C7b13'));
+  const pcs = (x) => JSON.parse(GN(x)).map((n) => n.replace(/\d+$/, '')).sort().join(' ');
+  ok('звук: C7b13 совпадает с C7#5 по высотам (без октав)', pcs('C7b13') === pcs('C7#5'), pcs('C7b13') + ' vs ' + pcs('C7#5'));
   ok('звук: C6/9 = C E G A D (нона не теряется)',
      GN('C6/9') === N('C4','E4','G4','A4','D5'), GN('C6/9'));
   ok('звук: слитное C69 — то же самое (не стек до 13-й)',

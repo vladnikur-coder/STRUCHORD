@@ -95,8 +95,8 @@ ok('D7 → G в C остаётся отдельной прикладной V/V, 
   secondary.detail === 'secondary-dominant' && secondary.function === 'V/V', JSON.stringify(secondary));
 
 const bareD = analyze('D', 'C');
-ok('D-мажор без контекста остаётся нейтральным, без ложного лада или категории',
-  bareD.group === 'unknown' && bareD.mode === null && bareD.confidence === 'none' && bareD.candidates.includes('lydian'), JSON.stringify(bareD));
+ok('D-мажор без контекста: слабое заимствование без ложного лада (0.599), кандидаты сохранены',
+  bareD.group === 'borrowed-unconfirmed' && bareD.mode === null && bareD.confidence === 'weak' && bareD.candidates.includes('lydian'), JSON.stringify(bareD));
 
 const majorDegreeCases = [
   ['F', 'D', '♭III'],
@@ -117,23 +117,23 @@ const rootDegreeMismatches = majorDegreeCases.flatMap(([chord, key, expected]) =
     : [`${chord} in ${key}: analysis=${analysis.degree}, wheel=${wheel?.degree}, expected=${expected}`];
 });
 const neutralFInD = analyze('F', 'D');
-ok('chromatic degrees use key/scale position, match wheel labels and keep an unconfirmed editor chord neutral',
+ok('chromatic degrees use key/scale position, match wheel labels; unconfirmed borrowed chord is weak, no mode name (0.599)',
   rootDegreeMismatches.length === 0 && neutralFInD.degree === '♭III' &&
-  neutralFInD.group === 'unknown' && neutralFInD.mode === null && neutralFInD.confidence === 'none',
+  neutralFInD.group === 'borrowed-unconfirmed' && neutralFInD.mode === null && neutralFInD.confidence === 'weak',
   rootDegreeMismatches.join('; ') || JSON.stringify(neutralFInD));
 
 const bFlat = analyze('Bb', 'C');
-ok('один bVII в C остаётся нейтральным: кандидаты не становятся пользовательской категорией',
-  bFlat.group === 'unknown' && bFlat.mode === null &&
-  bFlat.candidates.includes('mixolydian') && bFlat.candidates.includes('borrowed-parallel-aeolian'), JSON.stringify(bFlat));
+ok('один bVII в C: слабая группа с степенью из круга, лад не назван (0.599)',
+  bFlat.group === 'borrowed-unconfirmed' && bFlat.mode === null && bFlat.confidence === 'weak' && bFlat.degree === '♭VII' &&
+  bFlat.candidates.includes('mixolydian') && bFlat.candidates.includes('aeolian') && !bFlat.candidates.includes('borrowed-parallel-aeolian'), JSON.stringify(bFlat));
 
 const dorian = w.analyzeSectionHarmony(section('Cm', ['Cm', 'Dm', 'F', 'Gm']));
 ok('достаточный C-dorian контекст раскладывает всю секцию в дорийский профиль',
   dorian.every((item) => item.mode === 'dorian') && dorian.every((item) => item.confidence === 'contextual'), JSON.stringify(dorian));
 
 const weakDorian = w.analyzeSectionHarmony(section('Cm', ['Cm', 'Dm', 'Gm']));
-ok('одна характерная ступень не притворяется дорийским ладом и остаётся нейтральной',
-  weakDorian[1].group === 'unknown' && weakDorian[1].mode === null && weakDorian[1].confidence === 'none', JSON.stringify(weakDorian));
+ok('одна характерная ступень не притворяется дорийским ладом: слабая группа, mode null (0.599)',
+  weakDorian[1].group === 'borrowed-unconfirmed' && weakDorian[1].mode === null && weakDorian[1].confidence === 'weak' && weakDorian[1].candidates.includes('dorian'), JSON.stringify(weakDorian));
 
 ok('подтверждённые контексты получают свои конкретные modal profiles',
   modes('C', ['C', 'D', 'F#dim', 'G']) === 'lydian,lydian,lydian,lydian' &&

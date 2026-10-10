@@ -4355,6 +4355,9 @@ html[data-theme='dark'] {
 [data-harmony-profile='lydian'] { --harmony-profile-color: var(--harmony-lydian); }
 [data-harmony-profile='mixolydian'] { --harmony-profile-color: var(--harmony-mixolydian); }
 [data-harmony-profile='locrian'] { --harmony-profile-color: var(--harmony-locrian); }
+/* 0.599: слабая подсветка неподтверждённого заимствования — нейтральный серый и меньшая доля цвета */
+[data-harmony-profile='borrowed-unconfirmed'] { --harmony-profile-color: #8a8a8a; }
+body.is-harmony-highlights-on #sectionsContainer .chord-wrapper[data-harmony-profile='borrowed-unconfirmed'] { --harmony-cell-profile-mix: 7%; }
 .harmony-a11y {
   position: absolute;
   width: 0.0625rem;
@@ -6613,6 +6616,35 @@ html.wheel-motion-disabled .wheel-harmony-legend-toggle-surface {
   margin-top: 0.25rem;
   padding-top: 0.5rem;
   border-top: 0.0625rem solid var(--color-border-light);
+}
+.tools-sub-group {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.2s ease;
+}
+.tools-sub-group.is-open {
+  grid-template-rows: 1fr;
+}
+.tools-sub-group-inner {
+  min-height: 0;
+  overflow: hidden;
+  padding-left: 1.25rem;
+}
+.tools-sublabel {
+  padding-top: 0.25rem;
+  padding-bottom: 0.25rem;
+}
+.tools-sub-hint {
+  margin: 0.25rem 0 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--color-text-secondary);
+}
+.tools-sub-hint[hidden] {
+  display: none;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tools-sub-group { transition: none; }
 }
 .tools-label--head {
   display: block;
@@ -11721,7 +11753,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.595</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.609</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -11758,10 +11790,23 @@ body.power-ui-waking .pinned-fingering-dock {
           <i class="ti ti-adjustments-plus"></i> Тык
         </button>
         <div class="tools-dropdown" id="toolsDropdown">
-          <label class="tools-label" title="Показывает ступени в ячейках и включает ладовую цветовую карту круга"
-            ><input type="checkbox" id="showDegrees" onchange="toggleDegreesOnWheel()" />
-            Ступени и цвета круга</label
+          <label class="tools-label" title="Ступени в ячейках и на круге; подсветка ладов включается отдельной галочкой"
+            ><input type="checkbox" id="showDegrees" onchange="onDegreesParentChange()" />
+            Ступени и лады</label
           >
+          <div class="tools-sub-group" id="degreesSubOptions">
+            <div class="tools-sub-group-inner">
+              <label class="tools-label tools-sublabel"
+                ><input type="checkbox" id="showDegreeLabels" onchange="onDegreesChildChange()" checked />
+                Показывать ступени</label
+              >
+              <label class="tools-label tools-sublabel"
+                ><input type="checkbox" id="showHarmonyHighlights" onchange="onDegreesChildChange()" checked />
+                Показывать подсветку ладов</label
+              >
+              <p class="tools-sub-hint" id="degreesNoKeyHint" hidden>Задайте тональность: без неё ступени и подсветка ладов не появятся.</p>
+            </div>
+          </div>
           <label class="tools-label"
             ><input type="checkbox" id="wheelAnimations" onchange="toggleWheelAnimations()" checked />
             Анимации круга</label
@@ -19623,9 +19668,30 @@ function circleOfFifthsDist(semitoneA, semitoneB) {
   return Math.min(diff, 12 - diff);
 }
 
+// B-101 (0.596): имя, которое распознавание даёт аппликатуре, пишется по
+// тональности, как и имена в ячейках. Раньше та же форма в C давала A#, а в Bb —
+// Bb. Меняются только строки имён; корни и басы в коде распознавания не трогаем.
+function respellFingeringAnalysis(res, key) {
+  if (!res || !key || typeof correctChordName !== 'function') return res;
+  const ks = getKeyStyle(key);
+  const fixName = (name) => (typeof name === 'string' && name && name !== '?' ? correctChordName(name, ks, key) : name);
+  const out = Object.assign({}, res);
+  if (out.chordName) out.chordName = fixName(out.chordName);
+  if (Array.isArray(out.candidates)) {
+    out.candidates = out.candidates.map((c) => (c && c.chordName ? Object.assign({}, c, { chordName: fixName(c.chordName) }) : c));
+  }
+  if (out.altCandidate && out.altCandidate.chordName) {
+    out.altCandidate = Object.assign({}, out.altCandidate, { chordName: fixName(out.altCandidate.chordName) });
+  }
+  return out;
+}
 function analyzeFingeringShape(shape, context = {}) {
+  return respellFingeringAnalysis(analyzeFingeringShapeRaw(shape, context), context && context.key);
+}
+function analyzeFingeringShapeRaw(shape, context = {}) {
   // Разбор «что за аккорд нарисован на грифе» зависит от строя и контекста (B-81).
   const stringNotes = songStringNotes();
+  const isClassicC6Shape = ['x', 3, 2, 2, 1, 0].every((v, i) => String(shape[i]) === String(v));
   const chromatic = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
   const notesWithStrings = [];
@@ -19765,6 +19831,10 @@ function analyzeFingeringShape(shape, context = {}) {
       .sort((a, b) => a - b);
 
     if (!intervals.includes(0)) continue;
+    // B-101 (0.596): три ноты D F B — это Bdim (D в басу), а не «Dm6 без квинты».
+    // 0.598 (решение пользователя): классическая аппликатура C6 x32210 — C6, а не
+    // Am/C, хотя квинты G нет. Остальные формы с теми же нотами по-прежнему Am/C.
+    if (!isClassicC6Shape && intervals.length === 3 && (intervals[1] === 3 || intervals[1] === 4) && intervals[2] === 9) continue;
 
     const chordName = buildChordName(rootNote, intervals);
     if (chordName === '?') continue;
@@ -20039,6 +20109,9 @@ function buildChordName(root, intervals) {
     if (has(9) && allIn([0, 9])) return root + '6(no3,no5)';
     if (has(2) && has(10) && allIn([0, 2, 7, 10])) return root + '9' + (has(7) ? '(no3)' : '(no3,no5)');
     if (has(2) && has(10) && allIn([0, 2, 10])) return root + '9(no3,no5)';
+    // B-101 (0.596): доминантовая 11-я без терции (C G Bb D F) — C11. Раньше
+    // та же форма давала Gm11/C: одни и те же ноты, но имя с другим корнем.
+    if (has(2) && has(5) && has(7) && has(10) && allIn([0, 2, 5, 7, 10])) return root + '11';
     return '?';
   }
 
@@ -21508,7 +21581,15 @@ function expandChordName(chord) {
   if (c.endsWith('(9)')) {
     c = c.slice(0, -3) + 'add9';
   }
-  if (c.includes('+') && !c.includes('aug')) {
+  // 0.597: у большой септимы «+» — это #5 (CΔ+, CM7+, C+maj7, Cmaj7+ = Cmaj7#5).
+  // Раньше получалось «Cmaj7aug» / «Caugmaj7», и качество читалось как maj/null.
+  const expParts = c.split('/');
+  if (expParts[0].includes('+') && /maj|M\d/.test(expParts[0]) && !expParts[0].includes('aug')) {
+    let m0 = expParts[0].replace(/\+5?/g, '');
+    if (!m0.includes('#5')) m0 += '#5';
+    expParts[0] = m0;
+    c = expParts.join('/');
+  } else if (c.includes('+') && !c.includes('aug')) {
     c = c.replace(/(?<!#)\+(?!\w*\+)/g, 'aug');
     if (c.endsWith('+')) c = c.slice(0, -1) + 'aug';
   }
@@ -21600,7 +21681,19 @@ function canonicalKeyFromRoot(sharpRoot, isMinor) {
 // подбору аппликатур и озвучке. Приводим знаки ТОЛЬКО внутри разборщиков —
 // написание в самой ячейке остаётся типографским.
 function normalizeAccidentals(name) {
-  return typeof name === 'string' ? name.replace(/♭/g, 'b').replace(/♯/g, '#') : name;
+  if (typeof name !== 'string') return name;
+  // B-101 (0.596): нотация «C-7», «C-9», «C-maj7», «C-M7» — минор с мажорной
+  // септимой или без неё, а не доминанта. Минус перед 5 («C-5») остаётся
+  // альтерацией квинты и сюда не попадает.
+  return name
+    .replace(/♭/g, 'b')
+    .replace(/♯/g, '#')
+    .replace(/^([A-G][#b]?)-(?:M|Δ)(?=\d|$)/, '$1mmaj')
+    // «C-m7» — минус уже означает минор, буква m рядом не даёт доминанты.
+    .replace(/^([A-G][#b]?)-m(?!aj)/, '$1m')
+    .replace(/^([A-G][#b]?)-(?=maj\d|13|11|9|7|6)/, '$1m')
+    // 0.596 (решение пользователя): голый «C-» — минорное трезвучие Cm (C Eb G).
+    .replace(/^([A-G][#b]?)-(?=$|\/)/, '$1m');
 }
 
 function parseChordForKeyDetection(chordName) {
@@ -21617,19 +21710,30 @@ function parseChordForKeyDetection(chordName) {
   let quality;
   if (/^(?:dim|°|m7b5|ø)/.test(suffix)) quality = 'dim';
   else if (/^m(?!aj)/.test(suffix)) quality = 'min';
-  else if (/^(aug|\+|\d*sus|5)/.test(suffix)) quality = null; // без терции / нераспознанная терция
+  // 0.598: «C+maj7» — то же, что Cmaj7#5 (качество aug), раньше шло в ветку null.
+  else if (/^\+(?:maj|M|Δ|δ)/.test(suffix)) quality = 'aug';
+  else if (/^(aug|\+|\d*sus|5|11(?!\d))/.test(suffix)) quality = null; // без терции / нераспознанная терция; 0.598: 11 без терции (C11) — как sus, доминанта через isDominant7
+  // 0.596 (решение пользователя): Cmaj7#5 — терции 0-4-8 = увеличенное трезвучие,
+  // качество aug (имя остаётся Cmaj7#5). Остальные «7#5» не трогаем.
+  else if (/^(?:maj|M|Δ|δ)/.test(suffix) && /[#+]5|\+/.test(suffix)) quality = 'aug';
   else quality = 'maj';
   // B-101 (кирпич 4): доминантой с расширениями считаются и 9, и 11, и 13 —
   // раньше бонус получало только имя, начинающееся с 7, и G9/G11/G13 не
   // усиливали тонику. Порядок альтернатив важен: 13 раньше 1.
-  const isDominant7 = (quality === 'maj' && /^(?:13|11|9|7)(?!\d)/.test(suffix)) || /^(?:13|11|9|7)sus/.test(suffix); // "G7", но не "Gmaj7"
+  const isDominant7 = (quality === 'maj' && /^(?:13|11|9|7)(?!\d)/.test(suffix)) || /^(?:13|11|9|7)sus/.test(suffix) || /^11(?!\d)/.test(suffix); // "G7", но не "Gmaj7"
 
   let bassRoot = root;
   if (parts.length > 1) {
     const bm = parts[1].trim().match(/^([A-G][#b]?)/);
     if (bm) bassRoot = FLAT_TO_SHARP[bm[1]] || bm[1];
   }
-  return { root, spelling: m[1], quality, isDominant7, bassRoot, chordName: main };
+  // 0.598: C11 без терции — quality null (как sus), но для ступеней и детектора
+  // он мажорный доминантный; harmonyQuality отдаёт это без смены регистра.
+  const elevenNoThird = /^11(?!\d)/.test(suffix);
+  return {
+    root, spelling: m[1], quality, isDominant7, bassRoot, chordName: main, elevenNoThird,
+    get harmonyQuality() { return this.quality || (this.elevenNoThird ? 'maj' : null); },
+  };
 }
 
 // Шаблоны ладов для сопоставления диатонических ступеней. Веса ступеней для
@@ -21818,11 +21922,11 @@ function detectKeyFromChords() {
         }
         toneTotal += w;
 
-        if (!parsed.quality) {
+        if (!parsed.harmonyQuality) {
           ambiguousWeights.set(parsed.root, (ambiguousWeights.get(parsed.root) || 0) + w);
           continue; // sus/power/aug учитываются отдельно, с меньшим весом (см. AMBIGUOUS_ROOT_FACTOR)
         }
-        const k = parsed.root + '|' + parsed.quality;
+        const k = parsed.root + '|' + parsed.harmonyQuality;
         counts.set(k, (counts.get(k) || 0) + w);
         total += w;
       }
@@ -21907,26 +22011,26 @@ function detectKeyFromChords() {
       let score = DIATONIC_FIT_WEIGHT * diatonicFit + TONE_PROFILE_WEIGHT * toneCorr * toneTotal;
       score += dom7Bonus + bassBonus;
       const isMinorTonic = !tpl.tonicMajor;
-      if (firstChord && firstChord.root === tonicSharp && !firstChord.quality) {
+      if (firstChord && firstChord.root === tonicSharp && !firstChord.harmonyQuality) {
         // sus/power аккорд в начале — слабый, но не игнорируемый сигнал тоники
         score += firstBonusW * AMBIGUOUS_ROOT_FACTOR;
       } else if (
         firstChord &&
         firstChord.root === tonicSharp &&
-        firstChord.quality &&
-        firstChord.quality !== 'dim' &&
-        (firstChord.quality === 'maj') === tpl.tonicMajor
+        firstChord.harmonyQuality &&
+        firstChord.harmonyQuality !== 'dim' &&
+        (firstChord.harmonyQuality === 'maj') === tpl.tonicMajor
       ) {
         score += firstBonusW;
       }
-      if (lastChord && lastChord.root === tonicSharp && !lastChord.quality) {
+      if (lastChord && lastChord.root === tonicSharp && !lastChord.harmonyQuality) {
         score += lastBonusW * AMBIGUOUS_ROOT_FACTOR;
       } else if (
         lastChord &&
         lastChord.root === tonicSharp &&
-        lastChord.quality &&
-        lastChord.quality !== 'dim' &&
-        (lastChord.quality === 'maj') === tpl.tonicMajor
+        lastChord.harmonyQuality &&
+        lastChord.harmonyQuality !== 'dim' &&
+        (lastChord.harmonyQuality === 'maj') === tpl.tonicMajor
       ) {
         score += lastBonusW;
       }
@@ -21937,7 +22041,7 @@ function detectKeyFromChords() {
       // Бонус за аккорд-тонику в начале секций (сильная конструктивная позиция)
       for (const step of harmonicSteps) {
         if (step.isSectionStart && step.root === tonicSharp) {
-          const matchQuality = step.quality && (step.quality === 'maj') === tpl.tonicMajor;
+          const matchQuality = step.harmonyQuality && (step.harmonyQuality === 'maj') === tpl.tonicMajor;
           cadenceScore += matchQuality ? 3.0 : 1.5;
         }
       }
@@ -21956,10 +22060,10 @@ function detectKeyFromChords() {
           // Мажорные каденции
           if (intA === 7 && intB === 0) {
             // V -> I (автентический оборот)
-            cadenceScore += a.isDominant7 ? 6.0 : (a.quality === 'maj' ? 5.0 : 2.0);
+            cadenceScore += a.isDominant7 ? 6.0 : (a.harmonyQuality === 'maj' ? 5.0 : 2.0);
           } else if (intA === 5 && intB === 0) {
             // IV -> I (плагальный оборот)
-            cadenceScore += (a.quality === 'maj' ? 3.5 : 2.0);
+            cadenceScore += (a.harmonyQuality === 'maj' ? 3.5 : 2.0);
           } else if ((intA === 5 || intA === 2) && intB === 7) {
             // IV -> V или ii -> V (подготовка доминанты)
             cadenceScore += 2.5;
@@ -21977,13 +22081,13 @@ function detectKeyFromChords() {
           // Минорные каденции
           if (intA === 7 && intB === 0) {
             // V -> i / v -> i (автентический оборот в миноре)
-            cadenceScore += a.isDominant7 ? 6.5 : (a.quality === 'maj' ? 5.5 : 3.5);
+            cadenceScore += a.isDominant7 ? 6.5 : (a.harmonyQuality === 'maj' ? 5.5 : 3.5);
           } else if (intA === 10 && intB === 0) {
             // bVII -> i (эолийский каданс: G -> Am)
-            cadenceScore += (a.quality === 'maj' ? 4.5 : 2.5);
+            cadenceScore += (a.harmonyQuality === 'maj' ? 4.5 : 2.5);
           } else if (intA === 5 && intB === 0) {
             // iv -> i или IV -> i (плагальный / дорийский оборот)
-            cadenceScore += (a.quality === 'maj' ? 4.0 : 3.0);
+            cadenceScore += (a.harmonyQuality === 'maj' ? 4.0 : 3.0);
           } else if (intA === 8 && intB === 10) {
             // VI -> bVII (F -> G в Am)
             cadenceScore += 3.0;
@@ -22063,7 +22167,7 @@ function detectKeyFromChords() {
   // до конца) — берём тональность по первому/последнему аккорду напрямую.
   if (best.score === 0) {
     const fallback = lastChord || firstChord;
-    if (fallback && fallback.quality) return canonicalKeyFromRoot(fallback.root, fallback.quality === 'min');
+    if (fallback && fallback.harmonyQuality) return canonicalKeyFromRoot(fallback.root, fallback.harmonyQuality === 'min');
     if (fallback) return canonicalKeyFromRoot(fallback.root, false);
   }
 
@@ -22223,6 +22327,10 @@ const FLAT_TO_SHARP = {
   Ebm: 'D#m',
   Abm: 'G#m',
   Bbm: 'A#m',
+  // B-101 (0.596): энгармонические корни E#/B#/Fb — тот же звук, что F/C/E.
+  'E#': 'F',
+  'B#': 'C',
+  Fb: 'E',
 };
 
 function noteToFrequency(note) {
@@ -22251,7 +22359,12 @@ function noteToFrequency(note) {
     // звучал без неё, если у ячейки нет своей аппликатуры. Cb — тот же класс
     // высоты, что B (11); остальные дважды альтерированные имена приложение
     // не производит, поэтому в таблице не нужны.
-    Cb: 11,
+    // B-101 (0.596): научная нотация — Cb4 = B3, B#4 = C5, E#4 = F4, Fb4 = E4.
+    // Полутон задаётся от C того же номера октавы (Cb = -1, B# = 12).
+    Cb: -1,
+    'B#': 12,
+    'E#': 5,
+    Fb: 4,
   };
   const m = note.match(/^([A-G][#b]?)(\d)?$/);
   if (!m) return null;
@@ -22263,6 +22376,9 @@ function noteToFrequency(note) {
 function normalizeChordCase(ch) {
   if (!ch) return ch;
   let f = ch.replace(/\bBB\b/g, 'Bb');
+  // 0.602: строка, которая не начинается с буквы (5/7, 1/3, #4), — не имя аккорда.
+  // Раньше бас дописывался при каждом вызове: 5/7 → 5/7/7 → 5/7/7/7. Теперь идемпотентно.
+  if (!/^[A-Ga-g]/.test(f.trim())) return f.trim();
   const p = f.split('/');
   const main = p[0],
     bass = p[1];
@@ -22273,7 +22389,10 @@ function normalizeChordCase(ch) {
     // Джазовая конвенция: ЗАГЛАВНАЯ M — мажор (CM7 = Cmaj7, CM = C).
     // Слепой toLowerCase превращал её в минор: 'CM7' становился 'Cm7'.
     // Запись 'Maj' в любом регистре как работала нижним, так и работает.
-    if (/^M\d/.test(suffix)) suffix = 'maj' + suffix.slice(1).toLowerCase();
+    // B-101 (0.596): «C-M7» (минор с большой септимой) — то же, что и «CM7»: M
+    // после минуса сохраняем как maj, иначе «C-M7» становился «C-m7» (дом. септима).
+    if (/^-M\d/.test(suffix)) suffix = '-maj' + suffix.slice(2).toLowerCase();
+    else if (/^M\d/.test(suffix)) suffix = 'maj' + suffix.slice(1).toLowerCase();
     else if (suffix === 'M') suffix = '';
     else suffix = suffix.toLowerCase();
     f = root + suffix;
@@ -22301,12 +22420,19 @@ function toSharpNote(note) {
   return root + octave;
 }
 function getChordNotes(cn, ks) {
+  // 0.597: Δ — то же, что maj7 (как в expandChordName); без этого суффикс
+  // уходит в toLowerCase как «δ», и септима теряется (CΔ давал C E G).
+  cn = String(cn).replace(/Δ(\d)/g, 'maj$1').replace(/Δ/g, 'maj7');
   cn = normalizeChordCase(normalizeAccidentals(cn));
   const rm = cn.match(/^([A-G][#b]?)/);
   if (!rm) return [];
   const root = rm[1];
   let suffix = cn.slice(root.length).toLowerCase();
-  const ri = CHROMATIC.indexOf(FLAT_TO_SHARP[root] || root);
+  // B-101 (0.596): E#, B#, Fb — не в хроматической таблице с диезами, и раньше
+  // такой аккорд давал пустой набор нот (тихий аккорд, без ступени). Высота та
+  // же, что у соседней ноты: E#=F, B#=C, Fb=E. Октава Cb/B# пока считается
+  // по высоте класса (как и раньше), это отдельный вопрос регистра.
+  const ri = CHROMATIC.indexOf(FLAT_TO_SHARP[root] || { 'E#': 'F', 'B#': 'C', Fb: 'E' }[root] || root);
   if (ri === -1) return [];
   let ints = [];
 
@@ -22384,12 +22510,20 @@ function getChordNotes(cn, ks) {
     if (n >= 11 && !(n >= 13 && !isMin)) ints.push(17);
     if (n >= 13) ints.push(21);
     if (n === 6) ints.push(9);
+    // 0.596 (решение пользователя): доминантовая C11 звучит без терции —
+    // C G Bb D F. Минорная, мажорная, dim/aug и sus 11 сохраняют терцию.
+    if (n === 11 && !isMin && !isDim && !isAug && !isSus && !extSuffix.includes('maj')) {
+      ints = ints.filter((i) => i !== 4);
+    }
   }
 
   // Альтерации 9/11/13: цифровой стек выше читает только первое число,
   // поэтому b9/#9/#11/b13 до сих пор просто терялись — C7b9 звучал
   // ровно как C7. Кладём поверх базового аккорда; если записана и
   // натуральная ступень (C13b9), обе звучат — принятое приближение.
+  // B-101 (0.596): «♭6» — малая секста (8 полутонов). Раньше «Cmb6» давал
+  // Cm6 (A вместо Ab), а «Cm(b6)» терял ноту: цифра 6 читалась как натуральная.
+  if (/b6/.test(suffix)) { ints = ints.filter((i) => i !== 9); ints.push(8); }
   if (/b9/.test(suffix)) ints.push(13);
   if (/#9/.test(suffix)) ints.push(15);
   if (/#11/.test(suffix)) ints.push(18);
@@ -22414,7 +22548,13 @@ function getChordNotes(cn, ks) {
     // шли в четвёртой октаве, и G7 давал G4 B4 D4 F4 — D и F оказывались
     // НИЖЕ корня, а озвучка без аппликатуры собирала аккорд обратной
     // расстановкой. Теперь звук поднимается от корня вверх: G4 B4 D5 F5.
-    return note + (4 + Math.floor((ri + i) / 12));
+    // B-101 (0.596): корень Cb берём в научной октаве (Cb4 = B3), остальные
+    // ноты аккорда поднимаются от него: Cb4 Eb4 Gb4.
+    const oct = (root === 'Cb' ? 3 : 4) + Math.floor((ri + i) / 12);
+    // В бемольном стиле нота B пишется Cb, а noteToFrequency понимает Cb по
+    // научной нотации (Cb4 = B3). Цифра внутри аккорда считалась по B, поэтому
+    // для Cb поднимаем её на 1: та же высота, что и раньше.
+    return note === 'Cb' ? 'Cb' + (oct + 1) : note + oct;
   });
 }
 function getKeyStyle(k) {
@@ -22450,7 +22590,12 @@ const SPELL_LETTER_PC = [0, 2, 4, 5, 7, 9, 11];
 // интервал от тоники (полутоны) -> номер ступени (0..6) при написании
 const SPELL_DEGREE_MAJOR = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // ♭II ♭III ♯IV ♭VI ♭VII
 const SPELL_DEGREE_MINOR = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // ♭II, III, ♯III, ♯IV, VI, ♯VI, VII, ♯VII
-const SPELL_ALLOWED = new Set(['C','C#','Db','D','Eb','E','F','F#','Gb','G','Ab','A','Bb','B']);
+const SPELL_ALLOWED = new Set(['C','C#','Db','D','D#','Eb','E','E#','F','F#','Gb','G','G#','Ab','A','A#','Bb','B','B#','Cb','Fb']);
+// B-101 (0.596): читаемый набор для хроматических корней и замены E#/B#/Fb/Cb.
+const SPELL_READABLE = new Set(['C','C#','Db','D','Eb','E','F','F#','Gb','G','Ab','A','Bb','B']);
+const SPELL_READABLE_FALLBACK = { 'E#': 'F', 'B#': 'C', Fb: 'E', Cb: 'B' };
+const SPELL_SCALE_MAJOR = [0, 2, 4, 5, 7, 9, 11];
+const SPELL_SCALE_MINOR = [0, 2, 3, 5, 7, 8, 10];
 function spellRootByDegree(rootName, key) {
   if (!key) return null;
   const isMin = key.endsWith('m');
@@ -22464,12 +22609,21 @@ function spellRootByDegree(rootName, key) {
   const tab = isMin
     ? [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]
     : [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6];
-  const deg = tab[interval];
-  const li = (SPELL_LETTERS.indexOf(tm[1]) + deg) % 7;
+  // B-101 (0.596), правила написания по решению пользователя:
+  // 1) диатонический корень (есть в гамме тональности) пишем по гамме, даже если
+  //    выходит E#, B#, Fb или Cb (F# мажор: VII = E#dim; Ebm: VI = Cb);
+  // 2) хроматический корень — по ступени, но только в читаемом наборе; E#/B#/Fb/Cb
+  //    заменяем энгармоническим именем из набора; остальные случаи — как раньше (null);
+  // 3) тритон (6 полутонов) — по стилю тональности: бемоль в бемольных, диез в диезных.
+  const diatonic = (isMin ? SPELL_SCALE_MINOR : SPELL_SCALE_MAJOR).includes(interval);
+  let li = (SPELL_LETTERS.indexOf(tm[1]) + tab[interval]) % 7;
+  if (interval === 6) li = (SPELL_LETTERS.indexOf(tm[1]) + (getKeyStyle(key) === 'flat' ? 4 : 3)) % 7;
   const acc = ((pc - SPELL_LETTER_PC[li] + 18) % 12) - 6;
   if (Math.abs(acc) > 1) return null;
   const name = SPELL_LETTERS[li] + (acc === 1 ? '#' : acc === -1 ? 'b' : '');
-  return SPELL_ALLOWED.has(name) ? name : null;
+  if (diatonic) return SPELL_ALLOWED.has(name) ? name : null;
+  if (SPELL_READABLE.has(name)) return name;
+  return SPELL_READABLE_FALLBACK[name] || null;
 }
 function correctChordName(c, ks, key) {
   if (!c) return c;
@@ -22613,6 +22767,9 @@ const HARMONY_GROUP = Object.freeze({
   MINOR_VARIANT: 'minor-variant',
   SECONDARY_FUNCTION: 'secondary-function',
   MODAL_BORROWED: 'modal-borrowed',
+  // 0.599 (решение пользователя): одиночный заимствованный аккорд, который укладывается
+  // хотя бы в один лад — слабая подсветка, степень из круга; лад называется, только если единственный.
+  BORROWED_UNCONFIRMED: 'borrowed-unconfirmed',
   UNKNOWN: 'unknown',
 });
 const HARMONY_MODE_PROFILES = Object.freeze({
@@ -22644,6 +22801,7 @@ const HARMONY_MODE_LABELS = Object.freeze({
 });
 const HARMONY_PRESENTATION_PROFILE = Object.freeze({
   SECONDARY: 'secondary-function',
+  BORROWED_UNCONFIRMED: 'borrowed-unconfirmed',
 });
 const HARMONY_ROMAN = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII'];
 function getHarmonyBaseMode(key) {
@@ -22697,8 +22855,32 @@ function getHarmonyModeDegree(parsed, key, mode) {
     ? getHarmonyChordTertianQuality(parsed.chordName, key)
     : parsed.quality;
   if (chordQuality && profile.qualities[degree] !== chordQuality) return -1;
-  if (parsed.chordName && !harmonyChordTonesFitMode(parsed.chordName, key, mode)) return -1;
+  if (parsed.chordName && !(mode === 'harmonic-minor'
+    ? harmonyChordCoreTonesFitMode(parsed, key, mode)
+    : harmonyChordTonesFitMode(parsed.chordName, key, mode))) return -1;
   return degree;
+}
+// 0.601 (баг: E9, E11, E13 в Am и A11 в Dm не считались доминантой гармонического минора).
+// Для проверки принадлежности к гармоническому минору расширения (9, 11, 13) у аккорда с септимой
+// не учитываются: E9 = E G# B D F#, A11 = A E G B D. Sus-аккорды не трогаем.
+function harmonyChordCoreTonesFitMode(parsed, key, mode) {
+  const profile = HARMONY_MODE_PROFILES[mode];
+  const tonicIndex = getHarmonyTonicIndex(key);
+  const rootIndex = CHROMATIC.indexOf(parsed?.root);
+  const pitches = getHarmonyChordPitchClasses(parsed?.chordName || '', key);
+  if (!profile || tonicIndex < 0 || rootIndex < 0 || !pitches.length) return false;
+  const intervals = new Set(pitches.map((pitchClass) => (pitchClass - rootIndex + 12) % 12));
+  // Расширения — только у аккордов с септимой (E9, E11 без терции по соглашению 0.598,
+  // E13, A11). add9, 6 и 6/9 без септимы не расширяют доминанту; sus-аккорды не трогаем.
+  const hasSeventh = intervals.has(10) || intervals.has(11);
+  const isSus = /sus/i.test(parsed?.chordName || '');
+  const extendable = !isSus && hasSeventh;
+  const scalePitches = new Set(profile.intervals.map((interval) => (tonicIndex + interval) % 12));
+  return pitches.every((pitchClass) => {
+    const interval = (pitchClass - rootIndex + 12) % 12;
+    if (extendable && [2, 5, 9].includes(interval)) return true; // 9, 11, 13 — расширения
+    return scalePitches.has(pitchClass);
+  });
 }
 function isHarmonyChordInMode(parsed, key, mode) {
   return getHarmonyModeDegree(parsed, key, mode) >= 0;
@@ -22740,7 +22922,7 @@ function getHarmonyRootDegreeFromContext(parsed, key) {
     alteration = nearest.delta;
   }
   let numeral = HARMONY_ROMAN[degree] || '';
-  const quality = parsed?.quality || profile.qualities[degree];
+  const quality = parsed?.harmonyQuality || profile.qualities[degree];
   if (quality === 'min') numeral = numeral.toLowerCase();
   else if (quality === 'dim') numeral = numeral.toLowerCase() + '°';
   else if (quality === 'aug') numeral += '+';
@@ -22756,7 +22938,7 @@ function getHarmonyRootDegree(parsed, key) {
   // Reuse the circle's position-based degree whenever this quality belongs to
   // one of its candidate profiles. This keeps editor labels and wheel labels
   // aligned without borrowing the menu's palette/color semantics in the editor.
-  const qualitySuffix = { maj: '', min: 'm', dim: 'dim', aug: 'aug' }[parsed?.quality];
+  const qualitySuffix = { maj: '', min: 'm', dim: 'dim', aug: 'aug' }[parsed?.harmonyQuality];
   const writtenRoot = parsed?.spelling || parsed?.root;
   if (qualitySuffix !== undefined && writtenRoot) {
     const menuDegree = getBorrowingMenuProfile(`${writtenRoot}${qualitySuffix}`, key)?.degree;
@@ -22906,14 +23088,18 @@ function getBorrowingMenuDegree(parsed, key, modes) {
       const familyPosition = HARMONY_MODE_PROFILES[mode]?.intervals.indexOf(interval);
       if (familyPosition >= 0 && familyPosition < HARMONY_ROMAN.length) {
         position = familyPosition;
-        alteration = interval - baseProfile.intervals[familyPosition];
+        // B-101 (0.596): ведущий тон минорной тональности (G# в Am) — это vii°,
+        // а не #vii°: поднятая VII — норма гармонического минора (подтверждено).
+        alteration = familyPosition === 6 && interval === 11
+          ? 0
+          : interval - baseProfile.intervals[familyPosition];
         break;
       }
     }
     if (position < 0) return getHarmonyRootDegreeFromContext(parsed, key);
   }
   let numeral = HARMONY_ROMAN[position] || '';
-  const quality = parsed.quality;
+  const quality = parsed.harmonyQuality;
   if (quality === 'min') numeral = numeral.toLowerCase();
   else if (quality === 'dim') numeral = numeral.toLowerCase() + '°';
   else if (quality === 'aug') numeral += '+';
@@ -23113,18 +23299,20 @@ function detectClearModalContext(chords, key) {
   return candidates.length === 1 ? candidates[0] : null;
 }
 function isSecondaryDominant(parsed, nextParsed, key) {
-  if (!parsed || !nextParsed || parsed.quality !== 'maj') return false;
+  if (!parsed || !nextParsed || parsed.harmonyQuality !== 'maj') return false;
   // B-101 (кирпич 4): уменьшённое трезвучие обычно не тонизируют, поэтому
   // V/vii° функцией не считается. Раньше F#7 -> Bdim в C давало true.
   if (nextParsed.quality === 'dim') return false;
   const targetDegree = getHarmonyModeDegree(nextParsed, key, getHarmonyBaseMode(key));
   if (targetDegree < 0) return false;
+  // 0.601: тоника не бывает целью вторичной доминанты (E9 → Am — это V, а не V/i).
+  if (targetDegree === 0) return false;
   const sourceIndex = CHROMATIC.indexOf(parsed.root);
   const targetIndex = CHROMATIC.indexOf(nextParsed.root);
   return sourceIndex >= 0 && targetIndex >= 0 && (sourceIndex - targetIndex + 12) % 12 === 7;
 }
 function getMinorVariantFunction(parsed, nextParsed, key) {
-  if (getHarmonyBaseMode(key) !== 'aeolian' || !parsed || parsed.quality !== 'maj') return null;
+  if (getHarmonyBaseMode(key) !== 'aeolian' || !parsed || parsed.harmonyQuality !== 'maj') return null;
   const harmonicDegree = getHarmonyModeDegree(parsed, key, 'harmonic-minor');
   // Major V in a minor key is the conventional leading-tone dominant even
   // alone; calling it a vague borrow loses the most useful musical meaning.
@@ -23134,10 +23322,21 @@ function getMinorVariantFunction(parsed, nextParsed, key) {
   const melodicDegree = getHarmonyModeDegree(parsed, key, 'melodic-minor');
   // IV major becomes an honest melodic-minor clue when it immediately leads
   // to the same raised-leading-tone V (Am–C–D–E is the motivating case).
-  if (melodicDegree === 3 && nextParsed && getHarmonyModeDegree(nextParsed, key, 'harmonic-minor') === 4 && nextParsed.quality === 'maj') {
+  if (melodicDegree === 3 && nextParsed && getHarmonyModeDegree(nextParsed, key, 'harmonic-minor') === 4 && nextParsed.harmonyQuality === 'maj') {
     return { mode: 'melodic-minor', detail: 'melodic-minor-subdominant', function: 'IV', degree: 'IV', confidence: 'contextual' };
   }
   return null;
+}
+// 0.601 (решение пользователя): мажорный аккорд на квинте тоники, который ведёт к тонике,
+// — это V, даже если альтерирован (G7b9 → C, G7#9 → C, Gmaj7 → C в C). Без подписи V/I.
+// Та же логика для минорной тоники (E7#9 → Am): V, а не V/i.
+function isAlteredDominantOfTonic(parsed, nextParsed, key) {
+  if (!parsed || !nextParsed) return false;
+  if (parsed.harmonyQuality !== 'maj') return false;
+  if (getHarmonyModeDegree(nextParsed, key, getHarmonyBaseMode(key)) !== 0) return false;
+  const sourceIndex = CHROMATIC.indexOf(parsed.root);
+  const tonicIndex = getHarmonyTonicIndex(key);
+  return sourceIndex >= 0 && tonicIndex >= 0 && (sourceIndex - tonicIndex + 12) % 12 === 7;
 }
 function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', contextualMode = null } = {}) {
   const normalized = String(chord || '').trim();
@@ -23173,12 +23372,22 @@ function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', c
   if (minorVariant) {
     return { chord: normalized, key, group: HARMONY_GROUP.MINOR_VARIANT, ...minorVariant };
   }
+  if (isAlteredDominantOfTonic(parsed, nextParsed, key)) {
+    return {
+      chord: normalized, key, group: HARMONY_GROUP.DIATONIC, mode: null,
+      detail: 'altered-dominant', confidence: 'contextual', degree: 'V', function: 'V',
+    };
+  }
   if (isSecondaryDominant(parsed, nextParsed, key)) {
     const target = getHarmonyDegreeNameForRoot(nextParsed.root, key);
+    // B-101 (0.596): у sus-цели нет терции, поэтому цель пишем с пометкой sus,
+    // а не голой ступенью: A7 → Dsus4 — «V/ii sus4».
+    const nextChordName = String(nextParsed.chordName || '');
+    const susSuffix = /sus2/i.test(nextChordName) ? ' sus2' : /sus/i.test(nextChordName) ? ' sus4' : '';
     return {
       chord: normalized, key, group: HARMONY_GROUP.SECONDARY_FUNCTION, mode: null,
       detail: 'secondary-dominant', confidence: 'contextual', degree,
-      function: target ? `V/${target}` : 'V/x',
+      function: target ? `V/${target}${susSuffix}` : 'V/x',
     };
   }
   if (contextualMode && isHarmonyChordInMode(parsed, key, contextualMode)) {
@@ -23194,6 +23403,18 @@ function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', c
   const matchingModes = Object.keys(HARMONY_MODE_PROFILES)
     .filter((mode) => mode !== baseMode && !isMinorVariantMode(mode) && isHarmonyChordInMode(parsed, key, mode));
   const isParallelBorrowing = isHarmonyChordInMode(parsed, key, parallelMode);
+  // 0.599: одиночный заимствованный аккорд (Bb в C) получает слабую группу и степень
+  // из круга — тот же getBorrowingMenuProfile. Лад называется, только если он единственный.
+  // mode остаётся null: круг и логика кандидатов от этого не меняются.
+  const menuProfile = getBorrowingMenuProfile(normalized, key);
+  const borrowedModes = menuProfile?.modes || [];
+  if (menuProfile?.degree && borrowedModes.length) {
+    return {
+      chord: normalized, key, group: HARMONY_GROUP.BORROWED_UNCONFIRMED, mode: null,
+      detail: 'borrowed-unconfirmed', confidence: 'weak', degree: menuProfile.degree,
+      candidates: borrowedModes,
+    };
+  }
   // Без подтверждённого контекста интерфейс остаётся нейтральным: он не
   // выдумывает лад и не добавляет отдельную категорию. Кандидаты остаются
   // только диагностическими данными анализатора.
@@ -23206,11 +23427,34 @@ function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', c
 function analyzeSectionHarmony(section, key = section?.key || getEffectiveKey()) {
   const chords = getHarmonySectionChordNames(section);
   const contextualMode = detectClearModalContext(chords, key);
-  return chords.map((chord, index) => analyzeChordHarmony(chord, key, {
+  const answers = chords.map((chord, index) => analyzeChordHarmony(chord, key, {
     previousChord: chords[index - 1] || '',
     nextChord: chords[index + 1] || '',
     contextualMode,
   }));
+  applySecondaryDominantChains(chords, answers);
+  return answers;
+}
+// 0.599 (решение пользователя): цепочка вторичных доминант считается С КОНЦА. Цель
+// (диатоничная или уже подписанная вторичная доминанта) задаёт метку звена слева:
+// E → A → D → G даёт D = V/V, A = V/V/V, E = V/V/V/V.
+function applySecondaryDominantChains(chords, answers) {
+  for (let i = answers.length - 2; i >= 0; i--) {
+    const next = answers[i + 1];
+    const cur = answers[i];
+    if (!next || !cur || next.group !== HARMONY_GROUP.SECONDARY_FUNCTION || !next.function) continue;
+    if (cur.group === HARMONY_GROUP.SECONDARY_FUNCTION) continue;
+    const parsed = parseChordForKeyDetection(chords[i]);
+    const nextParsed = parseChordForKeyDetection(chords[i + 1]);
+    if (!parsed || !nextParsed || parsed.harmonyQuality !== 'maj' || nextParsed.quality === 'dim') continue;
+    const rootIdx = CHROMATIC.indexOf(parsed.root);
+    const targetIdx = CHROMATIC.indexOf(nextParsed.root);
+    if (rootIdx < 0 || targetIdx < 0 || (rootIdx - targetIdx + 12) % 12 !== 7) continue;
+    answers[i] = {
+      ...cur, group: HARMONY_GROUP.SECONDARY_FUNCTION, mode: null,
+      detail: 'secondary-dominant', confidence: 'contextual', function: `V/${next.function}`,
+    };
+  }
 }
 window.HARMONY_GROUP = HARMONY_GROUP;
 window.HARMONY_MODE_LABELS = HARMONY_MODE_LABELS;
@@ -23234,10 +23478,11 @@ function getSectionHarmonyEventMap(section, key = section?.key || getEffectiveKe
 function isHarmonyPresentationEnabled() {
   // B-99 — расширенная расшифровка ступеней: пользователь видит её только
   // вместе с явно включённой настройкой «Ступени».
-  return document.getElementById('showDegrees')?.checked === true;
+  return isHarmonyHighlightsOptionOn();
 }
 function getHarmonyPresentationProfile(analysis) {
   if (!analysis || analysis.group === HARMONY_GROUP.UNKNOWN) return null;
+  if (analysis.group === HARMONY_GROUP.BORROWED_UNCONFIRMED) return HARMONY_PRESENTATION_PROFILE.BORROWED_UNCONFIRMED;
   if (analysis.mode && HARMONY_MODE_PROFILES[analysis.mode]) return analysis.mode;
   if (analysis.group === HARMONY_GROUP.SECONDARY_FUNCTION) return HARMONY_PRESENTATION_PROFILE.SECONDARY;
   return null;
@@ -23252,6 +23497,10 @@ function getHarmonyAccessibleText(analysis) {
   const degreeText = degree ? ` Ступень ${degree}.` : '';
   if (analysis.group === HARMONY_GROUP.SECONDARY_FUNCTION) {
     return `${chord}Прикладная функция: вторичная доминанта ${analysis.function || 'V/x'}.`;
+  }
+  if (analysis.group === HARMONY_GROUP.BORROWED_UNCONFIRMED) {
+    const named = analysis.candidates?.length === 1 ? ` Лад: ${getHarmonyModeLabel(analysis.candidates[0])}.` : '';
+    return `${chord}Заимствованный аккорд, не подтверждён контекстом секции.${named}${degreeText}`;
   }
   const modeLabel = getHarmonyModeLabel(analysis.mode);
   if (analysis.detail === 'harmonic-minor-dominant') return `${chord}${modeLabel}: доминанта V.${degreeText}`;
@@ -23567,6 +23816,7 @@ function setWheelHarmonyModeEnabled(mode, enabled) {
   if (enabled) wheelHarmonyDisabledModes.delete(mode);
   else wheelHarmonyDisabledModes.add(mode);
   persistWheelHarmonyModeVisibility();
+  if (enabled) activateHarmonyHighlightsFromLegend();
   hideWheelHarmonyHoverTooltip();
   if (!isDevWheel410()) drawWheel();
   else applyWheelHarmonyModeVisibility();
@@ -23693,8 +23943,59 @@ function getActiveWheelHarmonyContext(key) {
 }
 
 let cachedChordWrappers = [];
+// 0.604 (решение пользователя): в ячейке длинная цепочка усечена до трёх звеньев
+// («V/V/V/V» → «V/V/V…»), полная цепочка — в подсказке. Круг строит подписи по одному
+// аккорду, поэтому там цепочек нет; эта функция их не трогает.
+// 0.607: в ячейке прикладная функция V/x не показывается. Ячейка показывает
+// корневую ступень самого аккорда (E в C — III, A — VI), а цепочка и V/x
+// доступны в подсказке. Остальные функции (I, ii, V, bVII…) не меняются.
+function getCellDegreeLabel(analysis, chord = '', key = '') {
+  const fn = String(analysis?.function || '');
+  const fallback = chord && key ? getScaleDegree(chord, key) : '';
+  if (fn.startsWith('V/')) return analysis?.degree || fallback || '';
+  return fn || analysis?.degree || fallback || '';
+}
+function getShortChainDegreeLabel(deg) {
+  const text = String(deg || '');
+  const parts = text.split('/');
+  return parts.length > 3 ? `${parts.slice(0, 3).join('/')}…` : text;
+}
+// Звено цепочки: его подпись = 'V/' + подпись следующего звена (как в applySecondaryDominantChains).
+// Подсказка перечисляет аккорды от первого звена до цели цепочки.
+function getHarmonyChainTooltip(section, key, squareId, eventIndex) {
+  if (!section || !key) return '';
+  const entries = [];
+  (section.squares || []).forEach((square) => (square.events || []).forEach((event, ei) => {
+    if (String(event?.chord || '').trim()) entries.push({ id: `${square.id}:${ei}`, chord: String(event.chord).trim() });
+  }));
+  const pos = entries.findIndex((entry) => entry.id === `${squareId}:${eventIndex}`);
+  if (pos < 0) return '';
+  const answers = analyzeSectionHarmony(section, key);
+  const fn = (i) => answers[i]?.function || '';
+  // Цель цепочки может быть диатоничной (без function): тогда её степень — degree.
+  const label = (i) => answers[i]?.function || answers[i]?.degree || '';
+  if (!fn(pos).startsWith('V/')) return '';
+  const linksTo = (i) => i + 1 < entries.length && fn(i).startsWith('V/') && fn(i) === `V/${label(i + 1)}`;
+  let first = pos;
+  while (first > 0 && linksTo(first - 1)) first--;
+  let end = pos;
+  while (linksTo(end)) end++;
+  return `Цепочка вторичных доминант: ${entries.slice(first, end + 1).map((e) => e.chord).join(' → ')} (${fn(first)})`;
+}
+// 0.608: подсказка ячейки. Цепочка — если есть; иначе прикладная функция
+// самого аккорда (E → V/vi, A → V/ii), которую ячейка не показывает основной
+// подписью. Основная подпись остаётся корневой ступенью.
+function getHarmonyCellTooltip(section, key, squareId, eventIndex) {
+  const chain = getHarmonyChainTooltip(section, key, squareId, eventIndex);
+  if (chain) return chain;
+  const square = (section?.squares || []).find((sq) => String(sq.id) === String(squareId));
+  const chord = String(square?.events?.[eventIndex]?.chord || '').trim();
+  if (!chord || !key) return '';
+  const label = getBorrowingMenuProfile(chord, key)?.secondaryFunction || '';
+  return label ? `Прикладная функция: ${label}` : '';
+}
 function syncDegreeHintForWrapper(w) {
-  if (!w || !document.getElementById('showDegrees')?.checked) return;
+  if (!w || !isDegreeLabelsOptionOn()) return;
   const inp = w.querySelector('.chord-input');
   if (!inp) return;
   const secId = +w.dataset.sec;
@@ -23706,7 +24007,7 @@ function syncDegreeHintForWrapper(w) {
     : null;
   // «Ступени» теперь показывают и функцию изменённого аккорда: IV/V
   // остаются читаемыми в Am–C–D–E, а V/V — честной прикладной функцией.
-  const deg = analysis?.function || analysis?.degree || (chord ? getScaleDegree(chord, key) : '');
+  const deg = getCellDegreeLabel(analysis, chord, key);
   // Ступень живёт ВНУТРИ .chord-display, первым ребёнком. Так она
   // попадает в тот же центрируемый столбик, что и имя аккорда, и пара
   // держится вместе (как .tl-degree внутри .tl-cell-name в ленте).
@@ -23722,7 +24023,8 @@ function syncDegreeHintForWrapper(w) {
   if (span.parentNode !== disp || disp.firstChild !== span) {
     disp.insertBefore(span, disp.firstChild);
   }
-  span.textContent = deg;
+  span.textContent = getShortChainDegreeLabel(deg);
+  span.title = getHarmonyCellTooltip(sec, key, w.dataset.square, w.dataset.ei);
   span.style.display = deg ? '' : 'none';
   // Прячем ступень, только когда сама цифра не влезает по ширине
   // ячейки. Ритм больше не мешает: он опустился под строку ступени
@@ -23734,17 +24036,18 @@ function syncDegreeHintForWrapper(w) {
   w.classList.toggle('is-degree-tight', deg && needed > w.offsetWidth);
 }
 function renderDegreesInCells() {
-  if (!document.getElementById('showDegrees')?.checked) return;
+  if (!isDegreeLabelsOptionOn()) return;
   for (const w of cachedChordWrappers) syncDegreeHintForWrapper(w);
 }
 function updateCellsDegrees() {
-  const show = document.getElementById('showDegrees')?.checked;
+  const show = isDegreeLabelsOptionOn();
+  const highlights = isHarmonyHighlightsOptionOn();
   // Класс на контейнере: по нему CSS сдвигает превью боя вправо, чтобы
   // освободить угол под цифру ступени. Ставим на контейнер, а не на
   // каждую ячейку — одна запись вместо сотни.
   DOM.sectionsContainer?.classList.toggle('is-degrees-on', !!show);
-  document.body.classList.toggle('is-harmony-highlights-on', !!show);
-  DOM.chordWheelModal?.classList.toggle('is-harmony-highlights-on', !!show);
+  document.body.classList.toggle('is-harmony-highlights-on', !!highlights);
+  DOM.chordWheelModal?.classList.toggle('is-harmony-highlights-on', !!highlights);
   syncWheelHarmonyLegendToggleVisibility();
   if (show) renderDegreesInCells();
   else
@@ -23777,7 +24080,10 @@ function transposeChord(chord, st) {
   const sfMap = { 'C#': 'Db', 'D#': 'Eb', 'F#': 'Gb', 'G#': 'Ab', 'A#': 'Bb' };
   const fsMap = { Db: 'C#', Eb: 'D#', Gb: 'F#', Ab: 'G#', Bb: 'A#' };
   const wasFlat = root.includes('b');
-  root = fsMap[root] || root;
+  // B-101 (0.596): E#, B#, Fb, Cb — тот же звук, что F, C, E, B. Сдвиг считаем
+  // по высоте, а результат пишем обычным путём (флаговость — по исходному написанию).
+  const pitchRoot = { 'E#': 'F', 'B#': 'C', Fb: 'E', Cb: 'B' };
+  root = fsMap[root] || pitchRoot[root] || root;
   const ci = CHROMATIC.indexOf(root);
   if (ci === -1) return chord;
   const ni = (ci + st + 12) % 12;
@@ -23790,7 +24096,7 @@ function transposeChord(chord, st) {
     if (bm) {
       let br = bm[1];
       const bwf = br.includes('b');
-      br = fsMap[br] || br;
+      br = fsMap[br] || pitchRoot[br] || br;
       const bi = CHROMATIC.indexOf(br);
       if (bi !== -1) {
         const nbi = (bi + st + 12) % 12;
@@ -29640,6 +29946,12 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm) {
     cd = qd / 4;
     cpb = beats * (4 / div) * 4;
   }
+  // B-101 (0.596): в составном размере пульс — долевая четверть, и граница
+  // группы (6/8: 3+3, 9/8: 3+3+3) — это вторая доля. Раньше она не выделялась.
+  if (effectiveSubdivision === 1 && compound) {
+    let acc8 = 0;
+    getBeatGrouping(ts).forEach((g) => { if (acc8 > 0) midClicks.add(acc8 / 3); acc8 += g; });
+  }
   // Вторичные акценты по группировке (6/8: 3+3, 7/8: 2+2+3) — когда клик идёт по восьмым и мельче.
   if (div === 8 && !(effectiveSubdivision === 1 && compound)) {
     const clicksPerEighth = (qd / 2) / cd;
@@ -32998,14 +33310,14 @@ function setWheelHarmonyLegendOpen(open) {
   const button = document.getElementById('wheelHarmonyLegendToggle');
   const legend = document.getElementById('wheelHarmonyLegend');
   if (!button || !legend) return;
-  const expanded = !!open && !button.hidden && isHarmonyPresentationEnabled();
+  const expanded = !!open && !button.hidden && isWheelHelpAvailable();
   legend.hidden = !expanded;
   button.setAttribute('aria-expanded', String(expanded));
 }
 function syncWheelHarmonyLegendToggleVisibility() {
   const button = document.getElementById('wheelHarmonyLegendToggle');
   if (!button) return;
-  const visible = isHarmonyPresentationEnabled();
+  const visible = isWheelHelpAvailable();
   if (!visible) setWheelHarmonyLegendOpen(false);
   button.hidden = !visible;
   // Кнопка справки входит в нижнюю дугу и выходит из неё вместе с тем же water-motion.
@@ -33042,7 +33354,7 @@ function bindWheelHarmonyLegend() {
   button.addEventListener('click', (event) => {
     event.preventDefault();
     event.stopPropagation();
-    if (button.hidden || !isHarmonyPresentationEnabled()) {
+    if (button.hidden || !isWheelHelpAvailable()) {
       setWheelHarmonyLegendOpen(false);
       return;
     }
@@ -33841,7 +34153,7 @@ const WHEEL_IDLE_WATER_FRAME_INTERVAL_MS = 50;
 // Continuous SVG-card drift caused multi-second compositor stalls on Chromium
 // with the complete layered wheel. Pointer hover and retarget motion stay on;
 // the ambient control-tab water remains available at a lower sample rate.
-const WHEEL_IDLE_CARD_WATER_ENABLED = false;
+const WHEEL_IDLE_CARD_WATER_ENABLED = true;
 const WHEEL_IDLE_WATER_MAX_X = 1.2;
 const WHEEL_IDLE_WATER_MAX_Y = 0.9;
 // Между карточками water-vector не прыгает к независимой фазе новой card:
@@ -35150,7 +35462,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   };
   const sk = activeSectionKey || getEffectiveKey();
   const ks = getKeyStyle(sk);
-  const sd = document.getElementById('showDegrees')?.checked === true;
+  const sd = isDegreeLabelsOptionOn();
   const dr = wheelModeIsDualRing(wheelMode);
   // Candidate panes are the established triad-menu presentation only. Other
   // quality tabs use one enabled full-chord candidate as a solid card color;
@@ -35197,7 +35509,7 @@ function drawWheel({ crossfadeLabels = false } = {}) {
   // remain exclusive to the triad tab.
   const applyWheelHarmony = (sector, label, analysis) => {
     const group = analysis?.group;
-    const profile = getHarmonyPresentationProfile(analysis);
+    const profile = group === HARMONY_GROUP.BORROWED_UNCONFIRMED ? null : getHarmonyPresentationProfile(analysis);
     if (!group || group === HARMONY_GROUP.UNKNOWN || !profile) {
       [sector, label].filter(Boolean).forEach((node) => {
         delete node.dataset.wheelModePresentation;
@@ -35758,7 +36070,7 @@ function drawWheel410() {
     ao = -Math.PI / 2 - sa / 2;
   const sk = activeSectionKey || getEffectiveKey();
   const ks = getKeyStyle(sk);
-  const sd = document.getElementById('showDegrees')?.checked === true;
+  const sd = isDegreeLabelsOptionOn();
   const dr = wheelModeIsDualRing(wheelMode);
   const frag = document.createDocumentFragment();
   for (let i = 0; i < n; i++) {
@@ -36020,8 +36332,68 @@ function selectChord410(chord) {
 }
 
 function toggleDegreesOnWheel() {
+  syncDegreesSubOptions();
   drawWheel();
   updateCellsDegrees();
+}
+// 0.605: пункт «Ступени и лады» — родитель с двумя подпунктами. Родитель
+// включает оба подпункта и раскрывает их; снятие родителя выключает и
+// сворачивает. Снятие обоих подпунктов сворачивает группу и снимает родителя.
+// Ступени (подписи в ячейках, ленте и на секторах круга) и подсветка ладов
+// управляются независимо друг от друга.
+function isDegreeLabelsOptionOn() {
+  const parent = document.getElementById('showDegrees');
+  if (!parent || parent.checked !== true) return false;
+  return document.getElementById('showDegreeLabels')?.checked !== false;
+}
+function isHarmonyHighlightsOptionOn() {
+  const parent = document.getElementById('showDegrees');
+  if (!parent || parent.checked !== true) return false;
+  return document.getElementById('showHarmonyHighlights')?.checked !== false;
+}
+// 0.606: меню «?» (палитра ладов и V/x) доступно, если включена хотя бы одна
+// опция «Ступени и лады»: ступени или подсветка ладов.
+function isWheelHelpAvailable() {
+  return isDegreeLabelsOptionOn() || isHarmonyHighlightsOptionOn();
+}
+// Галочка ладa в меню «?» («подсветка на круге») включает подсветку ладов,
+// если она выключена: родитель и подпункт «Показывать подсветку ладов».
+function activateHarmonyHighlightsFromLegend() {
+  if (isHarmonyHighlightsOptionOn()) return;
+  const parent = document.getElementById('showDegrees');
+  const highlights = document.getElementById('showHarmonyHighlights');
+  if (parent) parent.checked = true;
+  if (highlights) highlights.checked = true;
+  syncDegreesSubOptions();
+  updateCellsDegrees();
+}
+function syncDegreesSubOptions() {
+  const parent = document.getElementById('showDegrees');
+  const group = document.getElementById('degreesSubOptions');
+  if (!group) return;
+  const open = parent?.checked === true;
+  group.classList.toggle('is-open', open);
+  const inner = group.firstElementChild;
+  if (inner) inner.inert = !open;
+  // 0.608: без тональности включённые опции ничего не меняют — говорим об этом.
+  const hint = document.getElementById('degreesNoKeyHint');
+  if (hint) hint.hidden = !(open && !getEffectiveKey());
+}
+function onDegreesParentChange() {
+  const parent = document.getElementById('showDegrees');
+  const on = parent?.checked === true;
+  const labels = document.getElementById('showDegreeLabels');
+  const highlights = document.getElementById('showHarmonyHighlights');
+  if (labels) labels.checked = on;
+  if (highlights) highlights.checked = on;
+  toggleDegreesOnWheel();
+}
+function onDegreesChildChange() {
+  const parent = document.getElementById('showDegrees');
+  const labels = document.getElementById('showDegreeLabels');
+  const highlights = document.getElementById('showHarmonyHighlights');
+  if (parent) parent.checked = labels?.checked === true || highlights?.checked === true;
+  toggleDegreesOnWheel();
 }
 
 // ========== B-40: КОНТЕКСТНЫЙ КРУГ ==========
@@ -36554,7 +36926,8 @@ function refreshWheelHarmonyPresentation() {
     delete node.dataset.wheelSecondaryTargetDegree;
     delete node.dataset.wheelSecondaryFunctionMode;
     const analysis = analyzeWheelCandidate(node.dataset.wheelChordIdentity);
-    const strictProfile = getHarmonyPresentationProfile(analysis);
+    const strictProfile = analysis.group === HARMONY_GROUP.BORROWED_UNCONFIRMED
+      ? null : getHarmonyPresentationProfile(analysis);
     const menu = tooltipMenuMode
       ? getBorrowingMenuProfile(node.dataset.wheelChordIdentity, context.key)
       : null;
@@ -39738,7 +40111,7 @@ function normalizeRussianChord(input) {
   return result.replace(/(\d+)(?=.*\1)/, '');
 }
 function nashvilleToChord(input, key) {
-  if (!input) return null;
+  if (!input || !key) return null; // 0.602: без тональности не переводим и не падаем
   const raw = input.trim();
   // Раньше здесь всё приводилось к нижнему регистру, и I/i, V/v были
   // неразличимы. Регистр нужен римским цифрам — сохраняем исходную строку.
@@ -39780,18 +40153,20 @@ function nashvilleToChord(input, key) {
     major: { steps: [0, 2, 4, 5, 7, 9, 11], qualities: ['', 'm', 'm', '', '', 'm', 'dim'] },
     minor: { steps: [0, 2, 3, 5, 7, 8, 10], qualities: ['m', 'dim', '', 'm', 'm', '', ''] },
   };
-  // Числа Нэшвилла в миноре идут от ОТНОСИТЕЛЬНОГО мажора (конвенция,
-  // выбранная пользователем): в Am нумерация та же, что в C — 1=C, 6m=Am,
-  // то есть тоника минорной песни имеет номер 6.
+  // Числа Нэшвилла: в мажоре — от тоники (1=C, 4=F в C); в миноре — от МИНОРНОЙ
+  // тоники, натуральный минор (0.598, решение пользователя): в Am 1=Am, 3=C,
+  // 6=F, 7=G. Раньше миноры считались от относительного мажора (6=Am).
   const NASHVILLE_NUMBER_STEPS = [0, 2, 4, 5, 7, 9, 11];
   const NASHVILLE_NUMBER_QUALITY = ['', 'm', 'm', '', '', 'm', 'dim'];
+  const numSteps = isMinorKey ? NASHVILLE_SCALE.minor.steps : NASHVILLE_NUMBER_STEPS;
+  const numQual = isMinorKey ? NASHVILLE_SCALE.minor.qualities : NASHVILLE_NUMBER_QUALITY;
   // Остаток после ступени должен быть похож на суффикс аккорда. Без этого
   // проверки мусор вида «Ci» (от «ii», где совпало «i») уходил в файл песни
   // как имя аккорда: валидатора имён в приложении нет.
   const NASHVILLE_SUFFIX_RE =
     /^(?:m|maj|min|dim|aug|sus|add|\d|\(|\)|,|#|b|-|\+|Δ|°|ø|\/[A-G][#b]?)*$/i;
 
-  const numberTonicIndex = isMinorKey ? (tonicIndex + 3) % 12 : tonicIndex;
+  const numberTonicIndex = tonicIndex;
 
   // Написание: по стилю тональности, но альтерированная ступень пишется по
   // СВОЕМУ знаку — иначе «b7» в C давало A#, а не Bb (жалоба из списка).
@@ -39801,6 +40176,37 @@ function nashvilleToChord(input, key) {
     if (preferFlat && SHARP_TO_FLAT[note]) return SHARP_TO_FLAT[note];
     if (getKeyStyle(key) === 'flat') note = SHARP_TO_FLAT[note] || note;
     return note;
+  }
+
+  // 0.598: слэш-аккорд в Нэшвилле: «5/7» = G/B, «1/3» = C/E. Верхняя часть
+  // разбирается обычным путём, нижняя — число или римская ступень той же
+  // тональности (те же правила, что и у верхней), либо буквенное имя («5/B»).
+  const slashAt = raw.indexOf('/');
+  if (slashAt > 0) {
+    const upper = nashvilleToChord(raw.slice(0, slashAt), key);
+    if (!upper) return null;
+    const bassPart = raw.slice(slashAt + 1).trim();
+    let bassNote = null;
+    const bm = bassPart.match(/^([#♯b♭]?)(\d)$/);
+    if (bm) {
+      const n = parseInt(bm[2], 10);
+      const alt = bm[1] === '#' || bm[1] === '♯' ? 1 : bm[1] ? -1 : 0;
+      if (n >= 1 && n <= 7) {
+        bassNote = spellFrom((numberTonicIndex + numSteps[n - 1] + alt + 24) % 12, alt < 0, alt > 0);
+      }
+    } else if (/^[#♯b♭]?(vii|iii|vi|iv|ii|v|i)$/i.test(bassPart)) {
+      const acc = /^[#♯]/.test(bassPart) ? 1 : /^[b♭]/.test(bassPart) ? -1 : 0;
+      const sym = bassPart.replace(/^[#♯b♭]/, '').toLowerCase();
+      const hit = NASHVILLE_ROMAN.find((r) => r.symbol === sym);
+      if (hit) {
+        const sc = isMinorKey ? NASHVILLE_SCALE.minor : NASHVILLE_SCALE.major;
+        bassNote = spellFrom((tonicIndex + sc.steps[hit.degree - 1] + acc + 24) % 12, acc < 0, acc > 0);
+      }
+    } else if (/^[A-G][#b♭♯]?$/.test(bassPart)) {
+      bassNote = bassPart.replace('♭', 'b').replace('♯', '#');
+    }
+    if (!bassNote) return null;
+    return upper + '/' + bassNote;
   }
 
   let step = null, // полутоны от тоники — для русских слов
@@ -39870,11 +40276,11 @@ function nashvilleToChord(input, key) {
       const alter = m[1] === '#' || m[1] === '♯' ? 1 : m[1] ? -1 : 0;
       const num = parseInt(m[2], 10);
       if (num >= 1 && num <= 7) {
-        const base = NASHVILLE_NUMBER_STEPS[num - 1];
+        const base = numSteps[num - 1];
         rootIndex = (numberTonicIndex + base + alter + 24) % 12;
         // Альтерированная ступень читается как мажорное трезвучие (b7 = bVII),
-        // обычная — диатоническим качеством мажорной сетки нумерации.
-        forcedQuality = alter !== 0 ? '' : NASHVILLE_NUMBER_QUALITY[num - 1];
+        // обычная — диатоническим качеством сетки нумерации (мажор или минор).
+        forcedQuality = alter !== 0 ? '' : numQual[num - 1];
         remainingSuffix = m[3];
         if (alter > 0) preferSharp = true;
         if (alter < 0) preferFlat = true;
@@ -39909,12 +40315,27 @@ function nashvilleToChord(input, key) {
   let chord = chordRoot + chordType + remainingSuffix.trim();
   return chord.replace(/\s+/g, '').replace(/m\s*m/, 'm');
 }
+// 0.602: признак нэшвиллского ввода без тональности. Буквенные имена (C, Bb, Dm7, b7 = B7)
+// сюда не попадают; проверка через 'C' — только для распознавания записи, в ячейку не пишется.
+function looksLikeNashvilleWithoutKey(raw) {
+  const s = String(raw || '').trim();
+  if (!s || /^[A-G]/.test(s)) return false;
+  if (/^[a-g]/.test(s) && !/^b[IVX]/.test(s)) return false;
+  // Синтаксис Нэшвилла (цифра, #, римская, bVII) — даже если ступень не распознана (1/x).
+  return /^[#1-7ivIV]/.test(s) || /^b[IVX]/.test(s) || nashvilleToChord(s, 'C') !== null;
+}
 function saveCurrentChord() {
   if (!activeChordInput) return false;
   const rawChord = activeChordInput.value.trim();
   let chord = rawChord;
   if (chord) {
     const currentKey = getEffectiveKey();
+    // 0.602 (решение пользователя): без тональности Нэшвилл не переводится, и такой ввод
+    // в песню не пишется — только подсказка. Глобальную тональность не подставляем.
+    if (!currentKey && looksLikeNashvilleWithoutKey(rawChord)) {
+      showToast('Задайте тональность или введите аккорд буквами');
+      return false;
+    }
     // B-101 (кирпич 3): Нэшвилл разбирается ДО нормализации регистра.
     // «bVII» начинается со знака альтерации, и normalizeChordCase превращала
     // её в «Bvii» — то есть в аккорд B, а не в пониженную VII ступень.
@@ -41301,12 +41722,13 @@ function buildTimelineCell(sec, sq, ev, ei, parentTs, dist, secPass, sqPass, har
     // в меню «Тык»). Раньше в ленте её не было вовсе: renderDegreesInCells
     // обходит cachedChordWrappers, то есть ТОЛЬКО ячейки редактора.
     // Тональность берём как там же: своя у секции, иначе общая.
-    if (document.getElementById('showDegrees')?.checked) {
-      const deg = harmony?.function || harmony?.degree || getScaleDegree(chord, sec.key || getEffectiveKey());
+    if (isDegreeLabelsOptionOn()) {
+      const deg = getCellDegreeLabel(harmony, chord, sec.key || getEffectiveKey());
       if (deg) {
         const d = document.createElement('span');
         d.className = 'tl-degree';
-        d.textContent = deg;
+        d.textContent = getShortChainDegreeLabel(deg);
+        d.title = getHarmonyCellTooltip(sec, sec.key || getEffectiveKey(), sq.id, ei);
         name.appendChild(d);
       }
     }
@@ -44788,7 +45210,7 @@ function syncEventChordDom(sec, sq, ei) {
       inp.value = ev.chord || '';
       syncChordDisplay(inp);
     }
-    if (document.getElementById('showDegrees')?.checked) syncDegreeHintForWrapper(cw);
+    if (isDegreeLabelsOptionOn()) syncDegreeHintForWrapper(cw);
     else {
       const hint = cw.querySelector('.degree-hint');
       if (hint) hint.remove();
