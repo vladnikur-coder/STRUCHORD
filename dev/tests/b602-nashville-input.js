@@ -14,7 +14,7 @@ const { JSDOM } = require('jsdom');
 
 const html = fs.readFileSync(path.join(__dirname, '..', '..', 'STRUCHORD.html'), 'utf8');
 const dom = new JSDOM(html, {
-  runScripts: 'dangerously', pretendToBeVisual: true, url: 'https://localhost/',
+  runScripts: 'dangerously', pretendToBeVisual: true, url: 'https://localhost/?view=editor',
   beforeParse(win) {
     win.requestAnimationFrame = (cb) => setTimeout(cb, 0);
     win.cancelAnimationFrame = (id) => clearTimeout(id);

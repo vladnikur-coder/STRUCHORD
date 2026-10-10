@@ -35,7 +35,7 @@ function ok(name, condition, detail = '') {
 
   try {
     const appUrl = pathToFileURL(path.resolve(__dirname, '../../STRUCHORD.html')).href;
-    await page.goto(`${appUrl}?b40-quality-face=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
+    await page.goto(`${appUrl}?view=editor&b40-quality-face=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction(() =>
       typeof addSection === 'function' && typeof openChordWheel === 'function',
     { timeout: 30000 });

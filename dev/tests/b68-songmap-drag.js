@@ -8,10 +8,10 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 let fails = 0;
 const ok = (name, cond, extra = '') => { console.log(`   ${cond ? 'ok  ' : 'FAIL'} ${name}${extra ? ' — ' + extra : ''}`); if (!cond) fails++; };
 (async () => {
-  const browser = await puppeteer.launch({ args: [...sparticuz.args, '--no-sandbox'], executablePath: await sparticuz.executablePath(), headless: 'shell', defaultViewport: { width: 1400, height: 1000 }, env: { ...process.env, LD_LIBRARY_PATH: ['/tmp/libs/al2023/lib', '/tmp/dist/Release/lib', process.env.LD_LIBRARY_PATH].filter(Boolean).join(':') } });
+  const browser = await puppeteer.launch({ args: [...sparticuz.args, '--no-sandbox'], executablePath: await sparticuz.executablePath(), headless: 'shell', defaultViewport: { width: 1400, height: 1000 }, env: { ...process.env, LD_LIBRARY_PATH: ['/tmp/al2023/lib', '/tmp/libs/al2023/lib', '/tmp/dist/Release/lib', process.env.LD_LIBRARY_PATH].filter(Boolean).join(':') } });
   const page = await browser.newPage();
   const errors = []; page.on('pageerror', (e) => errors.push(String(e)));
-  await page.goto(`http://127.0.0.1:8000/STRUCHORD.html?b68=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
+  await page.goto(`http://127.0.0.1:8000/STRUCHORD.html?view=editor&b68=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
   await page.waitForFunction('typeof addSection === "function"');
   await page.evaluate(() => {
     const mk = (id, type) => ({ id, type, customName: null, key: 'C', timeSig: null, bpm: 0, repeat: id === 3 ? 2 : 1, strumPattern: null,
