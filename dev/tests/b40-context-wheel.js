@@ -266,7 +266,7 @@ w.addEventListener('load', () => {
       /html\[data-theme='dark'\] #circleSvg \.wheel-sector-volume\[data-wheel-diatonic='true'\] \{\s*fill: url\(#wheel-card-volume-diatonic-overlay\);/.test(wheelSource) &&
       /overlay\.setAttribute\('data-wheel-diatonic', sector\.getAttribute\('data-wheel-diatonic'\) \|\| 'false'\);/.test(wheelSource) &&
       /const incomingNeighborNodes = allowsWheelHoverMotion\(\)\s*\?\s*getWheelNeighborSpreadNodes\(position\)\s*:\s*\[\];/.test(wheelSource) &&
-      /const WHEEL_IDLE_CARD_WATER_ENABLED = false/.test(wheelSource) &&
+      /const WHEEL_IDLE_CARD_WATER_ENABLED = true/.test(wheelSource) &&
       /function getWheelIdleWaterNodes\(svg\)/.test(wheelSource) &&
       /function startWheelIdleMotion\(nodes, \{ force = false \} = \{\}\)/.test(wheelSource) &&
       /function pauseWheelIdleMotionForRetarget\(\)/.test(wheelSource) &&
@@ -454,10 +454,8 @@ w.addEventListener('load', () => {
       d.querySelectorAll('#circleSvg .wheel-sector.is-wheel-selected').length === 1 &&
       d.querySelector('#circleSvg .wheel-sector.is-wheel-selected')?.dataset.wheelRing === 'major' &&
       d.querySelectorAll('#circleSvg .wheel-chord-label.is-wheel-selected').length === 1);
-    ok('штатный SVG не запускает непрерывный idle-water compositor-loop',
-      w.eval('wheelIdleMotionState') === null &&
-      !d.getElementById('circleSvg').classList.contains('wheel-idle-water-active') &&
-      w.eval('WHEEL_IDLE_CARD_WATER_ENABLED') === false);
+    ok('штатный SVG включает idle-water loop круга (флаг true, 0.609)',
+      w.eval('WHEEL_IDLE_CARD_WATER_ENABLED') === true);
     w.eval(`{
       startWheelIdleMotion(getWheelIdleWaterNodes(DOM.circleSvg), { force: true });
       writeWheelIdleWater(wheelIdleMotionState.startedAt + WHEEL_IDLE_WATER_PERIOD_MS / 8);
@@ -555,10 +553,10 @@ w.addEventListener('load', () => {
       w.eval('wheelHoverState === null || wheelGapHoverClearRaf !== 0'));
     wheelAnimationsToggle.checked = true;
     w.eval('toggleWheelAnimations()');
-    ok('повторное включение возвращает hover-motion и quality-water, но не SVG idle loop',
+    ok('повторное включение возвращает hover-motion, quality-water и SVG idle loop круга (0.609)',
       !d.documentElement.classList.contains('wheel-motion-disabled') &&
       w.eval('wheelAnimationsEnabled') === true && modal.classList.contains('wheel-floating-surface') &&
-      w.eval('wheelIdleMotionState') === null &&
+      w.eval('wheelIdleMotionState') !== null &&
       w.eval('wheelModeTabsIdleMotionState') !== null &&
       qualityIdleButtons.every((button) => button.style.getPropertyValue('--wheel-mode-idle-x') !== '') &&
       helpIdleButton.style.getPropertyValue('--wheel-mode-idle-x') !== '' &&
