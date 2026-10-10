@@ -179,7 +179,9 @@ const KEPT = (chord, key) => {
   const ks = w.eval(`getKeyStyle(${JSON.stringify(key)})`);
   return NOTES(chord, ks).filter((n) => w.eval(`noteToFrequency(${JSON.stringify(n)})`) !== null);
 };
-check('Cb4 = та же высота, что B4 (было NaN)', FREQ('Cb4') === FREQ('B4') && FREQ('Cb4') > 0, String(FREQ('Cb4')));
+// B-101 (0.596): научная нотация — Cb4 = B3 (раньше тест фиксировал Cb4 = B4).
+check('Cb4 = B3 (научная нотация, 0.596)', FREQ('Cb4') === FREQ('B3') && FREQ('Cb4') > 0, String(FREQ('Cb4')));
+check('B#4 = C5, E#4 = F4, Fb4 = E4 (0.596)', FREQ('B#4') === FREQ('C5') && FREQ('E#4') === FREQ('F4') && FREQ('Fb4') === FREQ('E4'), [FREQ('B#4'), FREQ('E#4'), FREQ('Fb4')].join(' '));
 check('Cb без октавы тоже считается', FREQ('Cb') > 0, String(FREQ('Cb')));
 check('незнакомое написание даёт null, а не NaN', FREQ('H') === null, String(FREQ('H')));
 check('G7 в Bb звучит всеми 4 нотами (было 3)', KEPT('G7', 'Bb').length === 4, show(KEPT('G7', 'Bb')));

@@ -147,5 +147,57 @@ check('B в Ebm (диатонический, Cb по гамме)', spell('B', 'f
   check('6/8 шаг «доля»: второй пульс (граница 3+3) — вторичный акцент', clicks[1] && clicks[1].mid === true, JSON.stringify(clicks));
 }
 
+// --- 0.596 (пункт 1 баг-репорта): транспонирование и октавы E#/B#/Fb/Cb ---
+{
+  const T = (c, st) => ev(`transposeChord(${JSON.stringify(c)}, ${st})`);
+  const cases = [
+    ['E#', 1, 'F#'], ['E#', 2, 'G'], ['E#', -1, 'E'],
+    ['E#dim', 1, 'F#dim'], ['E#dim', -1, 'Edim'],
+    ['B#', 1, 'C#'], ['B#', 2, 'D'], ['B#', -1, 'B'],
+    ['Fb', 1, 'F'], ['Fb', 2, 'Gb'], ['Fb', -1, 'Eb'],
+    ['Cb', 1, 'C'], ['Cb', 2, 'Db'], ['Cb', -1, 'Bb'],
+    ['Cbmaj7', 1, 'Cmaj7'], ['Cbmaj7', 2, 'Dbmaj7'], ['Cbmaj7', -1, 'Bbmaj7'],
+    ['Fb/Cb', 1, 'F/C'], ['E#m7/B#', 1, 'F#m7/C#'],
+  ];
+  for (const [c, st, want] of cases) {
+    const got = T(c, st);
+    check(`транспонирование ${c} ${st > 0 ? '+' : ''}${st} = ${want}`, got === want, String(got));
+  }
+  const F = (n) => ev(`noteToFrequency(${JSON.stringify(n)})`);
+  check('E#4 = F4 (было null)', F('E#4') !== null && F('E#4') === F('F4'), String(F('E#4')));
+  check('B#4 = C5 (было null)', F('B#4') !== null && F('B#4') === F('C5'), String(F('B#4')));
+  check('Fb4 = E4 (было null)', F('Fb4') !== null && F('Fb4') === F('E4'), String(F('Fb4')));
+  check('Cb4 = B3 (научная нотация)', F('Cb4') !== null && F('Cb4') === F('B3'), String(F('Cb4')));
+  const N = (c, ks) => ev(`getChordNotes(${JSON.stringify(c)}, ${JSON.stringify(ks)})`);
+  const fr = (c, ks) => N(c, ks).map((n) => F(n));
+  check('Cb (корень) звучит как Cb4 Eb4 Gb4', JSON.stringify(fr('Cb', 'flat')) === JSON.stringify([F('Cb4'), F('Eb4'), F('Gb4')]), JSON.stringify(N('Cb', 'flat')));
+  check('Fb в бемольном стиле: E4 Ab4 и B4 (=Cb5) в верхнем голосе', JSON.stringify(N('Fb', 'flat')) === JSON.stringify(['E4', 'Ab4', 'Cb5']), JSON.stringify(N('Fb', 'flat')));
+  check('G7 в F: все 4 ноты звучат (B = Cb5 = B4)', fr('G7', 'flat').filter((x) => x).length === 4 && F('Cb5') === F('B4'), JSON.stringify(fr('G7', 'flat')));
+}
+
+// --- 0.596 (решения пользователя по видимым правилам) ---
+{
+  const NN = (c, ks) => ev(`getChordNotes(${JSON.stringify(c)}, ${JSON.stringify(ks)})`);
+  const PC = (c, ks) => ev(`getChordNotes(${JSON.stringify(c)}, ${JSON.stringify(ks)})`).map((n) => ev(`toSharpNote(${JSON.stringify(n.replace(/\d+$/, ''))})`)).join(' ');
+  // Пункт 2: голый C- = Cm (C Eb G), а не C E G
+  check('C- звучит как Cm (C D# G), не как C', PC('C-', 'sharp') === PC('Cm', 'sharp') && PC('C-', 'sharp') === 'C D# G', PC('C-', 'sharp'));
+  check('C- разбирается как минор', ev('parseChordForKeyDetection("C-").quality') === 'min', ev('parseChordForKeyDetection("C-").quality'));
+  check('C-/G звучит как Cm/G', PC('C-/G', 'sharp') === 'C D# G', PC('C-/G', 'sharp'));
+  check('C-5 по-прежнему пониженная квинта (C E F#)', PC('C-5', 'sharp') === 'C E F#', PC('C-5', 'sharp'));
+  // Пункт 3: C11 без терции — C G Bb D F
+  check('C11 звучит как C G Bb D F (без E)', PC('C11', 'sharp') === 'C G A# D F', PC('C11', 'sharp'));
+  check('C11 в бемольном стиле: без E', !NN('C11', 'flat').some((n) => n.startsWith('E')), JSON.stringify(NN('C11', 'flat')));
+  check('Cm11 сохраняет терцию (C D# G A# D F)', PC('Cm11', 'sharp') === 'C D# G A# D F', PC('Cm11', 'sharp'));
+  check('Cmaj11 сохраняет терцию', PC('Cmaj11', 'sharp').includes('E'), PC('Cmaj11', 'sharp'));
+  // Пункт 4: Cmaj7#5 — имя то же, качество aug
+  check('Cmaj7#5: качество aug (терции 0-4-8)', ev('parseChordForKeyDetection("Cmaj7#5").quality') === 'aug', ev('parseChordForKeyDetection("Cmaj7#5").quality'));
+  check('Cmaj7#5: имя сохраняется', ev('parseChordForKeyDetection("Cmaj7#5").chordName') === 'Cmaj7#5', ev('parseChordForKeyDetection("Cmaj7#5").chordName'));
+  check('Cmaj7#5: ступень I+ (aug)', ev('analyzeChordHarmony("Cmaj7#5","C").degree') === 'I+', ev('analyzeChordHarmony("Cmaj7#5","C").degree'));
+  check('C7#5 не меняется (качество maj, доминанта)', ev('parseChordForKeyDetection("C7#5").quality') === 'maj', ev('parseChordForKeyDetection("C7#5").quality'));
+  // Пункт 5: C E A с басом C = Am/C, а не C6
+  check('x,x,x,5,5,5 (C E A) = Am/C, не C6', ev('analyzeFingeringShape(["x","x","x",5,5,5],{key:"C"}).chordName') === 'Am/C', ev('analyzeFingeringShape(["x","x","x",5,5,5],{key:"C"}).chordName'));
+  check('C6 с квинтой G по-прежнему C6 (x,3,2,2,1,0 — C6/9 без G не берём)', ev('analyzeFingeringShape(["x",3,2,2,3,3],{key:"C"}).chordName') === 'C6/9', ev('analyzeFingeringShape(["x",3,2,2,3,3],{key:"C"}).chordName'));
+}
+
 console.log(`\nПРОВАЛОВ: ${fail}  (ок: ${pass})`);
 process.exit(fail ? 1 : 0);

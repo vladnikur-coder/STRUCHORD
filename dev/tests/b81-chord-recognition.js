@@ -127,12 +127,12 @@ const resHintC6 = w.analyzeFingeringShape(am7Shape, { hintedChordName: 'C6' });
 check('Форма x,0,2,0,1,0 с хинтом ячейки C6 определяется как C6/A', resHintC6.chordName, 'C6/A');
 
 console.log('\n=== 5. Порог неоднозначности (ambiguous flag, altCandidate и UI-пилюли) ===');
-// В нейтральном контексте без тональности форма x,x,2,2,1,0 дает равенство баллов между Am/E и C6/E
+// В нейтральном контексте без тональности форма x,x,2,2,1,0 (ноты E A C) раньше давала
+// равенство баллов между Am/E и C6/E. С 0.597 C6 без квинты не распознаётся
+// (как C E A с басом C = Am/C, решение пользователя), поэтому альтернативы нет.
 const resNeutral = w.analyzeFingeringShape(['x', 'x', 2, 2, 1, 0], {});
-checkTrue('Форма x,x,2,2,1,0 имеет флаг ambiguous', resNeutral.ambiguous);
-checkTrue('Форма x,x,2,2,1,0 имеет altCandidate', !!resNeutral.altCandidate);
 check('Форма x,x,2,2,1,0 основной кандидат', resNeutral.chordName, 'Am/E');
-check('Форма x,x,2,2,1,0 альтернативный кандидат', resNeutral.altCandidate.chordName, 'C6/E');
+checkTrue('Форма x,x,2,2,1,0 без альтернативы C6/E (0.597)', !resNeutral.altCandidate);
 
 // Проверка интерактивных пилюль в DOM модального редактора
 const mockWrapper = w.document.createElement('div');
@@ -156,15 +156,8 @@ fbZones[11].click();
 fbZones[6].click();
 
 const pills = analysisDiv.querySelectorAll('.fe-pill-choice');
-checkTrue('В UI модалки отрендерились 2 пилюли выбора', pills.length >= 2);
-if (pills.length >= 2) {
-  checkTrue('Первая пилюля активна по умолчанию', pills[0].classList.contains('is-selected'));
-  checkTrue('Вторая пилюля не активна по умолчанию', !pills[1].classList.contains('is-selected'));
-  // Клик по второй пилюле переключает выбор
-  pills[1].click();
-  checkTrue('После клика вторая пилюля стала активной', pills[1].classList.contains('is-selected'));
-  checkTrue('После клика первая пилюля перестала быть активной', !pills[0].classList.contains('is-selected'));
-}
+// 0.597: форма однозначна (C6 без квинты не кандидат), пилюль выбора нет.
+checkTrue('В UI модалки нет пилюль выбора для однозначной формы (0.597)', pills.length === 0);
 
 console.log('\n=== 6. Многоуровневый Fallback ===');
 // Уровень 1: менее 2 струн
