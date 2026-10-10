@@ -305,9 +305,11 @@ for (const chord of ['Gmaj7', 'Gmaj9', 'Gm7', 'Gm9', 'G', 'G6', 'Gsus4', 'Gdim7'
 // Уменьшённое трезвучие обычно не тонизируют, поэтому V/vii° — не функция.
 console.log('  -- V/vii° больше не считается функцией --');
 check('F#7 -> Bdim в C = false (было true)', SDOM('F#7', 'Bdim', 'C') === false, show(SDOM('F#7', 'Bdim', 'C')));
-for (const [a, b] of [['D7', 'G'], ['A7', 'Dm'], ['E7', 'Am'], ['C7', 'F'], ['B7', 'Em'], ['G7', 'C']]) {
+for (const [a, b] of [['D7', 'G'], ['A7', 'Dm'], ['E7', 'Am'], ['C7', 'F'], ['B7', 'Em']]) {
   check(`${a} -> ${b} в C = true (без изменений)`, SDOM(a, b, 'C') === true, show(SDOM(a, b, 'C')));
 }
+// 0.601: тоника не бывает целью вторичной функции. G7 → C в C — диатоничная V, не V/I.
+check('G7 -> C в C = false (тоника не цель, диатоничная V)', SDOM('G7', 'C', 'C') === false, show(SDOM('G7', 'C', 'C')));
 for (const [a, b] of [['D7', 'Dm'], ['A7', 'A']]) {
   check(`${a} -> ${b} в C = false (без изменений)`, SDOM(a, b, 'C') === false, show(SDOM(a, b, 'C')));
 }

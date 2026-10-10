@@ -11724,7 +11724,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.600</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.601</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22810,8 +22810,32 @@ function getHarmonyModeDegree(parsed, key, mode) {
     ? getHarmonyChordTertianQuality(parsed.chordName, key)
     : parsed.quality;
   if (chordQuality && profile.qualities[degree] !== chordQuality) return -1;
-  if (parsed.chordName && !harmonyChordTonesFitMode(parsed.chordName, key, mode)) return -1;
+  if (parsed.chordName && !(mode === 'harmonic-minor'
+    ? harmonyChordCoreTonesFitMode(parsed, key, mode)
+    : harmonyChordTonesFitMode(parsed.chordName, key, mode))) return -1;
   return degree;
+}
+// 0.601 (баг: E9, E11, E13 в Am и A11 в Dm не считались доминантой гармонического минора).
+// Для проверки принадлежности к гармоническому минору расширения (9, 11, 13) у аккорда с септимой
+// не учитываются: E9 = E G# B D F#, A11 = A E G B D. Sus-аккорды не трогаем.
+function harmonyChordCoreTonesFitMode(parsed, key, mode) {
+  const profile = HARMONY_MODE_PROFILES[mode];
+  const tonicIndex = getHarmonyTonicIndex(key);
+  const rootIndex = CHROMATIC.indexOf(parsed?.root);
+  const pitches = getHarmonyChordPitchClasses(parsed?.chordName || '', key);
+  if (!profile || tonicIndex < 0 || rootIndex < 0 || !pitches.length) return false;
+  const intervals = new Set(pitches.map((pitchClass) => (pitchClass - rootIndex + 12) % 12));
+  // Расширения — только у аккордов с септимой (E9, E11 без терции по соглашению 0.598,
+  // E13, A11). add9, 6 и 6/9 без септимы не расширяют доминанту; sus-аккорды не трогаем.
+  const hasSeventh = intervals.has(10) || intervals.has(11);
+  const isSus = /sus/i.test(parsed?.chordName || '');
+  const extendable = !isSus && hasSeventh;
+  const scalePitches = new Set(profile.intervals.map((interval) => (tonicIndex + interval) % 12));
+  return pitches.every((pitchClass) => {
+    const interval = (pitchClass - rootIndex + 12) % 12;
+    if (extendable && [2, 5, 9].includes(interval)) return true; // 9, 11, 13 — расширения
+    return scalePitches.has(pitchClass);
+  });
 }
 function isHarmonyChordInMode(parsed, key, mode) {
   return getHarmonyModeDegree(parsed, key, mode) >= 0;
@@ -23236,6 +23260,8 @@ function isSecondaryDominant(parsed, nextParsed, key) {
   if (nextParsed.quality === 'dim') return false;
   const targetDegree = getHarmonyModeDegree(nextParsed, key, getHarmonyBaseMode(key));
   if (targetDegree < 0) return false;
+  // 0.601: тоника не бывает целью вторичной доминанты (E9 → Am — это V, а не V/i).
+  if (targetDegree === 0) return false;
   const sourceIndex = CHROMATIC.indexOf(parsed.root);
   const targetIndex = CHROMATIC.indexOf(nextParsed.root);
   return sourceIndex >= 0 && targetIndex >= 0 && (sourceIndex - targetIndex + 12) % 12 === 7;
