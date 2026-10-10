@@ -6634,6 +6634,15 @@ html.wheel-motion-disabled .wheel-harmony-legend-toggle-surface {
   padding-top: 0.25rem;
   padding-bottom: 0.25rem;
 }
+.tools-sub-hint {
+  margin: 0.25rem 0 0.25rem 0.75rem;
+  font-size: 0.75rem;
+  line-height: 1.35;
+  color: var(--color-text-secondary);
+}
+.tools-sub-hint[hidden] {
+  display: none;
+}
 @media (prefers-reduced-motion: reduce) {
   .tools-sub-group { transition: none; }
 }
@@ -11744,7 +11753,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.607</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.608</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -11795,6 +11804,7 @@ body.power-ui-waking .pinned-fingering-dock {
                 ><input type="checkbox" id="showHarmonyHighlights" onchange="onDegreesChildChange()" checked />
                 Показывать подсветку ладов</label
               >
+              <p class="tools-sub-hint" id="degreesNoKeyHint" hidden>Задайте тональность: без неё ступени и подсветка ладов не появятся.</p>
             </div>
           </div>
           <label class="tools-label"
@@ -23972,6 +23982,18 @@ function getHarmonyChainTooltip(section, key, squareId, eventIndex) {
   while (linksTo(end)) end++;
   return `Цепочка вторичных доминант: ${entries.slice(first, end + 1).map((e) => e.chord).join(' → ')} (${fn(first)})`;
 }
+// 0.608: подсказка ячейки. Цепочка — если есть; иначе прикладная функция
+// самого аккорда (E → V/vi, A → V/ii), которую ячейка не показывает основной
+// подписью. Основная подпись остаётся корневой ступенью.
+function getHarmonyCellTooltip(section, key, squareId, eventIndex) {
+  const chain = getHarmonyChainTooltip(section, key, squareId, eventIndex);
+  if (chain) return chain;
+  const square = (section?.squares || []).find((sq) => String(sq.id) === String(squareId));
+  const chord = String(square?.events?.[eventIndex]?.chord || '').trim();
+  if (!chord || !key) return '';
+  const label = getBorrowingMenuProfile(chord, key)?.secondaryFunction || '';
+  return label ? `Прикладная функция: ${label}` : '';
+}
 function syncDegreeHintForWrapper(w) {
   if (!w || !isDegreeLabelsOptionOn()) return;
   const inp = w.querySelector('.chord-input');
@@ -24002,7 +24024,7 @@ function syncDegreeHintForWrapper(w) {
     disp.insertBefore(span, disp.firstChild);
   }
   span.textContent = getShortChainDegreeLabel(deg);
-  span.title = getHarmonyChainTooltip(sec, key, w.dataset.square, w.dataset.ei);
+  span.title = getHarmonyCellTooltip(sec, key, w.dataset.square, w.dataset.ei);
   span.style.display = deg ? '' : 'none';
   // Прячем ступень, только когда сама цифра не влезает по ширине
   // ячейки. Ритм больше не мешает: он опустился под строку ступени
@@ -36353,6 +36375,9 @@ function syncDegreesSubOptions() {
   group.classList.toggle('is-open', open);
   const inner = group.firstElementChild;
   if (inner) inner.inert = !open;
+  // 0.608: без тональности включённые опции ничего не меняют — говорим об этом.
+  const hint = document.getElementById('degreesNoKeyHint');
+  if (hint) hint.hidden = !(open && !getEffectiveKey());
 }
 function onDegreesParentChange() {
   const parent = document.getElementById('showDegrees');
@@ -41703,7 +41728,7 @@ function buildTimelineCell(sec, sq, ev, ei, parentTs, dist, secPass, sqPass, har
         const d = document.createElement('span');
         d.className = 'tl-degree';
         d.textContent = getShortChainDegreeLabel(deg);
-        d.title = getHarmonyChainTooltip(sec, sec.key || getEffectiveKey(), sq.id, ei);
+        d.title = getHarmonyCellTooltip(sec, sec.key || getEffectiveKey(), sq.id, ei);
         name.appendChild(d);
       }
     }

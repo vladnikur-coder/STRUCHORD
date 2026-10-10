@@ -73,5 +73,13 @@ check('B7→E7→Am: B7 = VII', cellLabel(['B7', 'E7', 'Am'], 0) === 'VII', cell
 check('E7→Am: E7 = III, Am = vi без изменений', cellLabel(['E7', 'Am'], 0) === 'III' && cellLabel(['E7', 'Am'], 1) === 'vi', cellLabel(['E7', 'Am'], 0) + '/' + cellLabel(['E7', 'Am'], 1));
 check('подсказка цепочки сохранилась', ev(`getHarmonyChainTooltip(${S(['E', 'A', 'D', 'G'])}, 'C', 1, 0)`).includes('E → A → D → G'));
 
+console.log('=== 6. подсказка ячейки: прикладная функция одиночного аккорда (0.608) ===');
+const tip = (chords, i) => ev(`getHarmonyCellTooltip(${S(chords)}, 'C', 1, ${i})`);
+check('одиночный E в C: подсказка V/vi', tip(['E'], 0).includes('V/vi'), tip(['E'], 0));
+check('одиночный A в C: подсказка V/ii', tip(['A'], 0).includes('V/ii'), tip(['A'], 0));
+check('одиночный B в C: подсказка V/iii', tip(['B'], 0).includes('V/iii'), tip(['B'], 0));
+check('C (I) в C: подсказки нет', tip(['C'], 0) === '', tip(['C'], 0));
+check('E→A→D→G: подсказка — цепочка, а не одиночная функция', tip(['E', 'A', 'D', 'G'], 0).includes('E → A → D → G'));
+
 console.log(`\nИТОГО: пройдено ${pass}, провалено ${fail}`);
 process.exit(fail ? 1 : 0);
