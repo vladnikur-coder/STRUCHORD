@@ -6,6 +6,7 @@
  *  2. Тоника не бывает целью вторичной функции: E9 → Am даёт V, не V/i.
  *  3. Sus-аккорды и add9/6 без септимы этим правилом не затрагиваются.
  *  4. Соглашение 0.598: C11 без терции — расширение, терция не нужна для проверки.
+ *  5. (0.602) Альтерированная доминанта тоники — V: G7b9/G7#9/Gmaj7 → C в C, E7#9 → Am в Am.
  */
 const fs = require('fs');
 const path = require('path');
@@ -70,6 +71,22 @@ check('E7#9 (G — не в гармоническом миноре) не ста�
 console.log('=== 4. соглашение 0.598: C11 без терции ===');
 const pc = ev(`parseChordForKeyDetection('E11')`);
 check('E11: quality null, isDominant7 true', pc.quality === null && pc.isDominant7 === true, JSON.stringify(pc));
+
+console.log('=== 5. альтерированная доминанта мажорной тоники = V (решение пользователя) ===');
+for (const [chord, key, next] of [['G7b9', 'C', 'C'], ['G7#9', 'C', 'C'], ['Gmaj7', 'C', 'C'], ['D7b9', 'G', 'G'], ['Ab7b9', 'Db', 'Db']]) {
+  const r = analyze(chord, key, { nextChord: next });
+  check(`${chord} → ${next} в ${key} = V (без V/I)`, r.degree === 'V' && r.function === 'V' && r.detail === 'altered-dominant', JSON.stringify(r));
+}
+const g7 = analyze('G7', 'C', { nextChord: 'C' });
+check('G7 → C в C остаётся диатоничной V (ionian)', g7.group === 'diatonic' && g7.degree === 'V' && g7.detail === 'ionian', JSON.stringify(g7));
+const d7 = analyze('D7', 'C', { nextChord: 'G' });
+check('D7 → G в C остаётся V/V', d7.function === 'V/V', JSON.stringify(d7));
+for (const [chord, key, next] of [['E7#9', 'Am', 'Am'], ['A7#9', 'Dm', 'Dm']]) {
+  const r = analyze(chord, key, { nextChord: next });
+  check(`${chord} → ${next} в ${key} = V (альтерированная, без V/i)`, r.degree === 'V' && r.function === 'V' && r.detail === 'altered-dominant', JSON.stringify(r));
+}
+const g7b9m = analyze('G7b9', 'Cm', { nextChord: 'Cm' });
+check('G7b9 → Cm в Cm — harmonic-minor V (не altered-dominant)', g7b9m.detail === 'harmonic-minor-dominant', JSON.stringify(g7b9m));
 
 console.log(`\nИТОГО: пройдено ${pass}, провалено ${fail}`);
 process.exit(fail ? 1 : 0);

@@ -11724,7 +11724,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.601</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.602</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -23282,6 +23282,17 @@ function getMinorVariantFunction(parsed, nextParsed, key) {
   }
   return null;
 }
+// 0.601 (решение пользователя): мажорный аккорд на квинте тоники, который ведёт к тонике,
+// — это V, даже если альтерирован (G7b9 → C, G7#9 → C, Gmaj7 → C в C). Без подписи V/I.
+// Та же логика для минорной тоники (E7#9 → Am): V, а не V/i.
+function isAlteredDominantOfTonic(parsed, nextParsed, key) {
+  if (!parsed || !nextParsed) return false;
+  if (parsed.harmonyQuality !== 'maj') return false;
+  if (getHarmonyModeDegree(nextParsed, key, getHarmonyBaseMode(key)) !== 0) return false;
+  const sourceIndex = CHROMATIC.indexOf(parsed.root);
+  const tonicIndex = getHarmonyTonicIndex(key);
+  return sourceIndex >= 0 && tonicIndex >= 0 && (sourceIndex - tonicIndex + 12) % 12 === 7;
+}
 function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', contextualMode = null } = {}) {
   const normalized = String(chord || '').trim();
   const parsed = parseChordForKeyDetection(normalized);
@@ -23315,6 +23326,12 @@ function analyzeChordHarmony(chord, key, { previousChord = '', nextChord = '', c
   const minorVariant = getMinorVariantFunction(parsed, nextParsed, key);
   if (minorVariant) {
     return { chord: normalized, key, group: HARMONY_GROUP.MINOR_VARIANT, ...minorVariant };
+  }
+  if (isAlteredDominantOfTonic(parsed, nextParsed, key)) {
+    return {
+      chord: normalized, key, group: HARMONY_GROUP.DIATONIC, mode: null,
+      detail: 'altered-dominant', confidence: 'contextual', degree: 'V', function: 'V',
+    };
   }
   if (isSecondaryDominant(parsed, nextParsed, key)) {
     const target = getHarmonyDegreeNameForRoot(nextParsed.root, key);
