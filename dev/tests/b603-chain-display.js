@@ -63,5 +63,15 @@ console.log('=== 4. анализ не меняется ===');
 const deg = ev(`analyzeSectionHarmony(${S(['E', 'A', 'D', 'G'])}, 'C')[0].function`);
 check('E в цепочке остаётся V/V/V/V (короткая подпись только в отображении)', deg === 'V/V/V/V', deg);
 
+console.log('=== 5. ячейка показывает корневую ступень, не V/x (0.607) ===');
+const cellLabel = (chords, i) => ev(`(() => { const sec = ${S(chords)}; const a = analyzeSectionHarmony(sec, 'C')[${i}]; return getCellDegreeLabel(a, sec.squares[0].events[${i}].chord, 'C'); })()`);
+check('E→A→D→G: E = III (не V/V/V/V)', cellLabel(['E', 'A', 'D', 'G'], 0) === 'III', cellLabel(['E', 'A', 'D', 'G'], 0));
+check('E→A→D→G: A = VI', cellLabel(['E', 'A', 'D', 'G'], 1) === 'VI', cellLabel(['E', 'A', 'D', 'G'], 1));
+check('E→A→D→G: D = II', cellLabel(['E', 'A', 'D', 'G'], 2) === 'II', cellLabel(['E', 'A', 'D', 'G'], 2));
+check('E→A→D→G: G = V (без изменений)', cellLabel(['E', 'A', 'D', 'G'], 3) === 'V', cellLabel(['E', 'A', 'D', 'G'], 3));
+check('B7→E7→Am: B7 = VII', cellLabel(['B7', 'E7', 'Am'], 0) === 'VII', cellLabel(['B7', 'E7', 'Am'], 0));
+check('E7→Am: E7 = III, Am = vi без изменений', cellLabel(['E7', 'Am'], 0) === 'III' && cellLabel(['E7', 'Am'], 1) === 'vi', cellLabel(['E7', 'Am'], 0) + '/' + cellLabel(['E7', 'Am'], 1));
+check('подсказка цепочки сохранилась', ev(`getHarmonyChainTooltip(${S(['E', 'A', 'D', 'G'])}, 'C', 1, 0)`).includes('E → A → D → G'));
+
 console.log(`\nИТОГО: пройдено ${pass}, провалено ${fail}`);
 process.exit(fail ? 1 : 0);
