@@ -11724,7 +11724,7 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.603</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.604</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -23900,6 +23900,36 @@ function getActiveWheelHarmonyContext(key) {
 }
 
 let cachedChordWrappers = [];
+// 0.604 (решение пользователя): в ячейке длинная цепочка усечена до трёх звеньев
+// («V/V/V/V» → «V/V/V…»), полная цепочка — в подсказке. Круг строит подписи по одному
+// аккорду, поэтому там цепочек нет; эта функция их не трогает.
+function getShortChainDegreeLabel(deg) {
+  const text = String(deg || '');
+  const parts = text.split('/');
+  return parts.length > 3 ? `${parts.slice(0, 3).join('/')}…` : text;
+}
+// Звено цепочки: его подпись = 'V/' + подпись следующего звена (как в applySecondaryDominantChains).
+// Подсказка перечисляет аккорды от первого звена до цели цепочки.
+function getHarmonyChainTooltip(section, key, squareId, eventIndex) {
+  if (!section || !key) return '';
+  const entries = [];
+  (section.squares || []).forEach((square) => (square.events || []).forEach((event, ei) => {
+    if (String(event?.chord || '').trim()) entries.push({ id: `${square.id}:${ei}`, chord: String(event.chord).trim() });
+  }));
+  const pos = entries.findIndex((entry) => entry.id === `${squareId}:${eventIndex}`);
+  if (pos < 0) return '';
+  const answers = analyzeSectionHarmony(section, key);
+  const fn = (i) => answers[i]?.function || '';
+  // Цель цепочки может быть диатоничной (без function): тогда её степень — degree.
+  const label = (i) => answers[i]?.function || answers[i]?.degree || '';
+  if (!fn(pos).startsWith('V/')) return '';
+  const linksTo = (i) => i + 1 < entries.length && fn(i).startsWith('V/') && fn(i) === `V/${label(i + 1)}`;
+  let first = pos;
+  while (first > 0 && linksTo(first - 1)) first--;
+  let end = pos;
+  while (linksTo(end)) end++;
+  return `Цепочка вторичных доминант: ${entries.slice(first, end + 1).map((e) => e.chord).join(' → ')} (${fn(first)})`;
+}
 function syncDegreeHintForWrapper(w) {
   if (!w || !document.getElementById('showDegrees')?.checked) return;
   const inp = w.querySelector('.chord-input');
@@ -23929,7 +23959,8 @@ function syncDegreeHintForWrapper(w) {
   if (span.parentNode !== disp || disp.firstChild !== span) {
     disp.insertBefore(span, disp.firstChild);
   }
-  span.textContent = deg;
+  span.textContent = getShortChainDegreeLabel(deg);
+  span.title = getHarmonyChainTooltip(sec, key, w.dataset.square, w.dataset.ei);
   span.style.display = deg ? '' : 'none';
   // Прячем ступень, только когда сама цифра не влезает по ширине
   // ячейки. Ритм больше не мешает: он опустился под строку ступени
@@ -41571,7 +41602,8 @@ function buildTimelineCell(sec, sq, ev, ei, parentTs, dist, secPass, sqPass, har
       if (deg) {
         const d = document.createElement('span');
         d.className = 'tl-degree';
-        d.textContent = deg;
+        d.textContent = getShortChainDegreeLabel(deg);
+        d.title = getHarmonyChainTooltip(sec, sec.key || getEffectiveKey(), sq.id, ei);
         name.appendChild(d);
       }
     }
