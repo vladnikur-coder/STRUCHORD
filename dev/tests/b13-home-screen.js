@@ -74,11 +74,59 @@ function makeSong(artist, title, date, key, sectionCount) {
     await page.goto(pathToFileURL(libraryPath).href + '?b13-test=' + Date.now(), { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction(() => typeof window.refreshHomeLibrary === 'function', { timeout: 15000 });
 
-    console.log('=== Главный экран и библиотека ===');
-    check('обычный запуск показывает главный экран', await page.evaluate(() =>
+    console.log('=== Стартовый экран, инструменты и библиотека ===');
+    check('обычный запуск показывает приветственный экран и скрывает редактор', await page.evaluate(() =>
       document.documentElement.classList.contains('is-home-screen') &&
       getComputedStyle(document.getElementById('homeScreen')).display !== 'none' &&
-      getComputedStyle(document.querySelector('.container')).display === 'none'));
+      getComputedStyle(document.querySelector('.container')).display === 'none' &&
+      !document.getElementById('homeHub').hidden && document.getElementById('homeLibraryView').hidden));
+    check('заголовок, настройки и отдельный переключатель темы доступны сверху', await page.evaluate(() =>
+      document.querySelector('.home-brand-name')?.textContent === 'STRUCHORD' &&
+      document.getElementById('homeSettingsBtn') && document.getElementById('homeThemeBtn')));
+    check('четыре главных действия всегда стоят вертикально на широком экране', await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll('#homeHub .home-action-btn')];
+      const rects = buttons.map((button) => button.getBoundingClientRect());
+      return buttons.map((button) => button.textContent.trim().replace(/\s+/g, ' ')).join('|') ===
+        'Новая песня|Загрузить песню|Библиотека|Инструменты' && rects.length === 4 &&
+        rects.every((rect, index) => index === 0 || rect.top >= rects[index - 1].bottom);
+    }));
+    const initialTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme') || 'light');
+    await page.click('#homeThemeBtn');
+    check('быстрая кнопка темы переключает оформление и своё состояние', await page.evaluate((before) => {
+      const theme = document.documentElement.getAttribute('data-theme') || 'light';
+      return theme !== before && document.getElementById('homeThemeBtn').getAttribute('aria-pressed') === (theme === 'dark' ? 'true' : 'false') &&
+        document.getElementById('homeThemeIcon').classList.contains(theme === 'dark' ? 'ti-sun' : 'ti-moon');
+    }, initialTheme));
+
+    await page.evaluate(() => {
+      window.__tunerMicRequests = 0;
+      Object.defineProperty(navigator, 'mediaDevices', {
+        configurable: true,
+        value: {
+          getUserMedia: () => {
+            window.__tunerMicRequests++;
+            return Promise.reject(new DOMException('Blocked by B-13 test', 'NotAllowedError'));
+          },
+        },
+      });
+    });
+    await page.click('#homeToolsBtn');
+    await page.waitForSelector('.home-screen-modal');
+    check('раздел «Инструменты» открывает список с пунктом «Тюнер»', await page.$eval('.home-tools-list', (el) =>
+      el.querySelectorAll('[data-home-tool]').length === 1 && el.textContent.includes('Тюнер')));
+    await page.click('[data-home-tool="tuner"]');
+    await page.waitForSelector('.tuner-modal');
+    await page.waitForFunction(() => window.__tunerMicRequests === 1);
+    check('«Тюнер» открывает существующий экран и сразу запускает доступ к микрофону', await page.evaluate(() =>
+      !!document.querySelector('.tuner-modal #tunerCloseBtn') && window.__tunerMicRequests === 1));
+    await page.click('#tunerCloseBtn');
+    await page.waitForFunction(() => !document.querySelector('.tuner-modal'));
+
+    await page.click('#homeLibraryBtn');
+    await page.waitForFunction(() => !document.getElementById('homeLibraryView').hidden);
+    check('«Библиотека» открывает отдельный экран с кнопкой возврата', await page.evaluate(() =>
+      document.getElementById('homeHub').hidden && !document.getElementById('homeLibraryView').hidden &&
+      !!document.getElementById('homeLibraryBackBtn')));
     check('пустая библиотека объясняет создание и импорт', await page.$eval('#homeSongList', (el) =>
       /Здесь пока пусто/.test(el.textContent) && /импортируйте/.test(el.textContent)));
     check('пустой запуск не создаёт демо-песню', await page.$eval('#homeLibraryCount', (el) => el.textContent === '0 песен'));
@@ -145,6 +193,7 @@ function makeSong(artist, title, date, key, sectionCount) {
     await page.waitForFunction(() => !document.querySelector('.home-screen-modal'));
 
     console.log('\n=== Несохранённые изменения ===');
+    await page.click('#homeLibraryBackBtn');
     await page.click('#homeNewSongBtn');
     await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen'));
     await page.evaluate(() => addSection('Verse'));
@@ -168,6 +217,7 @@ function makeSong(artist, title, date, key, sectionCount) {
       !document.querySelector('.home-screen-modal')));
 
     console.log('\n=== Создание и сохранение ===');
+    await page.click('#homeLibraryBackBtn');
     await page.click('#homeNewSongBtn');
     await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen'));
     await page.evaluate(() => addSection('Verse'));
@@ -302,6 +352,46 @@ function makeSong(artist, title, date, key, sectionCount) {
     await page.waitForFunction(() => document.documentElement.classList.contains('is-home-screen'));
     check('отказ от импортированной работы не сохраняет её в библиотеку', await page.evaluate((count) =>
       JSON.parse(localStorage.getItem('struchord_songs') || '[]').length === count, beforeImportCount));
+
+    await page.click('#homeLibraryBackBtn');
+    await page.evaluate(() => {
+      while (currentUiScale() < UI_SCALE_MAX) stepUiScale(1);
+    });
+    await page.setViewport({ width: 320, height: 812 });
+    const mobileLayout = await page.evaluate(() => {
+      const buttons = [...document.querySelectorAll('#homeHub .home-action-btn')];
+      const rects = buttons.map((button) => button.getBoundingClientRect());
+      return {
+        ok: rects.length === 4 && rects.every((rect, index) => index === 0 || rect.top >= rects[index - 1].bottom) &&
+          document.documentElement.scrollWidth <= document.documentElement.clientWidth &&
+          document.getElementById('homeSettingsBtn').textContent.includes('Настройки') &&
+          document.getElementById('homeSettingsBtn').getBoundingClientRect().right <= window.innerWidth,
+        count: rects.length,
+        tops: rects.map((rect) => Math.round(rect.top)),
+        viewport: window.innerWidth,
+        pageWidth: document.documentElement.scrollWidth,
+        settingsRight: Math.round(document.getElementById('homeSettingsBtn').getBoundingClientRect().right),
+        bodyWidth: document.body.getBoundingClientRect().width,
+        bodyScroll: document.body.scrollWidth,
+        header: document.querySelector('.home-header').getBoundingClientRect().toJSON(),
+        headerChildren: [...document.querySelector('.home-header').children].map((el) => ({ name: el.className, rect: el.getBoundingClientRect().toJSON() })),
+        overflow: [...document.querySelectorAll('body *')].map((el) => ({ id: el.id, cls: typeof el.className === 'string' ? el.className : '', rect: el.getBoundingClientRect().toJSON() })).filter((item) => item.rect.right > window.innerWidth + 1 && item.rect.width > 0).slice(0, 8),
+      };
+    });
+    check('на узком мобильном экране все четыре действия остаются вертикальными и без горизонтального скролла', mobileLayout.ok, JSON.stringify(mobileLayout));
+    await page.click('#homeSettingsBtn');
+    await page.waitForSelector('.home-settings-modal');
+    check('панель настроек остаётся доступной на мобильном при максимальном масштабе', await page.evaluate(() =>
+      document.documentElement.scrollWidth <= document.documentElement.clientWidth &&
+      document.querySelector('.home-settings-modal').getBoundingClientRect().right <= window.innerWidth));
+    await page.evaluate(() => [...document.querySelectorAll('.home-screen-modal button')]
+      .find((button) => button.textContent.trim() === 'Готово').click());
+    await page.waitForFunction(() => !document.querySelector('.home-screen-modal'));
+    await page.click('#homeLibraryBtn');
+    await page.waitForFunction(() => !document.getElementById('homeLibraryView').hidden);
+    check('отдельный экран библиотеки не переполняет мобильную ширину при максимальном масштабе', await page.evaluate(() =>
+      document.documentElement.scrollWidth <= document.documentElement.clientWidth &&
+      document.querySelector('.home-library-card').getBoundingClientRect().right <= window.innerWidth));
 
     check('в браузерной консоли нет ошибок приложения', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
