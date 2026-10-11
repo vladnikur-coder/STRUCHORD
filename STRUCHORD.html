@@ -12083,7 +12083,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.612</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.613</span></span>
         <button class="home-editor-nav-btn" id="editorHomeBtn" type="button" onclick="openHomeScreen()" title="Вернуться к библиотеке песен" aria-label="Вернуться к главному экрану">
           <i class="ti ti-folder-open" aria-hidden="true"></i><span>Библиотека</span>
         </button>
@@ -39860,6 +39860,7 @@ function clearAll(options) {
     // предлагать «отменить сброс» и вернуть материал, которого уже нет
     // в модели, в обход подтверждения.
     if (typeof window.resetHistory === 'function') window.resetHistory();
+    if (typeof window.clearLibrarySongOrigin === 'function') window.clearLibrarySongOrigin();
     // Очередь расширений под колесом зеркалит текущую песню: пустой
     // соответствуют штатные умолчания.
     seedWheelExtensionsFromSong();
@@ -48123,6 +48124,38 @@ toggleTimeAndBeats();
   // Побочная выгода: правка «туда и обратно» снимок восстанавливает,
   // и приложение не спросит про изменения, которых по факту нет.
   let savedSongSnapshot = null;
+  // Пока песня открыта в редакторе, храним её исходную запись библиотеки.
+  // При сохранении это позволяет заменить старую версию даже после смены
+  // названия или исполнителя, не создавая второй пункт в библиотеке.
+  let librarySongOrigin = null;
+
+  function librarySongFingerprint(song) {
+    try {
+      const fingerprint = JSON.stringify(song);
+      return typeof fingerprint === 'string' ? fingerprint : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function rememberLibrarySongOrigin(song, index) {
+    const fingerprint = librarySongFingerprint(song);
+    librarySongOrigin = fingerprint === null || !Number.isInteger(index) || index < 0
+      ? null
+      : { index, fingerprint };
+  }
+
+  function findLibrarySongOriginIndex(songs) {
+    if (!librarySongOrigin) return -1;
+    const { index, fingerprint } = librarySongOrigin;
+    if (index >= 0 && index < songs.length && librarySongFingerprint(songs[index]) === fingerprint) return index;
+    return songs.findIndex((song) => librarySongFingerprint(song) === fingerprint);
+  }
+
+  function clearLibrarySongOrigin() {
+    librarySongOrigin = null;
+  }
+  window.clearLibrarySongOrigin = clearLibrarySongOrigin;
 
   function currentSongSnapshot() {
     try {
@@ -48288,6 +48321,7 @@ toggleTimeAndBeats();
   };
 
   function showHomeScreenNow() {
+    clearLibrarySongOrigin();
     if (playbackState && playbackState.isPlaying) stopPlayback();
     if (typeof closeChordWheel === 'function') closeChordWheel();
     if (typeof closeSchemePopover === 'function') closeSchemePopover();
@@ -48425,6 +48459,7 @@ toggleTimeAndBeats();
   };
 
   window.startNewSongFromHome = function () {
+    clearLibrarySongOrigin();
     // В главном экране уже нет активного несохранённого редактора: любой
     // переход туда прошёл через Save/Discard/Stay. Здесь сбрасываем песню
     // без второго системного confirm и открываем чистый редактор.
@@ -48849,21 +48884,60 @@ toggleTimeAndBeats();
     const songData = serializeCurrentSong();
     const name = songDisplayName(songData.metadata);
 
-    let songs = listSongs();
-    const existingIndex = songs.findIndex((s) => songLibraryName(s) === name);
-    if (existingIndex !== -1) {
-      const confirmed = window.confirm(
-        `Песня "${name}" уже сохранена. Перезаписать её текущей версией?`
-      );
-      if (!confirmed) {
-        showToast('Сохранение отменено');
-        return false;
+    const songs = listSongs();
+    let originIndex = findLibrarySongOriginIndex(songs);
+    if (librarySongOrigin && originIndex === -1) clearLibrarySongOrigin();
+    let savedIndex = -1;
+
+    if (originIndex !== -1) {
+      const originName = songLibraryName(songs[originIndex]);
+      if (originName === name) {
+        // Обычное сохранение открытой записи: заменяем её на месте, без
+        // дубликата и без вопроса о перезаписи самой себя.
+        songs[originIndex] = songData;
+        savedIndex = originIndex;
+      } else {
+        const existingIndex = songs.findIndex((song, index) =>
+          index !== originIndex && songLibraryName(song) === name
+        );
+        if (existingIndex !== -1) {
+          const confirmed = window.confirm(
+            `Песня "${name}" уже сохранена. Перезаписать её текущей версией? Исходная запись "${originName}" будет заменена.`
+          );
+          if (!confirmed) {
+            showToast('Сохранение отменено');
+            return false;
+          }
+          songs[existingIndex] = songData;
+          savedIndex = existingIndex - (originIndex < existingIndex ? 1 : 0);
+          songs.splice(originIndex, 1);
+        } else {
+          // Переименование не создаёт новую песню: старая запись заменяется
+          // новым состоянием, сохраняя единственный пункт в библиотеке.
+          songs[originIndex] = songData;
+          savedIndex = originIndex;
+        }
       }
-      songs[existingIndex] = songData;
     } else {
-      songs.push(songData);
+      const existingIndex = songs.findIndex((song) => songLibraryName(song) === name);
+      if (existingIndex !== -1) {
+        const confirmed = window.confirm(
+          `Песня "${name}" уже сохранена. Перезаписать её текущей версией?`
+        );
+        if (!confirmed) {
+          showToast('Сохранение отменено');
+          return false;
+        }
+        songs[existingIndex] = songData;
+        savedIndex = existingIndex;
+      } else {
+        songs.push(songData);
+        savedIndex = songs.length - 1;
+      }
     }
+
     if (saveSongsToStorage(songs)) {
+      rememberLibrarySongOrigin(songData, savedIndex);
       markSongSaved();
       renderHomeLibrary();
       showToast(`Песня "${name}" сохранена`);
@@ -49429,6 +49503,7 @@ toggleTimeAndBeats();
       maybeUnlockStormSecret('song');
     };
     if (loadSongFromObject(song, done)) {
+      rememberLibrarySongOrigin(song, index);
       showEditorScreen();
       done(song);
     }
@@ -49582,6 +49657,7 @@ toggleTimeAndBeats();
           maybeUnlockStormSecret('song');
         };
         if (loadSongFromObject(data, done)) {
+          clearLibrarySongOrigin();
           showEditorScreen();
           done(data);
           // Импортированный файл ещё не входит в библиотеку браузера.
