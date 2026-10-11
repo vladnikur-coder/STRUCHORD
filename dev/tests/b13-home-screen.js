@@ -79,8 +79,14 @@ function makeSong(artist, title, date, key, sectionCount) {
       document.documentElement.classList.contains('is-home-screen') &&
       getComputedStyle(document.getElementById('homeScreen')).display !== 'none' &&
       getComputedStyle(document.querySelector('.container')).display === 'none'));
-    check('пустая библиотека объясняет создание и импорт', await page.$eval('#homeSongList', (el) =>
-      /Здесь пока пусто/.test(el.textContent) && /импортируйте/.test(el.textContent)));
+    check('экран выглядит как меню приложения, а не посадочная страница', await page.evaluate(() =>
+      !document.querySelector('.home-hero') &&
+      document.querySelector('.home-header')?.contains(document.getElementById('homeSettingsBtn')) &&
+      document.querySelector('.home-actions-bar')?.contains(document.getElementById('homeNewSongBtn')) &&
+      document.querySelector('.home-actions-bar')?.contains(document.getElementById('homeImportSongBtn')) &&
+      document.getElementById('homeLibraryTitle')?.textContent.trim() === 'Библиотека'));
+    check('пустая библиотека предлагает создать песню или импортировать файл', await page.$eval('#homeSongList', (el) =>
+      /Нет сохранённых песен/.test(el.textContent) && /создайте/i.test(el.textContent) && /импортируйте/i.test(el.textContent)));
     check('пустой запуск не создаёт демо-песню', await page.$eval('#homeLibraryCount', (el) => el.textContent === '0 песен'));
 
     const seed = [
@@ -96,6 +102,10 @@ function makeSong(artist, title, date, key, sectionCount) {
       'Кино - Группа крови|Сплин - Выхода нет'));
     check('карточка показывает тональность, секции и дату', await page.$eval('.home-song-meta', (el) =>
       /Am/.test(el.textContent) && /4 секц/.test(el.textContent) && /2026/.test(el.textContent)));
+    check('список оформлен плотными строками без крупных карточек и теней', await page.$eval('.home-song-card', (el) => {
+      const style = getComputedStyle(el);
+      return style.borderRadius === '0px' && style.boxShadow === 'none';
+    }));
 
     await page.$eval('#homeSongSearch', (input) => {
       input.value = 'КИНО'; input.dispatchEvent(new Event('input', { bubbles: true }));
@@ -303,6 +313,15 @@ function makeSong(artist, title, date, key, sectionCount) {
     check('отказ от импортированной работы не сохраняет её в библиотеку', await page.evaluate((count) =>
       JSON.parse(localStorage.getItem('struchord_songs') || '[]').length === count, beforeImportCount));
 
+    await page.setViewport({ width: 320, height: 812 });
+    check('на узком телефоне кнопки действий выстраиваются в колонку без горизонтальной прокрутки', await page.evaluate(() => {
+      const actions = document.querySelector('.home-actions-bar');
+      const create = document.getElementById('homeNewSongBtn').getBoundingClientRect();
+      const importButton = document.getElementById('homeImportSongBtn').getBoundingClientRect();
+      return getComputedStyle(actions).flexDirection === 'column' &&
+        Math.abs(create.width - importButton.width) < 1 &&
+        document.documentElement.scrollWidth <= window.innerWidth;
+    }));
     check('в браузерной консоли нет ошибок приложения', pageErrors.length === 0, pageErrors.join(' | '));
   } finally {
     await browser.close();
