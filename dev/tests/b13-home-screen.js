@@ -87,7 +87,7 @@ function makeSong(artist, title, date, key, sectionCount) {
       const buttons = [...document.querySelectorAll('#homeHub .home-action-btn')];
       const rects = buttons.map((button) => button.getBoundingClientRect());
       return buttons.map((button) => button.textContent.trim().replace(/\s+/g, ' ')).join('|') ===
-        'Новая песня|Загрузить песню|Библиотека|Инструменты' && rects.length === 4 &&
+        'Новая песня|Загрузить из файла|Библиотека|Инструменты' && rects.length === 4 &&
         rects.every((rect, index) => index === 0 || rect.top >= rects[index - 1].bottom);
     }));
     const initialTheme = await page.evaluate(() => document.documentElement.getAttribute('data-theme') || 'light');
@@ -127,6 +127,20 @@ function makeSong(artist, title, date, key, sectionCount) {
     check('«Библиотека» открывает отдельный экран с кнопкой возврата', await page.evaluate(() =>
       document.getElementById('homeHub').hidden && !document.getElementById('homeLibraryView').hidden &&
       !!document.getElementById('homeLibraryBackBtn')));
+    check('кнопка «Загрузить из файла» стоит над списком песен в библиотеке', await page.evaluate(() => {
+      const upload = document.getElementById('homeLibraryImportBtn');
+      const list = document.getElementById('homeSongList');
+      return !!upload && upload.textContent.trim() === 'Загрузить из файла' &&
+        upload.getBoundingClientRect().bottom <= list.getBoundingClientRect().top;
+    }));
+    await page.evaluate(() => {
+      const realImportSongFile = window.importSongFile;
+      window.__libraryImportCalls = 0;
+      window.importSongFile = () => { window.__libraryImportCalls++; };
+      document.getElementById('homeLibraryImportBtn').click();
+      window.importSongFile = realImportSongFile;
+    });
+    check('кнопка загрузки библиотеки вызывает импорт файла', await page.evaluate(() => window.__libraryImportCalls === 1));
     check('пустая библиотека объясняет создание и импорт', await page.$eval('#homeSongList', (el) =>
       /Здесь пока пусто/.test(el.textContent) && /импортируйте/.test(el.textContent)));
     check('пустой запуск не создаёт демо-песню', await page.$eval('#homeLibraryCount', (el) => el.textContent === '0 песен'));
@@ -262,9 +276,18 @@ function makeSong(artist, title, date, key, sectionCount) {
     await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen'));
     check('действие «Открыть» загружает песню и её тональность', await page.evaluate(() =>
       document.getElementById('songTitle').value === 'Группа крови' && globalKey === 'Am' && sections.length === 4));
+    check('кнопка выхода из редактора оформлена как «Назад»', await page.evaluate(() => {
+      const button = document.getElementById('editorHomeBtn');
+      return button.textContent.trim() === 'Назад' && button.getAttribute('aria-label') === 'Назад в библиотеку' &&
+        !!button.querySelector('.ti-arrow-left');
+    }));
+    check('внизу редактора больше нет кнопки «Загрузить»', await page.evaluate(() =>
+      !document.querySelector('.toolbar button[onclick="openLoadSongDialog()"]') &&
+      ![...document.querySelectorAll('.toolbar .action-btn')].some((button) => button.textContent.trim() === 'Загрузить')));
     await page.click('#editorHomeBtn');
     await page.waitForFunction(() => document.documentElement.classList.contains('is-home-screen'));
-    check('выход без изменений не показывает лишний диалог', await page.evaluate(() => !document.querySelector('.home-screen-modal')));
+    check('«Назад» без изменений возвращает в библиотеку без лишнего диалога', await page.evaluate(() =>
+      !document.querySelector('.home-screen-modal') && !document.getElementById('homeLibraryView').hidden));
 
     await clickCardAction('Тестовая песня', 'rename');
     await page.waitForSelector('#home-rename-form');
@@ -297,11 +320,15 @@ function makeSong(artist, title, date, key, sectionCount) {
       URL.revokeObjectURL = () => {};
       HTMLAnchorElement.prototype.click = function () { window.__lastDownloadName = this.download; };
     });
+    check('действие экспорта в библиотеке называется «Скачать»', await page.evaluate(() => {
+      const button = document.querySelector('.home-song-card .home-song-menu [data-home-action="export"]');
+      return button?.textContent.trim() === 'Скачать';
+    }));
     await clickCardAction('Студия - Новый трек (копия)', 'export');
-    check('экспорт создаёт .struchord.json с содержимым песни', await page.evaluate(async () => {
+    check('действие «Скачать» создаёт .struchord.json с содержимым песни', await page.evaluate(async () => {
       if (!window.__lastExportBlob || !window.__lastDownloadName.endsWith('.struchord.json')) return false;
       const exported = JSON.parse(await window.__lastExportBlob.text());
-      return exported.metadata?.title === 'Новый трек (копия)';
+      return exported.metadata?.title === 'Новый трек (копия)' && /скачан/i.test(document.getElementById('homeToast').textContent);
     }));
 
     await page.evaluate(() => { window.__confirmResult = false; });
