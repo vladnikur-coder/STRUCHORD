@@ -80,6 +80,15 @@ function makeSong(artist, title, date, key, sectionCount) {
       getComputedStyle(document.getElementById('homeScreen')).display !== 'none' &&
       getComputedStyle(document.querySelector('.container')).display === 'none' &&
       !document.getElementById('homeHub').hidden && document.getElementById('homeLibraryView').hidden));
+    check('главная оболочка использует ту же поверхность и тень, что редактор', await page.evaluate(() => {
+      const home = getComputedStyle(document.querySelector('.home-shell'));
+      const editor = getComputedStyle(document.querySelector('.container'));
+      return home.backgroundColor === editor.backgroundColor && home.backgroundImage === editor.backgroundImage &&
+        home.boxShadow === editor.boxShadow;
+    }));
+    check('главные кнопки используют капсульную форму кнопок редактора', await page.evaluate(() =>
+      getComputedStyle(document.querySelector('#homeHub .home-action-btn')).borderRadius ===
+      getComputedStyle(document.querySelector('.toolbar .action-btn')).borderRadius));
     check('заголовок, настройки и отдельный переключатель темы доступны сверху', await page.evaluate(() =>
       document.querySelector('.home-brand-name')?.textContent === 'STRUCHORD' &&
       document.getElementById('homeSettingsBtn') && document.getElementById('homeThemeBtn')));
@@ -141,6 +150,19 @@ function makeSong(artist, title, date, key, sectionCount) {
       window.importSongFile = realImportSongFile;
     });
     check('кнопка загрузки библиотеки вызывает импорт файла', await page.evaluate(() => window.__libraryImportCalls === 1));
+    await page.evaluate(() => {
+      const originalClick = HTMLInputElement.prototype.click;
+      HTMLInputElement.prototype.click = function () {
+        window.__songImportAccept = this.accept;
+        this.dispatchEvent(new Event('cancel'));
+      };
+      window.importSongFile();
+      HTMLInputElement.prototype.click = originalClick;
+    });
+    check('импорт принимает .struchord и JSON старых выпусков', await page.evaluate(() =>
+      window.__songImportAccept.split(',').includes('.struchord') &&
+      window.__songImportAccept.split(',').includes('.json') &&
+      window.__songImportAccept.includes('application/json')));
     check('пустая библиотека объясняет создание и импорт', await page.$eval('#homeSongList', (el) =>
       /Здесь пока пусто/.test(el.textContent) && /импортируйте/.test(el.textContent)));
     check('пустой запуск не создаёт демо-песню', await page.$eval('#homeLibraryCount', (el) => el.textContent === '0 песен'));
@@ -276,6 +298,26 @@ function makeSong(artist, title, date, key, sectionCount) {
     await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen'));
     check('действие «Открыть» загружает песню и её тональность', await page.evaluate(() =>
       document.getElementById('songTitle').value === 'Группа крови' && globalKey === 'Am' && sections.length === 4));
+    await page.evaluate(() => {
+      window.__lastExportBlob = null;
+      window.__lastDownloadName = '';
+      URL.createObjectURL = (blob) => { window.__lastExportBlob = blob; return 'blob:b13-export'; };
+      URL.revokeObjectURL = () => {};
+      HTMLAnchorElement.prototype.click = function () { window.__lastDownloadName = this.download; };
+    });
+    await page.$eval('.toolbar button[onclick="exportSong()"]', (button) => button.click());
+    const editorExportResult = await page.evaluate(async () => {
+      const result = { downloadName: window.__lastDownloadName, hasBlob: !!window.__lastExportBlob };
+      if (window.__lastExportBlob) {
+        const exported = JSON.parse(await window.__lastExportBlob.text());
+        result.artist = exported.metadata?.artist;
+        result.title = exported.metadata?.title;
+      }
+      return result;
+    });
+    check('экспорт из редактора тоже использует расширение .struchord', editorExportResult.hasBlob &&
+      editorExportResult.downloadName.endsWith('.struchord') && editorExportResult.artist === 'Кино' &&
+      editorExportResult.title === 'Группа крови', JSON.stringify(editorExportResult));
     check('кнопка выхода из редактора оформлена как «Назад»', await page.evaluate(() => {
       const button = document.getElementById('editorHomeBtn');
       return button.textContent.trim() === 'Назад' && button.getAttribute('aria-label') === 'Назад в библиотеку' &&
@@ -316,17 +358,14 @@ function makeSong(artist, title, date, key, sectionCount) {
     await page.evaluate(() => {
       window.__lastExportBlob = null;
       window.__lastDownloadName = '';
-      URL.createObjectURL = (blob) => { window.__lastExportBlob = blob; return 'blob:b13-export'; };
-      URL.revokeObjectURL = () => {};
-      HTMLAnchorElement.prototype.click = function () { window.__lastDownloadName = this.download; };
     });
     check('действие экспорта в библиотеке называется «Скачать»', await page.evaluate(() => {
       const button = document.querySelector('.home-song-card .home-song-menu [data-home-action="export"]');
       return button?.textContent.trim() === 'Скачать';
     }));
     await clickCardAction('Студия - Новый трек (копия)', 'export');
-    check('действие «Скачать» создаёт .struchord.json с содержимым песни', await page.evaluate(async () => {
-      if (!window.__lastExportBlob || !window.__lastDownloadName.endsWith('.struchord.json')) return false;
+    check('действие «Скачать» создаёт .struchord с JSON песни', await page.evaluate(async () => {
+      if (!window.__lastExportBlob || !window.__lastDownloadName.endsWith('.struchord')) return false;
       const exported = JSON.parse(await window.__lastExportBlob.text());
       return exported.metadata?.title === 'Новый трек (копия)' && /скачан/i.test(document.getElementById('homeToast').textContent);
     }));
@@ -500,7 +539,7 @@ function makeSong(artist, title, date, key, sectionCount) {
     const beforeImportCount = await page.evaluate(() => JSON.parse(localStorage.getItem('struchord_songs') || '[]').length);
     const imported = makeSong('Импорт', 'Временная работа', '2026-10-10T13:00:00.000Z', 'Dm', 2);
     await page.evaluate((song) => {
-      const file = new File([JSON.stringify(song)], 'temporary.struchord.json', { type: 'application/json' });
+      const file = new File([JSON.stringify(song)], 'temporary.struchord', { type: 'application/json' });
       importSong(file);
     }, imported);
     await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen') &&
@@ -520,6 +559,22 @@ function makeSong(artist, title, date, key, sectionCount) {
     await page.waitForFunction(() => document.documentElement.classList.contains('is-home-screen'));
     check('отказ от импортированной работы не сохраняет её в библиотеку', await page.evaluate((count) =>
       JSON.parse(localStorage.getItem('struchord_songs') || '[]').length === count, beforeImportCount));
+
+    const legacyImport = makeSong('Старый формат', 'Совместимость', '2026-10-10T14:00:00.000Z', 'G', 1);
+    await page.evaluate((song) => {
+      const file = new File([JSON.stringify(song)], 'legacy.struchord.json', { type: 'application/json' });
+      importSong(file);
+    }, legacyImport);
+    await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen') &&
+      document.getElementById('songTitle').value === 'Совместимость', { timeout: 10000 });
+    check('импорт файлов прежнего расширения .struchord.json сохраняется', await page.evaluate((count) =>
+      document.getElementById('songArtist').value === 'Старый формат' && hasUnsavedChanges() &&
+      JSON.parse(localStorage.getItem('struchord_songs') || '[]').length === count, beforeImportCount));
+    await page.click('#editorHomeBtn');
+    await page.waitForSelector('.home-screen-modal');
+    await page.evaluate(() => [...document.querySelectorAll('.home-screen-modal button')]
+      .find((button) => button.textContent.trim() === 'Не сохранять').click());
+    await page.waitForFunction(() => document.documentElement.classList.contains('is-home-screen'));
 
     await page.click('#homeLibraryBackBtn');
     await page.evaluate(() => {
