@@ -252,6 +252,11 @@ function makeSong(artist, title, date, key, sectionCount) {
       if (!button) throw new Error('Не найдено действие: ' + action);
       button.click();
     }, { name, action });
+    const chooseLibrarySave = async (choice) => {
+      const selector = `.library-save-choice-dialog [data-library-save-choice="${choice}"]`;
+      await page.waitForSelector(selector);
+      await page.click(selector);
+    };
 
     await clickCardAction('Кино - Группа крови', 'open');
     await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen'));
@@ -317,14 +322,25 @@ function makeSong(artist, title, date, key, sectionCount) {
     await page.click('#editorHomeBtn');
     await page.waitForSelector('.home-screen-modal');
     await page.evaluate(() => { window.__confirmResult = false; window.__confirmCalls = []; });
-    await page.evaluate(() => [...document.querySelectorAll('.home-screen-modal button')]
+    await page.evaluate(() => [...document.querySelectorAll('.home-screen-modal:not(.library-save-choice-dialog) button')]
       .find((button) => button.textContent.trim() === 'Сохранить').click());
+    await page.waitForSelector('.library-save-choice-dialog');
+    check('переименование открытой песни предлагает заменить исходник или сохранить копию', await page.evaluate(() => {
+      const dialog = document.querySelector('.library-save-choice-dialog');
+      return !!dialog && /Кино - Группа крови/.test(dialog.textContent) &&
+        /Кино - Группа крови — новая версия/.test(dialog.textContent) &&
+        !!dialog.querySelector('[data-library-save-choice="replace"]') &&
+        !!dialog.querySelector('[data-library-save-choice="new"]') &&
+        !!dialog.querySelector('[data-library-save-choice="cancel"]');
+    }));
+    await chooseLibrarySave('new');
     await page.waitForFunction(() => document.documentElement.classList.contains('is-home-screen') && !document.querySelector('.home-screen-modal'));
-    check('сохранение переименованной песни заменяет исходную запись и удаляет старую версию', await page.evaluate((count) => {
+    check('сохранение как новой песни добавляет версию и сохраняет исходник', await page.evaluate((count) => {
       const songs = JSON.parse(localStorage.getItem('struchord_songs') || '[]');
+      const original = songs.filter((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови');
       const updated = songs.filter((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови — новая версия');
-      return songs.length === count && !songs.some((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови') &&
-        updated.length === 1 && updated[0].notes === 'Изменённые заметки' &&
+      return songs.length === count + 1 && original.length === 1 && updated.length === 1 &&
+        updated[0].notes === 'Изменённые заметки' &&
         !window.__confirmCalls.some((message) => /Перезаписать/.test(message));
     }, sourceCountBeforeSave));
 
@@ -335,23 +351,92 @@ function makeSong(artist, title, date, key, sectionCount) {
     check('повторное сохранение обновлённой записи не создаёт копию', resavedSource && await page.evaluate((count) => {
       const songs = JSON.parse(localStorage.getItem('struchord_songs') || '[]');
       const updated = songs.filter((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови — новая версия');
-      return songs.length === count && updated.length === 1 && updated[0].notes === 'Повторно изменённые заметки' &&
+      return songs.length === count + 1 && updated.length === 1 && updated[0].notes === 'Повторно изменённые заметки' &&
         !window.__confirmCalls.some((message) => /Перезаписать/.test(message));
     }, sourceCountBeforeSave));
+
+    await page.click('#editorHomeBtn');
+    await page.waitForFunction(() => document.documentElement.classList.contains('is-home-screen'));
+    await clickCardAction('Кино - Группа крови', 'open');
+    await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen'));
+    const sourceCountBeforeResetSave = await page.evaluate(() => JSON.parse(localStorage.getItem('struchord_songs') || '[]').length);
+    await page.evaluate(() => { window.__confirmResult = true; window.__confirmCalls = []; });
+    await page.$$eval('button.action-btn', (buttons) => buttons.find((button) => button.textContent.trim() === 'Сброс').click());
+    await page.waitForFunction(() => document.getElementById('songTitle').value === '' && sections.length === 0);
+    const resetSaveWasSynchronous = await page.evaluate(() => {
+      document.getElementById('songArtist').value = 'Кино';
+      document.getElementById('songTitle').value = 'Песня после сброса';
+      addSection('Verse');
+      window.__resetSaveResult = window.saveCurrentSong();
+      return !(window.__resetSaveResult && typeof window.__resetSaveResult.then === 'function');
+    });
+    if (!resetSaveWasSynchronous) {
+      await chooseLibrarySave('new');
+      await page.evaluate(async () => { await window.__resetSaveResult; });
+    }
+    check('сброс отвязывает исходную песню: новая запись сохраняется, оригинал остаётся', resetSaveWasSynchronous && await page.evaluate((count) => {
+      const songs = JSON.parse(localStorage.getItem('struchord_songs') || '[]');
+      return songs.length === count + 1 &&
+        songs.some((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови') &&
+        songs.some((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Песня после сброса') &&
+        !document.querySelector('.library-save-choice-dialog');
+    }, sourceCountBeforeResetSave));
+    await page.click('#editorHomeBtn');
+    await page.waitForFunction(() => document.documentElement.classList.contains('is-home-screen'));
+
+    await clickCardAction('Кино - Группа крови', 'open');
+    await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen'));
+    const countBeforeExplicitReplace = await page.evaluate(() => JSON.parse(localStorage.getItem('struchord_songs') || '[]').length);
+    await page.$eval('#songTitle', (input) => { input.value = 'Группа крови — переименована'; });
+    await page.$eval('#notesArea', (input) => { input.value = 'Исходник заменён по выбору'; });
+    await page.evaluate(() => { window.__pendingRenameReplace = window.saveCurrentSong(); });
+    await page.waitForSelector('.library-save-choice-dialog');
+    await chooseLibrarySave('replace');
+    const explicitReplaceResult = await page.evaluate(async () => await window.__pendingRenameReplace);
+    check('явная замена сохраняет переименование поверх источника без второй записи', explicitReplaceResult && await page.evaluate((count) => {
+      const songs = JSON.parse(localStorage.getItem('struchord_songs') || '[]');
+      const renamed = songs.filter((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови — переименована');
+      return songs.length === count && renamed.length === 1 && renamed[0].notes === 'Исходник заменён по выбору' &&
+        !songs.some((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови');
+    }, countBeforeExplicitReplace));
+    await page.click('#editorHomeBtn');
+    await page.waitForFunction(() => document.documentElement.classList.contains('is-home-screen'));
+
+    await clickCardAction('Кино - Группа крови — новая версия', 'open');
+    await page.waitForFunction(() => !document.documentElement.classList.contains('is-home-screen'));
+    const conflictCountBeforeSave = await page.evaluate(() => JSON.parse(localStorage.getItem('struchord_songs') || '[]').length);
     await page.$eval('#songArtist', (input) => { input.value = 'Сплин'; });
     await page.$eval('#songTitle', (input) => { input.value = 'Выхода нет'; });
     await page.$eval('#notesArea', (input) => { input.value = 'Конфликт: обновлённая версия'; });
     await page.evaluate(() => { window.__confirmResult = false; window.__confirmCalls = []; });
-    const refusedConflictSave = await page.evaluate(() => window.saveCurrentSong());
-    check('переименование в имя другой записи сначала требует подтверждения и сохраняет обе песни при отказе', refusedConflictSave === false && await page.evaluate((count) => {
+    await page.evaluate(() => { window.__pendingConflictSave = window.saveCurrentSong(); });
+    await page.waitForSelector('.library-save-choice-dialog');
+    await chooseLibrarySave('cancel');
+    const cancelledConflictSave = await page.evaluate(async () => await window.__pendingConflictSave);
+    check('отмена выбора режима не меняет исходную и целевую песни', cancelledConflictSave === null && await page.evaluate((count) => {
       const songs = JSON.parse(localStorage.getItem('struchord_songs') || '[]');
       return songs.length === count &&
         songs.some((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови — новая версия') &&
         songs.find((song) => song.metadata?.artist === 'Сплин' && song.metadata?.title === 'Выхода нет')?.notes !== 'Конфликт: обновлённая версия' &&
-        window.__confirmCalls.some((message) => /Кино - Группа крови/.test(message) && /Сплин - Выхода нет/.test(message));
-    }, sourceCountBeforeSave));
-    await page.evaluate(() => { window.__confirmResult = true; window.__confirmCalls = []; });
-    const confirmedConflictSave = await page.evaluate(() => window.saveCurrentSong());
+        window.__confirmCalls.length === 0;
+    }, conflictCountBeforeSave));
+
+    await page.evaluate(() => { window.__confirmResult = false; window.__confirmCalls = []; window.__pendingConflictSave = window.saveCurrentSong(); });
+    await page.waitForSelector('.library-save-choice-dialog');
+    await chooseLibrarySave('replace');
+    const refusedTargetOverwrite = await page.evaluate(async () => await window.__pendingConflictSave);
+    check('при выборе замены, отказ от чужого совпадающего имени сохраняет обе записи', refusedTargetOverwrite === false && await page.evaluate((count) => {
+      const songs = JSON.parse(localStorage.getItem('struchord_songs') || '[]');
+      return songs.length === count &&
+        songs.some((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови — новая версия') &&
+        songs.find((song) => song.metadata?.artist === 'Сплин' && song.metadata?.title === 'Выхода нет')?.notes !== 'Конфликт: обновлённая версия' &&
+        window.__confirmCalls.some((message) => /Кино - Группа крови — новая версия/.test(message) && /Сплин - Выхода нет/.test(message));
+    }, conflictCountBeforeSave));
+
+    await page.evaluate(() => { window.__confirmResult = true; window.__confirmCalls = []; window.__pendingConflictSave = window.saveCurrentSong(); });
+    await page.waitForSelector('.library-save-choice-dialog');
+    await chooseLibrarySave('replace');
+    const confirmedConflictSave = await page.evaluate(async () => await window.__pendingConflictSave);
     check('подтверждённый конфликт заменяет целевую песню и удаляет исходную без дубликатов', confirmedConflictSave && await page.evaluate((count) => {
       const songs = JSON.parse(localStorage.getItem('struchord_songs') || '[]');
       const target = songs.filter((song) => song.metadata?.artist === 'Сплин' && song.metadata?.title === 'Выхода нет');
@@ -359,7 +444,7 @@ function makeSong(artist, title, date, key, sectionCount) {
         !songs.some((song) => song.metadata?.artist === 'Кино' && song.metadata?.title === 'Группа крови — новая версия') &&
         target.length === 1 && target[0].notes === 'Конфликт: обновлённая версия' &&
         window.__confirmCalls.some((message) => /исходная запись/i.test(message));
-    }, sourceCountBeforeSave));
+    }, conflictCountBeforeSave));
     await page.click('#editorHomeBtn');
     await page.waitForFunction(() => document.documentElement.classList.contains('is-home-screen'));
 
@@ -378,7 +463,7 @@ function makeSong(artist, title, date, key, sectionCount) {
       const songs = JSON.parse(localStorage.getItem('struchord_songs') || '[]');
       return songs.length === count - 1 && window.__confirmCalls.some((message) => /Перезаписать/.test(message)) &&
         songs.find((song) => song.metadata?.artist === 'Сплин' && song.metadata?.title === 'Выхода нет')?.notes === 'Конфликт: обновлённая версия';
-    }, sourceCountBeforeSave));
+    }, conflictCountBeforeSave));
     await page.click('#editorHomeBtn');
     await page.waitForSelector('.home-screen-modal');
     await page.evaluate(() => [...document.querySelectorAll('.home-screen-modal button')]

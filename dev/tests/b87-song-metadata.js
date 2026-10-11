@@ -26,7 +26,8 @@ ok(src.includes('const SONG_SCHEMA_VERSION = 4'), 'схема поднята д�
 ok(src.includes('migrateV3toV4'), 'цепочка миграций остаётся полной');
 ok(src.includes('songLibraryName(song) === name') || src.includes('songLibraryName(s) === name'), 'совпадения библиотеки учитывают составную подпись');
 ok(src.includes('findLibrarySongOriginIndex(songs)') && src.includes('songs[originIndex] = songData'), 'сохранение обновляет исходную открытую запись библиотеки');
-ok(src.includes('songs.splice(originIndex, 1)'), 'при конфликте целевого имени старая исходная запись удаляется');
+ok(src.includes('Заменить исходную') && src.includes('Сохранить как новую'), 'изменение имени предлагает выбор между заменой и отдельной версией');
+ok(src.includes('songs.splice(originIndex, 1)'), 'при подтверждённом конфликте старая исходная запись удаляется');
 ok(src.includes("songDisplayName(songData.metadata).replace"), 'имя экспортного файла строится из metadata');
 ok(src.includes('DOM.songArtist.value = loadedMeta.artist'), 'загрузка ставит исполнителя в DOM');
 ok(src.includes('DOM.songTitle.value = loadedMeta.title'), 'загрузка ставит название в DOM');

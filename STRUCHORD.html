@@ -12083,7 +12083,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.613</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.614</span></span>
         <button class="home-editor-nav-btn" id="editorHomeBtn" type="button" onclick="openHomeScreen()" title="Вернуться к библиотеке песен" aria-label="Вернуться к главному экрану">
           <i class="ti ti-folder-open" aria-hidden="true"></i><span>Библиотека</span>
         </button>
@@ -39860,6 +39860,8 @@ function clearAll(options) {
     // предлагать «отменить сброс» и вернуть материал, которого уже нет
     // в модели, в обход подтверждения.
     if (typeof window.resetHistory === 'function') window.resetHistory();
+    // «Сброс» начинает новый документ: дальнейшее сохранение не должно
+    // подменить библиотечную песню, которую пользователь очищает.
     if (typeof window.clearLibrarySongOrigin === 'function') window.clearLibrarySongOrigin();
     // Очередь расширений под колесом зеркалит текущую песню: пустой
     // соответствуют штатные умолчания.
@@ -48186,7 +48188,7 @@ toggleTimeAndBeats();
   // ---------- B-13: главный экран, библиотека и переходы ----------
   let homeModalSerial = 0;
 
-  function createHomeModal(title, description, extraClass) {
+  function createHomeModal(title, description, extraClass, onClose) {
     const serial = ++homeModalSerial;
     const overlay = document.createElement('div');
     overlay.className = 'strum-modal-overlay home-screen-modal-overlay';
@@ -48227,9 +48229,12 @@ toggleTimeAndBeats();
     document.body.appendChild(overlay);
 
     let active = false;
+    let closed = false;
     const close = () => {
-      if (!overlay.isConnected) return;
+      if (!overlay.isConnected || closed) return;
+      closed = true;
       removeModalOverlay(overlay);
+      if (typeof onClose === 'function') onClose();
     };
     const activate = (preferredFocus) => {
       if (!active) {
@@ -48371,6 +48376,50 @@ toggleTimeAndBeats();
     return button;
   }
 
+  function requestLibrarySaveMode(originName, nextName) {
+    return new Promise((resolve) => {
+      let settled = false;
+      let dialog = null;
+      const finish = (choice) => {
+        if (settled) return;
+        settled = true;
+        if (dialog) dialog.close();
+        resolve(choice);
+      };
+      dialog = createHomeModal(
+        'Песня переименована',
+        `Открыта песня «${originName}», а сейчас вы сохраняете её как «${nextName}». Заменить исходную запись или сохранить новую отдельно, оставив оригинал в библиотеке?`,
+        'library-save-choice-dialog',
+        () => {
+          if (settled) return;
+          settled = true;
+          resolve(null);
+        }
+      );
+      const saveAsNew = createHomeActionButton('Сохранить как новую', 'primary', () => finish('new'));
+      saveAsNew.dataset.librarySaveChoice = 'new';
+      const replaceOrigin = createHomeActionButton('Заменить исходную', 'danger', () => finish('replace'));
+      replaceOrigin.dataset.librarySaveChoice = 'replace';
+      const cancel = createHomeActionButton('Отмена', '', () => finish('cancel'));
+      cancel.dataset.librarySaveChoice = 'cancel';
+      dialog.actions.append(saveAsNew, replaceOrigin, cancel);
+      // Безопасный вариант получает начальный фокус: оригинальная запись
+      // сохраняется, пока пользователь явно не выбрал её замену.
+      dialog.activate(saveAsNew);
+    });
+  }
+
+  function finishSaveResult(result, onResult) {
+    if (result && typeof result.then === 'function') {
+      result.then(onResult, (error) => {
+        console.error('Не удалось завершить сохранение песни:', error);
+        onResult(false);
+      });
+      return;
+    }
+    onResult(result);
+  }
+
   function openSaveTitleDialog(onSaved) {
     const dialog = createHomeModal('Назовите песню', 'Перед сохранением введите название — так песня будет узнаваемо отображаться в библиотеке.');
     const form = document.createElement('form');
@@ -48396,13 +48445,17 @@ toggleTimeAndBeats();
       }
       DOM.songTitle.value = title;
       fitSongArtistField(DOM.songTitle);
-      if (window.saveCurrentSong() === true) {
-        dialog.close();
-        if (typeof onSaved === 'function') onSaved();
-        if (document.documentElement.classList.contains('is-home-screen')) showToast('Песня сохранена в библиотеку');
-        return;
-      }
-      dialog.error.textContent = 'Сохранение не выполнено. Проверьте подтверждение перезаписи и попробуйте снова.';
+      finishSaveResult(window.saveCurrentSong(), (saved) => {
+        if (saved === true) {
+          dialog.close();
+          if (typeof onSaved === 'function') onSaved();
+          if (document.documentElement.classList.contains('is-home-screen')) showToast('Песня сохранена в библиотеку');
+          return;
+        }
+        if (saved === false) {
+          dialog.error.textContent = 'Сохранение не выполнено. Проверьте подтверждение перезаписи и попробуйте снова.';
+        }
+      });
     });
     dialog.content.appendChild(form);
     dialog.actions.append(
@@ -48429,13 +48482,15 @@ toggleTimeAndBeats();
         openSaveTitleDialog(showHomeScreenNow);
         return;
       }
-      if (window.saveCurrentSong() === true) {
-        dialog.close();
-        showHomeScreenNow();
-        showToast('Песня сохранена в библиотеку');
-      } else {
-        dialog.error.textContent = 'Сохранение не завершено. Отмените перезапись или попробуйте ещё раз.';
-      }
+      finishSaveResult(window.saveCurrentSong(), (saved) => {
+        if (saved === true) {
+          dialog.close();
+          showHomeScreenNow();
+          showToast('Песня сохранена в библиотеку');
+        } else if (saved === false) {
+          dialog.error.textContent = 'Сохранение не завершено. Отмените перезапись или попробуйте ещё раз.';
+        }
+      });
     });
     saveButton.classList.add('primary');
     const discardButton = createHomeActionButton('Не сохранять', 'danger', () => {
@@ -48880,20 +48935,16 @@ toggleTimeAndBeats();
   });
 
   // ---------- СОХРАНЕНИЕ ТЕКУЩЕЙ ПЕСНИ ----------
-  window.saveCurrentSong = function () {
-    const songData = serializeCurrentSong();
-    const name = songDisplayName(songData.metadata);
-
+  function persistCurrentSong(songData, name, replaceLibraryOrigin) {
     const songs = listSongs();
-    let originIndex = findLibrarySongOriginIndex(songs);
-    if (librarySongOrigin && originIndex === -1) clearLibrarySongOrigin();
+    let originIndex = replaceLibraryOrigin ? findLibrarySongOriginIndex(songs) : -1;
+    if (replaceLibraryOrigin && librarySongOrigin && originIndex === -1) clearLibrarySongOrigin();
     let savedIndex = -1;
 
     if (originIndex !== -1) {
       const originName = songLibraryName(songs[originIndex]);
       if (originName === name) {
-        // Обычное сохранение открытой записи: заменяем её на месте, без
-        // дубликата и без вопроса о перезаписи самой себя.
+        // Обычное сохранение без смены имени: обновляем открытую запись.
         songs[originIndex] = songData;
         savedIndex = originIndex;
       } else {
@@ -48912,8 +48963,7 @@ toggleTimeAndBeats();
           savedIndex = existingIndex - (originIndex < existingIndex ? 1 : 0);
           songs.splice(originIndex, 1);
         } else {
-          // Переименование не создаёт новую песню: старая запись заменяется
-          // новым состоянием, сохраняя единственный пункт в библиотеке.
+          // Пользователь явно выбрал замену исходника после переименования.
           songs[originIndex] = songData;
           savedIndex = originIndex;
         }
@@ -48921,6 +48971,14 @@ toggleTimeAndBeats();
     } else {
       const existingIndex = songs.findIndex((song) => songLibraryName(song) === name);
       if (existingIndex !== -1) {
+        // При выборе «Сохранить как новую» исходная запись защищена даже
+        // при совпадении её отображаемого имени (например, неоднозначный дефис).
+        if (librarySongOrigin &&
+            findLibrarySongOriginIndex(songs) === existingIndex &&
+            songLibraryName(songs[existingIndex]) === name) {
+          showToast('Чтобы сохранить обе версии, задайте новое имя песни');
+          return false;
+        }
         const confirmed = window.confirm(
           `Песня "${name}" уже сохранена. Перезаписать её текущей версией?`
         );
@@ -48944,6 +49002,30 @@ toggleTimeAndBeats();
       return true;
     }
     return false;
+  }
+
+  window.saveCurrentSong = function () {
+    const songData = serializeCurrentSong();
+    const name = songDisplayName(songData.metadata);
+
+    const songs = listSongs();
+    const originIndex = findLibrarySongOriginIndex(songs);
+    if (librarySongOrigin && originIndex === -1) clearLibrarySongOrigin();
+
+    if (originIndex !== -1) {
+      const originName = songLibraryName(songs[originIndex]);
+      if (originName !== name) {
+        return requestLibrarySaveMode(originName, name).then((choice) => {
+          if (choice === null || choice === 'cancel') return null;
+          return persistCurrentSong(songData, name, choice === 'replace');
+        });
+      }
+    }
+
+    // Новая песня после «Сброса» уже не связана с прежней записью.
+    // При неизменном имени загруженной песни простое «Сохранить» обновляет
+    // источник; при смене подписи выбор сохранения появляется выше.
+    return persistCurrentSong(songData, name, originIndex !== -1);
   };
 
   // ---------- МИГРАЦИИ СХЕМЫ ДАННЫХ ПЕСНИ ----------
