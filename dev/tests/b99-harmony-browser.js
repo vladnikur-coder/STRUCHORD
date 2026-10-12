@@ -30,7 +30,7 @@ function ok(name, condition, detail = '') {
   page.on('pageerror', (error) => pageErrors.push(String(error)));
   try {
     const appUrl = pathToFileURL(path.resolve(__dirname, '../../STRUCHORD.html')).href;
-    await page.goto(`${appUrl}?b99-harmony=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
+    await page.goto(`${appUrl}?view=editor&b99-harmony=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction(() => typeof analyzeSectionHarmony === 'function' && typeof drawWheel === 'function');
     const tonalHighlightState = await page.evaluate(() => {
       localStorage.removeItem('struchord-wheel-secondary-function-labels-v1');
@@ -519,7 +519,7 @@ function ok(name, condition, detail = '') {
     const dividerPage = await browser.newPage();
     dividerPage.on('pageerror', (error) => pageErrors.push(`divider screenshot: ${String(error)}`));
     try {
-      await dividerPage.goto(`${appUrl}?b99-divider-pixel=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
+      await dividerPage.goto(`${appUrl}?view=editor&b99-divider-pixel=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
       await dividerPage.waitForFunction(() => typeof drawWheel === 'function');
       await dividerPage.evaluate(() => {
         globalKey = 'Am';
@@ -897,7 +897,7 @@ function ok(name, condition, detail = '') {
       const errors = [];
       profilePage.on('pageerror', (error) => errors.push(String(error)));
       try {
-        await profilePage.goto(`${appUrl}?b99-confirmed-profile-tints=${Date.now()}`, {
+        await profilePage.goto(`${appUrl}?view=editor&b99-confirmed-profile-tints=${Date.now()}`, {
           waitUntil: 'load', timeout: 60000,
         });
         await profilePage.waitForFunction(() => typeof analyzeSectionHarmony === 'function');
@@ -1339,7 +1339,7 @@ function ok(name, condition, detail = '') {
       const errors = [];
       clickPage.on('pageerror', (error) => errors.push(String(error)));
       try {
-        await clickPage.goto(`${appUrl}?b99-sector-hit-test=${Date.now()}`, {
+        await clickPage.goto(`${appUrl}?view=editor&b99-sector-hit-test=${Date.now()}`, {
           waitUntil: 'load', timeout: 60000,
         });
         await clickPage.waitForFunction(() => typeof openChordWheel === 'function');

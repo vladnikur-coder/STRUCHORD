@@ -143,6 +143,9 @@ function run() {
     localStorage.removeItem('struchord_songs');
     localStorage.setItem('struchord_songs', JSON.stringify([${JSON.stringify(base)}]));
     loadSong(0);
+    // Это новая экспортируемая версия тестовых данных, не переименование
+    // открытой библиотечной записи.
+    window.clearLibrarySongOrigin();
     DOM.songTitle.value = 'B75 roundtrip ' + Date.now();
     userFingerings.clear();
     userFingerings.set('F', [ { shape: [1,3,3,2,1,1], barreOff: [1] }, ['x',0,2,2,1,0] ]);
