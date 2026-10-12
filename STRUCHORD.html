@@ -9533,10 +9533,31 @@ body.is-parts .container > .meta-row,
 body.is-parts .container > .top-bar {
   display: none;
 }
-/* Секции добавлять в окне партий нечего — панель прячем (инлайновая
-   раскладка, поэтому !important, как и у ленты). */
+/* B-12.2 (итерация 0.622): в окне партий панель добавления секций БОЛЬШЕ
+   НЕ прячем — партия строится по секциям, и добавлять их надо оттуда же,
+   иначе пустая песня встречала бы пустым экраном без выхода.
+   Инлайновая раскладка панели перебивает обычное правило, поэтому
+   !important (как было у скрытия). */
 body.is-parts .container > .add-section-bar {
-  display: none !important;
+  display: flex !important;
+  margin-top: 0.75rem;
+  border-top: 0.0625rem solid var(--color-border-light);
+}
+/* Подпись «Секции:» живёт только в окне партий: в редакторе панель и так
+   под сеткой, и лишняя надпись там не нужна. */
+.add-section-label {
+  display: none;
+}
+body.is-parts .add-section-label {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding-left: 0.125rem;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
 }
 body.is-parts .container {
   max-width: none;
@@ -9618,6 +9639,13 @@ body.is-parts .container {
   border-radius: 0.875rem;
   color: var(--color-text-secondary);
   text-align: center;
+}
+.pt-empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  justify-content: center;
+  margin-top: 0.25rem;
 }
 .pt-empty[hidden] {
   display: none;
@@ -12395,7 +12423,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.621</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.622</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -12927,9 +12955,12 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           </div>
           <div class="pt-main">
             <div class="pt-empty" id="partsEmpty" hidden>
-              <span class="pt-empty-text">Пока здесь пусто</span>
-              <button type="button" class="pt-create" id="ptCreatePart">Создать партию</button>
-              <span class="pt-empty-hint">Партия — независимый слой нот: живёт в файле песни и звучит вместе с ней.</span>
+              <span class="pt-empty-text" id="partsEmptyText">Пока здесь пусто</span>
+              <div class="pt-empty-actions">
+                <button type="button" class="pt-create" id="ptAddSection" hidden>Добавить секцию</button>
+                <button type="button" class="pt-create" id="ptCreatePart">Создать партию</button>
+              </div>
+              <span class="pt-empty-hint" id="partsEmptyHint">Партия — независимый слой нот: живёт в файле песни и звучит вместе с ней.</span>
             </div>
             <div class="pt-track" id="partsTrack"></div>
           </div>
@@ -12949,6 +12980,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           scrollbar-width: thin;
         "
       >
+        <span class="add-section-label">Секции:</span>
         <button
           class="add-section-btn"
           style="flex: 0 0 auto; padding: 0.5rem 0.75rem; white-space: nowrap; font-size: 0.8125rem"
@@ -25104,6 +25136,9 @@ function addSection(type) {
   });
   });
   requestRender();
+  // B-12.2 (итерация 0.622): добавление секции доступно и из окна партий —
+  // курсор сразу встаёт в её начало (в редакторе вызов ничего не делает).
+  placePartsCursorAtNewSection();
 }
 function addCustomSection() {
   let n = prompt('Введите название секции:', 'Новая секция');
@@ -25131,6 +25166,9 @@ function addCustomSection() {
   });
   });
   requestRender();
+  // B-12.2 (итерация 0.622): как и обычная секция — курсор партий уходит
+  // в новую (в редакторе вызов ничего не делает).
+  placePartsCursorAtNewSection();
   showToast(`Секция "${n}" добавлена`);
 }
 function renameSection(sid, nn) {
@@ -44505,6 +44543,28 @@ function partSystemIndex(systems, secId, pass) {
   return -1;
 }
 
+// Содержимое пустого состояния подстраивается под ситуацию: в пустой песне
+// предлагаем добавить секцию (без неё станков не будет), а когда секции уже
+// есть, но партии ещё нет — создать партию. Кнопка добавления секции
+// подставляет самый частый тип (куплет); остальные типы — в панели «Секции:»
+// под табулатурами.
+function syncPartsEmptyState() {
+  const noSections = sections.length === 0;
+  const hasPart = !!partActivePart();
+  const text = document.getElementById('partsEmptyText');
+  if (text) text.textContent = noSections ? 'В песне пока нет секций' : 'Пока здесь пусто';
+  const hint = document.getElementById('partsEmptyHint');
+  if (hint) {
+    hint.textContent = noSections
+      ? 'Станок партии строится по секциям: добавьте первую — и он появится. Другие типы секций — в списке «Секции:» ниже.'
+      : 'Партия — независимый слой нот: живёт в файле песни и звучит вместе с ней.';
+  }
+  const addBtn = document.getElementById('ptAddSection');
+  if (addBtn) addBtn.hidden = !noSections;
+  const createBtn = document.getElementById('ptCreatePart');
+  if (createBtn) createBtn.hidden = hasPart;
+}
+
 function renderPartsScreen() {
   const track = document.getElementById('partsTrack');
   const empty = document.getElementById('partsEmpty');
@@ -44526,12 +44586,14 @@ function renderPartsScreen() {
   track.innerHTML = '';
   clearPartsPlaybackHighlight();
 
-  // Пустое состояние — только когда партий нет вовсе (старая песня после
-  // миграции v4→v5). Партия без нот — не пусто: это чистый станок,
-  // который ждёт первую ноту.
-  if (!active) {
+  // Пустое состояние — это не только «партий нет». Станки строятся по
+  // секциям, поэтому пустая песня (после «Сброса» или импорта без секций)
+  // без этой ветки показывала пустой экран, из которого некуда набирать:
+  // и секцию, и партию надо было добавлять в редакторе, оставленном позади.
+  if (!active || !sections.length) {
     partsCursor = null;
     empty.hidden = false;
+    syncPartsEmptyState();
     syncPartsPalette();
     return;
   }
@@ -44919,6 +44981,29 @@ function ensurePartsPalette() {
   });
   const create = document.getElementById('ptCreatePart');
   if (create) create.addEventListener('click', createPartFromEmptyState);
+  // «Добавить секцию» из пустого состояния: тип по умолчанию — куплет,
+  // остальные типы доступны в панели «Секции:» под табулатурами.
+  const addSectionBtn = document.getElementById('ptAddSection');
+  if (addSectionBtn) addSectionBtn.addEventListener('click', () => addSection('Verse'));
+}
+
+// Секция добавлена (из панели внизу или из пустого состояния). Если окно
+// партий открыто, курсор уходит в её начало: набирать можно сразу, без
+// поиска новой системы глазами. В редакторе поведение не меняется —
+// там курсора партий не видно.
+function placePartsCursorAtNewSection() {
+  if (!partsMode) return;
+  const part = partActivePart();
+  const created = sections[sections.length - 1];
+  if (!part || !created) return;
+  partsCursor = {
+    partId: part.id,
+    secId: created.id,
+    pass: 0,
+    string: PART_CURSOR_DEFAULT_STRING,
+    pos: 0,
+  };
+  partsScrollPending = true;
 }
 
 function syncPartsPalette() {

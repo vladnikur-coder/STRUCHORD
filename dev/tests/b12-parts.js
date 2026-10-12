@@ -13,6 +13,9 @@
  *  7. Демо-фикстуру dev/fixtures/b12-parts-demo.struchord;
  *  8. Независимость от гармонии: партии не влияют на тональность и сетку;
  *  9. Жизненный цикл секции: клон уносит рулон, удаление — чистит.
+ * 10. Пустая песня: окно партий не встречает пустым экраном — предлагает
+ *     добавить секцию (партия строится по секциям) и создать партию;
+ *     панель «Секции:» доступна прямо из окна партий (итерация 0.622).
  */
 const fs = require('fs');
 const path = require('path');
@@ -261,6 +264,69 @@ w.addEventListener('load', () => {
     w.eval('removeSection(2)');
     const afterRemove = JSON.parse(w.eval('JSON.stringify(songParts[0].rolls)'));
     check('удаление секции чистит её рулон', !afterRemove['2'], JSON.stringify(afterRemove));
+
+    // ---------- 10. Пустая песня: не белый экран, а выход ----------
+    // Партия строится по секциям, поэтому «нет секций» и «нет партии» —
+    // разные пустые состояния. До 0.622 пустая песня после создания
+    // партии показывала пустой экран без единой подсказки.
+    const emptySong = baseSong({ sections: [], parts: [] });
+    loadSong(emptySong);
+    w.eval('render(); togglePartsMode(true)');
+    const emptyBox = w.document.getElementById('partsEmpty');
+    check('пустая песня: пустое состояние вместо белого экрана', emptyBox.hidden === false);
+    check('пустая песня: текст говорит про секции',
+      w.document.getElementById('partsEmptyText').textContent.includes('нет секций'),
+      w.document.getElementById('partsEmptyText').textContent);
+    check('пустая песня: обе кнопки предложены',
+      w.document.getElementById('ptAddSection').hidden === false &&
+      w.document.getElementById('ptCreatePart').hidden === false);
+    const addBar = w.document.querySelector('.add-section-bar');
+    const addLabel = w.document.querySelector('.add-section-label');
+    check('окно партий: панель «Секции:» доступна',
+      w.getComputedStyle(addBar).display !== 'none' && w.getComputedStyle(addLabel).display !== 'none',
+      `${w.getComputedStyle(addBar).display} / ${w.getComputedStyle(addLabel).display}`);
+    w.eval('togglePartsMode(false)');
+    check('редактор: метка «Секции:» скрыта (панель как была)',
+      w.getComputedStyle(addLabel).display === 'none' && w.getComputedStyle(addBar).display !== 'none',
+      `${w.getComputedStyle(addLabel).display} / ${w.getComputedStyle(addBar).display}`);
+    w.eval('togglePartsMode(true)');
+
+    w.document.getElementById('ptCreatePart').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    w.eval('render()');
+    check('пустая песня: партия создана, пустой экран не вернулся',
+      w.eval('songParts.length') === 1 && emptyBox.hidden === false &&
+      w.document.getElementById('ptCreatePart').hidden === true,
+      JSON.stringify({ parts: w.eval('songParts.length'), empty: emptyBox.hidden }));
+    w.document.getElementById('ptAddSection').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    w.eval('render()');
+    check('пустая песня: кнопка добавила секцию и станок',
+      w.eval('sections.length') === 1 && w.document.querySelectorAll('#partsTrack .pt-section').length === 1 &&
+      emptyBox.hidden === true,
+      JSON.stringify({ sections: w.eval('sections.length'),
+        systems: w.document.querySelectorAll('#partsTrack .pt-section').length }));
+    check('пустая песня: курсор сразу в новой секции',
+      w.eval('partsCursor && partsCursor.secId === sections[0].id') === true,
+      JSON.stringify(w.eval('partsCursor')));
+    // Ввод работает без визита в редактор: цифра набирает ноту.
+    w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: '5', bubbles: true }));
+    check('пустая песня: ввод цифрой работает сразу',
+      w.eval('(songParts[0].rolls[String(sections[0].id)] || []).length') === 1,
+      w.eval('JSON.stringify(songParts[0].rolls)'));
+
+    // Панель «Секции:» из окна партий: клик по типу добавляет секцию,
+    // а курсор уходит в неё — набирать можно без поиска системы.
+    w.document.querySelector('.add-section-btn').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    w.eval('render()');
+    check('панель «Секции:» работает из окна партий',
+      w.eval('sections.length') === 2 && w.eval('partsCursor.secId === sections[1].id') === true,
+      JSON.stringify({ sections: w.eval('sections.length'), cursor: w.eval('partsCursor') }));
+
+    // Удаление всех секций возвращает пустое состояние, а не белый экран.
+    w.eval('sections.slice().forEach((s) => removeSection(s.id)); render();');
+    check('удаление всех секций: снова пустое состояние с выходом',
+      emptyBox.hidden === false && w.eval('sections.length') === 0 &&
+      w.document.getElementById('ptAddSection').hidden === false,
+      JSON.stringify({ empty: emptyBox.hidden, sections: w.eval('sections.length') }));
 
     console.log(`\nитого: ${pass} ok, ${fail} FAIL`);
     if (fail) process.exitCode = 1;
