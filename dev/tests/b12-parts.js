@@ -157,8 +157,10 @@ w.addEventListener('load', () => {
     const track = w.document.getElementById('partsTrack');
     check('станков = секции × повторы (2 + 1)', track.querySelectorAll('.pt-section').length === 3,
       String(track.querySelectorAll('.pt-section').length));
-    check('чипов нот = 2×2 прохода + 1', track.querySelectorAll('.pt-svg rect').length === 5,
-      String(track.querySelectorAll('.pt-svg rect').length));
+    // B-12.2: в табулатуре появился квадрат курсора — он тоже <rect>,
+    // поэтому считаем только ноты.
+    const chips = () => track.querySelectorAll('.pt-svg rect:not(.pt-cursor)').length;
+    check('чипов нот = 2×2 прохода + 1', chips() === 5, String(chips()));
     const frets = Array.from(track.querySelectorAll('.pt-svg text')).map((t) => t.textContent).join('|');
     check('лады нарисованы по проходам', frets === '8|10|8|10|3', frets);
     check('тактовая сетка есть', track.querySelectorAll('.pt-svg line').length > 20,
@@ -215,12 +217,17 @@ w.addEventListener('load', () => {
     loadSong(demo);
     const demoParts = JSON.parse(w.eval('JSON.stringify(songParts)'));
     check('демо: партия загрузилась', demoParts.length === 1 && demoParts[0].name === 'Соло-гитара', JSON.stringify(demoParts[0] && demoParts[0].name));
-    check('демо: 12 нот куплета и 11 припева сохранены',
-      demoParts[0].rolls['1'].length === 12 && demoParts[0].rolls['2'].length === 11,
+    // Числа берём из самой фикстуры: состав демо-мелодии меняется
+    // (B-12.2 добавил пунктир и триоль), а инвариант — «все ноты доехали».
+    check('демо: все ноты куплета и припева сохранены',
+      demoParts[0].rolls['1'].length === demo.parts[0].rolls['1'].length &&
+      demoParts[0].rolls['2'].length === demo.parts[0].rolls['2'].length,
       JSON.stringify([demoParts[0].rolls['1'].length, demoParts[0].rolls['2'].length]));
     w.eval('togglePartsMode(true)');
-    check('демо: чипов = 12×2 + 11', w.document.getElementById('partsTrack').querySelectorAll('.pt-svg rect').length === 35,
-      String(w.document.getElementById('partsTrack').querySelectorAll('.pt-svg rect').length));
+    const demoChips = demo.parts[0].rolls['1'].length * 2 + demo.parts[0].rolls['2'].length;
+    check(`демо: чипов = ${demoChips} (куплет ×2 повтора + припев)`,
+      w.document.getElementById('partsTrack').querySelectorAll('.pt-svg rect:not(.pt-cursor)').length === demoChips,
+      String(w.document.getElementById('partsTrack').querySelectorAll('.pt-svg rect:not(.pt-cursor)').length));
     w.eval('togglePartsMode(false)');
 
     // ---------- 7. Партии не влияют на гармонию ----------
