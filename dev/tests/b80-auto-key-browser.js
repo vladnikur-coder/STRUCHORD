@@ -30,7 +30,7 @@ function ok(name, condition, detail = '') {
 
   try {
     const appUrl = pathToFileURL(path.resolve(__dirname, '../../STRUCHORD.html')).href;
-    await page.goto(`${appUrl}?b80-auto-key=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
+    await page.goto(`${appUrl}?view=editor&b80-auto-key=${Date.now()}`, { waitUntil: 'load', timeout: 60000 });
     await page.waitForFunction(() =>
       typeof refreshAutoDetectedKey === 'function' && typeof syncTimelineSongBar === 'function',
     { timeout: 30000 });

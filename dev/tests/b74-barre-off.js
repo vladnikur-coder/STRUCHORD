@@ -121,6 +121,9 @@ function run() {
     localStorage.removeItem('struchord_songs');
     localStorage.setItem('struchord_songs', JSON.stringify([${JSON.stringify(base)}]));
     loadSong(0);
+    // Это новая экспортируемая версия тестовых данных, не переименование
+    // открытой библиотечной записи.
+    window.clearLibrarySongOrigin();
     DOM.songTitle.value = 'B74 roundtrip ' + Date.now();
     sections[0].squares[0].events[0].barreOff = [1];
     saveCurrentSong();

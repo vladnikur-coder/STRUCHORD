@@ -12,8 +12,8 @@
  *  6. Dm6 без квинты (D F B) не распознаётся — это Bdim/D;
  *  7. C11 с басом C — C11, а не Gm11/C (правило «корень в басу побеждает»);
  *  8. x33311 остаётся Fsus4/C по нотам, но принимается для ячейки C11 или C7sus4;
- *  9. написание корня по тональности: диатонический — по гамме (E#/Cb допустимы),
- *     хроматический — из читаемого набора, тритон — по стилю тональности;
+ *  9. теоретическое написание ступени остаётся по гамме, но имена аккордов
+ *     всегда заменяют Cb/E#/B#/Fb на B/F/C/E; тритон — по стилю тональности;
  * 10. метроном 6/8: вторичный акцент на границе групп (click 1 = вторая доля).
  */
 const fs = require('fs');
@@ -118,15 +118,35 @@ check('x33311 не принимается для Cmaj7 (нет F и Bb)',
   ev(`shapeMatchesChord(${JSON.stringify(x33311)}, getChordNotes("Cmaj7","sharp"), "C", null)`) === false);
 
 // ---- 9. Написание корня по тональности ----
-const spell = (root, style, key) => ev(`correctChordName(${JSON.stringify(root)}, ${JSON.stringify(style)}, ${JSON.stringify(key)})`);
-check('C в F# остаётся C (B# не из читаемого набора)', spell('C', 'sharp', 'F#') === 'C', spell('C', 'sharp', 'F#'));
-check('F в F# по гамме = E# (диатонический корень)', spell('F', 'sharp', 'F#') === 'E#', spell('F', 'sharp', 'F#'));
-check('B в Bb остаётся B (Cb из читаемого набора не берём)', spell('B', 'flat', 'Bb') === 'B', spell('B', 'flat', 'Bb'));
+const spell = (root, style, key) => ev(`correctDisplayedChordName(${JSON.stringify(root)}, ${JSON.stringify(style)}, ${JSON.stringify(key)})`);
+check('C в F# остаётся C', spell('C', 'sharp', 'F#') === 'C', spell('C', 'sharp', 'F#'));
+check('F в F# остаётся читаемым F, а теоретическая ступень — E#',
+  spell('F', 'sharp', 'F#') === 'F' && ev('spellRootByDegree("F","F#")') === 'E#',
+  `${spell('F', 'sharp', 'F#')} / ${ev('spellRootByDegree("F","F#")')}`);
+check('B в Bb остаётся B', spell('B', 'flat', 'Bb') === 'B', spell('B', 'flat', 'Bb'));
 check('A# в C = Bb (хроматический, читаемый)', spell('A#', 'sharp', 'C') === 'Bb', spell('A#', 'sharp', 'C'));
 check('Ab в Dm (тритон G# по стилю бемольной тональности) = Ab', spell('G#', 'flat', 'Dm') === 'Ab', spell('G#', 'flat', 'Dm'));
 check('F# в Cm (тритон, бемольный стиль) = Gb', spell('F#', 'flat', 'Cm') === 'Gb', spell('F#', 'flat', 'Cm'));
-check('E в Db (хроматический, Fb заменяем на E)', spell('E', 'flat', 'Db') === 'E', spell('E', 'flat', 'Db'));
-check('B в Ebm (диатонический, Cb по гамме)', spell('B', 'flat', 'Ebm') === 'Cb', spell('B', 'flat', 'Ebm'));
+check('E в Db остаётся E', spell('E', 'flat', 'Db') === 'E', spell('E', 'flat', 'Db'));
+check('B5 в Ebm отображается как B5, теоретическая коррекция остаётся Cb5',
+  spell('B5', 'flat', 'Ebm') === 'B5' &&
+    ev('correctChordName("B5","flat","Ebm")') === 'Cb5' &&
+    ev('spellRootByDegree("B","Ebm")') === 'Cb',
+  `${spell('B5', 'flat', 'Ebm')} / ${ev('correctChordName("B5","flat","Ebm")')} / ${ev('spellRootByDegree("B","Ebm")')}`);
+check('Cb, E#, B#, Fb всегда имеют читаемые имена (в том числе без тональности)',
+  ev('normalizeReadableChordName("Cb5/E#/B#/Fb")') === 'B5/F/C/E',
+  ev('normalizeReadableChordName("Cb5/E#/B#/Fb")'));
+check('E#, B#, Fb, Cb отображаются как F, C, E, B после коррекции тональностью',
+  spell('E#dim/B#', 'sharp', 'F#') === 'Fdim/C' &&
+    spell('Fb/Cb', 'flat', 'Ebm') === 'E/B',
+  `${spell('E#dim/B#', 'sharp', 'F#')} / ${spell('Fb/Cb', 'flat', 'Ebm')}`);
+check('теоретическая гамма Ebm по-прежнему содержит Cb',
+  ev('getScaleNotes("Ebm").includes("Cb4")') === true,
+  JSON.stringify(ev('getScaleNotes("Ebm")')));
+check('B5 в Ebm сохраняет VI и исходный pitch class B',
+  ev('getScaleDegree("B5","Ebm")') === 'VI' &&
+    ev('toSharpNote(getChordNotes("B5","flat")[0].replace(/\\d+$/, ""))') === 'B',
+  `${ev('getScaleDegree("B5","Ebm")')} / ${JSON.stringify(ev('getChordNotes("B5","flat")'))}`);
 
 // ---- 10. Метроном 6/8: вторичный акцент на границе групп ----
 {

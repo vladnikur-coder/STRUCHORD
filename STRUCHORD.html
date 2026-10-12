@@ -35,6 +35,11 @@
     <link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAxODAgMTgwIj48cmVjdCB3aWR0aD0iMTgwIiBoZWlnaHQ9IjE4MCIgcng9IjQwIiBmaWxsPSIjMWUyZjQxIi8+PHBhdGggZD0iTTkwIDM4YzI0IDAgNDAgMTQgNDAgMzMgMCAyNC0yMiA1MC00MCA3MS0xOC0yMS00MC00Ny00MC03MSAwLTE5IDE2LTMzIDQwLTMzeiIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjZTA4YTVlIiBzdHJva2Utd2lkdGg9IjkiIHN0cm9rZS1saW5lam9pbj0icm91bmQiLz48L3N2Zz4=" />
     <script>
       (function () {
+        // B-13: обычный запуск — главный экран-хаб; библиотека открывается
+        // отдельным действием. view=editor оставлен для отладки и тестовых стендов.
+        if (new URLSearchParams(window.location.search).get('view') !== 'editor') {
+          document.documentElement.classList.add('is-home-screen');
+        }
         try {
           var saved = localStorage.getItem('struchord-theme');
           var theme =
@@ -11722,6 +11727,326 @@ body.power-ui-waking .pinned-fingering-dock {
   @keyframes storm-achievement-static { 0%,100%{opacity:0} 10%,90%{opacity:1;transform:translate(-50%,0)} }
   @keyframes thunder-plate-static { 0%,100%{opacity:0} 10%,90%{opacity:1;transform:translate(-50%,0)} }
 }
+
+/* ===== B-13: центр запуска, библиотека и быстрые настройки ===== */
+.home-screen { display: none; }
+html.is-home-screen body {
+  box-sizing: border-box;
+  min-height: 100vh;
+  padding: clamp(0.75rem, 3.2vw, 2.75rem);
+}
+html.is-home-screen .home-screen { display: block; }
+html.is-home-screen .container,
+html.is-home-screen .songmap-zone,
+html.is-home-screen .songmap,
+html.is-home-screen #sectionDragChip,
+html.is-home-screen .pinned-fingering-dock { display: none !important; }
+.home-shell {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: min(53.75rem, 100%);
+  min-height: calc(100vh - 5.5rem);
+  margin: 0 auto;
+  padding: 1.6rem 2rem 2rem;
+  border-radius: 1.75rem;
+  background: var(--color-background-primary);
+  background-image: var(--surface-sheen);
+  box-shadow: var(--shadow-container), inset 0 0.0625rem 0 var(--surface-edge);
+}
+.home-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.625rem;
+  margin-bottom: 1.8rem;
+  padding: 0 0 0.9rem;
+  border-bottom: 0.0625rem solid var(--color-border-light);
+}
+.home-brand { display: inline-flex; align-items: center; gap: 0.625rem; }
+.home-brand-mark {
+  display: grid;
+  place-items: center;
+  width: 1.375rem;
+  height: 1.375rem;
+  color: var(--color-accent);
+  font-size: 1.375rem;
+}
+.home-brand-name {
+  background: linear-gradient(135deg, var(--color-header-gradient-start), var(--color-header-gradient-end));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  font-size: 1.25rem;
+  font-weight: 590;
+  letter-spacing: -0.01875rem;
+}
+.home-header-controls { display: inline-flex; align-items: center; gap: 0.5rem; }
+.home-settings-btn,
+.home-theme-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.4rem;
+  min-height: 2.35rem;
+  padding: 0.4rem 0.75rem;
+  border: 0.0625rem solid var(--color-border-medium);
+  border-radius: var(--border-radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.home-theme-toggle-btn { width: 2.35rem; padding: 0; font-size: 1rem; }
+.home-settings-btn:hover,
+.home-theme-toggle-btn:hover { border-color: var(--color-border-medium); background: var(--color-surface-hover); color: var(--color-text-primary); }
+.home-settings-btn i { color: var(--color-accent); font-size: 1rem; }
+.home-action-btn:focus-visible,
+.home-header-controls button:focus-visible,
+.home-library-back-btn:focus-visible,
+.home-song-open:focus-visible,
+.home-song-actions > summary:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.home-main { display: flex; flex: 1 1 auto; flex-direction: column; min-height: 0; }
+.home-hub {
+  display: grid;
+  flex: 1 1 auto;
+  align-content: center;
+  justify-items: center;
+  gap: 0.45rem;
+  padding: 2rem 0.5rem;
+  text-align: center;
+}
+.home-hub-title { margin: 0; color: var(--color-text-primary); font-size: clamp(1.55rem, 3.4vw, 2rem); font-weight: 650; line-height: 1.15; letter-spacing: -0.035em; }
+.home-hub-copy { margin: 0.15rem 0 0.8rem; color: var(--color-text-secondary); font-size: 0.875rem; line-height: 1.5; }
+.home-actions-stack { display: grid; grid-template-columns: minmax(0, 1fr); gap: 0.6rem; width: min(21rem, 100%); }
+.home-action-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.875rem;
+  padding: 0.75rem 1.125rem;
+  border: 0.0625rem solid var(--color-border-medium);
+  border-radius: var(--border-radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 0.875rem;
+  font-weight: 520;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease, transform 120ms ease;
+}
+.home-action-btn:hover { border-color: var(--color-border-medium); background: var(--color-surface-hover); }
+.home-action-btn:active { transform: translateY(1px); }
+.home-action-btn--primary { border-color: transparent; background: var(--color-ink); color: #fff; }
+.home-action-btn--primary:hover { background: var(--color-ink-hover); }
+.home-action-btn i { color: currentColor; font-size: 1rem; }
+.home-hub[hidden],
+.home-library-view[hidden] { display: none !important; }
+.home-library-view { width: min(54rem, 100%); margin: 0 auto; padding: 1.1rem 0 1.7rem; }
+.home-library-back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  min-height: 2.25rem;
+  margin: 0 0 0.85rem;
+  padding: 0.35rem 0.55rem;
+  border: 1px solid transparent;
+  border-radius: 0.55rem;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+.home-library-back-btn:hover { border-color: var(--color-border-light); background: var(--color-background-secondary); color: var(--color-text-primary); }
+.home-library-card { min-width: 0; padding: clamp(1rem, 2.2vw, 1.5rem); border: 1px solid var(--color-border-light); border-radius: 1rem; background: var(--color-surface); }
+.home-library-head { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; margin: 0 0 0.8rem; }
+.home-section-title { margin: 0; color: var(--color-text-primary); font-size: 1.2rem; font-weight: 680; letter-spacing: -0.02em; }
+.home-library-count { color: var(--color-text-tertiary); font-size: 0.75rem; white-space: nowrap; }
+.home-library-import-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  width: 100%;
+  min-height: 2.65rem;
+  margin: 0 0 0.75rem;
+  padding: 0.55rem 0.75rem;
+  border: 1px dashed var(--color-border-medium);
+  border-radius: 0.65rem;
+  background: var(--color-background-secondary);
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 0.84rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+.home-library-import-btn:hover { border-color: var(--color-accent); background: var(--color-surface-hover); color: var(--color-text-primary); }
+.home-library-import-btn i { color: var(--color-accent); }
+.home-search-wrap { display: block; margin-bottom: 0.75rem; }
+.home-screen .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.home-search {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 2.55rem;
+  padding: 0.6rem 0.75rem;
+  border: 1px solid var(--color-border-medium);
+  border-radius: 0.65rem;
+  outline: none;
+  background: var(--color-background-secondary);
+  color: var(--color-text-primary);
+  font: inherit;
+  font-size: 0.84rem;
+}
+.home-search:focus { border-color: var(--color-accent); box-shadow: 0 0 0 0.15rem rgba(var(--color-accent-rgb), 0.13); }
+.home-song-list { display: grid; gap: 0.55rem; }
+.home-song-empty { display: grid; justify-items: center; gap: 0.35rem; padding: 1.8rem 1rem; border: 1px dashed var(--color-border-medium); border-radius: 0.8rem; color: var(--color-text-secondary); text-align: center; }
+.home-song-empty strong { color: var(--color-text-primary); font-size: 0.92rem; }
+.home-song-empty span { font-size: 0.8rem; line-height: 1.45; }
+.home-song-card {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 0.65rem;
+  min-width: 0;
+  padding: 0.72rem 0.75rem 0.72rem 0.9rem;
+  border: 1px solid var(--color-border-light);
+  border-radius: 0.8rem;
+  background: var(--color-background-secondary);
+  transition: border-color 120ms ease, background 120ms ease;
+}
+.home-song-card:hover { border-color: var(--color-border-medium); background: var(--color-surface-hover); }
+.home-song-open { display: grid; min-width: 0; gap: 0.22rem; padding: 0; border: 0; border-radius: 0.3rem; background: transparent; color: inherit; text-align: left; cursor: pointer; }
+.home-song-name { overflow: hidden; color: var(--color-text-primary); font-size: 0.9rem; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
+.home-song-meta { overflow: hidden; color: var(--color-text-secondary); font-size: 0.75rem; text-overflow: ellipsis; white-space: nowrap; }
+.home-song-actions { position: relative; }
+.home-song-actions > summary { display: grid; place-items: center; width: 2.2rem; height: 2.2rem; border: 1px solid transparent; border-radius: 50%; color: var(--color-text-secondary); cursor: pointer; list-style: none; }
+.home-song-actions > summary::-webkit-details-marker { display: none; }
+.home-song-actions > summary:hover,
+.home-song-actions[open] > summary { border-color: var(--color-border-light); background: var(--color-surface); }
+.home-song-menu { position: absolute; z-index: 5; top: calc(100% + 0.3rem); right: 0; display: grid; min-width: 11.5rem; padding: 0.35rem; border: 1px solid var(--color-border-light); border-radius: 0.8rem; background: var(--color-surface); box-shadow: var(--shadow-modal); }
+.home-song-menu button { display: flex; align-items: center; gap: 0.55rem; padding: 0.55rem 0.65rem; border: 0; border-radius: 0.55rem; background: transparent; color: var(--color-text-primary); text-align: left; cursor: pointer; }
+.home-song-menu button:hover { background: var(--color-surface-hover); }
+.home-song-menu button.is-danger { color: var(--color-danger); }
+.home-tools-list { display: grid; gap: 0.5rem; }
+.home-tool-button { display: flex; align-items: center; gap: 0.7rem; width: 100%; min-height: 3.2rem; padding: 0.7rem 0.85rem; border: 1px solid var(--color-border-light); border-radius: 0.7rem; background: var(--color-background-secondary); color: var(--color-text-primary); text-align: left; cursor: pointer; }
+.home-tool-button:hover { border-color: var(--color-border-medium); background: var(--color-surface-hover); }
+.home-tool-button i { color: var(--color-accent); font-size: 1.1rem; }
+.home-footer { padding: 0.8rem 0.25rem 0.15rem; color: var(--color-text-tertiary); font-size: 0.72rem; text-align: center; }
+.home-toast { position: fixed; z-index: 30000; left: 50%; bottom: 1.25rem; max-width: min(90vw, 34rem); padding: 0.72rem 1rem; border-radius: var(--border-radius-pill); background: var(--color-toast-bg); color: #fff; box-shadow: var(--shadow-modal); opacity: 0; pointer-events: none; transform: translate(-50%, 0.5rem); transition: opacity 140ms ease, transform 140ms ease; text-align: center; font-size: 0.82rem; }
+.home-toast.show { opacity: 1; transform: translate(-50%, 0); }
+.home-editor-nav-btn { display: inline-flex; align-items: center; gap: 0.4rem; margin-left: 0.15rem; padding: 0.5rem 0.72rem; border: 1px solid var(--color-border-medium); border-radius: var(--border-radius-pill); background: var(--color-surface); color: var(--color-text-secondary); font-size: 0.75rem; font-weight: 600; white-space: nowrap; cursor: pointer; }
+.home-editor-nav-btn:hover { background: var(--color-surface-hover); color: var(--color-text-primary); }
+.home-screen-modal-overlay { z-index: 21000; }
+.home-screen-modal { max-height: min(86vh, 48rem); overflow: auto; gap: 0.85rem; }
+.home-screen-modal h2 { margin: 0; font-size: 1.2rem; }
+.home-modal-copy { margin: 0; color: var(--color-text-secondary); line-height: 1.5; }
+.home-modal-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 1rem; }
+.home-modal-close { flex: 0 0 auto; width: 2rem; height: 2rem; border: 1px solid var(--color-border-light); border-radius: 50%; background: var(--color-surface); color: var(--color-text-secondary); font-size: 1.2rem; cursor: pointer; }
+.home-modal-fields { display: grid; gap: 0.75rem; }
+.home-modal-fields label { display: grid; gap: 0.35rem; color: var(--color-text-secondary); font-size: 0.8rem; }
+.home-modal-fields input { box-sizing: border-box; width: 100%; min-height: 2.7rem; padding: 0.65rem 0.75rem; border: 1px solid var(--color-border-medium); border-radius: 0.7rem; background: var(--color-surface); color: var(--color-text-primary); }
+.home-modal-fields input:focus { outline: 2px solid rgba(var(--color-accent-rgb), 0.25); border-color: var(--color-accent); }
+.home-modal-error { min-height: 1.1rem; margin: 0; color: var(--color-danger); font-size: 0.78rem; }
+.home-modal-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.55rem; margin-top: 0.35rem; }
+.home-modal-actions button { min-height: 2.5rem; padding: 0.55rem 0.9rem; border: 1px solid var(--color-border-medium); border-radius: var(--border-radius-pill); background: var(--color-surface); color: var(--color-text-primary); cursor: pointer; }
+.home-modal-actions button.primary { border-color: var(--color-accent); background: var(--color-accent); color: var(--color-background-primary); }
+.home-modal-actions button.danger { border-color: var(--color-danger-border); color: var(--color-danger); }
+.home-settings-sections { display: grid; gap: 0.85rem; min-width: 0; }
+.home-settings-tabs { display: flex; gap: 0.2rem; padding: 0.2rem; border: 1px solid var(--color-border-light); border-radius: var(--border-radius-pill); background: var(--color-background-secondary); }
+.home-settings-tab { flex: 1 1 0; min-width: 0; min-height: 2.2rem; padding: 0.4rem 0.55rem; border: 1px solid transparent; border-radius: var(--border-radius-pill); background: transparent; color: var(--color-text-secondary); font: inherit; font-size: 0.78rem; font-weight: 600; line-height: 1.2; cursor: pointer; }
+.home-settings-tab:hover { color: var(--color-text-primary); }
+.home-settings-tab[aria-selected='true'] { border-color: var(--color-border-light); background: var(--color-surface); color: var(--color-text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.home-settings-tab:focus-visible,
+.home-theme-option:focus-visible,
+.home-setting-option:focus-within { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.home-settings-panel { display: grid; align-content: start; gap: 1rem; min-width: 0; }
+.home-settings-panel[hidden] { display: none !important; }
+.home-settings-section { display: grid; gap: 0.6rem; min-width: 0; }
+.home-settings-section h3 { margin: 0; color: var(--color-text-secondary); font-size: 0.78rem; font-weight: 650; }
+.home-theme-options { display: inline-flex; gap: 0.15rem; width: max-content; max-width: 100%; padding: 0.16rem; border: 1px solid var(--color-border-light); border-radius: var(--border-radius-pill); background: var(--color-background-secondary); }
+.home-theme-option { display: inline-flex; align-items: center; justify-content: center; gap: 0.38rem; min-height: 2rem; padding: 0.32rem 0.65rem; border: 1px solid transparent; border-radius: var(--border-radius-pill); background: transparent; color: var(--color-text-secondary); font: inherit; font-size: 0.78rem; cursor: pointer; }
+.home-theme-option:hover { color: var(--color-text-primary); }
+.home-theme-option[aria-pressed='true'] { border-color: var(--color-border-light); background: var(--color-surface); color: var(--color-text-primary); box-shadow: 0 1px 2px rgba(0,0,0,0.08); }
+.home-theme-option i { font-size: 0.9rem; }
+.home-settings-options { display: grid; gap: 0.42rem; }
+.home-setting-option { display: flex; align-items: flex-start; gap: 0.62rem; min-width: 0; padding: 0.58rem 0.68rem; border: 1px solid var(--color-border-light); border-radius: 0.72rem; background: var(--color-background-secondary); color: var(--color-text-primary); cursor: pointer; }
+.home-setting-option > input { flex: 0 0 auto; margin: 0.13rem 0 0; accent-color: var(--color-accent); }
+.home-setting-copy { display: grid; gap: 0.16rem; min-width: 0; }
+.home-setting-label { color: var(--color-text-primary); font-size: 0.82rem; font-weight: 590; line-height: 1.35; }
+.home-setting-hint { color: var(--color-text-secondary); font-size: 0.72rem; line-height: 1.4; }
+.home-setting-suboptions { display: grid; gap: 0.35rem; margin: 0.38rem 0 0 0.62rem; padding-left: 0.62rem; border-left: 2px solid var(--color-border-light); }
+.home-setting-suboptions .home-setting-option { padding: 0.48rem 0.58rem; background: var(--color-surface); }
+.home-setting-suboptions.is-disabled { opacity: 0.58; }
+.home-scheme-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0.4rem; }
+.home-scheme-choice { display: flex; align-items: center; gap: 0.6rem; min-width: 0; padding: 0.55rem 0.65rem; border: 1px solid var(--color-border-light); border-radius: 0.7rem; background: var(--color-surface); color: var(--color-text-primary); text-align: left; cursor: pointer; }
+.home-scheme-choice:hover { background: var(--color-surface-hover); }
+.home-scheme-choice[aria-pressed='true'] { border-color: var(--color-accent); box-shadow: inset 0 0 0 1px var(--color-accent); }
+.home-scheme-choice .scheme-dots { flex: 0 0 auto; }
+.home-scheme-choice-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.home-scale-controls { display: grid; grid-template-columns: 2.5rem minmax(4rem, 1fr) 2.5rem; align-items: center; gap: 0.45rem; }
+.home-scale-controls button { width: 2.5rem; height: 2.5rem; border: 1px solid var(--color-border-medium); border-radius: 50%; background: var(--color-surface); color: var(--color-text-primary); cursor: pointer; }
+.home-scale-controls button:disabled { opacity: 0.45; cursor: default; }
+.home-scale-value { color: var(--color-text-primary); font-variant-numeric: tabular-nums; font-weight: 650; text-align: center; }
+@media (max-width: 42rem) {
+  html.is-home-screen body { padding: 0.75rem; }
+  .home-shell { min-height: calc(100vh - 1.5rem); padding: 1rem 1.25rem 1.25rem; }
+  .home-library-view { padding-top: 0.8rem; }
+}
+@media (max-width: 31rem) {
+  /* На телефоне сама оболочка остаётся физически компактной даже при
+     выбранном крупном UI-масштабе: rem здесь ограничены шириной экрана. */
+  html.is-home-screen body { padding: 8px; }
+  .home-shell { min-height: calc(100vh - 16px); padding: 12px; border-radius: 1.25rem; }
+  .home-header { gap: 4px; margin-bottom: 14px; padding: 0 0 8px; }
+  .home-brand { gap: 4px; }
+  .home-brand-mark { display: none; }
+  .home-brand-name { font-size: min(1rem, 5vw); }
+  .home-header-controls { gap: 2px; }
+  .home-settings-label { display: inline; font-size: min(0.8rem, 3.8vw); }
+  .home-settings-btn { width: auto; min-width: max(40px, min(2.35rem, 12vw)); min-height: max(40px, min(2.35rem, 12vw)); gap: 4px; padding: 0 8px; font-size: min(1rem, 5vw); }
+  .home-theme-toggle-btn { width: max(40px, min(2.35rem, 12vw)); min-height: max(40px, min(2.35rem, 12vw)); padding: 0; font-size: min(1rem, 5vw); }
+  .home-settings-btn i,
+  .home-theme-toggle-btn i { font-size: min(1rem, 5vw); }
+  .home-hub { gap: 7px; padding: 24px 4px; }
+  .home-hub-title { font-size: min(1.75rem, 8vw); }
+  .home-hub-copy { margin: 0 0 10px; font-size: min(0.875rem, 4.5vw); }
+  .home-actions-stack { gap: 8px; width: min(21rem, 100%); }
+  .home-action-btn { min-height: max(44px, min(2.875rem, 14vw)); gap: 8px; padding: 8px 10px; font-size: min(0.875rem, 4.4vw); }
+  .home-action-btn i { font-size: min(1rem, 5vw); }
+  .home-library-view { padding: 12px 0 20px; }
+  .home-library-back-btn { min-height: 38px; margin-bottom: 10px; padding: 6px 8px; font-size: min(0.8rem, 4vw); }
+  .home-library-card { padding: 12px; }
+  .home-library-head { flex-wrap: wrap; gap: 6px 10px; }
+  .home-section-title { font-size: min(1.2rem, 5.5vw); }
+  .home-library-count { margin-left: auto; font-size: min(0.75rem, 3.8vw); }
+  .home-search { min-height: 40px; padding: 8px; font-size: min(0.84rem, 4.2vw); }
+  .home-song-empty { gap: 6px; padding: 14px 8px; }
+  .home-song-empty strong { font-size: min(0.92rem, 4.5vw); }
+  .home-song-empty span { font-size: min(0.8rem, 4vw); }
+  .home-song-card { gap: 8px; padding: 8px; }
+  .home-song-name { font-size: min(0.9rem, 4.4vw); }
+  .home-song-meta { font-size: min(0.75rem, 3.8vw); }
+  .home-song-actions > summary { width: max(40px, min(2.2rem, 11vw)); height: max(40px, min(2.2rem, 11vw)); }
+  .home-song-menu { min-width: min(11.5rem, 70vw); }
+  .home-footer { padding: 8px 2px 2px; font-size: min(0.72rem, 3.5vw); }
+  .home-toast { max-width: min(90vw, 34rem); padding: 8px 12px; font-size: min(0.82rem, 4vw); }
+  .home-scheme-grid { grid-template-columns: 1fr; }
+  .home-screen-modal { width: 94%; padding: 1.25rem 1rem; }
+}
+@media (max-width: 18rem) {
+  .home-settings-label { display: none; }
+  .home-settings-btn { width: max(40px, min(2.35rem, 12vw)); padding: 0; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .home-action-btn, .home-song-card, .home-header-controls button { transition: none; }
+}
 </style>
     <!-- ===== PWA: регистрация Service Worker =====
          Без этого офлайн-режим не работает: без Service Worker ярлык на
@@ -11742,6 +12067,67 @@ body.power-ui-waking .pinned-fingering-dock {
     </script>
   </head>
   <body>
+
+    <!-- B-13: стартовый экран и отдельный раздел библиотеки. -->
+    <main class="home-screen" id="homeScreen" aria-label="Главный экран STRUCHORD">
+      <div class="home-shell">
+        <header class="home-header">
+          <div class="home-brand" aria-label="STRUCHORD">
+            <span class="home-brand-mark" aria-hidden="true"><i class="ti ti-guitar-pick"></i></span>
+            <span class="home-brand-name">STRUCHORD</span>
+          </div>
+          <div class="home-header-controls" aria-label="Настройки приложения">
+            <button class="home-settings-btn" id="homeSettingsBtn" type="button" onclick="openHomeSettings()" aria-label="Настройки приложения">
+              <i class="ti ti-adjustments-plus" aria-hidden="true"></i><span class="home-settings-label">Настройки</span>
+            </button>
+            <button class="home-theme-toggle-btn" id="homeThemeBtn" type="button" onclick="toggleHomeTheme()" aria-label="Переключить тему" title="Переключить тему" aria-pressed="false">
+              <i class="ti ti-moon" id="homeThemeIcon" aria-hidden="true"></i>
+            </button>
+          </div>
+        </header>
+        <div class="home-main">
+          <section class="home-hub" id="homeHub" aria-labelledby="homeWelcomeTitle">
+            <h1 class="home-hub-title" id="homeWelcomeTitle">Добро пожаловать!</h1>
+            <p class="home-hub-copy">Что хотите сделать?</p>
+            <nav class="home-actions-stack" aria-label="Действия приложения">
+              <button class="home-action-btn home-action-btn--primary" id="homeNewSongBtn" type="button" onclick="startNewSongFromHome()">
+                <i class="ti ti-plus" aria-hidden="true"></i><span>Новая песня</span>
+              </button>
+              <button class="home-action-btn" id="homeImportSongBtn" type="button" onclick="importSongFile()">
+                <i class="ti ti-upload" aria-hidden="true"></i><span>Загрузить из файла</span>
+              </button>
+              <button class="home-action-btn" id="homeLibraryBtn" type="button" onclick="openHomeLibrary()">
+                <i class="ti ti-folder-open" aria-hidden="true"></i><span>Библиотека</span>
+              </button>
+              <button class="home-action-btn" id="homeToolsBtn" type="button" onclick="openHomeTools()">
+                <i class="ti ti-metronome" aria-hidden="true"></i><span>Инструменты</span>
+              </button>
+            </nav>
+          </section>
+          <section class="home-library-view" id="homeLibraryView" aria-labelledby="homeLibraryTitle" aria-hidden="true" hidden>
+            <button class="home-library-back-btn" id="homeLibraryBackBtn" type="button" onclick="returnHomeHub()">
+              <i class="ti ti-chevron-left" aria-hidden="true"></i><span>Главная</span>
+            </button>
+            <div class="home-library-card">
+              <div class="home-library-head">
+                <h1 class="home-section-title" id="homeLibraryTitle">Библиотека</h1>
+                <span class="home-library-count" id="homeLibraryCount" aria-live="polite"></span>
+              </div>
+              <button class="home-library-import-btn" id="homeLibraryImportBtn" type="button" onclick="importSongFile()">
+                <i class="ti ti-upload" aria-hidden="true"></i><span>Загрузить из файла</span>
+              </button>
+              <label class="home-search-wrap">
+                <span class="sr-only">Поиск по исполнителю и названию</span>
+                <input class="home-search" id="homeSongSearch" type="search" autocomplete="off" placeholder="Найти песню или исполнителя…" />
+              </label>
+              <div class="home-song-list" id="homeSongList" aria-live="polite"></div>
+            </div>
+          </section>
+        </div>
+        <footer class="home-footer">Песни сохраняются в этом браузере</footer>
+      </div>
+      <div class="home-toast" id="homeToast" role="status" aria-live="polite" aria-atomic="true"></div>
+    </main>
     <!-- B-64: панель структуры песни (dev/specs/songmap-prompt.md).
          Живёт СНАРУЖИ .container — рабочая область 860px не сужается. -->
     <div class="songmap-zone" id="songmapZone" aria-hidden="true">
@@ -11753,7 +12139,10 @@ body.power-ui-waking .pinned-fingering-dock {
     <div class="container">
       <div class="app-header">
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.609</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.618</span></span>
+        <button class="home-editor-nav-btn" id="editorHomeBtn" type="button" onclick="openHomeScreen()" title="Назад в библиотеку песен" aria-label="Назад в библиотеку">
+          <i class="ti ti-arrow-left" aria-hidden="true"></i><span>Назад</span>
+        </button>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -12310,17 +12699,10 @@ body.power-ui-waking .pinned-fingering-dock {
   <button class="action-btn" onclick="saveCurrentSong()">
     <i class="ti ti-device-floppy"></i> Сохранить
   </button>
-  <!-- Порядок: Сохранить, Экспорт, Загрузить, Сброс.
-       Сначала то, что уносит работу наружу (в хранилище и в файл),
-       потом то, что приносит её обратно. -->
+  <!-- Загрузка файла доступна из библиотеки; в редакторе оставляем
+       сохранение, скачивание и сброс текущей песни. -->
   <button class="action-btn" onclick="exportSong()">
     <i class="ti ti-download"></i> Экспорт
-  </button>
-  <!-- Импорт живёт ВНУТРИ диалога загрузки: это тоже «открыть песню»,
-       только не из хранилища, а из файла. Отдельной кнопкой в панели он
-       стоял рядом с «Загрузить» и дублировал её смысл. -->
-  <button class="action-btn" onclick="openLoadSongDialog()">
-    <i class="ti ti-folder-open"></i> Загрузить
   </button>
   <button class="action-btn" onclick="clearAll()"><i class="ti ti-trash"></i> Сброс</button>
 </div>
@@ -17841,14 +18223,15 @@ function dropPreferredFingeringsAt(secId, sqId, ei) {
 // (её перенос делает migrateFingeringChordName).
 function setEventChord(ev, newChord, posCtx, keepShape) {
   if (!ev) return false;
-  if (String(ev.chord || '').trim() === String(newChord || '').trim()) return false;
+  const readableChord = typeof newChord === 'string' ? normalizeReadableChordName(newChord) : newChord;
+  if (String(ev.chord || '').trim() === String(readableChord || '').trim()) return false;
   songStore.dispatch('cell/chord', () => {
     if (!keepShape) {
       delete ev.fingering;
       delete ev.fingeringTuning;
       if (posCtx) dropPreferredFingeringsAt(posCtx.secId, posCtx.sqId, posCtx.ei);
     }
-    ev.chord = newChord;
+    ev.chord = readableChord;
   }, { quiet: true });
   // Ворота едины для всех путей появления имени — ручной ввод, колесо,
   // «Переименовать?» в редакторе, добавление по аппликатуре — поэтому
@@ -17857,7 +18240,7 @@ function setEventChord(ev, newChord, posCtx, keepShape) {
   // дополнительно. Загрузка песни сюда не проходит — там очередь
   // пересобирается оптом (seedWheelExtensionsFromSong). Повторный
   // вызов с тем же расширением — no-op (pushWheelExtension).
-  learnWheelExtension(newChord);
+  learnWheelExtension(readableChord);
   return true;
 }
 
@@ -19674,7 +20057,7 @@ function circleOfFifthsDist(semitoneA, semitoneB) {
 function respellFingeringAnalysis(res, key) {
   if (!res || !key || typeof correctChordName !== 'function') return res;
   const ks = getKeyStyle(key);
-  const fixName = (name) => (typeof name === 'string' && name && name !== '?' ? correctChordName(name, ks, key) : name);
+  const fixName = (name) => (typeof name === 'string' && name && name !== '?' ? correctDisplayedChordName(name, ks, key) : name);
   const out = Object.assign({}, res);
   if (out.chordName) out.chordName = fixName(out.chordName);
   if (Array.isArray(out.candidates)) {
@@ -22593,7 +22976,83 @@ const SPELL_DEGREE_MINOR = [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]; // ♭II, III, 
 const SPELL_ALLOWED = new Set(['C','C#','Db','D','D#','Eb','E','E#','F','F#','Gb','G','G#','Ab','A','A#','Bb','B','B#','Cb','Fb']);
 // B-101 (0.596): читаемый набор для хроматических корней и замены E#/B#/Fb/Cb.
 const SPELL_READABLE = new Set(['C','C#','Db','D','Eb','E','F','F#','Gb','G','Ab','A','Bb','B']);
-const SPELL_READABLE_FALLBACK = { 'E#': 'F', 'B#': 'C', Fb: 'E', Cb: 'B' };
+const SPELL_READABLE_FALLBACK = Object.freeze({ 'E#': 'F', 'B#': 'C', Fb: 'E', Cb: 'B' });
+const READABLE_CHORD_NAMES_STORAGE_KEY = 'struchord-readable-chord-names';
+function readReadableChordNamesPreference() {
+  try {
+    return localStorage.getItem(READABLE_CHORD_NAMES_STORAGE_KEY) !== '0';
+  } catch (error) {
+    return true;
+  }
+}
+let readableChordNamesEnabled = readReadableChordNamesPreference();
+function isReadableChordNamesEnabled() {
+  return readableChordNamesEnabled;
+}
+// Теоретическое написание корня хранится отдельно от имени для пользователя:
+// правило «Cb это B» включает все четыре читаемые замены и не меняет расчёты.
+function normalizeReadableChordName(chordName) {
+  if (!readableChordNamesEnabled || typeof chordName !== 'string' || !chordName) return chordName;
+  return chordName.split('/').map((part) => {
+    const leading = (part.match(/^\s*/) || [''])[0];
+    const trailing = (part.match(/\s*$/) || [''])[0];
+    const core = part.slice(leading.length, part.length - trailing.length || undefined);
+    const match = core.match(/^([A-Ga-g])([#b♯♭]?)(.*)$/);
+    if (!match) return part;
+    const letter = match[1].toUpperCase();
+    const accidental = match[2].replace('♯', '#').replace('♭', 'b');
+    const root = letter + accidental;
+    const readableRoot = SPELL_READABLE_FALLBACK[root];
+    return readableRoot ? leading + readableRoot + match[3] + trailing : part;
+  }).join('/');
+}
+function normalizeReadableFingeringKey(key) {
+  if (typeof key !== 'string') return key;
+  const delimiter = key.indexOf('|');
+  if (delimiter <= 0) return key;
+  const chordName = key.slice(0, delimiter);
+  const keySuffix = key.slice(delimiter + 1);
+  const contextKey = keySuffix.split(/[|@]/)[0];
+  const corrected = contextKey
+    ? chordNameForReadablePreference(chordName, getKeyStyle(contextKey), contextKey)
+    : normalizeReadableChordName(chordName);
+  return corrected + key.slice(delimiter);
+}
+function normalizeReadableSongChordNames(song) {
+  if (!song || typeof song !== 'object') return song;
+  const fallbackKey = typeof song.globalKey === 'string' && song.globalKey ? song.globalKey : 'C';
+  if (Array.isArray(song.sections)) {
+    song.sections.forEach((section) => {
+      if (!section || !Array.isArray(section.squares)) return;
+      const contextKey = typeof section.key === 'string' && section.key ? section.key : fallbackKey;
+      const keyStyle = getKeyStyle(contextKey);
+      section.squares.forEach((square) => {
+        if (!square || !Array.isArray(square.events)) return;
+        square.events.forEach((event) => {
+          if (event && typeof event.chord === 'string') {
+            event.chord = chordNameForReadablePreference(event.chord, keyStyle, contextKey);
+          }
+        });
+      });
+    });
+  }
+  if (Array.isArray(song.userFingerings)) {
+    const merged = new Map();
+    song.userFingerings.forEach((entry) => {
+      if (!Array.isArray(entry) || typeof entry[0] !== 'string') return;
+      const key = normalizeReadableFingeringKey(entry[0]);
+      const previous = merged.get(key) || [];
+      merged.set(key, previous.concat(Array.isArray(entry[1]) ? entry[1] : []));
+    });
+    song.userFingerings = [...merged.entries()];
+  }
+  if (Array.isArray(song.preferredFingerings)) {
+    song.preferredFingerings.forEach((entry) => {
+      if (Array.isArray(entry) && typeof entry[0] === 'string') entry[0] = normalizeReadableFingeringKey(entry[0]);
+    });
+  }
+  return song;
+}
 const SPELL_SCALE_MAJOR = [0, 2, 4, 5, 7, 9, 11];
 const SPELL_SCALE_MINOR = [0, 2, 3, 5, 7, 8, 10];
 function spellRootByDegree(rootName, key) {
@@ -22609,12 +23068,13 @@ function spellRootByDegree(rootName, key) {
   const tab = isMin
     ? [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6]
     : [0, 1, 1, 2, 2, 3, 3, 4, 5, 5, 6, 6];
-  // B-101 (0.596), правила написания по решению пользователя:
-  // 1) диатонический корень (есть в гамме тональности) пишем по гамме, даже если
-  //    выходит E#, B#, Fb или Cb (F# мажор: VII = E#dim; Ebm: VI = Cb);
-  // 2) хроматический корень — по ступени, но только в читаемом наборе; E#/B#/Fb/Cb
-  //    заменяем энгармоническим именем из набора; остальные случаи — как раньше (null);
-  // 3) тритон (6 полутонов) — по стилю тональности: бемоль в бемольных, диез в диезных.
+  // B-101 (0.617): теоретическая ступень по-прежнему получает диатоническую
+  // букву тональности (например, VII в F# — E#, VI в Ebm — Cb). Отдельный
+  // слой correctDisplayedChordName заменяет имя для пользователя на читаемое:
+  // E#→F, Cb→B, B#→C, Fb→E. correctChordName и теоретические функции при этом
+  // сохраняют прежнее музыкальное написание.
+  // Хроматический спеллинг и выбор бемоля/диеза для тритона (6 полутонов)
+  // остаются по прежним правилам.
   const diatonic = (isMin ? SPELL_SCALE_MINOR : SPELL_SCALE_MAJOR).includes(interval);
   let li = (SPELL_LETTERS.indexOf(tm[1]) + tab[interval]) % 7;
   if (interval === 6) li = (SPELL_LETTERS.indexOf(tm[1]) + (getKeyStyle(key) === 'flat' ? 4 : 3)) % 7;
@@ -22637,6 +23097,47 @@ function correctChordName(c, ks, key) {
     .join('/');
   return normalizeChordCase(corr);
 }
+// Display/model boundary: keep correctChordName's key-aware theoretical
+// spelling intact for harmony logic, and apply the user-facing alias rule
+// only when a chord name is stored or rendered.
+function correctDisplayedChordName(chord, keyStyle, key) {
+  return normalizeReadableChordName(correctChordName(chord, keyStyle, key));
+}
+// When aliases are off, only restore a theoretical root from the configured
+// four (for example B→Cb in Ebm); unrelated user spellings stay untouched.
+function restoreTheoreticalAliasRoots(chord, keyStyle, key) {
+  const theoretical = correctChordName(chord, keyStyle, key);
+  if (typeof chord !== 'string' || typeof theoretical !== 'string') return theoretical;
+  const originalParts = chord.split('/');
+  return theoretical.split('/').map((part, index) => {
+    const root = (part.match(/^([A-G][#b]?)/) || [])[1];
+    return SPELL_READABLE_FALLBACK[root] ? part : (originalParts[index] ?? part);
+  }).join('/');
+}
+function chordNameForReadablePreference(chord, keyStyle, key) {
+  return readableChordNamesEnabled
+    ? normalizeReadableChordName(chord)
+    : restoreTheoreticalAliasRoots(chord, keyStyle, key);
+}
+function chordNameForEnharmonicCorrection(chord, keyStyle, key) {
+  return readableChordNamesEnabled
+    ? correctDisplayedChordName(chord, keyStyle, key)
+    : restoreTheoreticalAliasRoots(chord, keyStyle, key);
+}
+function setReadableChordNamesEnabled(enabled) {
+  const next = enabled === true;
+  if (next === readableChordNamesEnabled) return next;
+  readableChordNamesEnabled = next;
+  try {
+    localStorage.setItem(READABLE_CHORD_NAMES_STORAGE_KEY, next ? '1' : '0');
+  } catch (error) {
+    // Storage может быть недоступен; настройка всё равно действует в этой вкладке.
+  }
+  applyEnharmonicCorrectionToAll();
+  if (typeof window.syncHomeSettingsControls === 'function') window.syncHomeSettingsControls();
+  return next;
+}
+window.setReadableChordNamesEnabled = setReadableChordNamesEnabled;
 function applyEnharmonicCorrectionToAll() {
   let ch = false;
   for (const s of sections) ch = applyEnharmonicCorrectionToSection(s) || ch;
@@ -22655,7 +23156,7 @@ function applyEnharmonicCorrectionToSection(s) {
     for (let i = 0; i < sq.events.length; i++) {
       const orig = sq.events[i].chord;
       if (orig && orig.trim()) {
-        const corr = correctChordName(orig, sectionKeyStyle, sectionKey);
+        const corr = chordNameForEnharmonicCorrection(orig, sectionKeyStyle, sectionKey);
         if (corr !== orig) {
           sq.events[i].chord = corr;
           ch = true;
@@ -28977,10 +29478,9 @@ document.addEventListener('click', (e) => {
 
 // ---------- ОКНО ТЮНЕРА ----------
 //
-// Открывается кнопкой в панели инструментов. Микрофон НЕ запрашиваем
-// при открытии: разрешение просят по нажатию «Включить микрофон» —
-// иначе Safari покажет запрос на доступ просто за то, что человек
-// открыл окно посмотреть.
+// Открывается кнопкой в панели инструментов. tunerStart() запускает
+// микрофон сразу: браузер при необходимости запросит разрешение; это
+// ожидаемое поведение тюнера, который открывают для немедленной настройки.
 window.openTuner = function () {
   const exist = document.querySelector('.strum-modal-overlay');
   if (exist) removeModalOverlay(exist);
@@ -33685,6 +34185,7 @@ function wheelModeIsDualRing(m) {
   return !/(dim|aug|sus|°|\+)/.test(m) && !/^5($|[^a-z])/.test(m);
 }
 function getDisplayChord(rc, isMin = false) {
+  rc = normalizeReadableChordName(rc);
   if (wheelMode === 'triads') return isMin ? rc.replace('m', '') + 'm' : rc;
   if (wheelMode === '7') return isMin ? rc.replace('m', '') + 'm7' : rc + '7';
   if (wheelMode === '6') return isMin ? rc.replace('m', '') + 'm6' : rc + '6';
@@ -33787,11 +34288,11 @@ function splitChordDisplayHtml(displayText, rootClass, suffixClass, wrapClass) {
   return `<span class="${wrapClass}">${inner}</span>`;
 }
 function renderChordDisplayHtml(displayText) {
-  return splitChordDisplayHtml(displayText, 'chord-display-root', 'chord-display-suffix', 'chord-display-inner');
+  return splitChordDisplayHtml(normalizeReadableChordName(displayText), 'chord-display-root', 'chord-display-suffix', 'chord-display-inner');
 }
 function renderFingeringChordNameHtml(displayText) {
   return splitChordDisplayHtml(
-    displayText,
+    normalizeReadableChordName(displayText),
     'fingering-chord-name-root',
     'fingering-chord-name-suffix',
     'fingering-chord-name-inner'
@@ -37425,10 +37926,11 @@ function applyThemeIcon(theme) {
   if (icon) icon.className = theme === 'dark' ? 'ti ti-sun' : 'ti ti-moon';
   if (btn) btn.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
 }
-function toggleTheme() {
+function setTheme(theme) {
   const root = document.documentElement;
-  root.classList.add('theme-transition');
-  const next = getCurrentTheme() === 'dark' ? 'light' : 'dark';
+  const next = theme === 'dark' ? 'dark' : 'light';
+  const changed = getCurrentTheme() !== next;
+  if (changed) root.classList.add('theme-transition');
   if (next === 'dark') root.setAttribute('data-theme', 'dark');
   else root.removeAttribute('data-theme');
   applyThemeIcon(next);
@@ -37437,7 +37939,12 @@ function toggleTheme() {
   } catch (e) {
     // localStorage недоступен — тема просто не переживёт перезагрузку страницы
   }
-  window.setTimeout(() => root.classList.remove('theme-transition'), 400);
+  if (typeof window.syncHomeThemeButton === 'function') window.syncHomeThemeButton();
+  if (typeof window.syncHomeSettingsControls === 'function') window.syncHomeSettingsControls();
+  if (changed) window.setTimeout(() => root.classList.remove('theme-transition'), 400);
+}
+function toggleTheme() {
+  setTheme(getCurrentTheme() === 'dark' ? 'light' : 'dark');
 }
 function initTheme() {
   applyThemeIcon(getCurrentTheme());
@@ -39473,13 +39980,16 @@ function startModeAnimation() {
 }
 
 function showToast(msg) {
-  const t = DOM.toast;
+  const isHome = document.documentElement.classList.contains('is-home-screen');
+  const t = isHome ? (document.getElementById('homeToast') || DOM.toast) : DOM.toast;
+  if (!t) return;
   t.textContent = msg;
   t.classList.add('show');
   setTimeout(() => t.classList.remove('show'), 2000);
 }
-function clearAll() {
-  if (confirm('Удалить всё?')) {
+function clearAll(options) {
+  const skipConfirm = options === true || !!(options && options.skipConfirm === true);
+  if (skipConfirm || confirm('Удалить всё?')) {
     cancelRhythmHints();
     const previousEffectiveKey = getActiveWheelHarmonyEffectiveKey();
     songStore.dispatch('song/clear', () => {
@@ -39525,6 +40035,9 @@ function clearAll() {
     // предлагать «отменить сброс» и вернуть материал, которого уже нет
     // в модели, в обход подтверждения.
     if (typeof window.resetHistory === 'function') window.resetHistory();
+    // «Сброс» начинает новый документ: дальнейшее сохранение не должно
+    // подменить библиотечную песню, которую пользователь очищает.
+    if (typeof window.clearLibrarySongOrigin === 'function') window.clearLibrarySongOrigin();
     // Очередь расширений под колесом зеркалит текущую песню: пустой
     // соответствуют штатные умолчания.
     seedWheelExtensionsFromSong();
@@ -47712,7 +48225,7 @@ toggleTimeAndBeats();
           repeat: sq.repeat || 1,
           customBeats: sq.customBeats ?? null,
           events: sq.events.map((e) => ({
-            chord: e.chord,
+            chord: chordNameForReadablePreference(e.chord, getKeyStyle(sec.key || globalKey), sec.key || globalKey),
             span: e.span,
             timeSig: e.timeSig || null,
             // Волна-4: при живом пуле рисунок ячейки НЕ пишем — он в
@@ -47788,6 +48301,38 @@ toggleTimeAndBeats();
   // Побочная выгода: правка «туда и обратно» снимок восстанавливает,
   // и приложение не спросит про изменения, которых по факту нет.
   let savedSongSnapshot = null;
+  // Пока песня открыта в редакторе, храним её исходную запись библиотеки.
+  // При сохранении это позволяет заменить старую версию даже после смены
+  // названия или исполнителя, не создавая второй пункт в библиотеке.
+  let librarySongOrigin = null;
+
+  function librarySongFingerprint(song) {
+    try {
+      const fingerprint = JSON.stringify(song);
+      return typeof fingerprint === 'string' ? fingerprint : null;
+    } catch (error) {
+      return null;
+    }
+  }
+
+  function rememberLibrarySongOrigin(song, index) {
+    const fingerprint = librarySongFingerprint(song);
+    librarySongOrigin = fingerprint === null || !Number.isInteger(index) || index < 0
+      ? null
+      : { index, fingerprint };
+  }
+
+  function findLibrarySongOriginIndex(songs) {
+    if (!librarySongOrigin) return -1;
+    const { index, fingerprint } = librarySongOrigin;
+    if (index >= 0 && index < songs.length && librarySongFingerprint(songs[index]) === fingerprint) return index;
+    return songs.findIndex((song) => librarySongFingerprint(song) === fingerprint);
+  }
+
+  function clearLibrarySongOrigin() {
+    librarySongOrigin = null;
+  }
+  window.clearLibrarySongOrigin = clearLibrarySongOrigin;
 
   function currentSongSnapshot() {
     try {
@@ -47806,29 +48351,946 @@ toggleTimeAndBeats();
   }
   window.markSongSaved = markSongSaved;
 
-  // Пустая песня без названия — не работа, а стартовый экран: спрашивать
-  // о ней при закрытии незачем.
-  function songLooksEmpty() {
-    const hasChords = sections.some((sec) =>
-      (sec.squares || []).some((sq) =>
-        (sq.events || []).some((ev) => (ev.chord || '').trim() !== '')
-      )
-    );
-    const hasName = (DOM.songArtist.value || '').trim() !== '' || (DOM.songTitle.value || '').trim() !== '';
-    const hasNotes = (DOM.notesArea.value || '').trim() !== '';
-    return !hasChords && !hasName && !hasNotes;
-  }
-
   function hasUnsavedChanges() {
-    if (songLooksEmpty()) return false;
     const now = currentSongSnapshot();
     if (now === null) return false;
-    // Снимок ещё не брали (песню не сохраняли и не загружали), но работа
-    // в ней уже есть — считаем несохранённой.
-    if (savedSongSnapshot === null) return true;
-    return now !== savedSongSnapshot;
+    // На старте ниже фиксируется исходный пустой документ. null после этого
+    // означает импортированный файл, ещё не сохранённый в библиотеку.
+    return savedSongSnapshot === null || now !== savedSongSnapshot;
   }
   window.hasUnsavedChanges = hasUnsavedChanges;
+
+  // ---------- B-13: главный экран, библиотека и переходы ----------
+  let homeModalSerial = 0;
+
+  function createHomeModal(title, description, extraClass, onClose) {
+    const serial = ++homeModalSerial;
+    const overlay = document.createElement('div');
+    overlay.className = 'strum-modal-overlay home-screen-modal-overlay';
+    const modal = document.createElement('div');
+    modal.className = 'strum-modal-content home-screen-modal' + (extraClass ? ' ' + extraClass : '');
+    modal.setAttribute('role', 'dialog');
+    modal.setAttribute('aria-modal', 'true');
+    modal.setAttribute('aria-labelledby', 'homeModalTitle-' + serial);
+
+    const heading = document.createElement('div');
+    heading.className = 'home-modal-heading';
+    const headingText = document.createElement('h2');
+    headingText.id = 'homeModalTitle-' + serial;
+    headingText.textContent = title;
+    const closeButton = document.createElement('button');
+    closeButton.type = 'button';
+    closeButton.className = 'home-modal-close';
+    closeButton.setAttribute('aria-label', 'Закрыть');
+    closeButton.textContent = '×';
+    heading.append(headingText, closeButton);
+    modal.appendChild(heading);
+
+    if (description) {
+      const copy = document.createElement('p');
+      copy.className = 'home-modal-copy';
+      copy.textContent = description;
+      modal.appendChild(copy);
+    }
+    const content = document.createElement('div');
+    content.className = 'home-modal-content';
+    const error = document.createElement('p');
+    error.className = 'home-modal-error';
+    error.setAttribute('aria-live', 'polite');
+    const actions = document.createElement('div');
+    actions.className = 'home-modal-actions';
+    modal.append(content, error, actions);
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+
+    let active = false;
+    let closed = false;
+    const close = () => {
+      if (!overlay.isConnected || closed) return;
+      closed = true;
+      removeModalOverlay(overlay);
+      if (typeof onClose === 'function') onClose();
+    };
+    const activate = (preferredFocus) => {
+      if (!active) {
+        overlay._releaseFocusTrap = trapFocus(modal, close);
+        active = true;
+      }
+      if (preferredFocus && typeof preferredFocus.focus === 'function') preferredFocus.focus();
+    };
+    closeButton.addEventListener('click', close);
+    overlay.addEventListener('click', (event) => {
+      if (event.target === overlay) close();
+    });
+    return { overlay, modal, content, error, actions, close, activate };
+  }
+
+  function setHomeView(isHome, focusHome = true) {
+    const home = document.getElementById('homeScreen');
+    const editor = document.querySelector('.container');
+    if (isHome) {
+      document.documentElement.classList.add('is-home-screen');
+      if (home) home.setAttribute('aria-hidden', 'false');
+      if (editor) editor.setAttribute('aria-hidden', 'true');
+      const library = document.getElementById('homeLibraryView');
+      const homeButton = library && !library.hidden
+        ? document.getElementById('homeLibraryBackBtn')
+        : document.getElementById('homeNewSongBtn');
+      if (focusHome && homeButton) window.requestAnimationFrame(() => homeButton.focus());
+    } else {
+      document.documentElement.classList.remove('is-home-screen');
+      if (home) home.setAttribute('aria-hidden', 'true');
+      if (editor) editor.removeAttribute('aria-hidden');
+    }
+  }
+
+  function setHomeLandingView(view, focusHome = true) {
+    const showLibrary = view === 'library';
+    const hub = document.getElementById('homeHub');
+    const library = document.getElementById('homeLibraryView');
+    if (hub) {
+      hub.hidden = showLibrary;
+      hub.setAttribute('aria-hidden', showLibrary ? 'true' : 'false');
+    }
+    if (library) {
+      library.hidden = !showLibrary;
+      library.setAttribute('aria-hidden', showLibrary ? 'false' : 'true');
+    }
+    if (showLibrary) renderHomeLibrary();
+    if (window.scrollY) window.scrollTo(0, 0);
+    if (focusHome) {
+      const target = document.getElementById(showLibrary ? 'homeLibraryBackBtn' : 'homeNewSongBtn');
+      if (target) window.requestAnimationFrame(() => target.focus());
+    }
+    return showLibrary;
+  }
+
+  window.openHomeLibrary = function () {
+    setHomeLandingView('library');
+  };
+  window.returnHomeHub = function () {
+    setHomeLandingView('hub');
+  };
+  window.toggleHomeTheme = function () {
+    toggleTheme();
+    syncHomeSettingsControls();
+  };
+  window.openHomeTools = function () {
+    const dialog = createHomeModal('Инструменты', 'Дополнительные инструменты STRUCHORD.');
+    const list = document.createElement('div');
+    list.className = 'home-tools-list';
+    const tunerButton = document.createElement('button');
+    tunerButton.type = 'button';
+    tunerButton.className = 'home-tool-button';
+    tunerButton.dataset.homeTool = 'tuner';
+    const icon = document.createElement('i');
+    icon.className = 'ti ti-metronome';
+    icon.setAttribute('aria-hidden', 'true');
+    const label = document.createElement('span');
+    label.textContent = 'Тюнер';
+    tunerButton.append(icon, label);
+    tunerButton.addEventListener('click', () => {
+      dialog.close();
+      window.openTuner();
+    });
+    list.appendChild(tunerButton);
+    dialog.content.appendChild(list);
+    dialog.actions.appendChild(createHomeActionButton('Закрыть', '', dialog.close));
+    dialog.activate(tunerButton);
+    return dialog.overlay;
+  };
+
+  function showHomeScreenNow() {
+    clearLibrarySongOrigin();
+    if (playbackState && playbackState.isPlaying) stopPlayback();
+    if (typeof closeChordWheel === 'function') closeChordWheel();
+    if (typeof closeSchemePopover === 'function') closeSchemePopover();
+    if (DOM.toolsDropdown) DOM.toolsDropdown.classList.remove('open');
+    const songmap = document.getElementById('songmap');
+    const songmapZone = document.getElementById('songmapZone');
+    if (songmap) songmap.classList.remove('is-open');
+    if (songmapZone) songmapZone.classList.remove('is-hidden');
+    document.querySelectorAll('.home-song-actions[open]').forEach((menu) => { menu.open = false; });
+    setHomeLandingView('library', false);
+    setHomeView(true);
+    syncHomeSettingsControls();
+  }
+
+  function showEditorScreen() {
+    setHomeView(false);
+    return true;
+  }
+
+  function restoreSavedSongOrClear() {
+    if (savedSongSnapshot !== null) {
+      let snapshot;
+      try {
+        snapshot = JSON.parse(savedSongSnapshot);
+      } catch (error) {
+        showToast('Не удалось восстановить сохранённую версию песни');
+        return false;
+      }
+      if (!loadSongFromObject(snapshot)) return false;
+      markSongSaved();
+      if (typeof window.resetHistory === 'function') window.resetHistory();
+      return true;
+    }
+    if (typeof window.clearAll === 'function') {
+      window.clearAll({ skipConfirm: true });
+      return true;
+    }
+    return false;
+  }
+
+  function createHomeActionButton(label, className, onClick) {
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.className = className || '';
+    button.textContent = label;
+    button.addEventListener('click', onClick);
+    return button;
+  }
+
+  function requestLibrarySaveMode(originName, nextName) {
+    return new Promise((resolve) => {
+      let settled = false;
+      let dialog = null;
+      const finish = (choice) => {
+        if (settled) return;
+        settled = true;
+        if (dialog) dialog.close();
+        resolve(choice);
+      };
+      dialog = createHomeModal(
+        'Песня переименована',
+        `Открыта песня «${originName}», а сейчас вы сохраняете её как «${nextName}». Заменить исходную запись или сохранить новую отдельно, оставив оригинал в библиотеке?`,
+        'library-save-choice-dialog',
+        () => {
+          if (settled) return;
+          settled = true;
+          resolve(null);
+        }
+      );
+      const saveAsNew = createHomeActionButton('Сохранить как новую', 'primary', () => finish('new'));
+      saveAsNew.dataset.librarySaveChoice = 'new';
+      const replaceOrigin = createHomeActionButton('Заменить исходную', 'danger', () => finish('replace'));
+      replaceOrigin.dataset.librarySaveChoice = 'replace';
+      const cancel = createHomeActionButton('Отмена', '', () => finish('cancel'));
+      cancel.dataset.librarySaveChoice = 'cancel';
+      dialog.actions.append(saveAsNew, replaceOrigin, cancel);
+      // Безопасный вариант получает начальный фокус: оригинальная запись
+      // сохраняется, пока пользователь явно не выбрал её замену.
+      dialog.activate(saveAsNew);
+    });
+  }
+
+  function finishSaveResult(result, onResult) {
+    if (result && typeof result.then === 'function') {
+      result.then(onResult, (error) => {
+        console.error('Не удалось завершить сохранение песни:', error);
+        onResult(false);
+      });
+      return;
+    }
+    onResult(result);
+  }
+
+  function openSaveTitleDialog(onSaved) {
+    const dialog = createHomeModal('Назовите песню', 'Перед сохранением введите название — так песня будет узнаваемо отображаться в библиотеке.');
+    const form = document.createElement('form');
+    form.className = 'home-modal-fields';
+    const label = document.createElement('label');
+    label.textContent = 'Название песни';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.maxLength = SONG_LIMITS.MAX_TEXT;
+    input.autocomplete = 'off';
+    input.required = true;
+    input.value = DOM.songTitle.value.trim();
+    input.setAttribute('aria-label', 'Название песни');
+    label.appendChild(input);
+    form.appendChild(label);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const title = cleanSongMetaText(input.value);
+      if (!title) {
+        dialog.error.textContent = 'Введите название песни.';
+        input.focus();
+        return;
+      }
+      DOM.songTitle.value = title;
+      fitSongArtistField(DOM.songTitle);
+      finishSaveResult(window.saveCurrentSong(), (saved) => {
+        if (saved === true) {
+          dialog.close();
+          if (typeof onSaved === 'function') onSaved();
+          if (document.documentElement.classList.contains('is-home-screen')) showToast('Песня сохранена в библиотеку');
+          return;
+        }
+        if (saved === false) {
+          dialog.error.textContent = 'Сохранение не выполнено. Проверьте подтверждение перезаписи и попробуйте снова.';
+        }
+      });
+    });
+    dialog.content.appendChild(form);
+    dialog.actions.append(
+      createHomeActionButton('Отмена', '', dialog.close),
+      (() => { const button = document.createElement('button'); button.type = 'submit'; button.className = 'primary'; button.textContent = 'Сохранить'; form.appendChild(button); return button; })()
+    );
+    // Кнопка submit находится в форме после label, а не в actions: связываем
+    // её с формой атрибутом form, чтобы порядок фокуса и внешний вид остались удобными.
+    const submit = dialog.actions.querySelector('button[type="submit"]');
+    if (submit) submit.setAttribute('form', 'home-save-title-form');
+    form.id = 'home-save-title-form';
+    dialog.activate(input);
+  }
+
+  function showUnsavedChangesDialog() {
+    const dialog = createHomeModal(
+      'Несохранённые изменения',
+      'Сохраните текущую песню перед выходом, отбросьте изменения или вернитесь к редактору.'
+    );
+    const saveButton = createHomeActionButton('Сохранить', 'primary', () => {
+      const metadata = currentSongMetadata();
+      if (!metadata.title) {
+        dialog.close();
+        openSaveTitleDialog(showHomeScreenNow);
+        return;
+      }
+      finishSaveResult(window.saveCurrentSong(), (saved) => {
+        if (saved === true) {
+          dialog.close();
+          showHomeScreenNow();
+          showToast('Песня сохранена в библиотеку');
+        } else if (saved === false) {
+          dialog.error.textContent = 'Сохранение не завершено. Отмените перезапись или попробуйте ещё раз.';
+        }
+      });
+    });
+    saveButton.classList.add('primary');
+    const discardButton = createHomeActionButton('Не сохранять', 'danger', () => {
+      if (!restoreSavedSongOrClear()) return;
+      dialog.close();
+      showHomeScreenNow();
+    });
+    discardButton.classList.add('danger');
+    const stayButton = createHomeActionButton('Остаться', '', dialog.close);
+    dialog.actions.append(saveButton, discardButton, stayButton);
+    dialog.activate(stayButton);
+  }
+
+  window.openHomeScreen = function () {
+    if (typeof window.hasUnsavedChanges === 'function' && window.hasUnsavedChanges()) {
+      showUnsavedChangesDialog();
+      return false;
+    }
+    showHomeScreenNow();
+    return true;
+  };
+
+  window.startNewSongFromHome = function () {
+    clearLibrarySongOrigin();
+    // В главном экране уже нет активного несохранённого редактора: любой
+    // переход туда прошёл через Save/Discard/Stay. Здесь сбрасываем песню
+    // без второго системного confirm и открываем чистый редактор.
+    if (typeof window.clearAll === 'function') window.clearAll({ skipConfirm: true });
+    if (typeof window.resetHistory === 'function') window.resetHistory();
+    if (typeof markSongSaved === 'function') markSongSaved();
+    showEditorScreen();
+    requestAnimationFrame(() => DOM.songTitle && DOM.songTitle.focus());
+  };
+
+  window.showStruchordEditor = showEditorScreen;
+  window.refreshHomeLibrary = renderHomeLibrary;
+
+  function homePlural(count, one, few, many) {
+    const n = Math.abs(count) % 100;
+    const last = n % 10;
+    if (n > 10 && n < 20) return many;
+    if (last > 1 && last < 5) return few;
+    if (last === 1) return one;
+    return many;
+  }
+
+  function formatHomeDate(value) {
+    if (!value) return 'дата неизвестна';
+    const date = new Date(value);
+    if (!Number.isFinite(date.getTime())) return 'дата неизвестна';
+    try {
+      return new Intl.DateTimeFormat('ru-RU', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+    } catch (error) {
+      return date.toLocaleDateString();
+    }
+  }
+
+  function homeSongKeyLabel(song) {
+    const key = typeof song.globalKey === 'string' && song.globalKey.trim() ? song.globalKey.trim() : 'Тональность не задана';
+    return song.keyMode === 'auto' ? key + ' · авто' : key;
+  }
+
+  function renderHomeLibrary() {
+    const list = document.getElementById('homeSongList');
+    if (!list) return;
+    const count = document.getElementById('homeLibraryCount');
+    const search = document.getElementById('homeSongSearch');
+    const query = String(search && search.value || '').trim().toLocaleLowerCase('ru-RU');
+    const songs = listSongs().map((song, index) => ({ song, index, time: Date.parse(song.date || '') || 0 }));
+    songs.sort((a, b) => b.time - a.time || b.index - a.index);
+    if (count) count.textContent = songs.length + ' ' + homePlural(songs.length, 'песня', 'песни', 'песен');
+    list.replaceChildren();
+
+    const filtered = songs.filter(({ song }) => {
+      if (!query) return true;
+      const meta = songMetadataOf(song);
+      return [meta.artist, meta.title, song.name].some((value) => String(value || '').toLocaleLowerCase('ru-RU').includes(query));
+    });
+    if (!filtered.length) {
+      const empty = document.createElement('div');
+      empty.className = 'home-song-empty';
+      const heading = document.createElement('strong');
+      const copy = document.createElement('span');
+      if (songs.length === 0) {
+        heading.textContent = 'Здесь пока пусто';
+        copy.textContent = 'Создайте новую песню или импортируйте сохранённый файл — она появится в этой библиотеке после сохранения.';
+      } else {
+        heading.textContent = 'Ничего не найдено';
+        copy.textContent = 'Попробуйте изменить запрос поиска.';
+      }
+      empty.append(heading, copy);
+      list.appendChild(empty);
+      return;
+    }
+
+    const fragment = document.createDocumentFragment();
+    filtered.forEach(({ song, index }) => {
+      const name = songLibraryName(song);
+      const card = document.createElement('article');
+      card.className = 'home-song-card';
+      const open = document.createElement('button');
+      open.type = 'button';
+      open.className = 'home-song-open';
+      open.dataset.homeAction = 'open';
+      open.dataset.songIndex = String(index);
+      open.setAttribute('aria-label', 'Открыть песню ' + name);
+      const title = document.createElement('span');
+      title.className = 'home-song-name';
+      title.textContent = name;
+      const meta = document.createElement('span');
+      meta.className = 'home-song-meta';
+      const sectionCount = Array.isArray(song.sections) ? song.sections.length : 0;
+      meta.textContent = [homeSongKeyLabel(song), sectionCount + ' ' + homePlural(sectionCount, 'секция', 'секции', 'секций'), formatHomeDate(song.date)].join(' · ');
+      open.append(title, meta);
+
+      const details = document.createElement('details');
+      details.className = 'home-song-actions';
+      const summary = document.createElement('summary');
+      summary.setAttribute('aria-label', 'Действия с песней ' + name);
+      const dots = document.createElement('i');
+      dots.className = 'ti ti-dots-vertical';
+      dots.setAttribute('aria-hidden', 'true');
+      summary.appendChild(dots);
+      const menu = document.createElement('div');
+      menu.className = 'home-song-menu';
+      menu.setAttribute('role', 'group');
+      menu.setAttribute('aria-label', 'Действия с песней');
+      const actions = [
+        ['rename', 'Переименовать', 'ti-pencil'],
+        ['duplicate', 'Дублировать', 'ti-clipboard-copy'],
+        ['export', 'Скачать', 'ti-download'],
+        ['delete', 'Удалить', 'ti-trash'],
+      ];
+      actions.forEach(([action, label, icon]) => {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.homeAction = action;
+        button.dataset.songIndex = String(index);
+        if (action === 'delete') button.classList.add('is-danger');
+        const glyph = document.createElement('i');
+        glyph.className = 'ti ' + icon;
+        glyph.setAttribute('aria-hidden', 'true');
+        const text = document.createElement('span');
+        text.textContent = label;
+        button.append(glyph, text);
+        menu.appendChild(button);
+      });
+      details.append(summary, menu);
+      card.append(open, details);
+      fragment.appendChild(card);
+    });
+    list.appendChild(fragment);
+  }
+
+  function getHomeSongIndex(button) {
+    const index = Number(button && button.dataset.songIndex);
+    return Number.isInteger(index) && index >= 0 ? index : -1;
+  }
+
+  function renameLibrarySong(index) {
+    const songs = listSongs();
+    if (index < 0 || index >= songs.length) return;
+    const original = songs[index];
+    const oldName = songLibraryName(original);
+    let metadata = songMetadataOf(original);
+    if (!metadata.artist && !metadata.title && original.name) metadata = splitLegacySongName(original.name);
+    const dialog = createHomeModal('Переименовать песню', 'Новое имя сохранится в библиотеке и в следующем экспорте.');
+    const form = document.createElement('form');
+    form.className = 'home-modal-fields';
+    const artistLabel = document.createElement('label');
+    artistLabel.textContent = 'Исполнитель';
+    const artist = document.createElement('input');
+    artist.type = 'text'; artist.maxLength = SONG_LIMITS.MAX_TEXT; artist.autocomplete = 'off';
+    artist.value = metadata.artist;
+    artistLabel.appendChild(artist);
+    const titleLabel = document.createElement('label');
+    titleLabel.textContent = 'Название песни';
+    const title = document.createElement('input');
+    title.type = 'text'; title.maxLength = SONG_LIMITS.MAX_TEXT; title.autocomplete = 'off';
+    title.value = metadata.title;
+    titleLabel.appendChild(title);
+    form.append(artistLabel, titleLabel);
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      const nextMeta = { artist: cleanSongMetaText(artist.value), title: cleanSongMetaText(title.value) };
+      if (!nextMeta.artist && !nextMeta.title) {
+        dialog.error.textContent = 'Укажите исполнителя или название песни.';
+        title.focus();
+        return;
+      }
+      const nextName = songDisplayName(nextMeta);
+      if (songs.some((song, songIndex) => songIndex !== index && songLibraryName(song) === nextName)) {
+        dialog.error.textContent = 'Песня с таким именем уже есть. Выберите другое имя.';
+        title.focus();
+        return;
+      }
+      if (!window.confirm('Переименовать «' + oldName + '» в «' + nextName + '»?')) return;
+      const updated = { ...original, metadata: nextMeta, date: new Date().toISOString() };
+      delete updated.name;
+      songs[index] = updated;
+      if (!saveSongsToStorage(songs)) return;
+      dialog.close();
+      renderHomeLibrary();
+      showToast('Песня переименована');
+    });
+    dialog.content.appendChild(form);
+    dialog.actions.append(
+      createHomeActionButton('Отмена', '', dialog.close),
+      (() => {
+        const button = document.createElement('button');
+        button.type = 'submit';
+        button.className = 'primary';
+        button.textContent = 'Применить';
+        button.setAttribute('form', 'home-rename-form');
+        return button;
+      })()
+    );
+    form.id = 'home-rename-form';
+    dialog.activate(title);
+  }
+
+  function duplicateLibrarySong(index) {
+    const songs = listSongs();
+    if (index < 0 || index >= songs.length) return;
+    const original = songs[index];
+    const originalName = songLibraryName(original);
+    if (!window.confirm('Создать копию песни «' + originalName + '»?')) return;
+    let metadata = songMetadataOf(original);
+    if (!metadata.artist && !metadata.title && original.name) metadata = splitLegacySongName(original.name);
+    const baseTitle = metadata.title || originalName || 'Без названия';
+    let copyName = '';
+    let suffixNumber = 1;
+    do {
+      copyName = baseTitle + (suffixNumber === 1 ? ' (копия)' : ' (копия ' + suffixNumber + ')');
+      suffixNumber++;
+    } while (songs.some((song) => songLibraryName(song) === songDisplayName({ artist: metadata.artist, title: copyName })));
+    let copy;
+    try {
+      copy = JSON.parse(JSON.stringify(original));
+    } catch (error) {
+      showToast('Не удалось создать копию песни');
+      return;
+    }
+    normalizeReadableSongChordNames(copy);
+    copy.metadata = { artist: metadata.artist, title: copyName };
+    copy.date = new Date().toISOString();
+    delete copy.name;
+    // Секретная печать описывает исходную достиженческую запись, а не её копию.
+    delete copy.documentSeal;
+    songs.push(copy);
+    if (!saveSongsToStorage(songs)) return;
+    renderHomeLibrary();
+    showToast('Копия добавлена в библиотеку');
+  }
+
+  function exportLibrarySong(index) {
+    const songs = listSongs();
+    if (index < 0 || index >= songs.length) return;
+    const song = songs[index];
+    try {
+      const exportSong = normalizeReadableSongChordNames(JSON.parse(JSON.stringify(song)));
+      const blob = new Blob([JSON.stringify(exportSong, null, 2)], { type: 'application/json' });
+      if (!window.URL || typeof window.URL.createObjectURL !== 'function') {
+        showToast('Экспорт файла не поддерживается этим браузером');
+        return;
+      }
+      const url = window.URL.createObjectURL(blob);
+      const anchor = document.createElement('a');
+      const base = songLibraryName(song).replace(/[\\/:*?"<>|]+/g, '_') || 'Без названия';
+      anchor.href = url;
+      anchor.download = base + '.struchord';
+      anchor.style.display = 'none';
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      window.setTimeout(() => window.URL.revokeObjectURL(url), 0);
+      showToast('Файл песни скачан');
+    } catch (error) {
+      showToast('Не удалось скачать песню');
+    }
+  }
+
+  function handleHomeSongAction(event) {
+    const target = event.target;
+    const button = target && typeof target.closest === 'function' ? target.closest('[data-home-action]') : null;
+    if (!button) return;
+    const index = getHomeSongIndex(button);
+    const action = button.dataset.homeAction;
+    const details = button.closest('details');
+    if (details) details.open = false;
+    if (action === 'open') window.loadSong(index);
+    else if (action === 'rename') renameLibrarySong(index);
+    else if (action === 'duplicate') duplicateLibrarySong(index);
+    else if (action === 'export') exportLibrarySong(index);
+    else if (action === 'delete') window.deleteSong(index);
+  }
+
+  function addHomeSchemeOptions(container) {
+    const source = document.getElementById('schemeList');
+    if (!source || !container) return;
+    source.querySelectorAll('.scheme-item').forEach((sourceItem) => {
+      const id = sourceItem.getAttribute('data-scheme-id') || '';
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'home-scheme-choice';
+      button.dataset.homeSchemeId = id;
+      const dots = sourceItem.querySelector('.scheme-dots');
+      if (dots) button.appendChild(dots.cloneNode(true));
+      const sourceCopy = sourceItem.cloneNode(true);
+      sourceCopy.querySelectorAll('.scheme-dots, .storm-secret-control, .storm-mini-switch').forEach((node) => node.remove());
+      const label = document.createElement('span');
+      label.className = 'home-scheme-choice-label';
+      label.textContent = sourceCopy.textContent.trim();
+      button.appendChild(label);
+      button.setAttribute('aria-pressed', 'false');
+      button.addEventListener('click', () => {
+        applyScheme(id);
+        syncHomeSettingsControls();
+      });
+      container.appendChild(button);
+    });
+  }
+
+  function syncHomeThemeButton() {
+    const theme = typeof getCurrentTheme === 'function' ? getCurrentTheme() : 'light';
+    const button = document.getElementById('homeThemeBtn');
+    const icon = document.getElementById('homeThemeIcon');
+    const nextLabel = theme === 'dark' ? 'Переключить на светлую тему' : 'Переключить на тёмную тему';
+    if (icon) icon.className = theme === 'dark' ? 'ti ti-sun' : 'ti ti-moon';
+    if (button) {
+      button.setAttribute('aria-pressed', theme === 'dark' ? 'true' : 'false');
+      button.setAttribute('aria-label', nextLabel);
+      button.title = nextLabel;
+    }
+  }
+  window.syncHomeThemeButton = syncHomeThemeButton;
+
+  function syncHomeSettingsControls() {
+    syncHomeThemeButton();
+    const theme = typeof getCurrentTheme === 'function' ? getCurrentTheme() : 'light';
+    document.querySelectorAll('.home-theme-option').forEach((button) => {
+      button.setAttribute('aria-pressed', button.dataset.homeTheme === theme ? 'true' : 'false');
+    });
+    const scaleValue = document.getElementById('homeScaleValue');
+    if (scaleValue && typeof currentUiScale === 'function') scaleValue.textContent = currentUiScale() + '%';
+    const scaleMinus = document.getElementById('homeScaleMinus');
+    const scalePlus = document.getElementById('homeScalePlus');
+    if (scaleMinus && typeof currentUiScale === 'function') scaleMinus.disabled = currentUiScale() <= UI_SCALE_MIN;
+    if (scalePlus && typeof currentUiScale === 'function') scalePlus.disabled = currentUiScale() >= UI_SCALE_MAX;
+    const activeScheme = document.documentElement.getAttribute('data-scheme') || '';
+    document.querySelectorAll('.home-scheme-choice').forEach((button) => {
+      button.setAttribute('aria-pressed', button.dataset.homeSchemeId === activeScheme ? 'true' : 'false');
+    });
+    const mirrorPairs = [
+      ['showDegrees', 'homeSettingShowDegrees'],
+      ['showDegreeLabels', 'homeSettingShowDegreeLabels'],
+      ['showHarmonyHighlights', 'homeSettingShowHarmonyHighlights'],
+      ['wheelAnimations', 'homeSettingWheelAnimations'],
+      ['manualInputOnly', 'homeSettingManualInputOnly'],
+      ['showFingering', 'homeSettingShowFingering'],
+      ['showFingers', 'homeSettingShowFingers'],
+      ['showTimeAndBeats', 'homeSettingShowTimeAndBeats'],
+    ];
+    mirrorPairs.forEach(([sourceId, settingId]) => {
+      const source = document.getElementById(sourceId);
+      const setting = document.getElementById(settingId);
+      if (source && setting) setting.checked = source.checked;
+    });
+    const degreeChildren = document.getElementById('homeSettingDegreeSuboptions');
+    const degreesEnabled = document.getElementById('showDegrees')?.checked === true;
+    if (degreeChildren) {
+      degreeChildren.classList.toggle('is-disabled', !degreesEnabled);
+      degreeChildren.querySelectorAll('input').forEach((input) => { input.disabled = !degreesEnabled; });
+    }
+    const readableNames = document.getElementById('homeSettingReadableChordNames');
+    if (readableNames) readableNames.checked = isReadableChordNamesEnabled();
+  }
+  window.syncHomeSettingsControls = syncHomeSettingsControls;
+
+  function appendHomeSettingOption(container, id, title, hint) {
+    const label = document.createElement('label');
+    label.className = 'home-setting-option';
+    const input = document.createElement('input');
+    input.type = 'checkbox';
+    input.id = id;
+    const copy = document.createElement('span');
+    copy.className = 'home-setting-copy';
+    const heading = document.createElement('span');
+    heading.className = 'home-setting-label';
+    heading.textContent = title;
+    copy.appendChild(heading);
+    if (hint) {
+      const description = document.createElement('span');
+      description.className = 'home-setting-hint';
+      description.textContent = hint;
+      copy.appendChild(description);
+    }
+    label.append(input, copy);
+    container.appendChild(label);
+    return input;
+  }
+
+  function bindHomeMirrorSetting(input, sourceId) {
+    input.addEventListener('change', () => {
+      const source = document.getElementById(sourceId);
+      if (source) {
+        source.checked = input.checked;
+        source.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      syncHomeSettingsControls();
+    });
+  }
+
+  window.openHomeSettings = function () {
+    const dialog = createHomeModal(
+      'Настройки приложения',
+      'Параметры применяются сразу. Тема, цветовая схема, масштаб и написание аккордов запоминаются в этом браузере.',
+      'home-settings-modal'
+    );
+    const sections = document.createElement('div');
+    sections.className = 'home-settings-sections';
+    const tabs = document.createElement('div');
+    tabs.className = 'home-settings-tabs';
+    tabs.setAttribute('role', 'tablist');
+    tabs.setAttribute('aria-label', 'Разделы настроек');
+
+    const visualTab = document.createElement('button');
+    visualTab.type = 'button';
+    visualTab.className = 'home-settings-tab';
+    visualTab.id = 'homeSettingsTabVisual';
+    visualTab.setAttribute('role', 'tab');
+    visualTab.setAttribute('aria-controls', 'homeSettingsPanelVisual');
+    visualTab.textContent = 'Визуал';
+
+    const instrumentTab = document.createElement('button');
+    instrumentTab.type = 'button';
+    instrumentTab.className = 'home-settings-tab';
+    instrumentTab.id = 'homeSettingsTabInstrument';
+    instrumentTab.setAttribute('role', 'tab');
+    instrumentTab.setAttribute('aria-controls', 'homeSettingsPanelInstrument');
+    instrumentTab.textContent = 'Режим гитары и укулеле';
+    tabs.append(visualTab, instrumentTab);
+
+    const visualPanel = document.createElement('section');
+    visualPanel.className = 'home-settings-panel';
+    visualPanel.id = 'homeSettingsPanelVisual';
+    visualPanel.setAttribute('role', 'tabpanel');
+    visualPanel.setAttribute('aria-labelledby', visualTab.id);
+    visualPanel.tabIndex = 0;
+
+    const instrumentPanel = document.createElement('section');
+    instrumentPanel.className = 'home-settings-panel';
+    instrumentPanel.id = 'homeSettingsPanelInstrument';
+    instrumentPanel.setAttribute('role', 'tabpanel');
+    instrumentPanel.setAttribute('aria-labelledby', instrumentTab.id);
+    instrumentPanel.tabIndex = 0;
+
+    const settingsTabs = [
+      { button: visualTab, panel: visualPanel },
+      { button: instrumentTab, panel: instrumentPanel },
+    ];
+    let activeTabIndex = 0;
+    const selectSettingsTab = (index, focus = false) => {
+      activeTabIndex = (index + settingsTabs.length) % settingsTabs.length;
+      settingsTabs.forEach(({ button, panel }, tabIndex) => {
+        const selected = tabIndex === activeTabIndex;
+        button.setAttribute('aria-selected', selected ? 'true' : 'false');
+        button.tabIndex = selected ? 0 : -1;
+        panel.hidden = !selected;
+      });
+      if (focus) settingsTabs[activeTabIndex].button.focus();
+    };
+    settingsTabs.forEach(({ button }, tabIndex) => {
+      button.addEventListener('click', () => selectSettingsTab(tabIndex));
+      button.addEventListener('keydown', (event) => {
+        let nextIndex = null;
+        if (event.key === 'ArrowRight' || event.key === 'ArrowDown') nextIndex = activeTabIndex + 1;
+        else if (event.key === 'ArrowLeft' || event.key === 'ArrowUp') nextIndex = activeTabIndex - 1;
+        else if (event.key === 'Home') nextIndex = 0;
+        else if (event.key === 'End') nextIndex = settingsTabs.length - 1;
+        if (nextIndex === null) return;
+        event.preventDefault();
+        selectSettingsTab(nextIndex, true);
+      });
+    });
+
+    const themeSection = document.createElement('section');
+    themeSection.className = 'home-settings-section';
+    const themeHeading = document.createElement('h3');
+    themeHeading.textContent = 'Тема';
+    const themeOptions = document.createElement('div');
+    themeOptions.className = 'home-theme-options';
+    themeOptions.setAttribute('role', 'group');
+    themeOptions.setAttribute('aria-label', 'Цветовая тема');
+    const themeButtons = [];
+    [
+      { id: 'light', label: 'Светлая', icon: 'ti-sun' },
+      { id: 'dark', label: 'Тёмная', icon: 'ti-moon' },
+    ].forEach(({ id, label: text, icon: iconName }) => {
+      const button = document.createElement('button');
+      button.type = 'button';
+      button.className = 'home-theme-option';
+      button.id = id === 'dark' ? 'homeThemeDark' : 'homeThemeLight';
+      button.dataset.homeTheme = id;
+      button.setAttribute('aria-pressed', 'false');
+      const icon = document.createElement('i');
+      icon.className = 'ti ' + iconName;
+      icon.setAttribute('aria-hidden', 'true');
+      const label = document.createElement('span');
+      label.textContent = text;
+      button.append(icon, label);
+      button.addEventListener('click', () => setTheme(id));
+      themeOptions.appendChild(button);
+      themeButtons.push(button);
+    });
+    themeSection.append(themeHeading, themeOptions);
+
+    const schemeSection = document.createElement('section');
+    schemeSection.className = 'home-settings-section';
+    const schemeHeading = document.createElement('h3');
+    schemeHeading.textContent = 'Цветовая схема';
+    const schemeChoices = document.createElement('div');
+    schemeChoices.className = 'home-scheme-grid';
+    addHomeSchemeOptions(schemeChoices);
+    schemeSection.append(schemeHeading, schemeChoices);
+
+    const scaleSection = document.createElement('section');
+    scaleSection.className = 'home-settings-section';
+    const scaleHeading = document.createElement('h3');
+    scaleHeading.textContent = 'Масштаб интерфейса';
+    const scaleControls = document.createElement('div');
+    scaleControls.className = 'home-scale-controls';
+    scaleControls.setAttribute('role', 'group');
+    scaleControls.setAttribute('aria-label', 'Масштаб интерфейса');
+    const minus = document.createElement('button');
+    minus.id = 'homeScaleMinus';
+    minus.type = 'button';
+    minus.textContent = '−';
+    minus.setAttribute('aria-label', 'Уменьшить масштаб на 5%');
+    const current = document.createElement('output');
+    current.className = 'home-scale-value';
+    current.id = 'homeScaleValue';
+    const plus = document.createElement('button');
+    plus.id = 'homeScalePlus';
+    plus.type = 'button';
+    plus.textContent = '+';
+    plus.setAttribute('aria-label', 'Увеличить масштаб на 5%');
+    minus.addEventListener('click', () => { stepUiScale(-1); syncHomeSettingsControls(); });
+    plus.addEventListener('click', () => { stepUiScale(1); syncHomeSettingsControls(); });
+    scaleControls.append(minus, current, plus);
+    scaleSection.append(scaleHeading, scaleControls);
+    visualPanel.append(themeSection, schemeSection, scaleSection);
+
+    const instrumentOptionsSection = document.createElement('section');
+    instrumentOptionsSection.className = 'home-settings-section';
+    const instrumentHeading = document.createElement('h3');
+    instrumentHeading.textContent = 'Общие параметры гитары и укулеле';
+    const instrumentOptions = document.createElement('div');
+    instrumentOptions.className = 'home-settings-options';
+
+    const degrees = appendHomeSettingOption(instrumentOptions, 'homeSettingShowDegrees', 'Ступени и лады', 'Ступени в ячейках и на круге; подсветка ладов настраивается отдельно.');
+    bindHomeMirrorSetting(degrees, 'showDegrees');
+    const degreeSuboptions = document.createElement('div');
+    degreeSuboptions.className = 'home-setting-suboptions';
+    degreeSuboptions.id = 'homeSettingDegreeSuboptions';
+    const degreeLabels = appendHomeSettingOption(degreeSuboptions, 'homeSettingShowDegreeLabels', 'Показывать ступени');
+    bindHomeMirrorSetting(degreeLabels, 'showDegreeLabels');
+    const harmonyHighlights = appendHomeSettingOption(degreeSuboptions, 'homeSettingShowHarmonyHighlights', 'Показывать подсветку ладов');
+    bindHomeMirrorSetting(harmonyHighlights, 'showHarmonyHighlights');
+    instrumentOptions.appendChild(degreeSuboptions);
+
+    const wheelAnimations = appendHomeSettingOption(instrumentOptions, 'homeSettingWheelAnimations', 'Анимации круга');
+    bindHomeMirrorSetting(wheelAnimations, 'wheelAnimations');
+    const manualInput = appendHomeSettingOption(instrumentOptions, 'homeSettingManualInputOnly', 'Ручной ввод (без круга)');
+    bindHomeMirrorSetting(manualInput, 'manualInputOnly');
+    const fingering = appendHomeSettingOption(instrumentOptions, 'homeSettingShowFingering', 'Показывать аппликатуры');
+    bindHomeMirrorSetting(fingering, 'showFingering');
+    const fingers = appendHomeSettingOption(instrumentOptions, 'homeSettingShowFingers', 'Отображать номера пальцев');
+    bindHomeMirrorSetting(fingers, 'showFingers');
+    const timeAndBeats = appendHomeSettingOption(instrumentOptions, 'homeSettingShowTimeAndBeats', 'Расширенный контроль размера');
+    bindHomeMirrorSetting(timeAndBeats, 'showTimeAndBeats');
+
+    const readableNamesSection = document.createElement('section');
+    readableNamesSection.className = 'home-settings-section';
+    const readableNamesHeading = document.createElement('h3');
+    readableNamesHeading.textContent = 'Написание аккордов';
+    const readableNamesOptions = document.createElement('div');
+    readableNamesOptions.className = 'home-settings-options';
+    const readableNames = appendHomeSettingOption(
+      readableNamesOptions,
+      'homeSettingReadableChordNames',
+      'Cb это B',
+      'Включает также E#→F, B#→C и Fb→E. Тональности и теоретические расчёты не меняются.'
+    );
+    readableNames.addEventListener('change', () => setReadableChordNamesEnabled(readableNames.checked));
+    readableNamesSection.append(readableNamesHeading, readableNamesOptions);
+    instrumentOptionsSection.append(instrumentHeading, instrumentOptions);
+    instrumentPanel.append(instrumentOptionsSection, readableNamesSection);
+
+    sections.append(tabs, visualPanel, instrumentPanel);
+    dialog.content.appendChild(sections);
+    dialog.actions.appendChild(createHomeActionButton('Готово', 'primary', dialog.close));
+    selectSettingsTab(0);
+    syncHomeSettingsControls();
+    // Фокусируем активный выбор темы; это компактный контроль в первой вкладке,
+    // а не нижнюю кнопку, из-за которой палитра сразу прокручивалась к концу.
+    const activeTheme = themeButtons.find((button) => button.dataset.homeTheme === getCurrentTheme()) || themeButtons[0];
+    dialog.activate(activeTheme);
+    return dialog.overlay;
+  };
+
+  function initializeHomeScreen() {
+    // Базовый пустой документ нужен для сравнения любых правок (в том числе
+    // тональности/BPM и пустой секции). Импорт ниже сбросит снимок в null.
+    if (savedSongSnapshot === null) markSongSaved();
+    const isHome = document.documentElement.classList.contains('is-home-screen');
+    setHomeLandingView('hub', false);
+    setHomeView(isHome, false);
+    const search = document.getElementById('homeSongSearch');
+    const list = document.getElementById('homeSongList');
+    if (search) search.addEventListener('input', renderHomeLibrary);
+    if (list) list.addEventListener('click', handleHomeSongAction);
+    renderHomeLibrary();
+    syncHomeSettingsControls();
+  }
 
   // Браузеры игнорируют свой текст в этом диалоге и показывают
   // стандартный — задавать сообщение бессмысленно, важен сам факт
@@ -47841,28 +49303,97 @@ toggleTimeAndBeats();
   });
 
   // ---------- СОХРАНЕНИЕ ТЕКУЩЕЙ ПЕСНИ ----------
+  function persistCurrentSong(songData, name, replaceLibraryOrigin) {
+    const songs = listSongs();
+    let originIndex = replaceLibraryOrigin ? findLibrarySongOriginIndex(songs) : -1;
+    if (replaceLibraryOrigin && librarySongOrigin && originIndex === -1) clearLibrarySongOrigin();
+    let savedIndex = -1;
+
+    if (originIndex !== -1) {
+      const originName = songLibraryName(songs[originIndex]);
+      if (originName === name) {
+        // Обычное сохранение без смены имени: обновляем открытую запись.
+        songs[originIndex] = songData;
+        savedIndex = originIndex;
+      } else {
+        const existingIndex = songs.findIndex((song, index) =>
+          index !== originIndex && songLibraryName(song) === name
+        );
+        if (existingIndex !== -1) {
+          const confirmed = window.confirm(
+            `Песня "${name}" уже сохранена. Перезаписать её текущей версией? Исходная запись "${originName}" будет заменена.`
+          );
+          if (!confirmed) {
+            showToast('Сохранение отменено');
+            return false;
+          }
+          songs[existingIndex] = songData;
+          savedIndex = existingIndex - (originIndex < existingIndex ? 1 : 0);
+          songs.splice(originIndex, 1);
+        } else {
+          // Пользователь явно выбрал замену исходника после переименования.
+          songs[originIndex] = songData;
+          savedIndex = originIndex;
+        }
+      }
+    } else {
+      const existingIndex = songs.findIndex((song) => songLibraryName(song) === name);
+      if (existingIndex !== -1) {
+        // При выборе «Сохранить как новую» исходная запись защищена даже
+        // при совпадении её отображаемого имени (например, неоднозначный дефис).
+        if (librarySongOrigin &&
+            findLibrarySongOriginIndex(songs) === existingIndex &&
+            songLibraryName(songs[existingIndex]) === name) {
+          showToast('Чтобы сохранить обе версии, задайте новое имя песни');
+          return false;
+        }
+        const confirmed = window.confirm(
+          `Песня "${name}" уже сохранена. Перезаписать её текущей версией?`
+        );
+        if (!confirmed) {
+          showToast('Сохранение отменено');
+          return false;
+        }
+        songs[existingIndex] = songData;
+        savedIndex = existingIndex;
+      } else {
+        songs.push(songData);
+        savedIndex = songs.length - 1;
+      }
+    }
+
+    if (saveSongsToStorage(songs)) {
+      rememberLibrarySongOrigin(songData, savedIndex);
+      markSongSaved();
+      renderHomeLibrary();
+      showToast(`Песня "${name}" сохранена`);
+      return true;
+    }
+    return false;
+  }
+
   window.saveCurrentSong = function () {
     const songData = serializeCurrentSong();
     const name = songDisplayName(songData.metadata);
 
-    let songs = listSongs();
-    const existingIndex = songs.findIndex((s) => songLibraryName(s) === name);
-    if (existingIndex !== -1) {
-      const confirmed = window.confirm(
-        `Песня "${name}" уже сохранена. Перезаписать её текущей версией?`
-      );
-      if (!confirmed) {
-        showToast('Сохранение отменено');
-        return;
+    const songs = listSongs();
+    const originIndex = findLibrarySongOriginIndex(songs);
+    if (librarySongOrigin && originIndex === -1) clearLibrarySongOrigin();
+
+    if (originIndex !== -1) {
+      const originName = songLibraryName(songs[originIndex]);
+      if (originName !== name) {
+        return requestLibrarySaveMode(originName, name).then((choice) => {
+          if (choice === null || choice === 'cancel') return null;
+          return persistCurrentSong(songData, name, choice === 'replace');
+        });
       }
-      songs[existingIndex] = songData;
-    } else {
-      songs.push(songData);
     }
-    if (saveSongsToStorage(songs)) {
-      markSongSaved();
-      showToast(`Песня "${name}" сохранена`);
-    }
+
+    // Новая песня после «Сброса» уже не связана с прежней записью.
+    // При неизменном имени загруженной песни простое «Сохранить» обновляет
+    // источник; при смене подписи выбор сохранения появляется выше.
+    return persistCurrentSong(songData, name, originIndex !== -1);
   };
 
   // ---------- МИГРАЦИИ СХЕМЫ ДАННЫХ ПЕСНИ ----------
@@ -48195,7 +49726,7 @@ toggleTimeAndBeats();
       );
       if (ok) tuningNotes = rawSong.tuningNotes.slice();
     }
-    return {
+    const sanitizedSong = {
       schemaVersion: SONG_SCHEMA_VERSION,
       name: asSafeText(rawSong.name, SONG_LIMITS.MAX_TEXT), // legacy — только для диалога B-87
       documentSeal: asSafeText(rawSong.documentSeal, 100),
@@ -48223,6 +49754,7 @@ toggleTimeAndBeats();
       // выведут сырым текстом, строка на мегабайт не должна пролезть.
       date: asSafeText(rawSong.date, SONG_LIMITS.MAX_DATE),
     };
+    return normalizeReadableSongChordNames(sanitizedSong);
   }
 
   // ---------- B-87: ЯВНАЯ МИГРАЦИЯ СТАРОГО name ----------
@@ -48421,7 +49953,11 @@ toggleTimeAndBeats();
       showToast(`Песня "${songLibraryName(loaded || song)}" загружена`);
       maybeUnlockStormSecret('song');
     };
-    if (loadSongFromObject(song, done)) done(song);
+    if (loadSongFromObject(song, done)) {
+      rememberLibrarySongOrigin(song, index);
+      showEditorScreen();
+      done(song);
+    }
   };
 
   // ---------- УДАЛЕНИЕ ПЕСНИ ----------
@@ -48429,11 +49965,13 @@ toggleTimeAndBeats();
     const songs = listSongs();
     if (index < 0 || index >= songs.length) return;
     const name = songLibraryName(songs[index]);
+    if (!window.confirm(`Удалить песню "${name}" из библиотеки?`)) return;
     songs.splice(index, 1);
     if (saveSongsToStorage(songs)) {
       showToast(`Песня "${name}" удалена`);
-      const modal = document.querySelector('.strum-modal-content');
+      const modal = document.querySelector('.strum-modal-content:not(.home-screen-modal)');
       if (modal) renderSongListInModal(modal);
+      renderHomeLibrary();
     }
   };
 
@@ -48549,7 +50087,7 @@ toggleTimeAndBeats();
     const a = document.createElement('a');
     a.href = url;
     const fileBase = songDisplayName(songData.metadata).replace(/[\/:*?"<>|]+/g, '_');
-    a.download = fileBase + '.struchord.json';
+    a.download = fileBase + '.struchord';
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -48569,7 +50107,15 @@ toggleTimeAndBeats();
           showToast(`Песня "${songLibraryName(loaded || data)}" импортирована`);
           maybeUnlockStormSecret('song');
         };
-        if (loadSongFromObject(data, done)) done(data);
+        if (loadSongFromObject(data, done)) {
+          clearLibrarySongOrigin();
+          showEditorScreen();
+          done(data);
+          // Импортированный файл ещё не входит в библиотеку браузера.
+          // Считаем его несохранённой работой, чтобы переход на главный экран
+          // предложил сохранить его, отбросить или остаться в редакторе.
+          savedSongSnapshot = null;
+        }
       } catch (err) {
         showToast('Ошибка чтения файла: ' + err.message);
       }
@@ -48753,19 +50299,11 @@ toggleTimeAndBeats();
   window.importSongFile = function () {
   const input = document.createElement('input');
   input.type = 'file';
-  // ---- accept: только «.json» ----
-  //
-  // Здесь стояло '.json,.struchord.json'. Составное расширение — не то,
-  // что понимает спецификация: там ожидается ОДНО расширение после
-  // последней точки. WebKit на такую запись спотыкается и гасит в
-  // системном окне вообще все файлы, включая обычные .json — выбрать
-  // нечего, окно закрывается впустую.
-  //
-  // Отдельная строка и не нужна: сопоставление идёт по концу имени, и
-  // '.json' сам покрывает «Песня.struchord.json». Тип MIME добавлен
-  // рядом — по нему файл опознаётся, даже если расширение потерялось
-  // (например, после пересылки через мессенджер).
-  input.accept = '.json,application/json';
+  // ---- собственное расширение + обратная совместимость ----
+  // Новые файлы STRUCHORD используют отдельное расширение .struchord.
+  // Старые .struchord.json остаются доступны через .json, как и обычные
+  // JSON-файлы, сохранённые в прошлых версиях.
+  input.accept = '.struchord,.json,application/json';
   // ---- input ОБЯЗАН лежать в документе ----
   //
   // Раньше click() звался на узле, которого нет в DOM. Chrome такое
@@ -48795,6 +50333,7 @@ toggleTimeAndBeats();
   input.click();
 };
 
+initializeHomeScreen();
 })();
     </script>
     <!-- B-16: быстрый выбор цветовой схемы. Открывается длинным
