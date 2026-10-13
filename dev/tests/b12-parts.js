@@ -3,10 +3,10 @@
  * b12-parts.js — B-12.1 «Партии», кирпич 1 «Каркас».
  *
  * Проверяем:
- *  1. Схему: миграция v4 → v5 (старая песня грузится без партий);
+ *  1. Схему: миграция v4 → v6 (старая песня грузится без партий);
  *  2. Санитайзер партий: битые ноты отбрасываются, чужие ключи секций
  *     теряются, лимиты и allowlist работают;
- *  3. Сохранение: parts уезжают в файл, schemaVersion = 5;
+ *  3. Сохранение: parts уезжают в файл, schemaVersion = 6;
  *  4. Окно «Партии»: станки по проходам секций, чипы нот, пустое состояние;
  *  5. Режимы: is-parts, Esc, взаимоисключение с лентой;
  *  6. Звук: окна событий и времена нот (заглушка pluckString);
@@ -85,15 +85,15 @@ function loadSong(song) {
 
 w.addEventListener('load', () => {
   try {
-    // ---------- 1. Миграция v4 → v5 ----------
+    // ---------- 1. Миграция v4 → v6 ----------
     loadSong(baseSong());
     check('старая песня (v4) загружается без партий', w.eval('JSON.stringify(songParts)') === '[]');
-    check('схема поднята до 5', w.eval('SONG_SCHEMA_VERSION') === 5);
+    check('схема поднята до 6', w.eval('SONG_SCHEMA_VERSION') === 6);
     w.confirm = () => true;
     w.saveCurrentSong();
     const afterOld = JSON.parse(w.localStorage.getItem('struchord_songs'));
     const savedOld = afterOld[afterOld.length - 1];
-    check('в сейве schemaVersion 5', savedOld.schemaVersion === 5, String(savedOld.schemaVersion));
+    check('в сейве schemaVersion 6', savedOld.schemaVersion === 6, String(savedOld.schemaVersion));
     check('в сейве пустой список партий', Array.isArray(savedOld.parts) && savedOld.parts.length === 0);
 
     // ---------- 2. Санитайзер партий ----------
@@ -128,6 +128,22 @@ w.addEventListener('load', () => {
       JSON.stringify(parts[0] && parts[0].rolls['1'])
     );
     check('чужая секция не оставила рулона', parts[0] && !parts[0].rolls['999'], JSON.stringify(parts[0].rolls));
+
+    // Смена роли может сохранить более высокую старую tab-линию, но только
+    // с валидным 1–12 маркером и только до объявленной границы.
+    loadSong(baseSong({ parts: [
+      { id: 8, name: 'Bass', instrument: 'bass', rollStringLimit: 6,
+        rolls: { '1': [
+          { start: 0, dur: 1, string: 5, fret: 3 },
+          { start: 1, dur: 1, string: 6, fret: 3 },
+        ] } },
+      { id: 9, name: 'Bad limit', instrument: 'bass', rollStringLimit: 13,
+        rolls: { '1': [{ start: 0, dur: 1, string: 5, fret: 3 }] } },
+    ] }));
+    const rangedParts = JSON.parse(w.eval('JSON.stringify(songParts)'));
+    check('валидный rollStringLimit сохраняет линию вне короткого грифа, не расширяя дальше лимита',
+      rangedParts[0].rolls['1'].length === 1 && rangedParts[0].rolls['1'][0].string === 5 &&
+        (!rangedParts[1].rolls['1'] || rangedParts[1].rolls['1'].length === 0) && !Object.prototype.hasOwnProperty.call(rangedParts[0], 'rollStringLimit'));
 
     // Ремап ключей: дублирующиеся id секций в файле переназначаются, а
     // рулоны обязаны поехать за своими секциями.

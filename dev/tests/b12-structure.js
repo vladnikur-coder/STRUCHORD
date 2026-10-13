@@ -160,7 +160,7 @@ w.addEventListener('load', async () => {
       eqJson(saved[1].jump, { type: 'ds', target: 'coda' }),
       JSON.stringify(saved));
     check('схема файла не меняется ради знаков',
-      fileOf().schemaVersion === 5, String(fileOf().schemaVersion));
+      fileOf().schemaVersion === 6, String(fileOf().schemaVersion));
     w.loadSong(0);
     w.eval('render()');
     check('знаки пережили перезагрузку песни',
