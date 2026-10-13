@@ -9960,6 +9960,27 @@ body.is-parts .container {
   font-size: 9px;
   fill: var(--color-text-secondary);
 }
+/* B-12.6.2: лига легато и линия слайда. Штрих — акцентный: это приём
+   исполнения, а не часть номера лада. */
+.pt-slur {
+  stroke: var(--color-brand);
+  stroke-width: 1.2;
+}
+.pt-slide {
+  stroke: var(--color-brand);
+  stroke-width: 1.6;
+}
+.pt-slide.is-shift {
+  stroke-dasharray: 4 2;
+}
+.pt-vibrato {
+  stroke: var(--color-text-secondary);
+  stroke-width: 1.1;
+}
+.pt-trem {
+  stroke: var(--color-text-secondary);
+  stroke-width: 1.2;
+}
 /* Пунктир палм-мьюта тянется, пока действует приём (как PM-линия в GP). */
 .pt-pm-line {
   stroke: var(--color-border-medium);
@@ -12642,7 +12663,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.624</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.625</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -13211,6 +13232,12 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
               <button type="button" class="pt-pal-btn" data-tone="tenuto" title="Теното: нота держится всю длительность — клавиши Shift+T">—</button>
               <button type="button" class="pt-pal-btn" data-tone="fadeIn" title="Fade in: нота входит плавно, без щипка — клавиши Shift+,">↗</button>
               <button type="button" class="pt-pal-btn" data-tone="fadeOut" title="Fade out: нота уходит плавно — клавиши Shift+.">↘</button>
+              <button type="button" class="pt-pal-btn" data-tone="legato" title="Легато (hammer-on / pull-off): нота берётся без атаки из предыдущей ноты той же струны — клавиша H">H/P</button>
+              <button type="button" class="pt-pal-btn" data-tone="slide" title="Слайд в ноту без атаки (legato slide) — клавиша S">S</button>
+              <button type="button" class="pt-pal-btn" data-tone="slideShift" title="Shift slide: слайд в ноту с атакой — клавиши Alt+S">Alt+S</button>
+              <button type="button" class="pt-pal-btn" data-tone="vibrato" title="Вибрато: качание высоты ±0,25 полутона — клавиша V">V</button>
+              <button type="button" class="pt-pal-btn" data-tone="vibratoWide" title="Широкое вибрато: качание ±0,6 полутона — клавиши Alt+V">Alt+V</button>
+              <button type="button" class="pt-pal-btn" data-tone="tremolo" title="Тремоло-пикинг: повторные удары тем же ладом (в Guitar Pro клавиши нет — только палитра)">Trem</button>
             </div>
             <div class="pt-pal-hint">
               Клик по табу — курсор<br>
@@ -13223,7 +13250,9 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
               <b>Ctrl+↑</b>/<b>Ctrl+↓</b> — другая дорожка<br>
               Приёмы: <b>[</b> палм-мьют · <b>I</b> let ring · <b>X</b> dead · <b>O</b> ghost<br>
               <b>;</b> акцент · <b>Shift+1</b> стаккато · <b>Shift+T</b> теното<br>
-              <b>Shift+,</b>/<b>Shift+.</b> fade in/out (повтор снимает знак)
+              <b>Shift+,</b>/<b>Shift+.</b> fade in/out (повтор снимает знак)<br>
+              <b>H</b> легато · <b>S</b> слайд · <b>Alt+S</b> shift slide<br>
+              <b>V</b> вибрато · <b>Alt+V</b> широкое · <b>Trem</b> тремоло-пикинг
             </div>
           </div>
           <div class="pt-main">
@@ -30778,6 +30807,37 @@ function getPluckBuffer(ctx, freq, duration, brightness) {
   return buf;
 }
 
+// Кривая высоты голоса B-12.6.2: доезд слайда и вибрато. Возвращаем точки
+// [время, playbackRate] — планировщик применяет их к источнику, а тесты
+// проверяют саму кривую, не поднимая звук.
+function partRateCurve(startTime, stopAt, decayEnd, opts) {
+  const options = opts || {};
+  const rateFloor = 0.5; // ниже не опускаемся: браузер не любит 0
+  const startRate = Math.max(0.25, Math.min(4, Number(options.startRate) || 1));
+  const glide = Math.max(0, Number(options.glide) || 0);
+  const vibratoDepth = Math.max(0, Number(options.vibratoDepth) || 0);
+  const points = [[startTime, Math.max(rateFloor, startRate)]];
+  let cursor = startTime;
+  if (glide > 0 && Math.abs(startRate - 1) > 1e-4) {
+    cursor = Math.min(stopAt, startTime + glide);
+    points.push([cursor, 1]);
+  }
+  if (vibratoDepth > 0) {
+    // ~6 Гц качания = 12 полупериодов в секунду.
+    const half = 1 / 12;
+    const amp = Math.pow(2, vibratoDepth / 12) - 1;
+    const end = Math.min(stopAt, decayEnd + 0.12);
+    let up = true;
+    points.push([cursor, 1]);
+    while (cursor < end - half * 0.5 && cursor < startTime + 6) {
+      cursor = Math.min(end, cursor + half);
+      points.push([cursor, Math.max(rateFloor, 1 + (up ? amp : -amp))]);
+      up = !up;
+    }
+  }
+  return points;
+}
+
 // Проигрывает одну струну: буфер Карплюса-Стронга -> тембровый фильтр ->
 // огибающая громкости (щипок + экспоненциальное затухание) -> панорама
 // (низкие струны чуть левее, высокие чуть правее, как на реальном
@@ -30800,6 +30860,7 @@ function pluckString(ctx, opts) {
   const releaseAt = opts.releaseAt || 0;
   const releaseTime = opts.releaseTime || 0.03;
   const skipAttack = Math.max(0, Number(opts.skipAttack) || 0);
+
 
   const tail = duration + 0.4 + skipAttack;
   const buf = getPluckBuffer(ctx, freq, tail, brightness);
@@ -30863,6 +30924,14 @@ function pluckString(ctx, opts) {
 
   src.start(startTime, skipAttack);
   src.stop(stopAt);
+  // Кривая высоты: сначала доезд слайда, потом вибрато (вместе они у GP
+  // тоже не встречаются на одной ноте).
+  {
+    const rate = src.playbackRate;
+    const curve = partRateCurve(startTime, stopAt, decayEnd, opts);
+    rate.setValueAtTime(curve[0][1], curve[0][0]);
+    for (let i = 1; i < curve.length; i++) rate.linearRampToValueAtTime(curve[i][1], curve[i][0]);
+  }
   activeOscillators.add(src);
   src.onended = () => activeOscillators.delete(src);
 
@@ -44749,6 +44818,12 @@ function toggleTimelineMode(force) {
 const PART_TAB_UNIT = 24; // SVG-px на единицу сетки
 const PART_TAB_STRING_GAP = 9; // расстояние между струнами, SVG-px
 const PART_TAB_TOP_PAD = 10;
+// Ширина фишки ноты: ghost note в скобках чуть шире обычной, но не уже
+// 14 единиц — иначе номер не влезет.
+function partChipWidth(note) {
+  return Math.max(note.ghost === true ? 22 : 14, note.dur * PART_TAB_UNIT - 6);
+}
+
 // Полки знаков приёмов. Внутри стана места нет: струны стоят через 9 единиц,
 // а номер лада занимает 16 — знак лёг бы на соседнюю струну. В GP знаки и
 // сами выносятся за линейки (PM-линия идёт над табом), поэтому знаки живут
@@ -44772,6 +44847,8 @@ function partMarkLayout(notes) {
   if (has((n) => n.pm === true)) above.push('pmLine', 'pm');
   if (has((n) => n.letRing === true)) above.push('letRing');
   if (has((n) => n.staccato === true || n.tenuto === true)) below.push('artic');
+  if (has((n) => n.vibrato === 'slight' || n.vibrato === 'wide')) below.push('vibrato');
+  if (has((n) => n.tremolo === true)) below.push('trem');
   if (has((n) => n.accent === 1 || n.accent === 2)) below.push('accent');
   if (has((n) => n.fade === 'in' || n.fade === 'out')) below.push('fade');
   const rows = {};
@@ -44804,6 +44881,47 @@ function partNoteMarks(note, layout) {
   if (note.fade === 'in') marks.push({ text: '↗', cls: 'pt-mark-fade', dy: below('fade') });
   else if (note.fade === 'out') marks.push({ text: '↘', cls: 'pt-mark-fade', dy: below('fade') });
   return marks;
+}
+
+// Знаки-рисунки одной ноты: вибрато — волна, тремоло-пикинг — три
+// наклонные чёрточки (как в GP). Возвращаем описания, а рисует их общий с
+// текстовыми знаками код, чтобы итерации 12.6 не плодили копий.
+function partNotePaths(note, layout, cx) {
+  const out = [];
+  const rows = layout && layout.rows ? layout.rows : {};
+  const rowY = (key) => (rows[key] === undefined ? PART_TAB_MARK_GAP : rows[key]);
+  if (note.vibrato === 'slight' || note.vibrato === 'wide') {
+    const wide = note.vibrato === 'wide';
+    const amp = wide ? 5 : 3.4;
+    const step = wide ? 6 : 5;
+    const left = cx - step * 1.5;
+    const y = rowY('vibrato');
+    // Волна: три «горба» квадратичными сегментами (t отражает контрольную
+    // точку, поэтому горбы чередуются сами).
+    let d = `M ${left.toFixed(2)} ${y.toFixed(2)}`;
+    for (let i = 0; i < 3; i++) {
+      d += ` q ${(step / 2).toFixed(2)} ${(-amp).toFixed(2)} ${step.toFixed(2)} 0`;
+      d += ` t ${step.toFixed(2)} 0`;
+    }
+    out.push({ tag: 'path', cls: 'pt-vibrato', attrs: { d, fill: 'none' } });
+  }
+  if (note.tremolo === true) {
+    const y = rowY('trem');
+    for (let i = 0; i < 3; i++) {
+      const x = cx - 5 + i * 4;
+      out.push({
+        tag: 'line',
+        cls: 'pt-trem',
+        attrs: {
+          x1: x.toFixed(2),
+          y1: (y + 2).toFixed(2),
+          x2: (x + 3).toFixed(2),
+          y2: (y - 3).toFixed(2),
+        },
+      });
+    }
+  }
+  return out;
 }
 
 // Серии палм-мьюта: от начала первой ноты серии до конца последней, если
@@ -45244,6 +45362,10 @@ function buildPartTabSvg(part, sec, parentTs) {
     return node;
   };
   const stringY = (stringIndex) => PART_TAB_TOP_PAD + (stringCount - 1 - stringIndex) * PART_TAB_STRING_GAP;
+  // Геометрия фишки ноты — одна на рисование знаков, лиг и слайдов.
+  const chipLeft = (note) => note.start * PART_TAB_UNIT + 2;
+  const chipWidth = (note) => partChipWidth(note);
+  const chipCenter = (note) => chipLeft(note) + chipWidth(note) / 2;
   // Верхняя и нижняя линейки стана — от них отсчитываются полки знаков.
   const staffTop = PART_TAB_TOP_PAD;
   const staffBottom = PART_TAB_TOP_PAD + (stringCount - 1) * PART_TAB_STRING_GAP;
@@ -45299,12 +45421,12 @@ function buildPartTabSvg(part, sec, parentTs) {
   // длительность: это мелодия, и видно, сколько нота тянется. Знаки
   // ноты (точка, триоль, приёмы) рисуются рядом с ладом — по ним видно,
   // что именно записано, а не только то, сколько это звучит.
-  rollNotes.forEach((note) => {
+  const prevOnString = partPreviousOnString(rollNotes);
+  rollNotes.forEach((note, noteIndex) => {
     if (!(note.start >= 0) || note.start >= unitsTotal) return;
     const x = note.start * PART_TAB_UNIT;
     const y = stringY(note.string);
-    // Ghost note рисуется в скобках — номер в них шире обычного.
-    const chipW = Math.max(note.ghost === true ? 22 : 14, note.dur * PART_TAB_UNIT - 6);
+    const chipW = partChipWidth(note);
     svg.appendChild(
       el('rect', {
         x: (x + 2).toFixed(2),
@@ -45356,6 +45478,9 @@ function buildPartTabSvg(part, sec, parentTs) {
     }
     // Знаки штриха и динамики (12.6.1). Список разложен по полкам вокруг
     // стана: знак стоит над (или под) своей нотой и не лезет на струны.
+    partNotePaths(note, markLayout, x + 2 + chipW / 2).forEach((spec) => {
+      svg.appendChild(el(spec.tag, Object.assign({ class: spec.cls }, spec.attrs)));
+    });
     partNoteMarks(note, markLayout).forEach((mark) => {
       const markEl = el('text', {
         x: (x + 2 + chipW / 2).toFixed(2),
@@ -45366,6 +45491,54 @@ function buildPartTabSvg(part, sec, parentTs) {
       markEl.textContent = mark.text;
       svg.appendChild(markEl);
     });
+  });
+
+  // 3б. Лиги легато и слайды. Рисуем ПОСЛЕ нот: дуга тянется от фишки к
+  // фишке через верх (в GP лига тоже идёт над номерами), слайд — наклонная
+  // линия от номера к номеру. Приём без предыдущей ноты той же струны
+  // (в GP он тоже не ставится) просто не рисуется.
+  rollNotes.forEach((note, noteIndex) => {
+    if (!(note.start >= 0) || note.start >= unitsTotal) return;
+    const prev = prevOnString[noteIndex];
+    if (!prev || prev.string !== note.string) return;
+    const fromX = chipCenter(prev);
+    const toX = chipCenter(note);
+    if (toX - fromX < 4) return;
+    const y = stringY(note.string);
+    if (note.legato === true) {
+      const top = y - 9;
+      svg.appendChild(
+        el('path', {
+          d: `M ${fromX.toFixed(2)} ${top.toFixed(2)} Q ${((fromX + toX) / 2).toFixed(2)} ${(top - 12).toFixed(2)} ${toX.toFixed(2)} ${top.toFixed(2)}`,
+          fill: 'none',
+          class: 'pt-slur',
+        })
+      );
+    }
+    if (note.slide === 'legato' || note.slide === 'shift') {
+      // Shift slide в GP — та же линия, но с «крючком» у начала: у нас
+      // добавлен второй короткий штрих, чтобы виды различались глазом.
+      svg.appendChild(
+        el('line', {
+          x1: fromX.toFixed(2),
+          y1: y.toFixed(2),
+          x2: toX.toFixed(2),
+          y2: y.toFixed(2),
+          class: note.slide === 'shift' ? 'pt-slide is-shift' : 'pt-slide',
+        })
+      );
+      if (note.slide === 'shift') {
+        svg.appendChild(
+          el('line', {
+            x1: fromX.toFixed(2),
+            y1: (y - 3).toFixed(2),
+            x2: (fromX + 6).toFixed(2),
+            y2: (y - 3).toFixed(2),
+            class: 'pt-slide is-shift',
+          })
+        );
+      }
+    }
   });
 
   // Клик по табу ставит курсор — и НЕ добавляет ноту (как в Guitar Pro).
@@ -45385,6 +45558,22 @@ function buildPartTabSvg(part, sec, parentTs) {
 // «Let ring» звенит до следующей ноты ЭТОЙ ЖЕ струны: без такого индекса
 // пришлось бы искать соседа на каждой ноте (рулон не гарантирует порядок —
 // ноты можно вводить курсором в любое место).
+// Предыдущая нота той же струны — для легато (берём её высоту) и слайда
+// (из неё доезжаем). Возвращаем сам объект ноты: нужны и струна, и лад.
+function partPreviousOnString(notes) {
+  const order = notes
+    .map((n, i) => i)
+    .sort((a, b) => notes[a].start - notes[b].start || notes[a].string - notes[b].string);
+  const last = new Map();
+  const out = new Array(notes.length);
+  order.forEach((i) => {
+    const key = notes[i].string;
+    out[i] = last.has(key) ? last.get(key) : undefined;
+    last.set(key, notes[i]);
+  });
+  return out;
+}
+
 function partNextNoteStarts(notes) {
   const order = notes
     .map((n, i) => i)
@@ -45448,6 +45637,17 @@ function partNoteSound(note, timbre, ring, written, room) {
   }
   if (note.fade === 'in') out.fadeIn = true;
   else if (note.fade === 'out') out.fadeOut = true;
+  if (note.vibrato === 'slight' || note.vibrato === 'wide') {
+    out.vibratoDepth = note.vibrato === 'wide' ? 0.6 : 0.25;
+  }
+  // Легато и слайд — «из предыдущей ноты»: сам доезд высоты делает голос по
+  // startRate/glide, а здесь только помечаем приём, чтобы планировщик и
+  // предпросмотр считали его одинаково.
+  out.legato = note.legato === true;
+  out.slide = note.slide === 'legato' || note.slide === 'shift' ? note.slide : '';
+  // Тремоло-пикинг — это не знак отдельного голоса, а серия ударов: её
+  // собирает планировщик, поэтому здесь помечаем только «повторять».
+  if (note.tremolo === true) out.tremolo = true;
   return out;
 }
 
@@ -45466,6 +45666,12 @@ function schedulePartsForEvent(ctx, sec, sq, ei, evStart, evDur) {
     const strings = openFreqs.length;
     const timbre = PART_TIMBRE[partInstrumentId(part)] || PART_TIMBRE.guitar;
     const nextOnString = partNextNoteStarts(notes);
+    const prevOnString = partPreviousOnString(notes);
+    // Тремоло-пикинг — серия ударов тем же ладом: в GP это «≈1/16 от
+    // длительности доли». Шаг считаем в долях четверти, чтобы 6/8 и 4/4
+    // щёлкали одинаково часто.
+    const quarterSeconds = partUnitsPerQuarter(partSectionTs(sec)) * secondsPerUnit;
+    const strokeSeconds = Math.max(0.05, quarterSeconds / 4);
     notes.forEach((note, noteIndex) => {
       if (note.start < win.start || note.start >= win.end) return;
       if (note.string >= strings) return; // струна исчезла вместе с инструментом
@@ -45485,18 +45691,50 @@ function schedulePartsForEvent(ctx, sec, sq, ei, evStart, evDur) {
         next === undefined ? undefined : (next - note.start) * secondsPerUnit
       );
       const pos = strings > 1 ? note.string / (strings - 1) : 0;
-      pluckString(ctx, {
-        freq,
-        startTime: at,
-        duration: voice.ring,
-        gain: voice.gain,
-        pan: -timbre.spread + pos * timbre.spread * 2,
-        brightness: voice.bright + pos * timbre.spread,
-        fadeIn: voice.fadeIn,
-        fadeOut: voice.fadeOut,
-        releaseAt: voice.damp ? at + voice.ring : 0,
-        releaseTime: 0.03,
-      });
+      // Легато и слайд берут высоту ПРЕДЫДУЩЕЙ ноты той же струны: без неё
+      // приём бессмыслен, поэтому просто не применяется (в GP он тоже не
+      // ставится на первую ноту линии).
+      const prev = prevOnString[noteIndex];
+      const prevFreq = prev ? (openFreqs[prev.string] || 0) * Math.pow(2, prev.fret / 12) : 0;
+      const fromPrev = prevFreq > 0 && (voice.legato || !!voice.slide);
+      const slideGlide = fromPrev && voice.slide ? Math.min(0.12, Math.max(0.03, written * 0.4)) : 0;
+      const noAttack = fromPrev && (voice.legato || voice.slide === 'legato');
+      const pluck = (startTime, duration, extra) =>
+        pluckString(
+          ctx,
+          Object.assign(
+            {
+              freq,
+              startTime,
+              duration,
+              gain: voice.gain,
+              pan: -timbre.spread + pos * timbre.spread * 2,
+              brightness: voice.bright + pos * timbre.spread,
+              fadeIn: voice.fadeIn,
+              fadeOut: voice.fadeOut,
+              vibratoDepth: voice.vibratoDepth || 0,
+              releaseAt: voice.damp ? startTime + duration : 0,
+              releaseTime: 0.03,
+            },
+            extra || {}
+          )
+        );
+      // Тремоло-пикинг: сколько ударов влезает в написанную длительность
+      // (потолок 24 — страховка от «целой с тремоло» на 40 ударов).
+      const strokes = voice.tremolo ? Math.max(1, Math.min(24, Math.round(written / strokeSeconds))) : 1;
+      for (let k = 0; k < strokes; k++) {
+        const strokeAt = at + k * strokeSeconds;
+        const last = k === strokes - 1;
+        pluck(strokeAt, last ? voice.ring : Math.min(voice.ring, strokeSeconds * 1.5), {
+          // Доезд слайда и «без атаки» — только у первого удара: остальные
+          // удары тремоло уже бьют по стоящей высоте. Легато высоту НЕ
+          // тянет: палец ставит ноту сразу, без атаки — это и есть хаммер
+          // (у GP на ноте легато тоже нет наклона высоты).
+          startRate: k === 0 && fromPrev && voice.slide ? prevFreq / freq : 1,
+          glide: k === 0 ? slideGlide : 0,
+          skipAttack: k === 0 && noAttack ? 0.02 : 0,
+        });
+      }
     });
   });
 }
@@ -45556,6 +45794,12 @@ function partToneDefaults() {
     fadeIn: false,
     fadeOut: false,
     accent: 0,
+    // B-12.6.2: легато (H/P), слайд в ноту и вибрато. Слайд и вибрато —
+    // строки, потому что у каждого по два вида (как bend.type в спеке).
+    legato: false,
+    slide: '',
+    vibrato: '',
+    tremolo: false,
   };
 }
 
@@ -45572,6 +45816,10 @@ function partNoteTone(note) {
   if (note.accent === 1 || note.accent === 2) tone.accent = note.accent;
   if (note.fade === 'in') tone.fadeIn = true;
   if (note.fade === 'out') tone.fadeOut = true;
+  if (note.legato === true) tone.legato = true;
+  if (note.slide === 'legato' || note.slide === 'shift') tone.slide = note.slide;
+  if (note.vibrato === 'slight' || note.vibrato === 'wide') tone.vibrato = note.vibrato;
+  if (note.tremolo === true) tone.tremolo = true;
   return tone;
 }
 
@@ -45585,13 +45833,17 @@ function partSameTone(a, b) {
     a.tenuto === b.tenuto &&
     a.fadeIn === b.fadeIn &&
     a.fadeOut === b.fadeOut &&
-    a.accent === b.accent
+    a.accent === b.accent &&
+    a.legato === b.legato &&
+    a.slide === b.slide &&
+    a.vibrato === b.vibrato &&
+    a.tremolo === b.tremolo
   );
 }
 
 // Запись знаков в ноту: «нет знака» — это ОТСУТСТВИЕ поля, а не false.
 function partApplyToneToNote(note, tone) {
-  const flags = ['pm', 'letRing', 'dead', 'ghost', 'staccato', 'tenuto'];
+  const flags = ['pm', 'letRing', 'dead', 'ghost', 'staccato', 'tenuto', 'legato', 'tremolo'];
   flags.forEach((flag) => {
     if (tone[flag]) note[flag] = true;
     else delete note[flag];
@@ -45601,6 +45853,10 @@ function partApplyToneToNote(note, tone) {
   if (tone.fadeIn) note.fade = 'in';
   else if (tone.fadeOut) note.fade = 'out';
   else delete note.fade;
+  if (tone.slide === 'legato' || tone.slide === 'shift') note.slide = tone.slide;
+  else delete note.slide;
+  if (tone.vibrato === 'slight' || tone.vibrato === 'wide') note.vibrato = tone.vibrato;
+  else delete note.vibrato;
 }
 let partsCursor = null; // { partId, secId, pass, string, pos }
 let partsScrollPending = false;
@@ -45793,7 +46049,20 @@ function syncPartsPalette() {
     const tone = partInput.tone || partToneDefaults();
     toneGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
       const kind = btn.dataset.tone;
-      const on = kind === 'accent' ? tone.accent > 0 : !!tone[kind];
+      // Знаки-строки (слайд, вибрато) показываются по своему виду: у них
+      // по две кнопки на один вид приёма.
+      const on =
+        kind === 'accent'
+          ? tone.accent > 0
+          : kind === 'slide'
+          ? tone.slide === 'legato'
+          : kind === 'slideShift'
+          ? tone.slide === 'shift'
+          : kind === 'vibrato'
+          ? tone.vibrato === 'slight'
+          : kind === 'vibratoWide'
+          ? tone.vibrato === 'wide'
+          : !!tone[kind];
       btn.classList.toggle('is-on', on);
       btn.setAttribute('aria-pressed', on ? 'true' : 'false');
       if (kind === 'accent') btn.textContent = tone.accent === 2 ? '^' : '>';
@@ -45899,6 +46168,30 @@ function togglePartTone(kind) {
     case 'accent':
       // Кнопка палитры ведёт по кругу: нет → акцент → сильный → нет.
       next.accent = current.accent === 0 ? 1 : current.accent === 1 ? 2 : 0;
+      break;
+    // B-12.6.2. Легато (H/P) и слайд — приёмы «из предыдущей ноты»: вместе
+    // они бессмысленны (нота либо берётся пальцем без атаки, либо доезжает
+    // по струне), поэтому снимают друг друга — как в GP.
+    case 'legato':
+      next.legato = !current.legato;
+      if (next.legato) next.slide = '';
+      break;
+    case 'slide':
+      next.slide = current.slide === 'legato' ? '' : 'legato';
+      if (next.slide) next.legato = false;
+      break;
+    case 'slideShift':
+      next.slide = current.slide === 'shift' ? '' : 'shift';
+      if (next.slide) next.legato = false;
+      break;
+    case 'vibrato':
+      next.vibrato = current.vibrato === 'slight' ? '' : 'slight';
+      break;
+    case 'vibratoWide':
+      next.vibrato = current.vibrato === 'wide' ? '' : 'wide';
+      break;
+    case 'tremolo':
+      next.tremolo = !current.tremolo;
       break;
     default:
       return;
@@ -46492,8 +46785,23 @@ function previewPartNote(sec, string, fret, durUnits, note) {
   const voice = partNoteSound(note || null, timbre, ring, written, undefined);
   const pos = strings > 1 ? string / (strings - 1) : 0;
   const at = ctx.currentTime + 0.01;
+  const freq = open * Math.pow(2, fret / 12);
+  // Легато и слайд — приёмы «из предыдущей ноты»: в предпросмотре берём
+  // предыдущую ноту той же струны из рулона (если она есть), иначе нота
+  // звучит обычно — так слышно ровно то, что получится в песне.
+  const roll = partRollFor(part, sec.id) || [];
+  const start = note && typeof note.start === 'number' ? note.start : null;
+  let prevNote = null;
+  if (start !== null) {
+    roll.forEach((other) => {
+      if (other.string !== string || other.start >= start - PART_POS_EPS) return;
+      if (!prevNote || other.start > prevNote.start) prevNote = other;
+    });
+  }
+  const prevFreq = prevNote ? open * Math.pow(2, prevNote.fret / 12) : 0;
+  const fromPrev = prevFreq > 0 && (voice.legato || !!voice.slide);
   pluckString(ctx, {
-    freq: open * Math.pow(2, fret / 12),
+    freq,
     startTime: at,
     duration: voice.ring,
     gain: voice.gain,
@@ -46501,8 +46809,14 @@ function previewPartNote(sec, string, fret, durUnits, note) {
     brightness: voice.bright + pos * timbre.spread,
     fadeIn: voice.fadeIn,
     fadeOut: voice.fadeOut,
+    vibratoDepth: voice.vibratoDepth || 0,
     releaseAt: voice.damp ? at + voice.ring : 0,
     releaseTime: 0.03,
+    // Доезд слайда — от открытой струны своей ноты: prevNote мог быть взят
+    // на другой струне того же строя, но слайд идёт по одной струне.
+    startRate: fromPrev && voice.slide ? prevFreq / freq : 1,
+    glide: fromPrev && voice.slide ? Math.min(0.12, Math.max(0.03, written * 0.4)) : 0,
+    skipAttack: fromPrev && voice.legato ? 0.02 : 0,
   });
 }
 
@@ -46677,9 +46991,40 @@ function handlePartsKeydown(e) {
       return true;
     }
   }
+  // Alt-варианты знаков (спека 5.6): Alt+S — shift slide, Alt+V — широкое
+  // вибрато. Проверяем раньше «просто клавиш», иначе Alt перекрылся бы.
+  if (e.altKey && !e.shiftKey) {
+    if (code === 'KeyS') {
+      togglePartTone('slideShift');
+      e.preventDefault();
+      return true;
+    }
+    if (code === 'KeyV') {
+      togglePartTone('vibratoWide');
+      e.preventDefault();
+      return true;
+    }
+  }
   if (!e.shiftKey) {
     if (code === 'Semicolon') {
       togglePartAccent(1);
+      e.preventDefault();
+      return true;
+    }
+    // B-12.6.2: H — легато, S — слайд в ноту, V — вибрато (в GP те же
+    // клавиши; коды по физической клавише, раскладка не влияет).
+    if (code === 'KeyH' && !e.altKey) {
+      togglePartTone('legato');
+      e.preventDefault();
+      return true;
+    }
+    if (code === 'KeyS' && !e.altKey) {
+      togglePartTone('slide');
+      e.preventDefault();
+      return true;
+    }
+    if (code === 'KeyV' && !e.altKey) {
+      togglePartTone('vibrato');
       e.preventDefault();
       return true;
     }
@@ -51065,6 +51410,10 @@ toggleTimeAndBeats();
               ...(n.tenuto ? { tenuto: true } : {}),
               ...(n.accent === 1 || n.accent === 2 ? { accent: n.accent } : {}),
               ...(n.fade === 'in' || n.fade === 'out' ? { fade: n.fade } : {}),
+              ...(n.legato ? { legato: true } : {}),
+              ...(n.slide === 'legato' || n.slide === 'shift' ? { slide: n.slide } : {}),
+              ...(n.vibrato === 'slight' || n.vibrato === 'wide' ? { vibrato: n.vibrato } : {}),
+              ...(n.tremolo ? { tremolo: true } : {}),
             })),
           ])
         ),
@@ -52595,6 +52944,13 @@ toggleTimeAndBeats();
               const rawAccent = Number(rawNote.accent);
               if (rawAccent === 1 || rawAccent === 2) note.accent = rawAccent;
               if (rawNote.fade === 'in' || rawNote.fade === 'out') note.fade = rawNote.fade;
+              // B-12.6.2: легато, слайд, вибрато, тремоло-пикинг — та же
+              // строгость: строки только из известных значений, флаги
+              // строго `true`.
+              if (rawNote.legato === true) note.legato = true;
+              if (rawNote.slide === 'legato' || rawNote.slide === 'shift') note.slide = rawNote.slide;
+              if (rawNote.vibrato === 'slight' || rawNote.vibrato === 'wide') note.vibrato = rawNote.vibrato;
+              if (rawNote.tremolo === true) note.tremolo = true;
               notes.push(note);
             });
             if (notes.length) {

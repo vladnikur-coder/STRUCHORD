@@ -21,6 +21,8 @@
  *  8. Взаимоисключения: стаккато/теното и fade in/out не стоят вместе;
  *  9. Отмена: знак ставится и снимается одним шагом Ctrl+Z;
  * 10. Знаки не задевают соседние ноты и другие дорожки.
+ * 11. Итерация 2: легато (H), слайды (S / Alt+S), вибрато (V / Alt+V),
+ *     тремоло-пикинг — клавиши, палитра, рисование, звук и файл.
  */
 const fs = require('fs');
 const path = require('path');
@@ -87,8 +89,13 @@ const notes = [
 ];
 const guitar = { id: 1, name: 'Соло', instrument: 'guitar', tuning: null, visible: true, rolls: { '1': notes } };
 
-w.addEventListener('load', () => {
+w.addEventListener('load', async () => {
   try {
+    // jsdom не тикает requestAnimationFrame: он подменён на setTimeout, но
+    // колбэк выполняется только когда освободится событийный цикл. Истории
+    // правок это важно: флаг «идёт восстановление» снимается в кадре, и до
+    // него следующая правка не попадёт в стек отмены.
+    const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
     const load = (parts) => {
       w.localStorage.setItem('struchord_songs', JSON.stringify([song(parts)]));
       w.loadSong(0);
@@ -112,7 +119,7 @@ w.addEventListener('load', () => {
     load([guitar]);
     w.eval('togglePartsMode(true)');
     const toneButtons = w.document.querySelectorAll('#ptToneGroup .pt-pal-btn');
-    check('в палитре девять кнопок приёмов', toneButtons.length === 9, String(toneButtons.length));
+    check('в палитре пятнадцать кнопок приёмов (9 штриха + 6 новых)', toneButtons.length === 15, String(toneButtons.length));
     check('у каждой кнопки есть подсказка с клавишей',
       Array.from(toneButtons).every((b) => (b.title || '').length > 10 && /клавиш/i.test(b.title)),
       JSON.stringify(Array.from(toneButtons).map((b) => b.title)));
@@ -346,6 +353,7 @@ w.addEventListener('load', () => {
       JSON.stringify(roll(0)));
     w.undoEdit();
     w.eval('render()');
+    await tick(); // отпускаем флаг восстановления до следующей правки
     check('Ctrl+Z снимает знак целиком',
       !('pm' in noteAt(0, 0)) && JSON.stringify(noteAt(0, 1)) === neighbourBefore, JSON.stringify(roll(0)));
     // Кнопка палитры делает то же, что клавиша.
@@ -358,6 +366,222 @@ w.addEventListener('load', () => {
     w.eval('renderPartsScreen()');
     check('приёмы второй дорожки не тронуты',
       w.eval('songParts.length') === 1, String(w.eval('songParts.length')));
+
+    // ═══════════ Итерация 12.6.2: легато, слайды, вибрато, тремоло ═══════════
+
+    // ---------- 9. Клавиши и палитра 12.6.2 ----------
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    const toneBtn = (kind) => w.document.querySelector(`#ptToneGroup .pt-pal-btn[data-tone="${kind}"]`);
+    check('шесть новых кнопок приёмов на месте',
+      ['legato', 'slide', 'slideShift', 'vibrato', 'vibratoWide', 'tremolo'].every((kind) => !!toneBtn(kind)));
+    check('подсказки новых кнопок называют клавиши и объясняют приём',
+      ['legato', 'slide', 'slideShift', 'vibrato', 'vibratoWide', 'tremolo']
+        .every((kind) => (toneBtn(kind).title || '').length > 20));
+    cursorTo(0);
+    key('h', { code: 'KeyH' });
+    check('`H` поставил легато', noteAt(0, 0).legato === true, JSON.stringify(noteAt(0, 0)));
+    key('s', { code: 'KeyS' });
+    check('`S` заменил легато слайдом без атаки',
+      noteAt(0, 0).slide === 'legato' && !('legato' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+    key('s', { code: 'KeyS', altKey: true });
+    check('`Alt+S` — shift slide (с атакой)', noteAt(0, 0).slide === 'shift', JSON.stringify(noteAt(0, 0)));
+    key('s', { code: 'KeyS', altKey: true });
+    check('повтор `Alt+S` снял слайд', !('slide' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+    key('h', { code: 'KeyH' });
+    key('s', { code: 'KeyS' });
+    check('слайд снимает легато (приёмы одного смысла)',
+      noteAt(0, 0).slide === 'legato' && !('legato' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+    w.eval('syncPartsPalette()');
+    check('палитра подсвечивает кнопку слайда без атаки, а не обе',
+      toneBtn('slide').classList.contains('is-on') && !toneBtn('slideShift').classList.contains('is-on'));
+    key('s', { code: 'KeyS', altKey: true });
+    w.eval('syncPartsPalette()');
+    check('при shift slide подсвечена другая кнопка',
+      toneBtn('slideShift').classList.contains('is-on') && !toneBtn('slide').classList.contains('is-on'));
+    key('s', { code: 'KeyS' });
+    key('v', { code: 'KeyV' });
+    check('`V` — вибрато ±0,25 полутона', noteAt(0, 0).vibrato === 'slight', JSON.stringify(noteAt(0, 0)));
+    key('v', { code: 'KeyV' });
+    check('повтор `V` снял вибрато', !('vibrato' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+    key('v', { code: 'KeyV', altKey: true });
+    check('`Alt+V` — широкое вибрато', noteAt(0, 0).vibrato === 'wide', JSON.stringify(noteAt(0, 0)));
+    key('v', { code: 'KeyV' });
+    check('`V` сужает широкое вибрато до обычного', noteAt(0, 0).vibrato === 'slight');
+    key('v', { code: 'KeyV' });
+    // Тремоло-пикинг: в GP клавиши нет — ставится палитрой.
+    toneBtn('tremolo').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('кнопка палитры ставит тремоло-пикинг', noteAt(0, 0).tremolo === true, JSON.stringify(noteAt(0, 0)));
+    check('кнопка тремоло подсвечена', toneBtn('tremolo').classList.contains('is-on'));
+    toneBtn('tremolo').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('повторное нажатие сняло тремоло-пикинг', !('tremolo' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+    // Регресс 12.2: новые буквы не отобрали цифры и длительности.
+    key('7', { code: 'Digit7' });
+    check('цифра поверх ноты по-прежнему пишет лад (H/S/V не помешали)',
+      noteAt(0, 0).fret === 7, JSON.stringify(noteAt(0, 0)));
+    const durBeforeNew = noteAt(0, 0).dur;
+    key('_', { code: 'Minus', shiftKey: true });
+    check('`_` по-прежнему удлиняет ноту', noteAt(0, 0).dur > durBeforeNew, String(noteAt(0, 0).dur));
+    // Приёмы как состояние ввода: включённый знак достаётся следующей ноте.
+    w.eval('setPartsCursorString(sections[0].id, 0, 5, 3); partInput.tone = partToneDefaults();');
+    key('v', { code: 'KeyV' });
+    key('5', { code: 'Digit5' });
+    const fresh = noteAt(0, roll(0).length - 1);
+    check('новая нота унаследовала включённое вибрато',
+      fresh.fret === 5 && fresh.vibrato === 'slight', JSON.stringify(fresh));
+
+    // ---------- 10. Рисование 12.6.2 ----------
+    const longSong2 = song([{ ...guitar, rolls: { '1': [
+      { start: 0, dur: 1, string: 4, fret: 5 },
+      { start: 1, dur: 1, string: 4, fret: 7, slide: 'legato' },
+      { start: 2, dur: 1, string: 4, fret: 9, slide: 'shift' },
+      { start: 3, dur: 1, string: 5, fret: 3, legato: true, vibrato: 'wide', tremolo: true },
+      { start: 4, dur: 1, string: 5, fret: 5, legato: true },
+    ] } }]);
+    longSong2.sections[0].squares.push({ id: 12, repeat: 1, customBeats: 4, events: [{ chord: 'F', span: 4, timeSig: null, strumPattern: null }] });
+    w.localStorage.setItem('struchord_songs', JSON.stringify([longSong2]));
+    w.loadSong(0);
+    w.eval('render()');
+    w.eval('togglePartsMode(true)');
+    const activeRow = () => w.document.querySelector('.pt-row.is-active');
+    check('слайд рисуется линией от предыдущей ноты',
+      activeRow().querySelectorAll('.pt-slide:not(.is-shift)').length === 1,
+      String(activeRow().querySelectorAll('.pt-slide:not(.is-shift)').length));
+    check('shift slide отличается от простого слайда (двойной штрих)',
+      activeRow().querySelectorAll('.pt-slide.is-shift').length === 2,
+      String(activeRow().querySelectorAll('.pt-slide.is-shift').length));
+    check('лига легато рисуется только там, где есть предыдущая нота струны',
+      activeRow().querySelectorAll('.pt-slur').length === 1,
+      String(activeRow().querySelectorAll('.pt-slur').length));
+    check('вибрато нарисовано волной', activeRow().querySelectorAll('.pt-vibrato').length === 1);
+    check('тремоло-пикинг нарисован тремя чёрточками',
+      activeRow().querySelectorAll('.pt-trem').length === 3,
+      String(activeRow().querySelectorAll('.pt-trem').length));
+    const wideWave = activeRow().querySelector('.pt-vibrato').getAttribute('d');
+    check('полки снизу посчитаны по занятым рядам (вибрато + тремоло)',
+      (() => {
+        const box = activeRow().querySelector('.pt-svg').getAttribute('viewBox').split(' ').map(Number);
+        return box[1] === 0 && box[3] === 65 + 13 + 9 + 6;
+      })(),
+      activeRow().querySelector('.pt-svg').getAttribute('viewBox'));
+    load([{ ...guitar, rolls: { '1': [
+      { start: 0, dur: 1, string: 5, fret: 5 },
+      { start: 1, dur: 1, string: 5, fret: 7, vibrato: 'slight', legato: true },
+    ] } }]);
+    w.eval('togglePartsMode(true)');
+    const slightWave = activeRow().querySelector('.pt-vibrato').getAttribute('d');
+    check('узкое вибрато — та же волна, но ниже амплитуда', wideWave !== slightWave,
+      JSON.stringify([wideWave, slightWave]));
+
+    // ---------- 11. Звук 12.6.2 ----------
+    const playAll = (arr, evDur) => {
+      w.eval(`songParts[0].rolls[String(sections[0].id)] = ${JSON.stringify(arr)};
+        window.__plucks = [];
+        schedulePartsForEvent({}, sections[0], sections[0].squares[0], 0, 0, ${evDur});`);
+      return JSON.parse(w.eval('JSON.stringify(window.__plucks)'));
+    };
+    const pair = playAll([{ start: 0, dur: 1, string: 5, fret: 7 }, { start: 1, dur: 1, string: 5, fret: 9, legato: true }], 4);
+    check('легато: вторая нота играется со смещением (без щипка), громкость как у первой',
+      pair.length === 2 && Math.abs(pair[1].skipAttack - 0.02) < 1e-6 && pair[1].gain === pair[0].gain,
+      JSON.stringify(pair));
+    check('легато само по себе не тянет высоту (хаммер ставит ноту сразу)',
+      (pair[1].startRate || 1) === 1 && !(pair[1].glide > 0), JSON.stringify(pair[1]));
+    const lone = playAll([{ start: 0, dur: 1, string: 5, fret: 9, legato: true }], 4);
+    check('легато без предыдущей ноты струны не применяется',
+      lone.length === 1 && !lone[0].skipAttack, JSON.stringify(lone[0]));
+    const slidePair = playAll([{ start: 0, dur: 1, string: 5, fret: 7 }, { start: 1, dur: 1, string: 5, fret: 10, slide: 'legato' }], 4);
+    const rate = slidePair[1].startRate;
+    check('слайд доезжает от высоты предыдущей ноты (минус три лада = 2^(-3/12))',
+      Math.abs(rate - Math.pow(2, -3 / 12)) < 1e-3 && slidePair[1].glide > 0, JSON.stringify(slidePair[1]));
+    check('слайд без атаки играется со смещением буфера', Math.abs(slidePair[1].skipAttack - 0.02) < 1e-6,
+      JSON.stringify(slidePair[1]));
+    const shiftPair = playAll([{ start: 0, dur: 1, string: 5, fret: 7 }, { start: 1, dur: 1, string: 5, fret: 10, slide: 'shift' }], 4);
+    check('shift slide тянет высоту, но берётся со щипком',
+      Math.abs(shiftPair[1].startRate - Math.pow(2, -3 / 12)) < 1e-3 && !shiftPair[1].skipAttack,
+      JSON.stringify(shiftPair[1]));
+    const vib1 = playAll([{ start: 0, dur: 1, string: 5, fret: 7, vibrato: 'slight' }], 4);
+    const vib2 = playAll([{ start: 0, dur: 1, string: 5, fret: 7, vibrato: 'wide' }], 4);
+    check('вибрато уезжает в голос размахом ±0,25 и ±0,6',
+      vib1[0].vibratoDepth === 0.25 && vib2[0].vibratoDepth === 0.6, JSON.stringify([vib1[0].vibratoDepth, vib2[0].vibratoDepth]));
+    // Кривая высоты — чистая функция: проверяем без звуковых узлов.
+    const curve = JSON.parse(w.eval('JSON.stringify(partRateCurve(0, 3, 2, { startRate: 0.5, glide: 0.1, vibratoDepth: 0.25 }))'));
+    check('кривая слайда: старт с чужой высоты и приезд на место за glide',
+      curve[0][0] === 0 && Math.abs(curve[0][1] - 0.5) < 1e-9 &&
+      Math.abs(curve[1][0] - 0.1) < 1e-9 && Math.abs(curve[1][1] - 1) < 1e-9, JSON.stringify(curve.slice(0, 3)));
+    const vibCurve = JSON.parse(w.eval('JSON.stringify(partRateCurve(0, 2, 1, { vibratoDepth: 0.25 }))'));
+    const amps = vibCurve.slice(1).map((p) => p[1]);
+    const ampMax = Math.max.apply(null, amps);
+    const ampMin = Math.min.apply(null, amps);
+    check('кривая вибрато качается вокруг единицы с размахом ±0,25 пт',
+      ampMax > 1 && ampMin < 1 &&
+      Math.abs(ampMax - (1 + (Math.pow(2, 0.25 / 12) - 1))) < 1e-6 &&
+      Math.abs(ampMin - (1 - (Math.pow(2, 0.25 / 12) - 1))) < 1e-6,
+      JSON.stringify({ ampMax, ampMin, points: vibCurve.length }));
+    const period = vibCurve[2][0] - vibCurve[1][0];
+    check('частота качания ~6 Гц (полупериод 1/12 с)', Math.abs(period - 1 / 12) < 1e-9, String(period));
+    check('вибрато останавливается с концом ноты (не гонит рампы в бесконечность)',
+      vibCurve[vibCurve.length - 1][0] <= 1.13, String(vibCurve[vibCurve.length - 1][0]));
+    const trem = playAll([{ start: 0, dur: 1, string: 5, fret: 7, tremolo: true }], 4);
+    const gaps = trem.slice(1).map((p, i) => Number((p.startTime - trem[i].startTime).toFixed(4)));
+    check('тремоло-пикинг бьёт тем же ладом 1/16-ми (четверть = 1 с → четыре удара)',
+      trem.length === 4 && gaps.every((g) => Math.abs(g - 0.25) < 1e-6) &&
+      trem.every((p) => Math.abs(p.freq - trem[0].freq) < 1e-9),
+      JSON.stringify({ count: trem.length, gaps }));
+    check('тремоло не тянет высоту повторных ударов',
+      trem.every((p, i) => i === 0 || (p.startRate || 1) === 1), JSON.stringify(trem.map((p) => p.startRate)));
+
+    // ---------- 12. Файл 12.6.2 ----------
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    cursorTo(0);
+    key('h', { code: 'KeyH' });
+    key('v', { code: 'KeyV', altKey: true });
+    w.saveCurrentSong();
+    const lib2 = JSON.parse(w.localStorage.getItem('struchord_songs'));
+    const savedNew = lib2[lib2.length - 1].parts[0].rolls['1'][0];
+    check('легато и вибрато уехали в файл',
+      savedNew.legato === true && savedNew.vibrato === 'wide', JSON.stringify(savedNew));
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    w.eval('setPartsCursorString(sections[0].id, 0, 5, 1)');
+    key('s', { code: 'KeyS', altKey: true });
+    toneBtn('tremolo').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    w.saveCurrentSong();
+    const lib3 = JSON.parse(w.localStorage.getItem('struchord_songs'));
+    const savedSlide = lib3[lib3.length - 1].parts[0].rolls['1'][1];
+    check('shift slide и тремоло уехали в файл',
+      savedSlide.slide === 'shift' && savedSlide.tremolo === true, JSON.stringify(savedSlide));
+    w.loadSong(lib3.length - 1);
+    w.eval('render()');
+    check('приёмы пережили перезагрузку',
+      noteAt(0, 1).slide === 'shift' && noteAt(0, 1).tremolo === true, JSON.stringify(noteAt(0, 1)));
+    w.localStorage.setItem('struchord_songs', JSON.stringify([song([{
+      id: 1, name: 'Соло', instrument: 'guitar', tuning: null, visible: true,
+      rolls: { '1': [
+        { start: 0, dur: 1, string: 5, fret: 7, slide: 'sideways', vibrato: true, legato: 'yes', tremolo: 1 },
+        { start: 1, dur: 1, string: 5, fret: 5, slide: 'shift', vibrato: 'wide', legato: true, tremolo: true },
+      ] },
+    }])]));
+    w.loadSong(0);
+    w.eval('render()');
+    check('мусорные значения приёмов 12.6.2 отброшены',
+      eqJson(Object.keys(roll(0)[0]).sort(), ['dur', 'fret', 'start', 'string']),
+      JSON.stringify(roll(0)[0]));
+    check('правильные значения приёмов 12.6.2 приняты',
+      roll(0)[1].slide === 'shift' && roll(0)[1].vibrato === 'wide' &&
+      roll(0)[1].legato === true && roll(0)[1].tremolo === true, JSON.stringify(roll(0)[1]));
+
+    // ---------- 13. Отмена знака 12.6.2 ----------
+    load([guitar]);
+    w.eval('resetHistory()');
+    w.eval('togglePartsMode(true)');
+    cursorTo(0);
+    key('v', { code: 'KeyV' });
+    check('вибрато поставлено', noteAt(0, 0).vibrato === 'slight', JSON.stringify(noteAt(0, 0)));
+    w.undoEdit();
+    w.eval('render()');
+    await tick();
+    check('Ctrl+Z снял вибрато одной командой', !('vibrato' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
 
     console.log(`\nитого: ${pass} ok, ${fail} FAIL`);
     if (fail) process.exitCode = 1;

@@ -302,7 +302,7 @@ w.addEventListener('load', () => {
   check('партия без нот: палитра на месте',
     w.document.querySelectorAll('#ptDurGroup .pt-pal-btn').length === 7 &&
     w.document.querySelectorAll('#ptMarkGroup .pt-pal-btn').length === 3 &&
-    w.document.querySelectorAll('#ptToneGroup .pt-pal-btn').length === 9,
+    w.document.querySelectorAll('#ptToneGroup .pt-pal-btn').length === 15,
     JSON.stringify({
       dur: w.document.querySelectorAll('#ptDurGroup .pt-pal-btn').length,
       tone: w.document.querySelectorAll('#ptToneGroup .pt-pal-btn').length,
