@@ -13126,7 +13126,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.632</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.633</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -26564,6 +26564,9 @@ function applySquareStructure(sectionId, squareId, changes) {
       if (value === null || value === undefined || value === false) delete sq[key];
       else sq[key] = value;
     });
+    // Закрывающая черта сразу означает обычные два прохода региона — как
+    // черта :| в Guitar Pro. Свой счёт (×3 и больше) не перебиваем.
+    if (changes.repeatClose === true && (sq.repeat || 1) < 2) sq.repeat = 2;
   });
   // Быстрый путь B-25: подпись у квадрата обновляем на месте, без render().
   if (!syncSquareStructureDom(sec, sq)) requestRender();
@@ -29310,7 +29313,143 @@ function ensurePlaybackSquaresVisible(wrapper) {
   }
 }
 
-function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount) {
+// ==========================================================================
+// B-12.7.2 «Порядок прохода» — воспроизведение строго по знакам структуры
+// ==========================================================================
+//
+// Знаки структуры на ленте — не украшение: они меняют порядок игры. Ходьба
+// идёт по квадратам, а не по событиям, поэтому живёт отдельной функцией, а
+// findNextEvent только спрашивает её «какой квадрат следующий».
+//
+// Регион повтора — от квадрата с |: до парного :| (если |: нет — повтор идёт
+// от начала пьесы, как в нотах). Вольта играется только в своём проходе
+// региона. После прыжка (D.C./D.S./на коду) проход считается последним:
+// так первые концовки пропускаются, а вторые играются — правило Guitar Pro,
+// там же повторы после D.C. больше не берутся.
+//
+// Состояние хода переходит ИММУТАБИЛЬНО (каждый шаг возвращает новое
+// состояние): findNextEvent зовётся и «на посмотреть» — превью следующего
+// аккорда в подсказке, — и общее мутируемое состояние сбивало бы реальную игру.
+const STRUCTURE_MAX_JUMPS = 4;
+const STRUCTURE_WALK_MAX_STEPS = 4000;
+
+function structureWalkState(walk) {
+  if (walk && walk.passes && walk.taken) return walk;
+  return { passes: {}, taken: {}, target: null, afterJump: false, jumps: 0 };
+}
+
+// Позиция метки (первое вхождение по порядку песни).
+function structureMarkPosition(mark) {
+  for (let si = 0; si < sections.length; si++) {
+    const squares = sections[si].squares;
+    for (let sqi = 0; sqi < squares.length; sqi++) {
+      if (structureMarkOf(squares[sqi]) === mark) return { si, sqi };
+    }
+  }
+  return null;
+}
+
+// Куда прыгает D.C. («с начала») и D.S. («от знака Segno»).
+function structureJumpDestination(jump) {
+  if (jump.type === 'ds') {
+    const segno = structureMarkPosition('segno');
+    if (segno) return segno;
+  }
+  return { si: 0, sqi: 0 };
+}
+
+// Регион, которому принадлежит квадрат: своя :| или ближайшая ПОСЛЕ него;
+// если после него закрывающей черты нет — ближайшая ДО него (так концовка,
+// стоящая сразу за :|, знает, к какому повтору она относится).
+function structureRegionOf(si, sqi) {
+  const sec = sections[si];
+  if (!sec) return null;
+  let closeSqi = -1;
+  if (structureRepeatClose(sec.squares[sqi])) closeSqi = sqi;
+  else {
+    for (let i = sqi + 1; i < sec.squares.length; i++) {
+      if (structureRepeatClose(sec.squares[i])) { closeSqi = i; break; }
+    }
+  }
+  if (closeSqi === -1) {
+    for (let i = Math.min(sqi, sec.squares.length - 1); i >= 0; i--) {
+      if (structureRepeatClose(sec.squares[i])) { closeSqi = i; break; }
+    }
+  }
+  if (closeSqi === -1) return null;
+  let startSi = 0;
+  let startSqi = 0;
+  let found = false;
+  for (let i = closeSqi; i >= 0; i--) {
+    if (structureRepeatOpen(sec.squares[i])) { startSi = si; startSqi = i; found = true; break; }
+  }
+  if (!found) {
+    // |: не поставлено — повтор идёт от начала пьесы (стандарт нотной записи).
+    for (let i = si - 1; i >= 0 && !found; i--) {
+      const prev = sections[i];
+      for (let k = prev.squares.length - 1; k >= 0; k--) {
+        if (structureRepeatOpen(prev.squares[k])) { startSi = i; startSqi = k; found = true; break; }
+      }
+    }
+  }
+  return {
+    key: `rg_${startSi}_${startSqi}_${si}_${closeSqi}`,
+    startSi, startSqi,
+    // Число проходов стоит на закрывающей черте; «×1» на ней означает
+    // обычные два прохода, как у черты :| в Guitar Pro.
+    total: Math.max(2, sec.squares[closeSqi].repeat || 1),
+  };
+}
+
+// Проход региона, в котором сейчас играем. После прыжка проход считается
+// последним — первые концовки пропускаются.
+function structureRegionPass(walk, region) {
+  if (!region) return 1;
+  if (walk.afterJump) return region.total;
+  return walk.passes[region.key] || 1;
+}
+
+// Играется ли концовка в этом проходе. Если концовок меньше, чем проходов
+// (повторов три, а концовок две), последняя концовка играется и в последнем
+// проходе — так это и читают в нотах.
+function structureVoltaPlays(si, sqi, pass, region) {
+  const volta = structureVoltaOf(sections[si].squares[sqi]);
+  if (!volta) return true;
+  if (volta === pass) return true;
+  if (!region || pass < region.total) return false;
+  const squares = sections[si].squares;
+  const hasExact = squares.some((sq) => structureVoltaOf(sq) === pass);
+  if (hasExact) return false;
+  let best = 0;
+  squares.forEach((sq) => {
+    const v = structureVoltaOf(sq);
+    if (v && v <= pass && v > best) best = v;
+  });
+  return volta === best;
+}
+
+// Закрывающая черта отработала (или её пропустили по вольте): возвращаемся к
+// началу региона или отмечаем регион пройденным до конца — чтобы концовки,
+// стоящие сразу после :|, знали, какой это был проход.
+function structureCloseRegion(si, sqi, walk) {
+  const region = structureRegionOf(si, sqi);
+  if (!region) return { walk, jumpBack: false };
+  const pass = walk.passes[region.key] || 1;
+  if (!walk.afterJump && pass < region.total) {
+    return {
+      walk: { ...walk, passes: { ...walk.passes, [region.key]: pass + 1 } },
+      jumpBack: true,
+      startSi: region.startSi,
+      startSqi: region.startSqi,
+    };
+  }
+  if (pass !== region.total) {
+    return { walk: { ...walk, passes: { ...walk.passes, [region.key]: region.total } }, jumpBack: false };
+  }
+  return { walk, jumpBack: false };
+}
+
+function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount, walk) {
   // ВАЖНО: эта функция должна быть ЧИСТОЙ по отношению к состоянию
   // воспроизведения. Счётчики повторов передаются явными аргументами
   // (а не берутся/мутируются напрямую из playbackState), потому что
@@ -29319,58 +29458,165 @@ function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount) {
   // тултипе. Если бы оба вызова делили один и тот же mutable-счётчик,
   // счётчик повторов увеличивался бы вдвое быстрее на границах
   // квадрата/секции, и повторы "проглатывались" бы раньше времени.
+  // Состояние хода по знакам структуры (walk) — по той же причине:
+  // его шаги не мутируют переданное состояние, а возвращают новое.
   sectionRepeatCount = sectionRepeatCount || (playbackState._sectionRepeatCount =
     playbackState._sectionRepeatCount || {});
   squareRepeatCount = squareRepeatCount || (playbackState._squareRepeatCount =
     playbackState._squareRepeatCount || {});
+  walk = structureWalkState(walk);
 
-  if (si >= sections.length) {
-    if (playbackState.isLooping) {
-      return findNextEvent(0, 0, 0, sectionRepeatCount, squareRepeatCount);
-    }
-    return null;
+  let curSi = si;
+  let curSqi = sqi;
+  let curEi = Math.max(0, ei | 0);
+
+  // Быстрый путь: позиция уже указывает на событие — отдаём его, не трогая
+  // ни счётчики, ни знаки. Иначе текущий квадрат «съедал» бы лишний повтор.
+  const startSec = sections[curSi];
+  const startSq = startSec && startSec.squares[curSqi];
+  if (startSq && curEi < startSq.events.length) {
+    return {
+      sectionIndex: curSi,
+      squareIndex: curSqi,
+      eventIndex: curEi,
+      section: startSec,
+      square: startSq,
+      event: startSq.events[curEi],
+      walk,
+    };
   }
 
-  const sec = sections[si];
-  if (!sec) return null;
+  for (let guard = 0; guard < STRUCTURE_WALK_MAX_STEPS; guard++) {
+    const sec = sections[curSi];
+    if (!sec) {
+      if (playbackState.isLooping) {
+        // Пьеса кончилась и повтор включён: играем сначала, знаки — с чистого
+        // листа (иначе D.C. во второй раз не сработал бы).
+        return findNextEvent(0, 0, 0, sectionRepeatCount, squareRepeatCount, structureWalkState());
+      }
+      return null;
+    }
 
-  if (sqi >= sec.squares.length) {
-    const secRepeat = sec.repeat || 1;
-    const key = `sec_${si}`;
-    sectionRepeatCount[key] = (sectionRepeatCount[key] || 0) + 1;
+    // (a) Конец секции: её собственный повтор (бейдж «×N») или следующая.
+    if (curSqi >= sec.squares.length) {
+      const secRepeat = walk.afterJump ? 1 : (sec.repeat || 1);
+      const key = `sec_${curSi}`;
+      const done = sectionRepeatCount[key] || 0;
+      if (done + 1 < secRepeat) {
+        sectionRepeatCount[key] = done + 1;
+        curSqi = 0;
+        curEi = 0;
+        continue;
+      }
+      if (done) delete sectionRepeatCount[key];
+      curSi++;
+      curSqi = 0;
+      curEi = 0;
+      continue;
+    }
 
-    if (sectionRepeatCount[key] < secRepeat) {
-      return findNextEvent(si, 0, 0, sectionRepeatCount, squareRepeatCount);
+    const sq = sec.squares[curSqi];
+    if (!sq) { curSqi++; continue; }
+
+    // (b) Вольта: квадрат играется только в своём проходе. Пропуск концовки
+    //     с закрывающей чертой всё равно обрабатывает границу повтора —
+    //     иначе третий проход региона потерялся бы.
+    const volta = structureVoltaOf(sq);
+    if (volta) {
+      const region = structureRegionOf(curSi, curSqi);
+      const pass = structureRegionPass(walk, region);
+      if (!structureVoltaPlays(curSi, curSqi, pass, region)) {
+        if (structureRepeatClose(sq)) {
+          const closed = structureCloseRegion(curSi, curSqi, walk);
+          walk = closed.walk;
+          if (closed.jumpBack) {
+            curSi = closed.startSi;
+            curSqi = closed.startSqi;
+            curEi = 0;
+            continue;
+          }
+        }
+        curSqi++;
+        curEi = 0;
+        continue;
+      }
+    }
+
+    // (c) Событие квадрата — то, ради чего всё считалось.
+    if (curEi < sq.events.length) {
+      return {
+        sectionIndex: curSi,
+        squareIndex: curSqi,
+        eventIndex: curEi,
+        section: sec,
+        square: sq,
+        event: sq.events[curEi],
+        walk,
+      };
+    }
+
+    // (d) Квадрат отыгран. Сначала знаки перехода: D.C./D.S. уводит назад,
+    //     один и тот же знак срабатывает только раз (иначе — бесконечное кольцо).
+    const jump = structureJumpOf(sq);
+    if (jump) {
+      const jkey = `j_${curSi}_${curSqi}`;
+      if (!walk.taken[jkey] && walk.jumps < STRUCTURE_MAX_JUMPS) {
+        const dest = structureJumpDestination(jump);
+        walk = {
+          ...walk,
+          taken: { ...walk.taken, [jkey]: true },
+          jumps: walk.jumps + 1,
+          target: jump.target,
+          afterJump: true,
+        };
+        curSi = dest.si;
+        curSqi = dest.sqi;
+        curEi = 0;
+        continue;
+      }
+    }
+    // Дошли до метки, к которой шли: Fine кончает пьесу, To Coda уводит на коду.
+    if (walk.target === 'fine' && structureMarkOf(sq) === 'fine') return null;
+    if (walk.target === 'coda' && structureMarkOf(sq) === 'toCoda') {
+      const coda = structureMarkPosition('coda');
+      if (coda) {
+        walk = { ...walk, target: 'end', afterJump: true };
+        curSi = coda.si;
+        curSqi = coda.sqi;
+        curEi = 0;
+        continue;
+      }
+    }
+
+    // (e) Повторы: «×N» на самом квадрате (прежнее поведение) или проход
+    //     региона целиком, если на квадрате стоит закрывающая черта.
+    if (structureRepeatClose(sq)) {
+      const closed = structureCloseRegion(curSi, curSqi, walk);
+      walk = closed.walk;
+      if (closed.jumpBack) {
+        curSi = closed.startSi;
+        curSqi = closed.startSqi;
+        curEi = 0;
+        continue;
+      }
     } else {
-      delete sectionRepeatCount[key];
-      return findNextEvent(si + 1, 0, 0, sectionRepeatCount, squareRepeatCount);
+      const sqRepeat = walk.afterJump ? 1 : (sq.repeat || 1);
+      const key = `sq_${curSi}_${curSqi}`;
+      const done = squareRepeatCount[key] || 0;
+      if (done + 1 < sqRepeat) {
+        squareRepeatCount[key] = done + 1;
+        curEi = 0;
+        continue;
+      }
+      if (done) delete squareRepeatCount[key];
     }
+
+    // (f) Дальше — следующий квадрат.
+    curSqi++;
+    curEi = 0;
   }
 
-  const sq = sec.squares[sqi];
-  if (!sq) return findNextEvent(si, sqi + 1, 0, sectionRepeatCount, squareRepeatCount);
-
-  if (ei >= sq.events.length) {
-    const sqRepeat = sq.repeat || 1;
-    const key = `sq_${si}_${sqi}`;
-    squareRepeatCount[key] = (squareRepeatCount[key] || 0) + 1;
-
-    if (squareRepeatCount[key] < sqRepeat) {
-      return findNextEvent(si, sqi, 0, sectionRepeatCount, squareRepeatCount);
-    } else {
-      delete squareRepeatCount[key];
-      return findNextEvent(si, sqi + 1, 0, sectionRepeatCount, squareRepeatCount);
-    }
-  }
-
-  return {
-    sectionIndex: si,
-    squareIndex: sqi,
-    eventIndex: ei,
-    section: sec,
-    square: sq,
-    event: sq.events[ei],
-  };
+  return null;
 }
 function tapTempo() {
   const now = Date.now();
@@ -29426,19 +29672,24 @@ function scheduleNextEvent(ctx) {
 
   playbackState._sectionRepeatCount = playbackState._sectionRepeatCount || {};
   playbackState._squareRepeatCount = playbackState._squareRepeatCount || {};
+  // B-12.7.2: состояние хода по знакам структуры живёт рядом со счётчиками
+  // повторов и обновляется ровно там же — по одному шагу на событие.
+  playbackState._structureWalk = structureWalkState(playbackState._structureWalk);
 
   const next = findNextEvent(
     playbackState.currentSectionIndex,
     playbackState.currentSquareIndex,
     playbackState.currentEventIndex,
     playbackState._sectionRepeatCount,
-    playbackState._squareRepeatCount
+    playbackState._squareRepeatCount,
+    playbackState._structureWalk
   );
 
   if (!next) {
     stopPlayback();
     return;
   }
+  playbackState._structureWalk = next.walk;
 
   const bpm = getEffectiveBpm(next.section);
   const ts = getEffectiveTimeSigForEvent(next.event, next.section);
@@ -29611,7 +29862,8 @@ function scheduleNextEvent(ctx) {
     next.squareIndex,
     next.eventIndex + 1,
     { ...playbackState._sectionRepeatCount },
-    { ...playbackState._squareRepeatCount }
+    { ...playbackState._squareRepeatCount },
+    playbackState._structureWalk
   );
 
   // Закреплённый гриф ведём за игрой: слева аккорд, который звучит
@@ -32817,6 +33069,9 @@ function playAll() {
   // песня внезапно удлинится на лишний повтор.
   playbackState._sectionRepeatCount = from ? { ...from.sectionRepeatCount } : {};
   playbackState._squareRepeatCount = from ? { ...from.squareRepeatCount } : {};
+  // B-12.7.2: знаки структуры продолжают читаться с того же места, если игра
+  // начата не с начала пьесы (позиция ленты), иначе — с чистого листа.
+  playbackState._structureWalk = structureWalkState(from ? from.structureWalk : null);
   updateTransportButtons();
   const ctx = getAudioContext();
   if (!ctx) {
@@ -32922,6 +33177,9 @@ function stopPlayback() {
   playbackStartTime = 0;
   nextEventTime = 0;
   updatePlaybackPosition(-1, -1, -1);
+  // B-12.7.2: ход по знакам структуры закончился вместе с игрой. Позицию
+  // пользователя не трогаем, а знаки при следующем запуске читаются заново.
+  playbackState._structureWalk = structureWalkState(null);
 
   // Снимаем подсветку с ленты и останавливаем её движение. Саму позицию
   // не трогаем: пользователь остановился на конкретном месте, и
@@ -32983,6 +33241,7 @@ function pausePlayback() {
     eventIndex: Math.max(0, playbackState.currentEventIndex - 1),
     sectionRepeatCount: { ...(playbackState._sectionRepeatCount || {}) },
     squareRepeatCount: { ...(playbackState._squareRepeatCount || {}) },
+    structureWalk: playbackState._structureWalk || null,
   };
   stopPlayback();
   // Подсветку ячейки возвращаем: она показывает, откуда продолжится
@@ -33348,6 +33607,10 @@ function restartPlaybackFromCurrentPosition() {
   const ss = playbackState.currentSectionIndex;
   const ssq = playbackState.currentSquareIndex;
   const se = playbackState.currentEventIndex;
+  // B-12.7.2: stopPlayback() обнуляет ход по знакам структуры, а перезапуск
+  // «с того же места» — продолжение того же прохода, а не новый: иначе
+  // D.C., уже сработавший до этой точки, сработал бы второй раз.
+  const walk = playbackState._structureWalk;
   stopPlayback();
   if (sections.length === 0) return;
   playbackState.isPlaying = true;
@@ -33358,6 +33621,9 @@ function restartPlaybackFromCurrentPosition() {
   playbackState.savedSectionIndex = ss;
   playbackState.savedSquareIndex = ssq;
   playbackState.savedEventIndex = se;
+  // B-12.7.2: перезапуск «с того же места» — это не новый проход: состояние
+  // знаков структуры остаётся прежним (в отличие от полного старта).
+  playbackState._structureWalk = structureWalkState(walk);
   updateTransportButtons();
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -45804,7 +46070,8 @@ function updateTimelinePanels(next) {
     next.squareIndex,
     next.eventIndex + 1,
     { ...playbackState._sectionRepeatCount },
-    { ...playbackState._squareRepeatCount }
+    { ...playbackState._squareRepeatCount },
+    playbackState._structureWalk
   );
   // Паузы (ячейки без аккорда) пропускаем: показывать «Дальше: —»
   // бессмысленно, гитаристу нужен следующий аккорд, который брать.
@@ -45815,7 +46082,8 @@ function updateTimelinePanels(next) {
       after.squareIndex,
       after.eventIndex + 1,
       { ...playbackState._sectionRepeatCount },
-      { ...playbackState._squareRepeatCount }
+      { ...playbackState._squareRepeatCount },
+      playbackState._structureWalk
     );
   }
   if (after) {
