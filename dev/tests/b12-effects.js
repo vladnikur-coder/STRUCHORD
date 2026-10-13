@@ -23,6 +23,9 @@
  * 10. Знаки не задевают соседние ноты и другие дорожки.
  * 11. Итерация 2: легато (H), слайды (S / Alt+S), вибрато (V / Alt+V),
  *     тремоло-пикинг — клавиши, палитра, рисование, звук и файл.
+ * 13. Итерация 4: флажолеты (Y — натуральный, Alt+Y — искусственный через
+ *     окно параметров), украшения (мордент, тёрн), трель (N), тремоло-бар
+ *     (W) и поиск по палитре (Ctrl+E).
  * 12. Итерация 3: бенды — окно кривой (пресеты, типы, перетаскивание
  *     точек, добавление и удаление), величина словами, знак на табе,
  *     кривая высоты в звуке, санитайз и файл.
@@ -813,6 +816,368 @@ w.addEventListener('load', async () => {
       eqJson(bendGarbage({ type: 'bend', points: [[0, 2], [1, 3]] }).points[0], [0, 0]));
     check('предбенд сохраняет подтянутую первую точку',
       eqJson(bendGarbage({ type: 'prebend', points: [[0, 2], [1, 2]] }).points[0], [0, 2]));
+
+    // ================= 20. Палитра 12.6.4 =================
+    // Окно бенда осталось открытым от прошлого блока: оно перехватывает
+    // буквенные клавиши, поэтому закрываем его явно (заодно проверяем, что
+    // окно-инспектор переживает перерисовку окна партий и закрывается руками).
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    check('окно инспектора пережило переключение песни и закрывается', (() => {
+      w.eval('openPartsBendEditor()');
+      const openBefore = w.eval('partsBendOpen()');
+      w.eval('renderPartsScreen()');
+      const survived = w.eval('partsBendOpen()');
+      w.eval('closePartsBendEditor()');
+      return openBefore === true && survived === true && w.eval('partsBendOpen()') === false;
+    })());
+    const ornButtons = Array.from(w.document.querySelectorAll('#ptOrnGroup .pt-pal-btn'));
+    check('в палитре появилась группа флажолетов и украшений (12 кнопок)',
+      ornButtons.length === 12, String(ornButtons.length));
+    check('у каждой кнопки новой группы есть подсказка',
+      ornButtons.every((b) => (b.title || '').length > 10),
+      JSON.stringify(ornButtons.map((b) => b.title)));
+    const hintText = w.document.querySelector('.pt-pal-hint').textContent;
+    check('подсказка палитры называет клавиши флажолетов, трели и трем-бара',
+      /Alt\+Y/.test(hintText) && /\bY\b/.test(hintText) && /\bN\b/.test(hintText) &&
+      /\bW\b/.test(hintText) && /Ctrl\+E/.test(hintText), hintText);
+
+    // ================= 21. Клавиши и окно флажолета =================
+    cursorTo(0);
+    key('y', { code: 'KeyY' });
+    check('`Y` поставил натуральный флажолет',
+      !!noteAt(0, 0).harm && noteAt(0, 0).harm.type === 'natural', JSON.stringify(noteAt(0, 0)));
+    key('y', { code: 'KeyY' });
+    check('повторный `Y` снял флажолет', !noteAt(0, 0).harm, JSON.stringify(noteAt(0, 0)));
+    key('Y', { code: 'KeyY', altKey: true });
+    check('`Alt+Y` открыл окно параметров флажолета', w.eval('partsHarmOpen()') === true);
+    check('окно само знак не ставит: без звучащей ноты флажолет не записать',
+      !noteAt(0, 0).harm, JSON.stringify(noteAt(0, 0)));
+    const harmNoteInput = w.document.getElementById('ptHarmSounding');
+    // Струна 5 — высокая E (E4), лад 7; узел 7-го лада звучит на +19
+    // полутонов от ОТКРЫТОЙ струны, то есть на высоте 19-го лада: B5.
+    check('окно подставляет звучащую ноту узла (лад 7 = +19 полутонов)', harmNoteInput.value === 'B5',
+      harmNoteInput.value);
+    harmNoteInput.value = 'E6';
+    harmNoteInput.dispatchEvent(new w.Event('change'));
+    check('окно записало искусственный флажолет со звучащей нотой',
+      eqJson(noteAt(0, 0).harm, { type: 'artificial', note: 'E6' }), JSON.stringify(noteAt(0, 0).harm));
+    const typeSel = w.document.getElementById('ptHarmType');
+    typeSel.value = 'pinch';
+    typeSel.dispatchEvent(new w.Event('change'));
+    check('смена типа в окне меняет знак на P.H.',
+      noteAt(0, 0).harm.type === 'pinch' && noteAt(0, 0).harm.note === 'E6',
+      JSON.stringify(noteAt(0, 0).harm));
+    harmNoteInput.value = 'H9';
+    harmNoteInput.dispatchEvent(new w.Event('change'));
+    check('нечитаемая нота знак не меняет (знак без высоты — враньё)',
+      eqJson(noteAt(0, 0).harm, { type: 'pinch', note: 'E6' }), JSON.stringify(noteAt(0, 0).harm));
+    w.document.getElementById('ptHarmClose').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('«Готово» закрыло окно флажолета', w.eval('partsHarmOpen()') === false);
+    // Тип знака и звучащая нота запоминаются палитрой: СЛЕДУЮЩАЯ введённая
+    // нота берёт тот же флажолет (уже стоящие ноты знак не трогает — как в GP).
+    // Свободное место (струна 5, четвёртая доля): цифра создаёт новую ноту.
+    w.eval(`setPartsCursorString(sections[0].id, 0, 5, 3)`);
+    key('5', { code: 'Digit5' });
+    check('знак флажолета наследуется следующими нотами (тип + звучащая нота)',
+      (() => {
+        const created = roll(0).filter((n) => n.start === 3 && n.string === 5)[0];
+        return !!created && eqJson(created.harm, { type: 'pinch', note: 'E6' });
+      })(), JSON.stringify(roll(0)));
+    check('уже стоящая нота при вводе цифры знак не теряет',
+      eqJson(noteAt(0, 0).harm, { type: 'pinch', note: 'E6' }) && noteAt(0, 0).fret === 7,
+      JSON.stringify(noteAt(0, 0)));
+    cursorTo(1);
+    key('n', { code: 'KeyN' });
+    check('`N` поставил трель', noteAt(0, 1).trill === true, JSON.stringify(noteAt(0, 1)));
+    key('n', { code: 'KeyN' });
+    check('повторный `N` снял трель', !('trill' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
+    key('w', { code: 'KeyW' });
+    check('`W` поставил тремоло-бар', noteAt(0, 1).tremBar === true, JSON.stringify(noteAt(0, 1)));
+    key('W', { code: 'KeyW', shiftKey: true });
+    check('повторный `W` снял тремоло-бар', !('tremBar' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
+
+    // ================= 22. Украшения и поиск по палитре =================
+    const clickTone = (kind) =>
+      w.document.querySelector(`#ptOrnGroup [data-tone="${kind}"]`)
+        .dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    clickTone('mordent');
+    check('мордент из палитры', noteAt(0, 1).ornament === 'mordent', JSON.stringify(noteAt(0, 1)));
+    clickTone('turn');
+    check('украшения не стоят вместе: тёрн заменил мордент',
+      noteAt(0, 1).ornament === 'turn', JSON.stringify(noteAt(0, 1)));
+    clickTone('turn');
+    check('повторный клик по кнопке снял тёрн', !noteAt(0, 1).ornament, JSON.stringify(noteAt(0, 1)));
+    key('e', { code: 'KeyE', ctrlKey: true });
+    const searchBox = w.document.getElementById('ptPalSearch');
+    check('Ctrl+E открыл поиск по палитре', searchBox.hidden === false);
+    check('у поиска не занято имя приёма: до ввода видна вся палитра',
+      Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).every((b) => !b.hidden));
+    searchBox.value = 'флажолет';
+    searchBox.dispatchEvent(new w.Event('input'));
+    const visiblePalette = () =>
+      Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).filter((b) => !b.hidden).length;
+    check('поиск оставил только флажолеты (две кнопки)', visiblePalette() === 2, String(visiblePalette()));
+    searchBox.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    check('Enter применяет первый найденный приём — натуральный флажолет',
+      noteAt(0, 1).harm && noteAt(0, 1).harm.type === 'natural', JSON.stringify(noteAt(0, 1).harm));
+    check('после Enter поиск очистился и палитра снова полная',
+      searchBox.value === '' && visiblePalette() === 38, String(visiblePalette()));
+    searchBox.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    check('Escape закрыл поиск', searchBox.hidden === true);
+    check('палитра из окна партий закрывает оба окна-инспектора',
+      (() => {
+        w.eval('togglePartsMode(false)');
+        const closed = !w.eval('partsBendOpen()') && !w.eval('partsHarmOpen()');
+        w.eval('togglePartsMode(true)');
+        return closed;
+      })());
+
+    // ================= 23. Знаки 12.6.4 на табе и полки =================
+    load([{ ...guitar, rolls: { '1': [
+      { start: 0, dur: 1, string: 0, fret: 12, harm: { type: 'natural' }, trill: true },
+      { start: 1, dur: 1, string: 1, fret: 5, harm: { type: 'pinch', note: 'E6' }, ornament: 'turn' },
+      { start: 2, dur: 1, string: 4, fret: 7, tremBar: true },
+    ] } }]);
+    w.eval('togglePartsMode(true)');
+    const rowSvg = () => w.document.querySelector('.pt-row.is-active .pt-svg');
+    check('натуральный флажолет показан номером лада в уголках, как в GP',
+      markTexts('pt-mark-harm').indexOf('<12>') !== -1, JSON.stringify(markTexts('pt-mark-harm')));
+    check('искусственный флажолет — аббревиатурой типа (P.H.)',
+      markTexts('pt-mark-harm').indexOf('P.H.') !== -1, JSON.stringify(markTexts('pt-mark-harm')));
+    check('трель и украшение показаны знаками tr и тёрн',
+      markTexts('pt-mark-orn').indexOf('tr') !== -1 && markTexts('pt-mark-orn').indexOf('тёрн') !== -1,
+      JSON.stringify(markTexts('pt-mark-orn')));
+    check('тремоло-бар показан волной ~~~',
+      markTexts('pt-mark-trembar').indexOf('~~~') !== -1, JSON.stringify(markTexts('pt-mark-trembar')));
+    const markYs = Array.from(rowSvg().querySelectorAll('[class*="pt-mark-"]'))
+      .map((el) => Number(el.getAttribute('y')));
+    const staffTop = w.eval('PART_TAB_TOP_PAD');
+    const staffBottom = staffTop + w.eval('PART_TAB_STRING_GAP') * (6 - 1);
+    check('знаки приёмов стоят полками вокруг стана и не наслаиваются на струны',
+      markYs.length >= 5 &&
+      markYs.every((y) => y <= staffTop - 13 + 0.01 || y >= staffBottom + 13 - 0.01),
+      JSON.stringify({ markYs, staffTop, staffBottom }));
+    check('запас сверху посчитан по трём занятым полкам (13 + 2 * 9 + 10)',
+      rowSvg().getAttribute('viewBox').split(' ').map(Number)[1] === -(13 + 2 * 9 + 10),
+      rowSvg().getAttribute('viewBox'));
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    check('стан без знаков сохранил геометрию 12.3',
+      (() => {
+        const box = rowSvg().getAttribute('viewBox').split(' ').map(Number);
+        return box[1] === 0 &&
+          box[3] === w.eval('PART_TAB_TOP_PAD') * 2 + w.eval('PART_TAB_STRING_GAP') * (6 - 1);
+      })(), rowSvg().getAttribute('viewBox'));
+
+    // ================= 24. Звук 12.6.4 =================
+    const open5 = w.eval('partOpenFreqs(songParts[0])[5]');
+    const harm12 = playAll([{ start: 0, dur: 1, string: 5, fret: 12, harm: { type: 'natural' } }], 4);
+    check('натуральный флажолет на 12-м ладу звучит октавой выше открытой струны',
+      harm12.length === 1 && Math.abs(harm12[0].freq - open5 * 2) < 1e-6, String(harm12[0] && harm12[0].freq));
+    const harm7 = playAll([{ start: 0, dur: 1, string: 5, fret: 7, harm: { type: 'natural' } }], 4);
+    check('флажолет на 7-м ладу — +19 полутонов от открытой струны',
+      Math.abs(harm7[0].freq - open5 * Math.pow(2, 19 / 12)) < 1e-6, String(harm7[0].freq));
+    const plainNote = playAll([{ start: 0, dur: 1, string: 5, fret: 3 }], 4);
+    const harmAH = playAll([{ start: 0, dur: 1, string: 5, fret: 3, harm: { type: 'artificial', note: 'E6' } }], 4);
+    check('искусственный флажолет звучит ЗВУЧАЩЕЙ НОТОЙ окна, а не ладом',
+      Math.abs(harmAH[0].freq - w.eval('noteToFrequency("E6")')) < 1e-6, String(harmAH[0].freq));
+    check('флажолет звенит дольше обычной ноты той же длины',
+      harmAH[0].duration > plainNote[0].duration, `${harmAH[0].duration} vs ${plainNote[0].duration}`);
+    const mordent = playAll([{ start: 0, dur: 1, string: 5, fret: 7, ornament: 'mordent' }], 4);
+    check('мордент: быстрая нижняя ступень, затем сама нота',
+      mordent.length === 2 && Math.abs(mordent[0].startRate - Math.pow(2, -1 / 12)) < 1e-9 &&
+      (mordent[1].startRate || 1) === 1 && mordent[1].startTime > mordent[0].startTime,
+      JSON.stringify(mordent));
+    const turn = playAll([{ start: 0, dur: 1, string: 5, fret: 7, ornament: 'turn' }], 4);
+    check('тёрн: верхняя ступень, нота, нижняя ступень, потом остаток',
+      turn.length === 4 && turn[0].startRate > 1 && (turn[1].startRate || 1) === 1 &&
+      turn[2].startRate < 1 && (turn[3].startRate || 1) === 1 &&
+      Math.abs(turn[0].startRate * turn[2].startRate - 1) < 1e-9, JSON.stringify(turn.map((p) => p.startRate)));
+    const trill = playAll([{ start: 0, dur: 1, string: 5, fret: 7, trill: true }], 4);
+    check('трель: четыре удара с чередованием соседней ступени (+1 лад)',
+      trill.length === 4 && (trill[0].startRate || 1) === 1 && trill[1].startRate > 1 &&
+      (trill[2].startRate || 1) === 1 && trill[3].startRate > 1 &&
+      Math.abs(trill[1].startRate - Math.pow(2, 1 / 12)) < 1e-9, JSON.stringify(trill.map((p) => p.startRate)));
+    const tremoloPicking = playAll([{ start: 0, dur: 1, string: 5, fret: 7, tremolo: true }], 4);
+    check('тремоло-пикинг по-прежнему серия ударов (и трель его не подменила)',
+      tremoloPicking.length === 4 && tremoloPicking.every((p) => (p.startRate || 1) === 1),
+      String(tremoloPicking.length));
+    check('флажолет и украшение вместе играют серией (украшение не теряется)',
+      (() => {
+        const both = playAll([{ start: 0, dur: 1, string: 5, fret: 12, harm: { type: 'natural' }, ornament: 'mordent' }], 4);
+        return both.length === 2 && Math.abs(both[0].freq - open5 * 2) < 1e-6 &&
+          Math.abs(both[0].startRate - Math.pow(2, -1 / 12)) < 1e-9;
+      })());
+    const tbPluck = playAll([{ start: 0, dur: 1, string: 5, fret: 7, tremBar: true }], 4);
+    check('нырок тремоло-бара уезжает в голос вместе с длительностью ноты',
+      tbPluck[0].tremBar === true && tbPluck[0].tremBarSpan === 1, JSON.stringify(tbPluck[0]));
+    const tbCurve = JSON.parse(w.eval(
+      `JSON.stringify(partRateCurve(0, 2, 1, { tremBar: true, tremBarSpan: 1 }))`
+    ));
+    const tbDip = tbCurve.filter((p) => Math.abs(p[0] - 0.45) < 1e-9)[0];
+    const tbLast = tbCurve[tbCurve.length - 1];
+    check('кривая трем-бара: нырок до −2 полутонов к 45% ноты и возврат к концу',
+      tbCurve[0][0] === 0 && tbCurve[0][1] === 1 && !!tbDip &&
+      Math.abs(tbDip[1] - Math.pow(2, -2 / 12)) < 1e-9 &&
+      Math.abs(tbLast[0] - 1) < 1e-9 && Math.abs(tbLast[1] - 1) < 1e-9,
+      JSON.stringify(tbCurve));
+    check('бенд важнее нырка: рельс высоты ведёт кривая бенда',
+      (() => {
+        const both = JSON.parse(w.eval(
+          `JSON.stringify(partRateCurve(0, 2, 1, { bendPoints: [[0,0],[1,2]], bendSpan: 1, tremBar: true, tremBarSpan: 1 }))`
+        ));
+        const a = JSON.parse(w.eval(`JSON.stringify(partRateCurve(0, 2, 1, { bendPoints: [[0,0],[1,2]], bendSpan: 1 }))`));
+        return eqJson(both, a);
+      })());
+
+    // ================= 25. Файл и мусор 12.6.4 =================
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    cursorTo(0);
+    key('y', { code: 'KeyY' });
+    cursorTo(1);
+    key('n', { code: 'KeyN' });
+    clickTone('mordent');
+    // Третья нота живёт на струне 4 (E2), а не на «курсорной» струне 5:
+    // ведём курсор на её струну, иначе трем-бар некуда ставить.
+    w.eval(`setPartsCursorString(sections[0].id, 0, 4, 2)`);
+    key('w', { code: 'KeyW' });
+    w.saveCurrentSong();
+    const libOrn = JSON.parse(w.localStorage.getItem('struchord_songs'));
+    const savedRoll = libOrn[libOrn.length - 1].parts[0].rolls['1'];
+    check('флажолет, трель, украшение и трем-бар уехали в файл',
+      eqJson(savedRoll[0].harm, { type: 'natural' }) && savedRoll[1].trill === true &&
+      savedRoll[1].ornament === 'mordent' && savedRoll[2].tremBar === true,
+      JSON.stringify(savedRoll));
+    w.loadSong(libOrn.length - 1);
+    w.eval('render()');
+    check('знаки пережили перезагрузку песни',
+      eqJson(noteAt(0, 0).harm, { type: 'natural' }) && noteAt(0, 1).trill === true &&
+      noteAt(0, 1).ornament === 'mordent' && noteAt(0, 2).tremBar === true,
+      JSON.stringify(roll(0)));
+    const harmGarbage = (raw) => JSON.parse(w.eval(`JSON.stringify(partSanitizeHarm(${JSON.stringify(raw)}))`));
+    check('неизвестный тип флажолета отбрасывается', harmGarbage({ type: 'weird' }) === null);
+    check('искусственный флажолет без читаемой звучащей ноты отбрасывается',
+      harmGarbage({ type: 'artificial' }) === null && harmGarbage({ type: 'pinch', note: 'H9' }) === null &&
+      harmGarbage({ type: 'tap', note: '' }) === null && harmGarbage('natural') === null);
+    check('натуральный флажолет читается без ноты, лишняя нота игнорируется',
+      eqJson(harmGarbage({ type: 'natural', note: 'X' }), { type: 'natural' }));
+    check('нота флажолета нормализуется (регистр и пробелы)',
+      eqJson(harmGarbage({ type: 'pinch', note: ' e6 ' }), { type: 'pinch', note: 'E6' }));
+    load([{ ...guitar, rolls: { '1': [
+      { start: 0, dur: 1, string: 5, fret: 7, ornament: 'zigzag', trill: 'yes', tremBar: 1, harm: { type: 'weird' } },
+      { start: 1, dur: 1, string: 5, fret: 7, ornament: 'turn', trill: true, tremBar: true, harm: { type: 'artificial', note: 'ZZ' } },
+    ] } }]);
+    check('мусор знаков отброшен поштучно, а верные знаки прочитаны',
+      !('ornament' in noteAt(0, 0)) && !('trill' in noteAt(0, 0)) && !('tremBar' in noteAt(0, 0)) &&
+      !noteAt(0, 0).harm && noteAt(0, 1).ornament === 'turn' && noteAt(0, 1).trill === true &&
+      noteAt(0, 1).tremBar === true && !noteAt(0, 1).harm, JSON.stringify(roll(0)));
+
+    // ================= 26. Отмена знака 12.6.4 =================
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    cursorTo(0);
+    await settle();
+    key('y', { code: 'KeyY' });
+    check('флажолет поставлен перед проверкой отмены', !!noteAt(0, 0).harm && noteAt(0, 0).harm.type === 'natural');
+    await tick();
+    await settle();
+    w.eval('undoEdit()');
+    await tick();
+    check('Ctrl+Z снимает флажолет одним шагом', !noteAt(0, 0).harm, JSON.stringify(noteAt(0, 0)));
+
+    // ================= 27. Форшлаг, dead slap, pick scrape =================
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    cursorTo(0);
+    key('g', { code: 'KeyG' });
+    check('`G` поставил форшлаг на ступень ниже основной ноты (лад 7 → 6)',
+      eqJson(noteAt(0, 0).grace, { fret: 6, onBeat: false }), JSON.stringify(noteAt(0, 0)));
+    // jsdom не тикает rAF: панель сама перерисуется только в следующем кадре,
+    // поэтому здесь и далее в блоке кадр подталкиваем руками.
+    w.eval('render()');
+    check('номер форшлага стоит на полке над станом и перечёркнут',
+      (() => {
+        const mark = w.document.querySelector('.pt-row.is-active .pt-mark-grace');
+        const slash = w.document.querySelector('.pt-row.is-active .pt-grace-slash');
+        if (!mark || !slash) return false;
+        const staffTop = w.eval('PART_TAB_TOP_PAD');
+        const staffBottom = staffTop + w.eval('PART_TAB_STRING_GAP') * (6 - 1);
+        const y = Number(mark.getAttribute('y'));
+        return y <= staffTop - 13 + 0.01 && y >= staffBottom + 12.99 === false;
+      })(), JSON.stringify(markTexts('pt-mark-grace')));
+    key('G', { code: 'KeyG', altKey: true });
+    check('`Alt+G` переносит форшлаг на долю',
+      noteAt(0, 0).grace.onBeat === true, JSON.stringify(noteAt(0, 0).grace));
+    w.eval('render()');
+    check('знак «на доле» отличается вертикальной чертой',
+      markTexts('pt-mark-grace').indexOf('|6') !== -1, JSON.stringify(markTexts('pt-mark-grace')));
+    // «Форшлаг с ладом» — команда с параметром, как в Command Palette GP.
+    key('e', { code: 'KeyE', ctrlKey: true });
+    const cmdBox = w.document.getElementById('ptPalSearch');
+    cmdBox.value = 'форшлаг 3';
+    cmdBox.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    check('«форшлаг 3» из поиска ставит форшлаг с заданным ладом',
+      eqJson(noteAt(0, 0).grace, { fret: 3, onBeat: true }), JSON.stringify(noteAt(0, 0).grace));
+    check('лад форшлага зажимается в 0..24 и в команде поиска',
+      (() => {
+        cmdBox.value = 'форшлаг 99';
+        cmdBox.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+        return eqJson(noteAt(0, 0).grace, { fret: 24, onBeat: true });
+      })(), JSON.stringify(noteAt(0, 0).grace));
+    key('e', { code: 'KeyE', ctrlKey: true });
+    check('поиск закрыт перед работой с палитрой', w.document.getElementById('ptPalSearch').hidden === true);
+    clickTone('deadSlap');
+    check('dead slap — знак без звука (как в GP)',
+      noteAt(0, 0).deadSlap === true, JSON.stringify(noteAt(0, 0)));
+    clickTone('pickScrape');
+    check('pick scrape — знак без звука (как в GP)',
+      noteAt(0, 0).pickScrape === true, JSON.stringify(noteAt(0, 0)));
+    w.eval('render()');
+    check('знаки слэпа и скребка показаны на табе словами',
+      markTexts('pt-mark-slap').indexOf('slap') !== -1 && markTexts('pt-mark-scrape').indexOf('scrape') !== -1,
+      JSON.stringify([markTexts('pt-mark-slap'), markTexts('pt-mark-scrape')]));
+    w.saveCurrentSong();
+    const libGrace = JSON.parse(w.localStorage.getItem('struchord_songs'));
+    const savedGrace = libGrace[libGrace.length - 1].parts[0].rolls['1'][0];
+    check('форшлаг, slap и scrape уехали в файл',
+      eqJson(savedGrace.grace, { fret: 24, onBeat: true }) && savedGrace.deadSlap === true &&
+      savedGrace.pickScrape === true, JSON.stringify(savedGrace));
+    w.loadSong(libGrace.length - 1);
+    w.eval('render()');
+    check('форшлаг пережил перезагрузку песни',
+      eqJson(noteAt(0, 0).grace, { fret: 24, onBeat: true }), JSON.stringify(noteAt(0, 0).grace));
+    const graceGarbage = (raw) => JSON.parse(w.eval(`JSON.stringify(partSanitizeGrace(${JSON.stringify(raw)}))`));
+    check('форшлаг без лада отбрасывается целиком',
+      graceGarbage({ onBeat: true }) === null && graceGarbage(5) === null && graceGarbage(null) === null);
+    check('лад форшлага зажат в 0..24, «на доле» — строго true',
+      eqJson(graceGarbage({ fret: 99, onBeat: 1 }), { fret: 24, onBeat: false }) &&
+      eqJson(graceGarbage({ fret: -3 }), { fret: 0, onBeat: false }),
+      JSON.stringify([graceGarbage({ fret: 99, onBeat: 1 }), graceGarbage({ fret: -3 })]));
+
+    // ---- звук: последним, потому что playAll подменяет рулон партии ----
+    const graceBefore = playAll([{ start: 1, dur: 1, string: 5, fret: 7, grace: { fret: 6, onBeat: false } }], 4);
+    check('форшлаг «до доли» звучит коротким щипком ПЕРЕД нотой и на своём ладу',
+      graceBefore.length === 2 && graceBefore[0].startTime < graceBefore[1].startTime &&
+      Math.abs(graceBefore[0].duration - 0.1125) < 1e-9 &&
+      Math.abs(graceBefore[0].freq - open5 * Math.pow(2, 6 / 12)) < 1e-6,
+      JSON.stringify(graceBefore.map((p) => [p.freq, p.startTime, p.duration])));
+    const graceOnBeat = playAll([{ start: 1, dur: 1, string: 5, fret: 7, grace: { fret: 6, onBeat: true } }], 4);
+    check('форшлаг «на доле» бьёт в долю, а основная нота идёт за ним',
+      graceOnBeat.length === 2 && Math.abs(graceOnBeat[0].startTime - 1) < 1e-9 &&
+      Math.abs(graceOnBeat[1].startTime - 1.125) < 1e-9,
+      JSON.stringify(graceOnBeat.map((p) => p.startTime)));
+    const plainPluck = playAll([{ start: 1, dur: 1, string: 5, fret: 7 }], 4)[0];
+    const signPlucks = playAll([{ start: 1, dur: 1, string: 5, fret: 7, deadSlap: true, pickScrape: true }], 4);
+    check('знаки слэпа и скребка не добавляют и не меняют звук',
+      signPlucks.length === 1 && eqJson(signPlucks[0], plainPluck), JSON.stringify(signPlucks));
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    cursorTo(0);
+    key('g', { code: 'KeyG' });
+    key('g', { code: 'KeyG' });
+    check('повторный `G` снял форшлаг', !noteAt(0, 0).grace, JSON.stringify(noteAt(0, 0)));
 
     console.log(`\nитого: ${pass} ok, ${fail} FAIL`);
     if (fail) process.exitCode = 1;
