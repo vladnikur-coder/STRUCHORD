@@ -23,6 +23,9 @@
  * 10. Знаки не задевают соседние ноты и другие дорожки.
  * 11. Итерация 2: легато (H), слайды (S / Alt+S), вибрато (V / Alt+V),
  *     тремоло-пикинг — клавиши, палитра, рисование, звук и файл.
+ * 12. Итерация 3: бенды — окно кривой (пресеты, типы, перетаскивание
+ *     точек, добавление и удаление), величина словами, знак на табе,
+ *     кривая высоты в звуке, санитайз и файл.
  */
 const fs = require('fs');
 const path = require('path');
@@ -96,6 +99,9 @@ w.addEventListener('load', async () => {
     // правок это важно: флаг «идёт восстановление» снимается в кадре, и до
     // него следующая правка не попадёт в стек отмены.
     const tick = () => new Promise((resolve) => setTimeout(resolve, 5));
+    // История ссыпает серию быстрых правок в один шаг с задержкой 400 мс.
+    // Там, где шаг должен быть отдельным, эту задержку надо переждать.
+    const settle = () => new Promise((resolve) => setTimeout(resolve, 460));
     const load = (parts) => {
       w.localStorage.setItem('struchord_songs', JSON.stringify([song(parts)]));
       w.loadSong(0);
@@ -119,7 +125,7 @@ w.addEventListener('load', async () => {
     load([guitar]);
     w.eval('togglePartsMode(true)');
     const toneButtons = w.document.querySelectorAll('#ptToneGroup .pt-pal-btn');
-    check('в палитре пятнадцать кнопок приёмов (9 штриха + 6 новых)', toneButtons.length === 15, String(toneButtons.length));
+    check('в палитре шестнадцать кнопок приёмов (9 штриха + 6 новых + бенд)', toneButtons.length === 16, String(toneButtons.length));
     check('у каждой кнопки есть подсказка с клавишей',
       Array.from(toneButtons).every((b) => (b.title || '').length > 10 && /клавиш/i.test(b.title)),
       JSON.stringify(Array.from(toneButtons).map((b) => b.title)));
@@ -582,6 +588,231 @@ w.addEventListener('load', async () => {
     w.eval('render()');
     await tick();
     check('Ctrl+Z снял вибрато одной командой', !('vibrato' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+
+    // ═══════════════════════ Итерация 12.6.3: бенды ═══════════════════════
+
+    // ---------- 14. Величина бенда словами ----------
+    const label = (v) => w.eval(`partBendAmountLabel(${v})`);
+    check('величина бенда пишется долями тона, как в GP',
+      label(2) === 'full' && label(1) === '½' && label(0.5) === '¼' && label(1.5) === '¾' &&
+      label(2.5) === '1¼' && label(4) === '2' && label(0) === '',
+      JSON.stringify([label(2), label(1), label(0.5), label(1.5), label(2.5), label(4), label(0)]));
+    const arrow = (points) => w.eval(`partBendArrow(${JSON.stringify(points)})`);
+    check('стрелка знака следует кривой',
+      arrow([[0, 0], [1, 2]]) === '↗' && arrow([[0, 2], [1, 0]]) === '↘' &&
+      arrow([[0, 2], [1, 2]]) === '↗' && arrow([[0, 0], [0.5, 2], [1, 0]]) === '↕',
+      JSON.stringify([arrow([[0, 0], [1, 2]]), arrow([[0, 2], [1, 0]]), arrow([[0, 2], [1, 2]]), arrow([[0, 0], [0.5, 2], [1, 0]])]));
+
+    // ---------- 15. Окно редактора: открытие, пресеты, типы ----------
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    const bendOverlay = () => w.document.getElementById('partsBend');
+    const bendBtn = (sel) => w.document.querySelector(`#${sel} [data-${sel === 'ptBendTypes' ? 'bend' : 'preset'}="${arguments[1]}"]`);
+    const typeBtn = (type) => w.document.querySelector(`#ptBendTypes [data-bend="${type}"]`);
+    const presetBtn = (preset) => w.document.querySelector(`#ptBendPresets [data-preset="${preset}"]`);
+    check('редактор бенда закрыт, пока его не позвали', bendOverlay().hidden === true);
+    // Курсор на пустом месте: бенд ставится только на ноту.
+    w.eval('setPartsCursorString(sections[0].id, 0, 5, 3)');
+    key('b', { code: 'KeyB' });
+    check('бенд без ноты под курсором не открывается', bendOverlay().hidden === true);
+    cursorTo(0);
+    key('b', { code: 'KeyB' });
+    check('`B` открыл редактор кривой', bendOverlay().hidden === false);
+    check('в заголовке окна — нота под курсором',
+      /лад 7/.test(w.document.getElementById('ptBendNote').textContent),
+      w.document.getElementById('ptBendNote').textContent);
+    check('тип не выбран, пока кривой нет',
+      Array.from(w.document.querySelectorAll('#ptBendTypes .pt-pal-btn')).every((b) => !b.classList.contains('is-on')));
+    presetBtn('full').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('пресет «Full» даёт подъём на целый тон',
+      eqJson(noteAt(0, 0).bend, { type: 'bend', points: [[0, 0], [1, 2]] }),
+      JSON.stringify(noteAt(0, 0).bend));
+    check('пресет подсветил тип «Подъём»',
+      typeBtn('bend').classList.contains('is-on') && !typeBtn('release').classList.contains('is-on'));
+    check('тип назван в заголовке', /подъём/.test(w.document.getElementById('ptBendNote').textContent),
+      w.document.getElementById('ptBendNote').textContent);
+    check('кнопка палитры «бенд» подсвечена у ноты с кривой',
+      w.document.querySelector('#ptToneGroup [data-tone="bend"]').classList.contains('is-on'));
+    presetBtn('half').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('пресет «1/2» — подъём на полтона',
+      eqJson(noteAt(0, 0).bend.points, [[0, 0], [1, 1]]), JSON.stringify(noteAt(0, 0).bend));
+    presetBtn('quarter').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('пресет «1/4» — четверть тона (0,5 полутона)',
+      eqJson(noteAt(0, 0).bend.points, [[0, 0], [1, 0.5]]), JSON.stringify(noteAt(0, 0).bend));
+    presetBtn('riseFall').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('пресет «Подъём и спуск» возвращает высоту назад',
+      eqJson(noteAt(0, 0).bend.points, [[0, 0], [0.5, 2], [1, 0]]), JSON.stringify(noteAt(0, 0).bend));
+    typeBtn('prebend').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('«Предбенд» берёт ноту уже подтянутой',
+      noteAt(0, 0).bend.type === 'prebend' && noteAt(0, 0).bend.points[0][1] === 2,
+      JSON.stringify(noteAt(0, 0).bend));
+    typeBtn('release').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('«Спуск» отпускает подтянутую ноту к написанной высоте',
+      noteAt(0, 0).bend.type === 'release' && eqJson(noteAt(0, 0).bend.points, [[0, 2], [1, 0]]),
+      JSON.stringify(noteAt(0, 0).bend));
+    typeBtn('prebend-release').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('«Подъём и спуск» — своя кривая',
+      noteAt(0, 0).bend.type === 'prebend-release' && noteAt(0, 0).bend.points.length === 4,
+      JSON.stringify(noteAt(0, 0).bend));
+    check('первая точка кривой подъёма всегда в нуле',
+      noteAt(0, 0).bend.points[0][1] === 0, JSON.stringify(noteAt(0, 0).bend));
+
+    // ---------- 16. Мышь: тянуть, добавить, убрать ----------
+    const grid = w.document.getElementById('ptBendGrid');
+    grid.getBoundingClientRect = () => ({ left: 0, top: 0, width: 320, height: 150, right: 320, bottom: 150 });
+    presetBtn('full').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    await settle(); // пресет «Full» стал отдельным шагом истории
+    const before = JSON.stringify(noteAt(0, 0).bend.points);
+    const dot = grid.querySelector('.pt-bend-dot[data-point="1"]');
+    check('точки кривой нарисованы', !!dot && grid.querySelectorAll('.pt-bend-dot').length === 2,
+      String(grid.querySelectorAll('.pt-bend-dot').length));
+    dot.dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true, clientX: 320, clientY: 0, pointerId: 1 }));
+    grid.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 192, clientY: 75, pointerId: 1 }));
+    check('во время перетаскивания модель НЕ меняется (правило 60 fps)',
+      JSON.stringify(noteAt(0, 0).bend.points) === before, JSON.stringify(noteAt(0, 0).bend.points));
+    grid.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true, clientX: 192, clientY: 75, pointerId: 1 }));
+    check('по отпускании мыши точка встала на новое место (движение — одной правкой)',
+      Math.abs(noteAt(0, 0).bend.points[1][0] - 0.6) < 1e-6 && Math.abs(noteAt(0, 0).bend.points[1][1] - 1) < 1e-6,
+      JSON.stringify(noteAt(0, 0).bend.points));
+    await tick();
+    w.undoEdit();
+    w.eval('render()');
+    check('Ctrl+Z возвращает кривую целиком (одна команда)',
+      JSON.stringify(noteAt(0, 0).bend.points) === before, JSON.stringify(noteAt(0, 0).bend.points));
+    await tick();
+    // Первую точку не тянем и не убираем: она держит начало кривой.
+    grid.querySelector('.pt-bend-dot[data-point="0"]')
+      .dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true, clientX: 0, clientY: 75, pointerId: 2 }));
+    grid.dispatchEvent(new w.MouseEvent('pointermove', { bubbles: true, clientX: 60, clientY: 30, pointerId: 2 }));
+    grid.dispatchEvent(new w.MouseEvent('pointerup', { bubbles: true, clientX: 60, clientY: 30, pointerId: 2 }));
+    check('первая точка кривой не сдвигается', noteAt(0, 0).bend.points[0][0] === 0,
+      JSON.stringify(noteAt(0, 0).bend.points));
+    // Клик по пустому месту добавляет точку.
+    grid.dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true, clientX: 160, clientY: 25, pointerId: 3 }));
+    check('клик по сетке добавил точку',
+      noteAt(0, 0).bend.points.length === 3, JSON.stringify(noteAt(0, 0).bend.points));
+    grid.dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true, clientX: 240, clientY: 40, pointerId: 4 }));
+    grid.dispatchEvent(new w.MouseEvent('pointerdown', { bubbles: true, clientX: 80, clientY: 100, pointerId: 5 }));
+    check('точек не больше восьми',
+      noteAt(0, 0).bend.points.length <= 8, String(noteAt(0, 0).bend.points.length));
+    const pointsBefore = noteAt(0, 0).bend.points.length;
+    grid.querySelector('.pt-bend-dot[data-point="1"]')
+      .dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
+    check('двойной клик убрал точку', noteAt(0, 0).bend.points.length === pointsBefore - 1,
+      String(noteAt(0, 0).bend.points.length));
+    // Две точки — минимум кривой.
+    presetBtn('full').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    grid.querySelector('.pt-bend-dot[data-point="1"]')
+      .dispatchEvent(new w.MouseEvent('dblclick', { bubbles: true }));
+    check('в кривой остаются хотя бы две точки',
+      noteAt(0, 0).bend.points.length === 2, JSON.stringify(noteAt(0, 0).bend.points));
+    presetBtn('none').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('«Убрать бенд» снимает кривую целиком', !('bend' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+    key('b', { code: 'KeyB' });
+    check('повтор `B` закрыл редактор', bendOverlay().hidden === true);
+    key('b', { code: 'KeyB' });
+    check('`B` снова открыл редактор', bendOverlay().hidden === false);
+    w.document.getElementById('ptBendClose').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('кнопка «Готово» закрывает окно', bendOverlay().hidden === true);
+    key('b', { code: 'KeyB' });
+    key('Escape', { key: 'Escape', code: 'Escape' });
+    check('Esc закрывает окно бенда и НЕ выходит из партий',
+      bendOverlay().hidden === true && w.document.body.classList.contains('is-parts'));
+
+    // ---------- 17. Знак на табе и полки ----------
+    load([{ ...guitar, rolls: { '1': [
+      { start: 0, dur: 1, string: 5, fret: 7, bend: { type: 'bend', points: [[0, 0], [1, 2]] } },
+      { start: 1, dur: 1, string: 5, fret: 5, bend: { type: 'release', points: [[0, 2], [1, 0]] } },
+      { start: 2, dur: 1, string: 4, fret: 3 },
+    ] } }]);
+    w.eval('togglePartsMode(true)');
+    check('знак бенда нарисован и пишет величину долями тона',
+      markTexts('pt-mark-bend').join(' ') === '↗full ↘full',
+      JSON.stringify(markTexts('pt-mark-bend')));
+    const bendMark = w.document.querySelector('.pt-row.is-active .pt-mark-bend');
+    check('знак бенда стоит над станом (своя полка)',
+      Number(bendMark.getAttribute('y')) < 0, bendMark.getAttribute('y'));
+    check('под полку бенда ушёл ровно один ряд (13 + 10)',
+      (() => {
+        const box = w.document.querySelector('.pt-row.is-active .pt-svg').getAttribute('viewBox').split(' ').map(Number);
+        return box[1] === -23 && box[3] === 65 + 23;
+      })(),
+      w.document.querySelector('.pt-row.is-active .pt-svg').getAttribute('viewBox'));
+
+    // ---------- 18. Звук бенда ----------
+    w.eval(`
+      window.__plucks = [];
+      pluckString = function(ctx, opts) { window.__plucks.push(opts); };
+    `);
+    const bendPlucks = playAll([{ start: 0, dur: 1, string: 5, fret: 7, bend: { type: 'bend', points: [[0, 0], [1, 2]] } }], 4);
+    check('кривая бенда уезжает в голос вместе с длительностью ноты',
+      !!bendPlucks[0].bendPoints && bendPlucks[0].bendSpan === 1, JSON.stringify(bendPlucks[0]));
+    const bendCurve = JSON.parse(w.eval(
+      `JSON.stringify(partRateCurve(0, 2, 1, { bendPoints: [[0,0],[1,2]], bendSpan: 1 }))`
+    ));
+    check('кривая высоты идёт по точкам бенда: 0 пт → +2 пт за длительность ноты',
+      Math.abs(bendCurve[0][0] - 0) < 1e-9 && Math.abs(bendCurve[0][1] - 1) < 1e-9 &&
+      Math.abs(bendCurve[1][0] - 1) < 1e-9 && Math.abs(bendCurve[1][1] - Math.pow(2, 2 / 12)) < 1e-9,
+      JSON.stringify(bendCurve));
+    const prebendCurve = JSON.parse(w.eval(
+      `JSON.stringify(partRateCurve(0, 2, 1, { bendPoints: [[0,2],[1,2]], bendSpan: 1 }))`
+    ));
+    check('предбенд начинает ноту уже подтянутой',
+      Math.abs(prebendCurve[0][1] - Math.pow(2, 2 / 12)) < 1e-9 && Math.abs(prebendCurve[1][1] - Math.pow(2, 2 / 12)) < 1e-9,
+      JSON.stringify(prebendCurve));
+    const bendVib = JSON.parse(w.eval(
+      `JSON.stringify(partRateCurve(0, 3, 2, { bendPoints: [[0,0],[1,1]], bendSpan: 1, vibratoDepth: 0.25 }))`
+    ));
+    const bendEndRate = Math.pow(2, 1 / 12); // бенд кончился на +1 полутоне
+    const vibAfterBend = bendVib.slice(2).map((p) => p[1]);
+    check('вибрато после бенда качается вокруг ПОДТЯНУТОЙ высоты, а не вокруг написанной',
+      bendVib.length > 3 && Math.abs(bendVib[1][0] - 1) < 1e-9 &&
+      Math.abs(Math.min.apply(null, vibAfterBend) - (bendEndRate - (Math.pow(2, 0.25 / 12) - 1))) < 1e-6 &&
+      Math.abs(Math.max.apply(null, vibAfterBend) - (bendEndRate + (Math.pow(2, 0.25 / 12) - 1))) < 1e-6,
+      JSON.stringify(bendVib.slice(0, 4)));
+    const slideVsBend = playAll([
+      { start: 0, dur: 1, string: 5, fret: 5 },
+      { start: 1, dur: 1, string: 5, fret: 7, slide: 'legato', bend: { type: 'bend', points: [[0, 0], [1, 2]] } },
+    ], 4);
+    check('бенд и слайд вместе: кривую ведёт бенд, слайд не накладывается',
+      (slideVsBend[1].startRate || 1) === 1 && (slideVsBend[1].glide || 0) === 0 && !!slideVsBend[1].bendPoints,
+      JSON.stringify(slideVsBend[1]));
+
+    // ---------- 19. Файл и мусор бенда ----------
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    cursorTo(0);
+    key('b', { code: 'KeyB' });
+    w.document.querySelector('#ptBendPresets [data-preset="riseFall"]')
+      .dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    w.saveCurrentSong();
+    const libBend = JSON.parse(w.localStorage.getItem('struchord_songs'));
+    const savedBend = libBend[libBend.length - 1].parts[0].rolls['1'][0];
+    check('кривая бенда уехала в файл',
+      eqJson(savedBend.bend, { type: 'bend', points: [[0, 0], [0.5, 2], [1, 0]] }), JSON.stringify(savedBend.bend));
+    w.loadSong(libBend.length - 1);
+    w.eval('render()');
+    check('кривая пережила перезагрузку',
+      eqJson(noteAt(0, 0).bend, { type: 'bend', points: [[0, 0], [0.5, 2], [1, 0]] }),
+      JSON.stringify(noteAt(0, 0).bend));
+    const bendGarbage = (raw) => JSON.parse(w.eval(`JSON.stringify(partSanitizeBend(${JSON.stringify(raw)}))`));
+    check('неизвестный тип бенда отбрасывает кривую целиком', bendGarbage({ type: 'sideways', points: [[0, 0], [1, 2]] }) === null);
+    check('одна точка — не кривая', bendGarbage({ type: 'bend', points: [[0, 0]] }) === null);
+    check('точки зажаты: t в 0..1, высота в ±24, шаг — четверть тона',
+      eqJson(bendGarbage({ type: 'bend', points: [[2, 99], [0.5, 1.1]] }), { type: 'bend', points: [[0, 0], [1, 24]] }),
+      JSON.stringify(bendGarbage({ type: 'bend', points: [[2, 99], [0.5, 1.1]] })));
+    check('точек не больше восьми и по возрастанию времени',
+      (() => {
+        const many = [[0, 0]];
+        for (let i = 1; i <= 12; i++) many.push([i / 13, i / 4]);
+        const clean = bendGarbage({ type: 'bend', points: many });
+        const times = clean.points.map((p) => p[0]);
+        return clean.points.length === 8 && times.every((t, i) => i === 0 || t >= times[i - 1]);
+      })());
+    check('подъём всегда начинается с нуля (не «из ниоткуда»)',
+      eqJson(bendGarbage({ type: 'bend', points: [[0, 2], [1, 3]] }).points[0], [0, 0]));
+    check('предбенд сохраняет подтянутую первую точку',
+      eqJson(bendGarbage({ type: 'prebend', points: [[0, 2], [1, 2]] }).points[0], [0, 2]));
 
     console.log(`\nитого: ${pass} ok, ${fail} FAIL`);
     if (fail) process.exitCode = 1;
