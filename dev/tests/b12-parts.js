@@ -171,7 +171,9 @@ w.addEventListener('load', () => {
     check('пустое состояние скрыто', w.document.getElementById('partsEmpty').hidden === true);
     const names = Array.from(track.querySelectorAll('.pt-section-name')).map((t) => t.textContent).join('|');
     check('подписи проходов секции', names === 'Куплет 1/2|Куплет 2/2|Припев', names);
-    check('имя партии в пилюле', w.document.getElementById('partsActiveName').textContent === 'Соло');
+    // B-12.3: пилюля показывает и инструмент дорожки.
+    const pillText = w.document.getElementById('partsActiveName').textContent;
+    check('имя и инструмент партии в пилюле', pillText === 'Соло · Гитара', pillText);
 
     // ---------- 4. Режимы ----------
     w.eval('toggleTimelineMode(true)');
