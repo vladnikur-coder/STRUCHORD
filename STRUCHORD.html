@@ -9689,6 +9689,43 @@ body.is-parts .container {
 .pt-track-chip.is-active .pt-track-kind {
   color: var(--color-brand-ink);
 }
+/* B-12.5.4 «Каподастр»: короткая пометка на карточке дорожки и плашка над
+   лентой «играть с каподастром N» (в GP каподастр печатается над системой). */
+.pt-track-capo {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: var(--color-brand);
+}
+.pt-track-chip.is-active .pt-track-capo {
+  color: var(--color-brand-ink);
+}
+.capo-mark {
+  display: inline-flex;
+  align-items: center;
+  flex: 0 0 auto;
+  padding: 0 0.375rem;
+  font-size: 0.625rem;
+  line-height: 1.35;
+  border-radius: 0.25rem;
+  background: var(--color-tint);
+  color: var(--color-brand-ink);
+  white-space: nowrap;
+}
+.pt-capo-list {
+  max-height: 11rem;
+  overflow: auto;
+}
+.pt-capo-row {
+  display: flex;
+  align-items: baseline;
+  gap: 0.375rem;
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+}
+.pt-capo-row.is-kept {
+  color: var(--color-text-tertiary);
+  font-style: italic;
+}
 .pt-track-add {
   min-width: 1.75rem;
   padding: 0.3125rem 0.5rem;
@@ -12977,7 +13014,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.630</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.631</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -13503,6 +13540,10 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
             <span>Строй</span>
             <select id="ptTuning" aria-label="Строй дорожки"></select>
           </label>
+          <label class="pt-track-field">
+            <span>Каподастр</span>
+            <select id="ptCapo" aria-label="Каподастр дорожки" title="Каподастр: строй дорожки поднимается на N ладов (как Capo в Track Inspector Guitar Pro). При смене спросим: оставить аппликатуру или пересчитать"></select>
+          </label>
           <label class="pt-track-check" title="Играть и показывать дорожку">
             <input type="checkbox" id="ptVisible">
             <span>Вкл</span>
@@ -13676,6 +13717,29 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
               Звучание канала выбирается в его карточке микшера, а переключение ставится в позиции курсора партии.<br>
               В Guitar Pro такая смена называется Sound Automation: на партитуре в этом месте появляется пометка.<br>
               Действует до следующего переключения или до конца песни.
+            </div>
+          </div>
+        </div>
+        <!-- B-12.5.4 «Каподастр»: окно выбора режима при смене каподастра
+             дорожки — как Keep fingering / Adjust fingering в Guitar Pro.
+             Спрашиваем ТОЛЬКО когда у дорожки есть ноты: иначе спрашивать
+             не о чем. Живёт вне списка дорожек, чтобы перерисовка табулатур
+             его не сносила. -->
+        <div class="pt-bend" id="partsCapo" hidden>
+          <div class="pt-bend-card pt-sound-card" role="dialog" aria-modal="true" aria-label="Каподастр дорожки">
+            <div class="pt-bend-head">
+              <b>Каподастр</b>
+              <span class="pt-bend-note" id="ptCapoNote"></span>
+              <button type="button" class="pt-create" id="ptCapoCancel">Отмена</button>
+            </div>
+            <div class="pt-bend-presets" role="group" aria-label="Что делать с аппликатурой">
+              <button type="button" class="pt-pal-btn" id="ptCapoKeep" title="Оставить аппликатуру (Keep fingering): номера ладов не меняются — аппликатура та же, ноты звучат выше вместе с каподастром">Оставить аппликатуру</button>
+              <button type="button" class="pt-pal-btn" id="ptCapoAdjust" title="Пересчитать (Adjust fingering): номера ладов меняются так, чтобы ВЫСОТЫ нот остались прежними; неиграбельные ноты уходят октавой">Пересчитать</button>
+            </div>
+            <div class="pt-capo-list" id="ptCapoList"></div>
+            <div class="pt-bend-hint">
+              Как в Guitar Pro: <b>оставить</b> — та же аппликатура, звук выше; <b>пересчитать</b> — номера ладов меняются, высоты нот сохраняются.<br>
+              Нота, которой не хватает грифа, едет на октаву; если и там не помещается — остаётся как была, и мы скажем об этом.
             </div>
           </div>
         </div>
@@ -29827,7 +29891,11 @@ function songStringNotes() {
 // берутся из константы: перестроенная струна обязана звучать так, как
 // её слышно на живой гитаре.
 function songStringFreqs() {
-  return songTuningNotes().map((n) => noteToFrequency(n));
+  // B-12.5.4: каподастр песни поднимает аккомпанемент целиком (бой, перебор,
+  // одиночные струны). Аппликатуры при этом НЕ пересчитываются — так решил
+  // пользователь: над лентой появляется надпись «каподастр N».
+  const capo = songCapoFactor();
+  return songTuningNotes().map((n) => noteToFrequency(n) * capo);
 }
 
 // Стандартный ли сейчас строй.
@@ -31354,6 +31422,80 @@ function soundWriteValue(owner, id, instrument) {
   if (!owner) return;
   if (id === SOUND_DEFAULT || !soundIdValid(id, instrument)) delete owner.sound;
   else owner.sound = id;
+}
+
+// ---------- B-12.5.4 «Каподастр»: свойство дорожки и песни ----------
+//
+// В GP каподастр живёт в Track Inspector → Tuning и бывает двух родов:
+// основной (по всему ладу) и частичный (на отдельные струны; у нас пока
+// только основной). При смене GP спрашивает: Keep fingering — номера ладов
+// как были, звук поднимается вместе с каподастром, или Adjust fingering —
+// аппликатура пересчитывается так, чтобы ВЫСОТЫ нот остались прежними.
+// Мы делаем оба режима; «пересчитать» работает как первый вариант: номера
+// пересчитываются, неиграбельные ноты уходят октавой вверх со списком.
+let songCapo = 0;
+const CAPO_MAX = 12;
+
+function capoNumber(raw) {
+  const value = Number(raw);
+  if (!Number.isFinite(value)) return 0;
+  return Math.max(0, Math.min(CAPO_MAX, Math.round(value)));
+}
+
+function partCapoNumber(part) {
+  return capoNumber(part && part.capo);
+}
+
+// Каподастр поднимает строй на N полутонов: и дорожкам, и песне.
+function partCapoFactor(part) {
+  return Math.pow(2, partCapoNumber(part) / 12);
+}
+
+function songCapoFactor() {
+  return Math.pow(2, songCapo / 12);
+}
+
+// Пересчёт аппликатуры дорожки под новый каподастр (аналог Adjust fingering):
+// высота каждой ноты сохраняется, номер лада меняется. Нота, которой не
+// хватает грифа, едет на октаву в подходящую сторону; если и там не
+// помещается — остаётся как была и попадает в список предупреждения, а не
+// превращается в выдуманные данные.
+function partCapoPlan(part, nextCapo) {
+  const oldCapo = partCapoNumber(part);
+  const want = capoNumber(nextCapo);
+  const delta = oldCapo - want;
+  const moved = [];
+  const kept = [];
+  const rolls = {};
+  const shiftFret = (fret) => {
+    const target = fret + delta;
+    if (target >= 0 && target <= PART_MAX_FRET) return { fret: target, octave: 0 };
+    const octave = target < 0 ? 12 : -12;
+    const shifted = target + octave;
+    if (shifted >= 0 && shifted <= PART_MAX_FRET) return { fret: shifted, octave: octave > 0 ? 1 : -1 };
+    return null;
+  };
+  Object.keys(part.rolls || {}).forEach((secKey) => {
+    rolls[secKey] = (part.rolls[secKey] || []).map((note) => {
+      const next = { ...note };
+      const res = shiftFret(note.fret);
+      if (!res) {
+        kept.push({ sec: Number(secKey), string: note.string, fret: note.fret });
+      } else {
+        if (res.fret !== note.fret) {
+          moved.push({ sec: Number(secKey), string: note.string, from: note.fret, to: res.fret, octave: res.octave });
+        }
+        next.fret = res.fret;
+      }
+      // Форшлаг — короткая нота на своём ладу: едет вместе с нотой.
+      if (note.grace && Number.isFinite(Number(note.grace.fret))) {
+        const grace = shiftFret(Math.round(Number(note.grace.fret)));
+        if (grace) next.grace = { ...note.grace, fret: grace.fret };
+      }
+      return next;
+    });
+  });
+  return { rolls, moved, kept, changed: moved.length, oldCapo, nextCapo: want };
 }
 
 function soundChannelOwner(id) {
@@ -46683,6 +46825,170 @@ function ensurePartsSoundHandlers() {
   }
 }
 
+// ---------- B-12.5.4 «Каподастр»: запрос режима, применение и плашка у песни ----------
+let partsCapoPending = null;
+
+// Смена каподастра дорожки. Если нот нет — менять нечего, применяем молча:
+// спрашивать «оставить или пересчитать» для пустой дорожки было бы шумом.
+function setPartCapoRequest(next) {
+  const part = partActivePart();
+  if (!part) return;
+  const want = capoNumber(next);
+  if (want === partCapoNumber(part)) return;
+  const hasNotes = Object.keys(part.rolls || {}).some(
+    (key) => (part.rolls[key] || []).length > 0
+  );
+  if (!hasNotes) {
+    applyPartCapo(part, want, 'keep');
+    return;
+  }
+  partsCapoPending = { partId: part.id, capo: want };
+  const overlay = document.getElementById('partsCapo');
+  if (!overlay) return;
+  ensurePartsCapoHandlers();
+  // Сначала показываем окно, потом наполняем (урок 12.5.3: закрытое окно
+  // молчит и список остаётся пустым).
+  overlay.hidden = false;
+  renderPartsCapoDialog();
+}
+
+function closePartsCapoDialog() {
+  const overlay = document.getElementById('partsCapo');
+  if (overlay) overlay.hidden = true;
+  partsCapoPending = null;
+}
+
+// Список последствий пересчёта — ДО применения: видно, что именно поедет.
+function renderPartsCapoDialog() {
+  const overlay = document.getElementById('partsCapo');
+  if (!overlay || overlay.hidden || !partsCapoPending) return;
+  const part = songParts.find((p) => p.id === partsCapoPending.partId);
+  if (!part) {
+    closePartsCapoDialog();
+    return;
+  }
+  const want = partsCapoPending.capo;
+  const caption = document.getElementById('ptCapoNote');
+  if (caption) {
+    caption.textContent = `${part.name} · каподастр ${partCapoNumber(part) || 'нет'} → ${want}`;
+  }
+  const list = document.getElementById('ptCapoList');
+  if (!list) return;
+  list.innerHTML = '';
+  const plan = partCapoPlan(part, want);
+  const intro = document.createElement('div');
+  intro.className = 'pt-sound-empty';
+  intro.textContent = plan.moved.length || plan.kept.length
+    ? `Пересчёт затронет ${plan.moved.length} нот${plan.moved.length === 1 ? 'у' : ''}${plan.kept.length ? `, ${plan.kept.length} останется на месте` : ''}.`
+    : 'Пересчитывать нечего: номера ладов не изменятся.';
+  list.appendChild(intro);
+  const rows = [];
+  plan.moved.forEach((item) => {
+    rows.push({
+      kept: false,
+      text: `${partsSoundSectionLabel(item.sec)} · струна ${item.string + 1}: лад ${item.from} → ${item.to}${item.octave ? ` (октавой ${item.octave > 0 ? 'выше' : 'ниже'})` : ''}`,
+    });
+  });
+  plan.kept.forEach((item) => {
+    rows.push({
+      kept: true,
+      text: `${partsSoundSectionLabel(item.sec)} · струна ${item.string + 1}: лад ${item.fret} — за грифом, остаётся как есть`,
+    });
+  });
+  rows.slice(0, 40).forEach((item) => {
+    const row = document.createElement('div');
+    row.className = item.kept ? 'pt-capo-row is-kept' : 'pt-capo-row';
+    row.textContent = item.text;
+    list.appendChild(row);
+  });
+  if (rows.length > 40) {
+    const rest = document.createElement('div');
+    rest.className = 'pt-capo-row';
+    rest.textContent = `…и ещё ${rows.length - 40}`;
+    list.appendChild(rest);
+  }
+}
+
+// Применение: mode === 'adjust' пересчитывает аппликатуру, любое другое
+// значение — «оставить» (номера ладов как были, звук выше).
+function applyPartCapo(part, capo, mode) {
+  if (!part) return;
+  const want = capoNumber(capo);
+  if (want === partCapoNumber(part)) {
+    syncPartsTrackBar();
+    return;
+  }
+  const plan = mode === 'adjust' ? partCapoPlan(part, want) : null;
+  songStore.dispatch('part/capo', () => {
+    if (plan) part.rolls = plan.rolls;
+    if (want) part.capo = want;
+    else delete part.capo;
+  });
+  closePartsCapoDialog();
+  if (partsMode) renderPartsScreen();
+  syncPartsTrackBar();
+  if (plan && plan.kept.length) {
+    showToast(`Каподастр ${want}: пересчитано нот ${plan.moved.length}; ${plan.kept.length} осталось на месте — не помещаются на гриф`);
+  } else if (plan) {
+    showToast(`Каподастр ${want}: пересчитано нот ${plan.moved.length}`);
+  } else {
+    showToast(want ? `Каподастр ${want}` : 'Каподастр снят');
+  }
+}
+
+// Каподастр песни: аппликатуры аккомпанемента НЕ трогаем (решение
+// пользователя) — поднимается строй, над лентой появляется надпись.
+function setSongCapo(next) {
+  const want = capoNumber(next);
+  if (want === songCapo) {
+    syncSongCapoControls();
+    return;
+  }
+  songStore.dispatch('song/capo', () => {
+    songCapo = want;
+  });
+  applyMixerValues();
+  syncSongCapoControls();
+  render();
+  showToast(want ? `Песня играет с каподастром ${want}` : 'Каподастр песни снят');
+}
+
+function syncSongCapoControls() {
+  const select = document.querySelector('[data-act="songCapo"]');
+  if (select && document.activeElement !== select) select.value = String(songCapo);
+}
+
+function ensurePartsCapoHandlers() {
+  const overlay = document.getElementById('partsCapo');
+  if (!overlay || overlay.dataset.bound === '1') return;
+  overlay.dataset.bound = '1';
+  const cancel = document.getElementById('ptCapoCancel');
+  if (cancel) {
+    cancel.addEventListener('click', () => {
+      closePartsCapoDialog();
+      syncPartsTrackBar();
+    });
+  }
+  const keep = document.getElementById('ptCapoKeep');
+  if (keep) {
+    keep.addEventListener('click', () => {
+      const part = partsCapoPending && songParts.find((p) => p.id === partsCapoPending.partId);
+      const want = partsCapoPending ? partsCapoPending.capo : null;
+      if (part && want != null) applyPartCapo(part, want, 'keep');
+      else closePartsCapoDialog();
+    });
+  }
+  const adjust = document.getElementById('ptCapoAdjust');
+  if (adjust) {
+    adjust.addEventListener('click', () => {
+      const part = partsCapoPending && songParts.find((p) => p.id === partsCapoPending.partId);
+      const want = partsCapoPending ? partsCapoPending.capo : null;
+      if (part && want != null) applyPartCapo(part, want, 'adjust');
+      else closePartsCapoDialog();
+    });
+  }
+}
+
 function ensurePartsBendHandlers() {
   const svg = document.getElementById('ptBendGrid');
   if (!svg || svg.dataset.bound === '1') return;
@@ -46843,7 +47149,10 @@ function partTuningName(part) {
 
 // Частоты открытых струн партии — то, из чего считается звук её нот.
 function partOpenFreqs(part) {
-  return partTuningNotes(part).map((note) => noteToFrequency(note));
+  // B-12.5.4: каподастр дорожки поднимает весь её строй — ноты, флажолеты и
+  // предпросмотр считаются от прижатой струны, а не от открытой.
+  const capo = partCapoFactor(part);
+  return partTuningNotes(part).map((note) => noteToFrequency(note) * capo);
 }
 
 // Полная длина секции в единицах родительского размера — ровно та мера, в
@@ -47147,6 +47456,28 @@ function ensureMixerCard(id) {
     sound.appendChild(soundSelect);
     card.appendChild(sound);
   }
+  if (id === MIX_CHANNEL_SONG) {
+    // B-12.5.4: у песни нет дорожки-двойника, поэтому её каподастр живёт в
+    // карточке канала «Песня» — рядом со звучанием.
+    const capo = document.createElement('label');
+    capo.className = 'pt-mix-sound';
+    capo.title = 'Каподастр песни: строй аккомпанемента поднимается на N ладов, аппликатуры (аккорды) не пересчитываются — над лентой появится надпись';
+    const capoCaption = document.createElement('span');
+    capoCaption.textContent = 'капо';
+    capo.appendChild(capoCaption);
+    const capoSel = document.createElement('select');
+    capoSel.dataset.act = 'songCapo';
+    capoSel.setAttribute('aria-label', 'Каподастр песни');
+    for (let n = 0; n <= CAPO_MAX; n++) {
+      const opt = document.createElement('option');
+      opt.value = String(n);
+      opt.textContent = n ? `каподастр ${n}` : 'без каподастра';
+      capoSel.appendChild(opt);
+    }
+    capoSel.addEventListener('change', () => setSongCapo(capoSel.value));
+    capo.appendChild(capoSel);
+    card.appendChild(capo);
+  }
   const eqBox = document.createElement('div');
   eqBox.className = 'pt-mix-eq';
   eqBox.hidden = !mixerEqOpen.has(id);
@@ -47251,6 +47582,8 @@ function syncMixerCard(card, id) {
     if (soundSelect.value !== want) soundSelect.value = want;
     soundSelect.title = `Звучание канала: ${soundLabel(want, soundChannelInstrument(id)).toLowerCase()}`;
   }
+  const songCapoSel = card.querySelector('[data-act="songCapo"]');
+  if (songCapoSel && document.activeElement !== songCapoSel) songCapoSel.value = String(songCapo);
   const autoBtn = card.querySelector('[data-act="soundAuto"]');
   if (autoBtn) autoBtn.classList.toggle('is-on', soundChannelPoints(id).length > 0);
   const val = card.querySelector('[data-mix-summary]');
@@ -48940,6 +49273,13 @@ function renderPartsTracks() {
     const name = document.createElement('span');
     name.className = 'pt-track-name';
     name.textContent = part.name;
+    if (partCapoNumber(part)) {
+      // B-12.5.4: каподастр виден прямо на карточке дорожки.
+      const capo = document.createElement('span');
+      capo.className = 'pt-track-capo';
+      capo.textContent = `капо ${partCapoNumber(part)}`;
+      chip.appendChild(capo);
+    }
     const kind = document.createElement('span');
     kind.className = 'pt-track-kind';
     kind.textContent = partVisible(part)
@@ -48947,7 +49287,7 @@ function renderPartsTracks() {
       : `${partInstrument(part).label} · выкл`;
     chip.appendChild(name);
     chip.appendChild(kind);
-    chip.title = `${part.name} — ${partInstrument(part).label}, строй: ${partTuningName(part)}`;
+    chip.title = `${part.name} — ${partInstrument(part).label}, строй: ${partTuningName(part)}${partCapoNumber(part) ? `, каподастр ${partCapoNumber(part)}` : ''}`;
     chip.addEventListener('click', () => selectPartTrack(part.id));
     host.appendChild(chip);
   });
@@ -48966,6 +49306,7 @@ function renderPartsTracks() {
 function syncPartsTrackBar() {
   const instSel = document.getElementById('ptInstrument');
   const tuneSel = document.getElementById('ptTuning');
+  const capoSel = document.getElementById('ptCapo');
   const visBox = document.getElementById('ptVisible');
   const nameInput = document.getElementById('ptTrackName');
   if (!instSel || !tuneSel || !visBox || !nameInput) return;
@@ -49014,6 +49355,10 @@ function syncPartsTrackBar() {
   }
   tuneSel.value = part && part.tuning ? part.tuning : '';
   tuneSel.disabled = !part;
+  if (capoSel) {
+    capoSel.value = String(part ? partCapoNumber(part) : 0);
+    capoSel.disabled = !part;
+  }
 }
 
 // Обработчики панели навешиваются один раз (панель живёт в разметке).
@@ -49023,8 +49368,19 @@ function ensurePartsTrackBar() {
   partsTrackBarBound = true;
   const instSel = document.getElementById('ptInstrument');
   const tuneSel = document.getElementById('ptTuning');
+  const capoSel = document.getElementById('ptCapo');
   const visBox = document.getElementById('ptVisible');
   const nameInput = document.getElementById('ptTrackName');
+  if (capoSel && !capoSel.options.length) {
+    // «Нет» + 1…12: выше двенадцатого лада каподастр в GP тоже не ставится.
+    for (let n = 0; n <= CAPO_MAX; n++) {
+      const opt = document.createElement('option');
+      opt.value = String(n);
+      opt.textContent = n ? `Капо ${n}` : 'Нет';
+      capoSel.appendChild(opt);
+    }
+    capoSel.addEventListener('change', () => setPartCapoRequest(capoSel.value));
+  }
   if (instSel) instSel.addEventListener('change', () => setPartInstrument(instSel.value));
   if (tuneSel) tuneSel.addEventListener('change', () => setPartTuning(tuneSel.value || null));
   if (visBox) visBox.addEventListener('change', () => setPartVisible(visBox.checked));
@@ -49910,6 +50266,7 @@ function renderSectionsGrid() {
       <span class="drag-handle" aria-hidden="true">⋮⋮</span>
       <span class="section-label ${labelClass}" data-section-id="${sec.id}">${escapeHtml(labelText)}</span>
       <div class="section-mod-badges" data-section-id="${sec.id}"></div>
+      ${songCapo ? `<span class="capo-mark" title="Аккомпанемент песни играется с каподастром ${songCapo}: строй выше на ${songCapo} полутон${songCapo === 1 ? '' : 'ов'}, написанные аппликатуры не меняются">играть с каподастром ${songCapo}</span>` : ''}
       <button class="section-settings-btn" data-section-id="${sec.id}" aria-label="Настройки секции"><i class="ti ti-dots-vertical"></i></button>
       <button class="clone-section" onclick="cloneSection(${sec.id})" title="Клонировать секцию" aria-label="Клонировать секцию"><i class="ti ti-clipboard-copy"></i></button>
       <button class="del-section" onclick="removeSection(${sec.id})" aria-label="Удалить секцию"><i class="ti ti-x"></i></button>
@@ -51340,6 +51697,20 @@ function syncSectionHeaderDom(sec) {
   }
   if (squareZoom > 1.001) {
     badgesDiv.appendChild(makeZoomBadge());
+  }
+  // B-12.5.4: плашка каподастра песни живёт рядом с бейджами и переживает
+  // быстрый путь B-25 — там чистится только .section-mod-badges.
+  let capoMark = header.querySelector('.capo-mark');
+  if (songCapo) {
+    if (!capoMark) {
+      capoMark = document.createElement('span');
+      capoMark.className = 'capo-mark';
+      badgesDiv.after(capoMark);
+    }
+    capoMark.textContent = `играть с каподастром ${songCapo}`;
+    capoMark.title = `Аккомпанемент песни играется с каподастром ${songCapo}: строй выше на ${songCapo} полутон${songCapo === 1 ? '' : 'ов'}, написанные аппликатуры не меняются`;
+  } else if (capoMark) {
+    capoMark.remove();
   }
   const globalBpm = parseInt(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
   if (sec.bpm && sec.bpm !== globalBpm) {
@@ -53972,6 +54343,8 @@ toggleTimeAndBeats();
       // умолчанию (обычная песня в файле не растёт).
       ...(songSoundId() === SOUND_DEFAULT ? {} : { sound: songSoundId() }),
       ...(songSoundAuto.length ? { soundAuto: songSoundAuto.map((p) => ({ sec: p.sec, unit: p.unit, sound: p.sound })) } : {}),
+      // B-12.5.4: каподастр песни — тоже часть песни, пишем только когда он есть.
+      ...(songCapo ? { capo: songCapo } : {}),
       // Волна-4: ритм ячеек — одним полем пула (см. serializeRhythmPoolForSave).
       rhythmPool: serializeRhythmPoolForSave(),
       sections: sections.map((sec) => ({
@@ -54029,6 +54402,7 @@ toggleTimeAndBeats();
         visible: part.visible !== false,
         ...(mixIsDefault(part.mix, true) ? {} : { mix: mixCompact(part.mix, true) }),
         ...(partSoundId(part) === SOUND_DEFAULT ? {} : { sound: partSoundId(part) }),
+        ...(partCapoNumber(part) ? { capo: partCapoNumber(part) } : {}),
         ...(Array.isArray(part.soundAuto) && part.soundAuto.length
           ? { soundAuto: part.soundAuto.map((p) => ({ sec: p.sec, unit: p.unit, sound: p.sound })) }
           : {}),
@@ -55651,6 +56025,7 @@ toggleTimeAndBeats();
           // B-12.5.3: звучание дорожки и его переключения. Пресеты у гитары
           // и баса свои: басовое «соло» мы не выдумываем.
           ...(soundIdValid(rawPart.sound, inst) ? { sound: rawPart.sound } : {}),
+          ...(capoNumber(rawPart.capo) ? { capo: capoNumber(rawPart.capo) } : {}),
           ...(soundSanitizePoints(rawPart.soundAuto, inst, sectionIdMap, sectionBeatsById).length
             ? { soundAuto: soundSanitizePoints(rawPart.soundAuto, inst, sectionIdMap, sectionBeatsById) }
             : {}),
@@ -55716,10 +56091,13 @@ toggleTimeAndBeats();
     const songMix = songMixSanitize(rawSong.mix);
     // B-12.5.3: звучание аккомпанемента и переключения тембра по ходу песни.
     const songSound = soundIdValid(rawSong.sound, 'guitar') ? rawSong.sound : null;
+    // B-12.5.4: каподастр песни (0 — нет). Диапазон зажимаем: 0…12.
+    const songCapoValue = capoNumber(rawSong.capo);
     const songSoundAuto = soundSanitizePoints(rawSong.soundAuto, 'guitar', sectionIdMap, sectionBeatsById);
     const sanitizedSong = {
       ...(songMix ? { mix: songMix } : {}),
       ...(songSound ? { sound: songSound } : {}),
+      ...(songCapoValue ? { capo: songCapoValue } : {}),
       ...(songSoundAuto.length ? { soundAuto: songSoundAuto } : {}),
       schemaVersion: SONG_SCHEMA_VERSION,
       name: asSafeText(rawSong.name, SONG_LIMITS.MAX_TEXT), // legacy — только для диалога B-87
@@ -55848,6 +56226,9 @@ toggleTimeAndBeats();
     songSoundState = { sound: song.sound || SOUND_DEFAULT };
     songSoundAuto = (Array.isArray(song.soundAuto) ? song.soundAuto : []).map((p) => ({ ...p }));
     songSoundNow = songSoundId();
+    // B-12.5.4: каподастр песни читаем до первой отрисовки: от него зависит
+    // и звук аккомпанемента, и плашка над лентой.
+    songCapo = capoNumber(song.capo);
     if (typeof applyMixerValues === 'function') applyMixerValues();
 
     sections = song.sections.map((sec) => ({
