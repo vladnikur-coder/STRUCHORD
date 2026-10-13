@@ -1,0 +1,368 @@
+#!/usr/bin/env node
+/*
+ * b12-effects.js — B-12.6 «Приёмы», итерация 1: штрих и динамика.
+ *
+ * Проверяем:
+ *  1. Палитру приёмов: девять кнопок, у каждой клавиша в подсказке;
+ *  2. Клавиши GP: `[` палм-мьют, `I` let ring, `X` dead, `O` ghost,
+ *     `;`/`Shift+;` акценты, `Shift+1` стаккато, `Shift+T` теното,
+ *     `Shift+,`/`Shift+.` fade in/out; повторное нажатие снимает знак;
+ *  3. Знаки не ломают 12.2: `Shift+1` не вводит лад, `_` по-прежнему
+ *     удлиняет ноту, `Ctrl+.` — двойная точка;
+ *  4. Рисование: PM, L.R., крестик dead, скобки ghost, акценты, артикуляция,
+ *     fade и пунктир палм-мьюта по серии нот;
+ *  5. Звук: палм-мьют короче/глуше/тише и обрывается, dead — щелчок,
+ *     ghost — тише, акценты — громче, стаккато короче, теното держит
+ *     написанное, let ring звенит до следующей ноты струны, fade in/out —
+ *     плавный вход и спад;
+ *  6. Файл: знаки уезжают в песню необязательными полями и читаются назад;
+ *  7. Мусор в файле (`pm: 'yes'`, `accent: 7`, `fade: 'sideways'`)
+ *     отбрасывается поштучно;
+ *  8. Взаимоисключения: стаккато/теното и fade in/out не стоят вместе;
+ *  9. Отмена: знак ставится и снимается одним шагом Ctrl+Z;
+ * 10. Знаки не задевают соседние ноты и другие дорожки.
+ */
+const fs = require('fs');
+const path = require('path');
+const { JSDOM } = require('jsdom');
+
+const html = fs.readFileSync(path.join(__dirname, '..', '..', 'STRUCHORD.html'), 'utf8');
+const dom = new JSDOM(html, {
+  runScripts: 'dangerously',
+  pretendToBeVisual: true,
+  url: 'https://localhost/',
+  beforeParse(win) {
+    win.requestAnimationFrame = (cb) => setTimeout(cb, 0);
+    win.cancelAnimationFrame = (id) => clearTimeout(id);
+    win.HTMLCanvasElement.prototype.getContext = () => ({
+      font: '', measureText: () => ({ width: 10 }),
+      clearRect() {}, beginPath() {}, arc() {}, fill() {}, stroke() {}, moveTo() {},
+      lineTo() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {},
+      fillText() {}, strokeText() {}, setTransform() {}, scale() {},
+      createLinearGradient: () => ({ addColorStop() {} }),
+    });
+  },
+});
+const w = dom.window;
+w.AudioContext = w.webkitAudioContext = function () {
+  return {
+    currentTime: 0, state: 'running', resume() {}, sampleRate: 44100,
+    createBuffer: (c, len) => ({ getChannelData: () => new Float32Array(len) }),
+  };
+};
+
+let pass = 0;
+let fail = 0;
+function check(name, cond, details) {
+  if (cond) {
+    pass++;
+    console.log('ok   ' + name);
+  } else {
+    fail++;
+    console.error('FAIL ' + name + (details ? ' — ' + details : ''));
+  }
+}
+function eqJson(a, b) {
+  return JSON.stringify(a) === JSON.stringify(b);
+}
+
+const square = (id, chord) => ({
+  id, repeat: 1, customBeats: 4,
+  events: [{ chord, span: 4, timeSig: null, strumPattern: null }],
+});
+const song = (parts) => ({
+  schemaVersion: 5, metadata: { artist: 'A', title: 'B' }, bpm: 120, globalKey: 'C',
+  keyMode: 'manual', globalTimeSig: '4/4', tuning: 'e-std', tuningNotes: null, notes: '',
+  sections: [{
+    id: 1, type: 'Verse', customName: null, key: null, shift: null, timeSig: null,
+    bpm: null, repeat: 1, strumPattern: null, squares: [square(11, 'C')],
+  }],
+  parts, nextId: 90, rhythmPool: null, userFingerings: [], preferredFingerings: [], date: '',
+});
+// Три ноты на одной струне (для «звенит до следующей») и одна на другой.
+const notes = [
+  { start: 0, dur: 1, string: 5, fret: 7 },
+  { start: 1, dur: 1, string: 5, fret: 5 },
+  { start: 2, dur: 1, string: 4, fret: 3 },
+];
+const guitar = { id: 1, name: 'Соло', instrument: 'guitar', tuning: null, visible: true, rolls: { '1': notes } };
+
+w.addEventListener('load', () => {
+  try {
+    const load = (parts) => {
+      w.localStorage.setItem('struchord_songs', JSON.stringify([song(parts)]));
+      w.loadSong(0);
+      w.eval('render()');
+      w.confirm = () => true;
+    };
+    const key = (k, opts) => {
+      w.document.dispatchEvent(new w.KeyboardEvent('keydown', Object.assign({ key: k, bubbles: true }, opts || {})));
+    };
+    const roll = (i) => JSON.parse(w.eval(`JSON.stringify(songParts[${i}].rolls[String(sections[0].id)] || [])`));
+    const noteAt = (i, idx) => roll(i)[idx];
+    // Курсор на ноту (idx) струны 5 активной дорожки.
+    // secId передаём ЧИСЛОМ: partCursorState ищет секцию строгим сравнением.
+    const cursorTo = (idx, string) =>
+      w.eval(`setPartsCursorString(sections[0].id, 0, ${string === undefined ? 5 : string}, ${notes[idx].start})`);
+    const chipText = () => Array.from(w.document.querySelectorAll('.pt-row.is-active .pt-note')).length;
+    const markTexts = (cls) =>
+      Array.from(w.document.querySelectorAll(`.pt-row.is-active .${cls}`)).map((el) => el.textContent);
+
+    // ---------- 1. Палитра приёмов ----------
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    const toneButtons = w.document.querySelectorAll('#ptToneGroup .pt-pal-btn');
+    check('в палитре девять кнопок приёмов', toneButtons.length === 9, String(toneButtons.length));
+    check('у каждой кнопки есть подсказка с клавишей',
+      Array.from(toneButtons).every((b) => (b.title || '').length > 10 && /клавиш/i.test(b.title)),
+      JSON.stringify(Array.from(toneButtons).map((b) => b.title)));
+    check('подсказка палитры перечисляет клавиши приёмов',
+      /палм-мьют/.test(w.document.querySelector('.pt-pal-hint').textContent) &&
+      /стаккато/.test(w.document.querySelector('.pt-pal-hint').textContent),
+      w.document.querySelector('.pt-pal-hint').textContent);
+
+    // ---------- 2. Клавиши: постановка и снятие ----------
+    cursorTo(0);
+    key('[', { code: 'BracketLeft' });
+    check('`[` поставил палм-мьют', noteAt(0, 0).pm === true, JSON.stringify(noteAt(0, 0)));
+    key('[', { code: 'BracketLeft' });
+    check('повторное `[` сняло палм-мьют', !('pm' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+    key('x', { code: 'KeyX' });
+    check('`X` поставил dead note', noteAt(0, 0).dead === true, JSON.stringify(noteAt(0, 0)));
+    key('o', { code: 'KeyO' });
+    check('`O` поставил ghost note', noteAt(0, 0).ghost === true, JSON.stringify(noteAt(0, 0)));
+    key('i', { code: 'KeyI' });
+    check('`I` поставил let ring', noteAt(0, 0).letRing === true, JSON.stringify(noteAt(0, 0)));
+    key(';', { code: 'Semicolon' });
+    check('`;` поставил акцент', noteAt(0, 0).accent === 1, JSON.stringify(noteAt(0, 0)));
+    key(':', { code: 'Semicolon', shiftKey: true });
+    check('`Shift+;` поставил сильный акцент', noteAt(0, 0).accent === 2, JSON.stringify(noteAt(0, 0)));
+    key(';', { code: 'Semicolon' });
+    check('`;` на сильном акценте опускает его до обычного', noteAt(0, 0).accent === 1);
+    key(';', { code: 'Semicolon' });
+    check('второй `;` снял акцент вовсе', !('accent' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+
+    // ---------- 3. Артикуляция и fade ----------
+    cursorTo(1);
+    const beforeDigits = roll(0).length;
+    key('!', { code: 'Digit1', shiftKey: true });
+    check('`Shift+1` поставил стаккато', noteAt(0, 1).staccato === true, JSON.stringify(noteAt(0, 1)));
+    check('`Shift+1` НЕ ввёл лад 1', roll(0).length === beforeDigits && noteAt(0, 1).fret === 5,
+      JSON.stringify(noteAt(0, 1)));
+    key('T', { code: 'KeyT', shiftKey: true });
+    check('`Shift+T` поставил теното', noteAt(0, 1).tenuto === true, JSON.stringify(noteAt(0, 1)));
+    check('теното сняло стаккато (взаимоисключение)', !('staccato' in noteAt(0, 1)),
+      JSON.stringify(noteAt(0, 1)));
+    key('!', { code: 'Digit1', shiftKey: true });
+    check('стаккато в свою очередь сняло теното',
+      noteAt(0, 1).staccato === true && !('tenuto' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
+    key('>', { code: 'Period', shiftKey: true });
+    check('`Shift+.` поставил fade out', noteAt(0, 1).fade === 'out', JSON.stringify(noteAt(0, 1)));
+    key('<', { code: 'Comma', shiftKey: true });
+    check('`Shift+,` поставил fade in и снял fade out',
+      noteAt(0, 1).fade === 'in', JSON.stringify(noteAt(0, 1)));
+    key('<', { code: 'Comma', shiftKey: true });
+    check('повторный `Shift+,` снял fade', !('fade' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
+
+    // ---------- 4. Регресс 12.2: клавиши длительностей и ладов ----------
+    cursorTo(1);
+    const durBefore = noteAt(0, 1).dur;
+    key('_', { code: 'Minus', shiftKey: true });
+    check('`_` по-прежнему удлиняет ноту (12.2 не сломан)',
+      noteAt(0, 1).dur > durBefore, JSON.stringify([durBefore, noteAt(0, 1).dur]));
+    key('=', { code: 'Equal' });
+    key('=', { code: 'Equal' });
+    check('`=` укорачивает ноту', noteAt(0, 1).dur < durBefore, String(noteAt(0, 1).dur));
+    w.eval('partInput.dots = 0; partInput.triplet = false;');
+    key('.', { code: 'Period' });
+    key('.', { code: 'Period', ctrlKey: true });
+    w.eval('setPartsDuration(4)');
+    check('`Ctrl+.` ставит двойную точку', noteAt(0, 1).dots === 2, JSON.stringify(noteAt(0, 1)));
+    w.eval('partInput.dots = 0; applyPartsInputToCursorNote();');
+    w.eval('partInput.tone = partToneDefaults();');
+
+    // ---------- 5. Рисование знаков ----------
+    const longSong = song([{ ...guitar, rolls: { '1': [
+      { start: 0, dur: 1, string: 5, fret: 7, pm: true, accent: 1 },
+      { start: 1, dur: 1, string: 5, fret: 5, pm: true, letRing: true },
+      { start: 2, dur: 1, string: 4, fret: 3, dead: true },
+      { start: 3, dur: 1, string: 4, fret: 2, ghost: true, staccato: true },
+      { start: 4, dur: 1, string: 3, fret: 9, faded: true },
+    ] } }]);
+    longSong.sections[0].squares.push({ id: 12, repeat: 1, customBeats: 4, events: [{ chord: 'F', span: 4, timeSig: null, strumPattern: null }] });
+    w.localStorage.setItem('struchord_songs', JSON.stringify([longSong]));
+    w.loadSong(0);
+    w.eval('render()');
+    w.eval('togglePartsMode(true)');
+    w.eval('renderPartsScreen()');
+    check('все пять нот нарисованы', chipText() === 5, String(chipText()));
+    check('PM подписан над серией', markTexts('pt-mark-pm').length === 2, JSON.stringify(markTexts('pt-mark-pm')));
+    check('L.R. подписан', markTexts('pt-mark-letring').length === 1, JSON.stringify(markTexts('pt-mark-letring')));
+    check('акцент и стаккато нарисованы', markTexts('pt-mark-accent').join('') === '>',
+      JSON.stringify(markTexts('pt-mark-accent')));
+    check('стаккато нарисовано точкой', markTexts('pt-mark-artic').join('') === '•',
+      JSON.stringify(markTexts('pt-mark-artic')));
+    const rowTexts = () =>
+      Array.from(w.document.querySelectorAll('.pt-row.is-active text')).map((el) => el.textContent);
+    check('dead note — крестик вместо лада', rowTexts().includes('x'), JSON.stringify(rowTexts()));
+    check('ghost note — номер в скобках', rowTexts().includes('(2)'), JSON.stringify(rowTexts()));
+    check('пунктир палм-мьюта нарисован', w.document.querySelectorAll('.pt-row.is-active .pt-pm-line').length === 1,
+      String(w.document.querySelectorAll('.pt-row.is-active .pt-pm-line').length));
+    const pmLine = w.document.querySelector('.pt-row.is-active .pt-pm-line');
+    const staff = JSON.parse(w.eval(`JSON.stringify({
+      top: PART_TAB_TOP_PAD,
+      strings: songParts[0].rolls[String(sections[0].id)].length,
+      box: document.querySelector('.pt-row.is-active .pt-svg').getAttribute('viewBox').split(' ').map(Number),
+    })`));
+    check('пунктир PM вынесен над станом, а не по струнам',
+      Number(pmLine.getAttribute('y1')) < staff.top, JSON.stringify({ y: pmLine.getAttribute('y1'), staff }));
+    check('подписи знаков не пересекают строку пунктира',
+      markTexts('pt-mark-pm').length === 2 &&
+      Array.from(w.document.querySelectorAll('.pt-row.is-active .pt-mark-pm'))
+        .every((el) => Number(el.getAttribute('y')) < Number(pmLine.getAttribute('y1'))),
+      JSON.stringify(Array.from(w.document.querySelectorAll('.pt-row.is-active .pt-mark-pm'))
+        .map((el) => el.getAttribute('y'))));
+    check('пунктир тянется от первой ноты серии до последней',
+      Math.abs(Number(pmLine.getAttribute('x1')) - 2) < 0.01 &&
+      Math.abs(Number(pmLine.getAttribute('x2')) - 2 * 24) < 0.01,
+      JSON.stringify({ x1: pmLine.getAttribute('x1'), x2: pmLine.getAttribute('x2') }));
+    check('знак «faded» (неизвестное поле) ничего не рисует',
+      markTexts('pt-mark-fade').length === 0, JSON.stringify(markTexts('pt-mark-fade')));
+    // Полки вокруг стана: запас снизу — под артикуляцию и акцент.
+    check('запас viewBox посчитан по занятым полкам',
+      staff.box[1] === -41 && staff.box[3] === 65 + 41 + 28,
+      JSON.stringify(staff.box));
+
+    // Стан без знаков остаётся геометрией 12.3: запас не тратится зря.
+    load([{ ...guitar, rolls: { '1': [{ start: 0, dur: 1, string: 5, fret: 7 }] } }]);
+    w.eval('togglePartsMode(true)');
+    const plainBox = w.eval(
+      `document.querySelector('.pt-row.is-active .pt-svg').getAttribute('viewBox')`
+    ).split(' ').map(Number);
+    check('стан без знаков — геометрия 12.3 (без запаса вокруг)',
+      plainBox[1] === 0 && plainBox[3] === 10 * 2 + 9 * 5, JSON.stringify(plainBox));
+
+    // ---------- 6. Звук: заглушка pluckString ----------
+    w.eval(`
+      window.__plucks = [];
+      pluckString = function(ctx, opts) { window.__plucks.push(opts); };
+    `);
+    const play = (noteJson) => {
+      w.eval(`songParts[0].rolls[String(sections[0].id)] = [${JSON.stringify(noteJson)}];
+        window.__plucks = [];
+        schedulePartsForEvent({}, sections[0], sections[0].squares[0], 0, 0, 1);`);
+      return JSON.parse(w.eval('JSON.stringify(window.__plucks)'))[0];
+    };
+    const base = play({ start: 0, dur: 1, string: 5, fret: 7 });
+    check('обычная нота: базовые громкость и яркость',
+      Math.abs(base.gain - 0.42) < 1e-6 && !base.releaseAt && !base.fadeIn && !base.fadeOut,
+      JSON.stringify(base));
+    const pm = play({ start: 0, dur: 1, string: 5, fret: 7, pm: true });
+    check('палм-мьют короче, глуше и тише обычной ноты',
+      pm.duration < base.duration && pm.brightness < base.brightness && pm.gain < base.gain,
+      JSON.stringify([base, pm]));
+    check('палм-мьют обрывается (releaseAt = конец звона)',
+      Math.abs(pm.releaseAt - pm.duration) < 1e-6, JSON.stringify(pm));
+    const dead = play({ start: 0, dur: 1, string: 5, fret: 7, dead: true });
+    check('dead note — короткий щелчок с высокой яркостью',
+      dead.duration <= 0.075 && dead.brightness > base.brightness && dead.gain < base.gain, JSON.stringify(dead));
+    const ghost = play({ start: 0, dur: 1, string: 5, fret: 7, ghost: true });
+    check('ghost note тише обычной', ghost.gain < base.gain && ghost.duration === base.duration, JSON.stringify(ghost));
+    const acc1 = play({ start: 0, dur: 1, string: 5, fret: 7, accent: 1 });
+    const acc2 = play({ start: 0, dur: 1, string: 5, fret: 7, accent: 2 });
+    check('акценты громче обычной, сильный — сильнее',
+      acc1.gain > base.gain && acc2.gain > acc1.gain, JSON.stringify([base.gain, acc1.gain, acc2.gain]));
+    const stac = play({ start: 0, dur: 1, string: 5, fret: 7, staccato: true });
+    check('стаккато короче и обрывается', stac.duration < base.duration && stac.releaseAt > 0, JSON.stringify(stac));
+    // Теното: длинная нота, у которой базовый звон упёрся в потолок.
+    w.eval(`songParts[0].rolls[String(sections[0].id)] = [
+      { start: 0, dur: 8, string: 5, fret: 7, tenuto: true }];
+      window.__plucks = [];
+      schedulePartsForEvent({}, sections[0], sections[0].squares[0], 0, 0, 8);`);
+    const tenuto = JSON.parse(w.eval('JSON.stringify(window.__plucks)'))[0];
+    w.eval(`songParts[0].rolls[String(sections[0].id)] = [
+      { start: 0, dur: 8, string: 5, fret: 7 }];
+      window.__plucks = [];
+      schedulePartsForEvent({}, sections[0], sections[0].squares[0], 0, 0, 8);`);
+    const plain8 = JSON.parse(w.eval('JSON.stringify(window.__plucks)'))[0];
+    check('теното держит написанное дольше обычного звона (3 с потолок → 6 с)',
+      plain8.duration === 3 && tenuto.duration === 6, JSON.stringify([plain8.duration, tenuto.duration]));
+    // Let ring: звенит до следующей ноты этой же струны.
+    w.eval(`songParts[0].rolls[String(sections[0].id)] = [
+      { start: 0, dur: 1, string: 5, fret: 7, letRing: true },
+      { start: 3, dur: 1, string: 5, fret: 5 }];
+      window.__plucks = [];
+      schedulePartsForEvent({}, sections[0], sections[0].squares[0], 0, 0, 4);`);
+    const lr = JSON.parse(w.eval('JSON.stringify(window.__plucks)'))[0];
+    check('let ring звенит до следующей ноты той же струны (3 единицы = 2.98 с)',
+      Math.abs(lr.duration - 2.98) < 0.02, JSON.stringify(lr));
+    const fadeIn = play({ start: 0, dur: 1, string: 5, fret: 7, fade: 'in' });
+    check('fade in доезжает до голоса как флаг', fadeIn.fadeIn === true, JSON.stringify(fadeIn));
+    const fadeOut = play({ start: 0, dur: 1, string: 5, fret: 7, fade: 'out' });
+    check('fade out доезжает до голоса как флаг', fadeOut.fadeOut === true, JSON.stringify(fadeOut));
+
+    // ---------- 7. Файл и мусор ----------
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    cursorTo(0);
+    key('[', { code: 'BracketLeft' });
+    key(':', { code: 'Semicolon', shiftKey: true });
+    w.saveCurrentSong();
+    const lib = JSON.parse(w.localStorage.getItem('struchord_songs'));
+    const saved = lib[lib.length - 1];
+    const savedNote = saved.parts[0].rolls['1'][0];
+    check('знаки уехали в файл', savedNote.pm === true && savedNote.accent === 2, JSON.stringify(savedNote));
+    const savedIdx = lib.length - 1;
+    w.loadSong(savedIdx);
+    w.eval('render()');
+    check('знаки пережили перезагрузку',
+      noteAt(0, 0).pm === true && noteAt(0, 0).accent === 2, JSON.stringify(noteAt(0, 0)));
+    // Мусор
+    w.localStorage.setItem('struchord_songs', JSON.stringify([song([{
+      id: 1, name: 'Соло', instrument: 'guitar', tuning: null, visible: true,
+      rolls: { '1': [
+        { start: 0, dur: 1, string: 5, fret: 7, pm: 'yes', accent: 7, fade: 'sideways', ghost: 1 },
+        { start: 1, dur: 1, string: 5, fret: 5, accent: 2, staccato: true, tenuto: true, fade: 'out' },
+      ] },
+    }])]));
+    w.loadSong(0);
+    w.eval('render()');
+    check('мусорные значения знаков отброшены',
+      eqJson(Object.keys(roll(0)[0]).sort(), ['dur', 'fret', 'start', 'string']),
+      JSON.stringify(roll(0)[0]));
+    check('правильные значения приняты',
+      roll(0)[1].accent === 2 && roll(0)[1].staccato === true && roll(0)[1].tenuto === true &&
+      roll(0)[1].fade === 'out', JSON.stringify(roll(0)[1]));
+
+    // ---------- 8. Отмена и соседи ----------
+    load([guitar]);
+    w.eval('resetHistory()');
+    w.eval('togglePartsMode(true)');
+    cursorTo(0);
+    const neighbourBefore = JSON.stringify(noteAt(0, 1));
+    key('[', { code: 'BracketLeft' });
+    check('знак поставлен только на ноту под курсором',
+      noteAt(0, 0).pm === true && JSON.stringify(noteAt(0, 1)) === neighbourBefore,
+      JSON.stringify(roll(0)));
+    w.undoEdit();
+    w.eval('render()');
+    check('Ctrl+Z снимает знак целиком',
+      !('pm' in noteAt(0, 0)) && JSON.stringify(noteAt(0, 1)) === neighbourBefore, JSON.stringify(roll(0)));
+    // Кнопка палитры делает то же, что клавиша.
+    cursorTo(0);
+    w.document.querySelector('#ptToneGroup .pt-pal-btn[data-tone="ghost"]')
+      .dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
+    check('кнопка палитры ставит знак', noteAt(0, 0).ghost === true, JSON.stringify(noteAt(0, 0)));
+    check('кнопка палитры подсвечена как активная',
+      w.document.querySelector('#ptToneGroup .pt-pal-btn[data-tone="ghost"]').classList.contains('is-on'));
+    w.eval('renderPartsScreen()');
+    check('приёмы второй дорожки не тронуты',
+      w.eval('songParts.length') === 1, String(w.eval('songParts.length')));
+
+    console.log(`\nитого: ${pass} ok, ${fail} FAIL`);
+    if (fail) process.exitCode = 1;
+  } catch (e) {
+    console.error('ОШИБКА:', e && e.stack ? e.stack : e);
+    process.exitCode = 1;
+  }
+});

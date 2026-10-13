@@ -353,8 +353,13 @@ w.addEventListener('load', () => {
       Array.from(w.document.getElementById('ptTuning').options).every(
         (o) => !['E Standard', 'Drop D', 'DADGAD'].includes(o.textContent)),
       JSON.stringify(Array.from(w.document.getElementById('ptTuning').options).map((o) => o.textContent)));
-    const bassViewBox = row(G3).querySelector('.pt-svg').getAttribute('viewBox');
-    check('станок баса — 4 струны', bassViewBox.split(' ')[3] === String(10 * 2 + 9 * 3), bassViewBox);
+    // 12.6.1 может добавить стану запас вокруг линеек под знаки приёмов:
+    // тогда viewBox начинается выше нуля, и высота стана = y + height.
+    const bassSvgEl = row(G3).querySelector('.pt-svg');
+    const bassBox = bassSvgEl.getAttribute('viewBox').split(' ').map(Number);
+    check('станок баса — 4 струны',
+      bassSvgEl.querySelectorAll('.pt-string').length === 4 && bassBox[3] + bassBox[1] === 10 * 2 + 9 * 3,
+      bassSvgEl.getAttribute('viewBox'));
     check('нот на басовом станке одна', row(G3).querySelectorAll('.pt-note').length === 1);
     // Ноты в пределах баса: смена инструмента их не трогает.
     w.eval('songParts[0].tuning = "bass-std"');

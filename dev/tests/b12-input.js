@@ -300,7 +300,13 @@ w.addEventListener('load', () => {
       isParts: w.document.body.classList.contains('is-parts'),
       partsMode: w.eval('partsMode'), parts: w.eval('songParts.length') }));
   check('партия без нот: палитра на месте',
-    w.document.querySelectorAll('#partsPalette .pt-pal-btn').length === 10);
+    w.document.querySelectorAll('#ptDurGroup .pt-pal-btn').length === 7 &&
+    w.document.querySelectorAll('#ptMarkGroup .pt-pal-btn').length === 3 &&
+    w.document.querySelectorAll('#ptToneGroup .pt-pal-btn').length === 9,
+    JSON.stringify({
+      dur: w.document.querySelectorAll('#ptDurGroup .pt-pal-btn').length,
+      tone: w.document.querySelectorAll('#ptToneGroup .pt-pal-btn').length,
+    }));
   check('курсор умеет встать в пустую партию', w.eval('partsCursor !== null') === true);
 
   // --- Esc выходит из окна и не оставляет незакрытую вторую цифру ---
