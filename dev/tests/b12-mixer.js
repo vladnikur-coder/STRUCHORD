@@ -106,6 +106,12 @@ w.addEventListener('load', async () => {
       return found ? found[1] : null;
     };
     const mixOf = (index) => JSON.parse(w.eval(`JSON.stringify(songParts[${index}].mix || null)`));
+    const mixChannelValueOf = (id) =>
+      JSON.parse(w.eval(`JSON.stringify(mixChannelValue(${JSON.stringify(id)}, 'eq'))`));
+    const mixEqOf = (raw) => JSON.parse(w.eval(`JSON.stringify(mixEqArray(${JSON.stringify(raw)}))`));
+    // Санитайз/карточки могут завести пустой объект микшера — «правок нет»
+    // проверяем по отсутствию ключей, а не по строгому null.
+    const mixEmpty = (index) => JSON.stringify(mixOf(index) || {}) === '{}';
     // Санитайз при загрузке переназначает id дорожек — каналы адресуем по
     // модели (songParts[i].id), а не по числам из файла-заготовки.
     const chId = (index) => `part:${w.eval(`songParts[${index}].id`)}`;
@@ -127,9 +133,10 @@ w.addEventListener('load', async () => {
     check('у мастера нет solo, но есть focus, громкость и панорама',
       !!act('master', 'mute') && !act('master', 'solo') && !!act('master', 'focus') &&
       !!act('master', 'volume') && !!act('master', 'pan'), card('master').innerHTML);
-    check('по умолчанию все каналы открыты и по центру',
-      eqJson(planFor('song'), { gain: 1, pan: 0 }) && eqJson(planFor(chId(0)), { gain: 1, pan: 0 }) &&
-      eqJson(planFor('master'), { gain: 1, pan: 0 }), JSON.stringify(plan()));
+    check('по умолчанию все каналы открыты, по центру и с ровным эквалайзером',
+      eqJson(planFor('song'), { gain: 1, pan: 0, eq: [0, 0, 0] }) &&
+      eqJson(planFor(chId(0)), { gain: 1, pan: 0, eq: [0, 0, 0] }) &&
+      eqJson(planFor('master'), { gain: 1, pan: 0, eq: [0, 0, 0] }), JSON.stringify(plan()));
     check('активная дорожка подсвечена в полосе', card(chId(0)).classList.contains('is-active'));
 
     // ---------- 2. Правила: mute, solo, громкость, мастер, focus ----------
@@ -313,6 +320,147 @@ w.addEventListener('load', async () => {
       !mixOf(0) || mixOf(0).volume !== 20, JSON.stringify(mixOf(0)));
     check('звук после отмены снова полный', Math.abs(planFor(chId(0)).gain - 1) < 1e-9,
       JSON.stringify(planFor(chId(0))));
+
+    // ================= 7. Эквалайзер: полоса каналов =================
+    load([guitar, bass]);
+    w.eval('togglePartsMode(true)');
+    check('у канала и мастера есть кнопка EQ, а блок полос по умолчанию свёрнут',
+      !!act(chId(0), 'eq') && !!act('master', 'eq') &&
+      card(chId(0)).querySelector('.pt-mix-eq').hidden === true &&
+      card('master').querySelector('.pt-mix-eq').hidden === true);
+    check('в блоке три полосы: низ, середина, верх',
+      !!act(chId(0), 'eq0') && !!act(chId(0), 'eq1') && !!act(chId(0), 'eq2'),
+      card(chId(0)).querySelector('.pt-mix-eq').innerHTML);
+    check('по умолчанию полосы по нулям', eqJson(mixChannelValueOf(chId(0)), [0, 0, 0]),
+      JSON.stringify(mixChannelValueOf(chId(0))));
+    clickAct(chId(0), 'eq');
+    check('кнопка EQ разворачивает блок полос',
+      card(chId(0)).querySelector('.pt-mix-eq').hidden === false);
+    check('разворот блока — не правка песни: модель и монитор чисты',
+      mixEmpty(0) && w.eval('mixerPending.size') === 0 && w.eval('mixerEqOpen.has(songParts[0] && ("part:" + songParts[0].id))') === true,
+      JSON.stringify(mixOf(0)));
+    w.eval('renderPartsScreen()');
+    check('развёрнутый блок переживает перерисовку окна',
+      card(chId(0)).querySelector('.pt-mix-eq').hidden === false);
+
+    const eqLow = act(chId(0), 'eq0');
+    eqLow.value = '6';
+    eqLow.dispatchEvent(new w.Event('input', { bubbles: true }));
+    check('во время протяжки полосы модель не меняется, а расчёт уже с полосой',
+      mixEmpty(0) && eqJson(planFor(chId(0)).eq, [6, 0, 0]),
+      JSON.stringify([mixOf(0), planFor(chId(0)).eq]));
+    eqLow.dispatchEvent(new w.Event('change', { bubbles: true }));
+    check('по отпускании полоса уезжает в модель',
+      mixOf(0) && eqJson(mixOf(0).eq, [6, 0, 0]), JSON.stringify(mixOf(0)));
+    check('подпись полосы показывает знак', card(chId(0)).querySelector('[data-eq-value="0"]').textContent === '+6',
+      card(chId(0)).querySelector('[data-eq-value="0"]').textContent);
+    const eqHigh = act('master', 'eq2');
+    eqHigh.value = '-4';
+    eqHigh.dispatchEvent(new w.Event('input', { bubbles: true }));
+    eqHigh.dispatchEvent(new w.Event('change', { bubbles: true }));
+    check('EQ мастера живёт в полосе мастера',
+      w.eval('JSON.stringify(songMixerState.master.eq)') === '[-0,-0,-4]' ||
+      eqJson(JSON.parse(w.eval('JSON.stringify(songMixerState.master.eq)')), [0, 0, -4]),
+      w.eval('JSON.stringify(songMixerState.master.eq)'));
+    check('кнопка EQ подсвечена, когда полосы не по нулям',
+      card(chId(0)).querySelector('[data-act="eq"]').classList.contains('is-on') &&
+      card('master').querySelector('[data-act="eq"]').classList.contains('is-on'));
+    // Нулевую полосу модель не хранит: вернули в ноль — ключ ушёл.
+    eqLow.value = '0';
+    eqLow.dispatchEvent(new w.Event('input', { bubbles: true }));
+    eqLow.dispatchEvent(new w.Event('change', { bubbles: true }));
+    check('полоса, вернувшаяся в ноль, из модели уходит',
+      mixEmpty(0), JSON.stringify(mixOf(0)));
+
+    // ================= 8. Эквалайзер: звук =================
+    // Мини-подделка Web Audio: jsdom его не умеет, а нам нужно проверить, что
+    // полосы реально стоят в цепочке канала и получают свои децибелы.
+    const fakeCtx = (() => {
+      const param = (v) => ({
+        value: v, setValueAtTime() {}, linearRampToValueAtTime() {},
+        exponentialRampToValueAtTime() {}, cancelScheduledValues() {}, setTargetAtTime() {},
+      });
+      const mk = (kind) => {
+        const node = { kind, connections: [], connect(d) { this.connections.push(d); return d; }, disconnect() {} };
+        if (kind === 'gain') node.gain = param(1);
+        if (kind === 'panner') node.pan = param(0);
+        if (kind === 'filter') {
+          node.frequency = param(1000);
+          node.Q = param(1);
+          node.gain = param(0);
+          node.type = 'lowpass';
+        }
+        if (kind === 'source') {
+          node.playbackRate = param(1);
+          node.detune = param(0);
+          node.start = () => {};
+          node.stop = () => {};
+        }
+        return node;
+      };
+      return {
+        currentTime: 0, sampleRate: 44100, state: 'running',
+        destination: mk('destination'),
+        createGain: () => mk('gain'),
+        createStereoPanner: () => mk('panner'),
+        createConvolver: () => mk('convolver'),
+        createBiquadFilter: () => mk('filter'),
+        createBufferSource: () => mk('source'),
+        createBuffer: (ch, len) => ({ getChannelData: () => new Float32Array(len) }),
+        resume() {},
+        close() { return Promise.resolve(); },
+      };
+    })();
+    w.__fakeCtx = fakeCtx;
+    w.eval('mixerChannels = new Map(); guitarMasterGain = null; guitarMasterPanner = null; masterFilters = [];');
+    const channelInfo = JSON.parse(w.eval(
+      '(function(){ const ch = ensureMixerChannel(__ctx, "song"); return JSON.stringify({ types: ch.filters.map((f) => f.type), freqs: ch.filters.map((f) => f.frequency.value) }); })()'.replace('__ctx', '__fakeCtx')
+    ));
+    check('канал получает цепочку из трёх полос нужных типов и частот',
+      eqJson(channelInfo.types, ['lowshelf', 'peaking', 'highshelf']) &&
+      eqJson(channelInfo.freqs, [250, 1000, 4000]), JSON.stringify(channelInfo));
+    check('эквалайзер стоит в цепочке ДО панорамы: хвост — панорама, а не мастер',
+      JSON.parse(w.eval(
+        '(function(){ const ch = mixerChannels.get("song"); const last = ch.filters[ch.filters.length - 1]; return JSON.stringify(last.connections.map((n) => n.kind)); })()'
+      ))[0] === 'panner');
+    check('у мастера своя тройка полос',
+      JSON.parse(w.eval('JSON.stringify(masterFilters.map((f) => f.type))')).length === 3,
+      w.eval('JSON.stringify(masterFilters.map((f) => f.type))'));
+    w.eval('songMixerState.eq = [5, -3, 2]; songMixerState.master.eq = [-2, 0, 4]; applyMixerValues(__fakeCtx);');
+    check('децибелы каналов уезжают в фильтры',
+      eqJson(JSON.parse(w.eval('JSON.stringify(mixerChannels.get("song").filters.map((f) => f.gain.value))')), [5, -3, 2]),
+      w.eval('JSON.stringify(mixerChannels.get("song").filters.map((f) => f.gain.value))'));
+    check('децибелы мастера уезжают в фильтры мастера',
+      eqJson(JSON.parse(w.eval('JSON.stringify(masterFilters.map((f) => f.gain.value))')), [-2, 0, 4]),
+      w.eval('JSON.stringify(masterFilters.map((f) => f.gain.value))'));
+    check('громкость, панорама и эквалайзер применяются вместе',
+      Math.abs(w.eval('mixerChannels.get("song").input.gain.value') - 1) < 1e-9 &&
+      Math.abs(w.eval('mixerChannels.get("song").panner.pan.value')) < 1e-9);
+    w.eval('mixerChannels = new Map(); guitarMasterGain = null; guitarMasterPanner = null; masterFilters = []; songMixerState.eq = undefined; songMixerState.master.eq = undefined;');
+
+    // ================= 9. Эквалайзер: файл =================
+    load([guitar]);
+    w.eval('togglePartsMode(true)');
+    const fileEq = act(chId(0), 'eq1');
+    fileEq.value = '8';
+    fileEq.dispatchEvent(new w.Event('input', { bubbles: true }));
+    fileEq.dispatchEvent(new w.Event('change', { bubbles: true }));
+    w.saveCurrentSong();
+    const eqLib = JSON.parse(w.localStorage.getItem('struchord_songs'));
+    check('полосы эквалайзера уезжают в файл массивом',
+      eqJson(eqLib[eqLib.length - 1].parts[0].mix.eq, [0, 8, 0]),
+      JSON.stringify(eqLib[eqLib.length - 1].parts[0].mix));
+    w.loadSong(eqLib.length - 1);
+    w.eval('render()');
+    check('полосы пережили перезагрузку песни',
+      eqJson(mixOf(0).eq, [0, 8, 0]) && eqJson(planFor(chId(0)).eq, [0, 8, 0]),
+      JSON.stringify(mixOf(0)));
+    check('файл не хранит нулевые полосы',
+      JSON.parse(w.eval('JSON.stringify(mixCompact({ volume: 100, eq: [0, 0, 0] }, true))')).eq === undefined);
+    check('мусор в полосах: нечисло — ноль, выход за ±12 дБ зажат',
+      eqJson(mixEqOf({ eq: ['громко', 99, -99] }), [0, 12, -12]) &&
+      eqJson(mixEqOf({ eq: 'ровно' }), [0, 0, 0]),
+      JSON.stringify(mixEqOf({ eq: ['громко', 99, -99] })));
 
     console.log(`\nитого: ${pass} ok, ${fail} FAIL`);
     if (fail) process.exitCode = 1;
