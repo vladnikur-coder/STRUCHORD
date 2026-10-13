@@ -10006,6 +10006,104 @@ body.is-parts .container {
 .pt-note.is-dead {
   stroke: var(--color-text-secondary);
 }
+/* B-12.5.1 «Микшер»: полоса каналов под табулатурами. Горизонтальная, с
+   прокруткой на узком экране: каналов может быть много, а высота окна
+   партий — на вес золота (табы не должны её терять). */
+.pt-mixer {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: stretch;
+  gap: 0.5rem;
+  margin: 0.5rem 0.75rem 0.75rem;
+  padding: 0.5rem 0.625rem;
+  border: 0.0625rem solid var(--color-border-light);
+  border-radius: 0.75rem;
+  background: var(--color-background-secondary);
+  overflow-x: auto;
+}
+.pt-mix-title {
+  flex: 0 0 auto;
+  align-self: center;
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 0.625rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.pt-mix-channels {
+  display: flex;
+  align-items: stretch;
+  gap: 0.375rem;
+}
+.pt-mix-ch {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  min-width: 6.5rem;
+  padding: 0.375rem 0.5rem;
+  border: 0.0625rem solid var(--color-border-medium);
+  border-radius: 0.5rem;
+  background: var(--color-surface);
+}
+.pt-mix-ch.is-active {
+  border-color: var(--color-brand);
+}
+.pt-mix-ch.is-master {
+  background: var(--color-tint);
+}
+.pt-mix-name {
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pt-mix-name .pt-mix-hidden {
+  font-weight: 400;
+  color: var(--color-text-tertiary);
+}
+.pt-mix-row {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+}
+.pt-mix-btn {
+  min-width: 1.5rem;
+  padding: 0.0625rem 0.25rem;
+  border: 0.0625rem solid var(--color-border-medium);
+  border-radius: 0.375rem;
+  background: var(--color-surface);
+  font-family: inherit;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  color: var(--color-text-secondary);
+  cursor: pointer;
+}
+.pt-mix-btn.is-on {
+  border-color: var(--color-brand);
+  background: var(--color-tint);
+  color: var(--color-brand-ink);
+}
+.pt-mix-slider {
+  width: 100%;
+  min-width: 5.5rem;
+  accent-color: var(--color-brand);
+}
+.pt-mix-val {
+  font-size: 0.625rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-tertiary);
+}
+.pt-mix-focus {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  font-size: 0.625rem;
+  color: var(--color-text-tertiary);
+}
 /* B-12.6.4: поиск по палитре — то же место, что у GP Command Palette. */
 .pt-pal-search {
   width: 100%;
@@ -12782,7 +12880,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.627</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.628</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -13415,6 +13513,14 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
             </div>
             <div class="pt-track" id="partsTrack"></div>
           </div>
+        </div>
+        <!-- B-12.5.1 «Микшер»: полоса каналов под табулатурами — как панель
+             Global View в Guitar Pro. У каждой дорожки свои M/S, громкость и
+             панорама; «Песня» (аккомпанемент) идёт отдельным каналом, у
+             мастера — своя полоса с ручкой focus. -->
+        <div class="pt-mixer" id="partsMixer" aria-label="Микшер">
+          <span class="pt-mix-title">Микшер</span>
+          <div class="pt-mix-channels" id="mixChannels"></div>
         </div>
         <!-- B-12.6.4 «Искусственные флажолеты»: окно параметров. В GP у
              искусственного флажолета задают тип (A.H./P.H./T.H./S.H./F.H.)
@@ -29394,6 +29500,11 @@ function hardRecoverAudioContext(reason, force) {
   stopAllAudio(); stopMetronomeScheduler();
   metronomeGainNode = null;
   guitarDryBus = null; guitarWetBus = null; guitarBodyConvolver = null; guitarMasterGain = null;
+  // B-12.5.1: каналы микшера живут на своём контексте — вместе с ним их и
+  // выбрасываем, иначе новые узлы остались бы на закрытом контексте.
+  mixerChannels = new Map();
+  guitarImpulse = null;
+  guitarMasterPanner = null;
   pluckBufferCache.clear();
   audioCtx = null;
   if (previous && previous.state !== 'closed') {
@@ -30943,24 +31054,224 @@ function buildGuitarBodyImpulse(ctx) {
   return impulse;
 }
 
+// ============ B-12.5.1 «МИКШЕР»: КАНАЛЫ ЗВУКА ============
+//
+// В GP микшер — это панель Global View: у каждой дорожки свои mute/solo,
+// громкость и панорама, отдельная полоса у мастера. Звук мы раскладываем
+// так же: голос играет в КАНАЛ (песня, партия), канал — в мастер.
+//
+//   голос → канал.dry (0.9) ─┐
+//   голос → канал.convolver → канал.wet (0.16) ─┤→ канал.input → панорама → мастер → выход
+//
+// У каждого канала свой конвольвер, но импульс — один общий буфер: дек
+// инструмента одинакова для всех, а громкость и панорама — свои.
+const MIX_CHANNEL_SONG = 'song';
+const MIX_DEFAULTS = { volume: 100, pan: 0, mute: false, solo: false };
+const MIX_VOLUME_MAX = 150; // в процентах: 100 — как записано, 150 — на 3,5 дБ выше
+const MIX_FOCUS_MAX = 136; // focus мастера: 100 — нейтрально, 136 — +36%, как в GP
+let mixerChannels = new Map(); // id → { input, panner, dry, wet, convolver }
+let guitarImpulse = null; // общий буфер деки для всех каналов
+let guitarMasterPanner = null;
+// Focus мастера (ручка в полосе мастера, как в GP): поднимает/понижает
+// ТОЛЬКО активную дорожку — остальные не глушатся, ансамбль слышен.
+let mixerFocus = 100;
+// Значения микшера — часть ПЕСНИ (в GP микшер тоже живёт в файле): громкость
+// и панорама аккомпанемента плюс полоса мастера.
+let songMixerState = { volume: 100, pan: 0, mute: false, master: { volume: 100, pan: 0, mute: false } };
+
+function mixSanitizeNumbers(raw, withSolo) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const mix = {};
+  const volume = Number(raw.volume);
+  if (Number.isFinite(volume)) mix.volume = Math.round(Math.max(0, Math.min(MIX_VOLUME_MAX, volume)));
+  const pan = Number(raw.pan);
+  if (Number.isFinite(pan)) mix.pan = Math.round(Math.max(-100, Math.min(100, pan)));
+  if (raw.mute === true) mix.mute = true;
+  if (withSolo && raw.solo === true) mix.solo = true;
+  return Object.keys(mix).length ? mix : null;
+}
+
+// Микшер дорожки из файла: числа зажимаются, флаги — строго true.
+function partSanitizeMix(raw) {
+  return mixSanitizeNumbers(raw, true);
+}
+
+// Микшер песни: канал «Песня» плюс полоса мастера.
+function songMixSanitize(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const out = mixSanitizeNumbers(raw, false) || {};
+  const master = mixSanitizeNumbers(raw.master, false);
+  if (master) out.master = master;
+  return Object.keys(out).length ? out : null;
+}
+
+// Компактная запись: в файл уезжают только НЕумолчательные значения, поэтому
+// обычная песня не растёт, а микшер читается однозначно.
+function mixCompact(mix, withSolo) {
+  const out = {};
+  if (!mix) return out;
+  if (mix.volume !== undefined && Number(mix.volume) !== 100) {
+    out.volume = Math.round(Math.max(0, Math.min(MIX_VOLUME_MAX, Number(mix.volume))));
+  }
+  if (mix.pan !== undefined && Number(mix.pan) !== 0) {
+    out.pan = Math.round(Math.max(-100, Math.min(100, Number(mix.pan))));
+  }
+  if (mix.mute === true) out.mute = true;
+  if (withSolo && mix.solo === true) out.solo = true;
+  return out;
+}
+
+function mixIsDefault(mix, withSolo) {
+  return Object.keys(mixCompact(mix, withSolo)).length === 0;
+}
+
+function songMixIsDefault(mix) {
+  return mixIsDefault(mix, false) && mixIsDefault(mix && mix.master, false);
+}
+
+function songMixCompact(mix) {
+  const out = mixCompact(mix, false);
+  const master = mixCompact(mix && mix.master, false);
+  if (Object.keys(master).length) out.master = master;
+  return out;
+}
+
+function partChannelId(partId) {
+  return `part:${partId}`;
+}
+
 function ensureGuitarBus(ctx) {
   if (guitarMasterGain) return;
   guitarMasterGain = ctx.createGain();
   guitarMasterGain.gain.value = 1;
-  guitarMasterGain.connect(ctx.destination);
-
-  guitarDryBus = ctx.createGain();
-  guitarDryBus.gain.value = 0.9;
-  guitarDryBus.connect(guitarMasterGain);
-
-  guitarWetBus = ctx.createGain();
-  guitarWetBus.gain.value = 0.16;
-  guitarBodyConvolver = ctx.createConvolver();
+  if (ctx.createStereoPanner) {
+    guitarMasterPanner = ctx.createStereoPanner();
+    guitarMasterPanner.pan.value = 0;
+    guitarMasterGain.connect(guitarMasterPanner);
+    guitarMasterPanner.connect(ctx.destination);
+  } else {
+    guitarMasterPanner = null;
+    guitarMasterGain.connect(ctx.destination);
+  }
   try {
-    guitarBodyConvolver.buffer = buildGuitarBodyImpulse(ctx);
+    guitarImpulse = buildGuitarBodyImpulse(ctx);
+  } catch (e) {
+    guitarImpulse = null;
+  }
+}
+
+function ensureMixerChannel(ctx, id) {
+  const existing = mixerChannels.get(id);
+  if (existing) return existing;
+  ensureGuitarBus(ctx);
+  const input = ctx.createGain();
+  input.gain.value = 1;
+  const panner = ctx.createStereoPanner ? ctx.createStereoPanner() : null;
+  if (panner) {
+    panner.pan.value = 0;
+    input.connect(panner);
+    panner.connect(guitarMasterGain);
+  } else {
+    input.connect(guitarMasterGain);
+  }
+  const dry = ctx.createGain();
+  dry.gain.value = 0.9;
+  dry.connect(input);
+  const convolver = ctx.createConvolver();
+  try {
+    if (guitarImpulse) convolver.buffer = guitarImpulse;
   } catch (e) {}
-  guitarBodyConvolver.connect(guitarWetBus);
-  guitarWetBus.connect(guitarMasterGain);
+  const wet = ctx.createGain();
+  wet.gain.value = 0.16;
+  convolver.connect(wet);
+  wet.connect(input);
+  const channel = { id, input, panner, dry, wet, convolver };
+  mixerChannels.set(id, channel);
+  // Старые имена остаются рабочими: шина «песни» — тот же канал, поэтому
+  // код аккомпанемента (глушение ладонью и прочие шумы) не переписываем.
+  if (id === MIX_CHANNEL_SONG) {
+    guitarDryBus = dry;
+    guitarWetBus = wet;
+    guitarBodyConvolver = convolver;
+  }
+  applyMixerValues(ctx);
+  return channel;
+}
+
+function mixerChannelForVoice(ctx, id) {
+  return ensureMixerChannel(ctx, id || MIX_CHANNEL_SONG);
+}
+
+function partMix(part) {
+  return { ...MIX_DEFAULTS, ...(part && part.mix ? part.mix : {}) };
+}
+
+function songMixState() {
+  return songMixerState;
+}
+
+// Чистый расчёт: что должен получить каждый канал. Вынесен отдельно, чтобы
+// правило «solo глушит остальные, focus поднимает активную» проверялось
+// тестом без звукового контекста.
+function mixerPlan(parts, songState, focus, activePartId, pending) {
+  const list = Array.isArray(parts) ? parts : [];
+  const pend = pending || mixerPending;
+  // Протяжка ползунка живёт во временном mixerPending: модель ещё не
+  // тронута (правило 60 fps), но звук уже идёт по новому значению.
+  const withPending = (id, mix) => ({ ...mix, ...((pend && pend.get(id)) || {}) });
+  const song = withPending(MIX_CHANNEL_SONG, { ...MIX_DEFAULTS, ...(songState || {}) });
+  const soloed = list.filter((part) => partMix(part).solo);
+  const anySolo = soloed.length > 0;
+  const focusValue = Math.max(0, Math.min(MIX_FOCUS_MAX, Number(focus) || 100)) / 100;
+  const plan = new Map();
+  list.forEach((part) => {
+    const mix = withPending(partChannelId(part.id), partMix(part));
+    let gain = Math.max(0, Math.min(MIX_VOLUME_MAX, Number(mix.volume) || 0)) / 100;
+    if (mix.mute) gain = 0;
+    if (anySolo && !mix.solo) gain = 0;
+    // Focus мастера — надбавка АКТИВНОЙ дорожке (в GP ручка под M/S мастера).
+    if (part.id === activePartId) gain *= focusValue;
+    plan.set(partChannelId(part.id), {
+      gain,
+      pan: Math.max(-100, Math.min(100, Number(mix.pan) || 0)) / 100,
+    });
+  });
+  // «Песня» — аккомпанемент песни. Solo её тоже глушит: в GP solo глушит все
+  // остальные дорожки, и «песня» — такая же дорожка в миксе.
+  let songGain = Math.max(0, Math.min(MIX_VOLUME_MAX, Number(song.volume) || 0)) / 100;
+  if (song.mute || anySolo) songGain = 0;
+  plan.set(MIX_CHANNEL_SONG, {
+    gain: songGain,
+    pan: Math.max(-100, Math.min(100, Number(song.pan) || 0)) / 100,
+  });
+  const master = withPending('master', {
+    ...MIX_DEFAULTS,
+    ...(songState && songState.master ? songState.master : {}),
+  });
+  plan.set('master', {
+    gain: master.mute ? 0 : Math.max(0, Math.min(MIX_VOLUME_MAX, Number(master.volume) || 0)) / 100,
+    pan: Math.max(-100, Math.min(100, Number(master.pan) || 0)) / 100,
+  });
+  return plan;
+}
+
+// Применение расчёта к узлам звука. Если контекста ещё нет — применится при
+// его создании (ensureMixerChannel зовёт эту же функцию).
+function applyMixerValues(ctx) {
+  const context = ctx || audioCtx;
+  if (!context || !guitarMasterGain) return;
+  const plan = mixerPlan(songParts, songMixerState, mixerFocus, partsActiveId);
+  plan.forEach((target, id) => {
+    const channel = id === 'master' ? null : mixerChannels.get(id);
+    if (!channel) return;
+    channel.input.gain.value = target.gain;
+    if (channel.panner) channel.panner.pan.value = target.pan;
+  });
+  const master = plan.get('master');
+  if (master) {
+    guitarMasterGain.gain.value = master.gain;
+    if (guitarMasterPanner) guitarMasterPanner.pan.value = master.pan;
+  }
 }
 
 // Собственно алгоритм Карплюса-Стронга: заполняем кольцевой буфер длиной
@@ -31159,8 +31470,11 @@ function pluckString(ctx, opts) {
 
   src.connect(toneFilter);
   toneFilter.connect(env);
-  outNode.connect(guitarDryBus);
-  outNode.connect(guitarBodyConvolver);
+  // B-12.5.1: голос играет в свой КАНАЛ микшера (песня/партия) — громкость,
+  // панорама и mute берутся из него, а не из общих шин.
+  const channel = mixerChannelForVoice(ctx, opts.channel);
+  outNode.connect(channel.dry);
+  outNode.connect(channel.convolver);
 
   src.start(startTime, skipAttack);
   src.stop(stopAt);
@@ -45971,6 +46285,9 @@ function togglePartsMode(force) {
   if (partsMode) {
     ensurePartsPalette();
     renderPartsScreen();
+    // Микшер — часть звука песни: входя в окно партий, применяем его
+    // значения к каналам (контекст мог быть создан заново).
+    if (typeof applyMixerValues === 'function') applyMixerValues();
   } else {
     clearPartsPlaybackHighlight();
     // Окна-инспекторы (кривая бенда, флажолет) живут вне списка дорожек и
@@ -46075,6 +46392,261 @@ function syncPartsEmptyState() {
   if (enableBtn) enableBtn.hidden = !allOff;
 }
 
+// ---------- B-12.5.1 «Микшер»: полоса каналов ----------
+//
+// Канал — это место звука: «Песня» (аккомпанемент), каждая дорожка и мастер.
+// Значения живут в модели песни (part.mix, song.mix), а во время протяжки
+// ползунка — во временном mixerPending: модель не трогаем до отпускания
+// (правило 60 fps), но слышим уже сейчас.
+let mixerPending = new Map();
+
+function mixChannelIds() {
+  return [MIX_CHANNEL_SONG, ...songParts.map((part) => partChannelId(part.id)), 'master'];
+}
+
+function mixChannelLabel(id) {
+  if (id === MIX_CHANNEL_SONG) return 'Песня';
+  if (id === 'master') return 'Мастер';
+  const part = songParts.find((p) => partChannelId(p.id) === id);
+  return part ? part.name || 'Партия' : 'Партия';
+}
+
+function mixChannelModel(id) {
+  if (id === 'master') {
+    if (!songMixerState.master) songMixerState.master = { volume: 100, pan: 0, mute: false };
+    return songMixerState.master;
+  }
+  if (id === MIX_CHANNEL_SONG) return songMixerState;
+  const part = songParts.find((p) => partChannelId(p.id) === id);
+  if (!part) return null;
+  if (!part.mix) part.mix = {};
+  return part.mix;
+}
+
+// Значение канала с учётом протяжки ползунка прямо сейчас.
+function mixChannelValue(id, key) {
+  const base = mixChannelModel(id) || {};
+  const pending = mixerPending.get(id);
+  const value = pending && pending[key] !== undefined ? pending[key] : base[key];
+  if (value === undefined) return MIX_DEFAULTS[key];
+  return value;
+}
+
+// Запись значения в модель: значение «как по умолчанию» не хранится —
+// иначе после снятия mute в файле остался бы «mute: false».
+function mixWriteValue(mix, key, value) {
+  if (!mix) return;
+  const next = { ...mix, [key]: value };
+  const compact = mixCompact(next, true);
+  Object.keys(next).forEach((k) => {
+    if (compact[k] === undefined) delete next[k];
+  });
+  Object.keys(compact).forEach((k) => {
+    next[k] = compact[k];
+  });
+  Object.keys(mix).forEach((k) => delete mix[k]);
+  Object.assign(mix, next);
+}
+
+function isPartChannel(id) {
+  return id.indexOf('part:') === 0;
+}
+
+function ensureMixerCard(id) {
+  const card = document.createElement('div');
+  card.className = 'pt-mix-ch' + (id === 'master' ? ' is-master' : '');
+  card.dataset.ch = id;
+  const name = document.createElement('span');
+  name.className = 'pt-mix-name';
+  card.appendChild(name);
+  const row = document.createElement('div');
+  row.className = 'pt-mix-row';
+  card.appendChild(row);
+  const mute = document.createElement('button');
+  mute.type = 'button';
+  mute.className = 'pt-mix-btn';
+  mute.dataset.act = 'mute';
+  mute.title = id === 'master' ? 'Mute мастера: заглушить всю песню' : 'Mute: заглушить канал';
+  mute.textContent = 'M';
+  row.appendChild(mute);
+  if (id !== 'master') {
+    const solo = document.createElement('button');
+    solo.type = 'button';
+    solo.className = 'pt-mix-btn';
+    solo.dataset.act = 'solo';
+    solo.title = 'Solo: играть только этот канал (остальные глушатся, как в Guitar Pro)';
+    solo.textContent = 'S';
+    row.appendChild(solo);
+  }
+  const vol = document.createElement('input');
+  vol.type = 'range';
+  vol.className = 'pt-mix-slider';
+  vol.dataset.act = 'volume';
+  vol.min = '0';
+  vol.max = String(MIX_VOLUME_MAX);
+  vol.step = '5';
+  vol.title = 'Громкость канала, %';
+  vol.setAttribute('aria-label', `Громкость: ${mixChannelLabel(id)}`);
+  row.appendChild(vol);
+  const pan = document.createElement('input');
+  pan.type = 'range';
+  pan.className = 'pt-mix-slider';
+  pan.dataset.act = 'pan';
+  pan.min = '-100';
+  pan.max = '100';
+  pan.step = '5';
+  pan.title = 'Панорама: −100 слева, +100 справа';
+  pan.setAttribute('aria-label', `Панорама: ${mixChannelLabel(id)}`);
+  row.appendChild(pan);
+  if (id === 'master') {
+    const focus = document.createElement('label');
+    focus.className = 'pt-mix-focus';
+    focus.title = 'Focus: поднять или приглушить АКТИВНУЮ дорожку, не трогая остальные (как ручка focus в GP)';
+    const focusLabel = document.createElement('span');
+    focusLabel.textContent = 'Focus';
+    focus.appendChild(focusLabel);
+    const focusInput = document.createElement('input');
+    focusInput.type = 'range';
+    focusInput.className = 'pt-mix-slider';
+    focusInput.dataset.act = 'focus';
+    focusInput.min = '0';
+    focusInput.max = String(MIX_FOCUS_MAX);
+    focusInput.step = '4';
+    focusInput.value = String(mixerFocus);
+    focusInput.setAttribute('aria-label', 'Focus мастера');
+    focus.appendChild(focusInput);
+    row.appendChild(focus);
+  }
+  const val = document.createElement('span');
+  val.className = 'pt-mix-val';
+  card.appendChild(val);
+  card.addEventListener('input', onMixerSliderInput);
+  card.addEventListener('change', onMixerSliderChange);
+  card.addEventListener('click', onMixerButtonClick);
+  return card;
+}
+
+function syncMixerCard(card, id) {
+  const mix = mixChannelModel(id) || {};
+  const name = card.querySelector('.pt-mix-name');
+  if (name) {
+    const hidden = isPartChannel(id) && songParts.some((p) => partChannelId(p.id) === id && !partVisible(p));
+    name.textContent = mixChannelLabel(id);
+    if (hidden) {
+      const note = document.createElement('span');
+      note.className = 'pt-mix-hidden';
+      note.textContent = ' (выкл)';
+      name.appendChild(note);
+    }
+  }
+  const mute = card.querySelector('[data-act="mute"]');
+  if (mute) {
+    const on = mixChannelValue(id, 'mute') === true;
+    mute.classList.toggle('is-on', on);
+    mute.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  const solo = card.querySelector('[data-act="solo"]');
+  if (solo) {
+    const on = mixChannelValue(id, 'solo') === true;
+    solo.classList.toggle('is-on', on);
+    solo.setAttribute('aria-pressed', on ? 'true' : 'false');
+  }
+  const vol = card.querySelector('[data-act="volume"]');
+  if (vol && document.activeElement !== vol) vol.value = String(mixChannelValue(id, 'volume'));
+  const pan = card.querySelector('[data-act="pan"]');
+  if (pan && document.activeElement !== pan) pan.value = String(mixChannelValue(id, 'pan'));
+  const focus = card.querySelector('[data-act="focus"]');
+  if (focus && document.activeElement !== focus) focus.value = String(mixerFocus);
+  const val = card.querySelector('.pt-mix-val');
+  if (val) {
+    const part = songParts.find((p) => partChannelId(p.id) === id);
+    const active = isPartChannel(id) && part && part.id === partsActiveId;
+    card.classList.toggle('is-active', !!active);
+    val.textContent = `${mixChannelValue(id, 'volume')}% · ${mixChannelValue(id, 'pan') > 0 ? '+' : ''}${mixChannelValue(id, 'pan')}`;
+  }
+}
+
+function renderPartsMixer() {
+  const box = document.getElementById('mixChannels');
+  if (!box) return;
+  const ids = mixChannelIds();
+  // Карточки не пересобираем целиком: протяжка ползунка не должна терять
+  // фокус и живое значение (правило «горячего пути»).
+  Array.from(box.children).forEach((card) => {
+    if (ids.indexOf(card.dataset.ch) === -1) box.removeChild(card);
+  });
+  ids.forEach((id) => {
+    let card = box.querySelector(`[data-ch="${id}"]`);
+    if (!card) {
+      card = ensureMixerCard(id);
+      box.appendChild(card);
+    }
+    syncMixerCard(card, id);
+  });
+  // Мастер всегда справа — как в GP, где полоса мастера отделена от дорожек.
+  const masterCard = box.querySelector('[data-ch="master"]');
+  if (masterCard && box.lastElementChild !== masterCard) box.appendChild(masterCard);
+}
+
+// Протяжка: значение живёт в mixerPending, звук меняется сразу, модель — по
+// отпускании. Никакого render() в pointermove.
+function onMixerSliderInput(event) {
+  const input = event.target;
+  if (!input || !input.dataset || !input.dataset.act) return;
+  const card = input.closest('.pt-mix-ch');
+  if (!card) return;
+  const id = card.dataset.ch;
+  const act = input.dataset.act;
+  const value = Number(input.value);
+  if (act === 'focus') {
+    mixerFocus = value;
+    applyMixerValues();
+    syncMixerCard(card, id);
+    return;
+  }
+  const pending = mixerPending.get(id) || {};
+  pending[act] = value;
+  mixerPending.set(id, pending);
+  applyMixerValues();
+  syncMixerCard(card, id);
+}
+
+// Отпускание: одна команда Store — и значение, и шаг отмены.
+function onMixerSliderChange(event) {
+  const input = event.target;
+  if (!input || !input.dataset || !input.dataset.act) return;
+  const card = input.closest('.pt-mix-ch');
+  if (!card) return;
+  const id = card.dataset.ch;
+  const act = input.dataset.act;
+  if (act === 'focus') return; // focus — настройка прослушивания, не данные песни
+  const value = Number(input.value);
+  mixerPending.delete(id);
+  const mix = mixChannelModel(id);
+  if (!mix) return;
+  songStore.dispatch(`mix/${act}`, () => {
+    mixWriteValue(mix, act, value);
+  });
+  applyMixerValues();
+  renderPartsMixer();
+}
+
+function onMixerButtonClick(event) {
+  const btn = event.target && event.target.closest ? event.target.closest('.pt-mix-btn') : null;
+  if (!btn) return;
+  const card = btn.closest('.pt-mix-ch');
+  if (!card) return;
+  const id = card.dataset.ch;
+  const act = btn.dataset.act;
+  const mix = mixChannelModel(id);
+  if (!mix) return;
+  songStore.dispatch(`mix/${act}`, () => {
+    mixWriteValue(mix, act, mix[act] !== true);
+  });
+  applyMixerValues();
+  renderPartsMixer();
+}
+
 function renderPartsScreen() {
   const track = document.getElementById('partsTrack');
   const empty = document.getElementById('partsEmpty');
@@ -46114,6 +46686,7 @@ function renderPartsScreen() {
     syncPartsEmptyState();
     syncPartsPalette();
     syncPartsTrackBar();
+    renderPartsMixer();
     if (partsScrollPending) partsScrollPending = false;
     return;
   }
@@ -46159,6 +46732,7 @@ function renderPartsScreen() {
   syncPartsCursorDom();
   syncPartsPalette();
   syncPartsTrackBar();
+  renderPartsMixer();
   if (partsScrollPending) {
     partsScrollPending = false;
     scrollPartsCursorIntoView();
@@ -46649,6 +47223,9 @@ function schedulePartsForEvent(ctx, sec, sq, ei, evStart, evDur) {
               tremBarSpan: voice.tremBar ? written : 0,
               releaseAt: voice.damp ? startTime + duration : 0,
               releaseTime: 0.03,
+              // B-12.5.1: канал микшера этой дорожки — громкость, панорама,
+              // mute и solo берутся из него.
+              channel: partChannelId(part.id),
             },
             extra || {}
           )
@@ -47717,6 +48294,9 @@ function selectPartTrack(id, opts) {
     });
   }
   if (!(opts && opts.keepCursor)) partsScrollPending = true;
+  // B-12.5.1: ручка focus мастера висит на АКТИВНОЙ дорожке — при смене
+  // дорожки её надбавка переезжает, поэтому звук применяем заново.
+  if (typeof applyMixerValues === 'function') applyMixerValues();
   if (partsMode) renderPartsScreen();
 }
 
@@ -47946,6 +48526,7 @@ function previewPartNote(sec, string, fret, durUnits, note) {
   const voice = partNoteSound(note || null, timbre, ring, written, undefined);
   const pos = strings > 1 ? string / (strings - 1) : 0;
   const at = ctx.currentTime + 0.01;
+  const channelId = partChannelId(part.id);
   // Флажолет в предпросмотре звучит так же, как в песне: натуральный — по
   // узлу лада, искусственный — по звучащей ноте окна параметров.
   const freq =
@@ -47973,6 +48554,9 @@ function previewPartNote(sec, string, fret, durUnits, note) {
     freq,
     startTime: at,
     duration: voice.ring,
+    // B-12.5.1: предпросмотр слышен через микшер дорожки — «послушать ноту»
+    // звучит так же, как она прозвучит в песне.
+    channel: channelId,
     gain: voice.gain,
     pan: -timbre.spread + pos * timbre.spread * 2,
     brightness: voice.bright + pos * timbre.spread,
@@ -52581,6 +53165,9 @@ toggleTimeAndBeats();
       // У собранного вручную строя своего id нет — сохраняем сами ноты.
       tuningNotes: tunerCustomNotes ? [...tunerCustomNotes] : null,
       notes: DOM.notesArea.value,
+      // B-12.5.1: микшер пишем, только когда он не по умолчанию — файл
+      // обычной песни остаётся таким же, как прежде.
+      ...(songMixIsDefault(songMixerState) ? {} : { mix: songMixCompact(songMixerState) }),
       // Волна-4: ритм ячеек — одним полем пула (см. serializeRhythmPoolForSave).
       rhythmPool: serializeRhythmPoolForSave(),
       sections: sections.map((sec) => ({
@@ -52636,6 +53223,7 @@ toggleTimeAndBeats();
         instrument: part.instrument || 'guitar',
         tuning: part.tuning || null,
         visible: part.visible !== false,
+        ...(mixIsDefault(part.mix, true) ? {} : { mix: mixCompact(part.mix, true) }),
         rolls: Object.fromEntries(
           Object.keys(part.rolls || {}).map((secKey) => [
             secKey,
@@ -54249,6 +54837,9 @@ toggleTimeAndBeats();
           // инструмента (басовые id гитаре не подходят и наоборот).
           tuning: tuningTable.some((t) => t.id === rawPart.tuning) ? rawPart.tuning : null,
           visible: rawPart.visible !== false,
+          // B-12.5.1: громкость, панорама, mute и solo дорожки — то же
+          // необязательное поле файла.
+          ...(partSanitizeMix(rawPart.mix) ? { mix: partSanitizeMix(rawPart.mix) } : {}),
           rolls,
         });
       });
@@ -54306,7 +54897,11 @@ toggleTimeAndBeats();
       );
       if (ok) tuningNotes = rawSong.tuningNotes.slice();
     }
+    // B-12.5.1: значения микшера (громкость/панорама/mute дорожек, «Песни» и
+    // мастера) — необязательное поле файла; мусор отбрасывается поштучно.
+    const songMix = songMixSanitize(rawSong.mix);
     const sanitizedSong = {
+      ...(songMix ? { mix: songMix } : {}),
       schemaVersion: SONG_SCHEMA_VERSION,
       name: asSafeText(rawSong.name, SONG_LIMITS.MAX_TEXT), // legacy — только для диалога B-87
       documentSeal: asSafeText(rawSong.documentSeal, 100),
@@ -54419,6 +55014,17 @@ toggleTimeAndBeats();
     if (typeof renderTuningPill === 'function') renderTuningPill();
     if (typeof fingeringCache !== 'undefined') fingeringCache.clear();
     DOM.notesArea.value = song.notes || '';
+    // B-12.5.1: микшер — часть песни. Загружаем его ДО первой отрисовки,
+    // чтобы полоса каналов показала значения новой песни, а не прошлой.
+    songMixerState = {
+      volume: 100,
+      pan: 0,
+      mute: false,
+      master: { volume: 100, pan: 0, mute: false },
+      ...(song.mix ? JSON.parse(JSON.stringify(song.mix)) : {}),
+    };
+    mixerFocus = 100;
+    if (typeof applyMixerValues === 'function') applyMixerValues();
 
     sections = song.sections.map((sec) => ({
       ...sec,
