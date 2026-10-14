@@ -107,8 +107,8 @@ w.addEventListener('load', () => {
 
     let part = json('songParts[0]');
     const pitchNotes = part.pitchRolls['1'];
-    check('v5 мигрировала в v6 с отдельным pitchRoll',
-      w.eval('SONG_SCHEMA_VERSION') === 6 && Array.isArray(pitchNotes) && pitchNotes.length === 4,
+    check('v5 мигрировала через v6 в v7 с отдельным pitchRoll',
+      w.eval('SONG_SCHEMA_VERSION') === 7 && Array.isArray(pitchNotes) && pitchNotes.length === 4,
       JSON.stringify(pitchNotes));
     check('pitch — строго целый MIDI 0–127; строка и null отброшены',
       pitchNotes.every((note) => Number.isInteger(note.pitch) && note.pitch >= 0 && note.pitch <= 127) &&
@@ -151,8 +151,8 @@ w.addEventListener('load', () => {
     w.saveCurrentSong();
     let savedList = JSON.parse(w.localStorage.getItem('struchord_songs'));
     let saved = savedList[savedList.length - 1];
-    check('serialization записывает schemaVersion 6 и pitchRolls',
-      saved.schemaVersion === 6 && saved.parts[0].pitchRolls['1'].length === 4 &&
+    check('serialization записывает schemaVersion 7 и pitchRolls',
+      saved.schemaVersion === 7 && saved.parts[0].pitchRolls['1'].length === 4 &&
         saved.parts[0].sourceName === 'Imported Synth' && saved.parts[0].gmProgram === 89 &&
         saved.parts[0].midiChannel === 3, JSON.stringify(saved.parts && saved.parts[0]));
     w.localStorage.setItem('struchord_songs', JSON.stringify([saved]));

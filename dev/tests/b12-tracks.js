@@ -115,9 +115,12 @@ w.addEventListener('load', () => {
     const G = pid(0);
     const B = pid(1);
     const track = w.document.getElementById('partsTrack');
-    check('стопка: обе дорожки — рядами одной секции',
-      track.querySelectorAll('.pt-row').length === 2 && track.querySelectorAll('.pt-section').length === 1,
-      String(track.querySelectorAll('.pt-row').length));
+    check('непрерывная партитура: обе дорожки — рядами одной секции',
+      track.querySelectorAll('.pt-row').length === 2 && track.querySelectorAll('.pt-score-marker').length === 1 &&
+        track.querySelectorAll('.pt-section-segment').length === 2,
+      JSON.stringify({ rows: track.querySelectorAll('.pt-row').length,
+        markers: track.querySelectorAll('.pt-score-marker').length,
+        segments: track.querySelectorAll('.pt-section-segment').length }));
     check('подписи дорожек видны',
       Array.from(track.querySelectorAll('.pt-row-label b')).map((el) => el.textContent).join('|') === 'Соло|Бас',
       Array.from(track.querySelectorAll('.pt-row-label b')).map((el) => el.textContent).join('|'));
