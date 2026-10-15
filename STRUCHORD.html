@@ -13455,7 +13455,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.641</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.642</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15261,6 +15261,367 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
   }
 
   return Object.freeze({ LIMITS, crc32, inflateRaw, readArchive, writeStoredArchive });
+});
+    </script>
+    <script id="midiRuntime" type="text/plain">
+/*
+ * STRUCHORD Standard MIDI File (SMF) reader.
+ *
+ * A .mid/.midi file is a plain chunk stream, so no codec is needed:
+ *
+ *   "MThd" <length=6> <format> <track count> <division>
+ *   "MTrk" <length> <events…>
+ *
+ * Events:
+ *   meta  0xFF <type> <varlen length> <data>   — tempo (0x51), time signature
+ *         (0x58), key signature (0x59), track name (0x03), text (0x01),
+ *         marker (0x06), end of track (0x2F);
+ *   sysex 0xF0 / 0xF7 <varlen length> <bytes>  — skipped by length;
+ *   channel messages 0x8n…0xEn               — note on/off, program change,
+ *         controllers, channel/poly aftertouch, pitch bend.
+ *
+ * Running status (a data byte reusing the previous status) is supported; a meta
+ * or sysex event clears it. Delta times are variable-length quantities.
+ *
+ * Written for this project from the published SMF layout and verified against
+ * real Guitar Pro exports; no runtime dependency, network access, or platform
+ * API is used. The browser build is embedded in STRUCHORD.html as an inert
+ * script and is activated only when a .mid file is imported.
+ */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) root.StruchordMidi = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  const MAGIC = 'MThd';
+  const TRACK_MAGIC = 'MTrk';
+  const HEADER_LENGTH = 6;
+
+  const LIMITS = Object.freeze({
+    maxFileBytes: 16 * 1024 * 1024,
+    maxTracks: 256,
+    maxEvents: 400000,
+    maxNotesPerTrack: 120000,
+    maxTextBytes: 4096,
+  });
+
+  const META = Object.freeze({
+    TEXT: 0x01,
+    COPYRIGHT: 0x02,
+    TRACK_NAME: 0x03,
+    INSTRUMENT_NAME: 0x04,
+    LYRIC: 0x05,
+    MARKER: 0x06,
+    TEMPO: 0x51,
+    SMPTE_OFFSET: 0x54,
+    TIME_SIGNATURE: 0x58,
+    KEY_SIGNATURE: 0x59,
+    END_OF_TRACK: 0x2f,
+  });
+
+  function fail(message) {
+    const error = new Error(message);
+    error.name = 'StruchordMidiError';
+    throw error;
+  }
+
+  function isMidi(bytes) {
+    return !!bytes && bytes.length >= 4 && bytes[0] === 0x4d && bytes[1] === 0x54 &&
+      bytes[2] === 0x68 && bytes[3] === 0x64;
+  }
+
+  // Decodes Latin-1/ASCII without depending on TextDecoder: SMF meta text is
+  // officially ASCII, and Latin-1 never throws on any byte.
+  function decodeAscii(bytes) {
+    let out = '';
+    for (let i = 0; i < bytes.length; i++) out += String.fromCharCode(bytes[i]);
+    return out;
+  }
+
+  function readVarLen(bytes, cursor) {
+    let value = 0;
+    let read = 0;
+    while (true) {
+      if (cursor.at >= bytes.length) fail('MIDI: событие оборвано в середине длины.');
+      if (read > 4) fail('MIDI: слишком длинная переменная длина.');
+      const byte = bytes[cursor.at++];
+      value = (value << 7) | (byte & 0x7f);
+      read++;
+      if ((byte & 0x80) === 0) break;
+    }
+    return value >>> 0;
+  }
+
+  function readUint32(bytes, cursor) {
+    if (cursor.at + 4 > bytes.length) fail('MIDI: файл оборван в заголовке трека.');
+    const value = (bytes[cursor.at] << 24) | (bytes[cursor.at + 1] << 16) |
+      (bytes[cursor.at + 2] << 8) | bytes[cursor.at + 3];
+    cursor.at += 4;
+    return value >>> 0;
+  }
+
+  function createTrack(index) {
+    return {
+      index,
+      name: '',
+      instrumentName: '',
+      channel: null,
+      program: null,
+      notes: [],
+      controllers: Object.create(null),
+      pitchBends: 0,
+      aftertouch: 0,
+      markers: [],
+      texts: [],
+      lyrics: [],
+      tempoEvents: [],
+      timeSignatures: [],
+      keySignatures: [],
+      sysex: 0,
+      danglingNoteOffs: 0,
+      notesOverLimit: 0,
+    };
+  }
+
+  function parseTrack(bytes, start, end, index, limits, warnings) {
+    const track = createTrack(index);
+    const cursor = { at: start };
+    let tick = 0;
+    let status = 0;
+    const pending = new Map(); // key: `${channel}:${pitch}` -> note
+
+    while (cursor.at < end) {
+      tick += readVarLen(bytes, cursor);
+      if (cursor.at >= end) break;
+      let byte = bytes[cursor.at];
+
+      if (byte === 0xff) {
+        cursor.at++;
+        const type = bytes[cursor.at++];
+        const length = readVarLen(bytes, cursor);
+        if (cursor.at + length > end) fail('MIDI: мета-событие выходит за пределы трека.');
+        const dataAt = cursor.at;
+        cursor.at += length;
+        status = 0;
+        if (type === META.END_OF_TRACK) break;
+        if (type === META.TRACK_NAME) track.name = decodeAscii(bytes.subarray(dataAt, dataAt + length)).trim();
+        else if (type === META.INSTRUMENT_NAME) track.instrumentName = decodeAscii(bytes.subarray(dataAt, dataAt + length)).trim();
+        else if (type === META.MARKER) track.markers.push({ tick, text: decodeAscii(bytes.subarray(dataAt, dataAt + length)).trim() });
+        else if (type === META.LYRIC) track.lyrics.push({ tick, text: decodeAscii(bytes.subarray(dataAt, dataAt + length)).trim() });
+        else if (type === META.TEXT || type === META.COPYRIGHT) track.texts.push({ tick, text: decodeAscii(bytes.subarray(dataAt, dataAt + length)).trim() });
+        else if (type === META.TEMPO && length === 3) {
+          const micros = (bytes[dataAt] << 16) | (bytes[dataAt + 1] << 8) | bytes[dataAt + 2];
+          if (micros > 0) track.tempoEvents.push({ tick, micros, bpm: Math.round(60000000 / micros * 1000) / 1000 });
+        } else if (type === META.TIME_SIGNATURE && length >= 2) {
+          track.timeSignatures.push({
+            tick,
+            numerator: bytes[dataAt],
+            denominator: Math.pow(2, bytes[dataAt + 1]),
+            metronome: length >= 4 ? bytes[dataAt + 2] : 24,
+            beatUnit: length >= 4 ? bytes[dataAt + 3] : 8,
+          });
+        } else if (type === META.KEY_SIGNATURE && length >= 2) {
+          track.keySignatures.push({ tick, sharps: (bytes[dataAt] << 24 >> 16) | bytes[dataAt + 1] });
+        } else {
+          warnings.push(`MIDI: мета-событие 0x${type.toString(16)} в треке ${index + 1} пропущено.`);
+        }
+        continue;
+      }
+
+      if (byte === 0xf0 || byte === 0xf7) {
+        cursor.at++;
+        const length = readVarLen(bytes, cursor);
+        if (cursor.at + length > end) fail('MIDI: sysex выходит за пределы трека.');
+        cursor.at += length;
+        track.sysex++;
+        status = 0;
+        continue;
+      }
+
+      if (byte & 0x80) {
+        status = byte;
+        cursor.at++;
+      } else if (!status) {
+        fail('MIDI: событие без статуса в начале потока.');
+      }
+
+      const kind = status & 0xf0;
+      const channel = status & 0x0f;
+      const need = kind === 0xc0 || kind === 0xd0 ? 1 : 2;
+      if (cursor.at + need > end) fail('MIDI: канальное событие выходит за пределы трека.');
+      const data1 = bytes[cursor.at];
+      const data2 = need > 1 ? bytes[cursor.at + 1] : 0;
+      cursor.at += need;
+
+      if (kind === 0x90) {
+        const key = `${channel}:${data1}`;
+        if (data2 === 0) {
+          const open = pending.get(key);
+          if (open) {
+            const duration = Math.max(0, tick - open.tick);
+            if (track.notes.length >= limits.maxNotesPerTrack) {
+              track.notesOverLimit++;
+            } else {
+              track.notes.push({ tick: open.tick, duration, pitch: data1, velocity: open.velocity, channel });
+            }
+            pending.delete(key);
+          } else {
+            track.danglingNoteOffs++;
+          }
+        } else if (pending.has(key)) {
+          // Same pitch struck again without a note off: close the previous note
+          // at the new start so nothing hangs to the end of the file.
+          const open = pending.get(key);
+          track.notes.push({ tick: open.tick, duration: Math.max(0, tick - open.tick), pitch: data1, velocity: open.velocity, channel });
+          pending.set(key, { tick, velocity: data2 });
+        } else {
+          pending.set(key, { tick, velocity: data2 });
+        }
+      } else if (kind === 0x80) {
+        const key = `${channel}:${data1}`;
+        const open = pending.get(key);
+        if (open) {
+          const duration = Math.max(0, tick - open.tick);
+          if (track.notes.length >= limits.maxNotesPerTrack) track.notesOverLimit++;
+          else track.notes.push({ tick: open.tick, duration, pitch: data1, velocity: open.velocity, channel });
+          pending.delete(key);
+        } else {
+          track.danglingNoteOffs++;
+        }
+      } else if (kind === 0xb0) {
+        if (data1 === 0) continue; // Bank select carries no musical meaning here.
+        const previous = track.controllers[data1];
+        if (previous === undefined) track.controllers[data1] = data2;
+        else track.controllers[data1] = previous;
+        if (data1 === 10 && track.channel === null) track.channel = channel;
+      } else if (kind === 0xc0) {
+        track.program = data1;
+        if (track.channel === null) track.channel = channel;
+      } else if (kind === 0xa0) {
+        track.aftertouch++;
+      } else if (kind === 0xd0) {
+        track.aftertouch++;
+      } else if (kind === 0xe0) {
+        track.pitchBends++;
+      }
+    }
+
+    if (pending.size) track.danglingNoteOffs += pending.size;
+    return track;
+  }
+
+  function readMidi(input, options) {
+    const settings = options || {};
+    const limits = Object.assign({}, LIMITS, settings.limits || {});
+    const warnings = [];
+    const bytes = input instanceof Uint8Array ? input : new Uint8Array(input || []);
+    if (bytes.length < HEADER_LENGTH + 4) fail('MIDI: файл слишком короткий.');
+    if (bytes.length > limits.maxFileBytes) {
+      fail(`MIDI: файл больше допустимых ${Math.round(limits.maxFileBytes / (1024 * 1024))} МБ.`);
+    }
+    if (!isMidi(bytes)) fail('MIDI: сигнатура MThd не найдена — это не Standard MIDI File.');
+
+    const headerCursor = { at: 4 };
+    const headerLength = readUint32(bytes, headerCursor);
+    if (headerLength < HEADER_LENGTH) fail('MIDI: заголовок короче шести байт.');
+    const format = (bytes[headerCursor.at] << 8) | bytes[headerCursor.at + 1];
+    const declaredTracks = (bytes[headerCursor.at + 2] << 8) | bytes[headerCursor.at + 3];
+    const divisionRaw = (bytes[headerCursor.at + 4] << 8) | bytes[headerCursor.at + 5];
+    headerCursor.at += HEADER_LENGTH;
+    if (headerLength > HEADER_LENGTH) headerCursor.at += headerLength - HEADER_LENGTH;
+
+    if (format > 2) fail(`MIDI: формат ${format} не поддерживается (0, 1 и 2 — стандартные).`);
+    const smpte = (divisionRaw & 0x8000) !== 0;
+    if (smpte) fail('MIDI: деление по времени SMPTE не поддерживается — нужен формат с тиками на четверть.');
+    const ticksPerQuarter = divisionRaw & 0x7fff;
+    if (ticksPerQuarter <= 0) fail('MIDI: в заголовке указано нулевое деление.');
+    if (declaredTracks > limits.maxTracks) {
+      fail(`MIDI: дорожек ${declaredTracks} больше допустимых ${limits.maxTracks}.`);
+    }
+
+    const tracks = [];
+    let cursor = headerCursor.at;
+    let totalEvents = 0;
+    while (cursor + 8 <= bytes.length && tracks.length < limits.maxTracks) {
+      const magic = String.fromCharCode(bytes[cursor], bytes[cursor + 1], bytes[cursor + 2], bytes[cursor + 3]);
+      if (magic !== TRACK_MAGIC) {
+        if (tracks.length >= declaredTracks) break;
+        fail(`MIDI: вместо MTrk на месте ${cursor} встречено «${magic}».`);
+      }
+      const lengthCursor = { at: cursor + 4 };
+      const length = readUint32(bytes, lengthCursor);
+      const start = lengthCursor.at;
+      const end = start + length;
+      if (end > bytes.length) fail('MIDI: трек объявлен длиннее оставшегося файла.');
+      totalEvents += length;
+      if (totalEvents > limits.maxEvents * 4) fail('MIDI: слишком много событий в файле.');
+      tracks.push(parseTrack(bytes, start, end, tracks.length, limits, warnings));
+      cursor = end;
+    }
+
+    if (!tracks.length) fail('MIDI: в файле не найдено ни одного трека.');
+    if (declaredTracks && tracks.length < declaredTracks) {
+      warnings.push(`MIDI: заголовок обещает ${declaredTracks} дорожек, прочитано ${tracks.length}.`);
+    }
+
+    const tempoEvents = [];
+    const timeSignatures = [];
+    const markers = [];
+    const texts = [];
+    const lyrics = [];
+    const keySignatures = [];
+    let notes = 0;
+    for (const track of tracks) {
+      tempoEvents.push(...track.tempoEvents.map((event) => ({ ...event, track: track.index })));
+      timeSignatures.push(...track.timeSignatures.map((event) => ({ ...event, track: track.index })));
+      keySignatures.push(...track.keySignatures.map((event) => ({ ...event, track: track.index })));
+      for (const marker of track.markers) markers.push({ ...marker, track: track.index });
+      for (const text of track.texts) texts.push({ ...text, track: track.index });
+      for (const item of track.lyrics) lyrics.push({ ...item, track: track.index });
+      notes += track.notes.length;
+      if (track.notesOverLimit) warnings.push(`MIDI: в треке ${track.index + 1} отброшено нот — ${track.notesOverLimit}.`);
+      if (track.danglingNoteOffs) warnings.push(`MIDI: в треке ${track.index + 1} ноты без закрытия — ${track.danglingNoteOffs}.`);
+    }
+
+    tempoEvents.sort((a, b) => a.tick - b.tick);
+    timeSignatures.sort((a, b) => a.tick - b.tick);
+    markers.sort((a, b) => a.tick - b.tick || a.track - b.track);
+
+    const firstTempo = tempoEvents.find((event) => event.tick === 0) || tempoEvents[0] || null;
+    const firstTimeSig = timeSignatures.find((event) => event.tick === 0) || timeSignatures[0] || null;
+    const lastTick = tracks.reduce(
+      (max, track) => Math.max(max,
+        track.notes.reduce((noteMax, note) => Math.max(noteMax, note.tick + note.duration), 0),
+        ...track.markers.map((marker) => marker.tick)), 0);
+
+    return {
+      format,
+      division: ticksPerQuarter,
+      declaredTracks,
+      tracks,
+      tempo: firstTempo ? firstTempo.bpm : 120,
+      tempoEvents,
+      timeSignatures,
+      markers,
+      texts,
+      lyrics,
+      keySignatures,
+      notes,
+      lastTick,
+      warnings,
+    };
+  }
+
+  return Object.freeze({
+    MAGIC,
+    TRACK_MAGIC,
+    LIMITS,
+    META,
+    isMidi,
+    readMidi,
+  });
 });
     </script>
     <!-- alphaTab v1.8.4 (MPL-2.0), embedded and lazy-loaded for GP3–GP5. -->
@@ -60987,14 +61348,15 @@ toggleTimeAndBeats();
   // B-12.9.3: GP3–GP5 читается встроенным alphaTab; библиотека загружается
   // только при первом бинарном импорте, чтобы не добавлять тяжёлый парсер в
   // стартовый/60-fps путь редактора. Файл остаётся автономным и работает офлайн.
-  const GP35_TICKS_PER_QUARTER = 960;
+  const MIDI_TICKS_PER_QUARTER = 960;
   const GP35_MAX_FILE_BYTES = 32 * 1024 * 1024;
-  const GP35_MAX_NOTES_PER_SECTION = 4096;
-  const GP35_MAX_POSITION = 4096;
-  const GP35_MAX_SECTIONS = 100;
-  const GP35_MAX_PARTS = 32;
-  const GP35_MAX_EVENT_SPAN = 256;
-  const GP35_EVENTS_PER_SQUARE = 128;
+  const MIDI_MAX_SECTIONS = SONG_LIMITS.MAX_SECTIONS;
+  const MIDI_MAX_PARTS = SONG_LIMITS.MAX_PARTS;
+  const MIDI_MAX_EVENT_SPAN = SONG_LIMITS.MAX_SPAN;
+  const MIDI_EVENTS_PER_SQUARE = SONG_LIMITS.MAX_EVENTS_PER_SQUARE;
+  const MIDI_MAX_POSITION = SONG_LIMITS.MAX_PART_POSITION;
+  const MIDI_MAX_NOTES_PER_SECTION = SONG_LIMITS.MAX_PART_NOTES_PER_SECTION;
+  const MIDI_MAX_BARS_PER_SECTION = 16 * MIDI_EVENTS_PER_SQUARE;
   let gp35PendingImport = null;
   const GP78_MAX_FILE_BYTES = 64 * 1024 * 1024;
   const GP78_MAX_UNPACKED_BYTES = 128 * 1024 * 1024;
@@ -61181,6 +61543,628 @@ toggleTimeAndBeats();
       unpackedBytes: archive.totalUnpackedBytes,
     };
     gp35ShowPreview(gp35PendingImport);
+  }
+
+// ================= B-12.9.7: импорт Standard MIDI File (.mid/.midi) =================
+  // Решения допроса: каждая дорожка MIDI — отдельная партия; высота звука
+  // импортируется абсолютной (pitch), табулятура не выдумывается — в MIDI её
+  // просто нет; ударные (канал 10) становятся отдельной партией с картой
+  // ударных GP; темп берётся из MIDI, секции — по маркерам; громкость
+  // дорожки приходит в CC6 (так её пишет Guitar Pro) или CC7 и переносится в
+  // микшер, CC10 — в панораму; длительности квантуются к ритмической сетке,
+  // как это делает Guitar Pro, а отклонения перечисляются в отчёте.
+
+  const MIDI_MAX_FILE_BYTES = 16 * 1024 * 1024;
+  const MIDI_DURATION_TOLERANCE = 0.03;
+  const MIDI_GM_FAMILIES = [
+    [0, 7, 'Фортепиано'], [8, 15, 'Перкуссия'], [16, 23, 'Орган'], [24, 31, 'Гитара'],
+    [32, 39, 'Бас'], [40, 47, 'Струнные'], [48, 55, 'Ансамбль'], [56, 63, 'Духовые'],
+    [64, 71, 'Трубы и язычки'], [72, 79, 'Органы и свист'], [80, 87, 'Синтезатор-лидер'],
+    [88, 95, 'Синтезатор-подушка'], [96, 103, 'Синтезатор-эффекты'], [104, 111, 'Этнические'],
+    [112, 119, 'Перкуссия'], [120, 127, 'Звуковые эффекты'],
+  ];
+
+  function midiEnsureCodec() {
+    if (window.StruchordMidi && window.StruchordMidi.readMidi) return window.StruchordMidi;
+    const source = document.getElementById('midiRuntime');
+    if (!source) throw new Error('Встроенный MIDI-ридер не найден.');
+    const script = document.createElement('script');
+    script.textContent = source.textContent || source.text || '';
+    document.head.appendChild(script);
+    script.remove();
+    if (!window.StruchordMidi || !window.StruchordMidi.readMidi) {
+      throw new Error('Не удалось запустить встроенный MIDI-ридер.');
+    }
+    return window.StruchordMidi;
+  }
+
+  function midiIsContainerBytes(bytes) {
+    return !!bytes && bytes.length >= 4 && bytes[0] === 0x4d && bytes[1] === 0x54 &&
+      bytes[2] === 0x68 && bytes[3] === 0x64;
+  }
+
+  function midiFamilyName(program) {
+    if (!Number.isInteger(program)) return null;
+    for (const [from, to, name] of MIDI_GM_FAMILIES) {
+      if (program >= from && program <= to) return name;
+    }
+    return null;
+  }
+
+  function midiInstrumentFor(program, channel) {
+    if (channel === 9 || program === 126 || program === 127) return 'drums';
+    if (!Number.isInteger(program)) return 'other';
+    if ((program >= 24 && program <= 31) || (program >= 104 && program <= 111)) return 'guitar';
+    if (program >= 32 && program <= 39) return 'bass';
+    if ((program >= 0 && program <= 7) || (program >= 16 && program <= 23) ||
+        (program >= 88 && program <= 95) || program === 9 || program === 14 || program === 15) return 'keys';
+    if (program >= 52 && program <= 55) return 'vocal';
+    return 'other';
+  }
+
+  // Guitar Pro пишет громкость дорожки в CC6 шкалой 0–10, обычный MIDI — в
+  // CC7 шкалой 0–127. Значения до 10 читаются как шкала GP, иначе — как MIDI.
+  function midiVolumeFrom(controllers) {
+    const raw = controllers && controllers[7] !== undefined ? controllers[7] : controllers && controllers[6];
+    if (!Number.isInteger(raw)) return null;
+    const scaled = raw <= 10 ? raw / 10 : raw / 127;
+    return Math.max(0, Math.min(MIX_VOLUME_MAX, Math.round(scaled * MIX_VOLUME_MAX)));
+  }
+
+  function midiPanFrom(controllers) {
+    const raw = controllers && controllers[10];
+    if (!Number.isInteger(raw) || raw === 64) return 0;
+    // В MIDI 0 — левый край, 127 — правый; в приложении панорама −100…+100
+    // (−100 слева, +100 справа), поэтому знак сохраняется, а шкала линейная.
+    return Math.max(-100, Math.min(100, Math.round((raw - 64) / 63 * 100)));
+  }
+
+  // Ритмические длительности приложения: базовые доли × точки × троли.
+  const MIDI_DURATIONS = (() => {
+    const table = [];
+    for (const base of [8, 4, 2, 1, 0.5, 0.25]) {
+      for (const dots of [0, 1, 2]) {
+        const factor = dots === 0 ? 1 : (dots === 1 ? 1.5 : 1.75);
+        for (const triplet of [false, true]) {
+          table.push({ value: base * factor * (triplet ? 2 / 3 : 1), dots, triplet });
+        }
+      }
+    }
+    return table;
+  })();
+
+  function midiQuantizeDuration(duration) {
+    if (!Number.isFinite(duration) || duration <= 0) return null;
+    let best = null;
+    for (const candidate of MIDI_DURATIONS) {
+      const difference = Math.abs(candidate.value - duration);
+      if (!best || difference < best.difference) best = { difference, candidate };
+    }
+    if (!best) return null;
+    const changed = best.difference > MIDI_DURATION_TOLERANCE * Math.max(duration, best.candidate.value);
+    return { duration: best.candidate.value, dots: best.candidate.dots, triplet: best.candidate.triplet, changed };
+  }
+
+  function midiTimeline(parsed) {
+    const ppq = parsed.division;
+    const signature = parsed.timeSignatures.find((item) => item.tick === 0) || parsed.timeSignatures[0] ||
+      { numerator: 4, denominator: 4 };
+    const numerator = Math.max(1, Math.min(32, signature.numerator | 0 || 4));
+    const denominator = [1, 2, 4, 8, 16, 32].includes(signature.denominator) ? signature.denominator : 4;
+    const unitsPerQuarter = denominator / 4;
+    const barTicks = Math.max(1, Math.round(numerator * unitsPerQuarter * ppq));
+    const lastTick = Math.max(0, parsed.lastTick);
+    const barCount = Math.max(1, Math.ceil(lastTick / barTicks));
+    const keyEvent = parsed.keySignatures[0] || null;
+    const markers = [];
+    for (const marker of parsed.markers) {
+      // Метка на первом такте — тоже метка: она даёт имя первой секции,
+      // а не отбрасывается. Две метки одного такта схлопываются в одну.
+      const barIndex = Math.max(0, Math.floor(marker.tick / barTicks));
+      if (markers.some((item) => item.barIndex === barIndex)) continue;
+      markers.push({ barIndex, text: marker.text });
+    }
+    return {
+      ppq,
+      numerator,
+      denominator,
+      unitsPerQuarter,
+      barTicks,
+      barCount,
+      timeSig: `${numerator}/${denominator}`,
+      bpm: parsed.tempo,
+      key: midiKeyFromSharps(keyEvent ? keyEvent.sharps : 0),
+      markers: markers.sort((a, b) => a.barIndex - b.barIndex),
+    };
+  }
+
+  function midiKeyFromSharps(sharps) {
+    const table = { '-7': 'Cb', '-6': 'Gb', '-5': 'Db', '-4': 'Ab', '-3': 'Eb', '-2': 'Bb', '-1': 'F',
+      0: 'C', 1: 'G', 2: 'D', 3: 'A', 4: 'E', 5: 'B', 6: 'F#', 7: 'C#' };
+    return table[String(Math.max(-7, Math.min(7, sharps | 0)))] || 'C';
+  }
+
+  function midiTrackSummary(track, index, timeline) {
+    const program = track.program;
+    // Канал в треке появляется с первого события; если дорожка состоит
+    // только из нот, program change мог не встретиться — берём канал первой ноты.
+    const channel0 = Number.isInteger(track.channel) ? track.channel
+      : (track.notes.length && Number.isInteger(track.notes[0].channel) ? track.notes[0].channel : null);
+    // Модель партии хранит канал как в Guitar Pro: 1…16. Нулевой MIDI-канал
+    // (первый) поэтому в партии и в предпросмотре становится «канал 1».
+    const channel = Number.isInteger(channel0) ? channel0 + 1 : null;
+    const instrument = midiInstrumentFor(program, channel0);
+    const family = midiFamilyName(program);
+    const sourceName = track.name || (family ? `${family} · GM ${program + 1}` : `Дорожка ${index + 1}`);
+    return {
+      index,
+      sourceName: sourceName.slice(0, SONG_LIMITS.MAX_PART_NAME),
+      instrument,
+      noteCount: track.notes.length,
+      lyricsCount: 0,
+      program: Number.isInteger(program) ? program : null,
+      channel: Number.isInteger(channel) ? channel : null,
+      displayTuning: null,
+      tuning: [],
+      sourceStringCount: 0,
+      tuningInvalid: false,
+      capo: 0,
+      isMidi: true,
+      timeline,
+      source: track,
+    };
+  }
+
+  function midiBeginImport(buffer, fileName) {
+    const bytes = buffer instanceof Uint8Array ? buffer : new Uint8Array(buffer || []);
+    if (bytes.length < 14) throw new Error('Файл MIDI слишком короткий или повреждён.');
+    if (bytes.length > MIDI_MAX_FILE_BYTES) throw new Error('Файл MIDI больше допустимых 16 МБ.');
+    const parsed = midiEnsureCodec().readMidi(bytes);
+    if (!parsed.tracks.length) throw new Error('В файле MIDI не найдено ни одной дорожки.');
+    const timeline = midiTimeline(parsed);
+    const musical = parsed.tracks.filter((track) => track.notes.length > 0);
+    if (!musical.length) throw new Error('В файле MIDI нет ни одной ноты.');
+    const session = {
+      isMidi: true,
+      format: 'midi',
+      buffer: bytes.slice(0),
+      fileName: String(fileName || 'score.mid'),
+      version: { major: 0, minor: 0, label: `MIDI, формат ${parsed.format}, ${parsed.division} тиков на четверть` },
+      midi: parsed,
+      timeline,
+      encoding: 'не требуется (MIDI)',
+      encodingUncertain: false,
+      encodingError: false,
+      requestedEncoding: 'none',
+      score: {
+        title: '', artist: '', masterBars: new Array(timeline.barCount).fill(null).map((_, index) => ({ index })),
+        tracks: parsed.tracks,
+      },
+      tracks: parsed.tracks.map((track, index) => midiTrackSummary(track, index, timeline)),
+    };
+    session.selectedTrackIndexes = new Set(session.tracks.map((track) => track.index));
+    gp35PendingImport = session;
+    gp35ShowPreview(session);
+  }
+
+  function midiBarTarget(timeline, sectionId, sectionFirstBar, barIndex, unitsPerBar, sectionLengthUnits) {
+    return {
+      sectionId,
+      startUnits: (barIndex - sectionFirstBar) * unitsPerBar,
+      parentTimeSig: timeline.timeSig,
+      parentNumerator: timeline.numerator,
+      parentDenominator: timeline.denominator,
+      unitsPerQuarter: timeline.unitsPerQuarter,
+      sectionLengthUnits,
+      sourceTimeSig: timeline.timeSig,
+      sourceMeterSupported: true,
+      sourceMode: 'midi',
+      tickStart: barIndex * timeline.barTicks,
+      barIndex,
+    };
+  }
+
+  function midiBuildSections(timeline, report, idAllocator, sectionLimit) {
+    const unitsPerBar = timeline.numerator * timeline.unitsPerQuarter;
+    const maxBarsPerSection = MIDI_MAX_BARS_PER_SECTION;
+    const ranges = [];
+    if (!timeline.markers.length) {
+      ranges.push({ startBar: 0, endBar: timeline.barCount, label: 'Вся песня' });
+    } else {
+      if (timeline.markers[0].barIndex > 0) {
+        ranges.push({ startBar: 0, endBar: timeline.markers[0].barIndex, label: 'До первой метки' });
+      }
+      timeline.markers.forEach((marker, index) => {
+        const next = timeline.markers[index + 1];
+        ranges.push({
+          startBar: marker.barIndex,
+          endBar: next ? next.barIndex : timeline.barCount,
+          label: marker.text || `Метка ${index + 1}`,
+        });
+      });
+    }
+    const sections = [];
+    const targets = [];
+    const limit = Math.max(1, Math.min(MIDI_MAX_SECTIONS, sectionLimit || MIDI_MAX_SECTIONS));
+    for (const range of ranges) {
+      let bar = range.startBar;
+      while (bar < range.endBar) {
+        if (sections.length >= limit) { report.barsNotFit += range.endBar - bar; break; }
+        let barsHere = Math.min(range.endBar - bar, maxBarsPerSection, Math.floor(MIDI_MAX_POSITION / unitsPerBar) || 1);
+        if (barsHere < 1) barsHere = 1;
+        const sectionLengthUnits = barsHere * unitsPerBar;
+        const sectionInfo = gp35SectionLabel(range.label);
+        const sectionId = idAllocator.allocate();
+        const section = {
+          id: sectionId,
+          type: sectionInfo.type,
+          customName: sectionInfo.type === 'Custom' ? sectionInfo.customName : null,
+          note: null,
+          key: null,
+          shift: null,
+          timeSig: null,
+          bpm: null,
+          repeat: 1,
+          squares: [],
+        };
+        for (let index = 0; index < barsHere; index++) {
+          targets.push(midiBarTarget(timeline, sectionId, bar, bar + index, unitsPerBar, sectionLengthUnits));
+        }
+        for (let offset = 0; offset < barsHere; offset += MIDI_EVENTS_PER_SQUARE) {
+          const count = Math.min(MIDI_EVENTS_PER_SQUARE, barsHere - offset);
+          section.squares.push({
+            id: idAllocator.allocate(),
+            repeat: 1,
+            customBeats: null,
+            events: new Array(count).fill(null).map(() => ({
+              chord: '',
+              span: timeline.numerator,
+              timeSig: null,
+              strumPattern: null,
+              fingering: null,
+              fingeringTuning: null,
+              barreOff: null,
+              fingers: null,
+            })),
+          });
+        }
+        sections.push(section);
+        bar += barsHere;
+      }
+    }
+    return { sections, targets };
+  }
+
+  function midiPartNoteCount(part) {
+    if (!part) return 0;
+    const count = (rolls) => Object.keys(rolls || {}).reduce((sum, key) =>
+      sum + (Array.isArray(rolls[key]) ? rolls[key].length : 0), 0);
+    return count(part.rolls) + count(part.pitchRolls);
+  }
+
+  function midiConvertTrack(summary, timeline, targets, report, partId) {
+    const track = summary.source;
+    const name = summary.sourceName;
+    const part = {
+      id: partId,
+      name,
+      sourceName: name,
+      instrument: summary.instrument,
+      tuning: 'e-std',
+      visible: true,
+      rolls: {},
+      pitchRolls: {},
+      lyrics: [],
+    };
+    if (summary.program !== null) part.gmProgram = summary.program;
+    if (summary.channel !== null) part.midiChannel = summary.channel;
+    if (summary.instrument === 'guitar') part.strings = [40, 45, 50, 55, 59, 64].map(gp35TuningNote);
+    else if (summary.instrument === 'bass') part.strings = [28, 33, 38, 43].map(gp35TuningNote);
+    const volume = midiVolumeFrom(track.controllers);
+    const pan = midiPanFrom(track.controllers);
+    if (volume !== null || pan !== 0) {
+      part.mix = { volume: volume === null ? 100 : volume, pan, mute: false, solo: false };
+      report.midiMixer++;
+    }
+    if (summary.instrument === 'drums') report.midiDrumParts++;
+    gp35AddLoss(report, 'В MIDI нет струй и ладов: ноты перенесены по абсолютной высоте, лад на грифе подобран приложением', 1);
+
+    const occupied = new Set();
+    let quantized = 0;
+    for (const note of track.notes) {
+      const target = midiTargetForTick(timeline, targets, note.tick);
+      if (!target) { report.notesSkipped++; continue; }
+      const start = Math.round((target.startUnits +
+        (note.tick - target.tickStart) / timeline.ppq * target.unitsPerQuarter) * 1000000) / 1000000;
+      const rawDuration = note.duration / timeline.ppq * target.unitsPerQuarter;
+      const quant = midiQuantizeDuration(rawDuration);
+      if (!quant || !(quant.duration > 0)) { report.notesSkipped++; continue; }
+      if (quant.changed) quantized++;
+      if (start < 0 || start >= target.sectionLengthUnits || start > MIDI_MAX_POSITION) { report.notesSkipped++; continue; }
+      const sectionKey = String(target.sectionId);
+      // Гитара и бас приложение рисует только табулатурой, поэтому для них
+      // абсолютная высота MIDI переводится в пару «струна + лад» по грифу
+      // партии; остальные инструменты хранят абсолютную высоту как есть.
+      const isTabPart = part.instrument === 'guitar' || part.instrument === 'bass';
+      let candidates;
+      if (isTabPart) {
+        candidates = partPitchPositions(part, note.pitch).slice()
+          .sort((a, b) => a.fret - b.fret || b.line - a.line)
+          .map((position) => ({ line: position.line, fret: position.fret }));
+        if (!candidates.length) {
+          report.notesSkipped++;
+          gp35AddLoss(report, 'Ноты MIDI вне грифа партии — показать их табулатурой нечем', 1);
+          continue;
+        }
+      } else {
+        const isDrum = part.instrument === 'drums';
+        const preferredLine = isDrum ? partDrumLane(note.pitch) : partPitchDefaultLine(part, note.pitch);
+        const lineCandidates = [preferredLine];
+        if (!isDrum) {
+          partPitchPositions(part, note.pitch).slice()
+            .sort((a, b) => a.fret - b.fret || b.line - a.line)
+            .forEach((position) => lineCandidates.push(position.line));
+          for (let line = 0; line < Math.min(PART_STRING_LIMIT, partStringCount(part)); line++) lineCandidates.push(line);
+        }
+        candidates = Array.from(new Set(lineCandidates)).map((line) => ({ line }));
+      }
+      let chosen = null;
+      for (const candidateVoice of [1, 2, 3, 4]) {
+        for (const candidate of candidates) {
+          const key = `${sectionKey}|${start}|${candidate.line}|${candidateVoice}`;
+          if (!occupied.has(key)) { chosen = { ...candidate, voice: candidateVoice, key }; break; }
+        }
+        if (chosen) break;
+      }
+      if (!chosen) { report.notesSkipped++; report.noteCollisions++; continue; }
+      occupied.add(chosen.key);
+      if (isTabPart) {
+        const tabNote = { start, dur: quant.duration, string: chosen.line, fret: chosen.fret };
+        if (chosen.voice !== 1) tabNote.voice = chosen.voice;
+        if (quant.dots) tabNote.dots = quant.dots;
+        if (quant.triplet) tabNote.triplet = true;
+        if (chosen.fret > 24) report.highFrets++;
+        if (!part.rolls[sectionKey]) part.rolls[sectionKey] = [];
+        part.rolls[sectionKey].push(tabNote);
+      } else {
+        const pitchNote = { start, dur: quant.duration, pitch: note.pitch, line: chosen.line };
+        if (chosen.voice !== 1) pitchNote.voice = chosen.voice;
+        if (quant.dots) pitchNote.dots = quant.dots;
+        if (quant.triplet) pitchNote.triplet = true;
+        const velocity = Math.max(1, Math.min(127, note.velocity | 0));
+        if (velocity !== 90) { pitchNote.velocity = velocity; report.pitchVelocities++; }
+        if (!part.pitchRolls[sectionKey]) part.pitchRolls[sectionKey] = [];
+        part.pitchRolls[sectionKey].push(pitchNote);
+      }
+      report.notesImported++;
+    }
+    // Порядок внутри рулона важен для отрисовки и для повторного сохранения.
+    Object.keys(part.rolls).forEach((key) => part.rolls[key]
+      .sort((a, b) => a.start - b.start || a.string - b.string || Number(a.voice || 1) - Number(b.voice || 1)));
+    Object.keys(part.pitchRolls).forEach((key) => part.pitchRolls[key]
+      .sort((a, b) => a.start - b.start || a.line - b.line || Number(a.voice || 1) - Number(b.voice || 1)));
+    if (quantized) {
+      gp35AddLoss(report, 'Длительности MIDI округлены к ритмической сетке, как это делает Guitar Pro', quantized);
+    }
+    return part;
+  }
+
+  function midiTargetForTick(timeline, targets, tick) {
+    let low = 0;
+    let high = targets.length - 1;
+    let found = null;
+    while (low <= high) {
+      const middle = (low + high) >> 1;
+      const target = targets[middle];
+      if (target.tickStart <= tick) { found = target; low = middle + 1; }
+      else high = middle - 1;
+    }
+    if (!found) return null;
+    const limit = found.tickStart + timeline.barTicks;
+    return tick < limit ? found : null;
+  }
+
+  function midiReportState(session, mode, selectedIndexes) {
+    const parsed = session.midi;
+    const timeline = session.timeline;
+    const report = {
+      title: 'Отчёт об импорте MIDI',
+      version: session.version.label,
+      encoding: 'MIDI',
+      mode,
+      importedTracks: 0,
+      selectedTrackCount: selectedIndexes.length,
+      sourceBars: timeline.barCount,
+      barsMapped: 0,
+      barsNotFit: 0,
+      notesFound: 0,
+      notesImported: 0,
+      notesSkipped: 0,
+      noteCollisions: 0,
+      duplicateNotes: 0,
+      highFrets: 0,
+      effectsTransferred: 0,
+      pitchVelocities: 0,
+      lyricsFound: parsed.lyrics.length,
+      lyricsImported: 0,
+      lyricsSkipped: parsed.lyrics.length,
+      sectionsCreated: 0,
+      tracksNotFit: 0,
+      existingBarCount: 0,
+      unsupportedTimeSigs: new Set(),
+      importedNoteText: '',
+      initialBpm: timeline.bpm,
+      initialKey: timeline.key,
+      midiQuantized: 0,
+      midiMixer: 0,
+      midiDrumParts: 0,
+      gpAssets: [],
+      mediaSummary: null,
+      zip64: false,
+      losses: new Map(),
+      transfers: new Set(),
+      gpifBestEffort: false,
+      unsupportedArchiveEntries: [],
+      containerKind: 'midi',
+      archiveBytes: 0,
+      unpackedBytes: 0,
+      invalidTimeSigs: new Map(),
+      invalidMeterBars: 0,
+      noteTextTruncated: false,
+      markerCount: timeline.markers.length,
+      bars: null,
+    };
+    report.notesFound = selectedIndexes.reduce((sum, index) => {
+      const track = parsed.tracks[index];
+      return sum + (track ? track.notes.length : 0);
+    }, 0);
+    if (parsed.texts.length) gp35AddLoss(report, 'Тексты MIDI перенесены как примечания песни', 1);
+    if (parsed.lyrics.length) gp35AddLoss(report, 'Строки текста (lyrics) в MIDI не поддерживаются приложением', parsed.lyrics.length);
+    if (parsed.tempoEvents.length > 1) gp35AddLoss(report, 'Смены темпа внутри песни не переносятся: взят первый темп', parsed.tempoEvents.length - 1);
+    if (parsed.timeSignatures.length > 1) gp35AddLoss(report, 'Смены размера внутри песни не переносятся: взят первый размер', parsed.timeSignatures.length - 1);
+    if (parsed.keySignatures.length > 1) gp35AddLoss(report, 'Смены тональности внутри песни не переносятся: взята первая', parsed.keySignatures.length - 1);
+    if (timeline.markers.length) gp35AddTransfer(report, 'Метки MIDI превращены в секции.');
+    else gp35AddTransfer(report, 'Файл без меток загружен одной секцией.');
+    const bends = parsed.tracks.reduce((sum, track) => sum + track.pitchBends, 0);
+    const touches = parsed.tracks.reduce((sum, track) => sum + track.aftertouch, 0);
+    if (bends + touches > 0) gp35AddLoss(report, 'Модуляция, нажатие и подстройка высоты в MIDI не переносятся', bends + touches);
+    for (const warning of parsed.warnings) gp35AddLoss(report, warning, 1);
+    return report;
+  }
+
+  function midiNewSong(session, selectedIndexes, report) {
+    const timeline = session.timeline;
+    const ids = gp35IdAllocator(1, new Set());
+    const built = midiBuildSections(timeline, report, ids, MIDI_MAX_SECTIONS);
+    report.sectionsCreated = built.sections.length;
+    report.barsMapped = built.targets.length;
+    report.barsNotFit = Math.max(0, report.sourceBars - built.targets.length);
+    const chosen = selectedIndexes.slice(0, MIDI_MAX_PARTS);
+    report.tracksNotFit = Math.max(0, selectedIndexes.length - chosen.length);
+    selectedIndexes.slice(chosen.length).forEach((index) => {
+      const track = session.midi.tracks[index];
+      if (track) report.notesSkipped += track.notes.length;
+    });
+    const parts = [];
+    for (const index of chosen) {
+      const summary = session.tracks[index];
+      if (!summary) continue;
+      const part = midiConvertTrack(summary, timeline, built.targets, report, ids.allocate());
+      if (!midiPartNoteCount(part)) {
+        report.notesSkipped = Math.max(0, report.notesSkipped - summary.noteCount);
+        gp35AddLoss(report, `Дорожка «${summary.sourceName}» без нот пропущена`, 1);
+        continue;
+      }
+      parts.push(part);
+    }
+    report.importedTracks = parts.length;
+    const bpm = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, Math.round(timeline.bpm)));
+    if (bpm !== timeline.bpm) gp35AddLoss(report, 'Начальный BPM скорректирован до диапазона приложения', 1);
+    const title = gp35MakeNameFromFile(session.fileName);
+    return {
+      schemaVersion: SONG_SCHEMA_VERSION,
+      metadata: { artist: '', title },
+      bpm,
+      globalKey: timeline.key,
+      keyMode: 'manual',
+      globalTimeSig: timeline.timeSig,
+      tuning: 'e-std',
+      tuningNotes: null,
+      notes: report.importedNoteText,
+      date: new Date().toISOString(),
+      sections: built.sections,
+      parts,
+      nextId: ids.next(),
+      rhythmPool: null,
+      userFingerings: [],
+      preferredFingerings: [],
+    };
+  }
+
+  function midiAppendToCurrent(session, selectedIndexes, report) {
+    const timeline = session.timeline;
+    const existingTargets = gp35ExistingTargets(report);
+    report.existingBarCount = existingTargets.length;
+    const used = new Set();
+    sections.forEach((section) => {
+      used.add(section.id);
+      (section.squares || []).forEach((square) => used.add(square.id));
+    });
+    songParts.forEach((part) => used.add(part.id));
+    const ids = gp35IdAllocator(nextId, used);
+    const missingSections = Math.max(0, MIDI_MAX_SECTIONS - sections.length);
+    const built = midiBuildSections(timeline, report, ids, missingSections);
+    const targets = [];
+    for (const target of existingTargets) {
+      targets.push({ ...target, sourceTimeSig: target.parentTimeSig, sourceMeterSupported: true, sourceMode: 'midi' });
+    }
+    for (const target of built.targets) targets.push(target);
+    if (existingTargets.length) {
+      gp35AddLoss(report, 'Дорожки MIDI добавлены после существующих тактов песни', 1);
+    }
+    report.barsMapped = targets.length;
+    report.barsNotFit = Math.max(0, report.sourceBars - targets.length);
+    const maxNewParts = Math.max(0, MIDI_MAX_PARTS - songParts.length);
+    const chosen = selectedIndexes.slice(0, maxNewParts);
+    report.tracksNotFit = Math.max(report.tracksNotFit, selectedIndexes.length - chosen.length);
+    selectedIndexes.slice(chosen.length).forEach((index) => {
+      const track = session.midi.tracks[index];
+      if (track) report.notesSkipped += track.notes.length;
+    });
+    const parts = [];
+    for (const index of chosen) {
+      const summary = session.tracks[index];
+      if (!summary) continue;
+      const part = midiConvertTrack(summary, timeline, built.targets, report, ids.allocate());
+      if (!midiPartNoteCount(part)) {
+        gp35AddLoss(report, `Дорожка «${summary.sourceName}» без нот пропущена`, 1);
+        continue;
+      }
+      parts.push(part);
+    }
+    report.importedTracks = parts.length;
+    const addedSections = parts.length ? built.sections : [];
+    if (!parts.length) report.sectionsCreated = 0;
+    else report.sectionsCreated = addedSections.length;
+    if (addedSections.length || parts.length) {
+      songStore.dispatch('gp/import-overlay', () => {
+        if (addedSections.length) sections.push(...addedSections);
+        if (parts.length) songParts.push(...parts);
+      });
+      return;
+    }
+    gp35AddLoss(report, 'Ни одна выбранная дорожка MIDI не поместилась в текущую песню', 1);
+  }
+
+  function midiApplyImport(session, selectedIndexes, mode) {
+    const report = midiReportState(session, mode, selectedIndexes);
+    if (mode === 'append') {
+      midiAppendToCurrent(session, selectedIndexes, report);
+    } else {
+      const song = midiNewSong(session, selectedIndexes, report);
+      if (!song.sections.length) throw new Error('В файле MIDI нет ни одного такта, который можно поместить в песню.');
+      if (!song.parts.length) throw new Error('Ни одна выбранная дорожка MIDI не дала нот.');
+      if (!loadSongFromObject(song)) throw new Error('Приложение не приняло импортированную песню.');
+      clearLibrarySongOrigin();
+      partsActiveId = songParts.length ? songParts[0].id : null;
+      if (typeof window.resetHistory === 'function') window.resetHistory();
+      markSongSaved();
+      showEditorScreen();
+      savedSongSnapshot = null;
+    }
+    showToast(`Импортировано дорожек: ${report.importedTracks}`);
+    gp35MakeReport(report);
+  }
+
+  function midiReadableError(error) {
+    const message = String(error && error.message || error || '');
+    if (/MThd/.test(message)) return 'файл не является Standard MIDI File';
+    if (/формат/.test(message)) return 'формат MIDI не поддерживается';
+    if (/SMPTE/.test(message)) return 'деление времени SMPTE не поддерживается';
+    if (/деление/.test(message)) return 'в заголовке файла сломано деление на доли';
+    if (/трек|MTrk/.test(message)) return 'повреждённый трек MIDI';
+    if (/размер|МБ/.test(message)) return message;
+    return 'не удалось прочитать MIDI';
   }
 
 
@@ -61664,7 +62648,7 @@ toggleTimeAndBeats();
     const targets = new Array(bars.length).fill(null);
     const created = [];
     const segments = gp35Segments(bars, startBar);
-    const maxSections = Math.max(0, Math.min(GP35_MAX_SECTIONS, Number.isInteger(sectionLimit) ? sectionLimit : GP35_MAX_SECTIONS));
+    const maxSections = Math.max(0, Math.min(MIDI_MAX_SECTIONS, Number.isInteger(sectionLimit) ? sectionLimit : MIDI_MAX_SECTIONS));
     for (const segment of segments) {
       let cursor = segment.start;
       let continuation = 0;
@@ -61673,11 +62657,11 @@ toggleTimeAndBeats();
           report.barsNotFit += segment.end - cursor;
           break;
         }
-        const maxBarsPerSection = SONG_LIMITS.MAX_SQUARES_PER_SECTION * GP35_EVENTS_PER_SQUARE;
+        const maxBarsPerSection = SONG_LIMITS.MAX_SQUARES_PER_SECTION * MIDI_EVENTS_PER_SQUARE;
         const sectionEndForMeter = Math.min(segment.end, cursor + maxBarsPerSection);
         const parentTimeSig = gp35ParentTimeSigForRange(bars, cursor, sectionEndForMeter, globalTimeSig);
         const parent = parseTimeSig(parentTimeSig);
-        const maxLogicalUnits = GP35_MAX_POSITION;
+        const maxLogicalUnits = MIDI_MAX_POSITION;
         let stop = cursor;
         let logicalUnits = 0;
         let completedSquareGroups = 0;
@@ -61685,7 +62669,7 @@ toggleTimeAndBeats();
         const invalidBarIndices = new Set();
         while (stop < segment.end && stop - cursor < maxBarsPerSection) {
           const geometry = gp35Geometry(bars[stop], parentTimeSig);
-          if (!Number.isFinite(geometry.eventSpan) || geometry.eventSpan <= 0 || geometry.eventSpan > GP35_MAX_EVENT_SPAN) {
+          if (!Number.isFinite(geometry.eventSpan) || geometry.eventSpan <= 0 || geometry.eventSpan > MIDI_MAX_EVENT_SPAN) {
             gp35MarkInvalidMeter(report, bars[stop].timeSig);
             report.barsNotFit++;
             invalidBarIndices.add(stop);
@@ -61696,7 +62680,7 @@ toggleTimeAndBeats();
           const structuralBar = gp35BarHasStructure(bars[stop]);
           const projectedSquareGroups = structuralBar
             ? completedSquareGroups + (pendingPlainBars ? 1 : 0) + 1
-            : completedSquareGroups + Math.ceil((pendingPlainBars + 1) / GP35_EVENTS_PER_SQUARE);
+            : completedSquareGroups + Math.ceil((pendingPlainBars + 1) / MIDI_EVENTS_PER_SQUARE);
           if (projectedSquareGroups > SONG_LIMITS.MAX_SQUARES_PER_SECTION) break;
           logicalUnits += geometry.logicalWidth;
           if (structuralBar) {
@@ -61705,7 +62689,7 @@ toggleTimeAndBeats();
             completedSquareGroups++;
           } else {
             pendingPlainBars++;
-            if (pendingPlainBars >= GP35_EVENTS_PER_SQUARE) {
+            if (pendingPlainBars >= MIDI_EVENTS_PER_SQUARE) {
               completedSquareGroups++;
               pendingPlainBars = 0;
             }
@@ -61771,8 +62755,8 @@ toggleTimeAndBeats();
         let plainGroup = [];
         const flushPlainGroup = () => {
           while (plainGroup.length) {
-            squareGroups.push(plainGroup.slice(0, GP35_EVENTS_PER_SQUARE));
-            plainGroup = plainGroup.slice(GP35_EVENTS_PER_SQUARE);
+            squareGroups.push(plainGroup.slice(0, MIDI_EVENTS_PER_SQUARE));
+            plainGroup = plainGroup.slice(MIDI_EVENTS_PER_SQUARE);
           }
         };
         for (const item of segmentBars) {
@@ -61781,7 +62765,7 @@ toggleTimeAndBeats();
             squareGroups.push([item]);
           } else {
             plainGroup.push(item);
-            if (plainGroup.length >= GP35_EVENTS_PER_SQUARE) flushPlainGroup();
+            if (plainGroup.length >= MIDI_EVENTS_PER_SQUARE) flushPlainGroup();
           }
         }
         flushPlainGroup();
@@ -62085,9 +63069,9 @@ toggleTimeAndBeats();
     modal.style.overflowY = 'auto';
     modal.setAttribute('role', 'dialog');
     modal.setAttribute('aria-modal', 'true');
-    modal.setAttribute('aria-label', 'Отчёт об импорте Guitar Pro');
+    modal.setAttribute('aria-label', report.title || 'Отчёт об импорте Guitar Pro');
     const title = document.createElement('h3');
-    title.textContent = 'Отчёт об импорте Guitar Pro';
+    title.textContent = report.title || 'Отчёт об импорте Guitar Pro';
     title.style.margin = '0 0 0.5rem';
     modal.appendChild(title);
     const lead = document.createElement('p');
@@ -62115,11 +63099,15 @@ toggleTimeAndBeats();
       const sizeKb = report.mediaSummary ? Math.round(report.mediaSummary.storedBytes / 1024) : 0;
       movedLines.push(`Вложения включены в песню: аудио ${audioCount}, изображения ${imageCount} (${sizeKb} КБ); они сохраняются с песней/экспортом.`);
     }
-    if (report.transfers) movedLines.push(...report.transfers);
+    if (report.transfers && report.transfers.size !== undefined) {
+      report.transfers.forEach((text) => movedLines.push(text));
+    } else if (report.transfers && report.transfers.length) {
+      movedLines.push(...report.transfers);
+    }
     movedLines.forEach((text) => { const li = document.createElement('li'); li.textContent = text; moved.appendChild(li); });
     modal.appendChild(moved);
     const losses = [];
-    if (report.tracksNotFit) losses.push(`Выбранные дорожки, не вместившиеся в лимит ${GP35_MAX_PARTS}: ${report.tracksNotFit}.`);
+    if (report.tracksNotFit) losses.push(`Выбранные дорожки, не вместившиеся в лимит ${MIDI_MAX_PARTS}: ${report.tracksNotFit}.`);
     if (report.barsNotFit) losses.push(`Такты и связанные с ними ноты в ${report.barsNotFit} несопоставленных тактах пропущены.`);
     if (report.gpifBestEffort) losses.push('GPIF обработан в режиме best-effort: неизвестные или новые узлы формата могли быть пропущены alphaTab.');
     if (report.unsupportedArchiveEntries.length) {
@@ -62193,9 +63181,9 @@ toggleTimeAndBeats();
       gp35AddLoss(report, 'Ноты с нераспознаваемой длительностью', 1);
       return;
     }
-    const start = Math.round((target.startUnits + startTicks / GP35_TICKS_PER_QUARTER * target.unitsPerQuarter) * 1000000) / 1000000;
-    const dur = Math.round((durationTicks / GP35_TICKS_PER_QUARTER * target.unitsPerQuarter) * 1000000) / 1000000;
-    if (!(dur > 0) || dur > SONG_LIMITS.MAX_SPAN || start < 0 || start > GP35_MAX_POSITION || start >= target.sectionLengthUnits) {
+    const start = Math.round((target.startUnits + startTicks / MIDI_TICKS_PER_QUARTER * target.unitsPerQuarter) * 1000000) / 1000000;
+    const dur = Math.round((durationTicks / MIDI_TICKS_PER_QUARTER * target.unitsPerQuarter) * 1000000) / 1000000;
+    if (!(dur > 0) || dur > SONG_LIMITS.MAX_SPAN || start < 0 || start > MIDI_MAX_POSITION || start >= target.sectionLengthUnits) {
       report.notesSkipped++;
       gp35AddLoss(report, 'Ноты вышли за диапазон/длину секции приложения', 1);
       return;
@@ -62203,9 +63191,9 @@ toggleTimeAndBeats();
     const sectionKey = String(target.sectionId);
     const countKey = `${part.id}|${sectionKey}`;
     const usedCount = perSectionCounts.get(countKey) || 0;
-    if (usedCount >= GP35_MAX_NOTES_PER_SECTION) {
+    if (usedCount >= MIDI_MAX_NOTES_PER_SECTION) {
       report.notesSkipped++;
-      gp35AddLoss(report, `Лимит ${GP35_MAX_NOTES_PER_SECTION} нот на секцию`, 1);
+      gp35AddLoss(report, `Лимит ${MIDI_MAX_NOTES_PER_SECTION} нот на секцию`, 1);
       return;
     }
     const voice = voiceIndex + 1;
@@ -62384,8 +63372,8 @@ toggleTimeAndBeats();
                 text = text.slice(0, SONG_LIMITS.MAX_LYRIC_TEXT);
                 gp35AddLoss(report, 'Длинный слог lyrics обрезан до лимита текста приложения', 1);
               }
-              const start = Math.round((target.startUnits + lyricTicks / GP35_TICKS_PER_QUARTER * target.unitsPerQuarter) * 1000000) / 1000000;
-              if (start < 0 || start > GP35_MAX_POSITION || start >= target.sectionLengthUnits) {
+              const start = Math.round((target.startUnits + lyricTicks / MIDI_TICKS_PER_QUARTER * target.unitsPerQuarter) * 1000000) / 1000000;
+              if (start < 0 || start > MIDI_MAX_POSITION || start >= target.sectionLengthUnits) {
                 report.lyricsSkipped++;
                 gp35AddLoss(report, 'Lyrics вышли за диапазон/длину секции приложения', 1);
                 return;
@@ -62393,7 +63381,7 @@ toggleTimeAndBeats();
               const lyric = { secId: target.sectionId, start, text, line: 1 };
               const lyricDuration = gp35DurationTicks(beat);
               const lyricDurUnits = lyricDuration > 0
-                ? Math.round((lyricDuration / GP35_TICKS_PER_QUARTER * target.unitsPerQuarter) * 1000000) / 1000000
+                ? Math.round((lyricDuration / MIDI_TICKS_PER_QUARTER * target.unitsPerQuarter) * 1000000) / 1000000
                 : 0;
               if (lyricDurUnits > 0 && lyricDurUnits <= SONG_LIMITS.MAX_SPAN) lyric.dur = lyricDurUnits;
               else if (lyricDurUnits > SONG_LIMITS.MAX_SPAN) gp35AddLoss(report, 'Длительность lyric превышает лимит модели и отброшена', 1);
@@ -62422,17 +63410,17 @@ toggleTimeAndBeats();
     const globalTimeSig = gp35FirstSupportedTimeSig(report.bars);
     const usedIds = new Set();
     const ids = gp35IdAllocator(1, usedIds);
-    const sectionData = gp35BuildSectionData(score, 0, ids, globalTimeSig, report, GP35_MAX_SECTIONS);
+    const sectionData = gp35BuildSectionData(score, 0, ids, globalTimeSig, report, MIDI_MAX_SECTIONS);
     report.barsMapped = sectionData.targets.filter(Boolean).length;
     report.barsNotFit = report.sourceBars - report.barsMapped;
     const parts = [];
-    const chosen = selectedIndexes.slice(0, GP35_MAX_PARTS);
+    const chosen = selectedIndexes.slice(0, MIDI_MAX_PARTS);
     report.tracksNotFit = Math.max(0, selectedIndexes.length - chosen.length);
     selectedIndexes.slice(chosen.length).forEach((index) => {
       report.notesSkipped += gp35TrackNoteCount(score.tracks[index]);
       report.lyricsSkipped += gp35TrackLyricsCount(score.tracks[index]);
     });
-    const notesCapacity = GP35_MAX_NOTES_PER_SECTION;
+    const notesCapacity = MIDI_MAX_NOTES_PER_SECTION;
     chosen.forEach((index) => {
       const trackSummary = session.tracks[index];
       if (!trackSummary) return;
@@ -62481,14 +63469,14 @@ toggleTimeAndBeats();
     });
     songParts.forEach((part) => used.add(part.id));
     const ids = gp35IdAllocator(nextId, used);
-    const missingSections = Math.max(0, GP35_MAX_SECTIONS - sections.length);
+    const missingSections = Math.max(0, MIDI_MAX_SECTIONS - sections.length);
     const extension = gp35BuildSectionData(score, existingTargets.length, ids, globalTimeSig, report, missingSections);
     const targets = new Array(report.bars.length).fill(null);
     for (let index = 0; index < Math.min(existingTargets.length, targets.length); index++) {
       const target = existingTargets[index];
       const sourceBar = report.bars[index];
       const geometry = gp35Geometry(sourceBar, target.parentTimeSig);
-      if (!Number.isFinite(geometry.eventSpan) || geometry.eventSpan <= 0 || geometry.eventSpan > GP35_MAX_EVENT_SPAN) {
+      if (!Number.isFinite(geometry.eventSpan) || geometry.eventSpan <= 0 || geometry.eventSpan > MIDI_MAX_EVENT_SPAN) {
         gp35MarkInvalidMeter(report, sourceBar.timeSig);
         continue;
       }
@@ -62507,7 +63495,7 @@ toggleTimeAndBeats();
     }
     report.barsMapped = targets.filter(Boolean).length;
     report.barsNotFit = report.sourceBars - report.barsMapped;
-    const maxNewTracks = Math.max(0, GP35_MAX_PARTS - songParts.length);
+    const maxNewTracks = Math.max(0, MIDI_MAX_PARTS - songParts.length);
     const chosen = selectedIndexes.slice(0, maxNewTracks);
     report.tracksNotFit = Math.max(report.tracksNotFit, selectedIndexes.length - chosen.length);
     selectedIndexes.slice(chosen.length).forEach((index) => {
@@ -62516,7 +63504,7 @@ toggleTimeAndBeats();
     });
     const parts = chosen.map((index) => {
       const trackSummary = session.tracks[index];
-      return trackSummary ? gp35ConvertTrack(trackSummary, score, targets, report, ids.allocate(), GP35_MAX_NOTES_PER_SECTION) : null;
+      return trackSummary ? gp35ConvertTrack(trackSummary, score, targets, report, ids.allocate(), MIDI_MAX_NOTES_PER_SECTION) : null;
     }).filter(Boolean);
     report.importedTracks = parts.length;
     gp35CollectTextNotes(score, report, selectedIndexes);
@@ -62563,6 +63551,10 @@ toggleTimeAndBeats();
   }
 
   function gp35ApplyImport(session, selectedIndexes, mode) {
+    if (session && session.isMidi) {
+      midiApplyImport(session, selectedIndexes, mode);
+      return;
+    }
     const report = gp35ReportState(session, mode, selectedIndexes);
     if (mode === 'append') {
       gp35AppendToCurrent(session.score, session, selectedIndexes, report);
@@ -62629,7 +63621,8 @@ toggleTimeAndBeats();
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('aria-label', 'Импорт Guitar Pro');
     const heading = document.createElement('h3');
-    heading.textContent = session.isGpx ? 'Импорт Guitar Pro 6'
+    heading.textContent = session.isMidi ? 'Импорт MIDI'
+      : session.isGpx ? 'Импорт Guitar Pro 6'
       : session.isGp78 ? 'Импорт Guitar Pro 7–8' : 'Импорт Guitar Pro 3–5';
     heading.style.margin = '0 0 .35rem';
     const fileLine = document.createElement('p');
@@ -62640,6 +63633,7 @@ toggleTimeAndBeats();
     titleLine.style.margin = '0 0 .75rem';
     const encodingLabel = document.createElement('label');
     encodingLabel.style.cssText = 'display:flex;align-items:center;gap:.5rem;margin:.6rem 0;font-size:.9rem;';
+    if (session.isMidi) encodingLabel.hidden = true;
     const encodingText = document.createElement('span');
     encodingText.textContent = 'Кодировка текста';
     const encodingSelect = document.createElement('select');
@@ -62774,7 +63768,7 @@ toggleTimeAndBeats();
         if (session.isGp78 || session.isGpx) gp78InstallAssets(session);
         gp35ApplyImport(session, selected, mode);
       } catch (error) {
-        console.error('Guitar Pro import failed', error);
+        console.error('Guitar Pro import failed', error, (error && error.stack) || '');
         if (session.isGp78 || session.isGpx) (session.gpAssets || []).forEach((asset) => gpMediaAssetData.delete(asset.id));
         const readable = session.isGpx ? gpxReadableError(error)
           : session.isGp78 ? gp78ReadableZipError(error)
@@ -62821,7 +63815,22 @@ toggleTimeAndBeats();
     const isGp78 = !!(extension && extension[1] === 'gp');
     const isGpx = !!(extension && extension[1] === 'gpx');
     const isSongJson = !!(extension && ['json', 'struchord'].includes(extension[1]));
-    if (isGpx || (!isGp78 && !isGp35 && !isSongJson)) {
+    const isMidi = !!(extension && ['mid', 'midi'].includes(extension[1]));
+    if (isMidi) {
+      const midiReader = new FileReader();
+      midiReader.onload = (event) => {
+        try {
+          midiBeginImport(event.target.result, fileName);
+        } catch (error) {
+          console.error('MIDI import preview failed', error);
+          showToast('Не удалось прочитать MIDI: ' + midiReadableError(error));
+        }
+      };
+      midiReader.onerror = () => showToast('Ошибка чтения файла MIDI');
+      midiReader.readAsArrayBuffer(file);
+      return;
+    }
+    if (isGpx || (!isGp78 && !isGp35 && !isSongJson && !isMidi)) {
       // Файл с чужим расширением сначала читается как контейнер GP6: подпись
       // BCFZ/BCFS видна в первых четырёх байтах, а имя может быть любым.
       const sniffReader = new FileReader();
@@ -62833,6 +63842,17 @@ toggleTimeAndBeats();
           } catch (error) {
             console.error('GP6 import preview failed', error);
             showToast('Не удалось прочитать Guitar Pro: ' + gpxReadableError(error));
+          }
+          return;
+        }
+        // Подпись MThd видна в первых четырёх байтах — файл MIDI читается даже
+        // под чужим расширением.
+        if (midiIsContainerBytes(buffer)) {
+          try {
+            midiBeginImport(buffer, fileName);
+          } catch (error) {
+            console.error('MIDI import preview failed', error);
+            showToast('Не удалось прочитать MIDI: ' + midiReadableError(error));
           }
           return;
         }

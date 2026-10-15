@@ -162,7 +162,7 @@ const truncated = simple.slice(0, simple.length - 6);
 throws('обрезанный файл отклоняется', () => midi.readMidi(truncated));
 
 console.log('=== 8. настоящие файлы пользователя ===');
-const oracleDir = '/tmp/oracles';
+const oracleDir = '/home/user/oracles';
 const monsoonPath = path.join(oracleDir, 'monsoon.mid');
 if (fs.existsSync(monsoonPath)) {
   const real = midi.readMidi(new Uint8Array(fs.readFileSync(monsoonPath)));

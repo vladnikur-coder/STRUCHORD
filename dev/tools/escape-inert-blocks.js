@@ -29,7 +29,7 @@ const path = require('path');
 const htmlPath = path.join(__dirname, '..', '..', 'STRUCHORD.html');
 const checkOnly = process.argv.includes('--check');
 
-const INERT_BLOCK_IDS = ["gpxBcfzRuntime", "gp78ZipRuntime", "alphaTabRuntime"];
+const INERT_BLOCK_IDS = ["gpxBcfzRuntime", "gp78ZipRuntime", "midiRuntime", "alphaTabRuntime"];
 const INERT = new RegExp(
   `(<script id="(?:${INERT_BLOCK_IDS.join("|")})" type="text/plain">)([\\s\\S]*?)(</script>)`,
   'g'
