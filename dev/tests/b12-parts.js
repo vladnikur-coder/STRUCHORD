@@ -3,10 +3,10 @@
  * b12-parts.js — B-12.1 «Партии», кирпич 1 «Каркас».
  *
  * Проверяем:
- *  1. Схему: миграция v4 → v5 (старая песня грузится без партий);
+ *  1. Схему: старая песня проходит миграции до v7 и загружается без партий;
  *  2. Санитайзер партий: битые ноты отбрасываются, чужие ключи секций
  *     теряются, лимиты и allowlist работают;
- *  3. Сохранение: parts уезжают в файл, schemaVersion = 5;
+ *  3. Сохранение: parts уезжают в файл, schemaVersion = 7;
  *  4. Окно «Партии»: станки по проходам секций, чипы нот, пустое состояние;
  *  5. Режимы: is-parts, Esc, взаимоисключение с лентой;
  *  6. Звук: окна событий и времена нот (заглушка pluckString);
@@ -85,15 +85,15 @@ function loadSong(song) {
 
 w.addEventListener('load', () => {
   try {
-    // ---------- 1. Миграция v4 → v5 ----------
+    // ---------- 1. Миграция старой схемы до v7 ----------
     loadSong(baseSong());
     check('старая песня (v4) загружается без партий', w.eval('JSON.stringify(songParts)') === '[]');
-    check('схема поднята до 5', w.eval('SONG_SCHEMA_VERSION') === 5);
+    check('схема поднята до 7 для lyrics и media manifests', w.eval('SONG_SCHEMA_VERSION') === 7);
     w.confirm = () => true;
     w.saveCurrentSong();
     const afterOld = JSON.parse(w.localStorage.getItem('struchord_songs'));
     const savedOld = afterOld[afterOld.length - 1];
-    check('в сейве schemaVersion 5', savedOld.schemaVersion === 5, String(savedOld.schemaVersion));
+    check('в сейве schemaVersion 7', savedOld.schemaVersion === 7, String(savedOld.schemaVersion));
     check('в сейве пустой список партий', Array.isArray(savedOld.parts) && savedOld.parts.length === 0);
 
     // ---------- 2. Санитайзер партий ----------
@@ -128,6 +128,22 @@ w.addEventListener('load', () => {
       JSON.stringify(parts[0] && parts[0].rolls['1'])
     );
     check('чужая секция не оставила рулона', parts[0] && !parts[0].rolls['999'], JSON.stringify(parts[0].rolls));
+
+    // Смена роли может сохранить более высокую старую tab-линию, но только
+    // с валидным 1–12 маркером и только до объявленной границы.
+    loadSong(baseSong({ parts: [
+      { id: 8, name: 'Bass', instrument: 'bass', rollStringLimit: 6,
+        rolls: { '1': [
+          { start: 0, dur: 1, string: 5, fret: 3 },
+          { start: 1, dur: 1, string: 6, fret: 3 },
+        ] } },
+      { id: 9, name: 'Bad limit', instrument: 'bass', rollStringLimit: 13,
+        rolls: { '1': [{ start: 0, dur: 1, string: 5, fret: 3 }] } },
+    ] }));
+    const rangedParts = JSON.parse(w.eval('JSON.stringify(songParts)'));
+    check('валидный rollStringLimit сохраняет линию вне короткого грифа, не расширяя дальше лимита',
+      rangedParts[0].rolls['1'].length === 1 && rangedParts[0].rolls['1'][0].string === 5 &&
+        (!rangedParts[1].rolls['1'] || rangedParts[1].rolls['1'].length === 0) && !Object.prototype.hasOwnProperty.call(rangedParts[0], 'rollStringLimit'));
 
     // Ремап ключей: дублирующиеся id секций в файле переназначаются, а
     // рулоны обязаны поехать за своими секциями.
@@ -169,8 +185,8 @@ w.addEventListener('load', () => {
     check('тактовая сетка есть', track.querySelectorAll('.pt-svg line').length > 20,
       String(track.querySelectorAll('.pt-svg line').length));
     check('пустое состояние скрыто', w.document.getElementById('partsEmpty').hidden === true);
-    const names = Array.from(track.querySelectorAll('.pt-section-name')).map((t) => t.textContent).join('|');
-    check('подписи проходов секции', names === 'Куплет 1/2|Куплет 2/2|Припев', names);
+    const names = Array.from(track.querySelectorAll('.pt-score-marker')).map((t) => t.childNodes[0].textContent).join('|');
+    check('подписи проходов секции на непрерывной ленте', names === 'Куплет 1/2|Куплет 2/2|Припев', names);
     // B-12.3: пилюля показывает и инструмент дорожки.
     const pillText = w.document.getElementById('partsActiveName').textContent;
     check('имя и инструмент партии в пилюле', pillText === 'Соло · Гитара', pillText);

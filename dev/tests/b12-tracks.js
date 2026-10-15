@@ -16,8 +16,8 @@
  *     удалить — каждая одной командой Store;
  *  6. Включение и выключение дорожки; все выключены → пустое состояние с
  *     кнопкой «Включить дорожку»;
- *  7. Сужение (смена инструмента): confirm с числом нот, отказ откатывает
- *     выбор, согласие убирает недостижимые ноты, список строёв пересобран;
+ *  7. Смена инструмента не спрашивает и не удаляет tab-roll: недостижимая
+ *     линия остаётся пунктиром; список строёв пересобран;
  *  8. Файл: инструмент и строй дорожки переживают сохранение и загрузку;
  *  9. История: операции дорожек откатываются Ctrl+Z и возвращаются Ctrl+Y;
  * 10. Ввод нот идёт в АКТИВНУЮ дорожку, соседние не трогает;
@@ -115,9 +115,12 @@ w.addEventListener('load', () => {
     const G = pid(0);
     const B = pid(1);
     const track = w.document.getElementById('partsTrack');
-    check('стопка: обе дорожки — рядами одной секции',
-      track.querySelectorAll('.pt-row').length === 2 && track.querySelectorAll('.pt-section').length === 1,
-      String(track.querySelectorAll('.pt-row').length));
+    check('непрерывная партитура: обе дорожки — рядами одной секции',
+      track.querySelectorAll('.pt-row').length === 2 && track.querySelectorAll('.pt-score-marker').length === 1 &&
+        track.querySelectorAll('.pt-section-segment').length === 2,
+      JSON.stringify({ rows: track.querySelectorAll('.pt-row').length,
+        markers: track.querySelectorAll('.pt-score-marker').length,
+        segments: track.querySelectorAll('.pt-section-segment').length }));
     check('подписи дорожек видны',
       Array.from(track.querySelectorAll('.pt-row-label b')).map((el) => el.textContent).join('|') === 'Соло|Бас',
       Array.from(track.querySelectorAll('.pt-row-label b')).map((el) => el.textContent).join('|'));
@@ -323,7 +326,7 @@ w.addEventListener('load', () => {
       JSON.stringify({ empty: w.document.getElementById('partsEmpty').hidden,
         rows: w.document.querySelectorAll('#partsTrack .pt-row').length }));
 
-    // ---------- 8. Смена инструмента: confirm и обрезка нот ----------
+    // ---------- 8. Смена роли не удаляет tab/pitch-материал ----------
     load([{
       id: 1, name: 'Соло', instrument: 'guitar', tuning: null, visible: true,
       rolls: { '1': [{ start: 0, dur: 1, string: 5, fret: 7 }, { start: 1, dur: 1, string: 2, fret: 5 }] },
@@ -335,18 +338,16 @@ w.addEventListener('load', () => {
     const instSel = w.document.getElementById('ptInstrument');
     instSel.value = 'bass';
     instSel.dispatchEvent(new w.Event('change', { bubbles: true }));
-    check('при сужении спросили с числом нот', !!asked && asked.includes('1 нот'), String(asked));
-    check('отказ оставил инструмент и ноты',
-      P(0, 'instrument') === 'guitar' && roll(0).length === 2, w.eval('JSON.stringify(songParts[0])'));
-    check('панель вернулась к гитаре после отказа',
-      w.document.getElementById('ptInstrument').value === 'guitar',
+    check('смена guitar → bass не спрашивает и не чистит рулон',
+      asked === null && P(0, 'instrument') === 'bass' && roll(0).length === 2,
+      JSON.stringify({ asked, instrument: P(0, 'instrument'), notes: roll(0) }));
+    check('недостижимая таб-нота осталась и помечена пунктиром',
+      roll(0).some((note) => note.string === 5) &&
+        row(G3).querySelectorAll('.pt-note.is-unplayable').length === 1,
+      JSON.stringify(roll(0)));
+    check('панель показывает выбранный бас',
+      w.document.getElementById('ptInstrument').value === 'bass',
       w.document.getElementById('ptInstrument').value);
-    w.confirm = () => true;
-    instSel.value = 'bass';
-    instSel.dispatchEvent(new w.Event('change', { bubbles: true }));
-    check('согласие сменило инструмент на бас', P(0, 'instrument') === 'bass');
-    check('недостижимая нота убрана, играемая осталась',
-      roll(0).length === 1 && roll(0)[0].string === 2, JSON.stringify(roll(0)));
     check('у баса 4 струны', w.eval('partStringCount(songParts[0])') === 4);
     check('список строёв пересобран под бас',
       w.document.getElementById('ptTuning').querySelector('option').textContent.includes('октавой ниже') &&
@@ -360,8 +361,9 @@ w.addEventListener('load', () => {
     check('станок баса — 4 струны',
       bassSvgEl.querySelectorAll('.pt-string').length === 4 && bassBox[3] + bassBox[1] === 10 * 2 + 9 * 3,
       bassSvgEl.getAttribute('viewBox'));
-    check('нот на басовом станке одна', row(G3).querySelectorAll('.pt-note').length === 1);
-    // Ноты в пределах баса: смена инструмента их не трогает.
+    check('обе исходные tab-ноты остались на станке', row(G3).querySelectorAll('.pt-note').length === 2);
+    // Ноты в пределах баса: смена строя продолжает прежнюю политику вопроса
+    // о tab-нотах, но смена ИНСТРУМЕНТА уже не удаляет материал.
     w.eval('songParts[0].tuning = "bass-std"');
     asked = null;
     w.confirm = (msg) => { asked = msg; return true; };
@@ -376,13 +378,13 @@ w.addEventListener('load', () => {
       JSON.stringify(lib.map((s) => s.parts && s.parts[0] && s.parts[0].instrument)));
     check('в файле есть инструмент и строй дорожки',
       savedIndex >= 0 && lib[savedIndex].parts[0].instrument === 'bass' &&
-      lib[savedIndex].parts[0].tuning === 'bass-std',
+      lib[savedIndex].parts[0].tuning === 'bass-std' && lib[savedIndex].parts[0].rollStringLimit === 6,
       savedIndex >= 0 ? JSON.stringify(lib[savedIndex].parts[0]) : '—');
     w.loadSong(savedIndex);
     w.eval('render()');
     check('после перезагрузки бас остался басом', P(0, 'instrument') === 'bass', String(P(0, 'instrument')));
     check('строй баса пережил файл', P(0, 'tuning') === 'bass-std', String(P(0, 'tuning')));
-    check('ноты дорожки пережили файл', roll(0).length === 1 && roll(0)[0].string === 2, JSON.stringify(roll(0)));
+    check('ноты дорожки пережили файл', roll(0).length === 2 && roll(0).some((n) => n.string === 5) && roll(0).some((n) => n.string === 2), JSON.stringify(roll(0)));
 
     // ---------- 10. История: операции дорожек откатываются ----------
     load([guitar, bass]);
