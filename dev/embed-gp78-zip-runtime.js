@@ -17,3 +17,7 @@ if (!pattern.test(html)) {
   fs.writeFileSync(htmlPath, html.replace(pattern, embedded));
 }
 console.log('Embedded GP7/8 ZIP runtime into STRUCHORD.html');
+
+// Экранирование «</» внутри невидимых блоков — обязательный шаг встраивания
+// (хотфикс 0.641, dev/tools/escape-inert-blocks.js).
+require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'tools', 'escape-inert-blocks.js')], { stdio: 'inherit' });

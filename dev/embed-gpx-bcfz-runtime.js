@@ -17,3 +17,8 @@ if (!pattern.test(html)) {
   fs.writeFileSync(htmlPath, html.replace(pattern, embedded));
 }
 console.log('Embedded GP6 BCFZ/BCFS runtime into STRUCHORD.html');
+
+// Невидимые блоки нельзя оставлять с «сырым» </body>: Live Server и другие
+// инструменты раздачи вклеивают служебный <script> перед первым </body> файла,
+// и тот закрывал блок на полпути (хотфикс 0.641 — dev/tools/escape-inert-blocks.js).
+require('child_process').execFileSync(process.execPath, [path.join(__dirname, 'tools', 'escape-inert-blocks.js')], { stdio: 'inherit' });
