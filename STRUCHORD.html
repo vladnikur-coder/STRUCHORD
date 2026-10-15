@@ -13455,7 +13455,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.639</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.640</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14401,6 +14401,330 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         </div>
       </div>
     </div>
+    <script id="gpxBcfzRuntime" type="text/plain">
+/*
+ * STRUCHORD Guitar Pro 6 (.gpx) container codec — BCFZ decompressor + BCFS reader.
+ *
+ * A .gpx file written by Guitar Pro 6 is a proprietary container, not a ZIP:
+ *
+ *   BCFZ  LE32 decompressed-size  <bit stream>
+ *   BCFS  <block 0 header> <directory slots> <file data blocks>   (uncompressed form)
+ *
+ * The BCFZ bit stream is read MSB-first from a byte boundary:
+ *   1 bit  flag — 0: literal run (2 bits = byte count, then the bytes);
+ *                  1: back reference (4 bits = word size, then `word size` bits of
+ *                     distance LSB-first, then `word size` bits of length LSB-first);
+ *   copying is byte-wise, so a reference may repeat the tail it just produced.
+ *
+ * The decompressed image is a BCFS filesystem: 4 magic bytes, then 4096-byte blocks.
+ * Block 0 is the header; the remaining blocks are directory records (type 2 = file)
+ * or file payload. Each record keeps its name at +4 (127 bytes, NUL-padded), the byte
+ * size at +140, and the list of payload block indexes at +148.
+ *
+ * Written for this project from the format description and verified against real
+ * Guitar Pro 6 files; no runtime dependency, network access, or platform API is used.
+ * The browser build is embedded in STRUCHORD.html as an inert script and is activated
+ * only when a .gpx file is imported.
+ */
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) root.StruchordGpxBcfz = api;
+})(typeof globalThis !== 'undefined' ? globalThis : this, function () {
+  'use strict';
+
+  const HEADER_BCFS = 'BCFS';
+  const HEADER_BCFZ = 'BCFZ';
+  const BLOCK_SIZE = 4096;
+  const RECORD_FILE = 2;
+  const RECORD_FOLDER = 1;
+  const NAME_OFFSET = 4;
+  const NAME_MAX = 127;
+  const SIZE_OFFSET = 140;
+  const BLOCKS_OFFSET = 148;
+
+  const LIMITS = Object.freeze({
+    maxFileBytes: 64 * 1024 * 1024,
+    maxUnpackedBytes: 128 * 1024 * 1024,
+    maxBlocks: 32768,
+    maxEntries: 512,
+    maxEntryBytes: 32 * 1024 * 1024,
+    maxBlockRefs: 65536,
+    maxStreamSteps: 96 * 1024 * 1024,
+  });
+
+  function containerError(code, message) {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+  }
+
+  function asBytes(source) {
+    if (source instanceof Uint8Array) return source;
+    if (source instanceof ArrayBuffer) return new Uint8Array(source);
+    if (ArrayBuffer.isView(source)) return new Uint8Array(source.buffer, source.byteOffset, source.byteLength);
+    throw containerError('bcfz-invalid', 'Expected a byte array.');
+  }
+
+  function magic(bytes, offset) {
+    if (offset < 0 || offset + 4 > bytes.byteLength) return '';
+    return String.fromCharCode(bytes[offset], bytes[offset + 1], bytes[offset + 2], bytes[offset + 3]);
+  }
+
+  function readU32(bytes, offset) {
+    if (offset < 0 || offset + 4 > bytes.byteLength) return -1;
+    return (bytes[offset] | (bytes[offset + 1] << 8) | (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24)) >>> 0;
+  }
+
+  function printableName(bytes, offset) {
+    if (offset < 0 || offset + NAME_MAX > bytes.byteLength) return '';
+    let name = '';
+    for (let index = 0; index < NAME_MAX; index++) {
+      const code = bytes[offset + index];
+      if (code === 0) break;
+      // Child-index blocks of a folder start with binary length fields; they must not
+      // pass as file names, otherwise garbage entries reach the import.
+      if (code < 0x20 || code > 0x7e) return '';
+      name += String.fromCharCode(code);
+    }
+    return name;
+  }
+
+  /** MSB-first bit reader over a byte range; returns -1 at end of input. */
+  function BitReader(bytes, offset) {
+    this.bytes = bytes;
+    this.position = offset;
+    this.current = 0;
+    this.available = 0;
+  }
+
+  BitReader.prototype.readBit = function readBit() {
+    if (this.available === 0) {
+      if (this.position >= this.bytes.byteLength) return -1;
+      this.current = this.bytes[this.position];
+      this.position += 1;
+      this.available = 8;
+    }
+    this.available -= 1;
+    return (this.current >> this.available) & 1;
+  };
+
+  BitReader.prototype.readBits = function readBits(count) {
+    let value = 0;
+    for (let index = 0; index < count; index++) {
+      const bit = this.readBit();
+      if (bit < 0) return -1;
+      value = value * 2 + bit;
+    }
+    return value;
+  };
+
+  BitReader.prototype.readBitsReversed = function readBitsReversed(count) {
+    let value = 0;
+    for (let index = 0; index < count; index++) {
+      const bit = this.readBit();
+      if (bit < 0) return -1;
+      value += bit * Math.pow(2, index);
+    }
+    return value;
+  };
+
+  BitReader.prototype.readByte = function readByte() {
+    return this.readBits(8);
+  };
+
+  function resolveLimits(options) {
+    const given = options || {};
+    const maxFileBytes = Number.isSafeInteger(given.maxFileBytes) && given.maxFileBytes > 0
+      ? given.maxFileBytes : LIMITS.maxFileBytes;
+    const maxUnpackedBytes = Number.isSafeInteger(given.maxUnpackedBytes) && given.maxUnpackedBytes > 0
+      ? given.maxUnpackedBytes : LIMITS.maxUnpackedBytes;
+    if (maxFileBytes > LIMITS.maxFileBytes || maxUnpackedBytes > LIMITS.maxUnpackedBytes) {
+      throw containerError('bcfz-limit', 'Requested limits exceed the built-in safety limits.');
+    }
+    return { maxFileBytes, maxUnpackedBytes };
+  }
+
+  /** Header sniff: 'BCFZ', 'BCFS' or '' when the file is not a Guitar Pro 6 container. */
+  function sniff(source) {
+    const bytes = asBytes(source);
+    const head = magic(bytes, 0);
+    return head === HEADER_BCFZ || head === HEADER_BCFS ? head : '';
+  }
+
+  /**
+   * Decompress a BCFZ container into its BCFS image.
+   * The returned bytes still start with the 'BCFS' magic written by Guitar Pro.
+   */
+  function decompressBcfz(source, options) {
+    const bytes = asBytes(source);
+    const limits = resolveLimits(options);
+    if (magic(bytes, 0) !== HEADER_BCFZ) {
+      throw containerError('bcfz-invalid', 'File does not start with the BCFZ signature.');
+    }
+    if (bytes.byteLength < 12) throw containerError('bcfz-invalid', 'BCFZ container is truncated.');
+    const declared = readU32(bytes, 4);
+    if (declared < 16) throw containerError('bcfz-invalid', 'BCFZ declares an implausible output size.');
+    if (declared > limits.maxUnpackedBytes) {
+      throw containerError('bcfz-limit', 'BCFZ container expands beyond the supported size.');
+    }
+    const reader = new BitReader(bytes, 8);
+    const out = new Uint8Array(declared);
+    let length = 0;
+    let steps = 0;
+    while (length < declared) {
+      if (++steps > LIMITS.maxStreamSteps) throw containerError('bcfz-limit', 'BCFZ bit stream does not terminate.');
+      const flag = reader.readBit();
+      if (flag < 0) break;
+      if (flag === 1) {
+        const wordSize = reader.readBits(4);
+        const distance = reader.readBitsReversed(wordSize);
+        const lengthBits = reader.readBitsReversed(wordSize);
+        if (wordSize < 1 || distance < 1 || distance > length || lengthBits < 1) {
+          throw containerError('bcfz-invalid', 'BCFZ back reference points outside the decoded data.');
+        }
+        const count = Math.min(lengthBits, declared - length);
+        const from = length - distance;
+        for (let index = 0; index < count; index++) out[length++] = out[from + index];
+      } else {
+        const count = reader.readBitsReversed(2);
+        for (let index = 0; index < count && length < declared; index++) {
+          const byte = reader.readByte();
+          if (byte < 0) break;
+          out[length++] = byte;
+        }
+      }
+    }
+    if (length < declared) {
+      // Guitar Pro stops the stream without padding the tail; keep what was decoded
+      // and let the filesystem pass decide which files are still complete.
+      return { data: out.subarray(0, length), declaredBytes: declared, truncated: true };
+    }
+    return { data: out, declaredBytes: declared, truncated: false };
+  }
+
+  /** Read the BCFS filesystem: every file record found in the block array. */
+  function readFilesystem(source, options) {
+    const image = asBytes(source);
+    const limits = resolveLimits(options);
+    if (magic(image, 0) !== HEADER_BCFS) {
+      throw containerError('bcfz-invalid', 'Decompressed data is not a BCFS filesystem.');
+    }
+    const availableBlocks = Math.floor((image.byteLength - 4) / BLOCK_SIZE);
+    if (availableBlocks > LIMITS.maxBlocks) throw containerError('bcfz-limit', 'BCFS filesystem exceeds the supported size.');
+    const entries = [];
+    const skipped = [];
+    let folders = 0;
+    for (let block = 0; block < availableBlocks; block++) {
+      const base = 4 + block * BLOCK_SIZE;
+      if (base + 4 > image.byteLength) break;
+      const type = readU32(image, base);
+      if (type === RECORD_FOLDER) { folders++; continue; }
+      if (type !== RECORD_FILE) continue;
+      const name = printableName(image, base + NAME_OFFSET);
+      if (!name) continue;
+      if (entries.length + skipped.length >= LIMITS.maxEntries) {
+        skipped.push({ name: name.slice(0, NAME_MAX), reason: 'слишком много файлов в контейнере' });
+        continue;
+      }
+      const size = readU32(image, base + SIZE_OFFSET);
+      if (size < 0 || size > LIMITS.maxEntryBytes) {
+        skipped.push({ name, reason: 'размер файла вне безопасного предела' });
+        continue;
+      }
+      const indexes = [];
+      let cursor = base + BLOCKS_OFFSET;
+      let overflow = false;
+      while (true) {
+        const index = readU32(image, cursor);
+        if (index < 0) break;
+        if (index === 0) break;
+        if (index >= availableBlocks) { overflow = true; break; }
+        indexes.push(index);
+        if (indexes.length > LIMITS.maxBlockRefs) { overflow = true; break; }
+        cursor += 4;
+      }
+      if (overflow) {
+        skipped.push({ name, reason: 'ссылка на блок вне контейнера' });
+        continue;
+      }
+      const needed = Math.ceil(size / BLOCK_SIZE);
+      if (indexes.length < needed) {
+        skipped.push({ name, reason: 'файл обрезан: не хватает блоков' });
+        continue;
+      }
+      const data = new Uint8Array(size);
+      let written = 0;
+      for (let position = 0; position < indexes.length && written < size; position++) {
+        const start = 4 + indexes[position] * BLOCK_SIZE;
+        const chunk = image.subarray(start, Math.min(start + BLOCK_SIZE, image.byteLength));
+        const take = Math.min(chunk.length, size - written);
+        data.set(chunk.subarray(0, take), written);
+        written += take;
+      }
+      if (written < size) {
+        skipped.push({ name, reason: 'файл обрезан: блоки кончились' });
+        continue;
+      }
+      entries.push({ name, size, data, blockCount: indexes.length });
+    }
+    return { entries, skipped, folders, blockCount: availableBlocks };
+  }
+
+  /** Read a whole .gpx container: sniff, inflate when needed, list the files. */
+  function readContainer(source, options) {
+    const bytes = asBytes(source);
+    const limits = resolveLimits(options);
+    if (bytes.byteLength < 8) throw containerError('bcfz-invalid', 'Файл .gpx слишком короткий или повреждён.');
+    if (bytes.byteLength > limits.maxFileBytes) {
+      throw containerError('bcfz-limit', 'Файл .gpx больше допустимого размера.');
+    }
+    const header = magic(bytes, 0);
+    let image;
+    let compressed = false;
+    let declaredBytes = 0;
+    let truncated = false;
+    if (header === HEADER_BCFZ) {
+      const inflated = decompressBcfz(bytes, limits);
+      image = inflated.data;
+      declaredBytes = inflated.declaredBytes;
+      truncated = inflated.truncated;
+      compressed = true;
+    } else if (header === HEADER_BCFS) {
+      image = bytes;
+      declaredBytes = bytes.byteLength;
+    } else {
+      throw containerError('bcfz-invalid', 'Файл не является контейнером Guitar Pro 6 (ожидалась подпись BCFZ или BCFS).');
+    }
+    if (image.byteLength > limits.maxUnpackedBytes) {
+      throw containerError('bcfz-limit', 'Распакованный .gpx превышает безопасный лимит.');
+    }
+    const filesystem = readFilesystem(image, limits);
+    return {
+      container: header,
+      compressed,
+      declaredBytes,
+      imageBytes: image.byteLength,
+      truncated,
+      entries: filesystem.entries,
+      skipped: filesystem.skipped,
+      folders: filesystem.folders,
+      blockCount: filesystem.blockCount,
+    };
+  }
+
+  return Object.freeze({
+    HEADER_BCFS,
+    HEADER_BCFZ,
+    BLOCK_SIZE,
+    LIMITS,
+    sniff,
+    decompressBcfz,
+    readFilesystem,
+    readContainer,
+  });
+});
+    </script>
     <script id="gp78ZipRuntime" type="text/plain">
 /*
  * STRUCHORD GP7/8 ZIP codec.
@@ -60859,6 +61183,145 @@ toggleTimeAndBeats();
     gp35ShowPreview(gp35PendingImport);
   }
 
+
+  // B-12.9.6: Guitar Pro 6 (.gpx) — проприетарный контейнер BCFZ/BCFS
+  // распаковывает собственный офлайн-кодек, а музыкальную часть (тот же
+  // score.gpif) разбирает уже встроенный alphaTab. Ни сети, ни новых
+  // runtime-зависимостей: файл остаётся автономным приложением.
+  const GPX_MAX_FILE_BYTES = 64 * 1024 * 1024;
+  const GPX_SKIPPED_REASONS = {
+    'размер файла вне безопасного предела': 'файл за границей безопасного лимита',
+    'ссылка на блок вне контейнера': 'ссылка на блок вне контейнера',
+    'файл обрезан: не хватает блоков': 'файл обрезан — не хватает блоков',
+    'файл обрезан: блоки кончились': 'файл обрезан — блоки кончились',
+    'слишком много файлов в контейнере': 'слишком много файлов в контейнере',
+  };
+
+  function gpxEnsureCodec() {
+    if (window.StruchordGpxBcfz && typeof window.StruchordGpxBcfz.readContainer === 'function') return window.StruchordGpxBcfz;
+    const source = document.getElementById('gpxBcfzRuntime');
+    if (!source) throw new Error('Встроенный распаковщик Guitar Pro 6 не найден.');
+    const script = document.createElement('script');
+    script.textContent = source.textContent || source.text || '';
+    document.head.appendChild(script);
+    script.remove();
+    if (!window.StruchordGpxBcfz || typeof window.StruchordGpxBcfz.readContainer !== 'function') {
+      throw new Error('Не удалось запустить встроенный распаковщик Guitar Pro 6.');
+    }
+    return window.StruchordGpxBcfz;
+  }
+
+  function gpxReadableError(error) {
+    const code = error && error.code;
+    if (code === 'bcfz-limit') return 'Файл .gpx превышает безопасный лимит размера или распаковки (64 МБ / 128 МБ).';
+    if (code === 'bcfz-invalid') return 'Файл не читается как Guitar Pro 6: контейнер BCFZ/BCFS повреждён. Откройте файл в Guitar Pro и сохраните его как .gp (GP7/8) или .gp5.';
+    return error && error.message ? String(error.message) : 'ошибка формата';
+  }
+
+  function gpxIsContainerBytes(buffer) {
+    try {
+      const head = new Uint8Array(buffer);
+      if (head.byteLength < 4) return false;
+      const tag = String.fromCharCode(head[0], head[1], head[2], head[3]);
+      return tag === 'BCFZ' || tag === 'BCFS';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function gpxScoreEntry(entries) {
+    const scores = (entries || []).filter((entry) => entry && entry.data &&
+      String(entry.name || '').toLowerCase().endsWith('score.gpif'));
+    if (!scores.length) throw new Error('В контейнере .gpx не найден файл score.gpif.');
+    if (scores.length > 1) throw new Error('В контейнере .gpx найдено несколько score.gpif; неоднозначный файл не импортирован.');
+    return scores[0];
+  }
+
+  function gpxDecodeScoreText(bytes, encoding) {
+    // BCFS отдаёт содержимое файла с ведущими нулями-выравниванием — они не часть
+    // текста, а остаток блока. Дальше обычная кодировка выбранная пользователем.
+    let start = 0;
+    while (start < bytes.length && bytes[start] === 0) start += 1;
+    const body = bytes.subarray(start);
+    const decoder = new window.TextDecoder(encoding || 'utf-8', { fatal: false });
+    const text = decoder.decode(body).replace(/^\uFEFF/, '');
+    if (!/<\s*[?]?xml|<GPIF/i.test(text)) {
+      throw new Error('score.gpif не читается как XML в выбранной кодировке.');
+    }
+    return text;
+  }
+
+  function gpxParseScore(text) {
+    const zip = gp78EnsureZipCodec();
+    const normalized = zip.writeStoredArchive([{ name: 'score.gpif', data: new window.TextEncoder().encode(text) }]);
+    const library = gp35EnsureAlphaTab();
+    const settings = new library.Settings();
+    settings.importer.encoding = 'utf-8';
+    settings.importer.maxDecodingBufferSize = GP78_MAX_UNPACKED_BYTES;
+    return library.importer.ScoreLoader.loadScoreFromBytes(normalized, settings);
+  }
+
+  function gpxRescore(session, requestedEncoding) {
+    const encoding = !requestedEncoding || requestedEncoding === 'auto' ? 'utf-8' : requestedEncoding;
+    const text = gpxDecodeScoreText(gpxScoreEntry(session.container.entries).data, encoding);
+    return { score: gpxParseScore(text), encoding, uncertain: false };
+  }
+
+  function gpxBeginImport(buffer, fileName) {
+    const bytes = new Uint8Array(buffer);
+    if (bytes.byteLength < 12) throw new Error('Файл .gpx слишком короткий или повреждён.');
+    if (bytes.byteLength > GPX_MAX_FILE_BYTES) throw new Error('Файл .gpx больше допустимых 64 МБ.');
+    const codec = gpxEnsureCodec();
+    if (!codec.sniff(bytes)) {
+      throw new Error('Файл не является контейнером Guitar Pro 6 (ожидалась подпись BCFZ или BCFS).');
+    }
+    const container = codec.readContainer(bytes, {
+      maxFileBytes: GPX_MAX_FILE_BYTES,
+      maxUnpackedBytes: GP78_MAX_UNPACKED_BYTES,
+    });
+    const text = gpxDecodeScoreText(gpxScoreEntry(container.entries).data, 'utf-8');
+    const score = gpxParseScore(text);
+    if (!score || !Array.isArray(score.masterBars) || !score.masterBars.length) throw new Error('В score.gpif не найдено ни одного такта.');
+    if (!Array.isArray(score.tracks) || !score.tracks.length) throw new Error('В score.gpif не найдено ни одной дорожки.');
+    const assetEntries = (container.entries || []).map((entry) => ({
+      name: entry.name,
+      fileName: String(entry.name || '').toLowerCase(),
+      data: entry.data,
+      uncompressedSize: entry.size,
+    }));
+    const media = gp78ExtractAssets(assetEntries);
+    const unsupportedEntries = (container.skipped || []).map((item) =>
+      `${item.name} (${GPX_SKIPPED_REASONS[item.reason] || item.reason})`);
+    if (container.truncated) unsupportedEntries.push('поток BCFZ оборвался раньше объявленного размера — хвост контейнера мог быть потерян');
+    gp35PendingImport = {
+      format: 'gp6',
+      isGpx: true,
+      container,
+      fileName: String(fileName || 'score.gpx'),
+      version: { major: 6, minor: 0, label: `GP6 ${container.container}${container.compressed ? ' (сжатый)' : ''}` },
+      score,
+      encoding: 'utf-8',
+      encodingUncertain: false,
+      encodingError: false,
+      requestedEncoding: 'utf-8',
+      tracks: score.tracks.map(gp35TrackSummary),
+      selectedTrackIndexes: new Set(score.tracks.map((track, index) => index)),
+      gpAssets: media.accepted.map((item) => item.manifest),
+      gpAssetPayloads: media.accepted,
+      mediaSummary: {
+        foundAudio: media.foundAudio,
+        foundImages: media.foundImages,
+        foundBytes: media.foundBytes,
+        storedBytes: media.storedBytes,
+        skipped: media.skipped,
+      },
+      unsupportedEntries,
+      archiveBytes: bytes.byteLength,
+      unpackedBytes: container.imageBytes,
+    };
+    gp35ShowPreview(gp35PendingImport);
+  }
+
   function gp35Version(buffer) {
     const bytes = new Uint8Array(buffer);
     if (bytes.byteLength < 31 || bytes.byteLength > GP35_MAX_FILE_BYTES) {
@@ -61393,10 +61856,11 @@ toggleTimeAndBeats();
       lyricsFound: 0,
       lyricsImported: 0,
       lyricsSkipped: 0,
-      gpifBestEffort: session.isGp78 === true,
+      gpifBestEffort: session.isGp78 === true || session.isGpx === true,
       gpAssets: Array.isArray(session.gpAssets) ? session.gpAssets : [],
       mediaSummary: session.mediaSummary || null,
       unsupportedArchiveEntries: Array.isArray(session.unsupportedEntries) ? session.unsupportedEntries : [],
+      containerKind: session.isGpx ? 'bcfz' : 'zip',
       zip64: session.zip64 === true,
       archiveBytes: session.archiveBytes || 0,
       unpackedBytes: session.unpackedBytes || 0,
@@ -61660,7 +62124,10 @@ toggleTimeAndBeats();
     if (report.gpifBestEffort) losses.push('GPIF обработан в режиме best-effort: неизвестные или новые узлы формата могли быть пропущены alphaTab.');
     if (report.unsupportedArchiveEntries.length) {
       const entries = report.unsupportedArchiveEntries.slice(0, 8).join(', ');
-      losses.push(`Пропущены ZIP-записи, которые не удалось распаковать: ${entries}${report.unsupportedArchiveEntries.length > 8 ? ` и ещё ${report.unsupportedArchiveEntries.length - 8}` : ''}.`);
+      const tail = report.unsupportedArchiveEntries.length > 8 ? ` и ещё ${report.unsupportedArchiveEntries.length - 8}` : '';
+      losses.push(report.containerKind === 'bcfz'
+        ? `Не перенесены элементы контейнера BCFZ/BCFS: ${entries}${tail}.`
+        : `Пропущены ZIP-записи, которые не удалось распаковать: ${entries}${tail}.`);
     }
     if (report.mediaSummary && report.mediaSummary.skipped && report.mediaSummary.skipped.length) {
       const skipped = report.mediaSummary.skipped.slice(0, 8).map((item) => `${item.name} (${item.reason})`).join(', ');
@@ -62162,7 +62629,8 @@ toggleTimeAndBeats();
     modal.setAttribute('aria-modal', 'true');
     modal.setAttribute('aria-label', 'Импорт Guitar Pro');
     const heading = document.createElement('h3');
-    heading.textContent = session.isGp78 ? 'Импорт Guitar Pro 7–8' : 'Импорт Guitar Pro 3–5';
+    heading.textContent = session.isGpx ? 'Импорт Guitar Pro 6'
+      : session.isGp78 ? 'Импорт Guitar Pro 7–8' : 'Импорт Guitar Pro 3–5';
     heading.style.margin = '0 0 .35rem';
     const fileLine = document.createElement('p');
     fileLine.textContent = `${session.fileName} · ${session.version.label} · ${session.score.masterBars.length} тактов`;
@@ -62197,7 +62665,9 @@ toggleTimeAndBeats();
       const labels = { 'utf-8': 'UTF-8', 'windows-1251': 'Windows-1251', 'windows-1252': 'Windows-1252', 'UTF-8 (GPIF)': 'UTF-8 (GPIF)' };
       encodingNotice.textContent = session.isGp78
         ? 'GPIF-текст декодирован как UTF-8; выбор кодировки для .gp не требуется.'
-        : `Используется ${labels[session.encoding] || session.encoding}${session.encodingUncertain ? ' (автоопределение неоднозначно — можно сменить)' : ''}.`;
+        : session.isGpx
+          ? `score.gpif декодирован как ${labels[session.encoding] || session.encoding}; при нечитаемых названиях выберите кодировку вручную.`
+          : `Используется ${labels[session.encoding] || session.encoding}${session.encodingUncertain ? ' (автоопределение неоднозначно — можно сменить)' : ''}.`;
     };
     const modeGroup = document.createElement('fieldset');
     modeGroup.style.cssText = 'border:1px solid var(--color-border-medium);border-radius:.75rem;padding:.6rem .8rem;margin:.65rem 0;';
@@ -62259,12 +62729,16 @@ toggleTimeAndBeats();
     updateEncodingNotice();
     warning.textContent = session.isGp78
       ? 'GPIF Guitar Pro 7/8 импортируется best effort. Партии, структура, тексты и распознанные вложения будут перенесены по возможностям модели; неизвестные элементы и ограничения перечислятся в отчёте.'
+      : session.isGpx
+        ? 'Контейнер BCFZ/BCFS распакован локально, GPIF читается best effort. Партии, структура, тексты и распознанные вложения переносятся по возможностям модели; неизвестные элементы и ограничения перечислятся в отчёте.'
       : session.encodingUncertain
         ? 'Автоматически определить кодировку текста не удалось однозначно. Проверьте название/имена дорожек и при необходимости выберите Windows-1251 или Windows-1252.'
         : 'Поддерживаемые ноты, строй и имена переносятся best effort; неподдерживаемые детали и всё, что не поместится, появятся в итоговом отчёте.';
     encodingSelect.addEventListener('change', () => {
       try {
-        const decoded = gp35DecodeScore(session.buffer, encodingSelect.value);
+        const decoded = session.isGpx
+          ? gpxRescore(session, encodingSelect.value)
+          : gp35DecodeScore(session.buffer, encodingSelect.value);
         session.encodingError = false;
         session.score = decoded.score;
         session.encoding = decoded.encoding;
@@ -62297,12 +62771,15 @@ toggleTimeAndBeats();
       const mode = appendRadio.checked ? 'append' : 'new';
       removeModalOverlay(overlay);
       try {
-        if (session.isGp78) gp78InstallAssets(session);
+        if (session.isGp78 || session.isGpx) gp78InstallAssets(session);
         gp35ApplyImport(session, selected, mode);
       } catch (error) {
         console.error('Guitar Pro import failed', error);
-        if (session.isGp78) (session.gpAssets || []).forEach((asset) => gpMediaAssetData.delete(asset.id));
-        showToast('Не удалось импортировать Guitar Pro: ' + (session.isGp78 ? gp78ReadableZipError(error) : error && error.message || 'ошибка формата'));
+        if (session.isGp78 || session.isGpx) (session.gpAssets || []).forEach((asset) => gpMediaAssetData.delete(asset.id));
+        const readable = session.isGpx ? gpxReadableError(error)
+          : session.isGp78 ? gp78ReadableZipError(error)
+            : (error && error.message || 'ошибка формата');
+        showToast('Не удалось импортировать Guitar Pro: ' + readable);
       }
       gp35PendingImport = null;
     });
@@ -62342,6 +62819,30 @@ toggleTimeAndBeats();
     const extension = fileName.toLowerCase().match(/\.([a-z0-9]+)$/);
     const isGp35 = !!(extension && ['gp3', 'gp4', 'gp5'].includes(extension[1]));
     const isGp78 = !!(extension && extension[1] === 'gp');
+    const isGpx = !!(extension && extension[1] === 'gpx');
+    const isSongJson = !!(extension && ['json', 'struchord'].includes(extension[1]));
+    if (isGpx || (!isGp78 && !isGp35 && !isSongJson)) {
+      // Файл с чужим расширением сначала читается как контейнер GP6: подпись
+      // BCFZ/BCFS видна в первых четырёх байтах, а имя может быть любым.
+      const sniffReader = new FileReader();
+      sniffReader.onload = (event) => {
+        const buffer = event.target.result;
+        if (isGpx || gpxIsContainerBytes(buffer)) {
+          try {
+            gpxBeginImport(buffer, fileName);
+          } catch (error) {
+            console.error('GP6 import preview failed', error);
+            showToast('Не удалось прочитать Guitar Pro: ' + gpxReadableError(error));
+          }
+          return;
+        }
+        // Не контейнер GP6 — читаем файл обычным текстовым путём (как раньше).
+        importSongAsText(file);
+      };
+      sniffReader.onerror = () => showToast('Ошибка чтения файла');
+      sniffReader.readAsArrayBuffer(file);
+      return;
+    }
     if (isGp78) {
       const gpReader = new FileReader();
       gpReader.onload = (event) => {
@@ -62370,31 +62871,39 @@ toggleTimeAndBeats();
       gpReader.readAsArrayBuffer(file);
       return;
     }
+    importSongAsText(file);
+  };
+
+  function importSongAsText(file) {
     const reader = new FileReader();
     reader.onload = (e) => {
       try {
-        const data = JSON.parse(e.target.result);
-        const done = (loaded) => {
-          markSongSaved(); window.resetHistory();
-          showToast(`Песня "${songLibraryName(loaded || data)}" импортирована`);
-          maybeUnlockStormSecret('song');
-        };
-        if (loadSongFromObject(data, done)) {
-          clearLibrarySongOrigin();
-          showEditorScreen();
-          done(data);
-          // Импортированный файл ещё не входит в библиотеку браузера.
-          // Считаем его несохранённой работой, чтобы переход на главный экран
-          // предложил сохранить его, отбросить или остаться в редакторе.
-          savedSongSnapshot = null;
-        }
-      } catch (err) {
-        showToast('Ошибка чтения файла: ' + err.message);
+        importSongJsonText(e.target.result);
+      } catch (error) {
+        showToast('Ошибка чтения файла: ' + (error && error.message || 'неизвестная ошибка'));
       }
     };
     reader.onerror = () => showToast('Ошибка чтения файла');
     reader.readAsText(file);
-  };
+  }
+
+  function importSongJsonText(text) {
+    const data = JSON.parse(text);
+    const done = (loaded) => {
+      markSongSaved(); window.resetHistory();
+      showToast(`Песня "${songLibraryName(loaded || data)}" импортирована`);
+      maybeUnlockStormSecret('song');
+    };
+    if (loadSongFromObject(data, done)) {
+      clearLibrarySongOrigin();
+      showEditorScreen();
+      done(data);
+      // Импортированный файл ещё не входит в библиотеку браузера.
+      // Считаем его несохранённой работой, чтобы переход на главный экран
+      // предложил сохранить его, отбросить или остаться в редакторе.
+      savedSongSnapshot = null;
+    }
+  }
 
   // ---------- ИСТОРИЯ ПРАВОК: ОТМЕНА И ПОВТОР ----------
   //
