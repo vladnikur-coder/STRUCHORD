@@ -65,7 +65,8 @@ function gpExportModal(title, bodyHtml, label) {
   function gpExportShowReport(report) {
     if (!report) return;
     const stats = report.stats || {};
-    const summary = `Файл: ${report.fileName} · ${report.bytes.toLocaleString('ru-RU')} байт${report.container ? ` · контейнер ${report.container}` : ''}`;
+    const version = report.version ? ` · версия GP ${report.version}` : '';
+    const summary = `Файл: ${report.fileName} · ${report.bytes.toLocaleString('ru-RU')} байт${report.container ? ` · контейнер ${report.container}` : ''}${version}`;
     const body = `
       <p style="margin:0;font-size:0.9375rem;line-height:1.45;">Песня сохранена как <strong>${report.format}</strong>.</p>
       <p style="margin:0;font-size:0.875rem;line-height:1.4;color:var(--color-text-secondary);">${summary}</p>

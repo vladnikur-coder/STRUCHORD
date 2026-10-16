@@ -174,7 +174,7 @@
 
 | Волна | Версия | Дата | SHA-256 (STRUCHORD.html) | Размер (байт) | SW Cache |
 |---|---|---|---|---|---|
-| **B-12.9.9 GP5 `.gp5` export (0.644)** | 0.644 | 2026-10-16 | `0e425c6ceec3bd74e7c2e81fb1a345fc7163e1f414eeaa2dd3520add5c55c1e2` | 4574882 | `struchord-v644` |
+| **B-12.9.9 GP5 `.gp5` export (0.644)** | 0.644 | 2026-10-16 | `5d4a78f33e364d700713e73a5a9f450c77e9bf9428d81b3684497cfd5aaa8025` | 4574977 | `struchord-v644` |
 | **B-12.9.8 GP6 `.gpx` export (0.643)** | 0.643 | 2026-10-16 | `d4727a7650b3013cdf967c73048416f4bde3d0afefbe225ba896b7434cde3cb6` | 4513979 | `struchord-v643` |
 | **B-12.9.7 MIDI `.mid` import (0.642)** | 0.642 | 2026-10-15 | `ae95462c614307e4995dde01a9edc907c2c0ccb7a57ff6fa3bfb7b12e586bed5` | 4437444 | `struchord-v642` |
 | **B-12.9.6 GP6 `.gpx` import (0.640) + хотфикс Live Server (0.641)** | 0.641 | 2026-10-15 | `200291f9a464dede18614015de629dc002a5350c25a6c949c5cc7e266aaf1bd7` | 4390588 | `struchord-v641` |
