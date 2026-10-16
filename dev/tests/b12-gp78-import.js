@@ -220,7 +220,8 @@ function currentState() {
     report.textContent.includes('Дополнительные номера вольты на одном такте'));
   closeReport();
 
-  const exported = await w.exportSong();
+  // B-12.9.8: кнопка «Экспорт» спрашивает формат; JSON песни качает exportStruchordFile.
+  const exported = await w.exportStruchordFile();
   check('export serializes lyrics, repeat markers, volta/jump data, and inline attachment bytes',
     exported.parts[0].lyrics?.some((lyric) => lyric.text === 'текст' && lyric.secId === exported.sections[0].id && lyric.dur > 0) &&
     exported.sections[0].squares[0].repeatOpen === true &&
