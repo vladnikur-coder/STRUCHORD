@@ -22,7 +22,7 @@ import guitarpro
 
 def effect_dump(effect):
     """Разложенные приёмы ноты — то, что мы записали в файл."""
-    slides = [slide.type.name for slide in effect.slides] if effect.slides else []
+    slides = [str(slide).split(".")[-1] for slide in effect.slides] if effect.slides else []
     return {
         "letRing": bool(effect.letRing),
         "palmMute": bool(effect.palmMute),
@@ -35,6 +35,19 @@ def effect_dump(effect):
         "harmonic": bool(effect.harmonic),
         "grace": bool(effect.grace),
         "slides": slides,
+        "bend": None if not effect.bend else {
+            "type": effect.bend.type.name,
+            "value": effect.bend.value,
+            "points": [[point.position, point.value] for point in effect.bend.points],
+        },
+        "harmonic": None if not effect.harmonic else type(effect.harmonic).__name__,
+        "hammer": bool(getattr(effect, "hammer", False)),
+        "grace": None if not effect.grace else {
+            "fret": effect.grace.fret,
+            "velocity": effect.grace.velocity,
+            "duration": str(effect.grace.duration.value),
+            "transition": effect.grace.transition.name,
+        },
         "leftHandFinger": effect.leftHandFinger.value if effect.leftHandFinger else 0,
         "rightHandFinger": effect.rightHandFinger.value if effect.rightHandFinger else 0,
     }
@@ -47,6 +60,7 @@ def note_dump(note, percussion):
         "effect": effect_dump(note.effect),
         "durationPercent": round(note.durationPercent, 3),
         "type": note.type.name,
+        "dead": note.type.name == "dead",
     }
     if not percussion:
         out["string"] = note.string + 1  # PyGuitarPro считает струны с 0

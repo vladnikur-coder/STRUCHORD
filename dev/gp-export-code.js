@@ -319,6 +319,17 @@
       const unitsPerBar = parsed.numerator || 4;
       const baseBarCount = Math.max(1, Math.ceil(totalUnits / unitsPerBar - 1e-9));
       const repeatCount = Math.max(1, Math.round(Number(section.repeat) || 1));
+      // Вольта в GP5 живёт на такте, а в модели — на квадрате, поэтому считаем,
+      // с какого такта начинается каждый квадрат (по накопленным долям).
+      const squareStarts = [];
+      let unitsBefore = 0;
+      for (const square of section.squares || []) {
+        const beats = getSquareBeats(square, parentTimeSig);
+        if (Number.isFinite(beats) && beats > 0) {
+          squareStarts.push({ square, startBar: unitsBefore / unitsPerBar });
+          unitsBefore += beats;
+        }
+      }
       const name = section.type === 'Custom' ? (section.customName || 'Секция') : (section.type || '');
       const plan = {
         section,
@@ -335,12 +346,22 @@
       for (let bar = 0; bar < baseBarCount; bar++) {
         const isFirst = bar === 0;
         const isLast = bar === baseBarCount - 1;
+        // Вольта квадрата вешается на первый его такт.
+        let volta = null;
+        for (const entry of squareStarts) {
+          if (Math.abs(entry.startBar - bar) < 1e-9) {
+            const value = Math.round(Number(entry.square && entry.square.volta) || 0);
+            if (value >= 1 && value <= 9) volta = value;
+            break;
+          }
+        }
         model.bars.push({
           timeSig: parentTimeSig,
           unitsPerBar,
           repeatOpen: repeatCount > 1 && isFirst,
           repeatClose: repeatCount > 1 && isLast ? repeatCount : null,
           marker: isFirst ? (name || null) : null,
+          volta,
           sectionIndex: index,
         });
       }
@@ -384,6 +405,7 @@
     let tabNotes = 0;
     let pitchNotes = 0;
     let effectNotes = 0;
+    let graceNotes = 0;
 
     parts.forEach((part, partIndex) => {
       const instrument = partInstrumentId(part);
@@ -438,9 +460,16 @@
               legato: note.legato === true,
               trill: note.trill === true,
               tremolo: note.tremolo === true,
+              // Приёмы, которые GP5 кодирует, а модель уже умеет хранить.
+              bend: note.bend || null,
+              harm: note.harm || null,
+              dead: note.dead === true,
+
             });
+            if (note.grace) graceNotes++;
             if (note.letRing || note.pm || note.staccato || note.accent || note.tenuto || note.ghost
-              || note.vibrato || note.slide || note.legato || note.trill || note.tremolo) effectNotes++;
+              || note.vibrato || note.slide || note.legato || note.trill || note.tremolo
+              || note.bend || note.harm || note.dead) effectNotes++;
             tabNotes++;
           }
         } else if (pitchRolls.length) {
@@ -494,7 +523,8 @@
 
     if (tabNotes) gpExportGain(report, 'Ноты табулатурой', tabNotes);
     if (pitchNotes) gpExportGain(report, 'Ноты с абсолютной высотой', pitchNotes);
-    if (effectNotes) gpExportGain(report, 'Пометки нот (-letRing, palm mute, staccato, акцент, вибрато, слайд, легато)', effectNotes);
+    if (effectNotes) gpExportGain(report, 'Пометки нот (letRing, palm mute, staccato, tenuto, акцент, призрак, вибрато, слайд, молоток, трель, тремоло, бенд, флажолет, форшлаг, «мёртвая» нота)', effectNotes);
+    if (graceNotes) gpExportLoss(report, 'Форшлаги не переносятся: наш импорт Guitar Pro 3–5 читает форшлаг вместо основной ноты, поэтому перенос испортил бы круг', graceNotes);
     if (songData.mix && songData.mix.master && (Number(songData.mix.master.volume) !== 100 || Number(songData.mix.master.pan) !== 0)) {
       model.masterMix = { volume: Number(songData.mix.master.volume) || 100, pan: Number(songData.mix.master.pan) || 0 };
       gpExportGain(report, 'Громкость и панорама мастера', 1);

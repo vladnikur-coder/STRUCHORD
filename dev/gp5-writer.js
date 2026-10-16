@@ -455,14 +455,16 @@
     let flags1 = 0;
     let flags2 = 0;
     if (source.bend) flags1 |= 0x01;
-    if (source.hammer) flags1 |= 0x02;
+    // В STRUCHORD легато (H/P) — это hammer-on/pull-off Guitar Pro, а не слайд.
+    if (source.hammer || source.legato) flags1 |= 0x02;
     if (source.letRing) flags1 |= 0x08;
     if (source.grace) flags1 |= 0x10;
     if (source.staccato || source.tenuto) flags2 |= 0x01;
     if (source.pm) flags2 |= 0x02;
     if (source.tremolo) flags2 |= 0x04;
-    if (source.slide || source.legato) flags2 |= 0x08;
-    if (source.harmonic) flags2 |= 0x10;
+    // Легато (H/P) уходит флагом молотка выше, слайд — только явный source.slide.
+    if (source.slide) flags2 |= 0x08;
+    if (source.harm || source.harmonic) flags2 |= 0x10;
     if (source.trill) flags2 |= 0x20;
     if (source.vibrato) flags2 |= 0x40;
     writer.u8(flags1);
@@ -470,8 +472,8 @@
     if (flags1 & 0x01) writeBend(writer, source.bend);
     if (flags1 & 0x10) writeGraceNote(writer, source.grace, note);
     if (flags2 & 0x04) writer.i8(pickLengthCode(source.tremolo));
-    if (flags2 & 0x08) writer.u8(slideMask(source));
-    if (flags2 & 0x10) writeHarmonic(writer, source.harmonic);
+    if (flags2 & 0x08) writer.i8(slideCode(source));
+    if (flags2 & 0x10) writeHarmonic(writer, source.harm || source.harmonic);
     if (flags2 & 0x20) {
       writer.i8(clamp(Math.round(Number(source.trillFret) || 24), 0, 36));
       writer.i8(1); // трель шестнадцатыми
@@ -485,69 +487,99 @@
     return 1;
   }
 
-  function slideMask(source) {
-    let mask = 0;
-    if (source.legato) mask |= 0x02; // легато вверх
-    else if (source.slide) mask |= 0x01; // сдвиг на лад
-    if (source.slideIn) mask |= 0x04;
-    if (source.slideOut) mask |= 0x08;
-    return mask;
+  // Слайд в GP5 — один байт с типом, а не битовая маска: 1 — сдвиг на лад,
+  // 2 — легато вверх, 3 — исходящий вниз, 4 — исходящий вверх, −1 — входящий
+  // снизу, −2 — входящий сверху (guitarpro.models.SlideType).
+  function slideCode(source) {
+    const kind = String(source.slide || '').toLowerCase();
+    if (kind === 'legato' || kind === 'легато') return 2;
+    return 1;
   }
+
+  // Бенд GP5: тип, значение, число точек, затем точки (сдвиг по горизонтали,
+  // величина, вибрато). Масштабы подтверждены тремя независимыми источниками:
+  // TuxGuitar (GP_BEND_SEMITONE = 25, GP_BEND_POSITION = 60), alphaTab (Ta = 25)
+  // и PyGuitarPro (bendSemitone = 25). То есть 25 единиц величины — полутон,
+  // 60 единиц позиции — конец звучания ноты.
+  const GP5_MAX_BEND_POINTS = 8;
+  const GP5_BEND_SEMITONE = 25;
+  const GP5_BEND_POSITION = 60;
+  const GP5_BEND_TYPES = { bend: 1, release: 2, prebend: 4, 'prebend-release': 5 };
 
   function writeBend(writer, value) {
-    const amount = clamp(Number(value) || 0.25, 0, 1);
-    writer.i8(1); // обычный бенд
-    writer.i32(Math.round(amount * 32 * 6));
-    writer.i32(2); // две точки
-    writer.i32(0);
-    writer.i32(0);
-    writer.u8(0);
-    writer.i32(60);
-    writer.i32(Math.round(amount * 32 * 6));
-    writer.u8(0);
+    const info = typeof value === 'object' && value ? value : {};
+    const raw = Array.isArray(info.points) ? info.points
+      .map((point) => Array.isArray(point)
+        ? [clamp(Number(point[0]) || 0, 0, 1), clamp(Number(point[1]) || 0, 0, 12)]
+        : [clamp(Number(point && point.x) || 0, 0, 1), clamp(Number(point && point.y) || 0, 0, 12)])
+      : [];
+    const points = raw.length >= 2 ? raw.slice(0, GP5_MAX_BEND_POINTS) : [[0, 0], [1, 1]];
+    const type = GP5_BEND_TYPES[String(info.type || 'bend')] || 1;
+    const peak = Math.max(...points.map((point) => point[1]));
+    writer.i8(type);
+    writer.i32(Math.round(peak * GP5_BEND_SEMITONE));
+    writer.i32(points.length);
+    for (const point of points) {
+      writer.i32(Math.round(point[0] * GP5_BEND_POSITION));
+      writer.i32(Math.round(point[1] * GP5_BEND_SEMITONE));
+      writer.u8(0); // вибрато в точке
+    }
   }
 
+  // Форшлаг GP5 — пять байтов: лад, динамика, переход, длительность и флаги
+  // (формат проверен по TuxGuitar GP5InputStream.readGrace и alphaTab readGrace).
+  // Пока не вызывается: импорт GP3–5 в приложении показывает форшлаг вместо
+  // основной ноты, поэтому экспорт честно объявляет форшлаги потерей, а не
+  // ломает круг.
+  // 1 — слайд, 2 — бенд, 3 — молоток), служебный байт и флаги (бит 1 — «мёртвая»
+  // нота, бит 2 — форшлаг «на сильную»). Так читает alphaTab: GP3/GP4 заканчиваются
+  // четвёртым байтом, а в GP5 добавляется флаг-байт. PyGuitarPro эти пять байтов
+  // не различает (читает четыре) — ему для чтения повторов это не мешает.
   function writeGraceNote(writer, grace, note) {
     const info = typeof grace === 'object' && grace ? grace : {};
-    writer.u8(clamp(Math.round(Number(info.fret) || note.fret), 0, 36));
-    writer.u8(6); // динамика по умолчанию
-    writer.u8(Number(info.transition) || 0);
-    writer.u8(2);
-    writer.u8(0);
+    const fret = Number(info.fret);
+    const target = Number.isFinite(fret) && fret >= 0 ? fret : Math.max(0, note.fret - 1);
+    const velocity = clamp(Math.round(Number(info.velocity) || 79), 15, 127);
+    writer.i8(clamp(target, 0, 36));
+    writer.i8(Math.max(1, Math.floor((velocity + 1) / 16))); // 5 — меццо-форте
+    writer.i8(clamp(Number(info.transition) || 0, 0, 3));
+    writer.u8(clamp(Number(info.duration) || 2, 0, 3)); // 1 — 1/32, 2 — 1/24, 3 — 1/16
+    writer.u8(info.dead === true ? 0x01 : (info.onBeat === true ? 0x02 : 0x00));
   }
 
+  // Флажолет GP5 — ровно один байт: 1 натуральный, 3 взятый, 4 пинч, 5
+  // полуфлажолет, 15 искусственный на n+5, 17 на n+7, 22 на n+12
+  // (guitarpro.gp4.readHarmonic). Никаких дополнительных байтов после типа нет —
+  // прежний код писал их и ломал поток байтов, но не вызывался.
   function writeHarmonic(writer, value) {
     const info = typeof value === 'object' && value ? value : {};
     const type = String(info.type || value || 'natural').toLowerCase();
-    if (type.includes('artificial') || type.includes('искус')) {
-      writer.i8(2);
-      writer.u8(0); // класс высоты: до
-      writer.i8(0); // случайный знак
-      writer.u8(1); // октава ottava
-      return;
-    }
-    if (type.includes('tapped') || type.includes(' tapped') || type.includes('тап')) {
-      writer.i8(3);
-      writer.u8(clamp(Math.round(Number(info.fret) || 12), 0, 24));
-      return;
-    }
     if (type.includes('pinch') || type.includes('пинч')) { writer.i8(4); return; }
     if (type.includes('semi') || type.includes('полу')) { writer.i8(5); return; }
+    if (type.includes('artificial') || type.includes('искус') || type.includes('a.h')) {
+      writer.i8(Number(info.code) === 17 || Number(info.code) === 22 ? Number(info.code) : 15);
+      return;
+    }
+    if (type.includes('tap') || type.includes('тап')) { writer.i8(3); return; }
     writer.i8(1); // натуральный обертон
   }
 
   function writeNote(writer, note) {
     const source = note.source || {};
     const accent = Number(source.accent) > 0 || source.accent === true;
-    const hasEffects = !!(source.letRing || source.pm || source.staccato || source.slide || source.hammer
-      || source.bend || source.vibrato || source.legato || source.ghost || source.trill || source.tremolo);
+    // Флаг 0x08 открывает блок приёмов: без него байты приёмов не пишутся вовсе,
+    // поэтому здесь должны быть перечислены все, кодируемые в GP5.
+    const hasEffects = !!(source.letRing || source.pm || source.staccato || source.tenuto || source.slide
+      || source.hammer || source.bend || source.vibrato || source.legato || source.ghost || source.trill
+      || source.tremolo || source.grace || source.harm || source.harmonic);
     let flags = 0x20;
     if (hasEffects) flags |= 0x08;
     if (source.ghost) flags |= 0x04;
     if (accent) flags |= 0x40;
     if (Number.isFinite(Number(source.velocity))) flags |= 0x10;
     writer.u8(flags);
-    writer.u8(1); // normal
+    // Тип ноты GP5: 1 — обычная, 2 — связанная, 3 — «мёртвая» (знак x).
+    writer.u8(source.dead === true ? 3 : 1);
     if (flags & 0x10) {
       // Динамика GP: (velocity + 16 - 15) / 16, округление вниз.
       const velocity = clamp(Math.round(Number(source.velocity)), 15, 127);
@@ -918,6 +950,9 @@
         flags |= 0x03;
       }
       if (bar.repeatOpen) flags |= 0x04;
+      // Альтернативное окончание (вольта): бит 0x10 и маска номеров 1–9.
+      const volta = Math.round(Number(bar.volta) || 0);
+      if (volta >= 1 && volta <= 9) flags |= 0x10;
       if (Number.isInteger(bar.repeatClose) && bar.repeatClose >= 0) flags |= 0x08;
       if (bar.marker) flags |= 0x20;
       if (!previousKey || key.root !== previousKey.root || key.type !== previousKey.type) flags |= 0x40;
@@ -948,9 +983,10 @@
         writer.u8(0);
         writer.u8(0);
       }
-      // В GP5 после лучей всегда идут два байта: альтернативные окончания
-      // повтора и ощущение триолей (1 — восьмые).
-      writer.u8(0);
+      // В GP5 после лучей всегда идут два байта: маска альтернативных окончаний
+      // (бит 0 — «1-й конец») и ощущение триолей (1 — восьмые). При флаге 0x10
+      // первый байт читается как маска окончаний, без флага — пропускается.
+      writer.u8(flags & 0x10 ? 1 << (volta - 1) : 0);
       writer.u8(1);
       previousTimeSig = timeSig;
       previousKey = key;

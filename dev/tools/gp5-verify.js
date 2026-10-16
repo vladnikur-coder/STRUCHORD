@@ -111,6 +111,7 @@ if (measureCount < 0 || measureCount > 10000) { note(`неверное числ�
 if (trackCount < 0 || trackCount > 100) { note(`неверное число дорожек: ${trackCount}`); throw new Error('битые счётчики'); }
 
 const measureHeaders = [];
+const noteDetails = [];
 for (let index = 0; index < measureCount; index++) {
   if (index > 0) skip(1);
   const flags = u8();
@@ -240,28 +241,51 @@ for (let bar = 0; bar < measureCount; bar++) {
         for (let string = 0; string < 7; string++) if (stringFlags & (1 << (6 - string))) strings.push(string);
         for (let string = 0; string < strings.length; string++) {
           const noteFlags = u8();
-          if (noteFlags & 0x20) u8();
-          if (noteFlags & 0x10) i8();
-          if (noteFlags & 0x20) i8();
+          const noteType = u8(); // 1 — обычная, 2 — связанная, 3 — «мёртвая»
+          let velocity = null;
+          if (noteFlags & 0x10) velocity = i8();
+          const fret = (noteFlags & 0x20) ? i8() : 0;
           if (noteFlags & 0x80) { i8(); i8(); }
           if (noteFlags & 0x01) f64();
-          u8();
+          u8(); // случайные знаки перед приёмами
+          const effect = { hammer: false, letRing: false, grace: false, staccato: false, palmMute: false,
+            tremolo: false, slide: 0, harmonic: 0, trill: false, vibrato: false, bend: null, graceFret: null };
           if (noteFlags & 0x08) {
             const flags1 = u8();
             const flags2 = u8();
+            effect.hammer = !!(flags1 & 0x02);
+            effect.letRing = !!(flags1 & 0x08);
+            effect.grace = !!(flags1 & 0x10);
+            effect.staccato = !!(flags2 & 0x01);
+            effect.palmMute = !!(flags2 & 0x02);
+            effect.tremolo = !!(flags2 & 0x04);
+            effect.vibrato = !!(flags2 & 0x40);
             if (flags1 & 0x01) {
-              i8(); i32(); const count = i32();
-              for (let point = 0; point < count; point++) { i32(); i32(); u8(); }
-            }
-            if (flags1 & 0x10) { u8(); u8(); u8(); u8(); u8(); }
-            if (flags2 & 0x04) u8();
-            if (flags2 & 0x08) u8();
-            if (flags2 & 0x10) {
               const type = i8();
-              if (type === 2 || type === 4 || type === 5) { u8(); i8(); u8(); } else if (type === 3) u8();
+              const value = i32();
+              const count = i32();
+              const points = [];
+              for (let point = 0; point < count; point++) {
+                points.push({ position: i32(), value: i32(), vibrato: u8() });
+              }
+              effect.bend = { type, value, points };
             }
-            if (flags2 & 0x20) { i8(); i8(); }
+            // Форшлаг GP5 — пять байтов: лад, динамика, переход, служебный
+            // байт и флаги (бит 1 — «мёртвая» нота, бит 2 — на сильную).
+            if (flags1 & 0x10) {
+              effect.graceFret = i8();
+              effect.graceVelocity = i8();
+              effect.graceTransition = i8();
+              effect.graceDuration = u8();
+              effect.graceFlags = u8();
+            }
+            if (flags2 & 0x04) effect.tremoloLength = u8();
+            if (flags2 & 0x08) effect.slide = u8();
+            if (flags2 & 0x10) effect.harmonic = i8();
+            if (flags2 & 0x20) { effect.trillFret = i8(); effect.trillDuration = i8(); effect.trill = true; }
           }
+          noteDetails.push({ track: trackIndex, string: strings[string] + 1, fret, noteType,
+            velocity, ghost: !!(noteFlags & 0x04), accent: !!(noteFlags & 0x40), effect });
           totalNotes++;
         }
         const displayFlags = i16();
@@ -280,7 +304,7 @@ const result = {
   version, title, subtitle, artist, album, words, music, copyright, noticeCount,
   lyricTrack, lyrics, masterVolume, masterEq, masterReverb, page, headerFooter,
   tempoName, tempo, hideTempo, key, octave, channels, measureCount, trackCount,
-  measureHeaders, tracks, barStats, totalBeats, totalNotes, problems, size: buf.length,
+  measureHeaders, tracks, barStats, totalBeats, totalNotes, noteDetails, problems, size: buf.length,
   consumed: at, trailing: buf.length - at,
 };
 if (!opts.quiet) printReport(result, opts.file ? file : 'буфер');

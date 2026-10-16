@@ -101,7 +101,9 @@ const testSong = {
     { id: 11, type: 'Verse', customName: null, key: null, shift: null, timeSig: null, bpm: null, repeat: 2,
       strumPattern: null, squares: [square(111, ['C', 'G', 'Am', 'F'])] },
     { id: 12, type: 'Chorus', customName: 'Припев', key: 'D', shift: null, timeSig: null, bpm: 96, repeat: 1,
-      strumPattern: null, squares: [square(121, ['D', 'A', 'Bm', 'G'])] },
+      // Вольта: квадрат помечен «1-й конец» — GP5 должен записать флаг 0x10
+      // и маску окончаний на втором такте файла.
+      strumPattern: null, squares: [{ ...square(121, ['D', 'A', 'Bm', 'G']), volta: 1 }] },
   ],
   parts: [
     { id: 21, name: 'Гитара', instrument: 'guitar', tuning: 'e-std', capo: 2, visible: true,
@@ -113,12 +115,14 @@ const testSong = {
           { start: 2, dur: 2, string: 3, fret: 3, staccato: true },
           { start: 3, dur: 1, string: 1, fret: 1 },
         ],
+        // Пять приёмов на пяти нотах: бенд, натуральный флажолет, «мёртвая»
+        // нота, форшлаг с молотком и легато-слайд.
         12: [
-          { start: 0, dur: 2, string: 2, fret: 5 },
-          { start: 2, dur: 2 / 3, string: 4, fret: 1 },
-          { start: 2 + 2 / 3, dur: 2 / 3, string: 4, fret: 1 },
-          { start: 2 + 4 / 3, dur: 2 / 3, string: 4, fret: 1 },
-          { start: 3, dur: 1, string: 3, fret: 3 },
+          { start: 0, dur: 2, string: 2, fret: 5, bend: { type: 'bend', points: [[0, 0], [1, 1]] } },
+          { start: 2, dur: 2 / 3, string: 4, fret: 1, harm: { type: 'natural' } },
+          { start: 2 + 2 / 3, dur: 2 / 3, string: 4, fret: 1, dead: true },
+          { start: 2 + 4 / 3, dur: 2 / 3, string: 4, fret: 1, legato: true },
+          { start: 3, dur: 1, string: 3, fret: 3, slide: 'legato' },
         ],
       },
       pitchRolls: {}, lyrics: [] },
@@ -366,6 +370,35 @@ w.addEventListener('load', async () => {
       && marksBack.every((note, index) => note.letRing === marksDetail[index].letRing
         && note.staccato === marksDetail[index].staccato),
       `${JSON.stringify(marksBack.map((n) => [n.letRing, n.staccato]))} / ${JSON.stringify(marksDetail.map((n) => [n.letRing, n.staccato]))}`);
+
+    // ---------- 4b. Приёмы нот и вольта — по байтам независимого разборщика ----
+    const notes = gp5.noteDetails || [];
+    const guitarNotes = notes.filter((note) => note.track === 0);
+    const findNote = (test) => guitarNotes.find(test);
+    const bend = findNote((note) => note.effect.bend);
+    // Масштаб GP5: 25 единиц величины — полутон, 60 единиц позиции — конец ноты
+    // (TuxGuitar GP5InputStream, alphaTab Ta = 25, PyGuitarPro bendSemitone = 25).
+    check('бенд записан с масштабом 25 единиц на полутон',
+      !!bend && bend.effect.bend.type === 1 && bend.effect.bend.value === 25
+      && bend.effect.bend.points.length === 2
+      && bend.effect.bend.points[1].position === 60 && bend.effect.bend.points[1].value === 25,
+      JSON.stringify(bend && bend.effect.bend));
+    const harm = findNote((note) => note.effect.harmonic);
+    check('флажолет записан одним байтом типа 1 (натуральный)', !!harm && harm.effect.harmonic === 1,
+      JSON.stringify(harm && harm.effect.harmonic));
+    const dead = findNote((note) => note.noteType === 3);
+    check('«мёртвая» нота записана типом 3', !!dead, JSON.stringify(dead && dead.noteType));
+    const hammer = findNote((note) => note.effect.hammer);
+    check('легато (H/P) записано как молоток', !!hammer, JSON.stringify(hammer && hammer.effect.hammer));
+    const slide = findNote((note) => note.effect.slide);
+    check('слайд записан одним байтом типа 2 (легато)', !!slide && slide.effect.slide === 2,
+      JSON.stringify(slide && slide.effect.slide));
+    check('вольта второго такта записана маской окончаний',
+      (gp5.measureHeaders[1] || {}).alternateEndings === 1,
+      JSON.stringify(gp5.measureHeaders[1]));
+    check('вольта не появилась на первом такте',
+      !(gp5.measureHeaders[0] || {}).alternateEndings,
+      JSON.stringify(gp5.measureHeaders[0]));
 
     const lyricsBefore = before.parts[2].lyrics.flatMap((line) => String(line.text).split(/\s+/).filter(Boolean));
     const lyricsAfter = after.parts.flatMap((part) => (part.lyrics || [])

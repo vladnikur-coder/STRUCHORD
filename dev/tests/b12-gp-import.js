@@ -195,9 +195,13 @@ function baselineSong() {
     [guitar?.gmProgram, keys?.gmProgram, drums?.gmProgram].every((value) => Number.isInteger(value) && value >= 0 && value <= 127));
   check('high frets 25 and 30 are saved exactly, not clamped or removed',
     guitarNotes.some((note) => note.fret === 25) && guitarNotes.some((note) => note.fret === 30), JSON.stringify(guitarNotes.map((note) => note.fret)));
+  // Шкала GP5: 25 единиц величины — полутон, 60 единиц позиции — конец ноты
+  // (TuxGuitar GP_BEND_SEMITONE/GP_BEND_POSITION, alphaTab Ta = 25). Фикстура
+  // хранит точку (позиция 60, величина 100): это конец звучания ноты и 4 полутона,
+  // а модель получает [1, 4] — раньше величина делилась ещё раз и теряла вчетверо.
   check('high-fret bend curve transfers into the app bend model',
     guitarNotes.some((note) => note.fret === 30 && note.bend?.type === 'bend' &&
-      JSON.stringify(note.bend.points) === JSON.stringify([[0, 0], [1, 1]])), JSON.stringify(guitarNotes.find((note) => note.fret === 30)));
+      JSON.stringify(note.bend.points) === JSON.stringify([[0, 0], [1, 4]])), JSON.stringify(guitarNotes.find((note) => note.fret === 30)));
   check('pitch notes retain absolute MIDI values and drum notes remain simultaneous pitch events',
     pitchNotes.every((note) => Number.isInteger(note.pitch) && note.pitch >= 0 && note.pitch <= 127) &&
     drumNotes.some((note) => note.pitch === 36) && drumNotes.some((note) => note.pitch === 38));
