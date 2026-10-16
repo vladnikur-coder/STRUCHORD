@@ -14638,7 +14638,7 @@ C -> C`, модальный обмен, побочные доминанты в �
   `writeContainer`. Сжатие — родное LZ77 Guitar Pro.
 - `dev/gp-export-code.js` и `dev/gp-export-ui.js` — модель, повторы, квантование
   микшера, скачивание и окно выбора формата с подробным отчётом.
-- `dev/tests/b12-gpx-container.js` — 26/0 (чтение и запись контейнера),
+- `dev/tests/b12-gpx-container.js` — 23/0 (чтение и запись контейнера),
   `dev/tests/b12-gpx-export.js` — 36/0 (круг экспорт → импорт),
   `dev/tests/b12-gpx-export-browser.js` — приёмка в настоящем Chromium.
 
