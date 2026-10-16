@@ -2,7 +2,7 @@
 /*
  * escape-inert-blocks.js — экранирование закрывающих HTML-тегов внутри
  * невидимых блоков <script type="text/plain"> (встроенные рантаймы
- * GP6/BCFS, GP7-8/ZIP и alphaTab).
+ * GP6/BCFS, GPIF-писатель, GP7-8/ZIP и alphaTab).
  *
  * ЗАЧЕМ. Live Server (и некоторые другие инструменты раздачи) вклеивают
  * свой служебный <script> перед ПЕРВЫМ </body>, который находят в файле.
@@ -29,7 +29,7 @@ const path = require('path');
 const htmlPath = path.join(__dirname, '..', '..', 'STRUCHORD.html');
 const checkOnly = process.argv.includes('--check');
 
-const INERT_BLOCK_IDS = ["gpxBcfzRuntime", "gp78ZipRuntime", "midiRuntime", "alphaTabRuntime"];
+const INERT_BLOCK_IDS = ["gpxBcfzRuntime", "gpifWriterRuntime", "gp78ZipRuntime", "midiRuntime", "alphaTabRuntime"];
 const INERT = new RegExp(
   `(<script id="(?:${INERT_BLOCK_IDS.join("|")})" type="text/plain">)([\\s\\S]*?)(</script>)`,
   'g'
@@ -138,14 +138,19 @@ if (require.main === module) {
   let touched = 0;
   const report = [];
 
+  // Матчи ищем по УЖЕ изменённому тексту: экранирование удлиняет блок на
+  // каждый «</», и смещения из исходной строки после первой правки указывали
+  // внутрь соседнего блока — файл разрывался на середине (проверено на
+  // gpifWriterRuntime: пропадал gp78ZipRuntime).
   INERT.lastIndex = 0;
   let match;
-  while ((match = INERT.exec(html)) !== null) {
+  while ((match = INERT.exec(out)) !== null) {
     const id = /id="([\w-]+)"/.exec(match[1])[1];
     const result = escapeInert(match[2]);
     if (result.count > 0) touched++;
     report.push(`   ${id}: экранировано «</» — ${result.count}`);
     out = out.slice(0, match.index) + match[1] + result.code + match[3] + out.slice(match.index + match[0].length);
+    INERT.lastIndex = match.index + match[1].length + result.code.length + match[3].length;
   }
 
   console.log('escape-inert-blocks:');

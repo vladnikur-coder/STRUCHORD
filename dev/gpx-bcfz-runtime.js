@@ -1,5 +1,5 @@
 /*
- * STRUCHORD Guitar Pro 6 (.gpx) container codec — BCFZ decompressor + BCFS reader.
+ * STRUCHORD Guitar Pro container codec — BCFZ/BCFS reader and BCFS/BCFZ writer.
  *
  * A .gpx file written by Guitar Pro 6 is a proprietary container, not a ZIP:
  *
@@ -309,6 +309,166 @@
     };
   }
 
+
+  // ---------- Запись: BCFS-образ и BCFZ-контейнер ---------------------------
+  // Образ строится блоками по 4096 байт: блок 0 — заголовок, дальше запись
+  // папки «/», список детей, записи файлов и их полезная нагрузка. Энкодер
+  // BCFZ — жадный LZ77 (окно 32767), обратный к описанному выше декодеру.
+  function asBytes(value) {
+    if (value instanceof Uint8Array) return value;
+    if (typeof value === 'string') return new TextEncoder().encode(value);
+    if (typeof ArrayBuffer !== 'undefined' && value instanceof ArrayBuffer) return new Uint8Array(value);
+    if (ArrayBuffer.isView(value)) return new Uint8Array(value.buffer, value.byteOffset, value.byteLength);
+    throw new TypeError('Expected bytes, string or ArrayBuffer.');
+  }
+
+  function buildImage(files) {
+    const list = (files || []).map((file) => ({ name: String(file.name), data: asBytes(file.data) }));
+    if (!list.length) throw new Error('BCFS container needs at least one file.');
+    const blocks = [];
+    const header = new Uint8Array(BLOCK_SIZE).fill(0xff);
+    header[0] = 0; header[1] = 0; header[2] = 0;
+    blocks.push(header);
+    const folderIndex = blocks.length;
+    blocks.push(new Uint8Array(BLOCK_SIZE));
+    const childListIndex = blocks.length;
+    blocks.push(new Uint8Array(BLOCK_SIZE));
+    const recordIndexes = [];
+    for (const file of list) {
+      const recordIndex = blocks.length;
+      blocks.push(new Uint8Array(BLOCK_SIZE));
+      recordIndexes.push(recordIndex);
+      const payload = [];
+      const blockCount = Math.max(1, Math.ceil(file.data.length / BLOCK_SIZE));
+      for (let index = 0; index < blockCount; index++) {
+        payload.push(blocks.length);
+        const chunk = new Uint8Array(BLOCK_SIZE);
+        chunk.set(file.data.subarray(index * BLOCK_SIZE, (index + 1) * BLOCK_SIZE));
+        blocks.push(chunk);
+      }
+      const record = blocks[recordIndex];
+      const view = new DataView(record.buffer);
+      view.setUint32(0, RECORD_FILE, true);
+      const name = new TextEncoder().encode(file.name);
+      if (name.length > NAME_MAX) throw new Error(`File name is too long for a BCFS record: ${file.name}`);
+      record.set(name, NAME_OFFSET);
+      view.setUint32(SIZE_OFFSET, file.data.length, true);
+      if (payload.length > (BLOCK_SIZE - BLOCKS_OFFSET) / 4) {
+        throw new Error(`File is too large for a plain BCFS record: ${file.name}`);
+      }
+      payload.forEach((blockIndex, position) => view.setUint32(BLOCKS_OFFSET + 4 * position, blockIndex, true));
+    }
+    const folder = blocks[folderIndex];
+    const folderView = new DataView(folder.buffer);
+    folderView.setUint32(0, RECORD_FOLDER, true);
+    folder.set(new TextEncoder().encode('/'), NAME_OFFSET);
+    folderView.setUint32(SIZE_OFFSET, 4 * recordIndexes.length, true);
+    folderView.setUint32(BLOCKS_OFFSET, childListIndex, true);
+    const childList = blocks[childListIndex];
+    const childView = new DataView(childList.buffer);
+    if (recordIndexes.length > BLOCK_SIZE / 4 - 1) throw new Error('Too many files for a BCFS container.');
+    recordIndexes.forEach((recordIndex, position) => childView.setUint32(4 * position, recordIndex, true));
+    childView.setUint32(4 * recordIndexes.length, 0, true);
+    const image = new Uint8Array(4 + blocks.length * BLOCK_SIZE);
+    image.set(new TextEncoder().encode(HEADER_BCFS), 0);
+    blocks.forEach((block, index) => image.set(block, 4 + index * BLOCK_SIZE));
+    return image;
+  }
+
+  class BitWriter {
+    constructor() { this.bytes = []; this.current = 0; this.used = 0; }
+    writeBit(bit) {
+      this.current = (this.current << 1) | (bit & 1);
+      this.used += 1;
+      if (this.used === 8) { this.bytes.push(this.current & 0xff); this.current = 0; this.used = 0; }
+    }
+    writeBits(value, count) {
+      for (let index = count - 1; index >= 0; index--) this.writeBit(Math.floor(value / 2 ** index) & 1);
+    }
+    writeBitsReversed(value, count) {
+      for (let index = 0; index < count; index++) this.writeBit(Math.floor(value / 2 ** index) & 1);
+    }
+    finish() {
+      if (this.used) { this.bytes.push((this.current << (8 - this.used)) & 0xff); this.current = 0; this.used = 0; }
+      return new Uint8Array(this.bytes);
+    }
+  }
+
+  function bitsNeeded(value) {
+    let count = 0;
+    let rest = value;
+    while (rest > 0) { count += 1; rest = Math.floor(rest / 2); }
+    return count;
+  }
+
+  function compressBcfz(image, options) {
+    const input = asBytes(image);
+    const minMatch = (options && options.minMatch) || 4;
+    const window = (options && options.window) || 32767;
+    const writer = new BitWriter();
+    const literals = [];
+    let position = 0;
+    const flushLiterals = () => {
+      for (let index = 0; index < literals.length; index += 3) {
+        const chunk = literals.slice(index, index + 3);
+        writer.writeBit(0);
+        writer.writeBitsReversed(chunk.length, 2);
+        chunk.forEach((byte) => writer.writeBits(byte, 8));
+      }
+      literals.length = 0;
+    };
+    const matchWordSize = (distance, count) => {
+      let wordSize = Math.max(bitsNeeded(Math.max(distance, count)), 1);
+      while ((count > 2 ** wordSize - 1 || distance > 2 ** wordSize - 1) && wordSize < 15) wordSize += 1;
+      if (wordSize > 15 || count > 2 ** wordSize - 1 || distance > 2 ** wordSize - 1) return 0;
+      return wordSize;
+    };
+    while (position < input.length) {
+      let bestDistance = 0;
+      let bestLength = 0;
+      const maxLength = Math.min(input.length - position, 32767);
+      if (maxLength >= minMatch) {
+        const limit = Math.min(position, window);
+        for (let distance = 1; distance <= limit; distance++) {
+          let length = 0;
+          while (length < maxLength && input[position - distance + length] === input[position + length]) length += 1;
+          if (length > bestLength) { bestLength = length; bestDistance = distance; }
+          if (bestLength >= 512) break;
+        }
+      }
+      const wordSize = bestLength >= minMatch ? matchWordSize(bestDistance, bestLength) : 0;
+      if (wordSize) {
+        // Ссылка физически идёт после отложенных литералов: иначе декодер
+        // склеит их с предыдущим совпадением.
+        flushLiterals();
+        writer.writeBit(1);
+        writer.writeBits(wordSize, 4);
+        writer.writeBitsReversed(bestDistance, wordSize);
+        writer.writeBitsReversed(bestLength, wordSize);
+        position += bestLength;
+        continue;
+      }
+      literals.push(input[position]);
+      position += 1;
+      if (literals.length === 3) flushLiterals();
+    }
+    flushLiterals();
+    const payload = writer.finish();
+    const head = new Uint8Array(8);
+    head.set(new TextEncoder().encode(HEADER_BCFZ), 0);
+    new DataView(head.buffer).setUint32(4, input.length, true);
+    const result = new Uint8Array(head.length + payload.length);
+    result.set(head, 0);
+    result.set(payload, head.length);
+    return result;
+  }
+
+  // compressed: false — открытая BCFS-картинка (её тоже читает Guitar Pro 6)
+  function writeContainer(files, options) {
+    const image = buildImage(files);
+    return options && options.compressed === false ? image : compressBcfz(image, options);
+  }
+
   return Object.freeze({
     HEADER_BCFS,
     HEADER_BCFZ,
@@ -318,5 +478,8 @@
     decompressBcfz,
     readFilesystem,
     readContainer,
+    buildImage,
+    compressBcfz,
+    writeContainer,
   });
 });
