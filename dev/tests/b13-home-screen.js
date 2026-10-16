@@ -342,6 +342,13 @@ function makeSong(artist, title, date, key, sectionCount) {
       HTMLAnchorElement.prototype.click = function () { window.__lastDownloadName = this.download; };
     });
     await page.$eval('.toolbar button[onclick="exportSong()"]', (button) => button.click());
+    // B-12.9.8: экспорт сначала спрашивает формат — выбираем «Файл STRUCHORD».
+    await page.waitForSelector('#gpExportStruchordBtn', { timeout: 15000 });
+    check('кнопка «Экспорт» спрашивает формат файла', await page.evaluate(() =>
+      !!document.getElementById('gpExportStruchordBtn') && !!document.getElementById('gpExportGpBtn') &&
+      document.querySelectorAll('.strum-modal-content').length === 1));
+    await page.click('#gpExportStruchordBtn');
+    await page.waitForFunction(() => !!window.__lastExportBlob, { timeout: 15000 });
     const editorExportResult = await page.evaluate(async () => {
       const result = { downloadName: window.__lastDownloadName, hasBlob: !!window.__lastExportBlob };
       if (window.__lastExportBlob) {

@@ -8,10 +8,17 @@
  * до запуска jsdom-сьютов.
  *
  * Запуск: node dev/tools/check-html-syntax.js
+ *
+ * С 0.641 проверка ещё и следит за невидимыми блоками (встроенные рантаймы
+ * GP6/GP7-8/alphaTab в <script type="text/plain">). Внутри них «</» обязано
+ * быть экранировано: Live Server вклеивает свой <script> перед первым
+ * </body> файла, и тот закрывал блок на полпути — страница рассыпалась в
+ * простыню исходника (хотфикс 0.641).
  */
 const fs = require('fs');
 const path = require('path');
 const vm = require('vm');
+const { escapeInert, INERT_BLOCK_IDS } = require('./escape-inert-blocks.js');
 
 const file = path.join(__dirname, '..', '..', 'STRUCHORD.html');
 const html = fs.readFileSync(file, 'utf8');
@@ -20,7 +27,7 @@ const re = /<script\b([^>]*)>([\s\S]*?)<\/script>/gi;
 let match;
 while ((match = re.exec(html)) !== null) {
   if (/\bsrc\s*=/.test(match[1])) continue;
-  scripts.push({ index: scripts.length, code: match[2], at: match.index });
+  scripts.push({ index: scripts.length, attrs: match[1], code: match[2], at: match.index });
 }
 
 let failures = 0;
@@ -34,5 +41,26 @@ for (const script of scripts) {
     console.error('  ' + (err && err.message));
   }
 }
-console.log(`scripts checked: ${scripts.length}, failures: ${failures}`);
+
+// --- невидимые блоки: «</» должен быть экранирован (0.641) ---
+const inertRe = new RegExp(`<script id="(${INERT_BLOCK_IDS.join('|')})" type="text/plain">([\\s\\S]*?)<\\/script>`, 'g');
+const seenInert = [];
+let inertMatch;
+while ((inertMatch = inertRe.exec(html)) !== null) {
+  seenInert.push(inertMatch[1]);
+  const left = escapeInert(inertMatch[2]).count;
+  if (left > 0) {
+    failures++;
+    console.error(`ОШИБКА в невидимом блоке #${inertMatch[1]}: неэкранированных «</» — ${left}.`);
+    console.error('  Запустите: node dev/tools/escape-inert-blocks.js');
+  }
+}
+for (const id of INERT_BLOCK_IDS) {
+  if (!seenInert.includes(id)) {
+    failures++;
+    console.error(`ОШИБКА: нет невидимого блока #${id}`);
+  }
+}
+
+console.log(`scripts checked: ${scripts.length}, inert blocks checked: ${seenInert.length}, failures: ${failures}`);
 process.exitCode = failures ? 1 : 0;
