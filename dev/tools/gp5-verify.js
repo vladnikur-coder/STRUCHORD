@@ -119,8 +119,10 @@ for (let index = 0; index < measureCount; index++) {
   if (flags & 0x02) header.denominator = i8();
   if (flags & 0x04) header.repeatOpen = true;
   if (flags & 0x08) {
-    // GP5 хранит число повторов со сдвигом на единицу.
+    // GP5: байт — число ПРОХОДОВ повторяемой секции («×2» — это 2);
+    // GP3/GP4 хранят в этом месте число дополнительных повторов.
     header.repeatClose = i8();
+    header.passes = header.repeatClose;
     header.repeatCount = header.repeatClose - 1;
   }
   if (flags & 0x20) { header.marker = decodeText(intByteSizeString()); skip(4); }

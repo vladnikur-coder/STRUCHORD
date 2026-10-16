@@ -925,7 +925,12 @@
       writer.u8(flags);
       if (flags & 0x01) writer.i8(timeSig.numerator);
       if (flags & 0x02) writer.i8(timeSig.denominator);
-      if (flags & 0x08) writer.i8(Math.max(1, bar.repeatClose) - 1);
+      // GP5 хранит в байте закрытия повтора ЧИСЛО ПРОХОДОВ секции («×2» — это 2),
+      // а GP3/GP4 — число дополнительных повторов. Расхождение подтверждено
+      // независимо: TuxGuitar GP5InputStream читает (readByte() & 0xff) - 1, тогда
+      // как GP3InputStream и GP4InputStream читают байт без сдвига; PyGuitarPro
+      // 0.11 делает то же (gp5.py: repeatClose -= 1 при чтении, +1 при записи).
+      if (flags & 0x08) writer.i8(Math.max(2, bar.repeatClose));
       if (flags & 0x20) {
         writer.intByteSizeString(bar.marker);
         writer.u8(bar.color ? bar.color[0] : 255);

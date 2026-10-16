@@ -256,8 +256,11 @@ w.addEventListener('load', async () => {
     check('повторы не развёрнуты в копии тактов', gp5.measureCount === 2, String(gp5.measureCount));
     const header0 = gp5.measureHeaders[0] || {};
     check('такт 1 открывает повтор', header0.repeatOpen === true, JSON.stringify(header0));
-    // GP5 хранит в поле повтора число дополнительных проходов: 1 — это «×2».
-    check('такт 1 закрывает повтор на два прохода', header0.repeatClose === 1 && header0.repeatCount === 0,
+    // В файле GP5 лежит число ПРОХОДОВ секции: 2 — это «играть дважды».
+    // Сдвиг на единицу в GP5 (в отличие от GP3/GP4) проверен по TuxGuitar
+    // GP5InputStream и PyGuitarPro 0.11 — см. комментарий в dev/gp5-writer.js.
+    check('такт 1 закрывает повтор на два прохода',
+      header0.repeatClose === 2 && header0.passes === 2 && header0.repeatCount === 1,
       JSON.stringify(header0));
     check('во втором такте повторов нет', !(gp5.measureHeaders[1] || {}).repeatOpen);
 

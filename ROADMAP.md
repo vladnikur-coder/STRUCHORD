@@ -174,6 +174,7 @@
 
 | Волна | Версия | Дата | SHA-256 (STRUCHORD.html) | Размер (байт) | SW Cache |
 |---|---|---|---|---|---|
+| **B-12.9.10 GP5: настоящий повтор (0.645)** | 0.645 | 2026-10-16 | `ec8fb7bb677694799dd1f750e75a3ebedc3a20cf47d5b37dfefc062daf34a179` | 4575825 | `struchord-v645` |
 | **B-12.9.9 GP5 `.gp5` export (0.644)** | 0.644 | 2026-10-16 | `5d4a78f33e364d700713e73a5a9f450c77e9bf9428d81b3684497cfd5aaa8025` | 4574977 | `struchord-v644` |
 | **B-12.9.8 GP6 `.gpx` export (0.643)** | 0.643 | 2026-10-16 | `d4727a7650b3013cdf967c73048416f4bde3d0afefbe225ba896b7434cde3cb6` | 4513979 | `struchord-v643` |
 | **B-12.9.7 MIDI `.mid` import (0.642)** | 0.642 | 2026-10-15 | `ae95462c614307e4995dde01a9edc907c2c0ccb7a57ff6fa3bfb7b12e586bed5` | 4437444 | `struchord-v642` |
