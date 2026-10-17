@@ -385,7 +385,7 @@ ok('S5 склейка честная: ресайз 2|2 режет исходны
 // --- T. Чужие ячейки: поглощение доли прежнее, кэш — звучащее окно ------
 scene([D(strum(2, 'D_D_D_D_'), 4), D(strum(2, 'U_U_U_U_'), 4)]);
 evl('return removeChordAt(1, 2, 1), 0');
-ok('T1 поглотитель растянулся до 8', spans() === '8', spans());
+ok('T1 поглотитель растянулся до 9', spans() === '8', spans());
 // B-23 (2026-08-27): канон «минуса» сменился со старого «свой рисунок
 // растягивается на всю долю, чужой умирает с ячейкой» на «полную
 // запись» — сшивка того, что звучало до операции: свои удары D@0..3
@@ -395,7 +395,7 @@ ok('T2 его рисунок — полная запись пары (канон 
 // --- U. Смешанная пара (своя + пустая): доля как раньше, кэш — окно -----
 scene([D(strum(2, 'D_D_D_D_'), 4), D(null, 4)]);
 evl('return removeChordAt(1, 2, 1), 0');
-ok('U1 поглотитель растянулся до 8', spans() === '8', spans());
+ok('U1 поглотитель растянулся до 9', spans() === '8', spans());
 // B-23: удалённая без рисунка на таймлайне играла заводской удар в t=4 —
 // он записан (не затёрт, не размножен): свои D@0..3 + заводской D@4.
 ok('U2 его рисунок — свой + заводской удар удалённой (канон B-23)', soundingText(0) === 'DDDDD___', soundingText(0));
@@ -425,7 +425,7 @@ ok('J2 сейв: пул на борту, обе ссылки на ОДИН ру�
   savedSong.rhythmPool.refs[0][1] === savedSong.rhythmPool.refs[1][1] &&
   savedSong.rhythmPool.refs[0][1] === rollJ,
   JSON.stringify(savedSong.rhythmPool || null).slice(0, 140));
-ok('J3 сейв: schemaVersion 8', savedSong.schemaVersion === 8, String(savedSong.schemaVersion));
+ok('J3 сейв: schemaVersion 9', savedSong.schemaVersion === 9, String(savedSong.schemaVersion));
 evl('sections = []; songRhythmRolls = null; window.loadSong(0); return 0');
 ok('J4 после загрузки звук прежний: D_DU|_UDU',
   soundingText(0) === 'D_DU' && soundingText(1) === '_UDU',

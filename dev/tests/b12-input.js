@@ -82,7 +82,7 @@ w.addEventListener('load', () => {
     window.__plucks = [];
     pluckString = function(ctx, opts) { window.__plucks.push({ f: opts.freq, d: opts.duration }); };
   `);
-  w.eval('togglePartsMode(true)');
+  w.eval('togglePartsMode(true); setPartsEditMode("input")');
 
   const track = w.document.getElementById('partsTrack');
   check('окно построено, станок есть', track.querySelectorAll('.pt-section').length === 1,
@@ -97,8 +97,13 @@ w.addEventListener('load', () => {
 
   // --- клик по табу ставит курсор (квадрат 1/4 → позиция 2 = третья доля) ---
   const svg = track.querySelector('.pt-svg');
-  svg.getBoundingClientRect = () => ({ left: 0, top: 0, width: 96, height: 90, right: 96, bottom: 90 });
-  svg.dispatchEvent(new w.MouseEvent('pointerdown', { clientX: 48, clientY: 10 + 3 * 9, bubbles: true }));
+  const svgBox = { left: 0, top: 0, width: 96, height: 90, right: 96, bottom: 90 };
+  svg.getBoundingClientRect = () => svgBox;
+  const viewBox = svg.getAttribute('viewBox').split(/[ ,]+/).map(Number);
+  const scoreY = Number(svg.dataset.topPad || 12) +
+    (Number(svg.dataset.stringCount || 6) - 1 - 2) * Number(svg.dataset.lineGap || 9);
+  const clientY = (scoreY - viewBox[1]) * svgBox.height / viewBox[3];
+  svg.dispatchEvent(new w.MouseEvent('pointerdown', { clientX: 48, clientY, bubbles: true }));
   const cursor1 = JSON.parse(w.eval('JSON.stringify(partsCursor)'));
   check('клик: позиция 2', Math.abs(cursor1.pos - 2) < 1e-6, JSON.stringify(cursor1));
   check('клик: струна 2 (третья строка сверху)', cursor1.string === 2, JSON.stringify(cursor1));
@@ -248,7 +253,7 @@ w.addEventListener('load', () => {
   check('знаки без подтверждения длиной отброшены', !bad.dots && !bad.triplet && Math.abs(bad.dur - 1) < 1e-9, JSON.stringify(bad));
 
   // --- отмена ---
-  w.eval('togglePartsMode(true)');
+  w.eval('togglePartsMode(true); setPartsEditMode("input")');
   w.eval('setPartsCursorString(1, 0, 5, 0)');
   key('4');
   const beforeUndo = JSON.parse(w.eval('JSON.stringify(songParts[0].rolls["1"] || [])'));
@@ -276,7 +281,7 @@ w.addEventListener('load', () => {
   })]));
   w.loadSong(0);
   w.eval('render()');
-  w.eval('togglePartsMode(true)');
+  w.eval('togglePartsMode(true); setPartsEditMode("input")');
   check('6/8: четверть = 2 единицы сетки', Math.abs(w.eval('partInputUnits("6/8", 4, 0, false)') - 2) < 1e-9,
     String(w.eval('partInputUnits("6/8", 4, 0, false)')));
   check('6/8: целая = 8 единиц (два такта по 6/8)', Math.abs(w.eval('partInputUnits("6/8", 6, 0, false)') - 8) < 1e-9);
@@ -291,7 +296,7 @@ w.addEventListener('load', () => {
   })]));
   w.loadSong(0);
   w.eval('render()');
-  w.eval('togglePartsMode(true)');
+  w.eval('togglePartsMode(true); setPartsEditMode("input")');
   check('партия без нот: пустое состояние скрыто, станок ждёт ввод',
     w.document.getElementById('partsEmpty').hidden === true &&
     w.document.querySelectorAll('#partsTrack .pt-section').length === 1,
@@ -316,7 +321,7 @@ w.addEventListener('load', () => {
     !w.document.body.classList.contains('is-parts') && w.eval('partLastDigit') === null);
 
   // --- лестница длительностей упирается в края, а не улетает ---
-  w.eval('togglePartsMode(true)');
+  w.eval('togglePartsMode(true); setPartsEditMode("input")');
   reset(0);
   for (let i = 0; i < 12; i++) key('=', { code: 'Equal' });
   check('= упирается в 1/64', w.eval('partInput.durIndex') === 0, String(w.eval('partInput.durIndex')));
@@ -350,7 +355,7 @@ w.addEventListener('load', () => {
     demoRoll.filter((n) => n.triplet === true).length === 3 &&
     demoRoll.filter((n) => n.triplet === true).every((n) => Math.abs(n.dur - 1 / 3) < 1e-3),
     JSON.stringify(demoRoll.filter((n) => n.triplet === true)));
-  w.eval('togglePartsMode(true); setPartsCursorString(1, 0, 5, 12);');
+  w.eval('togglePartsMode(true); setPartsEditMode("input"); setPartsCursorString(1, 0, 5, 12);');
   check('демо: триоль нарисована знаком «3»',
     w.document.querySelectorAll('#partsTrack .pt-note-mark').length >= 4,
     String(w.document.querySelectorAll('#partsTrack .pt-note-mark').length));

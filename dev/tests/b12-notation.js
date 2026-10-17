@@ -45,7 +45,7 @@ const section = (id, type, repeat, squares, key) => ({
 });
 function song(parts, schemaVersion, sections) {
   return {
-    schemaVersion: schemaVersion || 8,
+    schemaVersion: schemaVersion || 9,
     metadata: { artist: 'Notation test', title: 'Read only' },
     bpm: 100, globalKey: 'G', keyMode: 'manual', globalTimeSig: '4/4',
     tuning: 'e-std', tuningNotes: null, notes: '',
@@ -68,7 +68,7 @@ function load(value) {
 
 w.addEventListener('load', () => {
   try {
-    // v7 -> v8 migration: role defaults, explicit overrides, and invalid data.
+    // v7 -> v9 migration: role defaults, explicit overrides, and voice support.
     const legacyRoll = [{ start: 0, dur: 1, string: 5, fret: 3 }];
     load(song([
       { id: 1, name: 'Guitar', instrument: 'guitar', rolls: { '1': legacyRoll } },
@@ -79,7 +79,7 @@ w.addEventListener('load', () => {
       { id: 6, name: 'Other', instrument: 'other' },
     ], 7));
     const migrated = json('songParts.map(p => ({ instrument:p.instrument, viewMode:p.viewMode }))');
-    check('схема v7 мигрирует в v8', w.eval('SONG_SCHEMA_VERSION') === 8 &&
+    check('схема v7 мигрирует в v9', w.eval('SONG_SCHEMA_VERSION') === 9 &&
       json('songParts.every(p => p.viewMode === "staff" || p.viewMode === "tab")'));
     check('гитара и бас по умолчанию используют табы, сохраняя явный выбор нот',
       migrated[0].viewMode === 'tab' && migrated[1].viewMode === 'staff', JSON.stringify(migrated.slice(0, 2)));
@@ -250,7 +250,7 @@ w.addEventListener('load', () => {
     const saved = JSON.parse(w.localStorage.getItem('struchord_songs')).slice(-1)[0];
     const savedPiano = saved.parts.find((part) => part.id === keyPartId);
     check('выбранный вид сохраняется в песне и переживает загрузку',
-      saved.schemaVersion === 8 && savedPiano.viewMode === 'staff');
+      saved.schemaVersion === 9 && savedPiano.viewMode === 'staff');
 
     // Repeat-aware score cursor; counters are zero-based like timeline playback.
     const ids = json('({ section: sections[0].id, first: sections[0].squares[0].id, repeated: sections[0].squares[1].id })');

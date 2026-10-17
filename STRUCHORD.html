@@ -9696,6 +9696,39 @@ body.is-parts .container {
   font-weight: 600;
   color: var(--color-text-secondary);
 }
+.pt-edit-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.1875rem;
+  border: 0.0625rem solid var(--color-border-light);
+  border-radius: 999px;
+  background: var(--color-background-secondary);
+}
+.pt-edit-mode-label { padding: 0 0.3rem; color: var(--color-text-tertiary); font-size: 0.6875rem; font-weight: 700; }
+.pt-edit-mode-btn {
+  min-height: 1.8rem;
+  padding: 0.25rem 0.625rem;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--color-text-secondary);
+  font: inherit;
+  font-size: 0.75rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.pt-edit-mode-btn:hover { color: var(--color-brand-ink); background: var(--color-tint); }
+.pt-edit-mode-btn.is-active { background: var(--color-brand); color: #fff; }
+.pt-edit-mode-hint { padding: 0 0.5rem; color: var(--color-text-tertiary); font-size: 0.6875rem; }
+.pt-edit-mode.is-input { border-color: var(--color-brand); background: var(--color-tint); }
+.pt-pal-btn:disabled { opacity: 0.45; cursor: not-allowed; }
+.pt-score-note.is-selected .pt-score-notehead,
+.pt-score-note.is-selected .pt-score-stem { stroke: var(--color-brand); stroke-width: 2; }
+.pt-score-note.is-selected .pt-score-notehead { fill: var(--color-tint); }
+.pt-note.is-selected { stroke: var(--color-brand) !important; stroke-width: 2.5 !important; filter: drop-shadow(0 0 2px var(--color-brand)); }
+.pt-score-cursor { stroke: var(--color-brand); stroke-width: 1.4; pointer-events: none; }
+.pt-score-cursor-head { fill: var(--color-tint); stroke: var(--color-brand); stroke-width: 1.6; pointer-events: none; }
 .pt-track {
   display: flex;
   flex-direction: column;
@@ -9917,7 +9950,8 @@ body.is-parts .container {
 .pt-score-rest-flag { stroke-width: 1.4; }
 .pt-score-rest.is-measure-rest { opacity: 0.78; }
 .pt-score-tab-note { stroke: var(--color-brand); }
-.pt-score-tab-label { fill: var(--color-text-primary); font-size: 9px; font-weight: 600; }
+.pt-score-tab-label { fill: var(--color-text-primary); font-size: 9px; font-weight: 600; pointer-events: none; }
+.pt-svg text { pointer-events: none; }
 .pt-score-tab-structure { fill: var(--color-text-tertiary); font-size: 9px; }
 .pt-score-bar.is-playing .pt-score-notehead { stroke: var(--color-brand); }
 .pt-score-marker.is-playing { color: var(--color-brand-ink); font-weight: 700; }
@@ -13566,7 +13600,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.647</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.648</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14073,6 +14107,12 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <span class="pt-title">Партии</span>
           <span class="pt-song" id="partsSongName"></span>
           <span class="pt-part-pill" id="partsActiveName" hidden></span>
+          <div class="pt-edit-mode" id="ptEditMode" role="group" aria-label="Режим нот">
+            <span class="pt-edit-mode-label">Режим</span>
+            <button type="button" class="pt-edit-mode-btn is-active" id="ptSelectMode" aria-pressed="true" title="Выбор нот и навигация без изменения песни">Выбор</button>
+            <button type="button" class="pt-edit-mode-btn" id="ptInputMode" aria-pressed="false" title="Ввод и редактирование нот">Ввод</button>
+            <span class="pt-edit-mode-hint" id="ptEditModeHint" aria-live="polite">Безопасный просмотр: редактирование выключено</span>
+          </div>
         </div>
         <div class="section-range-toolbar" id="partsSectionRangeToolbar" hidden aria-live="polite">
           <span class="section-range-summary" id="partsSectionRangeSummary"></span>
@@ -19530,7 +19570,7 @@ const CONFIG = {
 // Версия схемы данных сохранённой/экспортированной песни.
 // Увеличивайте при любом несовместимом изменении структуры sections/squares/events
 // и добавляйте соответствующую миграцию в SONG_MIGRATIONS ниже.
-const SONG_SCHEMA_VERSION = 8;
+const SONG_SCHEMA_VERSION = 9;
 const FINGERING_WEIGHTS = {
   // ===== Система удобства аппликатур (2026-08-13, переработана) =====
   //
@@ -51565,7 +51605,7 @@ function partsBendNote() {
   if (!partsBendTarget || !partsBendTarget.secId) return null;
   const part = songParts.find((p) => p.id === partsBendTarget.partId);
   if (!part) return null;
-  return partNoteAt(partRollFor(part, partsBendTarget.secId), partsBendTarget.string, partsBendTarget.pos);
+  return partNoteAt(partRollFor(part, partsBendTarget.secId), partsBendTarget.string, partsBendTarget.pos, partsBendTarget.voice || 1);
 }
 
 function partsBendOpen() {
@@ -51574,13 +51614,14 @@ function partsBendOpen() {
 }
 
 function openPartsBendEditor() {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   const note = partCursorNote();
   if (!st || !note) {
     showToast('Бенд ставится на ноту — встаньте курсором на лад');
     return;
   }
-  partsBendTarget = { partId: st.part.id, secId: st.sec.id, string: st.string, pos: st.pos };
+  partsBendTarget = { partId: st.part.id, secId: st.sec.id, string: Number(note.string), pos: Number(note.start), voice: Number(note.voice) || 1 };
   const overlay = document.getElementById('partsBend');
   if (!overlay) return;
   overlay.hidden = false;
@@ -51598,6 +51639,7 @@ function closePartsBendEditor() {
 
 // Одна команда Store на правку кривой — значит и один шаг Ctrl+Z.
 function commitPartsBend(points, type) {
+  if (!partsInputEnabled()) return;
   const note = partsBendNote();
   if (!note) return;
   const kind = type || (note.bend && note.bend.type) || 'bend';
@@ -51817,7 +51859,7 @@ function partsHarmNote() {
   if (!partsHarmTarget || !partsHarmTarget.secId) return null;
   const part = songParts.find((p) => p.id === partsHarmTarget.partId);
   if (!part) return null;
-  return partNoteAt(partRollFor(part, partsHarmTarget.secId), partsHarmTarget.string, partsHarmTarget.pos);
+  return partNoteAt(partRollFor(part, partsHarmTarget.secId), partsHarmTarget.string, partsHarmTarget.pos, partsHarmTarget.voice || 1);
 }
 
 function partsHarmOpen() {
@@ -51840,13 +51882,14 @@ function partNaturalHarmNote(note) {
 }
 
 function openPartsHarmEditor() {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   const note = partCursorNote();
   if (!st || !note) {
     showToast('Искусственный флажолет ставится на ноту — встаньте курсором на лад');
     return;
   }
-  partsHarmTarget = { partId: st.part.id, secId: st.sec.id, string: st.string, pos: st.pos };
+  partsHarmTarget = { partId: st.part.id, secId: st.sec.id, string: Number(note.string), pos: Number(note.start), voice: Number(note.voice) || 1 };
   const overlay = document.getElementById('partsHarm');
   if (!overlay) return;
   const typeSel = document.getElementById('ptHarmType');
@@ -51881,6 +51924,7 @@ function updatePartsHarmLabel() {
 // Знак ставится только с читаемой звучащей нотой: молча играть обычную ноту
 // под знаком флажолета было бы враньём (спека 5.3 — harm.note проверяется).
 function applyPartsHarm() {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   const note = partsHarmNote();
   const typeSel = document.getElementById('ptHarmType');
@@ -51916,6 +51960,7 @@ function ensurePartsHarmHandlers() {
   const clear = document.getElementById('ptHarmClear');
   if (clear) {
     clear.addEventListener('click', () => {
+      if (!partsInputEnabled()) return;
       const note = partsHarmNote();
       if (!note) return;
       songStore.dispatch('part/note-harm', () => {
@@ -52309,6 +52354,11 @@ function renderPartsCapoDialog() {
 // значение — «оставить» (номера ладов как были, звук выше).
 function applyPartCapo(part, capo, mode) {
   if (!part) return;
+  if (mode === 'adjust' && !partsInputEnabled()) {
+    showToast('Чтобы пересчитать аппликатуру нот, включите режим «Ввод»');
+    closePartsCapoDialog();
+    return;
+  }
   const want = capoNumber(capo);
   if (want === partCapoNumber(part)) {
     syncPartsTrackBar();
@@ -52596,6 +52646,10 @@ const PART_TIMBRE = {
   bass: { gain: 0.5, bright: 0.26, spread: 0.34, ringCap: 3.5 },
 };
 let partsMode = false;
+// Режим редактирования — адрес интерфейса, не часть песни. Каждое новое
+// открытие возвращается в безопасный Select; только Input может менять ноты.
+let partsEditMode = 'select';
+let partsSelection = null; // { partId, secId, start, line, voice, pitch, domain }
 let partsPlayingSectionId = null;
 let partsPlayingSquareId = null;
 let partsPlayingSectionPass = 0;
@@ -52607,6 +52661,58 @@ let partsPlayingPassBadges = [];
 
 function partVisible(part) {
   return !!part && part.visible !== false;
+}
+
+function partsInputEnabled() {
+  return partsMode && partsEditMode === 'input';
+}
+
+function syncPartsEditModeUi() {
+  const input = partsEditMode === 'input';
+  const host = document.getElementById('ptEditMode');
+  const select = document.getElementById('ptSelectMode');
+  const write = document.getElementById('ptInputMode');
+  const hint = document.getElementById('ptEditModeHint');
+  if (host) host.classList.toggle('is-input', input);
+  if (select) {
+    select.classList.toggle('is-active', !input);
+    select.setAttribute('aria-pressed', input ? 'false' : 'true');
+  }
+  if (write) {
+    write.classList.toggle('is-active', input);
+    write.setAttribute('aria-pressed', input ? 'true' : 'false');
+  }
+  if (hint) hint.textContent = input
+    ? 'Ввод включён: ноты можно менять'
+    : 'Выбор: навигация без изменения песни';
+  document.querySelectorAll('#partsPalette .pt-pal-btn').forEach((button) => {
+    button.disabled = !input;
+  });
+  const search = document.getElementById('ptPalSearch');
+  if (search) search.disabled = !input;
+  const voice = document.getElementById('ptVoice');
+  if (voice) voice.disabled = !input || !partActivePart();
+  document.querySelectorAll('#ptFretboard [data-fret], #ptDrumPads [data-pitch]').forEach((button) => {
+    button.disabled = !input || button.dataset.unplayable === 'true';
+  });
+}
+
+function setPartsEditMode(mode) {
+  if (!partsMode) return false;
+  const next = mode === 'input' ? 'input' : 'select';
+  if (next === partsEditMode) return false;
+  partsEditMode = next;
+  partLastDigit = null;
+  if (next === 'select') {
+    if (partsBendOpen()) closePartsBendEditor();
+    if (partsHarmOpen()) closePartsHarmEditor();
+  }
+  if (next === 'input') adoptPartsInputFromCursor();
+  syncPartsEditModeUi();
+  syncPartsPalette();
+  syncPartsTrackBar();
+  syncPartsCursorDom();
+  return true;
 }
 
 // Рулон партии для секции. Ключ — id секции строкой (как в JSON-файле).
@@ -52817,6 +52923,10 @@ function togglePartsMode(force) {
   // Лента и партии — два разных экрана одной песни: активен ровно один.
   if (next && timelineMode) toggleTimelineMode(false);
   partsMode = next;
+  // Select всегда восстанавливается при новом входе: вторая цифра и
+  // выделение тоже не переживают закрытие редактора партий.
+  partsEditMode = 'select';
+  partsSelection = null;
   document.body.classList.toggle('is-parts', partsMode);
   startModeAnimation();
   // Тултипы и закрепление принадлежат редактору — на экране партий им не
@@ -53490,6 +53600,7 @@ function renderPartsScreen() {
   if (!track || !empty) return;
   ensurePartsPalette();
   ensurePartsTrackBar();
+  syncPartsEditModeUi();
 
   const songName = document.getElementById('partsSongName');
   if (songName) {
@@ -53543,6 +53654,7 @@ function renderPartsScreen() {
     partsCursor.partId !== active.id ||
     partSystemIndex(systems, partsCursor.secId, partsCursor.pass) < 0
   ) {
+    partsSelection = null;
     const first = systems[0];
     partsCursor = first
       ? {
@@ -53553,6 +53665,9 @@ function renderPartsScreen() {
             ? partDrumLane(36)
             : Math.min(PART_CURSOR_DEFAULT_STRING, partStringCount(active) - 1),
           pos: 0,
+          pitch: null,
+          staffPitch: null,
+          staffClef: null,
         }
       : null;
     partsScrollPending = true;
@@ -53570,6 +53685,7 @@ function renderPartsScreen() {
   syncSectionRangeDom();
 
   syncPartsCursorDom();
+  syncPartsSelectionDom();
   syncPartsPalette();
   syncPartsTrackBar();
   renderPartsMixer();
@@ -53908,6 +54024,36 @@ function partScoreXAt(bar, unit) {
   return bar.leftInset + 6 + ratio * usable;
 }
 
+function partScorePointerPoint(svg, event) {
+  const rect = svg && svg.getBoundingClientRect ? svg.getBoundingClientRect() : null;
+  if (!rect || !rect.width || !rect.height) return null;
+  const raw = String(svg.getAttribute('viewBox') || '').trim().split(/[ ,]+/).map(Number);
+  const view = raw.length === 4 && raw.every(Number.isFinite)
+    ? { x: raw[0], y: raw[1], width: raw[2], height: raw[3] }
+    : { x: 0, y: 0, width: rect.width, height: rect.height };
+  return {
+    x: view.x + (event.clientX - rect.left) * view.width / rect.width,
+    y: view.y + (event.clientY - rect.top) * view.height / rect.height,
+  };
+}
+
+function partScoreBarFromCell(cell) {
+  if (!cell || !cell.dataset) return null;
+  const start = Number(cell.dataset.start);
+  const end = Number(cell.dataset.end);
+  const leftInset = Number(cell.dataset.leftInset || 0);
+  const contentWidth = Number(cell.dataset.contentWidth || 0);
+  if (![start, end, leftInset, contentWidth].every(Number.isFinite) || end <= start || contentWidth <= 0) return null;
+  return { start, end, dur: end - start, leftInset, contentWidth };
+}
+
+function partScoreUnitAtPoint(bar, x) {
+  if (!bar) return 0;
+  const usable = Math.max(12, bar.contentWidth - 12);
+  const ratio = Math.max(0, Math.min(1, (x - bar.leftInset - 6) / usable));
+  return bar.start + ratio * bar.dur;
+}
+
 function partScoreSvg(tag, attrs) {
   const node = document.createElementNS(PART_SCORE_SVG_NS, tag);
   Object.keys(attrs || {}).forEach((key) => node.setAttribute(key, attrs[key]));
@@ -53935,6 +54081,17 @@ function partScoreStaffGeometry(clef, top) {
 
 function partScoreDiatonicStep(spelling) {
   return spelling.octave * 7 + PART_SCORE_LETTERS.indexOf(spelling.letter);
+}
+
+function partScorePitchAtStaffY(y, staff, key) {
+  if (!staff || staff.clef === 'percussion') return null;
+  const step = staff.bottomStep + Math.round((staff.bottom - Number(y)) / 4);
+  const letterIndex = ((step % 7) + 7) % 7;
+  const octave = Math.floor(step / 7);
+  const letter = PART_SCORE_LETTERS[letterIndex];
+  const signature = partScoreKeySignature(key);
+  const pitch = (octave + 1) * 12 + PART_SCORE_NATURAL_PC[letter] + (signature.alterations[letter] || 0);
+  return Number.isInteger(pitch) && pitch >= 0 && pitch <= 127 ? pitch : null;
 }
 
 function partScoreStaffY(spelling, staff) {
@@ -54315,6 +54472,16 @@ function buildPartStaffScoreSvg(part, bar, singleClefOverride) {
   svg.dataset.sec = String(bar.sec.id);
   svg.dataset.square = String(bar.sq.id);
   svg.dataset.measure = String(bar.measureNumber);
+  svg.dataset.part = String(part.id);
+  svg.dataset.start = String(bar.start);
+  svg.dataset.end = String(bar.end);
+  svg.dataset.leftInset = String(bar.leftInset);
+  svg.dataset.contentWidth = String(bar.contentWidth);
+  svg.dataset.key = String(bar.key || 'C');
+  svg.dataset.timeSig = String(bar.timeSig || globalTimeSig);
+  svg.dataset.staves = JSON.stringify(staves.map((staff) => ({
+    clef: staff.clef, top: staff.top, bottom: staff.bottom, middle: staff.middle, bottomStep: staff.bottomStep,
+  })));
   svg.setAttribute('style', `width:${width}px`);
   staves.forEach((staff) => partScoreDrawStaffLines(svg, staff, width));
 
@@ -54366,6 +54533,12 @@ function buildPartStaffScoreSvg(part, bar, singleClefOverride) {
       'data-dur': (item.end - item.onset).toFixed(4),
       'data-voice': item.voice,
       'data-clef': item.clef,
+      'data-domain': inst === 'guitar' || inst === 'bass' ? 'roll' : 'pitch',
+      'data-source-start': Number(item.note.start),
+      'data-source-line': partNoteLine(item.note),
+      'data-source-pitch': Number.isInteger(item.note.pitch) ? item.note.pitch : -1,
+      'data-string': Number.isInteger(item.note.string) ? item.note.string : -1,
+      'data-fret': Number.isInteger(item.note.fret) ? item.note.fret : -1,
     });
     const title = partScoreSvg('title');
     title.textContent = inst === 'drums'
@@ -54481,6 +54654,12 @@ function buildPartTabScoreSvg(part, bar) {
   svg.dataset.sec = String(bar.sec.id);
   svg.dataset.square = String(bar.sq.id);
   svg.dataset.measure = String(bar.measureNumber);
+  svg.dataset.part = String(part.id);
+  svg.dataset.start = String(bar.start);
+  svg.dataset.end = String(bar.end);
+  svg.dataset.stringCount = String(stringCount);
+  svg.dataset.topPad = String(topPad);
+  svg.dataset.lineGap = String(lineGap);
   svg.setAttribute('style', `width:${width}px`);
   const el = (tag, attrs) => partScoreSvg(tag, attrs);
   for (let line = 0; line < stringCount; line++) {
@@ -54534,12 +54713,23 @@ function buildPartTabScoreSvg(part, bar) {
       'data-voice': Number(note.voice) || 1,
       'data-start': onset.toFixed(4),
       'data-dur': (end - onset).toFixed(4),
+      'data-domain': pitchMode ? 'pitch' : 'roll',
+      'data-source-start': Number(note.start),
+      'data-source-line': partNoteLine(note),
+      'data-source-pitch': pitchMode ? Number(note.pitch) : -1,
+      'data-string': Number.isInteger(note.string) ? note.string : -1,
+      'data-fret': Number.isInteger(note.fret) ? note.fret : -1,
     });
     const title = el('title');
     title.textContent = `${label} · ${partScoreNotationFor(note, bar.timeSig).durIndex >= 0 ? PART_NOTE_BASES[partScoreNotationFor(note, bar.timeSig).durIndex].label : ''}${unplayable ? ' · нет позиции в выбранном строе/до 24-го лада' : ''}`;
     rect.appendChild(title);
     svg.appendChild(rect);
-    partScoreSvgText(svg, x + 1 + durationWidth / 2, y + 1, label, 'pt-score-tab-label', { 'text-anchor': 'middle' });
+    const labelNode = partScoreSvgText(svg, x + 1 + durationWidth / 2, y + 1, label, 'pt-score-tab-label', { 'text-anchor': 'middle' });
+    labelNode.dataset.sourceStart = String(note.start);
+    labelNode.dataset.sourceLine = String(partNoteLine(note));
+    labelNode.dataset.sourcePitch = String(pitchMode ? note.pitch : -1);
+    labelNode.dataset.domain = pitchMode ? 'pitch' : 'roll';
+    labelNode.dataset.voice = String(Number(note.voice) || 1);
     const notation = partScoreNotationFor(note, bar.timeSig);
     if (notation.dots) partScoreSvgText(svg, x + durationWidth - 2, y - 2, notation.dots === 2 ? '••' : '•', 'pt-note-mark', { 'text-anchor': 'end' });
     if (notation.triplet) partScoreSvgText(svg, x + durationWidth / 2, y - 8, '3', 'pt-note-mark', { 'text-anchor': 'middle' });
@@ -54683,6 +54873,9 @@ function buildPartNotationScore(parts) {
         cell.dataset.measure = String(bar.measureNumber);
         cell.dataset.start = String(bar.start);
         cell.dataset.end = String(bar.end);
+        cell.dataset.leftInset = String(bar.leftInset);
+        cell.dataset.contentWidth = String(bar.contentWidth);
+        cell.dataset.timeSig = String(bar.timeSig || partSectionTs(bar.sec));
         cell.dataset.part = String(part.id);
         cell.appendChild(useStaffView
           ? buildPartStaffScoreSvg(part, bar, singleClef)
@@ -54989,6 +55182,10 @@ function buildPartTabSvg(part, sec, parentTs) {
         fill: 'var(--color-surface)', stroke: unplayable ? 'var(--color-text-tertiary)' : 'var(--color-brand)',
         'stroke-width': 1, 'data-pitch': note.pitch,
         'data-voice': Number(note.voice || 1),
+        'data-source-start': Number(note.start),
+        'data-source-line': partNoteLine(note),
+        'data-source-pitch': note.pitch,
+        'data-domain': 'pitch',
         title: `${fullLabel} · MIDI ${note.pitch}${unplayable ? ' · нет позиции в выбранном строе/до 24-го лада' : ''}`,
       });
       svg.appendChild(rect);
@@ -54996,6 +55193,11 @@ function buildPartTabSvg(part, sec, parentTs) {
         x: (x + 2 + chipW / 2).toFixed(2), y: y + 1,
         'text-anchor': 'middle', 'dominant-baseline': 'middle', 'font-size': 10,
         fill: 'var(--color-text-primary)',
+        'data-source-start': Number(note.start),
+        'data-source-line': partNoteLine(note),
+        'data-source-pitch': Number(note.pitch),
+        'data-domain': 'pitch',
+        'data-voice': Number(note.voice) || 1,
       });
       text.textContent = pitchLabel;
       svg.appendChild(text);
@@ -55040,6 +55242,11 @@ function buildPartTabSvg(part, sec, parentTs) {
         fill: 'var(--color-surface)',
         stroke: 'var(--color-brand)',
         'stroke-width': 1,
+        'data-source-start': Number(note.start),
+        'data-source-line': Number(note.string),
+        'data-source-pitch': -1,
+        'data-domain': 'roll',
+        'data-voice': Number(note.voice) || 1,
       })
     );
     const dots = Math.max(0, Math.min(2, note.dots || 0));
@@ -55050,6 +55257,11 @@ function buildPartTabSvg(part, sec, parentTs) {
       'dominant-baseline': 'middle',
       'font-size': 11,
       fill: 'var(--color-text-primary)',
+      'data-source-start': Number(note.start),
+      'data-source-line': Number(note.string),
+      'data-source-pitch': -1,
+      'data-domain': 'roll',
+      'data-voice': Number(note.voice) || 1,
     });
     // Dead note в GP — крестик вместо лада, ghost note — номер в скобках.
     text.textContent =
@@ -55165,11 +55377,12 @@ function buildPartTabSvg(part, sec, parentTs) {
 function partPreviousOnString(notes) {
   const order = notes
     .map((n, i) => i)
-    .sort((a, b) => notes[a].start - notes[b].start || notes[a].string - notes[b].string);
+    .sort((a, b) => notes[a].start - notes[b].start || notes[a].string - notes[b].string ||
+      Number(notes[a].voice || 1) - Number(notes[b].voice || 1));
   const last = new Map();
   const out = new Array(notes.length);
   order.forEach((i) => {
-    const key = notes[i].string;
+    const key = `${Number(notes[i].voice || 1)}|${notes[i].string}`;
     out[i] = last.has(key) ? last.get(key) : undefined;
     last.set(key, notes[i]);
   });
@@ -55179,12 +55392,13 @@ function partPreviousOnString(notes) {
 function partNextNoteStarts(notes) {
   const order = notes
     .map((n, i) => i)
-    .sort((a, b) => notes[a].start - notes[b].start || notes[a].string - notes[b].string);
+    .sort((a, b) => notes[a].start - notes[b].start || notes[a].string - notes[b].string ||
+      Number(notes[a].voice || 1) - Number(notes[b].voice || 1));
   const last = new Map();
   const out = new Array(notes.length);
   for (let k = order.length - 1; k >= 0; k--) {
     const i = order[k];
-    const key = notes[i].string;
+    const key = `${Number(notes[i].voice || 1)}|${notes[i].string}`;
     out[i] = last.has(key) ? last.get(key) : undefined;
     last.set(key, notes[i].start);
   }
@@ -55756,7 +55970,7 @@ function partApplyToneToNote(note, tone) {
     note.grace = { fret: Math.max(0, Math.min(24, Math.round(auto))), onBeat: tone.graceOnBeat === true };
   } else delete note.grace;
 }
-let partsCursor = null; // { partId, secId, pass, string, pos }
+let partsCursor = null; // { partId, secId, pass, string, pos, staffPitch?, staffClef? }
 let partsScrollPending = false;
 // Окно второй цифры (лады 10–24). Поле изменяемое: тесты обнуляют окно,
 // чтобы вторая цифра читалась не как продолжение лада, а как новый.
@@ -55856,7 +56070,10 @@ function partCursorState() {
   if (!part || !partsCursor || partsCursor.partId !== part.id) return null;
   const sec = sections.find((s) => s.id === partsCursor.secId);
   if (!sec) return null;
-  return { part, sec, pass: partsCursor.pass, string: partsCursor.string, pos: partsCursor.pos };
+  return {
+    part, sec, pass: partsCursor.pass, string: partsCursor.string, pos: partsCursor.pos,
+    pitch: partsCursor.pitch, staffPitch: partsCursor.staffPitch, staffClef: partsCursor.staffClef,
+  };
 }
 
 function partNoteLine(note) {
@@ -55897,9 +56114,9 @@ function partSelectedVoice() {
   return partsVoice;
 }
 
-function partActiveNoteAt(part, secId, line, pos) {
+function partActiveNoteAt(part, secId, line, pos, voiceOverride) {
   const roll = partActiveRollFor(part, secId);
-  const voice = partUsesPitchNotes(part) ? partSelectedVoice() : undefined;
+  const voice = voiceOverride === undefined ? partSelectedVoice() : voiceOverride;
   if (partInstrumentId(part) === 'drums' && partsCursor && Number.isInteger(partsCursor.pitch)) {
     const exact = Array.isArray(roll) && roll.find((note) => note.pitch === partsCursor.pitch &&
       note.line === line && Math.abs(note.start - pos) < PART_POS_EPS && Number(note.voice || 1) === voice);
@@ -55908,10 +56125,100 @@ function partActiveNoteAt(part, secId, line, pos) {
   return partNoteAt(roll, line, pos, voice);
 }
 
+function partSelectionNote() {
+  if (!partsSelection) return null;
+  const part = songParts.find((item) => item.id === partsSelection.partId);
+  if (!part) return null;
+  const roll = partActiveRollFor(part, partsSelection.secId) || [];
+  return roll.find((note) => {
+    if (Math.abs(Number(note.start) - partsSelection.start) >= PART_POS_EPS) return false;
+    if (Number(note.voice || 1) !== Number(partsSelection.voice || 1)) return false;
+    if (partNoteLine(note) !== partsSelection.line) return false;
+    if (partsSelection.pitch !== undefined && Number(note.pitch) !== Number(partsSelection.pitch)) return false;
+    return true;
+  }) || null;
+}
+
+function selectPartsNote(part, sec, note, domain, pass, staffPitch, staffClef) {
+  if (!part || !sec || !note) return;
+  const voice = Math.max(1, Math.min(4, Number(note.voice) || 1));
+  const line = Number(partNoteLine(note));
+  partsVoice = voice;
+  partsSelection = {
+    partId: part.id,
+    secId: sec.id,
+    start: Number(note.start),
+    line,
+    voice,
+    domain,
+    ...(domain === 'pitch' ? { pitch: Number(note.pitch) } : {}),
+  };
+  partsCursor = {
+    partId: part.id,
+    secId: sec.id,
+    pass: Number(pass) || 0,
+    string: Math.max(0, Math.min(partStringCount(part) - 1, Number.isInteger(line) ? line : 0)),
+    pos: partRoundUnits(Math.max(0, Number(note.start) || 0)),
+    pitch: partInstrumentId(part) === 'drums' ? Number(note.pitch) : null,
+    staffPitch: Number.isInteger(staffPitch) ? staffPitch : null,
+    staffClef: staffClef || null,
+  };
+  partsScrollPending = true;
+  adoptPartsInputFromCursor();
+  syncPartsTrackBar();
+  syncPartsCursorDom();
+  syncPartsSelectionDom();
+}
+
+function reassignPartNoteVoice(note, nextVoice) {
+  if (!partsInputEnabled() || !note) return false;
+  const st = partCursorState();
+  const voice = Number(nextVoice);
+  if (!st || !Number.isInteger(voice) || voice < 1 || voice > 4) return false;
+  const roll = partActiveRollFor(st.part, st.sec.id) || [];
+  if (!roll.includes(note)) return false;
+  const currentVoice = Number(note.voice) || 1;
+  if (currentVoice === voice) {
+    partsVoice = voice;
+    syncPartsTrackBar();
+    return true;
+  }
+  const line = partNoteLine(note);
+  const collision = roll.find((other) => other !== note &&
+    Math.abs(Number(other.start) - Number(note.start)) < PART_POS_EPS &&
+    Number(other.voice || 1) === voice && partNoteLine(other) === line &&
+    (partInstrumentId(st.part) !== 'drums' || Number(other.pitch) === Number(note.pitch)));
+  if (collision) {
+    showToast('В выбранном голосе на этой доле такая линия уже занята');
+    syncPartsTrackBar();
+    return false;
+  }
+  songStore.dispatch('part/note-voice', () => {
+    if (voice === 1) delete note.voice;
+    else note.voice = voice;
+  });
+  partsVoice = voice;
+  if (partsSelection) partsSelection.voice = voice;
+  syncPartsTrackBar();
+  syncPartsSelectionDom();
+  syncPartsCursorDom();
+  return true;
+}
+
 // ---------- Палитра ----------
 function ensurePartsPalette() {
   const durGroup = document.getElementById('ptDurGroup');
   const markGroup = document.getElementById('ptMarkGroup');
+  const selectMode = document.getElementById('ptSelectMode');
+  const inputMode = document.getElementById('ptInputMode');
+  if (selectMode && selectMode.dataset.bound !== '1') {
+    selectMode.dataset.bound = '1';
+    selectMode.addEventListener('click', () => setPartsEditMode('select'));
+  }
+  if (inputMode && inputMode.dataset.bound !== '1') {
+    inputMode.dataset.bound = '1';
+    inputMode.addEventListener('click', () => setPartsEditMode('input'));
+  }
   if (!durGroup || !markGroup || durGroup.dataset.bound === '1') return;
   durGroup.dataset.bound = '1';
   durGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
@@ -55958,12 +56265,16 @@ function placePartsCursorAtNewSection() {
   const part = partActivePart();
   const created = sections[sections.length - 1];
   if (!part || !created) return;
+  partsSelection = null;
   partsCursor = {
     partId: part.id,
     secId: created.id,
     pass: 0,
     string: PART_CURSOR_DEFAULT_STRING,
     pos: 0,
+    pitch: null,
+    staffPitch: null,
+    staffClef: null,
   };
   partsScrollPending = true;
 }
@@ -56079,6 +56390,7 @@ function bindPartsPaletteSearch() {
 }
 
 function togglePartsPaletteSearch(force) {
+  if (!partsInputEnabled()) return;
   const box = document.getElementById('ptPalSearch');
   const active = partActivePart();
   if (!box || (active && partUsesPitchNotes(active))) return;
@@ -56097,6 +56409,7 @@ function togglePartsPaletteSearch(force) {
 // Команда с параметром, как в Command Palette GP («grace note 5»): пока
 // поддерживаем форшлаг с ладом — остальные знаки берут параметры из нот.
 function applyPaletteCommand(query) {
+  if (!partsInputEnabled()) return false;
   const m = /^\s*(?:форшлаг|grace)\s+(\d{1,2})\s*$/i.exec(String(query || ''));
   if (!m) return false;
   const st = partCursorState();
@@ -56132,9 +56445,13 @@ function applyFirstPaletteMatch() {
 // Длительность и знаки выбора применяются к ноте ПОД КУРСОРОМ (как в GP:
 // палитра правит долю, где стоит курсор) и остаются для следующих нот.
 function applyPartsInputToCursorNote() {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (!st) return;
-  const note = partActiveNoteAt(st.part, st.sec.id, st.string, st.pos);
+  const selected = partsSelection && partsSelection.partId === st.part.id && partsSelection.secId === st.sec.id
+    ? partSelectionNote()
+    : null;
+  const note = selected || partActiveNoteAt(st.part, st.sec.id, st.string, st.pos);
   if (!note) return;
   const ts = partSectionTs(st.sec);
   const nominal = partInputUnits(ts, partInput.durIndex, partInput.dots, partInput.triplet);
@@ -56153,6 +56470,7 @@ function applyPartsInputToCursorNote() {
 }
 
 function setPartsDuration(index) {
+  if (!partsInputEnabled()) return;
   const next = Math.max(0, Math.min(PART_NOTE_BASES.length - 1, index));
   if (next === partInput.durIndex) return;
   partInput.durIndex = next;
@@ -56166,6 +56484,7 @@ function stepPartsDuration(dir) {
 }
 
 function togglePartsDots(kind) {
+  if (!partsInputEnabled()) return;
   const want = kind === 2 ? 2 : 1;
   partInput.dots = partInput.dots === want ? 0 : want;
   applyPartsInputToCursorNote();
@@ -56174,6 +56493,7 @@ function togglePartsDots(kind) {
 }
 
 function togglePartsTriplet() {
+  if (!partsInputEnabled()) return;
   partInput.triplet = !partInput.triplet;
   applyPartsInputToCursorNote();
   syncPartsPalette();
@@ -56184,6 +56504,10 @@ function togglePartsTriplet() {
 function partCursorNote() {
   const st = partCursorState();
   if (!st) return null;
+  if (partsSelection && partsSelection.partId === st.part.id && partsSelection.secId === st.sec.id) {
+    const selected = partSelectionNote();
+    if (selected) return selected;
+  }
   return partActiveNoteAt(st.part, st.sec.id, st.string, st.pos) || null;
 }
 
@@ -56191,6 +56515,7 @@ function partCursorNote() {
 // курсором — своё, иначе «для следующих нот»), потом флип и применение.
 // Правка ноты — одна команда Store, поэтому Ctrl+Z откатывает знак целиком.
 function togglePartTone(kind) {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (st && partUsesPitchNotes(st.part)) return;
   const note = partCursorNote();
@@ -56310,6 +56635,7 @@ function togglePartTone(kind) {
 
 // Клавиши акцентов прямые, а не по кругу: `;` — акцент, `Shift+;` — сильный.
 function togglePartAccent(level) {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (st && partUsesPitchNotes(st.part)) return;
   const note = partCursorNote();
@@ -56332,7 +56658,7 @@ function togglePartAccent(level) {
 function adoptPartsInputFromCursor() {
   const st = partCursorState();
   if (!st) return;
-  const note = partActiveNoteAt(st.part, st.sec.id, st.string, st.pos);
+  const note = partCursorNote();
   if (!note) {
     // Пустая доля: знаки остаются «включёнными для следующих нот» — так
     // же, как ведёт себя включённая точка в 12.2.
@@ -56371,7 +56697,14 @@ function partsCursorBlock() {
 function partsCursorSegment() {
   const row = partsCursorBlock();
   if (!row || !partsCursor) return null;
-  return row.querySelector(`.pt-section[data-sec="${partsCursor.secId}"][data-pass="${partsCursor.pass}"]`);
+  const legacy = row.querySelector(`.pt-section[data-sec="${partsCursor.secId}"][data-pass="${partsCursor.pass}"]`);
+  if (legacy) return legacy;
+  const bars = Array.from(row.querySelectorAll(`.pt-score-bar[data-sec="${partsCursor.secId}"]`));
+  return bars.find((bar) => {
+    const start = Number(bar.dataset.start);
+    const end = Number(bar.dataset.end);
+    return Number.isFinite(start) && Number.isFinite(end) && partsCursor.pos >= start - PART_POS_EPS && partsCursor.pos < end + PART_POS_EPS;
+  }) || bars[0] || null;
 }
 
 function partTabLineGap(part) {
@@ -56394,6 +56727,77 @@ function buildPartsCursorRect(sec, stringCount, part) {
   return rect;
 }
 
+function buildPartsScoreCursor(svg, cell, state) {
+  const barData = partScoreBarFromCell(cell);
+  const pointBar = barData || {
+    start: Number(svg.dataset.start),
+    end: Number(svg.dataset.end),
+    dur: Number(svg.dataset.end) - Number(svg.dataset.start),
+    leftInset: Number(svg.dataset.leftInset || 0),
+    contentWidth: Number(svg.dataset.contentWidth || 0),
+  };
+  if (!Number.isFinite(pointBar.dur) || pointBar.dur <= 0 || pointBar.contentWidth <= 0) return null;
+  const visualBar = { ...pointBar, dur: pointBar.end - pointBar.start };
+  const x = partScoreXAt(visualBar, state.pos);
+  if (svg.classList.contains('pt-score-staff-svg')) {
+    let staves = [];
+    try { staves = JSON.parse(svg.dataset.staves || '[]'); } catch (_) {}
+    if (!staves.length) return null;
+    const y1 = Math.min(...staves.map((staff) => staff.top)) - 4;
+    const y2 = Math.max(...staves.map((staff) => staff.bottom)) + 4;
+    const group = document.createElementNS(PART_SCORE_SVG_NS, 'g');
+    const line = document.createElementNS(PART_SCORE_SVG_NS, 'line');
+    line.setAttribute('x1', x.toFixed(2)); line.setAttribute('x2', x.toFixed(2));
+    line.setAttribute('y1', y1.toFixed(2)); line.setAttribute('y2', y2.toFixed(2));
+    line.setAttribute('class', 'pt-score-cursor');
+    group.appendChild(line);
+    if (Number.isInteger(state.staffPitch)) {
+      const singleClef = partScoreSingleClef(state.part);
+      const clef = state.staffClef || partScoreClefForNote(state.part, state.staffPitch, singleClef);
+      const staff = staves.find((item) => item.clef === clef) || staves[0];
+      const spelling = partScoreSpelling(state.staffPitch, svg.dataset.key || 'C');
+      if (spelling && staff.clef !== 'percussion') {
+        const y = partScoreStaffY(spelling, staff);
+        const head = document.createElementNS(PART_SCORE_SVG_NS, 'ellipse');
+        head.setAttribute('cx', x.toFixed(2)); head.setAttribute('cy', y.toFixed(2));
+        head.setAttribute('rx', '6'); head.setAttribute('ry', '4.5');
+        head.setAttribute('class', 'pt-score-cursor-head');
+        group.appendChild(head);
+      }
+    }
+    return group;
+  }
+  if (svg.classList.contains('pt-score-tab-svg')) {
+    const count = Math.max(1, Number(svg.dataset.stringCount) || partStringCount(state.part));
+    const gap = Number(svg.dataset.lineGap) || partTabLineGap(state.part);
+    const top = Number(svg.dataset.topPad) || 12;
+    const y = top + (count - 1 - Math.max(0, Math.min(count - 1, state.string))) * gap;
+    const width = Math.max(10, partCursorStepUnits(state.sec) / pointBar.dur * Math.max(12, pointBar.contentWidth - 12));
+    const rect = document.createElementNS(PART_SCORE_SVG_NS, 'rect');
+    rect.setAttribute('class', 'pt-score-cursor');
+    rect.setAttribute('x', (x - 1).toFixed(2)); rect.setAttribute('y', (y - 8).toFixed(2));
+    rect.setAttribute('width', width.toFixed(2)); rect.setAttribute('height', '16'); rect.setAttribute('rx', '5');
+    return rect;
+  }
+  return null;
+}
+
+function syncPartsSelectionDom() {
+  const track = document.getElementById('partsTrack');
+  if (!track) return;
+  track.querySelectorAll('[data-source-start]').forEach((el) => {
+    const row = el.closest('.pt-row[data-part]');
+    const selected = !!partsSelection && row && Number(row.dataset.part) === partsSelection.partId &&
+      Number(el.dataset.sec || (el.closest('.pt-score-bar') && el.closest('.pt-score-bar').dataset.sec) || (el.closest('svg') && el.closest('svg').dataset.sec)) === partsSelection.secId &&
+      Math.abs(Number(el.dataset.sourceStart) - partsSelection.start) < PART_POS_EPS &&
+      Number(el.dataset.sourceLine) === partsSelection.line &&
+      Number(el.dataset.voice || 1) === partsSelection.voice &&
+      el.dataset.domain === partsSelection.domain &&
+      (partsSelection.pitch === undefined || Number(el.dataset.sourcePitch) === partsSelection.pitch);
+    el.classList.toggle('is-selected', !!selected);
+  });
+}
+
 // Быстрый путь перемещения курсора: полная пересборка окна не нужна,
 // двигаем один прямоугольник и класс активной системы.
 function syncPartsCursorDom() {
@@ -56403,11 +56807,17 @@ function syncPartsCursorDom() {
     const on = !!partsCursor && Number(el.dataset.part) === partsCursor.partId;
     el.classList.toggle('is-cursor', on);
   });
-  track.querySelectorAll('.pt-cursor').forEach((el) => el.remove());
+  track.querySelectorAll('.pt-cursor,.pt-score-cursor').forEach((el) => el.remove());
   const st = partCursorState();
   const segment = st && partsCursorSegment();
   const svg = segment && segment.querySelector('.pt-svg');
-  if (st && svg) svg.appendChild(buildPartsCursorRect(st.sec, partStringCount(st.part), st.part));
+  if (!st || !segment || !svg) return;
+  if (svg.classList.contains('pt-score-staff-svg') || svg.classList.contains('pt-score-tab-svg')) {
+    const cursor = buildPartsScoreCursor(svg, segment, st);
+    if (cursor) svg.appendChild(cursor);
+  } else {
+    svg.appendChild(buildPartsCursorRect(st.sec, partStringCount(st.part), st.part));
+  }
 }
 
 function scrollPartsCursorIntoView() {
@@ -56423,6 +56833,7 @@ function scrollPartsCursorIntoView() {
 function setPartsCursorString(secId, pass, string, pos) {
   const part = partActivePart();
   if (!part) return;
+  partsSelection = null;
   partsCursor = {
     partId: part.id,
     secId,
@@ -56430,33 +56841,133 @@ function setPartsCursorString(secId, pass, string, pos) {
     string: Math.max(0, Math.min(partStringCount(part) - 1, string)),
     pos: partRoundUnits(Math.max(0, pos)),
     pitch: null,
+    staffPitch: null,
+    staffClef: null,
   };
   partsScrollPending = true;
   syncPartsCursorDom();
+  syncPartsSelectionDom();
+}
+
+function partsSnapOnset(sec, unit) {
+  const step = partCursorStepUnits(sec);
+  const { maxPos } = partCursorGrid(sec, step);
+  return partRoundUnits(Math.max(0, Math.min(maxPos, Math.round(unit / step) * step)));
+}
+
+function partsNoteFromScoreTarget(part, secId, target) {
+  if (!target || !target.dataset || !target.hasAttribute('data-source-start')) return null;
+  const start = Number(target.dataset.sourceStart);
+  const line = Number(target.dataset.sourceLine);
+  const voice = Number(target.dataset.voice) || 1;
+  const domain = target.dataset.domain === 'pitch' ? 'pitch' : 'roll';
+  const pitch = Number(target.dataset.sourcePitch);
+  const roll = partActiveRollFor(part, secId) || [];
+  return roll.find((note) => Math.abs(Number(note.start) - start) < PART_POS_EPS && partNoteLine(note) === line &&
+    Number(note.voice || 1) === voice && (domain !== 'pitch' || Number(note.pitch) === pitch)) || null;
+}
+
+function onPartScorePointerDown(event) {
+  if (!partsMode || (event.button !== undefined && event.button !== 0)) return;
+  const target = event.target;
+  const svg = target && target.closest ? target.closest('svg.pt-score-staff-svg, svg.pt-score-tab-svg') : null;
+  if (!svg) return;
+  const cell = svg.closest('.pt-score-bar');
+  const bar = partScoreBarFromCell(cell);
+  const point = partScorePointerPoint(svg, event);
+  if (!cell || !bar || !point) return;
+  const part = songParts.find((item) => item.id === Number(cell.dataset.part));
+  const sec = sections.find((item) => item.id === Number(cell.dataset.sec));
+  if (!part || !sec) return;
+  const clicked = target.closest && target.closest('[data-source-start]');
+  const note = partsNoteFromScoreTarget(part, sec.id, clicked);
+  const unit = note ? Number(note.start) : partScoreUnitAtPoint(bar, point.x);
+  const pos = note ? partRoundUnits(unit) : partsSnapOnset(sec, unit);
+  if (partsEditMode === 'select') setSectionRangeAtUnit(sec.id, unit, event.shiftKey);
+  if (part.id !== partsActiveId) selectPartTrack(part.id, { keepCursor: true });
+  const voice = note ? Number(note.voice || 1) : partSelectedVoice();
+  let line = note ? partNoteLine(note) : null;
+  let pendingPitch = null;
+  let clef = null;
+  if (svg.classList.contains('pt-score-staff-svg')) {
+    let staves = [];
+    try { staves = JSON.parse(svg.dataset.staves || '[]'); } catch (_) {}
+    const staff = note
+      ? staves.find((item) => item.clef === (clicked.dataset.clef || 'treble')) || staves[0]
+      : staves.slice().sort((a, b) => Math.abs(Math.max(a.top, Math.min(a.bottom, point.y)) - point.y) -
+          Math.abs(Math.max(b.top, Math.min(b.bottom, point.y)) - point.y))[0];
+    clef = staff ? staff.clef : null;
+    if (note) pendingPitch = Number(clicked.dataset.writtenPitch);
+    else if (staff) pendingPitch = partScorePitchAtStaffY(point.y, staff, svg.dataset.key || sec.key || 'C');
+    if (note && Number.isInteger(line)) {
+      // line is the stable source lane; for pitch notes this is their display lane.
+    } else if (Number.isInteger(pendingPitch)) {
+      if (partInstrumentId(part) === 'guitar' || partInstrumentId(part) === 'bass') {
+        const basePitch = pendingPitch - 12 - partCapoNumber(part);
+        const positions = partPitchPositions(part, basePitch).sort((a, b) => a.fret - b.fret || b.line - a.line);
+        line = positions.length ? positions[0].line : partPitchDefaultLine(part, basePitch);
+      } else {
+        line = partInstrumentId(part) === 'drums' ? partDrumLane(36) : partPitchDefaultLine(part, pendingPitch);
+      }
+    }
+  } else {
+    const count = Math.max(1, Number(svg.dataset.stringCount) || partStringCount(part));
+    const gap = Number(svg.dataset.lineGap) || partTabLineGap(part);
+    const top = Number(svg.dataset.topPad) || 12;
+    if (!Number.isInteger(line)) {
+      const rowFromTop = Math.round((point.y - top) / gap);
+      line = count - 1 - rowFromTop;
+    }
+  }
+  if (!Number.isInteger(line)) line = 0;
+  line = Math.max(0, Math.min(partStringCount(part) - 1, line));
+  setPartsCursorString(sec.id, 0, line, pos);
+  if (partsCursor) {
+    partsCursor.staffPitch = Number.isInteger(pendingPitch) ? pendingPitch : null;
+    partsCursor.staffClef = clef;
+    if (partInstrumentId(part) === 'drums' && note) partsCursor.pitch = Number(note.pitch);
+  }
+  if (note) {
+    selectPartsNote(part, sec, note, partUsesPitchNotes(part) ? 'pitch' : 'roll', 0,
+      Number.isInteger(pendingPitch) ? pendingPitch : null, clef);
+  } else {
+    partsVoice = voice;
+    adoptPartsInputFromCursor();
+    syncPartsTrackBar();
+    syncPartsCursorDom();
+    syncPartsSelectionDom();
+  }
+  event.preventDefault();
 }
 
 function onPartTabPointerDown(event, svg, sec, viewWidth, part, stringCount) {
   if (!partsMode || !partActivePart()) return;
   if (event.button !== undefined && event.button !== 0) return;
-  // Клик по табу НЕактивной дорожки сначала делает её активной: это
-  // ожидаемо совпадает с переключением карточкой, но без ухода мышью
-  // в панель. Курсор при этом встаёт туда, куда кликнули.
-  if (part && part.id !== partsActiveId) selectPartTrack(part.id, { keepCursor: true });
   const box = svg.getBoundingClientRect();
   if (!box.width || !viewWidth) return;
-  const scale = viewWidth / box.width;
-  const x = (event.clientX - box.left) * scale;
-  const y = (event.clientY - box.top) * scale;
-  // Обычный клик задаёт первый такт, Shift-клик расширяет непрерывный диапазон.
-  setSectionRangeAtUnit(sec.id, x / PART_TAB_UNIT, event.shiftKey);
-  const row = Math.round((y - PART_TAB_TOP_PAD) / partTabLineGap(part));
+  const viewBox = String(svg.getAttribute('viewBox') || '').split(/[ ,]+/).map(Number);
+  const viewY = viewBox.length === 4 ? viewBox[1] : 0;
+  const viewHeight = viewBox.length === 4 ? viewBox[3] : box.height;
+  const scaleX = viewWidth / box.width;
+  const x = (event.clientX - box.left) * scaleX;
+  const y = viewY + (event.clientY - box.top) * viewHeight / box.height;
+  const target = event.target;
+  const clicked = target && target.closest ? target.closest('[data-source-start]') : null;
+  const note = partsNoteFromScoreTarget(part, sec.id, clicked);
+  if (part && part.id !== partsActiveId) selectPartTrack(part.id, { keepCursor: true });
   const block = svg.closest ? svg.closest('.pt-section') : null;
   const pass = block ? Number(block.dataset.pass) || 0 : 0;
-  const { step, maxPos } = partCursorGrid(sec, partCursorStepUnits(sec));
-  const pos = Math.max(0, Math.min(maxPos, Math.round(x / PART_TAB_UNIT / step) * step));
-  setPartsCursorString(sec.id, pass, stringCount - 1 - row, pos);
-  adoptPartsInputFromCursor();
-  // Клик не вводит ноту (как в GP) — только ставит курсор.
+  const unit = note ? Number(note.start) : x / PART_TAB_UNIT;
+  const pos = note ? partRoundUnits(unit) : partsSnapOnset(sec, unit);
+  if (partsEditMode === 'select') setSectionRangeAtUnit(sec.id, unit, event.shiftKey);
+  const row = Math.round((y - PART_TAB_TOP_PAD) / partTabLineGap(part));
+  const string = note ? Number(partNoteLine(note)) : stringCount - 1 - row;
+  setPartsCursorString(sec.id, pass, string, pos);
+  if (note) selectPartsNote(part, sec, note, partUsesPitchNotes(part) ? 'pitch' : 'roll', pass);
+  else {
+    adoptPartsInputFromCursor();
+    syncPartsSelectionDom();
+  }
   event.preventDefault();
 }
 
@@ -56474,8 +56985,16 @@ function movePartsCursorSystem(dir, opts) {
   if (opts && opts.toEnd) pos = maxPos;
   else if (opts && opts.toStart) pos = 0;
   else pos = Math.max(0, Math.min(maxPos, Math.round(partsCursor.pos / step) * step));
+  const keepStaffPitch = partsInputEnabled() && partNotationViewMode(part) === 'staff';
+  const pendingPitch = partsCursor.staffPitch;
+  const pendingClef = partsCursor.staffClef;
   setPartsCursorString(sys.sec.id, sys.pass, partsCursor.string, pos);
+  if (keepStaffPitch && partsCursor) {
+    partsCursor.staffPitch = pendingPitch;
+    partsCursor.staffClef = pendingClef;
+  }
   adoptPartsInputFromCursor();
+  if (keepStaffPitch) syncPartsCursorDom();
 }
 
 function movePartsCursorStep(dir, micro) {
@@ -56496,8 +57015,16 @@ function movePartsCursorStep(dir, micro) {
     return;
   }
   const pos = Math.max(0, Math.min(maxPos, Math.round(target / step) * step));
+  const keepStaffPitch = partsInputEnabled() && partNotationViewMode(st.part) === 'staff';
+  const pendingPitch = st.staffPitch;
+  const pendingClef = st.staffClef;
   setPartsCursorString(st.sec.id, st.pass, st.string, pos);
+  if (keepStaffPitch && partsCursor) {
+    partsCursor.staffPitch = pendingPitch;
+    partsCursor.staffClef = pendingClef;
+  }
   adoptPartsInputFromCursor();
+  if (keepStaffPitch) syncPartsCursorDom();
 }
 
 function movePartsCursorString(dir) {
@@ -56509,6 +57036,27 @@ function movePartsCursorString(dir) {
   adoptPartsInputFromCursor();
 }
 
+function movePartsPendingPitchSemitone(delta) {
+  if (!partsInputEnabled()) return;
+  const st = partCursorState();
+  if (!st) return;
+  const selected = partCursorNote();
+  const current = Number.isInteger(st.staffPitch)
+    ? st.staffPitch
+    : selected ? partScoreNotePitch(st.part, selected) : 60;
+  const next = current + (delta < 0 ? -1 : 1);
+  if (next < 0 || next > 127) {
+    showToast('Нота выходит за диапазон MIDI 0–127');
+    return;
+  }
+  partsCursor.staffPitch = next;
+  if (!partsCursor.staffClef) {
+    const displayPitch = selected ? partScoreNotePitch(st.part, selected) : next;
+    partsCursor.staffClef = partScoreClefForNote(st.part, displayPitch, partScoreSingleClef(st.part));
+  }
+  syncPartsCursorDom();
+}
+
 function movePartsCursorEdge(toEnd, wholeSong) {
   const part = partActivePart();
   const systems = partSystems(part);
@@ -56517,8 +57065,16 @@ function movePartsCursorEdge(toEnd, wholeSong) {
   if (!sys) return;
   if (wholeSong) sys = systems[toEnd ? systems.length - 1 : 0];
   const { maxPos } = partCursorGrid(sys.sec, partCursorStepUnits(sys.sec));
+  const keepStaffPitch = partsInputEnabled() && partNotationViewMode(part) === 'staff';
+  const pendingPitch = partsCursor.staffPitch;
+  const pendingClef = partsCursor.staffClef;
   setPartsCursorString(sys.sec.id, sys.pass, partsCursor.string, toEnd ? maxPos : 0);
+  if (keepStaffPitch && partsCursor) {
+    partsCursor.staffPitch = pendingPitch;
+    partsCursor.staffClef = pendingClef;
+  }
   adoptPartsInputFromCursor();
+  if (keepStaffPitch) syncPartsCursorDom();
 }
 
 // Переключение вида — состояние песни, но не шаг редактирования:
@@ -56667,7 +57223,8 @@ function syncPartsInstrumentView(part) {
       button.textContent = String(fret);
       button.dataset.string = String(line);
       button.dataset.fret = String(fret);
-      button.disabled = pitch === null;
+      button.dataset.unplayable = pitch === null ? 'true' : 'false';
+      button.disabled = !partsInputEnabled() || pitch === null;
       if (pitch !== null) {
         const label = partPitchLabel(pitch, part, sections.find((sec) => sec.id === (partsCursor && partsCursor.secId)));
         button.title = `${label} · струна ${line + 1}, лад ${fret} · MIDI ${pitch}`;
@@ -56764,10 +57321,12 @@ function syncPartsTrackBar() {
     if (capoField) capoField.hidden = !hasSongTuning;
   }
   if (voiceSelect) {
-    voiceSelect.value = String(partSelectedVoice());
-    voiceSelect.disabled = !usesPitch;
+    voiceSelect.value = String(partsSelection && partsSelection.partId === (part && part.id)
+      ? partsSelection.voice
+      : partSelectedVoice());
+    voiceSelect.disabled = !partsInputEnabled() || !part;
   }
-  if (voiceField) voiceField.hidden = !usesPitch;
+  if (voiceField) voiceField.hidden = !part;
   if (viewToggle) {
     viewToggle.hidden = !usesPitch;
     viewToggle.disabled = !part;
@@ -56793,6 +57352,11 @@ let partsInstrumentViewOpen = false;
 function ensurePartsTrackBar() {
   if (partsTrackBarBound) return;
   partsTrackBarBound = true;
+  const track = document.getElementById('partsTrack');
+  if (track && track.dataset.scorePointerBound !== '1') {
+    track.dataset.scorePointerBound = '1';
+    track.addEventListener('pointerdown', onPartScorePointerDown);
+  }
   const instSel = document.getElementById('ptInstrument');
   const tuneSel = document.getElementById('ptTuning');
   const capoSel = document.getElementById('ptCapo');
@@ -56804,8 +57368,19 @@ function ensurePartsTrackBar() {
   const viewClose = document.getElementById('ptInstrumentViewClose');
   if (voiceSelect) {
     voiceSelect.addEventListener('change', () => {
+      if (!partsInputEnabled()) {
+        syncPartsTrackBar();
+        return;
+      }
       const value = Number(voiceSelect.value);
-      partsVoice = Number.isInteger(value) && value >= 1 && value <= 4 ? value : 1;
+      const nextVoice = Number.isInteger(value) && value >= 1 && value <= 4 ? value : 1;
+      partLastDigit = null;
+      const note = partCursorNote();
+      if (note && Number(note.voice || 1) !== nextVoice) {
+        reassignPartNoteVoice(note, nextVoice);
+        return;
+      }
+      partsVoice = nextVoice;
       adoptPartsInputFromCursor();
       syncPartsCursorDom();
     });
@@ -56888,6 +57463,10 @@ function ensurePartsTrackBar() {
 function selectPartTrack(id, opts) {
   const part = songParts.find((p) => p.id === id);
   if (!part) return;
+  if (partsActiveId !== id) {
+    partsSelection = null;
+    partLastDigit = null;
+  }
   partsActiveId = id;
   // Активная дорожка обязана быть включённой: иначе станков не будет и
   // окно показывало бы пустое состояние вместо места ввода.
@@ -57069,6 +57648,10 @@ function partUnplayableNotes(part, instrument, tuning, strings) {
 function prunePartNotes(part, instrument, tuning, strings) {
   const bad = partUnplayableNotes(part, instrument, tuning, strings);
   if (!bad.length) return 0;
+  if (!partsInputEnabled()) {
+    showToast('Чтобы удалить ноты, недоступные выбранному строю, включите режим «Ввод»');
+    return -1;
+  }
   const playable = partStringCount({ instrument, strings: strings || null });
   const answer = window.confirm(
     `У этой партии ${bad.length} нот на струнах, которых нет у выбранного инструмента или строя (у него ${playable} струн, лад до ${PART_MAX_FRET}). Убрать их?`
@@ -57431,7 +58014,8 @@ function previewPartNote(sec, string, fret, durUnits, note) {
   });
 }
 
-function inputPartPitchNote(part, sec, pass, line, pitch) {
+function inputPartPitchNote(part, sec, pass, line, pitch, noteToEdit) {
+  if (!partsInputEnabled()) return;
   const pos = partsCursor && partsCursor.partId === part.id ? partsCursor.pos : 0;
   const unitsTotal = partSectionUnits(sec);
   if (pos >= unitsTotal - 1e-6) {
@@ -57449,9 +58033,11 @@ function inputPartPitchNote(part, sec, pass, line, pitch) {
   let previewNote = null;
   songStore.dispatch('part/pitch-input', () => {
     const roll = partEnsurePitchRoll(part, sec.id);
-    const existing = isDrums
-      ? roll.find((note) => note.pitch === pitch && Math.abs(note.start - pos) < PART_POS_EPS && Number(note.voice || 1) === selectedVoice)
-      : partNoteAt(roll, line, pos, selectedVoice);
+    const existing = noteToEdit && roll.includes(noteToEdit)
+      ? noteToEdit
+      : isDrums
+        ? roll.find((note) => note.pitch === pitch && Math.abs(note.start - pos) < PART_POS_EPS && Number(note.voice || 1) === selectedVoice)
+        : partNoteAt(roll, line, pos, selectedVoice);
     if (existing) {
       // В этой ячейке/голосе одна нота: повторный ввод меняет только высоту.
       // Ударные разных GM pitch на одной доле остаются отдельными событиями.
@@ -57473,6 +58059,7 @@ function inputPartPitchNote(part, sec, pass, line, pitch) {
     previewNote = note;
   });
   if (partsCursor && partsCursor.partId === part.id) partsCursor.pitch = pitch;
+  if (previewNote) selectPartsNote(part, sec, previewNote, 'pitch', pass, partsCursor && partsCursor.staffPitch, partsCursor && partsCursor.staffClef);
   previewPartPitchNote(sec, part, previewNote || { pitch, velocity: 90 }, soundedDur);
   if (partsMode) {
     syncPartsCursorDom();
@@ -57481,6 +58068,7 @@ function inputPartPitchNote(part, sec, pass, line, pitch) {
 }
 
 function inputPartPitchFromFret(line, fret) {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (!st || !partUsesPitchNotes(st.part) || partInstrumentId(st.part) === 'drums') return;
   if (!Number.isInteger(line) || line < 0 || line >= partStringCount(st.part) ||
@@ -57495,6 +58083,7 @@ function inputPartPitchFromFret(line, fret) {
 }
 
 function inputPartDrumPitch(pitch) {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (!st || partInstrumentId(st.part) !== 'drums') return;
   if (!Number.isInteger(pitch) || pitch < 0 || pitch > 127) return;
@@ -57505,6 +58094,7 @@ function inputPartDrumPitch(pitch) {
 }
 
 function inputPartFret(digit) {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (!st) return;
   const { part, sec, pass, string, pos } = st;
@@ -57543,43 +58133,251 @@ function inputPartFret(digit) {
   }
 
   let soundedDur = partCursorStepUnits(sec);
+  let enteredNote = null;
+  const selectedVoice = partSelectedVoice();
   songStore.dispatch('part/note-input', () => {
     const roll = partEnsureRoll(part, sec.id);
-    const existing = partNoteAt(roll, string, pos);
+    const existing = partNoteAt(roll, string, pos, selectedVoice);
     if (existing) {
       existing.fret = fret;
       soundedDur = existing.dur;
+      enteredNote = existing;
       return;
     }
     const nominal = partInputUnits(ts, partInput.durIndex, partInput.dots, partInput.triplet);
     const dur = partRoundUnits(Math.min(nominal, unitsTotal - pos));
     const exact = Math.abs(dur - nominal) < 1e-6;
     const note = { start: pos, dur, string, fret };
+    if (selectedVoice !== 1) note.voice = selectedVoice;
     if (exact && partInput.dots) note.dots = partInput.dots;
     if (exact && partInput.triplet) note.triplet = true;
     partApplyToneToNote(note, partInput.tone || partToneDefaults());
     roll.push(note);
     soundedDur = dur;
+    enteredNote = note;
   });
   partLastDigit = { fret, secId: sec.id, pass, string, pos, at: now };
+  if (enteredNote) selectPartsNote(part, sec, enteredNote, 'roll', pass);
   previewPartNote(sec, string, fret, soundedDur);
 }
+function partAutoFingeringPosition(part, pitch, secId, start, voice, excludeNote) {
+  const candidates = partPitchPositions(part, pitch);
+  if (!candidates.length) return null;
+  const roll = partRollFor(part, secId) || [];
+  const occupied = new Set(roll.filter((note) => note !== excludeNote &&
+    Number(note.voice || 1) === voice && Math.abs(Number(note.start) - start) < PART_POS_EPS)
+    .map((note) => Number(note.string)));
+  const available = candidates.filter((position) => !occupied.has(position.line));
+  if (!available.length) return null;
+  const previous = roll.filter((note) => note !== excludeNote &&
+    Number(note.voice || 1) === voice && Number(note.start) < start - PART_POS_EPS)
+    .sort((a, b) => Number(b.start) - Number(a.start) || Number(a.string) - Number(b.string))[0];
+  available.sort((a, b) => {
+    if (previous) {
+      const move = Math.abs(a.fret - Number(previous.fret)) - Math.abs(b.fret - Number(previous.fret));
+      if (move) return move;
+      const sameString = Number(b.line === Number(previous.string)) - Number(a.line === Number(previous.string));
+      if (sameString) return sameString;
+      return a.fret - b.fret || b.line - a.line;
+    }
+    return a.fret - b.fret || b.line - a.line;
+  });
+  return available[0];
+}
+
+function partPitchInputLine(part, pitch, secId, start, voice, excludeNote) {
+  const roll = partPitchRollFor(part, secId) || [];
+  const count = partStringCount(part);
+  const suggested = Math.max(0, Math.min(count - 1, partPitchDefaultLine(part, pitch)));
+  const lanes = Array.from({ length: count }, (_, line) => line)
+    .sort((a, b) => Math.abs(a - suggested) - Math.abs(b - suggested) || a - b);
+  return lanes.find((line) => !roll.some((note) => note !== excludeNote &&
+    Number(note.voice || 1) === voice && Math.abs(Number(note.start) - start) < PART_POS_EPS &&
+    partNoteLine(note) === line)) ?? null;
+}
+
+function inputPartStaffNote() {
+  if (!partsInputEnabled()) return;
+  const st = partCursorState();
+  if (!st) return;
+  const pitch = partsCursor && Number.isInteger(partsCursor.staffPitch) ? partsCursor.staffPitch : null;
+  if (!Number.isInteger(pitch) || pitch < 0 || pitch > 127) {
+    showToast('Щёлкните по нотному стану, чтобы задать высоту, затем нажмите Enter');
+    return;
+  }
+  if (partInstrumentId(st.part) === 'drums') {
+    showToast('Для ударных выберите ноту в панели GM-ударов');
+    return;
+  }
+  const end = partSectionUnits(st.sec);
+  if (st.pos >= end - 1e-6) {
+    showToast('Курсор за концом секции — сдвиньте его влево');
+    return;
+  }
+  const voice = partSelectedVoice();
+  const selected = partsSelection && partsSelection.partId === st.part.id && partsSelection.secId === st.sec.id
+    ? partSelectionNote()
+    : null;
+  if (partInstrumentId(st.part) === 'guitar' || partInstrumentId(st.part) === 'bass') {
+    const basePitch = pitch - 12 - partCapoNumber(st.part);
+    const position = partAutoFingeringPosition(st.part, basePitch, st.sec.id, st.pos, voice, selected);
+    if (!position) {
+      const playable = partPitchPositions(st.part, basePitch).length > 0;
+      showToast(playable
+        ? 'В этом голосе уже заняты все подходящие струны на этой доле'
+        : 'Для этой ноты нет позиции на открытых струнах и ладах 0–24; нота не добавлена');
+      return;
+    }
+    if (selected && selected.string === position.line && selected.fret === position.fret) return;
+    let note = selected;
+    songStore.dispatch('part/staff-input', () => {
+      if (note) {
+        note.string = position.line;
+        note.fret = position.fret;
+      } else {
+        const nominal = partInputUnits(partSectionTs(st.sec), partInput.durIndex, partInput.dots, partInput.triplet);
+        const dur = partRoundUnits(Math.min(nominal, end - st.pos));
+        const exact = Math.abs(dur - nominal) < 1e-6;
+        note = { start: st.pos, dur, string: position.line, fret: position.fret };
+        if (voice !== 1) note.voice = voice;
+        if (exact && partInput.dots) note.dots = partInput.dots;
+        if (exact && partInput.triplet) note.triplet = true;
+        partApplyToneToNote(note, partInput.tone || partToneDefaults());
+        partEnsureRoll(st.part, st.sec.id).push(note);
+      }
+    });
+    if (note) selectPartsNote(st.part, st.sec, note, 'roll', st.pass, pitch, st.staffClef);
+    previewPartNote(st.sec, position.line, position.fret, note && note.dur, note);
+    return;
+  }
+  const line = partPitchInputLine(st.part, pitch, st.sec.id, st.pos, voice, selected);
+  if (line === null) {
+    showToast('В этом голосе на этой доле нет свободной линии для ноты');
+    return;
+  }
+  inputPartPitchNote(st.part, st.sec, st.pass, line, pitch, selected);
+}
+
+function moveSelectedPartNote(kind, direction) {
+  if (!partsInputEnabled()) return false;
+  const st = partCursorState();
+  const note = partSelectionNote();
+  if (!st || !note || !partsSelection || partsSelection.partId !== st.part.id || partsSelection.secId !== st.sec.id) return false;
+  const roll = partActiveRollFor(st.part, st.sec.id);
+  if (!Array.isArray(roll)) return false;
+  const voice = Number(note.voice) || 1;
+  const delta = direction < 0 ? -1 : 1;
+  if (kind === 'time') {
+    const step = partUnitsPerQuarter(partSectionTs(st.sec)) * PART_MICRO_GRID_QUARTERS;
+    const nextStart = partRoundUnits(Number(note.start) + delta * step);
+    const limit = partSectionUnits(st.sec);
+    if (nextStart < -1e-6 || nextStart + Number(note.dur) > limit + 1e-6) {
+      showToast('Ноту нельзя сдвинуть за границы секции');
+      return false;
+    }
+    const line = partNoteLine(note);
+    const collision = roll.find((other) => other !== note &&
+      Math.abs(Number(other.start) - nextStart) < PART_POS_EPS && Number(other.voice || 1) === voice &&
+      partNoteLine(other) === line &&
+      (partInstrumentId(st.part) !== 'drums' || Number(other.pitch) === Number(note.pitch)));
+    if (collision) {
+      showToast('В этом голосе целевая доля уже занята');
+      return false;
+    }
+    songStore.dispatch('part/note-move', () => {
+      note.start = nextStart;
+      roll.sort((a, b) => Number(a.start) - Number(b.start) ||
+        Number(partNoteLine(a)) - Number(partNoteLine(b)) || Number(a.voice || 1) - Number(b.voice || 1));
+    });
+    partsSelection.start = nextStart;
+    partsCursor.pos = nextStart;
+    syncPartsSelectionDom();
+    syncPartsCursorDom();
+    return true;
+  }
+  if (kind !== 'pitch') return false;
+  if (partUsesPitchNotes(st.part)) {
+    const nextPitch = Number(note.pitch) + delta;
+    if (!Number.isInteger(nextPitch) || nextPitch < 0 || nextPitch > 127) {
+      showToast('Нота выходит за диапазон MIDI 0–127');
+      return false;
+    }
+    let nextLine = partNoteLine(note);
+    if (partInstrumentId(st.part) === 'drums') nextLine = partDrumLane(nextPitch);
+    else {
+      const collision = roll.some((other) => other !== note &&
+        Math.abs(Number(other.start) - Number(note.start)) < PART_POS_EPS &&
+        Number(other.voice || 1) === voice && partNoteLine(other) === nextLine);
+      if (collision) nextLine = partPitchInputLine(st.part, nextPitch, st.sec.id, Number(note.start), voice, note);
+      if (nextLine === null) {
+        showToast('В этом голосе на этой доле нет свободной линии для ноты');
+        return false;
+      }
+    }
+    if (partInstrumentId(st.part) === 'drums' && roll.some((other) => other !== note &&
+      Math.abs(Number(other.start) - Number(note.start)) < PART_POS_EPS &&
+      Number(other.voice || 1) === voice && Number(other.pitch) === nextPitch)) {
+      showToast('Такая ударная нота уже есть в этом голосе на этой доле');
+      return false;
+    }
+    songStore.dispatch('part/note-pitch', () => {
+      note.pitch = nextPitch;
+      note.line = nextLine;
+    });
+    partsSelection.pitch = nextPitch;
+    partsSelection.line = nextLine;
+    partsCursor.string = nextLine;
+    partsCursor.pitch = partInstrumentId(st.part) === 'drums' ? nextPitch : null;
+    partsCursor.staffPitch = nextPitch;
+    syncPartsSelectionDom();
+    syncPartsCursorDom();
+    return true;
+  }
+  const currentPitch = partFretPitch(st.part, Number(note.string), Number(note.fret));
+  const position = currentPitch === null ? null : partAutoFingeringPosition(
+    st.part, currentPitch + delta, st.sec.id, Number(note.start), voice, note
+  );
+  if (!position) {
+    const targetPitch = currentPitch === null ? null : currentPitch + delta;
+    const playable = targetPitch !== null && partPitchPositions(st.part, targetPitch).length > 0;
+    showToast(playable
+      ? 'В этом голосе уже заняты все подходящие струны на этой доле'
+      : 'У соседней высоты нет позиции на открытых струнах и ладах 0–24');
+    return false;
+  }
+  songStore.dispatch('part/note-pitch', () => {
+    note.string = position.line;
+    note.fret = position.fret;
+  });
+  partsSelection.line = position.line;
+  partsCursor.string = position.line;
+  partsCursor.staffPitch = currentPitch + delta + partCapoNumber(st.part) + 12;
+  syncPartsSelectionDom();
+  syncPartsCursorDom();
+  return true;
+}
+
 function deletePartNote() {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (!st) return;
   const roll = partActiveRollFor(st.part, st.sec.id);
-  const note = partActiveNoteAt(st.part, st.sec.id, st.string, st.pos);
-  if (!note) return;
+  const note = partCursorNote();
+  if (!Array.isArray(roll) || !note) return;
   songStore.dispatch('part/note-remove', () => {
     const index = roll.indexOf(note);
     if (index >= 0) roll.splice(index, 1);
   });
+  partsSelection = null;
+  syncPartsCursorDom();
+  syncPartsSelectionDom();
 }
 
 // Вставка доли: ноты справа от курсора сдвигаются на текущую
 // длительность. В модели нет переноса через такт, поэтому если сдвиг
 // вытолкнул бы ноту за конец системы — честно отказываем.
 function insertPartBeat() {
+  if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (!st) return;
   const step = partCursorStepUnits(st.sec);
@@ -57652,6 +58450,14 @@ function handlePartsKeydown(e) {
     if (!e.ctrlKey && !e.metaKey) return true;
   }
   if (e.ctrlKey || e.metaKey) {
+    if (e.shiftKey && ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) {
+      if (partsInputEnabled()) {
+        if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') moveSelectedPartNote('time', e.key === 'ArrowRight' ? 1 : -1);
+        else moveSelectedPartNote('pitch', e.key === 'ArrowUp' ? 1 : -1);
+      }
+      e.preventDefault();
+      return true;
+    }
     // Ctrl+., Ctrl+Z и прочие сочетания остаются общими: партиям здесь
     // принадлежат двойная точка, края партии и переключение дорожек.
     if (e.code === 'Period') {
@@ -57681,6 +58487,13 @@ function handlePartsKeydown(e) {
   }
   const code = e.code || '';
   const key = e.key || '';
+  const activePart = partActivePart();
+  if (!e.altKey && partsInputEnabled() && activePart && partNotationViewMode(activePart) === 'staff' &&
+      (key === 'ArrowUp' || key === 'ArrowDown')) {
+    movePartsPendingPitchSemitone(key === 'ArrowUp' ? 1 : -1);
+    e.preventDefault();
+    return true;
+  }
   // B-12.6.1: приёмы — клавишами GP (спека 5.6). Проверяем ДО цифр и до
   // длительностей: `Shift+1` (стаккато) иначе ушло бы во ввод лада, а
   // `Shift+−` (теното) — в изменение длительности. Коды клавиш берём по
@@ -57860,6 +58673,10 @@ function handlePartsKeydown(e) {
     case 'Home':
     case 'End':
       movePartsCursorEdge(key === 'End', false);
+      e.preventDefault();
+      return true;
+    case 'Enter':
+      if (partsInputEnabled() && activePart && partNotationViewMode(activePart) === 'staff') inputPartStaffNote();
       e.preventDefault();
       return true;
     case 'Backspace':
@@ -62414,6 +63231,7 @@ toggleTimeAndBeats();
               dur: n.dur,
               string: n.string,
               fret: n.fret,
+              ...(Number.isInteger(n.voice) && n.voice >= 2 && n.voice <= 4 ? { voice: n.voice } : {}),
               // B-12.2: знаки ноты пишем только когда они есть: у
               // обычной ноты поля нет, и файл выглядит как прежде.
               ...(n.dots ? { dots: n.dots } : {}),
@@ -63710,6 +64528,12 @@ toggleTimeAndBeats();
         : [];
       return { ...song, parts, schemaVersion: 8 };
     },
+    // v8 -> v9 (B-12.10.2): voices are preserved on guitar/bass tab notes.
+    // The field is optional; absent voice remains voice 1, so no note rewrite
+    // is needed for old songs.
+    8: function migrateV8toV9(song) {
+      return { ...song, schemaVersion: 9 };
+    },
   };
 
   function migrateSongData(song) {
@@ -64088,6 +64912,9 @@ toggleTimeAndBeats();
               const dots = rawDots === 2 ? 2 : rawDots === 1 ? 1 : 0;
               const triplet = rawNote.triplet === true;
               const note = { start, dur, string, fret };
+              const rawVoice = rawNote.voice;
+              const voice = Number.isInteger(rawVoice) && rawVoice >= 1 && rawVoice <= 4 ? rawVoice : 1;
+              if (voice !== 1) note.voice = voice;
               if ((dots || triplet) && partNotationMatches(dur, sectionTsById.get(mapped) || '4/4', dots, triplet)) {
                 if (dots) note.dots = dots;
                 if (triplet) note.triplet = true;
@@ -64132,7 +64959,8 @@ toggleTimeAndBeats();
               notes.push(note);
             });
             if (notes.length) {
-              notes.sort((a, b) => a.start - b.start || a.string - b.string);
+              notes.sort((a, b) => a.start - b.start || a.string - b.string ||
+                Number(a.voice || 1) - Number(b.voice || 1));
               rolls[String(mapped)] = notes;
             }
           });

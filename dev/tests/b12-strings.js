@@ -245,7 +245,7 @@ w.addEventListener('load', async () => {
         { start: 1, dur: 1, string: 5, fret: 7 },
       ] },
     })]);
-    w.eval('togglePartsMode(true)');
+    w.eval('togglePartsMode(true); setPartsEditMode("input")');
     let asked = null;
     w.confirm = (msg) => { asked = msg; return true; };
     w.eval('applyPartStrings(["E2","A2","D3","G3","B3","E4"])');
@@ -259,12 +259,23 @@ w.addEventListener('load', async () => {
       strings: SEVEN,
       rolls: { '1': [{ start: 0, dur: 1, string: 6, fret: 3 }] },
     })]);
-    w.eval('togglePartsMode(true)');
+    w.eval('togglePartsMode(true); setPartsEditMode("input")');
     w.confirm = () => false;
     w.eval('applyPartStrings(["E2","A2","D3","G3","B3","E4"])');
-    check('отказ оставляет всё как было',
+    check('отказ в подтверждении оставляет всё как было',
       partOf(0).strings.length === 7 && roll(0).length === 1 && roll(0)[0].string === 6,
       JSON.stringify([partOf(0), roll(0)]));
+    load([guitar({
+      strings: SEVEN,
+      rolls: { '1': [{ start: 0, dur: 1, string: 6, fret: 3 }] },
+    })]);
+    w.eval('togglePartsMode(false); togglePartsMode(true)');
+    let blockedConfirm = false;
+    w.confirm = () => { blockedConfirm = true; return true; };
+    w.eval('applyPartStrings(["E2","A2","D3","G3","B3","E4"])');
+    check('Select блокирует сужение строя, если оно удалило бы ноту',
+      !blockedConfirm && partOf(0).strings.length === 7 && roll(0).length === 1 && roll(0)[0].string === 6,
+      JSON.stringify({ blockedConfirm, part: partOf(0), roll: roll(0) }));
 
     // ================= 7. Таб рисует все струны =================
     load([guitar({ strings: SEVEN })]);

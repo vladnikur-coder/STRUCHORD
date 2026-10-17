@@ -347,6 +347,12 @@ w.addEventListener('load', async () => {
       JSON.stringify([capoOf(0), dialog().hidden, capoSel().value]));
     setSelect(capoSel(), 2);
     clickId('ptCapoAdjust');
+    check('Select блокирует пересчёт ладов и закрывает диалог без изменения нот',
+      capoOf(0) === 0 && firstRolls()[0].fret === 5 && dialog().hidden,
+      JSON.stringify([capoOf(0), firstRolls().map((n) => n.fret), dialog().hidden]));
+    setSelect(capoSel(), 2);
+    w.eval('setPartsEditMode("input")');
+    clickId('ptCapoAdjust');
     const adjusted = firstRolls();
     check('«Пересчитать» меняет лады по плану и ставит каподастр',
       capoOf(0) === 2 && adjusted[0].fret === 3 && adjusted[2].fret === 1 &&

@@ -413,7 +413,7 @@ w.addEventListener('load', () => {
     // ---------- 11. Ввод идёт в активную дорожку ----------
     load([guitar, bass]);
     w.eval('resetHistory()');
-    w.eval('togglePartsMode(true)');
+    w.eval('togglePartsMode(true); setPartsEditMode("input")');
     const G5 = pid(0);
     const B5 = pid(1);
     chip(B5).dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
