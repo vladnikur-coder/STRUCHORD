@@ -3,10 +3,10 @@
  * b12-parts.js — B-12.1 «Партии», кирпич 1 «Каркас».
  *
  * Проверяем:
- *  1. Схему: старая песня проходит миграции до v7 и загружается без партий;
+ *  1. Схему: старая песня проходит миграции до v8 и загружается без партий;
  *  2. Санитайзер партий: битые ноты отбрасываются, чужие ключи секций
  *     теряются, лимиты и allowlist работают;
- *  3. Сохранение: parts уезжают в файл, schemaVersion = 7;
+ *  3. Сохранение: parts уезжают в файл, schemaVersion = 8;
  *  4. Окно «Партии»: станки по проходам секций, чипы нот, пустое состояние;
  *  5. Режимы: is-parts, Esc, взаимоисключение с лентой;
  *  6. Звук: окна событий и времена нот (заглушка pluckString);
@@ -85,15 +85,15 @@ function loadSong(song) {
 
 w.addEventListener('load', () => {
   try {
-    // ---------- 1. Миграция старой схемы до v7 ----------
+    // ---------- 1. Миграция старой схемы до v8 ----------
     loadSong(baseSong());
     check('старая песня (v4) загружается без партий', w.eval('JSON.stringify(songParts)') === '[]');
-    check('схема поднята до 7 для lyrics и media manifests', w.eval('SONG_SCHEMA_VERSION') === 7);
+    check('схема поднята до 8 для режима нотной записи', w.eval('SONG_SCHEMA_VERSION') === 8);
     w.confirm = () => true;
     w.saveCurrentSong();
     const afterOld = JSON.parse(w.localStorage.getItem('struchord_songs'));
     const savedOld = afterOld[afterOld.length - 1];
-    check('в сейве schemaVersion 7', savedOld.schemaVersion === 7, String(savedOld.schemaVersion));
+    check('в сейве schemaVersion 8', savedOld.schemaVersion === 8, String(savedOld.schemaVersion));
     check('в сейве пустой список партий', Array.isArray(savedOld.parts) && savedOld.parts.length === 0);
 
     // ---------- 2. Санитайзер партий ----------

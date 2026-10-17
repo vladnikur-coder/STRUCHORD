@@ -159,8 +159,8 @@ w.addEventListener('load', async () => {
       saved[1].volta === 2 && saved[1].mark === 'segno' &&
       eqJson(saved[1].jump, { type: 'ds', target: 'coda' }),
       JSON.stringify(saved));
-    check('знаки не требуют новой схемы поверх общей v7',
-      fileOf().schemaVersion === 7, String(fileOf().schemaVersion));
+    check('знаки сохраняются в общей схеме v8',
+      fileOf().schemaVersion === 8, String(fileOf().schemaVersion));
     w.loadSong(0);
     w.eval('render()');
     check('знаки пережили перезагрузку песни',
