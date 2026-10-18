@@ -10439,18 +10439,24 @@ body.is-parts .container {
 .pt-body {
   display: flex;
   align-items: flex-start;
-  gap: 0.875rem;
+  gap: 0.625rem;
 }
 .pt-main {
   flex: 1 1 auto;
   min-width: 0;
 }
-/* Палитра — вертикальная колонка слева от табулатур (как Editing
-   Palette в Guitar Pro): сверху вниз знаки длительности, ниже знаки
-   ноты. Ширина по содержимому: длинные названия не нужны, значки
-   компактны. */
+/* Палитра — узкая колонка иконок слева от партитуры (как Editing
+   Palette в Guitar Pro, стр. 53): сверху вниз голоса, символы такта,
+   длительности, знаки ноты, динамика, приёмы, оформление,
+   автоматизации. Ширина фиксирована (~184px), чтобы партитуре
+   доставалось не меньше ~60% экрана 1440×900; названия и клавиши —
+   в подсказках кнопок (title). */
 .pt-palette {
-  flex: 0 0 auto;
+  flex: 0 0 8.5rem;
+  width: 8.5rem;
+  min-width: 0;
+  box-sizing: border-box;
+  overflow: hidden;
   position: sticky;
   top: 0.5rem;
   display: flex;
@@ -10479,8 +10485,24 @@ body.is-parts .container {
   padding-top: 0.375rem;
   border-top: 0.0625rem solid var(--color-border-light);
 }
+.pt-pal-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+.pt-pal-dyn {
+  grid-template-columns: repeat(3, 1fr);
+}
+.pt-music {
+  font-family: 'Bravura', serif;
+  font-size: 1.3rem;
+  font-weight: 400;
+  line-height: 1;
+}
 .pt-pal-btn {
-  min-width: 2.75rem;
+  min-width: 0;
+  min-height: 2.25rem;
+  overflow: hidden;
+  white-space: nowrap;
   padding: 0.25rem 0.375rem;
   border: 0.0625rem solid var(--color-border-medium);
   border-radius: 0.5rem;
@@ -10500,11 +10522,49 @@ body.is-parts .container {
   background: var(--color-tint);
   color: var(--color-brand-ink);
 }
-.pt-pal-hint {
-  margin-top: 0.25rem;
-  font-size: 0.625rem;
+.pt-inspector {
+  flex: 0 0 12.75rem;
+  width: 12.75rem;
+  min-width: 0;
+  box-sizing: border-box;
+  position: sticky;
+  top: 0.5rem;
+  max-height: calc(100vh - 3rem);
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding: 0.625rem;
+  border: 0.0625rem solid var(--color-border-light);
+  border-radius: 0.75rem;
+  background: var(--color-background-secondary);
+}
+.pt-inspector[hidden] {
+  display: none;
+}
+.pt-insp-title {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--color-text-tertiary);
+}
+.pt-insp-note {
+  margin: 0;
+  font-size: 0.6875rem;
   line-height: 1.45;
   color: var(--color-text-tertiary);
+}
+.pt-inspector .pt-trackbar {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 0.5rem;
+}
+.pt-inspector .pt-track-field select,
+.pt-inspector .pt-track-field input,
+.pt-song-inspector .pt-track-field input {
+  min-width: 0;
+  width: 100%;
 }
 .pt-create {
   padding: 0.5rem 1rem;
@@ -13616,7 +13676,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.655</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.656</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14139,7 +14199,137 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
              активной дорожки (имя, инструмент, строй, вкл/выкл, операции).
              Карточки — как список дорожек в GP; панель — его Inspector. -->
         <div class="pt-tracks-bar" id="partsTracks" role="tablist" aria-label="Дорожки" hidden></div>
-        <div class="pt-trackbar" id="partsTrackBar">
+        <section class="pt-instrument-panel" id="ptInstrumentPanel" hidden aria-label="Выбор ноты на инструменте">
+          <div class="pt-instrument-head">
+            <strong id="ptInstrumentViewTitle">Инструмент</strong>
+            <span>Ввод в позицию курсора</span>
+            <button type="button" id="ptInstrumentViewClose" aria-label="Закрыть выбор инструмента">×</button>
+          </div>
+          <div class="pt-fretboard-scroll" id="ptFretboard" hidden></div>
+          <div class="pt-drumpad-grid" id="ptDrumPads" hidden></div>
+        </section>
+        <div class="pt-body">
+          <!-- Палитра — как Editing Palette в Guitar Pro: слева от табулатур,
+               группа знаков ноты сверху вниз. Клавиши продублированы в
+               подсказках кнопок (в GP они тоже живут в тултипах). -->
+          <div class="pt-palette" id="partsPalette" role="toolbar" aria-label="Длительности и знаки нот">
+            <span class="pt-pal-title">Нота</span>
+            <input
+              type="search"
+              class="pt-pal-search"
+              id="ptPalSearch"
+              placeholder="поиск приёма (напр. флажолет)"
+              aria-label="Поиск приёма по палитре"
+              hidden
+            >
+            <div class="pt-pal-group pt-pal-grid" id="ptVoiceGroup" role="group" aria-label="Голоса">
+              <button type="button" class="pt-pal-btn" data-voice="1" title="Голос 1 — Ctrl+1">1</button>
+              <button type="button" class="pt-pal-btn" data-voice="2" title="Голос 2 — Ctrl+2">2</button>
+              <button type="button" class="pt-pal-btn" data-voice="3" title="Голос 3 — Ctrl+3">3</button>
+              <button type="button" class="pt-pal-btn" data-voice="4" title="Голос 4 — Ctrl+4">4</button>
+              <button type="button" class="pt-pal-btn" data-voice="M" title="Мультиголос: все голоса яркие — Ctrl+M">M</button>
+            </div>
+            <div class="pt-pal-group pt-pal-grid" id="ptBarGroup" role="group" aria-label="Символы такта">
+              <button type="button" class="pt-pal-btn" data-bar="clef" title="Ключ стана дорожки: авто / скрипичный / басовый"><span class="pt-music" aria-hidden="true">&#xE050;</span></button>
+              <button type="button" class="pt-pal-btn" data-bar="key" title="Тональность секции (знаки при ключе)">&#9839;</button>
+              <button type="button" class="pt-pal-btn" data-bar="timesig" title="Размер секции">4/4</button>
+              <button type="button" class="pt-pal-btn" data-bar="repOpen" title="Начало повтора — клавиша ["><span class="pt-music" aria-hidden="true">&#xE040;</span></button>
+              <button type="button" class="pt-pal-btn" data-bar="repClose" title="Конец повтора — клавиша ]"><span class="pt-music" aria-hidden="true">&#xE041;</span></button>
+              <button type="button" class="pt-pal-btn" data-bar="volta" title="Вольта: 1-й / 2-й / 3-й финал (по кругу)">1.</button>
+              <button type="button" class="pt-pal-btn" data-bar="segno" title="Segno (знак возврата)"><span class="pt-music" aria-hidden="true">&#xE047;</span></button>
+              <button type="button" class="pt-pal-btn" data-bar="coda" title="Coda"><span class="pt-music" aria-hidden="true">&#xE048;</span></button>
+              <button type="button" class="pt-pal-btn" data-bar="dc" title="D.C. — с начала">D.C.</button>
+              <button type="button" class="pt-pal-btn" data-bar="ds" title="D.S. — от знака Segno">D.S.</button>
+              <button type="button" class="pt-pal-btn" data-bar="fine" title="Fine — конец при возврате">Fine</button>
+            </div>
+            <div class="pt-pal-group pt-pal-grid" id="ptDurGroup">
+              <button type="button" class="pt-pal-btn" data-dur="0" title="64-я нота — самая короткая"><span class="pt-music" aria-hidden="true">&#xE1DD;</span></button>
+              <button type="button" class="pt-pal-btn" data-dur="1" title="32-я нота"><span class="pt-music" aria-hidden="true">&#xE1DB;</span></button>
+              <button type="button" class="pt-pal-btn" data-dur="2" title="16-я нота"><span class="pt-music" aria-hidden="true">&#xE1D9;</span></button>
+              <button type="button" class="pt-pal-btn" data-dur="3" title="Восьмая нота"><span class="pt-music" aria-hidden="true">&#xE1D7;</span></button>
+              <button type="button" class="pt-pal-btn" data-dur="4" title="Четверть — длительность по умолчанию"><span class="pt-music" aria-hidden="true">&#xE1D5;</span></button>
+              <button type="button" class="pt-pal-btn" data-dur="5" title="Половинная нота"><span class="pt-music" aria-hidden="true">&#xE1D3;</span></button>
+              <button type="button" class="pt-pal-btn" data-dur="6" title="Целая нота — четыре четверти"><span class="pt-music" aria-hidden="true">&#xE1D2;</span></button>
+            </div>
+            <div class="pt-pal-group pt-pal-grid" id="ptMarkGroup">
+              <button type="button" class="pt-pal-btn" data-mark="dot" title="Точка: длительность ×1,5 — клавиша ."><span class="pt-music" aria-hidden="true">&#xE1E7;</span></button>
+              <button type="button" class="pt-pal-btn" data-mark="dot2" title="Двойная точка: длительность ×1,75 — клавиши Ctrl+."><span class="pt-music" aria-hidden="true">&#xE1E7;&#xE1E7;</span></button>
+              <button type="button" class="pt-pal-btn" data-mark="triplet" title="Триоль: три ноты вместо двух, длительность ×⅔ — клавиша /">3</button>
+              <button type="button" class="pt-pal-btn" data-mark="rest" title="Пауза: пустая доля (тишина) — клавиша R"><span class="pt-music" aria-hidden="true">&#xE4E5;</span></button>
+            </div>
+            <div class="pt-pal-group pt-pal-grid pt-pal-dyn" id="ptDynGroup" role="group" aria-label="Динамика">
+              <button type="button" class="pt-pal-btn" data-dyn="pp" title="Динамика pp (очень тихо)"><span class="pt-music" aria-hidden="true">&#xE520;&#xE520;</span></button>
+              <button type="button" class="pt-pal-btn" data-dyn="p" title="Динамика p (тихо)"><span class="pt-music" aria-hidden="true">&#xE520;</span></button>
+              <button type="button" class="pt-pal-btn" data-dyn="mp" title="Динамика mp (умеренно тихо)"><span class="pt-music" aria-hidden="true">&#xE521;&#xE520;</span></button>
+              <button type="button" class="pt-pal-btn" data-dyn="mf" title="Динамика mf (умеренно громко)"><span class="pt-music" aria-hidden="true">&#xE521;&#xE522;</span></button>
+              <button type="button" class="pt-pal-btn" data-dyn="f" title="Динамика f (громко)"><span class="pt-music" aria-hidden="true">&#xE522;</span></button>
+              <button type="button" class="pt-pal-btn" data-dyn="ff" title="Динамика ff (очень громко)"><span class="pt-music" aria-hidden="true">&#xE522;&#xE522;</span></button>
+            </div>
+            <div class="pt-pal-group pt-pal-grid" id="ptDesignGroup" role="group" aria-label="Оформление">
+              <button type="button" class="pt-pal-btn" data-design="text" title="Текст над долей — клавиша T">T</button>
+              <button type="button" class="pt-pal-btn" data-design="chord" title="Символ аккорда над долей — клавиша A">A</button>
+            </div>
+            <div class="pt-pal-group pt-pal-grid" id="ptAutoGroup" role="group" aria-label="Автоматизации">
+              <button type="button" class="pt-pal-btn" data-auto="tempo" title="Темп секции (ударов в минуту)">&#9833;=</button>
+              <button type="button" class="pt-pal-btn" data-auto="volume" title="Громкость дорожки (как в микшере, %)">&#9612;&#9616;&#9619;</button>
+            </div>
+            <!-- B-12.6.1 «Приёмы»: штрих и динамика. Клавиши — как в GP
+                 (см. спеку 5.6): X, O, I, [, ;, Shift+1, Shift+T. -->
+            <div class="pt-pal-group pt-pal-tones" id="ptToneGroup">
+              <button type="button" class="pt-pal-btn" data-tone="pm" title="Палм-мьют: глухой удар ладонью у бриджа — клавиша P (как в Guitar Pro)">PM</button>
+              <button type="button" class="pt-pal-btn" data-tone="letRing" title="Let ring: нота звенит дольше написанного — клавиша I">L.R.</button>
+              <button type="button" class="pt-pal-btn" data-tone="dead" title="Dead note: глухой щелчок, рисуется крестиком — клавиша X">x</button>
+              <button type="button" class="pt-pal-btn" data-tone="ghost" title="Ghost note: тихая нота, номер в скобках — клавиша O">( )</button>
+              <button type="button" class="pt-pal-btn" data-tone="accent" title="Акцент: нота громче — клавиша ; (Shift+; — сильный акцент)">&gt;</button>
+              <button type="button" class="pt-pal-btn" data-tone="staccato" title="Стаккато: короткая нота — клавиши Shift+1">•</button>
+              <button type="button" class="pt-pal-btn" data-tone="tenuto" title="Теното: нота держится всю длительность — клавиши Shift+T">—</button>
+              <button type="button" class="pt-pal-btn" data-tone="fadeIn" title="Fade in: нота входит плавно, без щипка — клавиши Shift+,">↗</button>
+              <button type="button" class="pt-pal-btn" data-tone="fadeOut" title="Fade out: нота уходит плавно — клавиши Shift+.">↘</button>
+              <button type="button" class="pt-pal-btn" data-tone="legato" title="Легато (hammer-on / pull-off): нота берётся без атаки из предыдущей ноты той же струны — клавиша H">&#8978;</button>
+              <button type="button" class="pt-pal-btn" data-tone="slide" title="Слайд в ноту без атаки (legato slide) — клавиша S">&#8725;</button>
+              <button type="button" class="pt-pal-btn" data-tone="slideShift" title="Shift slide: слайд в ноту с атакой — клавиши Alt+S">&#8810;</button>
+              <button type="button" class="pt-pal-btn" data-tone="vibrato" title="Вибрато: качание высоты ±0,25 полутона — клавиша V">&#8767;</button>
+              <button type="button" class="pt-pal-btn" data-tone="vibratoWide" title="Широкое вибрато: качание ±0,6 полутона — клавиши Ctrl+Alt+W (как в Guitar Pro)">&#8771;</button>
+              <button type="button" class="pt-pal-btn" data-tone="tremolo" title="Тремоло-пикинг: повторные удары тем же ладом — клавиша &quot; (как в Guitar Pro)">&#8801;</button>
+              <button type="button" class="pt-pal-btn" data-tone="bend" title="Бенд: кривая высоты ноты — клавиша B открывает редактор кривой">&#10548;</button>
+            </div>
+            <!-- B-12.6.4 «Флажолеты и украшения»: вторая группа знаков — она
+                 же ищется поиском по палитре (Ctrl+E, как Command Palette в GP). -->
+            <div class="pt-pal-group pt-pal-tones" id="ptOrnGroup">
+              <button type="button" class="pt-pal-btn" data-tone="harmNatural" title="Натуральный флажолет: нота в уголках, звучит по узлу лада — клавиша Y">&#9671;</button>
+              <button type="button" class="pt-pal-btn" data-tone="harmArtificial" title="Искусственный флажолет: окно с типом и звучащей нотой — клавиши Alt+Y">&#9670;</button>
+              <button type="button" class="pt-pal-btn" data-tone="mordent" title="Мордент: быстрая нижняя соседняя ступень в начале ноты">&#8767;&#8315;</button>
+              <button type="button" class="pt-pal-btn" data-tone="upperMordent" title="Верхний мордент: быстрая верхняя соседняя ступень в начале ноты">&#8767;&#8314;</button>
+              <button type="button" class="pt-pal-btn" data-tone="turn" title="Тёрн: верхняя ступень, нота, нижняя ступень">&#8766;</button>
+              <button type="button" class="pt-pal-btn" data-tone="invertedTurn" title="Обратный тёрн: нижняя ступень, нота, верхняя ступень">&#8766;&#8595;</button>
+              <button type="button" class="pt-pal-btn" data-tone="grace" title="Форшлаг: короткая нота перед долей (на ступень ниже) — клавиша G">&#9834;</button>
+              <button type="button" class="pt-pal-btn" data-tone="graceOnBeat" title="Форшлаг на доле, а не перед ней — Alt+G">&#9834;&#8226;</button>
+              <button type="button" class="pt-pal-btn" data-tone="deadSlap" title="Dead slap: знак перкуссионного слэпа; в GP звука у него нет — у нас тоже">&#9995;</button>
+              <button type="button" class="pt-pal-btn" data-tone="pickScrape" title="Pick scrape: скребок по струнам медиатором; в GP звука у него нет — у нас тоже">&#8767;&#8725;</button>
+              <button type="button" class="pt-pal-btn" data-tone="trill" title="Трель: быстрые чередования с соседней ступенью (+1 лад) — клавиша N">tr</button>
+              <button type="button" class="pt-pal-btn" data-tone="tremBar" title="Тремоло-бар: нырок высоты до −2 полутонов и возврат — клавиши Ctrl+Alt+V (как в Guitar Pro)">~~~↓</button>
+            </div>
+          </div>
+          <div class="pt-main">
+            <div class="pt-empty" id="partsEmpty" hidden>
+              <span class="pt-empty-text" id="partsEmptyText">Пока здесь пусто</span>
+              <div class="pt-empty-actions">
+                <button type="button" class="pt-create" id="ptAddSection" hidden>Добавить секцию</button>
+                <button type="button" class="pt-create" id="ptCreatePart" hidden>Создать партию</button>
+                <button type="button" class="pt-create" id="ptEnableTrack" hidden>Включить дорожку</button>
+              </div>
+              <span class="pt-empty-hint" id="partsEmptyHint">Партия — независимый слой нот: живёт в файле песни и звучит вместе с ней.</span>
+            </div>
+            <div class="pt-track" id="partsTrack"></div>
+            <div class="pt-at" id="partsAlphaTab" hidden>
+              <div class="pt-at-bar"><span>GP-вид: вся песня страницей, ввод и звук — наши</span><span id="ptAtStatus"></span><button type="button" class="pt-at-follow" id="ptAtFollow" hidden>Продолжить автопрокрутку</button></div>
+              <div class="pt-at-host" id="ptAtHost"></div>
+              <div class="pt-at-cursor" id="ptAtCursor" hidden></div>
+            </div>
+          </div>
+          <aside class="pt-inspector" id="ptInspector" aria-label="Inspector дорожки">
+            <div class="pt-insp-title">Дорожка &middot; Inspector (F6)</div>
+            <div class="pt-trackbar" id="partsTrackBar">
           <input
             type="text"
             class="pt-track-name-input"
@@ -14191,116 +14381,17 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
             <button type="button" id="ptTrackDelete" title="Удалить дорожку">Удалить</button>
           </span>
         </div>
-        <section class="pt-instrument-panel" id="ptInstrumentPanel" hidden aria-label="Выбор ноты на инструменте">
-          <div class="pt-instrument-head">
-            <strong id="ptInstrumentViewTitle">Инструмент</strong>
-            <span>Ввод в позицию курсора</span>
-            <button type="button" id="ptInstrumentViewClose" aria-label="Закрыть выбор инструмента">×</button>
-          </div>
-          <div class="pt-fretboard-scroll" id="ptFretboard" hidden></div>
-          <div class="pt-drumpad-grid" id="ptDrumPads" hidden></div>
-        </section>
-        <div class="pt-body">
-          <!-- Палитра — как Editing Palette в Guitar Pro: слева от табулатур,
-               группа знаков ноты сверху вниз. Клавиши продублированы в
-               подсказках кнопок (в GP они тоже живут в тултипах). -->
-          <div class="pt-palette" id="partsPalette" role="toolbar" aria-label="Длительности и знаки нот">
-            <span class="pt-pal-title">Нота</span>
-            <input
-              type="search"
-              class="pt-pal-search"
-              id="ptPalSearch"
-              placeholder="поиск приёма (напр. флажолет)"
-              aria-label="Поиск приёма по палитре"
-              hidden
-            >
-            <div class="pt-pal-group" id="ptDurGroup">
-              <button type="button" class="pt-pal-btn" data-dur="0" title="64-я нота — самая короткая">1/64</button>
-              <button type="button" class="pt-pal-btn" data-dur="1" title="32-я нота">1/32</button>
-              <button type="button" class="pt-pal-btn" data-dur="2" title="16-я нота">1/16</button>
-              <button type="button" class="pt-pal-btn" data-dur="3" title="Восьмая нота">1/8</button>
-              <button type="button" class="pt-pal-btn" data-dur="4" title="Четверть — длительность по умолчанию">1/4</button>
-              <button type="button" class="pt-pal-btn" data-dur="5" title="Половинная нота">1/2</button>
-              <button type="button" class="pt-pal-btn" data-dur="6" title="Целая нота — четыре четверти">1</button>
-            </div>
-            <div class="pt-pal-group" id="ptMarkGroup">
-              <button type="button" class="pt-pal-btn" data-mark="dot" title="Точка: длительность ×1,5 — клавиша .">•</button>
-              <button type="button" class="pt-pal-btn" data-mark="dot2" title="Двойная точка: длительность ×1,75 — клавиши Ctrl+.">••</button>
-              <button type="button" class="pt-pal-btn" data-mark="triplet" title="Триоль: три ноты вместо двух, длительность ×⅔ — клавиша /">3</button>
-            </div>
-            <!-- B-12.6.1 «Приёмы»: штрих и динамика. Клавиши — как в GP
-                 (см. спеку 5.6): X, O, I, [, ;, Shift+1, Shift+T. -->
-            <div class="pt-pal-group pt-pal-tones" id="ptToneGroup">
-              <button type="button" class="pt-pal-btn" data-tone="pm" title="Палм-мьют: глухой удар ладонью у бриджа — клавиша P (как в Guitar Pro)">PM</button>
-              <button type="button" class="pt-pal-btn" data-tone="letRing" title="Let ring: нота звенит дольше написанного — клавиша I">L.R.</button>
-              <button type="button" class="pt-pal-btn" data-tone="dead" title="Dead note: глухой щелчок, рисуется крестиком — клавиша X">x</button>
-              <button type="button" class="pt-pal-btn" data-tone="ghost" title="Ghost note: тихая нота, номер в скобках — клавиша O">( )</button>
-              <button type="button" class="pt-pal-btn" data-tone="accent" title="Акцент: нота громче — клавиша ; (Shift+; — сильный акцент)">&gt;</button>
-              <button type="button" class="pt-pal-btn" data-tone="staccato" title="Стаккато: короткая нота — клавиши Shift+1">•</button>
-              <button type="button" class="pt-pal-btn" data-tone="tenuto" title="Теното: нота держится всю длительность — клавиши Shift+T">—</button>
-              <button type="button" class="pt-pal-btn" data-tone="fadeIn" title="Fade in: нота входит плавно, без щипка — клавиши Shift+,">↗</button>
-              <button type="button" class="pt-pal-btn" data-tone="fadeOut" title="Fade out: нота уходит плавно — клавиши Shift+.">↘</button>
-              <button type="button" class="pt-pal-btn" data-tone="legato" title="Легато (hammer-on / pull-off): нота берётся без атаки из предыдущей ноты той же струны — клавиша H">H/P</button>
-              <button type="button" class="pt-pal-btn" data-tone="slide" title="Слайд в ноту без атаки (legato slide) — клавиша S">S</button>
-              <button type="button" class="pt-pal-btn" data-tone="slideShift" title="Shift slide: слайд в ноту с атакой — клавиши Alt+S">Alt+S</button>
-              <button type="button" class="pt-pal-btn" data-tone="vibrato" title="Вибрато: качание высоты ±0,25 полутона — клавиша V">V</button>
-              <button type="button" class="pt-pal-btn" data-tone="vibratoWide" title="Широкое вибрато: качание ±0,6 полутона — клавиши Ctrl+Alt+W (как в Guitar Pro; также Alt+V)">Alt+V</button>
-              <button type="button" class="pt-pal-btn" data-tone="tremolo" title="Тремоло-пикинг: повторные удары тем же ладом — клавиша &quot; (как в Guitar Pro)">Trem</button>
-              <button type="button" class="pt-pal-btn" data-tone="bend" title="Бенд: кривая высоты ноты — клавиша B открывает редактор кривой">Bend</button>
-            </div>
-            <!-- B-12.6.4 «Флажолеты и украшения»: вторая группа знаков — она
-                 же ищется поиском по палитре (Ctrl+E, как Command Palette в GP). -->
-            <div class="pt-pal-group pt-pal-tones" id="ptOrnGroup">
-              <button type="button" class="pt-pal-btn" data-tone="harmNatural" title="Натуральный флажолет: нота в уголках, звучит по узлу лада — клавиша Y">Y нат.</button>
-              <button type="button" class="pt-pal-btn" data-tone="harmArtificial" title="Искусственный флажолет: окно с типом и звучащей нотой — клавиши Alt+Y">Alt+Y иск.</button>
-              <button type="button" class="pt-pal-btn" data-tone="mordent" title="Мордент: быстрая нижняя соседняя ступень в начале ноты">морд.</button>
-              <button type="button" class="pt-pal-btn" data-tone="upperMordent" title="Верхний мордент: быстрая верхняя соседняя ступень в начале ноты">морд.↑</button>
-              <button type="button" class="pt-pal-btn" data-tone="turn" title="Тёрн: верхняя ступень, нота, нижняя ступень">тёрн</button>
-              <button type="button" class="pt-pal-btn" data-tone="invertedTurn" title="Обратный тёрн: нижняя ступень, нота, верхняя ступень">тёрн↓</button>
-              <button type="button" class="pt-pal-btn" data-tone="grace" title="Форшлаг: короткая нота перед долей (на ступень ниже) — клавиша G">форшлаг</button>
-              <button type="button" class="pt-pal-btn" data-tone="graceOnBeat" title="Форшлаг на доле, а не перед ней — Alt+G">форшлаг на доле</button>
-              <button type="button" class="pt-pal-btn" data-tone="deadSlap" title="Dead slap: знак перкуссионного слэпа; в GP звука у него нет — у нас тоже">slap</button>
-              <button type="button" class="pt-pal-btn" data-tone="pickScrape" title="Pick scrape: скребок по струнам медиатором; в GP звука у него нет — у нас тоже">скребок</button>
-              <button type="button" class="pt-pal-btn" data-tone="trill" title="Трель: быстрые чередования с соседней ступенью (+1 лад) — клавиша N">tr</button>
-              <button type="button" class="pt-pal-btn" data-tone="tremBar" title="Тремоло-бар: нырок высоты до −2 полутонов и возврат — клавиши Ctrl+Alt+V (как в Guitar Pro)">~~~↓</button>
-            </div>
-            <div class="pt-pal-hint">
-              Клик по табу — курсор<br>
-              Цифры — лад (вторая цифра — высокий лад)<br>
-              <b>=</b> короче · <b>−</b> длиннее<br>
-              <b>.</b> точка · <b>Ctrl+.</b> двойная · <b>/</b> триоль<br>
-              Стрелки — шаг (Shift — мельче), <b>↑</b>/<b>↓</b> — струна<br>
-              <b>R</b> — пауза · <b>Backspace</b> — удалить<br>
-              <b>Insert</b> — вставить долю<br>
-              <b>Ctrl+↑</b>/<b>Ctrl+↓</b> — другая дорожка<br>
-              Приёмы: <b>P</b> палм-мьют · <b>I</b> let ring · <b>X</b> dead · <b>O</b> ghost · <b>Shift+P</b> палм-мьют на долю<br>
-              <b>;</b> акцент · <b>Shift+1</b> стаккато · <b>Shift+T</b> теното<br>
-              <b>Shift+,</b>/<b>Shift+.</b> fade in/out (повтор снимает знак)<br>
-              <b>H</b> легато · <b>S</b> слайд · <b>Alt+S</b> shift slide<br>
-              <b>V</b> вибрато · <b>Alt+V</b> широкое · <b>Trem</b> тремоло-пикинг<br>
-              <b>B</b> бенд — кривая высоты (редактор с точками)<br>
-              <b>Y</b> натуральный флажолет · <b>Alt+Y</b> искусственный (окно)<br>
-              <b>N</b> трель · <b>G</b> форшлаг (<b>Alt+G</b> на доле) · <b>W</b> тремоло-бар<br>
-              <b>Ctrl+E</b> поиск приёма (напр. «форшлаг 5» — форшлаг с ладом)
-            </div>
-          </div>
-          <div class="pt-main">
-            <div class="pt-empty" id="partsEmpty" hidden>
-              <span class="pt-empty-text" id="partsEmptyText">Пока здесь пусто</span>
-              <div class="pt-empty-actions">
-                <button type="button" class="pt-create" id="ptAddSection" hidden>Добавить секцию</button>
-                <button type="button" class="pt-create" id="ptCreatePart" hidden>Создать партию</button>
-                <button type="button" class="pt-create" id="ptEnableTrack" hidden>Включить дорожку</button>
-              </div>
-              <span class="pt-empty-hint" id="partsEmptyHint">Партия — независимый слой нот: живёт в файле песни и звучит вместе с ней.</span>
-            </div>
-            <div class="pt-track" id="partsTrack"></div>
-            <div class="pt-at" id="partsAlphaTab" hidden>
-              <div class="pt-at-bar"><span>GP-вид: вся песня страницей, ввод и звук — наши</span><span id="ptAtStatus"></span><button type="button" class="pt-at-follow" id="ptAtFollow" hidden>Продолжить автопрокрутку</button></div>
-              <div class="pt-at-host" id="ptAtHost"></div>
-              <div class="pt-at-cursor" id="ptAtCursor" hidden></div>
-            </div>
-          </div>
+            <label class="pt-track-field pt-insp-sound"><span>Звук</span><select id="ptSoundSelect" aria-label="Звук дорожки"></select></label>
+          </aside>
+          <aside class="pt-inspector pt-song-inspector" id="ptSongInspector" hidden aria-label="Inspector песни">
+            <div class="pt-insp-title">Песня &middot; Inspector (F5)</div>
+            <label class="pt-track-field"><span>Название</span><input type="text" id="ptSongTitle" aria-label="Название песни" /></label>
+            <label class="pt-track-field"><span>Исполнитель</span><input type="text" id="ptSongArtist" aria-label="Исполнитель" /></label>
+            <label class="pt-track-field"><span>Темп</span><input type="number" id="ptSongBpm" min="20" max="400" aria-label="Темп песни" /></label>
+            <label class="pt-track-field"><span>Тональность</span><select id="ptSongKey" aria-label="Тональность песни"></select></label>
+            <label class="pt-track-field"><span>Размер</span><select id="ptSongTimeSig" aria-label="Размер песни"></select></label>
+            <p class="pt-insp-note">Это те же поля песни, что и над аккордами: правка здесь видна везде.</p>
+          </aside>
         </div>
         <!-- B-12.5.1 «Микшер»: полоса каналов под табулатурами — как панель
              Global View в Guitar Pro. У каждой дорожки свои M/S, громкость и
@@ -53839,6 +53930,11 @@ function buildPartsAlphaScore(alphaTab) {
       tuningNotes.map(partsAtNoteMidi).reverse(), false);
     const barObjs = bars.map(() => {
       const barObj = new M.Bar();
+      if (M.Clef && notationFlags.staff) {
+        const clefName = partScoreSingleClef(part);
+        barObj.clef = clefName === 'bass' ? M.Clef.Bass : clefName === 'percussion'
+          ? (M.Clef.Neutral !== undefined ? M.Clef.Neutral : M.Clef.Treble) : M.Clef.Treble;
+      }
       staff.addBar(barObj);
       return barObj;
     });
@@ -53876,6 +53972,14 @@ function buildPartsAlphaScore(alphaTab) {
         if (start < bar.start - 1e-9 && end > bar.start + 1e-9) {
           roll.push({ ...n, start: bar.start, dur: Math.min(end, bar.end) - bar.start, tieCont: true });
         }
+      });
+      const lyrByStart = new Map();
+      partScoreLyricsInBar(part, bi).forEach((row) => {
+        row.items.forEach((item) => {
+          const key = Number(item.start).toFixed(4);
+          if (!lyrByStart.has(key)) lyrByStart.set(key, []);
+          lyrByStart.get(key).push(String(item.text || ''));
+        });
       });
       const byKey = new Map();
       roll.forEach((n) => {
@@ -53916,6 +54020,15 @@ function buildPartsAlphaScore(alphaTab) {
         beat.duration = partsAtDuration(alphaTab, notation);
         beat.dots = notation.dots || 0;
         if (notation.triplet) { beat.tupletDenominator = 3; beat.tupletNumerator = 2; }
+        const velNote = group.find((n) => Number.isInteger(n.velocity));
+        if (velNote && M.DynamicValue) {
+          const v = velNote.velocity;
+          beat.dynamic = v < 40 ? M.DynamicValue.PP : v < 56 ? M.DynamicValue.P
+            : v < 72 ? M.DynamicValue.MP : v < 100 ? M.DynamicValue.MF
+            : v < 116 ? M.DynamicValue.F : M.DynamicValue.FF;
+        }
+        const lyrTexts = lyrByStart.get(parseFloat(k).toFixed(4));
+        if (lyrTexts && lyrTexts.length) beat.lyrics = lyrTexts.slice();
         group.forEach((n) => {
           const note = new M.Note();
           note.fret = Math.max(0, Number(n.fret) || 0);
@@ -54165,6 +54278,7 @@ function renderPartsScreen() {
     syncPartsEmptyState();
     syncPartsPalette();
     syncPartsTrackBar();
+    syncPartsInspectors();
     renderPartsMixer();
     syncSectionRangeDom();
     if (partsScrollPending) partsScrollPending = false;
@@ -54217,6 +54331,7 @@ function renderPartsScreen() {
     if (atHost) atHost.hidden = false;
     syncPartsPalette();
     syncPartsTrackBar();
+    syncPartsInspectors();
     renderPartsMixer();
     syncPartsEngineUi();
     schedulePartsAlphaRender();
@@ -54655,6 +54770,8 @@ function partScoreUsesGrandStaff(part) {
 }
 
 function partScoreSingleClef(part) {
+  // Этап 4: ручной ключ из палитры (авто / скрипичный / басовый).
+  if (part && (part.clef === 'treble' || part.clef === 'bass')) return part.clef;
   const inst = partInstrumentId(part);
   if (inst === 'drums') return 'percussion';
   if (inst === 'bass') return 'bass';
@@ -56973,7 +57090,20 @@ function reassignPartNoteVoice(note, nextVoice) {
 }
 
 // ---------- Палитра ----------
+let partsPaletteFontTried = false;
+function ensurePartsPaletteFont() {
+  if (partsPaletteFontTried) return;
+  partsPaletteFontTried = true;
+  try {
+    const el = document.getElementById('bravuraWoff2Data');
+    if (!el || typeof FontFace === 'undefined' || !document.fonts) return;
+    const face = new FontFace('Bravura', 'url(data:font/woff2;base64,' + el.textContent.trim() + ')');
+    face.load().then(() => { try { document.fonts.add(face); } catch (_) {} }).catch(() => {});
+  } catch (_) {}
+}
+
 function ensurePartsPalette() {
+  ensurePartsPaletteFont();
   const durGroup = document.getElementById('ptDurGroup');
   const markGroup = document.getElementById('ptMarkGroup');
   if (!durGroup || !markGroup || durGroup.dataset.bound === '1') return;
@@ -56983,7 +57113,8 @@ function ensurePartsPalette() {
   });
   markGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
     btn.addEventListener('click', () => {
-      if (btn.dataset.mark === 'triplet') togglePartsTriplet();
+      if (btn.dataset.mark === 'rest') { if (partsInputEnabled()) movePartsCursorStep(1, false); }
+      else if (btn.dataset.mark === 'triplet') togglePartsTriplet();
       else togglePartsDots(btn.dataset.mark === 'dot2' ? 2 : 1);
     });
   });
@@ -57005,6 +57136,48 @@ function ensurePartsPalette() {
       });
     });
   });
+  const voiceGroup = document.getElementById('ptVoiceGroup');
+  if (voiceGroup && voiceGroup.dataset.bound !== '1') {
+    voiceGroup.dataset.bound = '1';
+    voiceGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
+      btn.addEventListener('click', () => {
+        if (btn.dataset.voice === 'M') {
+          partsMultivoice = !partsMultivoice;
+          showToast(partsMultivoice ? 'Мультиголос: все голоса яркие.' : 'Мультиголос выключен: чужие голоса серые.');
+          schedulePartsGpRender();
+        } else setPartsVoice(Number(btn.dataset.voice));
+        syncPartsPalette();
+      });
+    });
+  }
+  const barGroup = document.getElementById('ptBarGroup');
+  if (barGroup && barGroup.dataset.bound !== '1') {
+    barGroup.dataset.bound = '1';
+    barGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
+      btn.addEventListener('click', () => partsApplyBarSymbol(btn.dataset.bar));
+    });
+  }
+  const dynGroup = document.getElementById('ptDynGroup');
+  if (dynGroup && dynGroup.dataset.bound !== '1') {
+    dynGroup.dataset.bound = '1';
+    dynGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
+      btn.addEventListener('click', () => setPartsDynamics(btn.dataset.dyn));
+    });
+  }
+  const designGroup = document.getElementById('ptDesignGroup');
+  if (designGroup && designGroup.dataset.bound !== '1') {
+    designGroup.dataset.bound = '1';
+    designGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
+      btn.addEventListener('click', () => partsInsertLyricAtCursor(btn.dataset.design === 'chord'));
+    });
+  }
+  const autoGroup = document.getElementById('ptAutoGroup');
+  if (autoGroup && autoGroup.dataset.bound !== '1') {
+    autoGroup.dataset.bound = '1';
+    autoGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
+      btn.addEventListener('click', () => partsApplyAutomation(btn.dataset.auto));
+    });
+  }
   const create = document.getElementById('ptCreatePart');
   if (create) create.addEventListener('click', createPartFromEmptyState);
   // «Добавить секцию» из пустого состояния: тип по умолчанию — куплет,
@@ -57036,6 +57209,201 @@ function placePartsCursorAtNewSection() {
   partsScrollPending = true;
 }
 
+// ---------- Этап 4 «Экран»: символы такта, динамика, текст, инспекторы --
+function partsCursorSquare() {
+  const st = partCursorState();
+  if (!st || !st.sec || !Array.isArray(st.sec.squares) || !st.sec.squares.length) return null;
+  let acc = 0;
+  for (const sq of st.sec.squares) {
+    const dur = getSquareBeats(sq, st.ts);
+    if (st.pos < acc + dur) return sq;
+    acc += dur;
+  }
+  return st.sec.squares[st.sec.squares.length - 1];
+}
+
+function partsRealCursorNote() {
+  const note = partCursorNote();
+  if (!note) return null;
+  const st = partCursorState();
+  const roll = st ? partActiveRollFor(st.part, st.sec.id) || [] : [];
+  if (roll.includes(note)) return note;
+  return roll.find((n) => Math.abs(Number(n.start) - Number(note.start)) < PART_POS_EPS &&
+    partNoteLine(n) === partNoteLine(note) && Number(n.voice || 1) === Number(note.voice || 1) &&
+    Number(n.pitch || 0) === Number(note.pitch || 0)) || null;
+}
+
+function partsApplyBarSymbol(kind) {
+  const st = partCursorState();
+  const sq = partsCursorSquare();
+  if (!st || !st.part || !st.sec || !sq) { showToast('Поставьте курсор в такт.'); return; }
+  const ts = st.sec.timeSig || globalTimeSig;
+  if (kind === 'clef') {
+    songStore.dispatch('part/clef', () => {
+      if (!st.part.clef) st.part.clef = 'treble';
+      else if (st.part.clef === 'treble') st.part.clef = 'bass';
+      else delete st.part.clef;
+    });
+    showToast(`Ключ стана дорожки: ${!st.part.clef ? 'авто' : st.part.clef === 'bass' ? 'басовый' : 'скрипичный'}.`);
+    renderPartsScreen();
+    return;
+  }
+  if (kind === 'key') {
+    const value = window.prompt('Тональность секции (например: Am, G, F#m). Пусто — как у песни.', st.sec.key || '');
+    if (value === null) return;
+    songStore.dispatch('section/key', () => {
+      const k = value.trim();
+      if (k) st.sec.key = k; else delete st.sec.key;
+    });
+    renderPartsScreen();
+    return;
+  }
+  if (kind === 'timesig') {
+    const value = window.prompt('Размер секции (например: 3/4, 6/8)', ts);
+    if (value === null) return;
+    const m = /^(\d+)\s*\/\s*(\d+)$/.exec(value.trim());
+    if (!m) { showToast('Размер пишется так: 3/4 или 6/8.'); return; }
+    songStore.dispatch('section/timesig', () => { st.sec.timeSig = `${m[1]}/${m[2]}`; });
+    renderPartsScreen();
+    return;
+  }
+  if (kind === 'repOpen') { togglePartRepeatAtCursor(true); return; }
+  if (kind === 'repClose') { togglePartRepeatAtCursor(false); return; }
+  songStore.dispatch('part/bar-symbol', () => {
+    if (kind === 'volta') {
+      const cur = structureVoltaOf(sq);
+      if (!cur) sq.volta = 1;
+      else if (cur >= 3) delete sq.volta;
+      else sq.volta = cur + 1;
+    } else if (kind === 'segno' || kind === 'coda' || kind === 'fine') {
+      if (structureMarkOf(sq) === kind) delete sq.mark; else sq.mark = kind;
+    } else if (kind === 'dc' || kind === 'ds') {
+      const jump = structureJumpOf(sq);
+      if (jump && jump.type === kind) delete sq.jump; else sq.jump = { type: kind, target: 'end' };
+    }
+  });
+  renderPartsScreen();
+}
+
+const PART_DYNAMICS_VELOCITY = { pp: 32, p: 48, mp: 64, mf: 90, f: 108, ff: 124 };
+function setPartsDynamics(level) {
+  const velocity = PART_DYNAMICS_VELOCITY[level];
+  const note = partsRealCursorNote();
+  if (!velocity || !note) { showToast('Поставьте курсор на ноту — динамика ставится ноте под курсором.'); return; }
+  songStore.dispatch('part/dynamics', () => { note.velocity = velocity; });
+  renderPartsScreen();
+}
+
+// Текст (T) и символ аккорда (A): строка над партитурой в доле курсора.
+// Живёт в part.lyrics: аккорды — строкой 1, свободный текст — строкой 2.
+function partsInsertLyricAtCursor(isChord) {
+  const st = partCursorState();
+  if (!st || !st.part || !st.sec) { showToast('Сначала откройте дорожку в «Партиях».'); return false; }
+  const text = window.prompt(isChord ? 'Символ аккорда над долей (например, Am7)' : 'Текст над долей', '');
+  if (!text || !text.trim()) return true;
+  const line = isChord ? 1 : 2;
+  const clean = text.trim();
+  songStore.dispatch('part/text', () => {
+    if (!Array.isArray(st.part.lyrics)) st.part.lyrics = [];
+    st.part.lyrics.push({ secId: st.sec.id, start: st.pos, text: clean, line, voice: partsVoice });
+  });
+  renderPartsScreen();
+  return true;
+}
+
+function partsApplyAutomation(kind) {
+  const st = partCursorState();
+  if (!st || !st.part || !st.sec) { showToast('Поставьте курсор в секцию.'); return; }
+  if (kind === 'tempo') {
+    const value = window.prompt('Темп секции (ударов в минуту). Как у песни — оставьте пустым.', st.sec.bpm || '');
+    if (value === null) return;
+    const bpm = Math.round(Number(value));
+    songStore.dispatch('section/tempo', () => {
+      if (value.trim() === '' || !Number.isFinite(bpm)) delete st.sec.bpm;
+      else st.sec.bpm = Math.max(20, Math.min(400, bpm));
+    });
+    renderPartsScreen();
+    return;
+  }
+  const mix = mixChannelModel(partChannelId(st.part.id));
+  if (!mix) return;
+  const value = window.prompt('Громкость дорожки, % (как ползунок в микшере)', String(partMix(st.part).volume));
+  if (value === null) return;
+  const volume = Math.round(Number(value));
+  if (!Number.isFinite(volume)) { showToast('Громкость — число от 0 до 150.'); return; }
+  songStore.dispatch('mix/volume', () => { mixWriteValue(mix, 'volume', Math.max(0, Math.min(MIX_VOLUME_MAX, volume))); });
+  applyMixerValues();
+  renderPartsScreen();
+}
+
+let partsInspectorsBound = false;
+let partsPanelsInit = false;
+function ensurePartsInspectors() {
+  if (partsInspectorsBound) return;
+  partsInspectorsBound = true;
+  const sound = document.getElementById('ptSoundSelect');
+  if (sound) sound.addEventListener('change', () => {
+    const part = partActivePart();
+    if (!part) return;
+    songStore.dispatch('part/sound', () => { soundWriteValue(part, sound.value, partInstrumentId(part)); });
+    renderPartsScreen();
+  });
+  const mirror = (ownId, mainId) => {
+    const own = document.getElementById(ownId);
+    const main = document.getElementById(mainId);
+    if (!own || !main) return;
+    if (own.tagName === 'SELECT' && main.tagName === 'SELECT' && !own.options.length) {
+      own.innerHTML = main.innerHTML;
+    }
+    own.addEventListener('change', () => {
+      main.value = own.value;
+      main.dispatchEvent(new Event('change', { bubbles: true }));
+      main.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+  };
+  mirror('ptSongTitle', 'songTitle');
+  mirror('ptSongArtist', 'songArtist');
+  mirror('ptSongBpm', 'bpmInput');
+  mirror('ptSongKey', 'rootKey');
+  mirror('ptSongTimeSig', 'globalTimeSig');
+}
+
+function syncPartsInspectors() {
+  ensurePartsInspectors();
+  const part = partActivePart();
+  const sound = document.getElementById('ptSoundSelect');
+  if (sound && part) {
+    const list = PART_SOUNDS[partInstrumentId(part)] || PART_SOUNDS.guitar;
+    const sig = list.map((s2) => s2.id).join(',');
+    if (sound.dataset.sig !== sig) {
+      sound.dataset.sig = sig;
+      sound.innerHTML = list.map((s2) => `<option value="${s2.id}">${escapeHtml(s2.label)}</option>`).join('');
+    }
+    sound.value = partSoundId(part);
+  }
+  const set = (ownId, mainId) => {
+    const own = document.getElementById(ownId);
+    const main = document.getElementById(mainId);
+    if (own && main && document.activeElement !== own) own.value = main.value;
+  };
+  set('ptSongTitle', 'songTitle');
+  set('ptSongArtist', 'songArtist');
+  set('ptSongBpm', 'bpmInput');
+  if (document.getElementById('ptSongKey') && document.getElementById('rootKey')) set('ptSongKey', 'rootKey');
+  set('ptSongTimeSig', 'globalTimeSig');
+  // На планшете и узком экране панели по умолчанию свёрнуты (как в GP):
+  // партитуре нужна ширина. Пользователь раскрывает их клавишами F2/F5/F6/F8.
+  if (!partsPanelsInit) {
+    partsPanelsInit = true;
+    if (window.matchMedia && window.matchMedia('(max-width: 64rem)').matches) {
+      ['partsPalette', 'ptInspector', 'ptSongInspector', 'partsMixer'].forEach((id) => {
+        const el = document.getElementById(id);
+        if (el) el.hidden = true;
+      });
+    }
+  }
+}
+
 function syncPartsPalette() {
   const durGroup = document.getElementById('ptDurGroup');
   const markGroup = document.getElementById('ptMarkGroup');
@@ -57062,6 +57430,38 @@ function syncPartsPalette() {
     const on = !!marks[btn.dataset.mark];
     btn.classList.toggle('is-on', on);
     btn.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  // Этап 4: подсветка голосов, динамики ноты под курсором и знаков такта.
+  const voiceGroup = document.getElementById('ptVoiceGroup');
+  if (voiceGroup) voiceGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
+    const on = btn.dataset.voice === 'M' ? !!partsMultivoice
+      : !partsMultivoice && partsVoice === Number(btn.dataset.voice);
+    btn.classList.toggle('is-on', on);
+  });
+  const dynNote = partCursorNote();
+  const dynVel = dynNote && Number.isInteger(dynNote.velocity) ? dynNote.velocity : null;
+  const dynGroup = document.getElementById('ptDynGroup');
+  if (dynGroup) dynGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
+    let on = false;
+    if (dynVel !== null) {
+      const target = PART_DYNAMICS_VELOCITY[btn.dataset.dyn];
+      on = Object.values(PART_DYNAMICS_VELOCITY)
+        .every((v) => Math.abs(dynVel - target) <= Math.abs(dynVel - v));
+    }
+    btn.classList.toggle('is-on', on);
+  });
+  const barSq = partsCursorSquare();
+  const barGroup = document.getElementById('ptBarGroup');
+  if (barGroup) barGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
+    const kind = btn.dataset.bar;
+    let on = false;
+    if (kind === 'clef') { const p = partActivePart(); on = !!(p && p.clef); }
+    else if (barSq && kind === 'volta') on = !!structureVoltaOf(barSq);
+    else if (barSq && (kind === 'segno' || kind === 'coda' || kind === 'fine')) on = structureMarkOf(barSq) === kind;
+    else if (barSq && (kind === 'dc' || kind === 'ds')) { const j = structureJumpOf(barSq); on = !!(j && j.type === kind); }
+    else if (barSq && kind === 'repOpen') on = structureRepeatOpen(barSq);
+    else if (barSq && kind === 'repClose') on = structureRepeatClose(barSq);
+    btn.classList.toggle('is-on', on);
   });
   // Приёмы (12.6.1): активная кнопка = знак стоит у ноты под курсором (или
   // включён для следующих нот). Акцент — ступень: кнопка показывает `>`
@@ -59885,7 +60285,7 @@ function handlePartsKeydown(e) {
   const key = e.key || '';
   const activePart = partActivePart();
   if (!e.ctrlKey && !e.metaKey && !e.altKey && ['F2', 'F5', 'F6', 'F8'].includes(key)) {
-    const panelId = { F2: 'partsPalette', F5: 'partsTracks', F6: 'partsTrackBar', F8: 'partsMixer' }[key];
+    const panelId = { F2: 'partsPalette', F5: 'ptSongInspector', F6: 'ptInspector', F8: 'partsMixer' }[key];
     const panel = panelId && document.getElementById(panelId);
     if (panel) panel.hidden = !panel.hidden;
     e.preventDefault();
@@ -59903,6 +60303,17 @@ function handlePartsKeydown(e) {
   // длительностей: `Shift+1` (стаккато) иначе ушло бы во ввод лада, а
   // `Shift+−` (теното) — в изменение длительности. Коды клавиш берём по
   // физической клавише (e.code), чтобы раскладка не влияла.
+  // Этап 4 (как в GP): T — текст над долей, A — символ аккорда.
+  if (!e.shiftKey && !e.altKey && code === 'KeyT') {
+    partsInsertLyricAtCursor(false);
+    e.preventDefault();
+    return true;
+  }
+  if (!e.shiftKey && !e.altKey && code === 'KeyA') {
+    partsInsertLyricAtCursor(true);
+    e.preventDefault();
+    return true;
+  }
   if (e.shiftKey && !e.altKey) {
     if (code === 'Digit1') {
       togglePartTone('staccato');
@@ -64673,6 +65084,7 @@ toggleTimeAndBeats();
         // чтобы режим не зависел от будущего изменения дефолта роли.
         viewMode: partNotationViewMode(part),
         ...(part.notation ? { notation: partNotationFlags(part) } : {}),
+        ...(part.clef === 'treble' || part.clef === 'bass' ? { clef: part.clef } : {}),
         tuning: part.tuning || null,
         // B-12.9.1: свой строй пишем только когда он есть и не совпадает с
         // пресетом или строем песни — иначе файл рос бы без нужды.
@@ -66578,6 +66990,7 @@ toggleTimeAndBeats();
           ...(rawPart.notation && typeof rawPart.notation === 'object'
             ? { notation: { staff: !!rawPart.notation.staff, tab: !!rawPart.notation.tab, slash: !!rawPart.notation.slash } }
             : {}),
+          ...(rawPart.clef === 'treble' || rawPart.clef === 'bass' ? { clef: rawPart.clef } : {}),
           // Guitar/bass с null ссылаются на строй песни; остальные pitched-
           // роли по умолчанию используют E Standard (C4 остаётся MIDI 60).
           tuning: presetForStrings

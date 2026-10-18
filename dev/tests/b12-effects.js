@@ -133,10 +133,10 @@ w.addEventListener('load', async () => {
     check('у каждой кнопки есть подсказка с клавишей',
       Array.from(toneButtons).every((b) => (b.title || '').length > 10 && /клавиш/i.test(b.title)),
       JSON.stringify(Array.from(toneButtons).map((b) => b.title)));
-    check('подсказка палитры перечисляет клавиши приёмов',
-      /палм-мьют/.test(w.document.querySelector('.pt-pal-hint').textContent) &&
-      /стаккато/.test(w.document.querySelector('.pt-pal-hint').textContent),
-      w.document.querySelector('.pt-pal-hint').textContent);
+    check('подсказки кнопок палитры перечисляют клавиши приёмов (простыни подсказок нет)',
+      !w.document.querySelector('.pt-pal-hint') &&
+      /Палм-мьют/.test(w.document.querySelector('#ptToneGroup [data-tone="pm"]').title) &&
+      /Стаккато/.test(w.document.querySelector('#ptToneGroup [data-tone="staccato"]').title));
 
     // ---------- 2. Клавиши: постановка и снятие ----------
     cursorTo(0);
@@ -872,10 +872,10 @@ w.addEventListener('load', async () => {
     check('у каждой кнопки новой группы есть подсказка',
       ornButtons.every((b) => (b.title || '').length > 10),
       JSON.stringify(ornButtons.map((b) => b.title)));
-    const hintText = w.document.querySelector('.pt-pal-hint').textContent;
-    check('подсказка палитры называет клавиши флажолетов, трели и трем-бара',
-      /Alt\+Y/.test(hintText) && /\bY\b/.test(hintText) && /\bN\b/.test(hintText) &&
-      /\bW\b/.test(hintText) && /Ctrl\+E/.test(hintText), hintText);
+    const hintText = Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).map((b) => b.title).join(' ');
+    check('подсказки палитры называют клавиши флажолетов, трели и трем-бара',
+      /Alt\+Y/.test(hintText) && /клавиша Y/.test(hintText) && /клавиша N/.test(hintText) &&
+      /Ctrl\+Alt\+W/.test(hintText) && !!w.document.getElementById('ptPalSearch'), hintText);
 
     // ================= 21. Клавиши и окно флажолета =================
     cursorTo(0);
@@ -957,7 +957,7 @@ w.addEventListener('load', async () => {
     check('Enter применяет первый найденный приём — натуральный флажолет',
       noteAt(0, 1).harm && noteAt(0, 1).harm.type === 'natural', JSON.stringify(noteAt(0, 1).harm));
     check('после Enter поиск очистился и палитра снова полная',
-      searchBox.value === '' && visiblePalette() === 38, String(visiblePalette()));
+      searchBox.value === '' && visiblePalette() === w.document.querySelectorAll('#partsPalette .pt-pal-btn').length, String(visiblePalette()));
     searchBox.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     check('Escape закрыл поиск', searchBox.hidden === true);
     check('палитра из окна партий закрывает оба окна-инспектора',

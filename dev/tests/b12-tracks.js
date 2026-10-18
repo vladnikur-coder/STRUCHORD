@@ -465,8 +465,9 @@ w.addEventListener('load', () => {
     check('без дорожек пустое состояние предлагает создать партию',
       w.document.getElementById('partsEmpty').hidden === false &&
       w.document.getElementById('ptCreatePart').hidden === false);
-    check('подсказка палитры знает про Ctrl+↑/↓',
-      w.document.querySelector('.pt-pal-hint').textContent.includes('Ctrl+'));
+    check('простыни подсказок нет, клавиши живут в подсказках кнопок',
+      !w.document.querySelector('.pt-pal-hint') &&
+      Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).some((b) => /Ctrl/.test(b.title)));
     w.document.getElementById('ptCreatePart').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     // createPartFromEmptyState правит модель через Store, а окно
     // перерисовывается в следующем кадре (в jsdom rAF не тикает сам).

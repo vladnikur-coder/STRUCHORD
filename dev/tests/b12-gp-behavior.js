@@ -153,6 +153,41 @@ w.addEventListener('load', () => {
     input.dispatchEvent(ev);
     check('цифра в текстовом поле не пишет ноту', roll1().length === before);
 
+    // ---- Этап 4 «Экран»: палитра иконок, инспекторы, динамика, текст ----
+    const palText = w.document.getElementById('partsPalette').textContent;
+    check('палитра без текстовых ярлыков приёмов', !/Alt\+S|slap|скребок|форшлаг/.test(palText));
+    check('простыни подсказок под палитрой нет', !w.document.querySelector('.pt-pal-hint'));
+    w.document.querySelector('#ptVoiceGroup [data-voice="2"]').click();
+    check('кнопка голоса 2 выбирает голос и подсвечена',
+      w.eval('partsVoice') === 2 &&
+      w.document.querySelector('#ptVoiceGroup [data-voice="2"]').classList.contains('is-on'));
+    key('2', { code: 'Digit2', ctrlKey: true });
+    // динамика: курсор на первую ноту, клик ff
+    w.eval('partsCursor.pos = 0; syncPartsPalette()');
+    w.document.querySelector('#ptDynGroup [data-dyn="ff"]').click();
+    check('динамика ff ставит velocity ноте', w.eval('partCursorNote() && partCursorNote().velocity') === 124,
+      String(w.eval('partCursorNote() && partCursorNote().velocity')));
+    // вольта палитры на такте курсора
+    w.document.querySelector('#ptBarGroup [data-bar="volta"]').click();
+    check('вольта из палитры ставится квадрату', w.eval('partsCursorSquare() && partsCursorSquare().volta') === 1, w.eval('partsCursor ? partsCursor.secId + "@" + partsCursor.pos : "нет курсора"'));
+    // T — текст над долей
+    w.prompt = () => 'Припев громче';
+    key('t', { code: 'KeyT' });
+    check('T вставляет текст над долей',
+      w.eval('JSON.stringify(songParts.find(p=>p===partActivePart()).lyrics||[])').includes('Припев громче'),
+      w.eval('JSON.stringify(songParts.find(p=>p===partActivePart()).lyrics||[])'));
+    // Inspector песни F5 и звук дорожки
+    key('F5', { code: 'F5' });
+    check('F5 показывает Inspector песни', !w.document.getElementById('ptSongInspector').hidden);
+    const snd = w.document.getElementById('ptSoundSelect');
+    check('в Inspector есть выбор звука', !!snd && snd.options.length >= 2);
+    snd.value = 'drive';
+    snd.dispatchEvent(new w.Event('change', { bubbles: true }));
+    check('звук дорожки меняется из Inspector',
+      w.eval('partSoundId(partActivePart())') === 'drive');
+    key('F5', { code: 'F5' });
+    check('F5 прячет Inspector песни', w.document.getElementById('ptSongInspector').hidden);
+
     console.log(`\nитого: ${pass} ok, ${fail} FAIL`);
     process.exit(fail ? 1 : 0);
   } catch (error) {

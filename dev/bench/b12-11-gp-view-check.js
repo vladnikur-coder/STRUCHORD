@@ -27,6 +27,7 @@ const server = http.createServer((req, res) => {
     env: { ...process.env, LD_LIBRARY_PATH: ['/tmp/al2023/lib', process.env.LD_LIBRARY_PATH].filter(Boolean).join(':') },
   });
   const page = await browser.newPage();
+  await page.setViewport({ width: 1440, height: 900 });
   const errors = [];
   page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
   await page.goto('http://127.0.0.1:8903/STRUCHORD.html', { waitUntil: 'load', timeout: 60000 });
@@ -54,9 +55,11 @@ const server = http.createServer((req, res) => {
   }));
   console.log(JSON.stringify(state, null, 1));
   // Клик по партитуре alphaTab: ищем текстовый глиф лада и кликаем.
-  const pt = await page.evaluate(() => {
+  const pt = await page.evaluate(async () => {
     const texts = Array.from(document.querySelectorAll('#ptAtHost svg text')).filter((t) => /^[0-9]+$/.test(t.textContent.trim()));
     if (!texts.length) return null;
+    texts[1].scrollIntoView({ block: 'center' });
+    await new Promise((r) => setTimeout(r, 350));
     const r = texts[1].getBoundingClientRect();
     return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
   });
@@ -70,7 +73,12 @@ const server = http.createServer((req, res) => {
   await page.keyboard.press('7');
   await sleep(700);
   const after = await page.evaluate(() => (songParts[0].rolls[String(sections[0].id)] || []).length);
-  console.log('ноты до/после цифры 7:', before, '/', after);
+  const fretAtCursor = await page.evaluate(() => {
+    const n = partCursorNote();
+    return n ? n.fret : null;
+  });
+  console.log('ноты до/после цифры 7:', before, '/', after, '; лад под курсором после ввода:', fretAtCursor,
+    (after > before || fretAtCursor === 7) ? '(ввод работает)' : '(ВВОД НЕ СРАБОТАЛ)');
   // Несколько дорожек в одной системе (F3 по смыслу плана).
   const multi = await page.evaluate(() => {
     const copy = JSON.parse(JSON.stringify(songParts[0]));
@@ -97,6 +105,17 @@ const server = http.createServer((req, res) => {
     return { before, after: box.style.left, hidden: box.hidden, playing: partsAtPlaying };
   });
   console.log('бегущий курсор:', JSON.stringify(play));
+  const layout = await page.evaluate(() => {
+    const host = document.getElementById('ptAtHost');
+    const scorePct = host ? Math.round((host.clientWidth / window.innerWidth) * 1000) / 10 : 0;
+    const pal = document.getElementById('partsPalette');
+    const insp = document.getElementById('ptInspector');
+    return { scorePct, paletteW: pal ? pal.clientWidth : 0, inspectorW: insp ? insp.clientWidth : 0,
+      hintSheet: !!document.querySelector('.pt-pal-hint'),
+      paletteText: pal ? pal.textContent.replace(/\s+/g, ' ').slice(0, 120) : '' };
+  });
+  console.log('LAYOUT 1440x900:', JSON.stringify(layout));
+  console.log('КРИТЕРИЙ ЭТАПА 4 (партитура >= 60% ширины):', layout.scorePct >= 60 ? 'ВЫПОЛНЕН' : 'НЕ ВЫПОЛНЕН');
   await page.screenshot({ path: '/tmp/b12-11-gp-view.png' });
   console.log('скриншот /tmp/b12-11-gp-view.png; ошибок страницы:', errors.length ? errors.slice(0, 3) : 'нет');
   await browser.close();
