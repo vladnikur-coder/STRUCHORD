@@ -118,8 +118,12 @@ w.addEventListener('load', async () => {
       w.eval('renderPartsScreen()');
     };
     const chId = (index) => `part:${w.eval(`songParts[${index}].id`)}`;
-    const card = (id) => w.document.querySelector(`#mixChannels [data-ch="${id}"]`);
-    const act = (id, action) => card(id).querySelector(`[data-act="${action}"]`);
+    // Этап 5: каподастр песни — в Inspector песни (F5) и канале «Песня» Global View.
+    const act = (id, action) => {
+      if (action === 'songCapo') return id === 'song' ? w.document.querySelector('#ptGvSongCapo') : null;
+      if (action === 'sound') return w.document.querySelector('#ptSoundSelect');
+      return null;
+    };
     const partOf = (index) => JSON.parse(w.eval(`JSON.stringify(songParts[${index}])`));
     const capoOf = (index) => w.eval(`partCapoNumber(songParts[${index}])`);
     const capoSel = () => w.document.getElementById('ptCapo');
@@ -389,7 +393,7 @@ w.addEventListener('load', async () => {
 
     // ================= 8. Отмена песни =================
     load([guitar, bass]);
-    setSelect(w.document.querySelector('#mixChannels [data-act="songCapo"]'), 6);
+    setSelect(w.document.querySelector('#ptGvSongCapo'), 6);
     await settle();
     w.undoEdit();
     await tick();

@@ -103,8 +103,13 @@ w.addEventListener('load', async () => {
       w.confirm = () => true;
     };
     const chId = (index) => `part:${w.eval(`songParts[${index}].id`)}`;
-    const card = (id) => w.document.querySelector(`#mixChannels [data-ch="${id}"]`);
-    const act = (id, action) => card(id).querySelector(`[data-act="${action}"]`);
+    // Этап 5: звук — в Inspector (F6) и канале «Песня» Global View.
+    const act = (id, action) => {
+      if (id === 'master') return null;
+      if (action === 'sound') return w.document.querySelector(id === 'song' ? '#ptGvSongSound' : '#ptSoundSelect');
+      if (action === 'soundAuto') return w.document.querySelector(id === 'song' ? '#ptGvSongAutoBtn' : '#ptSoundAutoBtn');
+      return null;
+    };
     const clickAct = (id, action) =>
       act(id, action).dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     const selectSound = (id, value) => {
@@ -252,10 +257,12 @@ w.addEventListener('load', async () => {
       w.eval('songSoundId()') === 'ambient' && w.eval('soundChannelValue("song")') === 'ambient');
     check('на карточке мастера нет ни звучания, ни автоматизаций',
       !act('master', 'sound') && !act('master', 'soundAuto'));
+    w.eval(`selectPartTrack(${JSON.stringify(w.eval('songParts[1].id'))})`);
     check('у дорожки-баса свой список звучаний — без «соло», но с перегрузом',
       eqJson(Array.from(act(chId(1), 'sound').options).map((o) => o.value),
         ['acoustic', 'clean', 'drive', 'ambient']),
       JSON.stringify(Array.from(act(chId(1), 'sound').options).map((o) => o.value)));
+    w.eval(`selectPartTrack(${JSON.stringify(w.eval('songParts[0].id'))})`);
 
     // Точки ставим в позиции курсора: 2-я доля первой секции.
     const ids4 = sectionIds();
