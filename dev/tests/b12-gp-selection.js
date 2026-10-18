@@ -69,11 +69,15 @@ w.addEventListener('load', async () => {
     const selectedDom = w.document.querySelectorAll('#partsTrack [data-source-start].is-selected').length;
     check('ноты диапазона подсвечены в DOM', selectedDom >= 1, String(selectedDom));
 
-    // Ctrl+A — вся секция, все три ноты.
+    // Ctrl+A — вся дорожка (план этапа 3, как в GP).
     key('a', { code: 'KeyA', ctrlKey: true });
-    const r2 = range();
-    check('Ctrl+A выделил всю секцию', !!r2 && r2.start === 0 && r2.end === 4, JSON.stringify(r2));
-    check('в диапазоне все 3 ноты', w.eval('partsRangeNotes(songParts[0], 1).length') === 3);
+    check('Ctrl+A выделил всю дорожку', w.eval('partsTrackSel') === w.eval('songParts[0].id'));
+    key('c', { code: 'KeyC', ctrlKey: true });
+    check('буфер дорожки структурный', w.eval('partsClipboard && partsClipboard.kind') === 'track');
+    key('v', { code: 'KeyV', ctrlKey: true });
+    check('вставка дорожки поверх себя — ноты те же', roll().length === 3, JSON.stringify(roll()));
+    // Диапазон для обычного буфера ставим руками.
+    w.eval('partsTrackSel = null; setPartsNoteRange(songParts[0], sections[0], 0, 4)');
 
     // Ctrl+C и вставка в конец: курсор на 3 — нота на 3 (струна 5 лад 3)
     // не встанет: диапазон 4 доли от 3 выходит за секцию? span=4, ноты на
@@ -119,7 +123,7 @@ w.addEventListener('load', async () => {
       Object.defineProperty(ev, 'detail', { value: 3 });
       svg.dispatchEvent(ev);
       const r3 = range();
-      check('тройной клик выделил секцию', !!r3 && r3.start === 0 && r3.end === 4, JSON.stringify(r3));
+      check('тройной клик выделил всю дорожку', w.eval('partsTrackSel') === w.eval('songParts[0].id'));
     }
 
     console.log(`\nитого: ${pass} ok, ${fail} FAIL`);

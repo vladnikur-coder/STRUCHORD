@@ -13616,7 +13616,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.654</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.655</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -52766,15 +52766,15 @@ const PART_TIMBRE = {
   bass: { gain: 0.5, bright: 0.26, spread: 0.34, ringCap: 3.5 },
 };
 let partsMode = false;
-// B-12.11: отдельных режимов «Выбор/Ввод» больше нет — как в Guitar Pro,
-// окно открывается с живым вводом: клик ставит курсор, цифры вводят ноты.
-// partsEditMode оставлен как внутренний флаг совместимости и всегда 'input'
-// (решение 0.648 о безопасном Select отменено пользователем).
-let partsEditMode = 'input';
+// B-12.11: режимов «Выбор/Ввод» нет — как в Guitar Pro, ввод всегда жив:
+// клик ставит курсор и ничего не меняет, цифра сразу пишет ноту.
 let partsSelection = null; // { partId, secId, start, line, voice, pitch, domain }
 // B-12.11 этап 3: выделение диапазона нот и нотный буфер обмена (GP).
 let partsNoteRange = null; // { partId, secId, start, end } — end не входит
-let partsClipboard = null; // { notes: [...start от начала диапазона], span }
+let partsClipboard = null; // { notes, span } | { kind:'track', groups } | { kind:'multi', perPart }
+let partsTrackSel = null; // B-12.11 этап 3 (план): выделена вся дорожка (Ctrl+A, тройной клик)
+let partsMultivoice = false; // Ctrl+M: чужие голоса не приглушаются
+let partsStaffFocus = false; // Tab: курсор на нотном стане (цифры — струна)
 let partsDragState = null;
 let partsPlayingSectionId = null;
 let partsPlayingSquareId = null;
@@ -52790,11 +52790,11 @@ function partVisible(part) {
 }
 
 function partsInputEnabled() {
-  return partsMode && partsEditMode === 'input';
+  return partsMode;
 }
 
 function syncPartsEditModeUi() {
-  const input = partsEditMode === 'input';
+  const input = true; // B-12.11 этап 3 (план): режима «Выбор» больше нет.
   const host = document.getElementById('ptEditMode');
   const select = document.getElementById('ptSelectMode');
   const write = document.getElementById('ptInputMode');
@@ -52823,23 +52823,8 @@ function syncPartsEditModeUi() {
   });
 }
 
-function setPartsEditMode(mode) {
-  if (!partsMode) return false;
-  const next = mode === 'input' ? 'input' : 'select';
-  if (next === partsEditMode) return false;
-  partsEditMode = next;
-  partLastDigit = null;
-  if (next === 'select') {
-    if (partsBendOpen()) closePartsBendEditor();
-    if (partsHarmOpen()) closePartsHarmEditor();
-  }
-  if (next === 'input') adoptPartsInputFromCursor();
-  syncPartsEditModeUi();
-  syncPartsPalette();
-  syncPartsTrackBar();
-  syncPartsCursorDom();
-  return true;
-}
+// Совместимость для старых вызовов/тестов: режима «Выбор» нет, ввод всегда.
+function setPartsEditMode() { return true; }
 
 // Рулон партии для секции. Ключ — id секции строкой (как в JSON-файле).
 function partRollFor(part, secId) {
@@ -53079,7 +53064,6 @@ function togglePartsMode(force) {
   if (next && timelineMode) toggleTimelineMode(false);
   partsMode = next;
   // B-12.11: вход в «Партии» — сразу ввод, как в GP; выделение сбрасываем.
-  partsEditMode = 'input';
   partsSelection = null;
   document.body.classList.toggle('is-parts', partsMode);
   startModeAnimation();
@@ -53909,7 +53893,7 @@ function buildPartsAlphaScore(alphaTab) {
         // Цвет голоса: активный голос активной дорожки — полный, чужие
         // голоса приглушены серым (как в GP без multivoice).
         try {
-          const hex = partVoiceColorHex(vn, isActivePart && vn !== activeVoice);
+          const hex = partVoiceColorHex(vn, isActivePart && vn !== activeVoice && !partsMultivoice);
           const rgb = [1, 3, 5].map((i) => parseInt(hex.substr(i, 2), 16));
           const style = new M.VoiceStyle();
           style.colors.set(alphaTab.model.VoiceSubElement.Glyphs,
@@ -53945,7 +53929,7 @@ function buildPartsAlphaScore(alphaTab) {
           if (n.tieCont) note.isTieDestination = true;
           try {
             const hex = partVoiceColorHex(Number(n.voice) || 1,
-              part.id === partsActiveId && (Number(n.voice) || 1) !== Math.max(1, Math.min(4, Number(partsVoice) || 1)));
+              part.id === partsActiveId && !partsMultivoice && (Number(n.voice) || 1) !== Math.max(1, Math.min(4, Number(partsVoice) || 1)));
             const rgb = [1, 3, 5].map((i) => parseInt(hex.substr(i, 2), 16));
             const noteStyle = new M.NoteStyle();
             const color = new M.Color(rgb[0], rgb[1], rgb[2]);
@@ -56953,7 +56937,13 @@ function reassignPartNoteVoice(note, nextVoice) {
   const voice = Number(nextVoice);
   if (!st || !Number.isInteger(voice) || voice < 1 || voice > 4) return false;
   const roll = partActiveRollFor(st.part, st.sec.id) || [];
-  if (!roll.includes(note)) return false;
+  if (!roll.includes(note)) {
+    const real = roll.find((n) => Math.abs(Number(n.start) - Number(note.start)) < PART_POS_EPS &&
+      partNoteLine(n) === partNoteLine(note) && Number(n.voice || 1) === Number(note.voice || 1) &&
+      Number(n.pitch || 0) === Number(note.pitch || 0));
+    if (!real) return false;
+    note = real;
+  }
   const currentVoice = Number(note.voice) || 1;
   if (currentVoice === voice) {
     partsVoice = voice;
@@ -56986,16 +56976,6 @@ function reassignPartNoteVoice(note, nextVoice) {
 function ensurePartsPalette() {
   const durGroup = document.getElementById('ptDurGroup');
   const markGroup = document.getElementById('ptMarkGroup');
-  const selectMode = document.getElementById('ptSelectMode');
-  const inputMode = document.getElementById('ptInputMode');
-  if (selectMode && selectMode.dataset.bound !== '1') {
-    selectMode.dataset.bound = '1';
-    selectMode.addEventListener('click', () => setPartsEditMode('select'));
-  }
-  if (inputMode && inputMode.dataset.bound !== '1') {
-    inputMode.dataset.bound = '1';
-    inputMode.addEventListener('click', () => setPartsEditMode('input'));
-  }
   if (!durGroup || !markGroup || durGroup.dataset.bound === '1') return;
   durGroup.dataset.bound = '1';
   durGroup.querySelectorAll('.pt-pal-btn').forEach((btn) => {
@@ -57565,12 +57545,23 @@ function setPartsNoteRange(part, sec, start, end) {
   const lo = partRoundUnits(Math.max(0, Math.min(start, end)));
   const hi = partRoundUnits(Math.max(lo, Math.max(start, end)));
   partsNoteRange = hi > lo ? { partId: part.id, secId: sec.id, start: lo, end: hi } : null;
+  if (partsNoteRange) partsTrackSel = null;
   syncPartsSelectionDom();
 }
 
 function clearPartsNoteRange() {
-  if (!partsNoteRange) return;
+  if (!partsNoteRange && !partsTrackSel) return;
   partsNoteRange = null;
+  partsTrackSel = null;
+  syncPartsSelectionDom();
+}
+
+// Вся дорожка выделена (GP: Ctrl+A и тройной клик — вся активная дорожка).
+function selectAllPartsTrack() {
+  const st = partCursorState();
+  if (!st) return;
+  partsNoteRange = null;
+  partsTrackSel = st.part.id;
   syncPartsSelectionDom();
 }
 
@@ -57618,9 +57609,50 @@ function deletePartsNotes(notes, st) {
   return true;
 }
 
+// Вставка набора нот в рулон секции поверх совпадающих (как pastePartsNotes,
+// но для произвольной дорожки/секции — нужно структурной вставке).
+function partsPasteClonesInto(part, sec, clones) {
+  const roll = partRollFor(part, sec.id);
+  if (!Array.isArray(roll) || !clones.length) return 0;
+  const unitsTotal = partSectionUnits(sec);
+  if (clones.some((n) => Number(n.start) + (Number(n.dur) || 0) > unitsTotal + 1e-6)) return 0;
+  songStore.dispatch('part/notes-paste', () => {
+    for (let i = roll.length - 1; i >= 0; i--) {
+      const old = roll[i];
+      if (clones.some((n) => Math.abs(Number(n.start) - Number(old.start)) < PART_POS_EPS &&
+        partNoteLine(n) === partNoteLine(old) && Number(n.voice || 1) === Number(old.voice || 1) &&
+        Number(n.pitch || 0) === Number(old.pitch || 0))) roll.splice(i, 1);
+    }
+    clones.forEach((n) => roll.push(n));
+    roll.sort((a, b) => Number(a.start) - Number(b.start));
+  });
+  return clones.length;
+}
+
 function copyPartsNotes(cut) {
   const st = partCursorState();
   if (!st) return false;
+  // Вся дорожка выделена: буфер хранит ноты по секциям (структурная вставка).
+  if (partsTrackSel === st.part.id) {
+    const groups = sections.map((sec, i) => ({
+      secOffset: i,
+      notes: (partRollFor(st.part, sec.id) || []).map((n) => JSON.parse(JSON.stringify(n))),
+    }));
+    const total = groups.reduce((sum, g) => sum + g.notes.length, 0);
+    if (!total) { showToast('На дорожке нет нот'); return false; }
+    partsClipboard = { kind: 'track', groups, notes: [], span: 0 };
+    if (cut) {
+      songStore.dispatch('part/notes-remove', () => {
+        sections.forEach((sec) => { const roll = partRollFor(st.part, sec.id); if (Array.isArray(roll)) roll.length = 0; });
+      });
+      partsTrackSel = null;
+      partsSelection = null;
+      syncPartsCursorDom();
+      syncPartsSelectionDom();
+      showToast('Дорожка вырезана в буфер');
+    } else showToast(`Скопирована дорожка: нот ${total}`);
+    return true;
+  }
   let notes;
   let from;
   let span;
@@ -57649,9 +57681,106 @@ function copyPartsNotes(cut) {
   return true;
 }
 
+// Ctrl+Shift+C/X (GP All-Track Copy/Cut): диапазон активной секции по всем
+// дорожкам сразу. Ctrl+Shift+V — спец-вставка (структурная или в новую дорожку).
+function copyAllPartsNotes(cut) {
+  const st = partCursorState();
+  if (!st) return false;
+  const from = partsNoteRange && partsNoteRange.secId === st.sec.id ? partsNoteRange.start : 0;
+  const to = partsNoteRange && partsNoteRange.secId === st.sec.id ? partsNoteRange.end : partSectionUnits(st.sec);
+  const perPart = [];
+  partVisibleList().forEach((part) => {
+    const notes = (partRollFor(part, st.sec.id) || [])
+      .filter((n) => Number(n.start) >= from - PART_POS_EPS && Number(n.start) < to - PART_POS_EPS)
+      .map((n) => { const c = JSON.parse(JSON.stringify(n)); c.start = partRoundUnits(Number(n.start) - from); return c; });
+    if (notes.length) perPart.push({ partId: part.id, notes });
+  });
+  const total = perPart.reduce((sum, g) => sum + g.notes.length, 0);
+  if (!total) { showToast('Нет нот для копирования по дорожкам'); return false; }
+  partsClipboard = { kind: 'multi', perPart, notes: [], span: to - from };
+  if (cut) {
+    perPart.forEach((g) => {
+      const part = songParts.find((p) => p.id === g.partId);
+      const roll = part && partRollFor(part, st.sec.id);
+      if (!Array.isArray(roll)) return;
+      const drop = new Set(roll.filter((n) => Number(n.start) >= from - PART_POS_EPS && Number(n.start) < to - PART_POS_EPS));
+      songStore.dispatch('part/notes-remove', () => {
+        for (let i = roll.length - 1; i >= 0; i--) if (drop.has(roll[i])) roll.splice(i, 1);
+      });
+    });
+    partsSelection = null;
+    syncPartsCursorDom();
+    syncPartsSelectionDom();
+  }
+  showToast(`${cut ? 'Вырезано' : 'Скопировано'} по ${perPart.length} дорожкам: нот ${total}`);
+  return true;
+}
+
+function specialPastePartsNotes() {
+  const st = partCursorState();
+  if (!st || !partsClipboard) return false;
+  if (partsClipboard.kind === 'multi') {
+    let inserted = 0;
+    partsClipboard.perPart.forEach((g) => {
+      const part = songParts.find((p) => p.id === g.partId);
+      if (!part) return;
+      inserted += partsPasteClonesInto(part, st.sec, g.notes.map((n) => {
+        const c = JSON.parse(JSON.stringify(n)); c.start = partRoundUnits(st.pos + Number(n.start)); return c;
+      }));
+    });
+    if (!inserted) { showToast('Вставить нельзя: ноты вышли бы за конец секции'); return false; }
+    showToast(`Спец-вставка: нот ${inserted} по дорожкам`);
+    return true;
+  }
+  if (partsClipboard.kind === 'track') return pastePartsNotes();
+  if (!partsClipboard.notes.length) return false;
+  // Обычный буфер спец-вставкой уходит в новую пустую дорожку-копию активной.
+  const src = st.part;
+  let copy = null;
+  songStore.dispatch('part/clone-track', () => {
+    copy = { ...src, id: nextPartId(), name: `${src.name} (вставка)`.slice(0, 60), rolls: {}, pitchRolls: {} };
+    songParts.splice(songParts.indexOf(src) + 1, 0, copy);
+  });
+  if (!copy) return false;
+  partsActiveId = copy.id;
+  setPartsCursorString(st.sec.id, st.pass, st.string, st.pos);
+  const ok = pastePartsNotes();
+  if (partsMode) renderPartsScreen();
+  return ok;
+}
+
 function pastePartsNotes() {
   const st = partCursorState();
-  if (!st || !partsClipboard || !partsClipboard.notes.length) return false;
+  if (!st || !partsClipboard) return false;
+  // Структурная вставка дорожки: секции ложатся от секции курсора по порядку.
+  if (partsClipboard.kind === 'track') {
+    const startIdx = sections.findIndex((sec) => sec.id === st.sec.id);
+    let inserted = 0;
+    let skipped = 0;
+    partsClipboard.groups.forEach((g) => {
+      const sec = sections[startIdx + g.secOffset];
+      if (!sec || !g.notes.length) { if (g.notes.length) skipped++; return; }
+      inserted += partsPasteClonesInto(st.part, sec,
+        g.notes.map((n) => { const c = JSON.parse(JSON.stringify(n)); c.start = partRoundUnits(Number(n.start)); return c; }));
+    });
+    if (!inserted) { showToast('Вставить нельзя: ноты выходят за конец песни'); return false; }
+    partsTrackSel = st.part.id;
+    syncPartsSelectionDom();
+    showToast(`Вставлена дорожка: нот ${inserted}` + (skipped ? `, секций пропущено: ${skipped}` : ''));
+    return true;
+  }
+  if (partsClipboard.kind === 'multi') {
+    // Обычная вставка из мультибуфера — только активная дорожка.
+    const group = partsClipboard.perPart.find((g) => g.partId === st.part.id);
+    if (!group || !group.notes.length) { showToast('В мультибуфере нет нот активной дорожки'); return false; }
+    const inserted = partsPasteClonesInto(st.part, st.sec, group.notes.map((n) => {
+      const c = JSON.parse(JSON.stringify(n)); c.start = partRoundUnits(st.pos + Number(n.start)); return c;
+    }));
+    if (!inserted) { showToast('Вставить нельзя: ноты вышли бы за конец секции'); return false; }
+    showToast(`Вставлено нот: ${inserted}`);
+    return true;
+  }
+  if (!partsClipboard.notes.length) return false;
   const roll = partActiveRollFor(st.part, st.sec.id);
   if (!Array.isArray(roll)) return false;
   const unitsTotal = partSectionUnits(st.sec);
@@ -57724,10 +57853,11 @@ function syncPartsSelectionDom() {
       el.dataset.domain === partsSelection.domain &&
       (partsSelection.pitch === undefined || Number(el.dataset.sourcePitch) === partsSelection.pitch);
     // B-12.11 этап 3: ноты внутри выделенного диапазона времени.
-    const inRange = !!partsNoteRange && row && Number(row.dataset.part) === partsNoteRange.partId &&
+    const inRange = (!!partsNoteRange && row && Number(row.dataset.part) === partsNoteRange.partId &&
       elSec === partsNoteRange.secId &&
       Number(el.dataset.sourceStart) >= partsNoteRange.start - PART_POS_EPS &&
-      Number(el.dataset.sourceStart) < partsNoteRange.end - PART_POS_EPS;
+      Number(el.dataset.sourceStart) < partsNoteRange.end - PART_POS_EPS) ||
+      (!!partsTrackSel && row && Number(row.dataset.part) === partsTrackSel);
     el.classList.toggle('is-selected', !!(selected || inRange));
   });
 }
@@ -57872,9 +58002,9 @@ function onPartScorePointerDown(event) {
     syncPartsCursorDom();
     syncPartsSelectionDom();
   }
-  // B-12.11 этап 3 (GP): тройной клик — вся дорожка; у нас диапазон = секция.
+  // B-12.11 этап 3 (план): тройной клик — вся дорожка, как в GP.
   if (event.detail >= 3) {
-    setPartsNoteRange(part, sec, 0, partSectionUnits(sec));
+    selectAllPartsTrack();
     event.preventDefault();
     return;
   }
@@ -57916,9 +58046,9 @@ function onPartTabPointerDown(event, svg, sec, viewWidth, part, stringCount) {
     adoptPartsInputFromCursor();
     syncPartsSelectionDom();
   }
-  // B-12.11 этап 3 (GP): тройной клик — вся дорожка; у нас диапазон = секция.
+  // B-12.11 этап 3 (план): тройной клик — вся дорожка, как в GP.
   if (event.detail >= 3) {
-    setPartsNoteRange(part, sec, 0, partSectionUnits(sec));
+    selectAllPartsTrack();
     event.preventDefault();
     return;
   }
@@ -58300,9 +58430,11 @@ function syncPartsTrackBar() {
     if (capoField) capoField.hidden = !hasSongTuning;
   }
   if (voiceSelect) {
+    // Не через partSelectedVoice(): тот читает сам селект и замыкает круг,
+    // из-за чего голос курсора «терялся» после Alt+цифры.
     voiceSelect.value = String(partsSelection && partsSelection.partId === (part && part.id)
       ? partsSelection.voice
-      : partSelectedVoice());
+      : (Number(partsVoice) || 1));
     voiceSelect.disabled = !partsInputEnabled() || !part;
   }
   if (voiceField) voiceField.hidden = !part;
@@ -59344,6 +59476,142 @@ function moveSelectedPartNote(kind, direction) {
   return true;
 }
 
+// L — лига ноты, Shift+L — лиги всей доли (GP Tie Note / Tie Beat). В нашей
+// модели связанная пара живёт одной длинной нотой, поэтому лига = слияние
+// ноты со следующей такой же (та же струна, лад и голос).
+function tiePartNote(wholeBeat) {
+  if (!partsInputEnabled()) return;
+  const st = partCursorState();
+  if (!st) return;
+  const roll = partActiveRollFor(st.part, st.sec.id);
+  if (!Array.isArray(roll)) return;
+  const anchors = (wholeBeat
+    ? roll.filter((n) => Math.abs(Number(n.start) - st.pos) < PART_POS_EPS)
+    : [partCursorNote()]).filter((n) => n && Number.isInteger(n.fret));
+  if (!anchors.length) { showToast('Нет ноты для лиги'); return; }
+  let merged = 0;
+  songStore.dispatch('part/note-tie', () => {
+    anchors.slice().forEach((note) => {
+      if (!roll.includes(note)) return;
+      const next = roll.filter((n) => n !== note && Number(n.string) === Number(note.string) &&
+        Number(n.voice || 1) === Number(note.voice || 1) && Number(n.fret) === Number(note.fret) &&
+        Number(n.start) >= Number(note.start) + (Number(note.dur) || 0) - 1e-9)
+        .sort((a, b) => Number(a.start) - Number(b.start))[0];
+      if (next) {
+        note.dur = partRoundUnits(Number(next.start) + (Number(next.dur) || 0) - Number(note.start));
+        roll.splice(roll.indexOf(next), 1);
+        merged++;
+      }
+    });
+  });
+  if (!merged) showToast('Рядом нет такой же ноты для лиги');
+  else syncPartsCursorDom();
+}
+
+// Ctrl+G (GP Go To): такт по номеру от начала песни или секция по названию.
+function partsGoToPrompt() {
+  const part = partActivePart();
+  const st = partCursorState();
+  if (!part || !st) return;
+  const answer = window.prompt('Перейти к: номер такта от начала песни или название секции');
+  if (!answer || !String(answer).trim()) return;
+  const bars = partScoreBars([part]);
+  let bar = null;
+  const text = String(answer).trim();
+  if (/^\d+$/.test(text)) {
+    const num = parseInt(text, 10);
+    if (num >= 1 && num <= bars.length) bar = bars[num - 1];
+  } else {
+    const q = text.toLowerCase();
+    bar = bars.find((b) => b.firstInSection && String(b.sectionLabel || '').toLowerCase().includes(q)) || null;
+  }
+  if (!bar) { showToast('Не нашёл такой такт или секцию'); return; }
+  setPartsCursorString(bar.sec.id, 0, st.string, bar.start);
+  if (partsScoreEngine === 'alphatab') positionPartsAtCursor(true);
+}
+
+// Голос курсора (GP Edit Voice, Ctrl+1..4): ввод пойдёт в этот голос.
+// ↑/↓ при фокусе на стане — шаг по гамме тональности секции (GP: диатоника).
+function movePartsPendingPitchDiatonic(delta) {
+  if (!partsInputEnabled()) return;
+  const st = partCursorState();
+  if (!st) return;
+  const selected = partCursorNote();
+  const current = Number.isInteger(st.staffPitch)
+    ? st.staffPitch
+    : selected ? partScoreNotePitch(st.part, selected) : 60;
+  const keyRaw = String(partNotationKey(st.sec) || 'C').replace('♯', '#').replace('♭', 'b');
+  const minor = /m$/.test(keyRaw) && !/maj/i.test(keyRaw);
+  const rootName = keyRaw.replace(/m$/, '');
+  const roots = { C: 0, 'C#': 1, Db: 1, D: 2, 'D#': 3, Eb: 3, E: 4, F: 5, 'F#': 6, Gb: 6, G: 7, 'G#': 8, Ab: 8, A: 9, 'A#': 10, Bb: 10, B: 11 };
+  const rootPc = roots[rootName] !== undefined ? roots[rootName] : 0;
+  const scale = (minor ? [0, 2, 3, 5, 7, 8, 10] : [0, 2, 4, 5, 7, 9, 11])
+    .map((i) => (rootPc + i) % 12);
+  let next = current + (delta < 0 ? -1 : 1);
+  while (next >= 0 && next <= 127 && !scale.includes(next % 12)) next += delta < 0 ? -1 : 1;
+  if (next < 0 || next > 127) { showToast('Нота выходит за диапазон MIDI 0–127'); return; }
+  partsCursor.staffPitch = next;
+  if (!partsCursor.staffClef) {
+    const displayPitch = selected ? partScoreNotePitch(st.part, selected) : next;
+    partsCursor.staffClef = partScoreClefForNote(st.part, displayPitch, partScoreSingleClef(st.part));
+  }
+  syncPartsCursorDom();
+}
+
+// Цифра при фокусе на стане — номер струны (GP): нота высотой курсора стана
+// пишется на эту струну, если лад достижим.
+function inputPartStaffStringDigit(digit) {
+  const st = partCursorState();
+  if (!st) return;
+  const count = partStringCount(st.part);
+  if (digit < 1 || digit > count) { showToast(`Струны ${digit} у дорожки нет`); return; }
+  const line = count - digit; // GP: струна 1 — верхняя (у нас индекс снизу)
+  const pitch = partsCursor && partsCursor.staffPitch; // до смены струны: она сбрасывает высоту
+  setPartsCursorString(st.sec.id, st.pass, line, st.pos);
+  if (!Number.isInteger(pitch)) {
+    showToast('Струна выбрана; высота — стрелками ↑/↓, ввод — Enter');
+    return;
+  }
+  partsCursor.staffPitch = pitch;
+  // Ноту пишем именно на выбранную струну (автоаппликатура тут не решает).
+  const tuning = partTuningNotes(st.part);
+  const openMidi = partsAtNoteMidi(tuning[line]);
+  const fret = pitch - 12 - partCapoNumber(st.part) - openMidi;
+  if (!Number.isInteger(openMidi) || fret < 0 || fret > 24) {
+    showToast('На этой струне нота недостижима (лад вне 0–24)');
+    return;
+  }
+  const roll = partActiveRollFor(st.part, st.sec.id);
+  if (!Array.isArray(roll)) return;
+  const voice = partSelectedVoice();
+  const nominal = partInputUnits(partSectionTs(st.sec), partInput.durIndex, partInput.dots, partInput.triplet);
+  const dur = partRoundUnits(Math.min(nominal, partSectionUnits(st.sec) - st.pos));
+  songStore.dispatch('part/staff-input', () => {
+    const existing = roll.find((n) => Math.abs(Number(n.start) - st.pos) < PART_POS_EPS &&
+      Number(n.string) === line && Number(n.voice || 1) === voice);
+    if (existing) existing.fret = fret;
+    else {
+      const note = { start: st.pos, dur, string: line, fret };
+      if (voice !== 1) note.voice = voice;
+      roll.push(note);
+      roll.sort((a, b) => Number(a.start) - Number(b.start));
+    }
+  });
+  syncPartsCursorDom();
+}
+
+function setPartsVoice(voice) {
+  const nextVoice = Math.max(1, Math.min(4, Number(voice) || 1));
+  const voiceSelect = document.getElementById('ptVoice');
+  if (voiceSelect) voiceSelect.value = String(nextVoice);
+  partsVoice = nextVoice;
+  partLastDigit = null;
+  adoptPartsInputFromCursor();
+  syncPartsCursorDom();
+  syncPartsTrackBar();
+  schedulePartsAlphaRender();
+}
+
 function deletePartNote() {
   if (!partsInputEnabled()) return;
   const st = partCursorState();
@@ -59351,6 +59619,16 @@ function deletePartNote() {
   // B-12.11 этап 3: с выделением Delete убирает все ноты диапазона.
   if (partsNoteRange && partsNoteRange.partId === st.part.id && partsNoteRange.secId === st.sec.id) {
     if (deletePartsNotes(partsRangeNotes(st.part, st.sec.id), st)) return;
+  }
+  if (partsTrackSel === st.part.id) {
+    songStore.dispatch('part/notes-remove', () => {
+      sections.forEach((sec) => { const r = partRollFor(st.part, sec.id); if (Array.isArray(r)) r.length = 0; });
+    });
+    partsTrackSel = null;
+    partsSelection = null;
+    syncPartsCursorDom();
+    syncPartsSelectionDom();
+    return;
   }
   const roll = partActiveRollFor(st.part, st.sec.id);
   const note = partCursorNote();
@@ -59503,9 +59781,37 @@ function handlePartsKeydown(e) {
     if (!e.ctrlKey && !e.metaKey) return true;
   }
   if (e.ctrlKey || e.metaKey) {
-    // B-12.11 этап 3 (GP): Ctrl+A — все ноты секции; Ctrl+C/X/V — буфер нот.
+    // B-12.11 этап 3 (план): Ctrl+Shift+C/X — буфер по всем дорожкам,
+    // Ctrl+Shift+V — спец-вставка; Ctrl+G — «Перейти к»; Ctrl+M — мультиголос;
+    // Ctrl+1..4 — голос курсора (GP All-Track Copy / Special Paste / Go To).
+    if (e.shiftKey && !e.altKey && ['KeyC', 'KeyX', 'KeyV'].includes(e.code)) {
+      if (e.code === 'KeyC') copyAllPartsNotes(false);
+      else if (e.code === 'KeyX') copyAllPartsNotes(true);
+      else specialPastePartsNotes();
+      e.preventDefault();
+      return true;
+    }
+    if (!e.altKey && !e.shiftKey && e.code === 'KeyG') {
+      partsGoToPrompt();
+      e.preventDefault();
+      return true;
+    }
+    if (!e.altKey && !e.shiftKey && e.code === 'KeyM') {
+      partsMultivoice = !partsMultivoice;
+      showToast(partsMultivoice ? 'Мультиголос: все голоса яркие' : 'Мультиголос выключен: чужие голоса приглушены');
+      schedulePartsAlphaRender();
+      if (partsMode) renderPartsScreen();
+      e.preventDefault();
+      return true;
+    }
+    if (!e.altKey && !e.shiftKey && /^Digit[1-4]$/.test(e.code || '')) {
+      setPartsVoice(Number(e.code.slice(5)));
+      e.preventDefault();
+      return true;
+    }
+    // B-12.11 этап 3 (план): Ctrl+A — вся дорожка (как в GP); Ctrl+C/X/V — буфер.
     if (!e.altKey && ['KeyA', 'KeyC', 'KeyX', 'KeyV'].includes(e.code)) {
-      if (e.code === 'KeyA') selectAllPartsNotes();
+      if (e.code === 'KeyA') selectAllPartsTrack();
       else if (e.code === 'KeyC') copyPartsNotes(false);
       else if (e.code === 'KeyX') copyPartsNotes(true);
       else pastePartsNotes();
@@ -59578,9 +59884,18 @@ function handlePartsKeydown(e) {
   const code = e.code || '';
   const key = e.key || '';
   const activePart = partActivePart();
-  if (!e.altKey && partsInputEnabled() && activePart && partNotationViewMode(activePart) === 'staff' &&
+  if (!e.ctrlKey && !e.metaKey && !e.altKey && ['F2', 'F5', 'F6', 'F8'].includes(key)) {
+    const panelId = { F2: 'partsPalette', F5: 'partsTracks', F6: 'partsTrackBar', F8: 'partsMixer' }[key];
+    const panel = panelId && document.getElementById(panelId);
+    if (panel) panel.hidden = !panel.hidden;
+    e.preventDefault();
+    return true;
+  }
+  if (!e.altKey && partsInputEnabled() && activePart &&
+      (partsStaffFocus || partNotationViewMode(activePart) === 'staff') &&
       (key === 'ArrowUp' || key === 'ArrowDown')) {
-    movePartsPendingPitchSemitone(key === 'ArrowUp' ? 1 : -1);
+    if (partsStaffFocus) movePartsPendingPitchDiatonic(key === 'ArrowUp' ? 1 : -1);
+    else movePartsPendingPitchSemitone(key === 'ArrowUp' ? 1 : -1);
     e.preventDefault();
     return true;
   }
@@ -59624,6 +59939,16 @@ function handlePartsKeydown(e) {
       return true;
     }
   }
+  // Alt+1..4 (GP Move Voice): ноту под курсором — в другой голос; без ноты
+  // меняется голос ввода.
+  if (e.altKey && !e.ctrlKey && !e.metaKey && /^Digit[1-4]$/.test(code)) {
+    const voice = Number(code.slice(5));
+    const note = partCursorNote();
+    if (note) reassignPartNoteVoice(note, voice);
+    else setPartsVoice(voice);
+    e.preventDefault();
+    return true;
+  }
   // Alt-варианты знаков (спека 5.6): Alt+S — shift slide, Alt+V — широкое
   // вибрато. Проверяем раньше «просто клавиш», иначе Alt перекрылся бы.
   if (e.altKey && !e.shiftKey) {
@@ -59654,6 +59979,11 @@ function handlePartsKeydown(e) {
   // B-12.11 (GP): W — лёгкое вибрато (как V); тремоло-бар переехал на
   // Ctrl+Alt+V. P — palm mute (Shift+P — тоже, у нас знак нотный);
   // T не должна уходить в глобальный таймлайн из окна партий.
+  if (code === 'KeyL' && !e.altKey) {
+    tiePartNote(e.shiftKey);
+    e.preventDefault();
+    return true;
+  }
   if (code === 'KeyW' && !e.altKey) {
     togglePartTone('vibrato');
     e.preventDefault();
@@ -59745,7 +60075,8 @@ function handlePartsKeydown(e) {
     }
   }
   if (/^[0-9]$/.test(key)) {
-    inputPartFret(Number(key));
+    if (partsStaffFocus && activePart && partNotationFlags(activePart).staff) inputPartStaffStringDigit(Number(key));
+    else inputPartFret(Number(key));
     e.preventDefault();
     return true;
   }
@@ -59769,10 +60100,17 @@ function handlePartsKeydown(e) {
     e.preventDefault();
     return true;
   }
-  // B-12.11 (GP): Tab/Shift+Tab — фокус таб ↔ нотный стан (у нас вид дорожки).
+  // B-12.11 этап 3 (план): Tab/Shift+Tab — курсор между табом и станом
+  // (GP Next/Previous Staff). Если показан только один стан — переключаем вид.
   if (key === 'Tab') {
     if (activePart) {
-      setPartNotationView(partNotationViewMode(activePart) === 'staff' ? 'tab' : 'staff');
+      const flags = partNotationFlags(activePart);
+      if (flags.staff && flags.tab) {
+        partsStaffFocus = !partsStaffFocus;
+        showToast(partsStaffFocus ? 'Курсор на нотном стане: цифры — струна, ↑/↓ — по гамме' : 'Курсор на табе: цифры — лад');
+      } else {
+        setPartNotationView(partNotationViewMode(activePart) === 'staff' ? 'tab' : 'staff');
+      }
     }
     e.preventDefault();
     return true;

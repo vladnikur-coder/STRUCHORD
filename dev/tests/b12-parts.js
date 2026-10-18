@@ -355,7 +355,7 @@ w.addEventListener('load', () => {
       w.eval('partsCursor && partsCursor.secId === sections[0].id') === true,
       JSON.stringify(w.eval('partsCursor')));
     // B-12.11: как в GP, ввод сразу при открытии — цифра пишет ноту.
-    check('окно партии открывается сразу с вводом (GP)', w.eval('partsEditMode') === 'input');
+    check('окно партии открывается сразу с вводом (GP)', w.eval('partsInputEnabled()') === true);
     w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: '5', bubbles: true }));
     check('цифра сразу добавляет ноту без переключения режима',
       w.eval('(songParts[0].rolls[String(sections[0].id)] || []).length') === 1,

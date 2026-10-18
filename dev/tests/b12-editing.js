@@ -138,7 +138,7 @@ w.addEventListener('load', async () => {
       visible: true, rolls: { '1': [] } }]));
     openParts();
     // B-12.11: как в GP, отдельных режимов нет — ввод сразу при открытии.
-    check('новое открытие партий начинается сразу с ввода (GP)', w.eval('partsEditMode') === 'input');
+    check('новое открытие партий начинается сразу с ввода (GP)', w.eval('partsInputEnabled()') === true);
     check('голос и палитра редактирования доступны сразу',
       !w.document.getElementById('ptVoice').disabled &&
       Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).every((button) => !button.disabled));
@@ -349,7 +349,7 @@ w.addEventListener('load', async () => {
     const beforeGpEdit = JSON.stringify(roll());
     key('ArrowRight', { code: 'ArrowRight', ctrlKey: true, shiftKey: true });
     check('Ctrl+Shift+→ (GP) выделяет, а не двигает ноту',
-      JSON.stringify(roll()) === beforeGpEdit && !!w.eval('partsNoteRange') && w.eval('partsEditMode') === 'input');
+      JSON.stringify(roll()) === beforeGpEdit && !!w.eval('partsNoteRange') && w.eval('partsInputEnabled()') === true);
 
     console.log(`\nитого: ${passed} ok, ${failed} FAIL`);
     if (failed) process.exitCode = 1;
