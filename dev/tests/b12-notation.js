@@ -138,6 +138,7 @@ w.addEventListener('load', () => {
     ];
     load(song(scoreParts));
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const track = w.document.getElementById('partsTrack');
     const partId = json('Object.fromEntries(songParts.map(p => [p.name, p.id]))');
     track.getBoundingClientRect = () => ({ left: 0, top: 0, right: 480, bottom: 400, width: 480, height: 400 });
@@ -322,6 +323,7 @@ w.addEventListener('load', () => {
       { id: 31, name: 'Bass', instrument: 'bass', visible: true, rolls: { '1': legacyRoll } },
     ]));
     w.eval('togglePartsMode(true); renderPartsScreen()');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     check('если все дорожки табовые, непрерывная таб-лента остаётся прежней',
       w.document.querySelectorAll('#partsTrack .pt-score-system').length === 0 &&
       w.document.querySelectorAll('#partsTrack .pt-score-marker').length === 2 &&

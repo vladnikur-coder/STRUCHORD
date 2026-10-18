@@ -242,6 +242,7 @@ w.addEventListener('load', async () => {
     // ================= 4. Модель, файл, мусор =================
     load([guitar, bass]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     selectSound(chId(0), 'drive');
     check('выбор звучания в карточке дорожки уезжает в модель',
       partOf(0).sound === 'drive' && w.eval('soundChannelValue("' + chId(0) + '")') === 'drive',
@@ -376,6 +377,7 @@ w.addEventListener('load', async () => {
     // ================= 7. Окно и отмена =================
     load([guitar, bass]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     clickAct(chId(0), 'soundAuto');
     const before = JSON.stringify(partOf(0));
     clickAct(chId(0), 'soundAuto'); // окно уже открыто — повторное нажатие ничего не меняет

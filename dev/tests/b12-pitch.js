@@ -104,6 +104,7 @@ w.addEventListener('load', () => {
     w.confirm = () => true;
     loadSong(baseSong);
     w.eval('togglePartsMode(true); setPartsEditMode("input"); renderPartsScreen()');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
 
     let part = json('songParts[0]');
     const pitchNotes = part.pitchRolls['1'];
@@ -160,6 +161,7 @@ w.addEventListener('load', () => {
     w.localStorage.setItem('struchord_songs', JSON.stringify([saved]));
     w.loadSong(0);
     w.eval('togglePartsMode(true); setPartsEditMode("input"); renderPartsScreen()');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     part = json('songParts[0]');
     check('pitch, velocity, голоса и таб-roll переживают перезагрузку',
       part.pitchRolls['1'].length === 4 && part.pitchRolls['1'].find((n) => n.pitch === 62).voice === 2 &&

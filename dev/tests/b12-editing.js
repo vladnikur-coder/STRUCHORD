@@ -72,6 +72,7 @@ function load(song) {
   w.confirm = () => true;
 }
 function openParts() { w.eval('togglePartsMode(true)'); }
+w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
 function setInput() { w.eval('setPartsEditMode("input")'); }
 function staffSvg(partId) {
   return w.document.querySelector(`.pt-row[data-part="${partId}"] svg.pt-score-staff-svg`);

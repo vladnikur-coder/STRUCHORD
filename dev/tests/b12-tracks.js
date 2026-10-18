@@ -112,6 +112,7 @@ w.addEventListener('load', () => {
     // ---------- 1. Стопка дорожек ----------
     load([guitar, bass]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G = pid(0);
     const B = pid(1);
     const track = w.document.getElementById('partsTrack');
@@ -289,6 +290,7 @@ w.addEventListener('load', () => {
     // ---------- 7. Включение и выключение дорожки ----------
     load([guitar, bass]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G2 = pid(0);
     const B2 = pid(1);
     w.eval(`partsActiveId = ${B2}; renderPartsScreen();`);
@@ -332,6 +334,7 @@ w.addEventListener('load', () => {
       rolls: { '1': [{ start: 0, dur: 1, string: 5, fret: 7 }, { start: 1, dur: 1, string: 2, fret: 5 }] },
     }]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G3 = pid(0);
     let asked = null;
     w.confirm = (msg) => { asked = msg; return false; };
@@ -390,6 +393,7 @@ w.addEventListener('load', () => {
     load([guitar, bass]);
     w.eval('resetHistory()');
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G4 = pid(0);
     w.eval(`partsActiveId = ${G4}; renderPartsScreen();`);
     w.document.getElementById('ptTrackClone').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
@@ -414,6 +418,7 @@ w.addEventListener('load', () => {
     load([guitar, bass]);
     w.eval('resetHistory()');
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G5 = pid(0);
     const B5 = pid(1);
     chip(B5).dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
@@ -454,6 +459,7 @@ w.addEventListener('load', () => {
     // ---------- 13. Нет дорожек: панель скрыта, подсказка про переключение ----------
     load([]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     check('без дорожек панель активной дорожки скрыта',
       w.document.getElementById('partsTrackBar').hidden === true);
     check('без дорожек пустое состояние предлагает создать партию',

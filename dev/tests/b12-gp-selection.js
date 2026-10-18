@@ -59,6 +59,7 @@ w.addEventListener('load', async () => {
     w.eval('render()');
     w.confirm = () => true;
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     w.eval('setPartsCursorString(1, 0, 5, 0)');
 
     // Shift+→ выделяет от курсора; DOM подсвечивает ноты диапазона.
