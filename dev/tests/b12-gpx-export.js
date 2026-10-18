@@ -102,13 +102,13 @@ const testSong = {
       strumPattern: null, squares: [square(121, ['D', 'A', 'Bm', 'G'])] },
   ],
   parts: [
-    { id: 21, name: 'Гитара', instrument: 'guitar', tuning: 'e-std', capo: 2, visible: true,
+    { id: 21, name: 'Гитара', instrument: 'guitar', viewMode: 'staff', tuning: 'e-std', capo: 2, visible: true,
       gmProgram: 25, midiChannel: 1, mix: { volume: 80, pan: -40, mute: false, solo: false },
       rolls: {
         // Секция 11 повторяется дважды: ноты живут в первом такте, GPIF
         // разворачивает повтор копиями тактов — это и проверяет круг.
         11: [
-          { start: 0, dur: 1, string: 5, fret: 3, letRing: true },
+          { start: 0, dur: 1, string: 5, fret: 3, letRing: true, pm: true, accent: 2 },
           { start: 1, dur: 1, string: 5, fret: 5 },
           { start: 2, dur: 2, string: 4, fret: 3, staccato: true },
           { start: 3, dur: 1, string: 2, fret: 1 },
@@ -138,7 +138,7 @@ const testSong = {
         12: [{ start: 0, dur: 1, pitch: 38, line: 2 }, { start: 2, dur: 1, pitch: 38, line: 2 }],
       },
       lyrics: [{ secId: 11, start: 0, text: 'первая строка', line: 1 },
-               { secId: 12, start: 2, text: 'вторая строка', line: 1 }] },
+               { secId: 12, start: 2, text: 'вторая строка', line: 2 }] },
   ],
   nextId: 100, rhythmPool: null, userFingerings: [], preferredFingerings: [], date: '2026-10-16',
 };
@@ -314,6 +314,11 @@ w.addEventListener('load', async () => {
     check('имя файла заканчивается на .gpx', /\.gpx$/.test(exported.report.fileName || ''), exported.report.fileName);
     check('отчёт перечисляет перенесённое', (exported.report.transferred || []).length > 0);
     check('отчёт перечисляет потери', (exported.report.losses || []).length > 0);
+    check('GPIF сообщает о потерянных эффектах и выбранном staff-виде дорожки',
+      (exported.report.losses || []).some((item) => /palm mute не кодируется/.test(item.label)) &&
+      (exported.report.losses || []).some((item) => /вид staff не кодируется/.test(item.label)) &&
+      (exported.report.losses || []).some((item) => /strong accent strength/.test(item.label)),
+      JSON.stringify(exported.report.losses));
     check('в отчёте есть строки о табулатуре',
       (exported.report.transferred || []).some((item) => /табулатурой/.test(item.label)));
 
@@ -443,6 +448,9 @@ w.addEventListener('load', async () => {
     const lyricsAfter = after.parts[2].lyrics.map((line) => String(line.text).trim()).filter(Boolean);
     check('слова текста вернулись в том же порядке', lyricsAfter.join('|') === lyricsBefore.join('|'),
       `${lyricsAfter.join('|')} / ${lyricsBefore.join('|')}`);
+    const lyricLinesAfter = new Set(after.parts[2].lyrics.map((line) => Number(line.line) || 1));
+    check('GPIF круг сохраняет номера строк lyrics', lyricLinesAfter.has(1) && lyricLinesAfter.has(2),
+      JSON.stringify(after.parts[2].lyrics.map((line) => [line.line, line.text])));
 
     // ---------- 4. Окно отчёта ----------
     w.exportGuitarPro();

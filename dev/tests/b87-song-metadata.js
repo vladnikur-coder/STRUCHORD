@@ -22,7 +22,7 @@ ok(src.includes('function requestLegacyMetadata'), 'старой песне по
 ok(src.includes('id="legacyArtist"') && src.includes('id="legacyTitle"'), 'в диалоге два поля');
 ok(src.includes('__metadataResolved'), 'диалог не зацикливает повторную загрузку');
 ok(src.includes("metadata, __metadataResolved: true"), 'ответ диалога передаётся в загрузчик');
-ok(src.includes('const SONG_SCHEMA_VERSION = 7'), 'схема поднята до v7 для lyrics и media manifests');
+ok(src.includes('const SONG_SCHEMA_VERSION = 9'), 'схема v9 сохраняет необязательные голоса tab-roll');
 ok(src.includes('migrateV3toV4'), 'цепочка миграций остаётся полной');
 ok(src.includes('songLibraryName(song) === name') || src.includes('songLibraryName(s) === name'), 'совпадения библиотеки учитывают составную подпись');
 ok(src.includes('findLibrarySongOriginIndex(songs)') && src.includes('songs[originIndex] = storedSongData'), 'сохранение обновляет исходную открытую запись библиотеки без inline media bytes');

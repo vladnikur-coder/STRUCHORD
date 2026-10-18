@@ -3,10 +3,10 @@
  * b12-parts.js — B-12.1 «Партии», кирпич 1 «Каркас».
  *
  * Проверяем:
- *  1. Схему: старая песня проходит миграции до v7 и загружается без партий;
+ *  1. Схему: старая песня проходит миграции до v9 и загружается без партий;
  *  2. Санитайзер партий: битые ноты отбрасываются, чужие ключи секций
  *     теряются, лимиты и allowlist работают;
- *  3. Сохранение: parts уезжают в файл, schemaVersion = 7;
+ *  3. Сохранение: parts уезжают в файл, schemaVersion = 9;
  *  4. Окно «Партии»: станки по проходам секций, чипы нот, пустое состояние;
  *  5. Режимы: is-parts, Esc, взаимоисключение с лентой;
  *  6. Звук: окна событий и времена нот (заглушка pluckString);
@@ -85,15 +85,15 @@ function loadSong(song) {
 
 w.addEventListener('load', () => {
   try {
-    // ---------- 1. Миграция старой схемы до v7 ----------
+    // ---------- 1. Миграция старой схемы до v9 ----------
     loadSong(baseSong());
     check('старая песня (v4) загружается без партий', w.eval('JSON.stringify(songParts)') === '[]');
-    check('схема поднята до 7 для lyrics и media manifests', w.eval('SONG_SCHEMA_VERSION') === 7);
+    check('схема поднята до 9 для режима нотной записи', w.eval('SONG_SCHEMA_VERSION') === 9);
     w.confirm = () => true;
     w.saveCurrentSong();
     const afterOld = JSON.parse(w.localStorage.getItem('struchord_songs'));
     const savedOld = afterOld[afterOld.length - 1];
-    check('в сейве schemaVersion 7', savedOld.schemaVersion === 7, String(savedOld.schemaVersion));
+    check('в сейве schemaVersion 9', savedOld.schemaVersion === 9, String(savedOld.schemaVersion));
     check('в сейве пустой список партий', Array.isArray(savedOld.parts) && savedOld.parts.length === 0);
 
     // ---------- 2. Санитайзер партий ----------
@@ -144,6 +144,29 @@ w.addEventListener('load', () => {
     check('валидный rollStringLimit сохраняет линию вне короткого грифа, не расширяя дальше лимита',
       rangedParts[0].rolls['1'].length === 1 && rangedParts[0].rolls['1'][0].string === 5 &&
         (!rangedParts[1].rolls['1'] || rangedParts[1].rolls['1'].length === 0) && !Object.prototype.hasOwnProperty.call(rangedParts[0], 'rollStringLimit'));
+
+    loadSong(baseSong({ schemaVersion: 8, parts: [{
+      id: 18, name: 'Voices', instrument: 'guitar', rolls: { '1': [
+        { start: 0, dur: 1, string: 5, fret: 3, voice: 4 },
+        { start: 0, dur: 1, string: 5, fret: 5, voice: 2 },
+        { start: 1, dur: 1, string: 4, fret: 2 },
+        { start: 2, dur: 1, string: 3, fret: 1, voice: 5 },
+      ] },
+    }] }));
+    const voices = JSON.parse(w.eval('JSON.stringify(songParts[0].rolls["1"])'));
+    check('миграция v8→v9 сохраняет tab-roll голоса 2–4, а отсутствие голоса означает 1',
+      w.eval('SONG_SCHEMA_VERSION') === 9 && voices.length === 4 &&
+        voices.filter((note) => Number(note.voice || 1) === 1).length === 2 &&
+        voices.some((note) => note.voice === 2) && voices.some((note) => note.voice === 4), JSON.stringify(voices));
+    w.saveCurrentSong();
+    const voiceSave = JSON.parse(w.localStorage.getItem('struchord_songs')).slice(-1)[0];
+    const voiceSavedRoll = voiceSave.parts[0].rolls['1'];
+    check('serialization round-trip сохраняет только необязательные voice 2–4',
+      voiceSave.schemaVersion === 9 && voiceSavedRoll.some((note) => note.voice === 2) &&
+        voiceSavedRoll.some((note) => note.voice === 4) &&
+        voiceSavedRoll.filter((note) => !Object.prototype.hasOwnProperty.call(note, 'voice')).length === 2 &&
+        voiceSavedRoll.every((note) => !Object.prototype.hasOwnProperty.call(note, 'voice') || [2, 3, 4].includes(note.voice)),
+      JSON.stringify(voiceSavedRoll));
 
     // Ремап ключей: дублирующиеся id секций в файле переназначаются, а
     // рулоны обязаны поехать за своими секциями.
@@ -325,9 +348,14 @@ w.addEventListener('load', () => {
     check('пустая песня: курсор сразу в новой секции',
       w.eval('partsCursor && partsCursor.secId === sections[0].id') === true,
       JSON.stringify(w.eval('partsCursor')));
-    // Ввод работает без визита в редактор: цифра набирает ноту.
+    // Select открывается первым: цифра не пишет, пока явно не включён Input.
+    check('окно партии по умолчанию открывает Select', w.eval('partsEditMode') === 'select');
     w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: '5', bubbles: true }));
-    check('пустая песня: ввод цифрой работает сразу',
+    check('в Select цифра не добавляет ноту',
+      w.eval('(songParts[0].rolls[String(sections[0].id)] || []).length') === 0);
+    w.eval('setPartsEditMode("input")');
+    w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: '5', bubbles: true }));
+    check('после явного переключения в Input цифра добавляет ноту',
       w.eval('(songParts[0].rolls[String(sections[0].id)] || []).length') === 1,
       w.eval('JSON.stringify(songParts[0].rolls)'));
 

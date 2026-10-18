@@ -103,12 +103,12 @@ w.addEventListener('load', () => {
     w.eval('previewPartPitchNote = function() {}; previewPartNote = function() {};');
     w.confirm = () => true;
     loadSong(baseSong);
-    w.eval('togglePartsMode(true); renderPartsScreen()');
+    w.eval('togglePartsMode(true); setPartsEditMode("input"); renderPartsScreen()');
 
     let part = json('songParts[0]');
     const pitchNotes = part.pitchRolls['1'];
-    check('v5 мигрировала через v6 в v7 с отдельным pitchRoll',
-      w.eval('SONG_SCHEMA_VERSION') === 7 && Array.isArray(pitchNotes) && pitchNotes.length === 4,
+    check('v5 мигрировала через v6/v7 в v9 с отдельным pitchRoll',
+      w.eval('SONG_SCHEMA_VERSION') === 9 && Array.isArray(pitchNotes) && pitchNotes.length === 4,
       JSON.stringify(pitchNotes));
     check('pitch — строго целый MIDI 0–127; строка и null отброшены',
       pitchNotes.every((note) => Number.isInteger(note.pitch) && note.pitch >= 0 && note.pitch <= 127) &&
@@ -135,29 +135,31 @@ w.addEventListener('load', () => {
       w.eval('partPitchLabel(60, songParts[0], sections[0])') === 'C4' &&
         Math.abs(w.eval('partPitchFrequency(60)') - 261.625565) < 0.001);
 
-    const svg = w.document.querySelector('#partsTrack .pt-svg');
-    const c4 = svg && svg.querySelector('.pt-pitch-note[data-pitch="60"]');
-    const d4 = svg && svg.querySelector('.pt-pitch-note[data-pitch="62"]');
-    const high = svg && svg.querySelector('.pt-pitch-note[data-pitch="127"]');
-    check('табовая сетка подписывает pitch-ноты высотой C4, не ладом',
-      !!c4 && Array.from(svg.querySelectorAll('text')).some((el) => el.textContent === 'C4'));
-    check('одновременные ноты разных голосов разнесены в линии',
-      !!c4 && !!d4 && c4.getAttribute('y') !== d4.getAttribute('y'),
-      `${c4 && c4.getAttribute('y')} / ${d4 && d4.getAttribute('y')}`);
-    check('высота вне грифа сохраняется и помечается непригодной',
-      !!high && high.classList.contains('is-unplayable') && high.getAttribute('data-pitch') === '127');
+    const svg = w.document.querySelector('#partsTrack .pt-score-staff-svg');
+    const c4 = svg && svg.querySelector('.pt-score-note[data-pitch="60"]');
+    const d4 = svg && svg.querySelector('.pt-score-note[data-pitch="62"]');
+    const high = svg && svg.querySelector('.pt-score-note[data-pitch="127"]');
+    const noteY = (node) => node && node.querySelector('.pt-score-notehead')?.getAttribute('cy');
+    check('GM keys показывается на нотном стане, а C4 читается из высоты',
+      !!svg && !!c4 && c4.querySelector('title').textContent.includes('C4'));
+    check('одновременные ноты разных голосов получают разные позиции стана',
+      !!c4 && !!d4 && noteY(c4) !== noteY(d4), `${noteY(c4)} / ${noteY(d4)}`);
+    const staffViewBox = svg && svg.getAttribute('viewBox').split(/\s+/).map(Number);
+    check('высота MIDI 127 остаётся видимой с динамически расширенным станом',
+      !!high && Number(high.getAttribute('data-pitch')) === 127 && staffViewBox &&
+        Number(noteY(high)) > 0 && Number(noteY(high)) < staffViewBox[3]);
 
     // Сохранение/загрузка схемы и pitch-массива.
     w.saveCurrentSong();
     let savedList = JSON.parse(w.localStorage.getItem('struchord_songs'));
     let saved = savedList[savedList.length - 1];
-    check('serialization записывает schemaVersion 7 и pitchRolls',
-      saved.schemaVersion === 7 && saved.parts[0].pitchRolls['1'].length === 4 &&
+    check('serialization записывает schemaVersion 9, viewMode и pitchRolls',
+      saved.schemaVersion === 9 && saved.parts[0].viewMode === 'staff' && saved.parts[0].pitchRolls['1'].length === 4 &&
         saved.parts[0].sourceName === 'Imported Synth' && saved.parts[0].gmProgram === 89 &&
         saved.parts[0].midiChannel === 3, JSON.stringify(saved.parts && saved.parts[0]));
     w.localStorage.setItem('struchord_songs', JSON.stringify([saved]));
     w.loadSong(0);
-    w.eval('togglePartsMode(true); renderPartsScreen()');
+    w.eval('togglePartsMode(true); setPartsEditMode("input"); renderPartsScreen()');
     part = json('songParts[0]');
     check('pitch, velocity, голоса и таб-roll переживают перезагрузку',
       part.pitchRolls['1'].length === 4 && part.pitchRolls['1'].find((n) => n.pitch === 62).voice === 2 &&
@@ -172,10 +174,13 @@ w.addEventListener('load', () => {
     const c4Cell = w.document.querySelector('#ptFretboard [data-string="4"][data-fret="1"]');
     check('гриф-пикер подписывает B3+1 как C4 / MIDI 60',
       !!c4Cell && c4Cell.title.includes('C4') && c4Cell.title.includes('MIDI 60'), c4Cell && c4Cell.title);
+    w.eval('setPartsCursorString(1, 0, 4, 0)');
     setVoice(3);
     clickFret(4, 3); // D4, pitch 62, voice 3
+    w.eval('setPartsCursorString(1, 0, 4, 0)');
     setVoice(4);
     clickFret(4, 5); // E4, pitch 64, voice 4
+    w.eval('setPartsCursorString(1, 0, 4, 0)');
     setVoice(3);
     clickFret(4, 4); // replace voice 3 with D#4, pitch 63
     part = json('songParts[0]');
@@ -205,7 +210,7 @@ w.addEventListener('load', () => {
     part = json('songParts[0]');
     check('смена на гитару показывает tab-roll, не уничтожая pitchRoll',
       part.rolls['1'].length === 1 && part.pitchRolls['1'].length === beforeRoles.pitchRolls['1'].length &&
-        w.document.getElementById('ptVoice').disabled && w.document.getElementById('ptInstrumentViewToggle').hidden);
+        !w.document.getElementById('ptVoice').disabled && w.document.getElementById('ptInstrumentViewToggle').hidden);
     setInstrument('keys');
     part = json('songParts[0]');
     check('возврат на keys сохраняет pitch- и tab-домены',
