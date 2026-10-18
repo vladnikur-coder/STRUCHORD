@@ -105,7 +105,20 @@ w.addEventListener('load', () => {
       { id: 20, name: 'Piano', instrument: 'keys', viewMode: 'staff', visible: true,
         pitchRolls: { '1': keyNotes } },
       { id: 21, name: 'Guitar', instrument: 'guitar', viewMode: 'staff', capo: 2, visible: true,
-        rolls: { '1': [{ start: 0, dur: 1, string: 5, fret: 0 }, { start: 1, dur: 1, string: 4, fret: 2 }] } },
+        rolls: { '1': [
+          { start: 0, dur: 1, string: 5, fret: 0, dead: true, pm: true, letRing: true,
+            staccato: true, accent: 1, vibrato: 'wide', bend: { type: 'bend', points: [[0, 0], [1, 2]] },
+            harm: { type: 'natural' }, trill: true, tremolo: true, tremBar: true,
+            grace: { fret: 1, onBeat: true }, deadSlap: true, pickScrape: true,
+            fade: 'in', ornament: 'mordent' },
+          { start: 1, dur: 1, string: 4, fret: 2, ghost: true, tenuto: true, fade: 'out' },
+          { start: 2, dur: 1, string: 4, fret: 4, legato: true },
+          { start: 3, dur: 1, string: 4, fret: 3, slide: 'shift' },
+        ] },
+        lyrics: [
+          { secId: 1, start: 0, text: 'staff lyric', line: 1 },
+          { secId: 1, start: 1, text: 'voice two', line: 2, voice: 2 },
+        ] },
       { id: 22, name: 'Bass', instrument: 'bass', viewMode: 'staff', visible: true,
         rolls: { '1': [{ start: 0, dur: 2, string: 0, fret: 0 }] } },
       { id: 23, name: 'Drums', instrument: 'drums', viewMode: 'staff', visible: true,
@@ -118,7 +131,8 @@ w.addEventListener('load', () => {
       { id: 25, name: 'Other', instrument: 'other', viewMode: 'staff', visible: true,
         pitchRolls: { '1': [{ start: 2, dur: 1, pitch: 48, line: 4 }] } },
       { id: 26, name: 'Legacy guitar', instrument: 'guitar', visible: true,
-        rolls: { '1': [{ start: 0, dur: 1, string: 4, fret: 30 }] } },
+        rolls: { '1': [{ start: 0, dur: 1, string: 4, fret: 30 }] },
+        lyrics: [{ secId: 1, start: 0, text: 'tab lyric', line: 1 }] },
       { id: 27, name: 'Synth', instrument: 'keys', gmProgram: 89, viewMode: 'staff', visible: true,
         pitchRolls: { '1': [{ start: 0, dur: 1, pitch: 48, line: 4 }] } },
     ];
@@ -206,6 +220,31 @@ w.addEventListener('load', () => {
     check('гитара пишет октавой выше; capo учитывается в звучащей высоте',
       !!guitarNote && Number(guitarNote.dataset.writtenPitch) === 78 && guitarNote.dataset.clef === 'treble' &&
       !!guitarRow.querySelector('.pt-score-clef-octave'));
+    const guitarStaffSvg = guitarRow && guitarRow.querySelector('.pt-score-staff-svg');
+    const guitarEffectTexts = guitarStaffSvg
+      ? Array.from(guitarStaffSvg.querySelectorAll('.pt-score-effect-text')).map((node) => node.textContent)
+      : [];
+    check('staff показывает знаки B-12.6, включая PM/L.R., bend, harmonic, ornament, grace и dead slap/pick scrape',
+      !!guitarStaffSvg && ['PM', 'L.R.', 'мор↓', 'slap', 'scrape'].every((text) => guitarEffectTexts.includes(text)) &&
+      !!guitarStaffSvg.querySelector('.pt-score-bend') && !!guitarStaffSvg.querySelector('.pt-grace-slash') &&
+      !!guitarStaffSvg.querySelector('.pt-vibrato') && !!guitarStaffSvg.querySelector('.pt-trem') &&
+      !!guitarStaffSvg.querySelector('.pt-score-dead-note') && !!guitarStaffSvg.querySelector('.pt-score-ghost') &&
+      !!guitarStaffSvg.querySelector('.pt-score-effect-text.pt-mark-harm'), JSON.stringify(guitarEffectTexts));
+    check('staff показывает линии legato/slide, артикуляцию и fade',
+      !!guitarStaffSvg && guitarStaffSvg.querySelectorAll('.pt-score-technique').length >= 2 &&
+      guitarStaffSvg.querySelectorAll('.pt-mark-artic').length >= 2 &&
+      guitarStaffSvg.querySelectorAll('.pt-mark-fade').length >= 2,
+      `technique=${guitarStaffSvg && guitarStaffSvg.querySelectorAll('.pt-score-technique').length}`);
+    check('lyrics отображаются под staff своей партии с line/voice и не редактируются здесь',
+      !!guitarStaffSvg && guitarStaffSvg.querySelectorAll('.pt-score-lyrics').length === 2 &&
+      guitarStaffSvg.querySelector('.pt-score-lyrics[data-line="1"]')?.textContent === 'staff lyric' &&
+      guitarStaffSvg.querySelector('.pt-score-lyrics[data-line="2"][data-voice="2"]')?.textContent === 'voice two' &&
+      !guitarStaffSvg.querySelector('.pt-score-lyrics[contenteditable]'));
+    const lyricsTabRow = track.querySelector(`.pt-score-row[data-part="${partId['Legacy guitar']}"]`);
+    const tabSvg = lyricsTabRow && lyricsTabRow.querySelector('.pt-score-tab-svg');
+    check('lyrics также отображаются под tab-строкой партии',
+      !!tabSvg && tabSvg.querySelector('.pt-score-lyrics[data-line="1"]')?.textContent === 'tab lyric');
+
     const bassRow = track.querySelector(`.pt-score-row[data-part="${partId.Bass}"]`);
     check('басовая таб-дорожка по запросу получает басовый ключ и октавный перенос',
       !!bassRow && bassRow.querySelector('.pt-score-note[data-pitch="28"]')?.dataset.clef === 'bass' &&

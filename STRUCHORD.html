@@ -9951,6 +9951,13 @@ body.is-parts .container {
 .pt-score-rest.is-measure-rest { opacity: 0.78; }
 .pt-score-tab-note { stroke: var(--color-brand); }
 .pt-score-tab-label { fill: var(--color-text-primary); font-size: 9px; font-weight: 600; pointer-events: none; }
+.pt-score-lyrics { fill: var(--color-text-primary); font-family: inherit; font-size: 9px; font-style: italic; }
+.pt-score-effect-text { font-size: 8px; }
+.pt-score-effect-path { pointer-events: none; }
+.pt-score-bend { stroke: var(--color-brand); stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }
+.pt-score-technique { pointer-events: none; }
+.pt-score-dead-note { stroke: var(--color-text-primary); stroke-width: 1.7; stroke-linecap: round; }
+.pt-score-ghost { fill: var(--color-text-secondary); font-family: serif; font-size: 10px; }
 .pt-svg text { pointer-events: none; }
 .pt-score-tab-structure { fill: var(--color-text-tertiary); font-size: 9px; }
 .pt-score-bar.is-playing .pt-score-notehead { stroke: var(--color-brand); }
@@ -13600,7 +13607,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.648</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.649</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15680,27 +15687,38 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     writer.intByteSizeString('');
   }
 
-  // Эффекты бита: два байта флагов и их данные (GP5).
+    // Эффекты бита: два байта флагов и их данные (GP5). Они относятся ко
+    // всему аккорду, поэтому учитываем эффект на любой ноте бита, а не только
+    // на первой (например, fade-in или whammy на верхнем голосе аккорда).
   function writeBeatEffects(writer, beat) {
-    const source = (beat.notes[0] && beat.notes[0].source) || {};
+    const sources = beat.notes.map((note) => note.source || {});
+    const has = (key) => sources.some((source) => !!source[key]);
+    const value = (key) => {
+      const source = sources.find((item) => item[key] !== undefined && item[key] !== null && item[key] !== false);
+      return source ? source[key] : null;
+    };
     let flags1 = 0;
     let flags2 = 0;
-    if (source.vibrato) flags1 |= 0x02;
-    if (source.fadeIn) flags1 |= 0x10;
-    if (source.slap) flags1 |= 0x20;
-    if (source.stroke || source.rasgueado) flags1 |= 0x40;
-    if (source.pickStroke) flags2 |= 0x02;
-    if (source.tremoloBar) flags2 |= 0x04;
+    if (has('vibrato')) flags1 |= 0x02;
+    if (has('fadeIn')) flags1 |= 0x10;
+    if (has('slap')) flags1 |= 0x20;
+    if (has('stroke') || has('rasgueado')) flags1 |= 0x40;
+    if (has('pickStroke')) flags2 |= 0x02;
+    if (has('tremoloBar')) flags2 |= 0x04;
     writer.u8(flags1);
     writer.u8(flags2);
-    if (flags1 & 0x20) writer.i8(Number(source.slap) || 0);
-    if (flags2 & 0x04) writeBend(writer, source.tremoloBar === true ? 0.5 : source.tremoloBar);
+    if (flags1 & 0x20) writer.i8(Number(value('slap')) || 0);
+    if (flags2 & 0x04) {
+      const bend = value('tremoloBar');
+      writeBend(writer, bend === true ? 0.5 : bend);
+    }
     if (flags1 & 0x40) {
-      const stroke = clamp(Math.round(Number(source.stroke || 3)), 1, 4);
+      const stroke = clamp(Math.round(Number(value('stroke') || value('rasgueado') || 3)), 1, 4);
+      const source = sources.find((item) => item.strokeUp !== undefined) || {};
       writer.i8(source.strokeUp ? stroke : 0);
       writer.i8(source.strokeUp ? 0 : stroke);
     }
-    if (flags2 & 0x02) writer.i8(Number(source.pickStroke) || 0);
+    if (flags2 & 0x02) writer.i8(Number(value('pickStroke')) || 0);
   }
 
   // Пауза во всю длину такта: GP5 не допускает тактов без битов.
@@ -15767,7 +15785,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     const hasTuplet = duration.tuplet > 0;
     const effects = beat.notes.some((note) => note.source
       && (note.source.staccato || note.source.tenuto || note.source.slap || note.source.rasgueado
-        || note.source.vibrato || note.source.fadeIn));
+        || note.source.vibrato || note.source.fadeIn || note.source.pickStroke || note.source.tremoloBar));
     writer.u8((duration.dots ? 0x01 : 0) | (effects ? 0x08 : 0) | (hasTuplet ? 0x20 : 0) | (change ? 0x10 : 0));
     writer.i8(duration.code);
     if (hasTuplet) writer.i32(duration.tuplet);
@@ -15831,6 +15849,13 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         color: [255, 255, 255],
       };
     });
+    for (const track of tracks) {
+      const defaultView = track.isDrums || (track.part.instrument !== 'guitar' && track.part.instrument !== 'bass')
+        ? 'staff' : 'tab';
+      if ((track.part.viewMode === 'staff' || track.part.viewMode === 'tab') && track.part.viewMode !== defaultView) {
+        lossOf(losses, `Дорожка «${track.part.name || track.index + 1}»: выбранный вид нотации не переносится; GP5-writer записывает оба вида (staff и tab)`, 1);
+      }
+    }
 
     let noteCount = 0;
     let beatCount = 0;
@@ -15866,53 +15891,75 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
 
     // --- лирика: одна привязка к дорожке, пять строк ---
     const lyricTracks = tracks.filter((track) => (track.part.lyrics || []).length);
-    const lyricTrackNumber = lyricTracks.length ? lyricTracks[0].index + 1 : 0;
-    const lyricLines = [];
+    let lyricTrackNumber = 0;
+    const lyricLines = Array(GP5_LYRIC_LINES).fill(null);
     if (lyricTracks.length) {
       const track = lyricTracks[0];
-      const words = (track.part.lyrics || [])
-        .slice()
-        .sort((a, b) => (Number(a.bar) - Number(b.bar)) || (Number(a.start || 0) - Number(b.start || 0)));
+      const words = (track.part.lyrics || []).slice().sort((a, b) =>
+        (Number(a.line || 1) - Number(b.line || 1))
+        || (Number(a.bar) - Number(b.bar))
+        || (Number(a.start || 0) - Number(b.start || 0)));
       if (lyricTracks.length > 1) {
         lossOf(losses, 'Строки текста в Guitar Pro 5 привязаны к одной дорожке, лишние дорожки с текстом оставлены в приложении', lyricTracks.length - 1);
       }
-      if (words.length) {
-        const noteTimeline = (track.beats[0] || []).map((beat) => ({ bar: beat.bar, start: beat.start, text: '' }));
+      const byLine = new Map();
+      let unsupportedLines = 0;
+      let otherVoices = 0;
+      for (const word of words) {
+        const line = Math.trunc(Number(word.line) || 1);
+        if (line < 1 || line > GP5_LYRIC_LINES) {
+          unsupportedLines++;
+          continue;
+        }
+        if (Math.trunc(Number(word.voice) || 1) !== 1) otherVoices++;
+        if (!byLine.has(line)) byLine.set(line, []);
+        byLine.get(line).push(word);
+      }
+      if (unsupportedLines) {
+        lossOf(losses, `Строки lyrics выше ${GP5_LYRIC_LINES}-й не записываются в GP5`, unsupportedLines);
+      }
+      if (otherVoices) {
+        lossOf(losses, 'GP5-писатель привязывает lyrics к первой голосовой линии дорожки; исходная привязка к другим голосам не сохраняется', otherVoices);
+      }
+
+      const noteTimeline = (track.beats[0] || []).map((beat) => ({ bar: beat.bar, start: beat.start }));
+      let shifted = 0;
+      let missing = 0;
+      for (const [line, lineWords] of byLine) {
+        lineWords.sort((a, b) => Number(a.bar) - Number(b.bar) || Number(a.start || 0) - Number(b.start || 0));
         let cursor = 0;
-        let drift = 0;
-        for (const word of words) {
+        const mapped = [];
+        for (const word of lineWords) {
+          const wantedBar = Number(word.bar) || 0;
+          const wantedStart = Number(word.start) || 0;
           while (cursor < noteTimeline.length
-            && (noteTimeline[cursor].bar < Number(word.bar)
-              || (noteTimeline[cursor].bar === Number(word.bar)
-                && noteTimeline[cursor].start + EPS < Number(word.start || 0)))) cursor++;
+            && (noteTimeline[cursor].bar < wantedBar
+              || (noteTimeline[cursor].bar === wantedBar && noteTimeline[cursor].start + EPS < wantedStart))) cursor++;
           if (cursor >= noteTimeline.length) {
-            drift++;
+            missing++;
             continue;
           }
-          noteTimeline[cursor].text = String(word.text || '');
+          const target = noteTimeline[cursor];
+          if (target.bar !== wantedBar || Math.abs(target.start - wantedStart) > EPS) shifted++;
+          mapped.push({ bar: target.bar, text: String(word.text || '') });
           cursor++;
         }
-        const firstBar = noteTimeline.findIndex((row) => row.text) >= 0
-          ? noteTimeline.find((row) => row.text).bar
-          : 0;
-        const text = lyricLineText(noteTimeline.filter((row) => row.text).map((row) => row.text));
-        if (text) lyricLines.push({ bar: firstBar, text });
-        if (drift) {
-          lossOf(losses, 'Слова без ноты под ними в Guitar Pro 5 не ставятся на место — они сдвинулись по нотам дорожки', drift);
-        }
-        const extra = words.length - lyricLines.reduce((sum, line) => sum + line.text.split(' ').length, 0);
-        if (extra > 0) lossOf(losses, 'Строки текста без нот не переносятся', extra);
+        const text = lyricLineText(mapped.map((item) => item.text).filter(Boolean));
+        if (text) lyricLines[line - 1] = { bar: mapped.find((item) => item.text)?.bar || 0, text };
       }
-    }
-    if (lyricLines.length > GP5_LYRIC_LINES) {
-      lossOf(losses, `В Guitar Pro 5 не больше ${GP5_LYRIC_LINES} строк текста на дорожку`, lyricLines.length - GP5_LYRIC_LINES);
-      lyricLines.length = GP5_LYRIC_LINES;
+      if (shifted) {
+        lossOf(losses, 'Позиции lyrics не совпали с нотами первого голоса GP5 и смещены к следующей ноте', shifted);
+      }
+      if (missing) {
+        lossOf(losses, 'Lyrics без следующей ноты первого голоса GP5 не записаны', missing);
+      }
+      if (lyricLines.some((line) => line && line.text)) lyricTrackNumber = track.index + 1;
     }
     writer.i32(lyricTrackNumber);
     for (let line = 0; line < GP5_LYRIC_LINES; line++) {
       const value = lyricLines[line];
-      writer.i32(value ? value.bar + 1 : 0);
-      writer.intSizeString(value ? value.text : '');
+      writer.i32(value && value.text ? value.bar + 1 : 0);
+      writer.intSizeString(value && value.text ? value.text : '');
     }
 
     // --- мастер-RSE (19 байт) ---
@@ -16146,7 +16193,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         tracks: tracks.length,
         notes: noteCount,
         beats: beatCount,
-        lyrics: lyricLines.length,
+        lyrics: lyricLines.filter((line) => line && line.text).length,
         bytes: writer.length,
       },
     };
@@ -16394,6 +16441,27 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       const amount = Number.isFinite(count) ? Math.max(1, Math.trunc(count)) : 1;
       losses.push({ label: key, count: (losses.find((item) => item.label === key) || { count: 0 }).count + amount });
     };
+    const reportUnsupportedNoteEffects = (part, partIndex, note) => {
+      const name = part.name || partIndex + 1;
+      const unsupported = [];
+      if (note.pm === true) unsupported.push('palm mute');
+      if (note.dead === true) unsupported.push('dead note');
+      if (note.deadSlap === true) unsupported.push('dead slap');
+      if (note.pickScrape === true) unsupported.push('pick scrape');
+      if (note.bend) unsupported.push('bend curve');
+      if (note.harm) unsupported.push('harmonic');
+      if (note.grace) unsupported.push('grace note');
+      if (note.slide) unsupported.push('slide');
+      if (note.trill === true) unsupported.push('trill');
+      if (note.tremolo === true) unsupported.push('tremolo picking');
+      if (note.tremBar === true) unsupported.push('tremolo-bar mark');
+      if (note.fade === 'in' || note.fade === 'out') unsupported.push('fade mark');
+      if (note.ornament) unsupported.push('ornament');
+      if (Number(note.accent) === 2) unsupported.push('strong accent strength');
+      const articulationCount = [note.staccato === true, Number(note.accent) > 0, note.tenuto === true].filter(Boolean).length;
+      if (articulationCount > 1) unsupported.push('combined staccato/accent/tenuto (writer keeps one articulation)');
+      unsupported.forEach((effect) => loss(`Дорожка «${name}»: ${effect} не кодируется текущим GPIF-писателем`, 1));
+    };
 
     const song = model || {};
     const meta = song.meta || {};
@@ -16480,6 +16548,10 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     parts.forEach((part, partIndex) => {
       const instrument = part.instrument || 'guitar';
       const isTab = instrument === 'guitar' || instrument === 'bass';
+      const defaultView = isTab ? 'tab' : 'staff';
+      if ((part.viewMode === 'staff' || part.viewMode === 'tab') && part.viewMode !== defaultView) {
+        loss(`Дорожка «${part.name || partIndex + 1}»: выбранный вид ${part.viewMode} не кодируется текущим GPIF-писателем`, 1);
+      }
       const tuning = Array.isArray(part.tuning) && part.tuning.length ? part.tuning.slice() : defaultTuning(instrument);
       const tuningPitches = tuning.map(tuningPitch);
       if (tuningPitches.some((pitch) => pitch === null)) {
@@ -16524,6 +16596,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           }
         }
         if (!info.list) info.list = [];
+        reportUnsupportedNoteEffects(part, partIndex, note);
         info.list.push({
           partIndex, voice: clamp(Number(note.voice) || 1, 1, 4), start: quarters,
           duration, string, fret, note, noteKey: `p${partIndex}b${info.index}n${info.list.length}`,
@@ -16769,10 +16842,30 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       out.push('<\/GeneralMidi>');
       out.push('<PlaybackState>Default<\/PlaybackState>');
       out.push('<Lyrics dispatched="true">');
+      const lyricsByLine = new Map();
       for (const lyric of part.lyrics || []) {
+        const line = Math.max(1, Math.min(16, Math.trunc(Number(lyric.line) || 1)));
+        if (!lyricsByLine.has(line)) lyricsByLine.set(line, []);
+        lyricsByLine.get(line).push(lyric);
+        if (Number(lyric.voice) > 1) {
+          loss(`Дорожка «${part.name || partIndex + 1}»: GPIF-lyrics не сохраняют привязку к голосу`, 1);
+        }
+        if (Math.abs(Number(lyric.start) || 0) > EPS) {
+          loss(`Дорожка «${part.name || partIndex + 1}»: GPIF-lyrics сохраняют начало по такту, но не внутритактовую позицию слога`, 1);
+        }
+      }
+      const highestLyricLine = lyricsByLine.size ? Math.max(...lyricsByLine.keys()) : 0;
+      for (let line = 1; line <= highestLyricLine; line++) {
+        const entries = (lyricsByLine.get(line) || []).slice().sort((a, b) =>
+          Number(a.bar) - Number(b.bar) || Number(a.start || 0) - Number(b.start || 0));
+        const text = entries.map((lyric) => String(lyric.text || '').trim()).filter(Boolean).join(' ');
+        if (!text && !lyricsByLine.has(line)) {
+          out.push('<Line><Text><![CDATA[]]><\/Text><Offset>0<\/Offset><\/Line>');
+          continue;
+        }
         out.push('<Line>');
-        out.push(`<Text>${cdata(lyric.text || '')}<\/Text>`);
-        out.push(`<Offset>${Math.max(0, Math.trunc(Number(lyric.bar) || 0))}<\/Offset>`);
+        out.push(`<Text>${cdata(text)}<\/Text>`);
+        out.push(`<Offset>${Math.max(0, Math.trunc(Number(entries[0] && entries[0].bar) || 0))}<\/Offset>`);
         out.push('<\/Line>');
       }
       out.push('<\/Lyrics>');
@@ -51355,10 +51448,11 @@ const PART_TAB_MARK_GAP = 13; // от края стана до первой по
 // Какие полки заняты в этой системе и какой запас нужен стану.
 // Сверху (по порядку от стана): пунктир PM, подпись PM, подпись L.R.
 // Снизу: артикуляция, акценты, стрелки fade.
-function partMarkLayout(notes, soundPoints, sec) {
+function partMarkLayout(notes, soundPoints, sec, options) {
   const has = (test) => notes.some(test);
   const above = [];
   const below = [];
+  const staffScore = !!(options && options.staff === true);
   // B-12.7.3: знаки структуры занимают полки ПОД знаками приёмов — они
   // относятся к квадрату целиком, а не к одной ноте. Порядок от стана вверх:
   // метки (Segno/Coda/Fine/To Coda) → переходы (D.C./D.S.) → скобка вольты,
@@ -51382,11 +51476,17 @@ function partMarkLayout(notes, soundPoints, sec) {
   // пометка о тембре, а не знак исполнения.
   if (soundPoints && soundPoints.length) above.push('sound');
   if (has((n) => n.staccato === true || n.tenuto === true)) below.push('artic');
+  if (has((n) => n.staccato === true && n.tenuto === true)) below.push('articSecondary');
   if (has((n) => n.vibrato === 'slight' || n.vibrato === 'wide')) below.push('vibrato');
   if (has((n) => n.tremolo === true)) below.push('trem');
   if (has((n) => n.tremBar === true)) below.push('tremBar');
   if (has((n) => n.accent === 1 || n.accent === 2)) below.push('accent');
   if (has((n) => n.fade === 'in' || n.fade === 'out')) below.push('fade');
+  // В нотном стане линии legato/slide должны иметь собственную полку ниже
+  // штрихов, чтобы не пересекать ноты и lyrics. Табовый лэйаут не меняется.
+  if (staffScore && has((n) => n.legato === true || n.slide === 'legato' || n.slide === 'shift')) {
+    below.push('technique');
+  }
   const rows = {};
   above.forEach((key, i) => { rows[key] = -(PART_TAB_MARK_GAP + i * PART_TAB_MARK_ROW); });
   below.forEach((key, i) => { rows[key] = PART_TAB_MARK_GAP + i * PART_TAB_MARK_ROW; });
@@ -51453,7 +51553,7 @@ function partNoteMarks(note, layout) {
   if (note.harm) {
     const harmText =
       note.harm.type === 'natural'
-        ? `<${note.fret}>`
+        ? `<${Number.isFinite(Number(note.fret)) ? note.fret : Number.isFinite(Number(note.pitch)) ? note.pitch : '?'}>`
         : PART_HARM_LABELS[note.harm.type] || PART_HARM_LABELS.artificial;
     marks.push({ text: harmText, cls: 'pt-mark-harm', dy: above('harm') });
   }
@@ -51476,7 +51576,9 @@ function partNoteMarks(note, layout) {
   if (note.deadSlap === true) marks.push({ text: 'slap', cls: 'pt-mark-slap', dy: above('slap') });
   if (note.pickScrape === true) marks.push({ text: 'scrape', cls: 'pt-mark-scrape', dy: above('scrape') });
   if (note.staccato === true) marks.push({ text: '•', cls: 'pt-mark-artic', dy: below('artic') });
-  else if (note.tenuto === true) marks.push({ text: '—', cls: 'pt-mark-artic', dy: below('artic') });
+  if (note.tenuto === true) marks.push({
+    text: '—', cls: 'pt-mark-artic', dy: below(note.staccato === true ? 'articSecondary' : 'artic'),
+  });
   if (note.fade === 'in') marks.push({ text: '↗', cls: 'pt-mark-fade', dy: below('fade') });
   else if (note.fade === 'out') marks.push({ text: '↘', cls: 'pt-mark-fade', dy: below('fade') });
   return marks;
@@ -54246,6 +54348,59 @@ function partScoreNotationFor(note, timeSig) {
     { durIndex: PART_DEFAULT_DUR_INDEX, dots: 0, triplet: false };
 }
 
+function partScoreLyricsForSection(part, secId) {
+  return (Array.isArray(part && part.lyrics) ? part.lyrics : [])
+    .filter((lyric) => lyric && Number(lyric.secId) === Number(secId) && String(lyric.text || '').trim())
+    .slice()
+    .sort((a, b) => Number(a.start) - Number(b.start) || Number(a.line || 1) - Number(b.line || 1) || Number(a.voice || 1) - Number(b.voice || 1));
+}
+
+function partScoreLyricsInBar(part, bar) {
+  const start = Number(bar && bar.start) || 0;
+  const end = Number(bar && bar.end) || 0;
+  return partScoreLyricsForSection(part, bar && bar.sec && bar.sec.id).filter((lyric) => {
+    const at = Number(lyric.start);
+    return Number.isFinite(at) && at >= start - PART_SCORE_EPSILON && at < end - PART_SCORE_EPSILON;
+  });
+}
+
+function partScoreLyricsLayout(lyrics) {
+  const keys = Array.from(new Set((lyrics || []).map((lyric) =>
+    `${Math.max(1, Math.min(16, Math.trunc(Number(lyric.line) || 1)))}|${Math.max(1, Math.min(4, Math.trunc(Number(lyric.voice) || 1)))}`
+  ))).sort((a, b) => {
+    const [lineA, voiceA] = a.split('|').map(Number);
+    const [lineB, voiceB] = b.split('|').map(Number);
+    return lineA - lineB || voiceA - voiceB;
+  });
+  const rowByKey = new Map(keys.map((key, index) => [key, index]));
+  return {
+    rows: keys.length,
+    rowFor(lyric) {
+      const key = `${Math.max(1, Math.min(16, Math.trunc(Number(lyric && lyric.line) || 1)))}|${Math.max(1, Math.min(4, Math.trunc(Number(lyric && lyric.voice) || 1)))}`;
+      return rowByKey.has(key) ? rowByKey.get(key) : 0;
+    },
+  };
+}
+
+function partScoreDrawLyrics(svg, lyrics, layout, xAt, baselineY, rowGap) {
+  const gap = Number(rowGap) > 0 ? Number(rowGap) : 12;
+  (lyrics || []).forEach((lyric) => {
+    const start = Number(lyric.start);
+    if (!Number.isFinite(start)) return;
+    const line = Math.max(1, Math.min(16, Math.trunc(Number(lyric.line) || 1)));
+    const voice = Math.max(1, Math.min(4, Math.trunc(Number(lyric.voice) || 1)));
+    const x = Number(xAt(start));
+    if (!Number.isFinite(x)) return;
+    const text = partScoreSvgText(svg, x + 2, baselineY + layout.rowFor(lyric) * gap, String(lyric.text || ''), 'pt-score-lyrics', {
+      'data-line': line,
+      'data-voice': voice,
+      'data-start': start.toFixed(4),
+      'text-anchor': 'start',
+    });
+    text.setAttribute('aria-label', `Lyrics, строка ${line}, голос ${voice}: ${String(lyric.text || '')}`);
+  });
+}
+
 function partScoreRestPieces(units, timeSig) {
   const perQuarter = partUnitsPerQuarter(timeSig) || 1;
   const candidates = [];
@@ -54394,9 +54549,127 @@ function partScoreDrawRepeatAndVolta(svg, bar, staves, width) {
   }
 }
 
+function partScoreBendValueAt(points, at) {
+  if (!Array.isArray(points) || !points.length) return 0;
+  const sorted = points.map((point) => [Number(point && point[0]), Number(point && point[1])])
+    .filter((point) => point.every(Number.isFinite))
+    .sort((a, b) => a[0] - b[0]);
+  if (!sorted.length) return 0;
+  if (at <= sorted[0][0]) return sorted[0][1];
+  for (let index = 1; index < sorted.length; index++) {
+    if (at > sorted[index][0]) continue;
+    const left = sorted[index - 1];
+    const right = sorted[index];
+    const span = right[0] - left[0];
+    const ratio = span > PART_SCORE_EPSILON ? (at - left[0]) / span : 1;
+    return left[1] + (right[1] - left[1]) * ratio;
+  }
+  return sorted[sorted.length - 1][1];
+}
+
+function partScoreDrawBend(svg, item, layout, bar) {
+  const points = item && item.note && item.note.bend && item.note.bend.points;
+  const duration = Number(item && item.note && item.note.dur);
+  if (!Array.isArray(points) || points.length < 2 || !(duration > PART_SCORE_EPSILON)) return;
+  const from = Math.max(0, Math.min(1, (item.onset - Number(item.note.start)) / duration));
+  const to = Math.max(from, Math.min(1, (item.end - Number(item.note.start)) / duration));
+  if (to - from <= PART_SCORE_EPSILON) return;
+  const sorted = points.map((point) => [Number(point && point[0]), Number(point && point[1])])
+    .filter((point) => point.every(Number.isFinite))
+    .sort((a, b) => a[0] - b[0]);
+  if (sorted.length < 2) return;
+  const samples = [[from, partScoreBendValueAt(sorted, from)]];
+  sorted.forEach((point) => {
+    if (point[0] > from + PART_SCORE_EPSILON && point[0] < to - PART_SCORE_EPSILON) samples.push(point);
+  });
+  samples.push([to, partScoreBendValueAt(sorted, to)]);
+  const baseY = item.staff.top + (layout.rows.bend === undefined ? -PART_TAB_MARK_GAP : layout.rows.bend);
+  const pointsText = samples.map(([at, value]) => {
+    const x = partScoreXAt(bar, Number(item.note.start) + at * duration);
+    const y = baseY - Math.max(-8, Math.min(8, value)) * 2.1;
+    return `${x.toFixed(2)},${y.toFixed(2)}`;
+  }).join(' ');
+  svg.appendChild(partScoreSvg('polyline', { points: pointsText, class: 'pt-score-bend', fill: 'none' }));
+}
+
+function partScoreDrawStaffEffects(svg, prepared, rollNotes, layout, bar, staves, isTab) {
+  const previousByNote = new Map();
+  if (isTab && Array.isArray(rollNotes) && rollNotes.length) {
+    const previous = partPreviousOnString(rollNotes);
+    rollNotes.forEach((note, index) => previousByNote.set(note, previous[index]));
+  }
+  prepared.forEach((item) => {
+    const note = item.note;
+    if (Number(note.start) < bar.start - PART_SCORE_EPSILON) return;
+    const centerX = item.x + (item.headOffset || 0);
+    partNoteMarks(note, layout).forEach((mark) => {
+      const y = mark.dy < 0 ? item.staff.top + mark.dy : item.staff.bottom + mark.dy;
+      const node = partScoreSvgText(svg, centerX, y, mark.text, `pt-note-mark ${mark.cls} pt-score-effect-text`, { 'text-anchor': 'middle' });
+      node.setAttribute('aria-label', mark.text);
+    });
+    partNotePaths(note, layout, centerX).forEach((spec) => {
+      svg.appendChild(partScoreSvg(spec.tag, Object.assign({
+        class: `${spec.cls} pt-score-effect-path`,
+        transform: `translate(0 ${item.staff.bottom})`,
+      }, spec.attrs)));
+    });
+    partScoreDrawBend(svg, item, layout, bar);
+
+    if (!isTab || !(note.legato === true || note.slide === 'legato' || note.slide === 'shift')) return;
+    const previous = previousByNote.get(note);
+    if (!previous) return;
+    const previousOutside = Number(previous.start) < bar.start - PART_SCORE_EPSILON;
+    const fromUnit = previousOutside ? bar.start : Number(previous.start);
+    const toUnit = Math.min(bar.end, Number(note.start));
+    if (toUnit < fromUnit - PART_SCORE_EPSILON ||
+        (toUnit <= fromUnit + PART_SCORE_EPSILON && !previousOutside)) return;
+    const x1 = previousOutside
+      ? Math.max(2, bar.leftInset - 8)
+      : partScoreXAt(bar, fromUnit);
+    const x2 = partScoreXAt(bar, toUnit) + (item.headOffset || 0);
+    if (x2 <= x1 + 4) return;
+    const laneY = item.staff.bottom + (layout.rows.technique || PART_TAB_MARK_GAP);
+    if (note.legato === true) {
+      const y = laneY - (note.slide ? 4 : 0);
+      svg.appendChild(partScoreSvg('path', {
+        d: `M ${x1.toFixed(2)} ${y.toFixed(2)} Q ${((x1 + x2) / 2).toFixed(2)} ${(y - 7).toFixed(2)} ${x2.toFixed(2)} ${y.toFixed(2)}`,
+        class: 'pt-slur pt-score-technique', fill: 'none',
+      }));
+    }
+    if (note.slide === 'legato' || note.slide === 'shift') {
+      const y1 = laneY + (note.legato ? 3 : 0);
+      const y2 = y1 + (note.slide === 'shift' ? -4 : 4);
+      svg.appendChild(partScoreSvg('line', {
+        x1: x1.toFixed(2), y1: y1.toFixed(2), x2: x2.toFixed(2), y2: y2.toFixed(2),
+        class: `pt-slide pt-score-technique${note.slide === 'shift' ? ' is-shift' : ''}`,
+      }));
+    }
+  });
+  if (!isTab || layout.rows.pmLine === undefined || !Array.isArray(rollNotes) || !rollNotes.length) return;
+  const unitsTotal = partSectionUnits(bar.sec);
+  partPalmMuteSpans(rollNotes, unitsTotal).forEach((span) => {
+    const from = Math.max(bar.start, Number(span.from));
+    const to = Math.min(bar.end, Number(span.to));
+    if (to <= from + PART_SCORE_EPSILON) return;
+    const y = staves[0].top + layout.rows.pmLine;
+    svg.appendChild(partScoreSvg('line', {
+      x1: partScoreXAt(bar, from).toFixed(2), y1: y.toFixed(2),
+      x2: partScoreXAt(bar, to).toFixed(2), y2: y.toFixed(2),
+      class: 'pt-pm-line pt-score-effect-path',
+    }));
+  });
+}
+
 function buildPartStaffScoreSvg(part, bar, singleClefOverride) {
   const inst = partInstrumentId(part);
   const notes = partScoreNotesInBar(part, bar);
+  const sectionNotes = partActiveRollFor(part, bar.sec.id) || [];
+  const isTab = inst === 'guitar' || inst === 'bass';
+  const effectLayout = partMarkLayout(sectionNotes, [], null, { staff: isTab });
+  const lyrics = partScoreLyricsInBar(part, bar);
+  const lyricsLayout = partScoreLyricsLayout(lyrics);
+  const lyricHeight = lyricsLayout.rows ? lyricsLayout.rows * 12 + 8 : 0;
+  const hasBend = sectionNotes.some((note) => note && note.bend && Array.isArray(note.bend.points));
   const singleClef = singleClefOverride || partScoreSingleClef(part);
   const staffPlan = inst === 'keys' && partScoreUsesGrandStaff(part)
     ? [{ clef: 'treble', top: 14 }, { clef: 'bass', top: 63 }]
@@ -54448,15 +54721,19 @@ function buildPartStaffScoreSvg(part, bar, singleClefOverride) {
   if (!Number.isFinite(minNoteY)) minNoteY = baseStaves[0].top;
   if (!Number.isFinite(maxNoteY)) maxNoteY = baseStaves[baseStaves.length - 1].bottom;
   // Диапазон MIDI шире одного стана на много октав. Расширяем viewBox по
-  // конкретным нотам, сохраняя одинаковые координаты линейк внутри такта.
-  const verticalShift = Math.max(0, 28 - minNoteY);
+  // конкретным нотам и по верхним полкам эффектов, сохраняя лэйаут такта.
+  const topEffectPad = effectLayout.padTop + (hasBend ? 8 : 0);
+  const verticalShift = Math.max(0, 28 - minNoteY, 8 - (baseStaves[0].top - topEffectPad));
   const staves = baseStaves.map((staff) => ({
     ...staff,
     top: staff.top + verticalShift,
     bottom: staff.bottom + verticalShift,
     middle: staff.middle + verticalShift,
   }));
-  const height = Math.max(baseHeight + verticalShift, maxNoteY + verticalShift + 38);
+  const height = Math.max(
+    baseHeight + verticalShift + effectLayout.padBottom + lyricHeight,
+    maxNoteY + verticalShift + 38,
+  );
   const prepared = rawPrepared.map((item) => Object.assign({}, item, {
     staff: staves.find((staff) => staff.clef === item.clef) || staves[0],
     y: item.baseY + verticalShift,
@@ -54553,13 +54830,25 @@ function buildPartStaffScoreSvg(part, bar, singleClefOverride) {
     }
     if (item.spelling && item.clef !== 'percussion') partScoreDrawLedger(noteGroup, headX, item.y, item.spelling, item.staff);
     const hollow = item.notation.durIndex >= 5;
+    const isDrumCross = item.clef === 'percussion' && (item.drum.family === 'hat' || item.drum.family === 'cymbal');
     const noteheadAttrs = {
       cx: headX.toFixed(2), cy: item.y.toFixed(2), rx: 5.8, ry: 4.2,
       transform: `rotate(-18 ${headX.toFixed(2)} ${item.y.toFixed(2)})`,
-      class: `pt-score-notehead${hollow ? ' is-hollow' : ''}${item.clef === 'percussion' && (item.drum.family === 'hat' || item.drum.family === 'cymbal') ? ' is-cross' : ''}`,
+      class: `pt-score-notehead${hollow ? ' is-hollow' : ''}${isDrumCross ? ' is-cross' : ''}`,
     };
     if (item.clef === 'percussion') noteheadAttrs['data-gm'] = item.note.pitch;
-    noteGroup.appendChild(partScoreSvg('ellipse', noteheadAttrs));
+    if (item.note.dead === true && !isDrumCross) {
+      noteGroup.appendChild(partScoreSvg('path', {
+        d: `M ${(headX - 4).toFixed(2)} ${(item.y - 4).toFixed(2)} l 8 8 m 0 -8 l -8 8`,
+        class: 'pt-score-dead-note', fill: 'none',
+      }));
+    } else {
+      noteGroup.appendChild(partScoreSvg('ellipse', noteheadAttrs));
+    }
+    if (item.note.ghost === true) {
+      partScoreSvgText(noteGroup, headX - 10, item.y + 4, '(', 'pt-score-ghost', { 'text-anchor': 'middle' });
+      partScoreSvgText(noteGroup, headX + 10, item.y + 4, ')', 'pt-score-ghost', { 'text-anchor': 'middle' });
+    }
     if (item.notation.dots) {
       for (let dot = 0; dot < item.notation.dots; dot++) {
         noteGroup.appendChild(partScoreSvg('circle', {
@@ -54627,6 +54916,14 @@ function buildPartStaffScoreSvg(part, bar, singleClefOverride) {
   });
 
   partScoreDrawRests(svg, part, bar, staves, prepared.map((item) => item.note), singleClef);
+  partScoreDrawStaffEffects(svg, prepared, sectionNotes, effectLayout, bar, staves, isTab);
+  if (lyrics.length) {
+    partScoreDrawLyrics(svg, lyrics, lyricsLayout, (unit) => partScoreXAt(bar, unit),
+      staves[staves.length - 1].bottom + effectLayout.padBottom + 14, 12);
+  }
+  svg.dataset.lyricRows = String(lyricsLayout.rows);
+  svg.dataset.effectPadTop = String(effectLayout.padTop);
+  svg.dataset.effectPadBottom = String(effectLayout.padBottom);
   const title = partScoreSvg('title');
   title.textContent = `${part.name} · ${bar.sectionLabel} · такт ${bar.sectionMeasure}`;
   svg.appendChild(title);
@@ -54639,11 +54936,14 @@ function buildPartTabScoreSvg(part, bar) {
   const stringNotes = pitchMode ? [] : notes;
   const soundMarks = pitchMode ? [] : partSoundMarks(part, bar.sec.id).filter((point) => point.unit >= bar.start && point.unit < bar.end);
   const markLayout = pitchMode ? { rows: {}, padTop: 0, padBottom: 0 } : partMarkLayout(stringNotes, soundMarks, bar.sec);
+  const lyrics = partScoreLyricsInBar(part, bar);
+  const lyricsLayout = partScoreLyricsLayout(lyrics);
+  const lyricHeight = lyricsLayout.rows ? lyricsLayout.rows * 12 + 8 : 0;
   const partInstrument = partInstrumentId(part);
   const tuningNotes = pitchMode ? [] : partTuningNotes(part);
   const topPad = 12 + markLayout.padTop;
   const lineGap = partTabLineGap(part);
-  const height = topPad * 2 + lineGap * Math.max(0, stringCount - 1) + markLayout.padBottom;
+  const height = topPad * 2 + lineGap * Math.max(0, stringCount - 1) + markLayout.padBottom + lyricHeight;
   const width = bar.width;
   const svg = partScoreSvg('svg', {
     class: 'pt-svg pt-score-tab-svg',
@@ -54746,6 +55046,11 @@ function buildPartTabScoreSvg(part, bar) {
         `звук: ${soundLabel(point.sound, partInstrumentId(part)).toLowerCase()}`, 'pt-sound-mark');
     });
   }
+  if (lyrics.length) {
+    partScoreDrawLyrics(svg, lyrics, lyricsLayout, xAt,
+      topPad + lineGap * Math.max(0, stringCount - 1) + markLayout.padBottom + 14, 12);
+  }
+  svg.dataset.lyricRows = String(lyricsLayout.rows);
   return svg;
 }
 
@@ -54957,10 +55262,14 @@ function buildPartTabSvg(part, sec, parentTs) {
   const pitchMode = partUsesPitchNotes(part);
   const stringCount = partStringCount(part);
   const lineGap = partTabLineGap(part);
-  const height = PART_TAB_TOP_PAD * 2 + lineGap * (stringCount - 1);
   const rollNotes = partActiveRollFor(part, sec.id) || [];
   const soundMarks = pitchMode ? [] : partSoundMarks(part, sec.id);
   const markLayout = pitchMode ? { rows: {}, padTop: 0, padBottom: 0 } : partMarkLayout(rollNotes, soundMarks, sec);
+  const lyrics = partScoreLyricsForSection(part, sec.id);
+  const lyricsLayout = partScoreLyricsLayout(lyrics);
+  const lyricHeight = lyricsLayout.rows ? lyricsLayout.rows * 12 + 8 : 0;
+  // viewBox добавляет padTop и padBottom отдельно; здесь — стан и lyrics.
+  const height = PART_TAB_TOP_PAD * 2 + lineGap * (stringCount - 1) + lyricHeight;
   const ns = 'http://www.w3.org/2000/svg';
   const svg = document.createElementNS(ns, 'svg');
   svg.setAttribute('class', 'pt-svg');
@@ -55354,6 +55663,12 @@ function buildPartTabSvg(part, sec, parentTs) {
       }
     }
   });
+
+  if (lyrics.length) {
+    partScoreDrawLyrics(svg, lyrics, lyricsLayout, (unit) => unit * PART_TAB_UNIT,
+      staffBottom + markLayout.padBottom + 14, 12);
+  }
+  svg.dataset.lyricRows = String(lyricsLayout.rows);
 
   // Клик по табу ставит курсор — и НЕ добавляет ноту (как в Guitar Pro).
   // Координаты считаем от фактического прямоугольника: SVG отрисован в
@@ -65745,6 +66060,7 @@ toggleTimeAndBeats();
       const exportPart = {
         name: partName,
         instrument,
+        viewMode: partNotationViewMode(part),
         capo: Number(part.capo) || 0,
         gmProgram: Number.isInteger(part.gmProgram) ? part.gmProgram : null,
         midiChannel: Number.isInteger(part.midiChannel) ? part.midiChannel : partIndex + 1,
@@ -65795,6 +66111,15 @@ toggleTimeAndBeats();
               legato: note.legato === true,
               trill: note.trill === true,
               tremolo: note.tremolo === true,
+              tremBar: note.tremBar === true,
+              fade: note.fade || null,
+              dead: note.dead === true,
+              deadSlap: note.deadSlap === true,
+              pickScrape: note.pickScrape === true,
+              bend: note.bend || null,
+              harm: note.harm || null,
+              grace: note.grace || null,
+              ornament: note.ornament || null,
             });
             tabNotes++;
             }
@@ -65848,7 +66173,14 @@ toggleTimeAndBeats();
         for (let pass = 0; pass < (plan.repeatCount || 1); pass++) {
           const placed = gpExportPlace(plan, Number(lyric.start) || 0, 0.0001, report, `Дорожка «${partName}»: строка текста`, pass);
           if (!placed) break;
-          exportPart.lyrics.push({ bar: placed.bar, text: String(lyric.text || '') });
+          exportPart.lyrics.push({
+            bar: placed.bar,
+            start: placed.start,
+            text: String(lyric.text || ''),
+            line: Math.max(1, Math.min(16, Math.trunc(Number(lyric.line) || 1))),
+            voice: Math.max(1, Math.min(4, Math.trunc(Number(lyric.voice) || 1))),
+            dur: Number(lyric.dur) || 0,
+          });
         }
       }
       if (exportPart.lyrics.length) gpExportGain(report, 'Строки текста', exportPart.lyrics.length);
@@ -65859,9 +66191,8 @@ toggleTimeAndBeats();
     if (tabNotes) gpExportGain(report, 'Ноты табулатурой', tabNotes);
     if (pitchNotes) gpExportGain(report, 'Ноты с абсолютной высотой', pitchNotes);
     const effectNotes = model.parts.reduce((sum, part) => sum + part.notes.filter((note) =>
-      note.letRing || note.pm || note.staccato || note.accent || note.tenuto || note.ghost || note.vibrato
-      || note.slide || note.legato || note.trill || note.tremolo).length, 0);
-    if (effectNotes) gpExportGain(report, 'Пометки нот (-letRing, palm mute, staccato, акцент, вибрато, слайд, легато)', effectNotes);
+      note.letRing || note.staccato || Number(note.accent) === 1 || note.tenuto || note.ghost || note.vibrato || note.legato).length, 0);
+    if (effectNotes) gpExportGain(report, 'Поддержанные пометки GPIF (let ring, ghost, staccato, обычный акцент, tenuto, vibrato, legato/tie)', effectNotes);
 
     if (songData.mix && songData.mix.master && (Number(songData.mix.master.volume) !== 100 || Number(songData.mix.master.pan) !== 0)) {
       model.masterMix = { volume: Number(songData.mix.master.volume) || 100, pan: Number(songData.mix.master.pan) || 0 };
@@ -65984,6 +66315,22 @@ toggleTimeAndBeats();
     let pitchNotes = 0;
     let effectNotes = 0;
     let graceNotes = 0;
+    const reportGp5NoteLosses = (note, partName) => {
+      if (note.tenuto === true) gpExportLoss(report, `Дорожка «${partName}»: tenuto не имеет отдельного флага в текущем GP5-writer и не переносится`, 1);
+      if (Number(note.accent) === 2) gpExportLoss(report, `Дорожка «${partName}»: сила акцента 2 в GP5 сведена к обычному акценту`, 1);
+      if (note.fade === 'out') gpExportLoss(report, `Дорожка «${partName}»: fade-out не кодируется текущим GP5-writer`, 1);
+      if (note.ornament) gpExportLoss(report, `Дорожка «${partName}»: ornament «${note.ornament}» не кодируется текущим GP5-writer`, 1);
+      if (note.deadSlap === true) gpExportLoss(report, `Дорожка «${partName}»: знак dead slap не кодируется текущим GP5-writer`, 1);
+      if (note.pickScrape === true) gpExportLoss(report, `Дорожка «${partName}»: знак pick scrape не кодируется текущим GP5-writer`, 1);
+      if (note.harm && note.harm.type === 'feedback') gpExportLoss(report, `Дорожка «${partName}»: harmonic feedback не кодируется текущим GP5-writer`, 1);
+      else if (note.harm && note.harm.type !== 'natural' && note.harm.note) {
+        gpExportLoss(report, `Дорожка «${partName}»: целевая высота harmonic не записывается; сохраняется только тип флажолета`, 1);
+      }
+      if (note.bend && Array.isArray(note.bend.points)
+        && note.bend.points.some((point) => Number(point && point[1]) < 0 || Number(point && point[1]) > 12)) {
+        gpExportLoss(report, `Дорожка «${partName}»: GP5-writer ограничивает точки bend диапазоном 0–12 полутонов`, 1);
+      }
+    };
 
     parts.forEach((part, partIndex) => {
       const instrument = partInstrumentId(part);
@@ -65992,6 +66339,7 @@ toggleTimeAndBeats();
       const exportPart = {
         name: partName,
         instrument,
+        viewMode: partNotationViewMode(part),
         capo: Number(part.capo) || 0,
         gmProgram: Number.isInteger(part.gmProgram) ? part.gmProgram : null,
         midiChannel: Number.isInteger(part.midiChannel) ? part.midiChannel : partIndex + 1,
@@ -66022,7 +66370,7 @@ toggleTimeAndBeats();
             if (!placed) continue;
             exportPart.notes.push({
               bar: placed.bar,
-              voice: Math.max(1, Math.min(2, Number(note.voice) || 1)),
+              voice: Math.max(1, Math.min(4, Number(note.voice) || 1)),
               start: placed.start,
               dur: placed.dur,
               string: Number(note.string),
@@ -66031,23 +66379,28 @@ toggleTimeAndBeats();
               pm: note.pm === true,
               staccato: note.staccato === true,
               accent: Number(note.accent) || 0,
-              tenuto: note.tenuto === true,
+              // Текущий GP5 writer не различает tenuto и staccato; не выдаём
+              // tenuto за стаккато и явно показываем потерю ниже.
+              tenuto: false,
               ghost: note.ghost === true,
               vibrato: note.vibrato || null,
               slide: note.slide || null,
               legato: note.legato === true,
               trill: note.trill === true,
               tremolo: note.tremolo === true,
+              fadeIn: note.fade === 'in',
+              tremoloBar: note.tremBar === true ? true : null,
               // Приёмы, которые GP5 кодирует, а модель уже умеет хранить.
               bend: note.bend || null,
-              harm: note.harm || null,
+              harm: note.harm && note.harm.type !== 'feedback' ? note.harm : null,
               dead: note.dead === true,
-
             });
+            reportGp5NoteLosses(note, partName);
             if (note.grace) graceNotes++;
-            if (note.letRing || note.pm || note.staccato || note.accent || note.tenuto || note.ghost
+            if (note.letRing || note.pm || note.staccato || Number(note.accent) === 1 || note.ghost
               || note.vibrato || note.slide || note.legato || note.trill || note.tremolo
-              || note.bend || note.harm || note.dead) effectNotes++;
+              || note.bend || (note.harm && note.harm.type !== 'feedback') || note.dead
+              || note.fade === 'in' || note.tremBar) effectNotes++;
             tabNotes++;
           }
         } else if (pitchRolls.length) {
@@ -66068,7 +66421,7 @@ toggleTimeAndBeats();
               positions.sort((a, b) => a.fret - b.fret || b.line - a.line);
               exportPart.notes.push({
                 bar: placed.bar,
-                voice: Math.max(1, Math.min(2, Number(note.voice) || 1)),
+                voice: Math.max(1, Math.min(4, Number(note.voice) || 1)),
                 start: placed.start,
                 dur: placed.dur,
                 string: positions[0].line,
@@ -66078,7 +66431,7 @@ toggleTimeAndBeats();
             } else {
               exportPart.notes.push({
                 bar: placed.bar,
-                voice: Math.max(1, Math.min(2, Number(note.voice) || 1)),
+                voice: Math.max(1, Math.min(4, Number(note.voice) || 1)),
                 start: placed.start,
                 dur: placed.dur,
                 pitch,
@@ -66093,7 +66446,13 @@ toggleTimeAndBeats();
         if (!plan) continue;
         const placed = gpExportPlace(plan, Number(lyric.start) || 0, 0.0001, report, `Дорожка «${partName}»: строка текста`, 0);
         if (!placed) continue;
-        exportPart.lyrics.push({ bar: placed.bar, start: placed.start, text: String(lyric.text || '') });
+        exportPart.lyrics.push({
+          bar: placed.bar,
+          start: placed.start,
+          text: String(lyric.text || ''),
+          line: Math.max(1, Math.min(16, Math.trunc(Number(lyric.line) || 1))),
+          voice: Math.max(1, Math.min(4, Math.trunc(Number(lyric.voice) || 1))),
+        });
       }
       if (exportPart.lyrics.length) gpExportGain(report, 'Строки текста', exportPart.lyrics.length);
       model.parts.push(exportPart);
@@ -66101,7 +66460,7 @@ toggleTimeAndBeats();
 
     if (tabNotes) gpExportGain(report, 'Ноты табулатурой', tabNotes);
     if (pitchNotes) gpExportGain(report, 'Ноты с абсолютной высотой', pitchNotes);
-    if (effectNotes) gpExportGain(report, 'Пометки нот (letRing, palm mute, staccato, tenuto, акцент, призрак, вибрато, слайд, молоток, трель, тремоло, бенд, флажолет, форшлаг, «мёртвая» нота)', effectNotes);
+    if (effectNotes) gpExportGain(report, 'Поддержанные пометки GP5 (let ring, palm mute, staccato, обычный акцент, ghost, vibrato, slide, legato, trill, tremolo, bend, harmonic type, dead note, fade-in, tremolo bar)', effectNotes);
     if (graceNotes) gpExportLoss(report, 'Форшлаги не переносятся: наш импорт Guitar Pro 3–5 читает форшлаг вместо основной ноты, поэтому перенос испортил бы круг', graceNotes);
     if (songData.mix && songData.mix.master && (Number(songData.mix.master.volume) !== 100 || Number(songData.mix.master.pan) !== 0)) {
       model.masterMix = { volume: Number(songData.mix.master.volume) || 100, pan: Number(songData.mix.master.pan) || 0 };
@@ -68179,8 +68538,8 @@ function gpExportModal(title, bodyHtml, label) {
       (staff && staff.bars || []).forEach((bar, barIndex) => (bar && bar.voices || []).forEach((voice) =>
         (voice && voice.beats || []).forEach((beat) => {
           const trackName = String(track && track.name || 'Дорожка');
-          gp35BeatLyrics(beat).forEach((line, lyricIndex) => {
-            beatTexts.push(`${trackName}, такт ${barIndex + 1}, строка ${lyricIndex + 1}: ${line}`);
+          gp35BeatLyrics(beat).forEach((lyric) => {
+            beatTexts.push(`${trackName}, такт ${barIndex + 1}, строка ${lyric.line}: ${lyric.text}`);
           });
           const chord = beat && beat.chord;
           if (chord && typeof chord.name === 'string' && chord.name.trim()) chords.push(`${trackName}, такт ${barIndex + 1}: ${chord.name.trim()}`);
@@ -68306,6 +68665,7 @@ function gpExportModal(title, bodyHtml, label) {
       gp35AddLoss(report, 'Знаки структуры в уже существующих тактах не менялись при добавлении дорожек', 1);
     }
     const texts = gp35TextValues(score);
+    gp35AddLoss(report, 'Предпочтение вида дорожки staff/tab не переносится текущим GP-importer; новой дорожке назначен вид по роли', 1);
     if (texts.includes('\uFFFD')) gp35AddLoss(report, 'Некоторые символы текста не удалось определить автоматически; кодировку можно сменить в предпросмотре', 1);
     if (mode === 'append' && bars.some((bar, index) => index < report.existingBarCount && bar.marker)) {
       gp35AddLoss(report, 'Метки источника поверх существующей структуры оставлены без изменения', 1);
@@ -68463,17 +68823,27 @@ function gpExportModal(title, bodyHtml, label) {
   function gp35BeatLyrics(beat) {
     if (!beat || typeof beat !== 'object') return [];
     const candidates = [];
-    if (Array.isArray(beat.lyrics)) candidates.push(...beat.lyrics);
-    else if (beat.lyrics !== undefined && beat.lyrics !== null) candidates.push(beat.lyrics);
-    if (beat.text !== undefined && beat.text !== null) candidates.push(beat.text);
+    const append = (item, fallbackLine) => candidates.push({ item, fallbackLine });
+    if (Array.isArray(beat.lyrics)) beat.lyrics.forEach((item, index) => append(item, index + 1));
+    else if (beat.lyrics !== undefined && beat.lyrics !== null) append(beat.lyrics, 1);
+    if (beat.text !== undefined && beat.text !== null) append(beat.text, 1);
     const seen = new Set();
-    return candidates.map((item) => {
-      if (typeof item === 'string' || typeof item === 'number') return String(item);
-      if (!item || typeof item !== 'object') return '';
-      return String(item.text || item.value || item.lyric || item.syllable || '');
-    }).map((text) => text.trim()).filter((text) => {
-      if (!text || seen.has(text)) return false;
-      seen.add(text);
+    return candidates.map(({ item, fallbackLine }) => {
+      const text = typeof item === 'string' || typeof item === 'number'
+        ? String(item)
+        : item && typeof item === 'object'
+          ? String(item.text || item.value || item.lyric || item.syllable || '')
+          : '';
+      const rawLine = item && typeof item === 'object'
+        ? Number(item.line || item.lyricLine || item.number)
+        : NaN;
+      const line = Number.isInteger(rawLine) && rawLine >= 1 && rawLine <= 16
+        ? rawLine : Math.max(1, Math.min(16, fallbackLine));
+      return { text: text.trim(), line };
+    }).filter((lyric) => {
+      const key = `${lyric.line}|${lyric.text}`;
+      if (!lyric.text || seen.has(key)) return false;
+      seen.add(key);
       return true;
     });
   }
@@ -68558,11 +68928,13 @@ function gpExportModal(title, bodyHtml, label) {
         bar.voices.forEach((voice, voiceIndex) => {
           (voice && voice.beats || []).forEach((beat) => {
             const lyricTexts = gp35BeatLyrics(beat);
-            lyricTexts.forEach((lyricText) => {
+            lyricTexts.forEach((lyricEntry) => {
+              const lyricText = lyricEntry.text;
+              const lyricLine = lyricEntry.line;
               const lyricTicks = Number(beat && beat.displayStart);
               // Номер такта обязателен: одна и та же строка в повторяющемся
               // такте — это разные позиции песни, а не повтор в нотах.
-              const lyricKey = `${target && target.sectionId}|${barIndex}|${voiceIndex}|${lyricTicks}|${lyricText}`;
+              const lyricKey = `${target && target.sectionId}|${barIndex}|${voiceIndex}|${lyricTicks}|${lyricLine}|${lyricText}`;
               if (seenLyrics.has(lyricKey)) {
                 report.lyricsSkipped++;
                 gp35AddLoss(report, 'Повторяющиеся lyrics в нескольких станах пропущены', 1);
@@ -68587,7 +68959,7 @@ function gpExportModal(title, bodyHtml, label) {
                 gp35AddLoss(report, 'Lyrics вышли за диапазон/длину секции приложения', 1);
                 return;
               }
-              const lyric = { secId: target.sectionId, start, text, line: 1 };
+              const lyric = { secId: target.sectionId, start, text, line: lyricLine };
               const lyricDuration = gp35DurationTicks(beat);
               const lyricDurUnits = lyricDuration > 0
                 ? Math.round((lyricDuration / MIDI_TICKS_PER_QUARTER * target.unitsPerQuarter) * 1000000) / 1000000

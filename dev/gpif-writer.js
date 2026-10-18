@@ -214,6 +214,27 @@
       const amount = Number.isFinite(count) ? Math.max(1, Math.trunc(count)) : 1;
       losses.push({ label: key, count: (losses.find((item) => item.label === key) || { count: 0 }).count + amount });
     };
+    const reportUnsupportedNoteEffects = (part, partIndex, note) => {
+      const name = part.name || partIndex + 1;
+      const unsupported = [];
+      if (note.pm === true) unsupported.push('palm mute');
+      if (note.dead === true) unsupported.push('dead note');
+      if (note.deadSlap === true) unsupported.push('dead slap');
+      if (note.pickScrape === true) unsupported.push('pick scrape');
+      if (note.bend) unsupported.push('bend curve');
+      if (note.harm) unsupported.push('harmonic');
+      if (note.grace) unsupported.push('grace note');
+      if (note.slide) unsupported.push('slide');
+      if (note.trill === true) unsupported.push('trill');
+      if (note.tremolo === true) unsupported.push('tremolo picking');
+      if (note.tremBar === true) unsupported.push('tremolo-bar mark');
+      if (note.fade === 'in' || note.fade === 'out') unsupported.push('fade mark');
+      if (note.ornament) unsupported.push('ornament');
+      if (Number(note.accent) === 2) unsupported.push('strong accent strength');
+      const articulationCount = [note.staccato === true, Number(note.accent) > 0, note.tenuto === true].filter(Boolean).length;
+      if (articulationCount > 1) unsupported.push('combined staccato/accent/tenuto (writer keeps one articulation)');
+      unsupported.forEach((effect) => loss(`Дорожка «${name}»: ${effect} не кодируется текущим GPIF-писателем`, 1));
+    };
 
     const song = model || {};
     const meta = song.meta || {};
@@ -300,6 +321,10 @@
     parts.forEach((part, partIndex) => {
       const instrument = part.instrument || 'guitar';
       const isTab = instrument === 'guitar' || instrument === 'bass';
+      const defaultView = isTab ? 'tab' : 'staff';
+      if ((part.viewMode === 'staff' || part.viewMode === 'tab') && part.viewMode !== defaultView) {
+        loss(`Дорожка «${part.name || partIndex + 1}»: выбранный вид ${part.viewMode} не кодируется текущим GPIF-писателем`, 1);
+      }
       const tuning = Array.isArray(part.tuning) && part.tuning.length ? part.tuning.slice() : defaultTuning(instrument);
       const tuningPitches = tuning.map(tuningPitch);
       if (tuningPitches.some((pitch) => pitch === null)) {
@@ -344,6 +369,7 @@
           }
         }
         if (!info.list) info.list = [];
+        reportUnsupportedNoteEffects(part, partIndex, note);
         info.list.push({
           partIndex, voice: clamp(Number(note.voice) || 1, 1, 4), start: quarters,
           duration, string, fret, note, noteKey: `p${partIndex}b${info.index}n${info.list.length}`,
@@ -589,10 +615,30 @@
       out.push('</GeneralMidi>');
       out.push('<PlaybackState>Default</PlaybackState>');
       out.push('<Lyrics dispatched="true">');
+      const lyricsByLine = new Map();
       for (const lyric of part.lyrics || []) {
+        const line = Math.max(1, Math.min(16, Math.trunc(Number(lyric.line) || 1)));
+        if (!lyricsByLine.has(line)) lyricsByLine.set(line, []);
+        lyricsByLine.get(line).push(lyric);
+        if (Number(lyric.voice) > 1) {
+          loss(`Дорожка «${part.name || partIndex + 1}»: GPIF-lyrics не сохраняют привязку к голосу`, 1);
+        }
+        if (Math.abs(Number(lyric.start) || 0) > EPS) {
+          loss(`Дорожка «${part.name || partIndex + 1}»: GPIF-lyrics сохраняют начало по такту, но не внутритактовую позицию слога`, 1);
+        }
+      }
+      const highestLyricLine = lyricsByLine.size ? Math.max(...lyricsByLine.keys()) : 0;
+      for (let line = 1; line <= highestLyricLine; line++) {
+        const entries = (lyricsByLine.get(line) || []).slice().sort((a, b) =>
+          Number(a.bar) - Number(b.bar) || Number(a.start || 0) - Number(b.start || 0));
+        const text = entries.map((lyric) => String(lyric.text || '').trim()).filter(Boolean).join(' ');
+        if (!text && !lyricsByLine.has(line)) {
+          out.push('<Line><Text><![CDATA[]]></Text><Offset>0</Offset></Line>');
+          continue;
+        }
         out.push('<Line>');
-        out.push(`<Text>${cdata(lyric.text || '')}</Text>`);
-        out.push(`<Offset>${Math.max(0, Math.trunc(Number(lyric.bar) || 0))}</Offset>`);
+        out.push(`<Text>${cdata(text)}</Text>`);
+        out.push(`<Offset>${Math.max(0, Math.trunc(Number(entries[0] && entries[0].bar) || 0))}</Offset>`);
         out.push('</Line>');
       }
       out.push('</Lyrics>');

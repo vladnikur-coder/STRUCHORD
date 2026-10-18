@@ -106,11 +106,11 @@ const testSong = {
       strumPattern: null, squares: [{ ...square(121, ['D', 'A', 'Bm', 'G']), volta: 1 }] },
   ],
   parts: [
-    { id: 21, name: 'Гитара', instrument: 'guitar', tuning: 'e-std', capo: 2, visible: true,
+    { id: 21, name: 'Гитара', instrument: 'guitar', viewMode: 'staff', tuning: 'e-std', capo: 2, visible: true,
       gmProgram: 25, midiChannel: 1, mix: { volume: 80, pan: -40, mute: false, solo: false },
       rolls: {
         11: [
-          { start: 0, dur: 1, string: 4, fret: 3, letRing: true },
+          { start: 0, dur: 1, string: 4, fret: 3, letRing: true, fade: 'in', tremBar: true },
           { start: 1, dur: 1, string: 4, fret: 5 },
           { start: 2, dur: 2, string: 3, fret: 3, staccato: true },
           { start: 3, dur: 1, string: 1, fret: 1 },
@@ -119,7 +119,7 @@ const testSong = {
         // нота, форшлаг с молотком и легато-слайд.
         12: [
           { start: 0, dur: 2, string: 2, fret: 5, bend: { type: 'bend', points: [[0, 0], [1, 1]] } },
-          { start: 2, dur: 2 / 3, string: 4, fret: 1, harm: { type: 'natural' } },
+          { start: 2, dur: 2 / 3, string: 4, fret: 1, harm: { type: 'natural' }, tenuto: true, accent: 2, fade: 'out', ornament: 'turn', deadSlap: true, pickScrape: true },
           { start: 2 + 2 / 3, dur: 2 / 3, string: 4, fret: 1, dead: true },
           { start: 2 + 4 / 3, dur: 2 / 3, string: 4, fret: 1, legato: true },
           { start: 3, dur: 1, string: 3, fret: 3, slide: 'legato' },
@@ -142,7 +142,7 @@ const testSong = {
         12: [{ start: 0, dur: 1, pitch: 38, line: 2 }, { start: 2, dur: 1, pitch: 38, line: 2 }],
       },
       lyrics: [{ secId: 11, start: 0, text: 'первая строка', line: 1 },
-               { secId: 12, start: 2, text: 'вторая строка', line: 1 }] },
+               { secId: 12, start: 2, text: 'вторая строка', line: 2 }] },
   ],
   nextId: 100, rhythmPool: null, userFingerings: [], preferredFingerings: [], date: '2026-10-16',
 };
@@ -232,6 +232,13 @@ w.addEventListener('load', async () => {
       (exported.report.transferred || []).some((item) => /нативными повторами/.test(item.label)));
     check('отчёт говорит про лирику',
       (exported.report.transferred || []).some((item) => /Строки текста/.test(item.label)));
+    check('отчёт GP5 называет ограничение вида дорожки и неподдержанные знаки',
+      (exported.report.losses || []).some((item) => /выбранный вид нотации/.test(item.label)) &&
+      (exported.report.losses || []).some((item) => /tenuto не имеет отдельного флага/.test(item.label)) &&
+      (exported.report.losses || []).some((item) => /fade-out не кодируется/.test(item.label)) &&
+      (exported.report.losses || []).some((item) => /dead slap/.test(item.label)) &&
+      (exported.report.losses || []).some((item) => /pick scrape/.test(item.label)),
+      JSON.stringify(exported.report.losses));
     check('отчёт называет три дорожки и два такта',
       exported.report.stats && exported.report.stats.tracks === 3 && exported.report.stats.bars === 2,
       JSON.stringify(exported.report.stats));
@@ -286,6 +293,9 @@ w.addEventListener('load', async () => {
     const lyricWordCount = (gp5.lyrics || []).map((item) => item.text).join(' ')
       .replace(/_/g, ' ').trim().split(/\s+/).filter(Boolean).length;
     check('все четыре слова текста попали в файл', lyricWordCount === 4, String(lyricWordCount));
+    check('GP5 записывает lyrics в обеих исходных строках',
+      gp5.lyrics.length === 2 && /первая_строка/.test(gp5.lyrics[0].text) &&
+      /вторая_строка/.test(gp5.lyrics[1].text), JSON.stringify(gp5.lyrics));
 
     // ---------- 4. Круг: экспорт → собственный импорт ----------
     w.importSong(new w.File([bytes], 'круг.gp5', { type: 'application/octet-stream' }));
@@ -300,8 +310,10 @@ w.addEventListener('load', async () => {
     check('превью импорта перечисляет дорожки',
       /Гитара/.test(preview.textContent) && /Бас/.test(preview.textContent) && /Барабаны/.test(preview.textContent));
     clickButton(preview, 'Импортировать');
-    await waitFor(importReportModal, 'отчёт импорта');
-    clickButton(importReportModal(), 'Готово');
+    const importReport = await waitFor(importReportModal, 'отчёт импорта');
+    check('импорт Guitar Pro прозрачно сообщает о нераспознанном предпочтении staff/tab',
+      importReport.textContent.includes('Предпочтение вида дорожки staff/tab не переносится текущим GP-importer'));
+    clickButton(importReport, 'Готово');
     await wait(250);
     const after = songState();
 
@@ -405,6 +417,9 @@ w.addEventListener('load', async () => {
       .flatMap((line) => String(line.text).split(/\s+/).filter(Boolean)));
     check('слова текста вернулись в том же порядке', lyricsAfter.join('|') === lyricsBefore.join('|'),
       `${lyricsAfter.join('|')} / ${lyricsBefore.join('|')}`);
+    const lyricLineNumbersAfter = new Set(after.parts[2].lyrics.map((line) => Number(line.line) || 1));
+    check('GP5 круг сохраняет номера строк lyrics', lyricLineNumbersAfter.has(1) && lyricLineNumbersAfter.has(2),
+      JSON.stringify(after.parts[2].lyrics.map((line) => [line.line, line.text])));
 
     const repeats = after.sections.flatMap((section) => (Array.isArray(section.squareMarks) ? section.squareMarks : []));
     check('повтор секции вернулся повтором, а не копией тактов',

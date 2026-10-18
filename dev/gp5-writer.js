@@ -637,27 +637,38 @@
     writer.intByteSizeString('');
   }
 
-  // Эффекты бита: два байта флагов и их данные (GP5).
+    // Эффекты бита: два байта флагов и их данные (GP5). Они относятся ко
+    // всему аккорду, поэтому учитываем эффект на любой ноте бита, а не только
+    // на первой (например, fade-in или whammy на верхнем голосе аккорда).
   function writeBeatEffects(writer, beat) {
-    const source = (beat.notes[0] && beat.notes[0].source) || {};
+    const sources = beat.notes.map((note) => note.source || {});
+    const has = (key) => sources.some((source) => !!source[key]);
+    const value = (key) => {
+      const source = sources.find((item) => item[key] !== undefined && item[key] !== null && item[key] !== false);
+      return source ? source[key] : null;
+    };
     let flags1 = 0;
     let flags2 = 0;
-    if (source.vibrato) flags1 |= 0x02;
-    if (source.fadeIn) flags1 |= 0x10;
-    if (source.slap) flags1 |= 0x20;
-    if (source.stroke || source.rasgueado) flags1 |= 0x40;
-    if (source.pickStroke) flags2 |= 0x02;
-    if (source.tremoloBar) flags2 |= 0x04;
+    if (has('vibrato')) flags1 |= 0x02;
+    if (has('fadeIn')) flags1 |= 0x10;
+    if (has('slap')) flags1 |= 0x20;
+    if (has('stroke') || has('rasgueado')) flags1 |= 0x40;
+    if (has('pickStroke')) flags2 |= 0x02;
+    if (has('tremoloBar')) flags2 |= 0x04;
     writer.u8(flags1);
     writer.u8(flags2);
-    if (flags1 & 0x20) writer.i8(Number(source.slap) || 0);
-    if (flags2 & 0x04) writeBend(writer, source.tremoloBar === true ? 0.5 : source.tremoloBar);
+    if (flags1 & 0x20) writer.i8(Number(value('slap')) || 0);
+    if (flags2 & 0x04) {
+      const bend = value('tremoloBar');
+      writeBend(writer, bend === true ? 0.5 : bend);
+    }
     if (flags1 & 0x40) {
-      const stroke = clamp(Math.round(Number(source.stroke || 3)), 1, 4);
+      const stroke = clamp(Math.round(Number(value('stroke') || value('rasgueado') || 3)), 1, 4);
+      const source = sources.find((item) => item.strokeUp !== undefined) || {};
       writer.i8(source.strokeUp ? stroke : 0);
       writer.i8(source.strokeUp ? 0 : stroke);
     }
-    if (flags2 & 0x02) writer.i8(Number(source.pickStroke) || 0);
+    if (flags2 & 0x02) writer.i8(Number(value('pickStroke')) || 0);
   }
 
   // Пауза во всю длину такта: GP5 не допускает тактов без битов.
@@ -724,7 +735,7 @@
     const hasTuplet = duration.tuplet > 0;
     const effects = beat.notes.some((note) => note.source
       && (note.source.staccato || note.source.tenuto || note.source.slap || note.source.rasgueado
-        || note.source.vibrato || note.source.fadeIn));
+        || note.source.vibrato || note.source.fadeIn || note.source.pickStroke || note.source.tremoloBar));
     writer.u8((duration.dots ? 0x01 : 0) | (effects ? 0x08 : 0) | (hasTuplet ? 0x20 : 0) | (change ? 0x10 : 0));
     writer.i8(duration.code);
     if (hasTuplet) writer.i32(duration.tuplet);
@@ -788,6 +799,13 @@
         color: [255, 255, 255],
       };
     });
+    for (const track of tracks) {
+      const defaultView = track.isDrums || (track.part.instrument !== 'guitar' && track.part.instrument !== 'bass')
+        ? 'staff' : 'tab';
+      if ((track.part.viewMode === 'staff' || track.part.viewMode === 'tab') && track.part.viewMode !== defaultView) {
+        lossOf(losses, `Дорожка «${track.part.name || track.index + 1}»: выбранный вид нотации не переносится; GP5-writer записывает оба вида (staff и tab)`, 1);
+      }
+    }
 
     let noteCount = 0;
     let beatCount = 0;
@@ -823,53 +841,75 @@
 
     // --- лирика: одна привязка к дорожке, пять строк ---
     const lyricTracks = tracks.filter((track) => (track.part.lyrics || []).length);
-    const lyricTrackNumber = lyricTracks.length ? lyricTracks[0].index + 1 : 0;
-    const lyricLines = [];
+    let lyricTrackNumber = 0;
+    const lyricLines = Array(GP5_LYRIC_LINES).fill(null);
     if (lyricTracks.length) {
       const track = lyricTracks[0];
-      const words = (track.part.lyrics || [])
-        .slice()
-        .sort((a, b) => (Number(a.bar) - Number(b.bar)) || (Number(a.start || 0) - Number(b.start || 0)));
+      const words = (track.part.lyrics || []).slice().sort((a, b) =>
+        (Number(a.line || 1) - Number(b.line || 1))
+        || (Number(a.bar) - Number(b.bar))
+        || (Number(a.start || 0) - Number(b.start || 0)));
       if (lyricTracks.length > 1) {
         lossOf(losses, 'Строки текста в Guitar Pro 5 привязаны к одной дорожке, лишние дорожки с текстом оставлены в приложении', lyricTracks.length - 1);
       }
-      if (words.length) {
-        const noteTimeline = (track.beats[0] || []).map((beat) => ({ bar: beat.bar, start: beat.start, text: '' }));
+      const byLine = new Map();
+      let unsupportedLines = 0;
+      let otherVoices = 0;
+      for (const word of words) {
+        const line = Math.trunc(Number(word.line) || 1);
+        if (line < 1 || line > GP5_LYRIC_LINES) {
+          unsupportedLines++;
+          continue;
+        }
+        if (Math.trunc(Number(word.voice) || 1) !== 1) otherVoices++;
+        if (!byLine.has(line)) byLine.set(line, []);
+        byLine.get(line).push(word);
+      }
+      if (unsupportedLines) {
+        lossOf(losses, `Строки lyrics выше ${GP5_LYRIC_LINES}-й не записываются в GP5`, unsupportedLines);
+      }
+      if (otherVoices) {
+        lossOf(losses, 'GP5-писатель привязывает lyrics к первой голосовой линии дорожки; исходная привязка к другим голосам не сохраняется', otherVoices);
+      }
+
+      const noteTimeline = (track.beats[0] || []).map((beat) => ({ bar: beat.bar, start: beat.start }));
+      let shifted = 0;
+      let missing = 0;
+      for (const [line, lineWords] of byLine) {
+        lineWords.sort((a, b) => Number(a.bar) - Number(b.bar) || Number(a.start || 0) - Number(b.start || 0));
         let cursor = 0;
-        let drift = 0;
-        for (const word of words) {
+        const mapped = [];
+        for (const word of lineWords) {
+          const wantedBar = Number(word.bar) || 0;
+          const wantedStart = Number(word.start) || 0;
           while (cursor < noteTimeline.length
-            && (noteTimeline[cursor].bar < Number(word.bar)
-              || (noteTimeline[cursor].bar === Number(word.bar)
-                && noteTimeline[cursor].start + EPS < Number(word.start || 0)))) cursor++;
+            && (noteTimeline[cursor].bar < wantedBar
+              || (noteTimeline[cursor].bar === wantedBar && noteTimeline[cursor].start + EPS < wantedStart))) cursor++;
           if (cursor >= noteTimeline.length) {
-            drift++;
+            missing++;
             continue;
           }
-          noteTimeline[cursor].text = String(word.text || '');
+          const target = noteTimeline[cursor];
+          if (target.bar !== wantedBar || Math.abs(target.start - wantedStart) > EPS) shifted++;
+          mapped.push({ bar: target.bar, text: String(word.text || '') });
           cursor++;
         }
-        const firstBar = noteTimeline.findIndex((row) => row.text) >= 0
-          ? noteTimeline.find((row) => row.text).bar
-          : 0;
-        const text = lyricLineText(noteTimeline.filter((row) => row.text).map((row) => row.text));
-        if (text) lyricLines.push({ bar: firstBar, text });
-        if (drift) {
-          lossOf(losses, 'Слова без ноты под ними в Guitar Pro 5 не ставятся на место — они сдвинулись по нотам дорожки', drift);
-        }
-        const extra = words.length - lyricLines.reduce((sum, line) => sum + line.text.split(' ').length, 0);
-        if (extra > 0) lossOf(losses, 'Строки текста без нот не переносятся', extra);
+        const text = lyricLineText(mapped.map((item) => item.text).filter(Boolean));
+        if (text) lyricLines[line - 1] = { bar: mapped.find((item) => item.text)?.bar || 0, text };
       }
-    }
-    if (lyricLines.length > GP5_LYRIC_LINES) {
-      lossOf(losses, `В Guitar Pro 5 не больше ${GP5_LYRIC_LINES} строк текста на дорожку`, lyricLines.length - GP5_LYRIC_LINES);
-      lyricLines.length = GP5_LYRIC_LINES;
+      if (shifted) {
+        lossOf(losses, 'Позиции lyrics не совпали с нотами первого голоса GP5 и смещены к следующей ноте', shifted);
+      }
+      if (missing) {
+        lossOf(losses, 'Lyrics без следующей ноты первого голоса GP5 не записаны', missing);
+      }
+      if (lyricLines.some((line) => line && line.text)) lyricTrackNumber = track.index + 1;
     }
     writer.i32(lyricTrackNumber);
     for (let line = 0; line < GP5_LYRIC_LINES; line++) {
       const value = lyricLines[line];
-      writer.i32(value ? value.bar + 1 : 0);
-      writer.intSizeString(value ? value.text : '');
+      writer.i32(value && value.text ? value.bar + 1 : 0);
+      writer.intSizeString(value && value.text ? value.text : '');
     }
 
     // --- мастер-RSE (19 байт) ---
@@ -1103,7 +1143,7 @@
         tracks: tracks.length,
         notes: noteCount,
         beats: beatCount,
-        lyrics: lyricLines.length,
+        lyrics: lyricLines.filter((line) => line && line.text).length,
         bytes: writer.length,
       },
     };
