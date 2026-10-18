@@ -348,14 +348,10 @@ w.addEventListener('load', () => {
     check('пустая песня: курсор сразу в новой секции',
       w.eval('partsCursor && partsCursor.secId === sections[0].id') === true,
       JSON.stringify(w.eval('partsCursor')));
-    // Select открывается первым: цифра не пишет, пока явно не включён Input.
-    check('окно партии по умолчанию открывает Select', w.eval('partsEditMode') === 'select');
+    // B-12.11: как в GP, ввод сразу при открытии — цифра пишет ноту.
+    check('окно партии открывается сразу с вводом (GP)', w.eval('partsEditMode') === 'input');
     w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: '5', bubbles: true }));
-    check('в Select цифра не добавляет ноту',
-      w.eval('(songParts[0].rolls[String(sections[0].id)] || []).length') === 0);
-    w.eval('setPartsEditMode("input")');
-    w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: '5', bubbles: true }));
-    check('после явного переключения в Input цифра добавляет ноту',
+    check('цифра сразу добавляет ноту без переключения режима',
       w.eval('(songParts[0].rolls[String(sections[0].id)] || []).length') === 1,
       w.eval('JSON.stringify(songParts[0].rolls)'));
 

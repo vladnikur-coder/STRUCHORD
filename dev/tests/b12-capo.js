@@ -345,13 +345,8 @@ w.addEventListener('load', async () => {
     check('«Отмена» не меняет модель и возвращает выбор панели',
       capoOf(0) === 0 && dialog().hidden && capoSel().value === '0',
       JSON.stringify([capoOf(0), dialog().hidden, capoSel().value]));
+    // B-12.11: режима Select нет — пересчёт доступен сразу, как в GP.
     setSelect(capoSel(), 2);
-    clickId('ptCapoAdjust');
-    check('Select блокирует пересчёт ладов и закрывает диалог без изменения нот',
-      capoOf(0) === 0 && firstRolls()[0].fret === 5 && dialog().hidden,
-      JSON.stringify([capoOf(0), firstRolls().map((n) => n.fret), dialog().hidden]));
-    setSelect(capoSel(), 2);
-    w.eval('setPartsEditMode("input")');
     clickId('ptCapoAdjust');
     const adjusted = firstRolls();
     check('«Пересчитать» меняет лады по плану и ставит каподастр',

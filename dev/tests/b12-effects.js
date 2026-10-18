@@ -139,10 +139,10 @@ w.addEventListener('load', async () => {
 
     // ---------- 2. Клавиши: постановка и снятие ----------
     cursorTo(0);
-    key('[', { code: 'BracketLeft' });
-    check('`[` поставил палм-мьют', noteAt(0, 0).pm === true, JSON.stringify(noteAt(0, 0)));
-    key('[', { code: 'BracketLeft' });
-    check('повторное `[` сняло палм-мьют', !('pm' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+    key('p', { code: 'KeyP' });
+    check('`P` (GP) поставил палм-мьют', noteAt(0, 0).pm === true, JSON.stringify(noteAt(0, 0)));
+    key('p', { code: 'KeyP' });
+    check('повторное `P` сняло палм-мьют', !('pm' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
     key('x', { code: 'KeyX' });
     check('`X` поставил dead note', noteAt(0, 0).dead === true, JSON.stringify(noteAt(0, 0)));
     key('o', { code: 'KeyO' });
@@ -321,7 +321,7 @@ w.addEventListener('load', async () => {
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
     cursorTo(0);
-    key('[', { code: 'BracketLeft' });
+    key('p', { code: 'KeyP' });
     key(':', { code: 'Semicolon', shiftKey: true });
     w.saveCurrentSong();
     const lib = JSON.parse(w.localStorage.getItem('struchord_songs'));
@@ -356,7 +356,7 @@ w.addEventListener('load', async () => {
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
     cursorTo(0);
     const neighbourBefore = JSON.stringify(noteAt(0, 1));
-    key('[', { code: 'BracketLeft' });
+    key('p', { code: 'KeyP' });
     check('знак поставлен только на ноту под курсором',
       noteAt(0, 0).pm === true && JSON.stringify(noteAt(0, 1)) === neighbourBefore,
       JSON.stringify(roll(0)));
@@ -912,10 +912,10 @@ w.addEventListener('load', async () => {
     check('`N` поставил трель', noteAt(0, 1).trill === true, JSON.stringify(noteAt(0, 1)));
     key('n', { code: 'KeyN' });
     check('повторный `N` снял трель', !('trill' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
-    key('w', { code: 'KeyW' });
-    check('`W` поставил тремоло-бар', noteAt(0, 1).tremBar === true, JSON.stringify(noteAt(0, 1)));
-    key('W', { code: 'KeyW', shiftKey: true });
-    check('повторный `W` снял тремоло-бар', !('tremBar' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
+    key('v', { code: 'KeyV', ctrlKey: true, altKey: true });
+    check('`Ctrl+Alt+V` (GP) поставил тремоло-бар', noteAt(0, 1).tremBar === true, JSON.stringify(noteAt(0, 1)));
+    key('v', { code: 'KeyV', ctrlKey: true, altKey: true });
+    check('повторный `Ctrl+Alt+V` снял тремоло-бар', !('tremBar' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
 
     // ================= 22. Украшения и поиск по палитре =================
     const clickTone = (kind) =>
@@ -1062,7 +1062,7 @@ w.addEventListener('load', async () => {
     // Третья нота живёт на струне 4 (E2), а не на «курсорной» струне 5:
     // ведём курсор на её струну, иначе трем-бар некуда ставить.
     w.eval(`setPartsCursorString(sections[0].id, 0, 4, 2)`);
-    key('w', { code: 'KeyW' });
+    key('v', { code: 'KeyV', ctrlKey: true, altKey: true });
     w.saveCurrentSong();
     const libOrn = JSON.parse(w.localStorage.getItem('struchord_songs'));
     const savedRoll = libOrn[libOrn.length - 1].parts[0].rolls['1'];

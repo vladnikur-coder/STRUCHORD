@@ -273,8 +273,10 @@ w.addEventListener('load', async () => {
     let blockedConfirm = false;
     w.confirm = () => { blockedConfirm = true; return true; };
     w.eval('applyPartStrings(["E2","A2","D3","G3","B3","E4"])');
-    check('Select блокирует сужение строя, если оно удалило бы ноту',
-      !blockedConfirm && partOf(0).strings.length === 7 && roll(0).length === 1 && roll(0)[0].string === 6,
+    // B-12.11: режима Select нет — сужение сразу спрашивает подтверждение
+    // и после него удаляет ноту вне нового диапазона.
+    check('сужение строя сразу: подтверждение и удаление ноты вне диапазона',
+      blockedConfirm && (partOf(0).strings === null || partOf(0).strings.length === 6) && roll(0).length === 0,
       JSON.stringify({ blockedConfirm, part: partOf(0), roll: roll(0) }));
 
     // ================= 7. Таб рисует все струны =================

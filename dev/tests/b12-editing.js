@@ -136,16 +136,17 @@ w.addEventListener('load', async () => {
     load(makeSong([{ id: 1, name: 'Guitar', instrument: 'guitar', viewMode: 'tab', tuning: null,
       visible: true, rolls: { '1': [] } }]));
     openParts();
-    check('новое открытие партий начинается в Select', w.eval('partsEditMode') === 'select');
-    check('в Select голос и палитра редактирования выключены',
-      w.document.getElementById('ptVoice').disabled &&
-      Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).every((button) => button.disabled));
+    // B-12.11: как в GP, отдельных режимов нет — ввод сразу при открытии.
+    check('новое открытие партий начинается сразу с ввода (GP)', w.eval('partsEditMode') === 'input');
+    check('голос и палитра редактирования доступны сразу',
+      !w.document.getElementById('ptVoice').disabled &&
+      Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).every((button) => !button.disabled));
     w.eval('setPartsCursorString(1, 0, 5, 0)');
-    w.eval('inputPartFret(4); setPartsDuration(3); togglePartsDots(1); togglePartTone("pm")');
-    key('5');
-    check('клавиши и прямые команды не меняют ноты/длительность в Select',
-      roll().length === 0 && w.eval('partInput.durIndex') === 4 && w.eval('partInput.dots') === 0,
-      JSON.stringify({ roll: roll(), duration: w.eval('partInput.durIndex'), dots: w.eval('partInput.dots') }));
+    w.eval('inputPartFret(4)');
+    check('команда ввода сразу создаёт ноту без переключения режима',
+      roll().length === 1 && roll()[0].fret === 4,
+      JSON.stringify(roll()));
+    w.eval('songParts[0].rolls["1"] = []; renderPartsScreen();');
 
     // Точечный выбор ноты округляется по активной dotted-eighth сетке.
     w.eval('partInput.durIndex = 3; partInput.dots = 1; partInput.triplet = false;');
@@ -156,7 +157,7 @@ w.addEventListener('load', async () => {
       JSON.stringify({ pos: w.eval('partsCursor.pos'), roll: roll() }));
     setInput();
     w.eval('inputPartFret(5)');
-    check('лад вводится только после переключения в Input',
+    check('лад вводится сразу, без переключения режима',
       roll().length === 1 && roll()[0].fret === 5 && Math.abs(roll()[0].start - 2.25) < 1e-6 &&
         Math.abs(roll()[0].dur - 0.75) < 1e-6 && roll()[0].dots === 1,
       JSON.stringify(roll()));
@@ -341,12 +342,12 @@ w.addEventListener('load', async () => {
       saved.schemaVersion === 9 && saved.parts[0].rolls['1'].some((note) => note.voice === 2),
       JSON.stringify(saved.parts[0].rolls['1']));
 
-    // Select не может изменять выделенную ноту даже клавиатурным сочетанием.
-    w.eval('setPartsEditMode("select")');
-    const beforeSelectEdit = JSON.stringify(roll());
+    // B-12.11: режима Select нет; сочетание двигает ноту в живом вводе
+    // (Ctrl+Shift+стрелки станут выделением на этапе выделения B-12.11).
+    const beforeGpEdit = JSON.stringify(roll());
     key('ArrowDown', { code: 'ArrowDown', ctrlKey: true, shiftKey: true });
-    check('note-changing keyboard shortcut остаётся без эффекта в Select',
-      JSON.stringify(roll()) === beforeSelectEdit && w.eval('partsEditMode') === 'select');
+    check('note-changing keyboard shortcut работает сразу в вводе',
+      JSON.stringify(roll()) !== beforeGpEdit && w.eval('partsEditMode') === 'input');
 
     console.log(`\nитого: ${passed} ok, ${failed} FAIL`);
     if (failed) process.exitCode = 1;
