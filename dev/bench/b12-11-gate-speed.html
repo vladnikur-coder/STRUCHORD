@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="ru">
+<head><meta charset="utf-8"><title>B-12.11 ворота — скорость alphaTab окном тактов</title></head>
+<body>
+<div id="at"></div>
+<div id="log" style="white-space:pre-wrap;font:12px monospace"></div>
+<script>
+const logEl = document.getElementById('log');
+const log = (s) => { logEl.textContent += s + '\n'; };
+window.__report = { errors: [] };
+
+async function loadAlphaTab() {
+  const html = await (await fetch('../../STRUCHORD.html')).text();
+  const marker = '<script id="alphaTabRuntime" type="text/plain">';
+  const start = html.indexOf(marker) + marker.length;
+  const end = html.indexOf('<' + '/script>', start);
+  const script = document.createElement('script');
+  script.textContent = html.slice(start, end);
+  document.head.appendChild(script);
+  return window.alphaTab;
+}
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+function waitRender(api, timeoutMs) {
+  return new Promise((resolve) => {
+    const t0 = performance.now();
+    let done = false;
+    api.renderFinished.on(() => { if (!done) { done = true; resolve(performance.now() - t0); } });
+    setTimeout(() => { if (!done) { done = true; resolve(-1); } }, timeoutMs || 60000);
+  });
+}
+
+(async () => {
+  const alphaTab = await loadAlphaTab();
+  const fontBlob = await (await fetch('/__bravura__/Bravura.woff2')).blob();
+  const dataUrl = await blobToDataUrl(fontBlob);
+  const gp5 = await (await fetch('../../uploads/led_zeppelin-stairway_to_heaven_7.gp5')).arrayBuffer();
+
+  const settings = new alphaTab.Settings();
+  settings.core.engine = 'svg';
+  settings.core.enableLazyLoading = false;
+  settings.core.includeNoteBounds = true;
+  settings.core.useWorkers = false;
+  settings.core.smuflFontSources = new Map([[alphaTab.FontFileFormat.Woff2, dataUrl]]);
+  settings.display.layoutMode = alphaTab.LayoutMode.Page;
+  settings.display.scale = 0.85;
+  settings.display.startBar = 1;
+  settings.display.barCount = 16;
+  const api = new alphaTab.AlphaTabApi(document.getElementById('at'), settings);
+  api.error.on((e) => window.__report.errors.push(String(e && e.message || e)));
+
+  let p = waitRender(api);
+  api.load(new Uint8Array(gp5));
+  await p; // scoreLoaded: дальше режем окно по первой дорожке
+  const score = api.score;
+  log('дорожек=' + score.tracks.length + ', тактов=' + score.masterBars.length);
+
+  p = waitRender(api);
+  const t0 = performance.now();
+  api.renderTracks([score.tracks[0]]);
+  const winMs = await p;
+  log('[окно 16 тактов, 1 дорожка] первый рендер: ' + Math.round(winMs) + ' мс (от вызова ' + Math.round(performance.now() - t0) + ')');
+  window.__report.windowFirst = winMs;
+
+  // правка ноты внутри окна + полная перерисовка окна, 5 раз
+  let note0 = null;
+  outer: for (const bar of score.tracks[0].staves[0].bars.slice(0, 16)) for (const v of bar.voices) for (const beat of v.beats) {
+    if (beat.notes.length) { note0 = beat.notes[0]; break outer; }
+  }
+  const editMs = [];
+  for (let i = 0; i < 5; i++) {
+    note0.fret = (note0.fret + 1) % 20;
+    const pp = waitRender(api);
+    api.render();
+    editMs.push(Math.round(await pp));
+  }
+  log('[окно] перерисовка после правки ноты, мс: ' + editMs.join(', '));
+  window.__report.windowEdit = editMs;
+
+  // сдвиг окна на такты 33–48
+  api.settings.display.startBar = 33;
+  api.updateSettings();
+  p = waitRender(api);
+  const t1 = performance.now();
+  api.render();
+  const jumpMs = await p;
+  log('[окно] сдвиг окна на такт 33 + рендер: ' + Math.round(jumpMs) + ' мс (от вызова ' + Math.round(performance.now() - t1) + ')');
+  window.__report.windowJump = jumpMs;
+
+  // все 7 дорожек тем же окном 16 тактов
+  p = waitRender(api);
+  const t2 = performance.now();
+  api.renderTracks(score.tracks);
+  const allMs = await p;
+  log('[окно 16 тактов, ВСЕ 7 дорожек] рендер: ' + Math.round(allMs) + ' мс (от вызова ' + Math.round(performance.now() - t2) + ')');
+  window.__report.windowAll = allMs;
+  const editAll = [];
+  for (let i = 0; i < 3; i++) {
+    note0.fret = (note0.fret + 1) % 20;
+    const pp = waitRender(api);
+    api.render();
+    editAll.push(Math.round(await pp));
+  }
+  log('[окно, 7 дорожек] перерисовка после правки ноты, мс: ' + editAll.join(', '));
+  window.__report.windowAllEdit = editAll;
+
+  window.__api = api;
+  window.__note = note0;
+  window.__waitRender = waitRender;
+  window.__report.done = true;
+  log('ГОТОВО (дальше — троттлинг ЦП из замерщика)');
+})().catch((e) => { log('ОШИБКА: ' + (e && e.stack || e)); window.__report.done = true; window.__report.fatal = String(e); });
+</script>
+</body>
+</html>
