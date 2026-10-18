@@ -1,0 +1,284 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<title>B-12.11 этап 1 — одноразовый прототип alphaTab (НЕ часть приложения)</title>
+<style>
+  body { font-family: system-ui, sans-serif; margin: 16px; background: #fff; color: #111; }
+  #log { white-space: pre-wrap; font: 12px/1.5 monospace; background: #f4f4f4; padding: 10px; }
+  .at { border: 1px solid #bbb; margin: 10px 0; overflow-x: auto; }
+  h2 { font-size: 15px; }
+</style>
+</head>
+<body>
+<h1>B-12.11 · прототип alphaTab (одноразовый, приложение не трогает)</h1>
+<p>Проверяем: (1) нашу партию из <code>dev/fixtures/b12-parts-demo.struchord</code>;
+(2) импортированный <code>.gp5</code>; (3) нотный шрифт офлайн; (4) скорость перерисовки
+на каждое нажатие; (5) курсор по клику и выделение тактов.</p>
+<div id="log">загрузка…</div>
+<h2>A. Наша партия (модель STRUCHORD → alphaTab, шрифт НЕ задан)</h2>
+<div class="at" id="atNoFont"></div>
+<h2>B. Та же партия (шрифт Bravura data-URL — как было бы при встраивании в файл)</h2>
+<div class="at" id="atDataFont"></div>
+<h2>C. Импортированный .gp5 (первая дорожка)</h2>
+<div class="at" id="atGp5"></div>
+<div id="cursorBox" style="position:absolute;border:2px solid #d33;display:none;pointer-events:none"></div>
+<div id="rangeBox" style="position:absolute;background:rgba(50,110,255,.18);display:none;pointer-events:none"></div>
+
+<script>
+// ---------- утилиты ----------
+const logEl = document.getElementById('log');
+const lines = [];
+function log(s) { lines.push(s); logEl.textContent = lines.join('\n'); }
+window.__report = { events: [], errors: [] };
+window.addEventListener('error', (e) => { window.__report.errors.push(String(e.message)); });
+
+async function loadAlphaTab() {
+  const html = await (await fetch('../../STRUCHORD.html')).text();
+  const marker = '<script id="alphaTabRuntime" type="text/plain">';
+  const start = html.indexOf(marker) + marker.length;
+  const end = html.indexOf('<' + '/script>', start);
+  const src = html.slice(start, end);
+  const script = document.createElement('script');
+  script.textContent = src;
+  document.head.appendChild(script);
+  if (!window.alphaTab) throw new Error('alphaTab не поднялся');
+  return window.alphaTab;
+}
+
+function blobToDataUrl(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = reject;
+    r.readAsDataURL(blob);
+  });
+}
+
+// Наша модель -> alphaTab model. string: у нас 0 = 6-я (низкая), у alphaTab 1 = 1-я (высокая).
+function buildOurScore(alphaTab, song) {
+  const M = alphaTab.model;
+  const part = song.parts[0];
+  const score = new M.Score();
+  score.title = (song.metadata && song.metadata.title) || 'Наша партия';
+  score.tempo = song.bpm || 96;
+  const track = new M.Track();
+  track.name = part.name;
+  score.addTrack(track);
+  if (!track.staves.length) track.addStaff(new M.Staff());
+  const staff = track.staves[0];
+  staff.showStandardNotation = true;
+  staff.showTablature = true;
+  staff.stringTuning = new M.Tuning('Standard', [64, 59, 55, 50, 45, 40], true);
+  const durMap = [[4, M.Duration.Whole, 0], [2, M.Duration.Half, 0], [1.5, M.Duration.Quarter, 1],
+    [1, M.Duration.Quarter, 0], [0.75, M.Duration.Eighth, 1], [0.5, M.Duration.Eighth, 0],
+    [0.25, M.Duration.Sixteenth, 0]];
+  song.sections.forEach((sec) => {
+    const roll = (part.rolls && part.rolls[String(sec.id)]) || [];
+    const beatsPerBar = 4; // фикстура 4/4
+    const total = Math.max(...roll.map((n) => n.start + n.dur), beatsPerBar);
+    const bars = Math.ceil(total / beatsPerBar);
+    for (let b = 0; b < bars; b++) {
+      const mb = new M.MasterBar();
+      mb.timeSignatureNumerator = 4; mb.timeSignatureDenominator = 4;
+      score.addMasterBar ? score.addMasterBar(mb) : score.masterBars.push(mb);
+      const bar = new M.Bar();
+      staff.addBar(bar);
+      const voice = new M.Voice();
+      bar.addVoice(voice);
+      roll.filter((n) => n.start >= b * beatsPerBar && n.start < (b + 1) * beatsPerBar)
+        .sort((x, y) => x.start - y.start)
+        .forEach((n) => {
+          const beat = new M.Beat();
+          const hit = durMap.find(([d]) => Math.abs(d - n.dur) < 0.2) || [n.dur, M.Duration.Quarter, 0];
+          beat.duration = hit[1];
+          if (hit[2]) beat.dots = hit[2];
+          const note = new M.Note();
+          note.fret = n.fret;
+          note.string = 6 - n.string;
+          beat.addNote(note);
+          voice.addBeat(beat);
+        });
+      if (!voice.beats.length) {
+        const rest = new M.Beat();
+        rest.isRest = true; rest.duration = M.Duration.Whole;
+        voice.addBeat(rest);
+      }
+    }
+  });
+  // alphaTab API сам finish() не вызывает (это делают импортёры) — без него рендер падает.
+  score.finish(new alphaTab.Settings());
+  return { score, part };
+}
+
+function makeApi(alphaTab, el, extra) {
+  const settings = new alphaTab.Settings();
+  settings.core.engine = 'svg';
+  settings.core.enableLazyLoading = false;
+  settings.core.includeNoteBounds = true;
+  settings.core.useWorkers = false;
+  settings.display.layoutMode = alphaTab.LayoutMode.Page;
+  settings.display.scale = 0.85;
+  if (extra) extra(settings);
+  return new alphaTab.AlphaTabApi(el, settings);
+}
+
+function waitRender(api, timeoutMs) {
+  return new Promise((resolve) => {
+    const t0 = performance.now();
+    let done = false;
+    api.renderFinished.on(() => { if (!done) { done = true; resolve(performance.now() - t0); } });
+    setTimeout(() => { if (!done) { done = true; resolve(-1); } }, timeoutMs || 30000);
+  });
+}
+
+const MODE = new URLSearchParams(location.search).get('only') || 'all';
+function hookApi(api, tag) {
+  api.error.on((e) => log('[' + tag + ' api.error] ' + (e && e.message || e)));
+  api.scoreLoaded.on(() => log('[' + tag + '] scoreLoaded'));
+  api.renderStarted.on(() => log('[' + tag + '] renderStarted'));
+  api.postRenderFinished.on(() => log('[' + tag + '] postRenderFinished'));
+}
+function fontState() {
+  return Array.from(document.fonts).map((f) => f.family + ':' + f.status).join(', ') || 'нет FontFace';
+}
+
+(async () => {
+  const t0 = performance.now();
+  const alphaTab = await loadAlphaTab();
+  log('alphaTab поднят из встроенного блока STRUCHORD.html за ' + Math.round(performance.now() - t0) + ' мс; версия ' + alphaTab.meta.Version);
+  const song = await (await fetch('../../dev/fixtures/b12-parts-demo.struchord')).json();
+  const { score } = buildOurScore(alphaTab, song);
+  const notesDump = [];
+  score.tracks[0].staves[0].bars.forEach((bar, bi) => bar.voices[0].beats.forEach((beat) => {
+    beat.notes.forEach((n) => notesDump.push({ bar: bi, fret: n.fret, string: n.string, pitch: n.realPitch }));
+  }));
+  window.__report.ourNotes = notesDump;
+  log('наша партия сконвертирована: тактов ' + score.tracks[0].staves[0].bars.length + ', нот ' + notesDump.length +
+      '; высоты (realPitch): ' + notesDump.map((n) => n.pitch).join(','));
+
+  const needB = MODE === 'all' || MODE === 'B' || MODE === 'C';
+  const woff2 = needB ? await (await fetch('/__bravura__/Bravura.woff2')).blob() : null;
+  const dataUrl = needB ? await blobToDataUrl(woff2) : null;
+  if (needB) log('Bravura.woff2: ' + woff2.size + ' байт; data-URL: ' + dataUrl.length + ' символов');
+
+  // --- A: без шрифта ---
+  if (MODE === 'all' || MODE === 'A') {
+  const apiA = makeApi(alphaTab, document.getElementById('atNoFont'));
+  hookApi(apiA, 'A');
+  let p = waitRender(apiA, 8000);
+  apiA.load(score);
+  const msA = await p;
+  const svgA = document.querySelector('#atNoFont svg');
+  log('[A без шрифта] рендер(мс, -1=не дождались)=' + Math.round(msA) + '; шрифты: ' + fontState() +
+      '; svg=' + (svgA ? svgA.getAttribute('width') + 'x' + svgA.getAttribute('height') : 'НЕТ'));
+  window.__report.noFont = { ms: msA, fonts: fontState(), svg: !!svgA };
+  }
+
+  // --- B: шрифт data-URL (имитация встраивания в файл, сеть не нужна) ---
+  if (MODE === 'all' || MODE === 'B') {
+  const apiB = makeApi(alphaTab, document.getElementById('atDataFont'), (s) => {
+    s.core.smuflFontSources = new Map([[alphaTab.FontFileFormat.Woff2, dataUrl]]);
+  });
+  hookApi(apiB, 'B');
+  // события курсора/нот
+  apiB.beatMouseDown.on((beat) => {
+    window.__report.events.push({ type: 'beat', index: beat.index, bar: beat.voice && beat.voice.bar ? beat.voice.bar.index : null });
+  });
+  apiB.noteMouseDown.on((note) => {
+    window.__report.events.push({ type: 'note', fret: note.fret, string: note.string });
+  });
+  p = waitRender(apiB);
+  apiB.load(score);
+  const msB = await p;
+  const svgB = document.querySelector('#atDataFont svg');
+  const glyphsB = svgB ? svgB.querySelectorAll('text').length : 0;
+  log('[B data-URL шрифт] рендер(мс, -1=не дождались)=' + Math.round(msB) + '; шрифты: ' + fontState() +
+      '; svg=' + (svgB ? 'да' : 'НЕТ') + ', текстовых глифов=' + glyphsB);
+  window.__report.dataFont = { ms: msB, fonts: fontState(), svg: !!svgB, glyphs: glyphsB };
+  const pitches = [];
+  score.tracks[0].staves[0].bars.forEach((bar) => bar.voices[0].beats.forEach((beat) =>
+    beat.notes.forEach((n) => pitches.push(n.realPitch))));
+  window.__report.pitches = pitches;
+  log('[B] высоты нот после finish (realPitch): ' + pitches.join(','));
+
+  // скорость "каждое нажатие": 5 раз меняем лад первой ноты и перерисовываем целиком
+  const firstNote = score.tracks[0].staves[0].bars[0].voices[0].beats[0].notes[0];
+  const editMs = [];
+  for (let i = 0; i < 5; i++) {
+    firstNote.fret = 1 + i;
+    const pp = waitRender(apiB);
+    apiB.render();
+    editMs.push(Math.round(await pp));
+  }
+  log('[B] перерисовка после правки одной ноты, мс: ' + editMs.join(', '));
+  window.__report.editMs = editMs;
+
+  // курсор по клику: кликаем в центр третьей ноты через bounds
+  const lookup = apiB.boundsLookup || (apiB.renderer && apiB.renderer.boundsLookup);
+  window.__report.hasBounds = !!lookup;
+  if (lookup) {
+    const bars = lookup.bars || lookup.masterBars;
+    log('boundsLookup есть; bars=' + (bars ? bars.length : '?'));
+    // выделить такты 1-2 (highlightPlaybackRange) — проверка выделения без плеера
+    const staves = score.tracks[0].staves[0];
+    const b0 = staves.bars[0].voices[0].beats[0];
+    const b1 = staves.bars[1].voices[0].beats[staves.bars[1].voices[0].beats.length - 1];
+    try {
+      apiB.highlightPlaybackRange(b0, b1);
+      window.__report.highlightOk = true;
+      log('highlightPlaybackRange(такты 1–2) — вызван без ошибок');
+    } catch (e) {
+      window.__report.highlightOk = false;
+      log('highlightPlaybackRange ОШИБКА: ' + e.message);
+    }
+  }
+  }
+
+  // --- C: .gp5 ---
+  if (MODE === 'all' || MODE === 'C') {
+  const gp5buf = await (await fetch('../../uploads/led_zeppelin-stairway_to_heaven_7.gp5')).arrayBuffer();
+  const apiC = makeApi(alphaTab, document.getElementById('atGp5'), (s) => {
+    s.core.smuflFontSources = new Map([[alphaTab.FontFileFormat.Woff2, dataUrl]]);
+  });
+  hookApi(apiC, 'C');
+  let p = waitRender(apiC);
+  const tC = performance.now();
+  apiC.load(new Uint8Array(gp5buf));
+  const msC = await p;
+  const sc = apiC.score;
+  log('[C .gp5] загрузка+рендер ВСЕХ дорожек ' + Math.round(msC) + ' мс; дорожек=' + (sc ? sc.tracks.length : '?') +
+      ', тактов=' + (sc && sc.masterBars ? sc.masterBars.length : '?') +
+      ', темп=' + (sc ? sc.tempo : '?'));
+  window.__report.gp5All = { ms: msC, tracks: sc ? sc.tracks.length : 0, bars: sc ? sc.masterBars.length : 0 };
+  if (sc && sc.tracks.length) {
+    // только первая дорожка
+    const pp = waitRender(apiC);
+    const t1 = performance.now();
+    apiC.renderTracks([sc.tracks[0]]);
+    const ms1 = await pp;
+    log('[C .gp5] перерендер только 1-й дорожки ' + Math.round(ms1) + ' мс (полный цикл от вызова ' + Math.round(performance.now() - t1) + ' мс)');
+    // правка одной ноты в большой партитуре
+    let note0 = null;
+    outer: for (const bar of sc.tracks[0].staves[0].bars) for (const v of bar.voices) for (const beat of v.beats) {
+      if (beat.notes.length) { note0 = beat.notes[0]; break outer; }
+    }
+    const editBig = [];
+    if (note0) {
+      for (let i = 0; i < 3; i++) {
+        note0.fret = (note0.fret + 1) % 20;
+        const ppp = waitRender(apiC);
+        apiC.render();
+        editBig.push(Math.round(await ppp));
+      }
+    }
+    log('[C .gp5] перерисовка после правки одной ноты (1 дорожка), мс: ' + editBig.join(', '));
+    window.__report.gp5One = { ms: ms1, editMs: editBig };
+  }
+  }
+  window.__report.done = true;
+  log('ГОТОВО');
+})().catch((e) => { log('ОШИБКА: ' + (e && e.stack || e)); window.__report.done = true; window.__report.fatal = String(e); });
+</script>
+</body>
+</html>
