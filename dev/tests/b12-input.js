@@ -172,11 +172,12 @@ w.addEventListener('load', () => {
   key('ArrowDown', { code: 'ArrowDown' });
   key('ArrowDown', { code: 'ArrowDown' });
   check('↓ сменил струну вниз (до 1)', w.eval('partsCursor.string') === 1, String(w.eval('partsCursor.string')));
+  // B-12.11 этап 3 (GP): Shift+стрелки расширяют выделение, а не шаг курсора.
   reset(2);
   key('ArrowRight', { code: 'ArrowRight', shiftKey: true });
-  check('Shift+→ — мелкий шаг (16-я, 0,25 доли)', Math.abs(w.eval('partsCursor.pos') - 2.25) < 1e-6, String(w.eval('partsCursor.pos')));
+  check('Shift+→ (GP) расширяет выделение вправо', Math.abs(w.eval('partsCursor.pos') - 3) < 1e-6 && !!w.eval('partsNoteRange'), String(w.eval('partsCursor.pos')));
   key('ArrowLeft', { code: 'ArrowLeft', shiftKey: true });
-  check('Shift+← вернул на 2', Math.abs(w.eval('partsCursor.pos') - 2) < 1e-6, String(w.eval('partsCursor.pos')));
+  check('Shift+← сужает выделение обратно к 2', Math.abs(w.eval('partsCursor.pos') - 2) < 1e-6, String(w.eval('partsCursor.pos')));
   reset(2);
   key('Home', { code: 'Home' });
   check('Home (GP) — начало такта', w.eval('partsCursor.pos') === 0, String(w.eval('partsCursor.pos')));

@@ -265,9 +265,11 @@ w.addEventListener('load', async () => {
     await settleHistory();
     check('staff-ввод вошёл в историю Store', w.eval('historyDebugState().length') >= 2,
       JSON.stringify(w.eval('historyDebugState()')));
-    key('ArrowRight', { code: 'ArrowRight', ctrlKey: true, shiftKey: true });
+    // B-12.11 этап 3: Ctrl+Shift+стрелки теперь выделение (GP), поэтому
+    // функцию сдвига ноты проверяем прямым вызовом — она жива для палитры/меню.
+    w.eval('moveSelectedPartNote("time", 1)');
     let edited = activeNoteInRoll((note) => note.fret === 5);
-    check('Ctrl+Shift+Right перемещает selected note на 1/16',
+    check('moveSelectedPartNote перемещает selected note на 1/16',
       edited && Math.abs(edited.start - 1.25) < 1e-6, JSON.stringify(edited));
     await settleHistory();
     check('перемещение стало отдельным Store-шагом', w.eval('historyDebugState().length') >= 3,
@@ -281,9 +283,9 @@ w.addEventListener('load', async () => {
     check('Redo восстанавливает сдвиг',
       activeNoteInRoll((note) => note.fret === 5)?.start === 1.25, JSON.stringify(roll()));
 
-    key('ArrowUp', { code: 'ArrowUp', ctrlKey: true, shiftKey: true });
+    w.eval('moveSelectedPartNote("pitch", 1)');
     edited = activeNoteInRoll((note) => Math.abs(note.start - 1.25) < 1e-6);
-    check('Ctrl+Shift+Up меняет sounding pitch на полутон и переаппликатуривает',
+    check('moveSelectedPartNote pitch меняет sounding pitch на полутон и переаппликатуривает',
       edited && Math.abs(w.eval(`partFretPitch(songParts[0], ${edited.string}, ${edited.fret})`) - 61) < 1e-6 &&
         edited.string === 4 && edited.fret === 2, JSON.stringify(edited));
     await settleHistory();
@@ -342,12 +344,11 @@ w.addEventListener('load', async () => {
       saved.schemaVersion === 9 && saved.parts[0].rolls['1'].some((note) => note.voice === 2),
       JSON.stringify(saved.parts[0].rolls['1']));
 
-    // B-12.11: режима Select нет; сочетание двигает ноту в живом вводе
-    // (Ctrl+Shift+стрелки станут выделением на этапе выделения B-12.11).
+    // B-12.11 этап 3 (GP): Ctrl+Shift+стрелки расширяют выделение, ноту не двигают.
     const beforeGpEdit = JSON.stringify(roll());
-    key('ArrowDown', { code: 'ArrowDown', ctrlKey: true, shiftKey: true });
-    check('note-changing keyboard shortcut работает сразу в вводе',
-      JSON.stringify(roll()) !== beforeGpEdit && w.eval('partsEditMode') === 'input');
+    key('ArrowRight', { code: 'ArrowRight', ctrlKey: true, shiftKey: true });
+    check('Ctrl+Shift+→ (GP) выделяет, а не двигает ноту',
+      JSON.stringify(roll()) === beforeGpEdit && !!w.eval('partsNoteRange') && w.eval('partsEditMode') === 'input');
 
     console.log(`\nитого: ${passed} ok, ${failed} FAIL`);
     if (failed) process.exitCode = 1;
