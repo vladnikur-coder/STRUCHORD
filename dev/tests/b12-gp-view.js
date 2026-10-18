@@ -37,6 +37,8 @@ const song = {
       { start: 0, dur: 1, string: 5, fret: 3 },
       { start: 1, dur: 0.5, string: 4, fret: 0, pm: true },
       { start: 4, dur: 1, string: 0, fret: 0 },
+      { start: 3.5, dur: 1, string: 5, fret: 5 },
+      { start: 5, dur: 1, string: 5, fret: 2, voice: 2 },
     ] } }],
   nextId: 50, rhythmPool: null, userFingerings: [], preferredFingerings: [], date: '',
 };
@@ -62,18 +64,28 @@ w.addEventListener('load', () => {
       const score = b.score;
       const notes = [];
       score.tracks[0].staves[0].bars.forEach((bar) => bar.voices.forEach((v) =>
-        v.beats.forEach((beat) => beat.notes.forEach((n) => notes.push({ fret: n.fret, string: n.string, pm: n.isPalmMute })))));
+        v.beats.forEach((beat) => beat.notes.forEach((n) => notes.push({ fret: n.fret, string: n.string, pm: n.isPalmMute, tie: n.isTieDestination,
+          colored: !!(n.style && n.style.colors && n.style.colors.size) })))));
+      const staff0 = score.tracks[0].staves[0];
       return { bars: b.barCount, master: score.masterBars.length, tracks: score.tracks.length,
         tempo: score.tempo, notes, cursorBar: b.cursorBarIndex,
+        flags: { staff: staff0.showStandardNotation, tab: staff0.showTablature, slash: staff0.showSlash },
         section: score.masterBars[0].section ? score.masterBars[0].section.text : null };
     })()`);
     check('конвертер: 2 такта из двух квадратов', built.bars === 2 && built.master === 2, JSON.stringify(built));
     check('конвертер: одна дорожка, темп задан', built.tracks === 1 && built.tempo >= 30, JSON.stringify(built));
     check('конвертер: секция подписана на первом такте', !!built.section, JSON.stringify(built.section));
-    check('конвертер: 3 ноты, струны инвертированы (5→1, 4→2, 0→6)',
-      built.notes.length === 3 && built.notes[0].string === 1 && built.notes[1].string === 2 && built.notes[2].string === 6,
+    check('конвертер: ноты на месте, струны инвертированы (5→1, 4→2, 0→6)',
+      built.notes.length === 6 && built.notes[0].string === 1 && built.notes[1].string === 2 &&
+      built.notes.some((n) => n.string === 6 && n.fret === 0),
       JSON.stringify(built.notes));
     check('конвертер: palm mute перенесён', built.notes[1].pm === true, JSON.stringify(built.notes));
+    check('конвертер: лига через тактовую черту (продолжение ноты)',
+      built.notes.some((n) => n.tie === true), JSON.stringify(built.notes));
+    check('конвертер: по умолчанию стан+таб, без слэшей',
+      built.flags.staff === true && built.flags.tab === true && built.flags.slash === false, JSON.stringify(built.flags));
+    check('конвертер: ноты покрашены по голосам',
+      built.notes.every((n) => n.colored), JSON.stringify(built.notes));
 
     // Ветка GP-вида: хост показан, родной трек скрыт, падения нет.
     w.eval('setPartsScoreEngine("alphatab")');

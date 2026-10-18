@@ -48,6 +48,8 @@ const server = http.createServer((req, res) => {
     cursorHidden: document.getElementById('ptAtCursor').hidden,
     cursorBox: (() => { const b = document.getElementById('ptAtCursor'); return b ? { l: b.style.left, t: b.style.top, w: b.style.width } : null; })(),
     fonts: Array.from(document.fonts).map((f) => f.family + ':' + f.status).join(','),
+    voiceColored: (() => { const fills = new Set(); document.querySelectorAll('#ptAtHost svg [fill]').forEach((el) => fills.add(el.getAttribute('fill'))); return Array.from(fills).join(' '); })(),
+    followBtnHidden: document.getElementById('ptAtFollow').hidden,
     cursor: partsCursor && { sec: partsCursor.secId, pos: partsCursor.pos, str: partsCursor.string },
   }));
   console.log(JSON.stringify(state, null, 1));
@@ -69,6 +71,32 @@ const server = http.createServer((req, res) => {
   await sleep(700);
   const after = await page.evaluate(() => (songParts[0].rolls[String(sections[0].id)] || []).length);
   console.log('ноты до/после цифры 7:', before, '/', after);
+  // Несколько дорожек в одной системе (F3 по смыслу плана).
+  const multi = await page.evaluate(() => {
+    const copy = JSON.parse(JSON.stringify(songParts[0]));
+    copy.id = 9901; copy.name = 'Вторая гитара';
+    songParts.push(copy);
+    renderPartsScreen();
+    return songParts.length;
+  });
+  await sleep(3000);
+  const multiState = await page.evaluate(() => ({
+    tracks: partsAtApi && partsAtApi.score ? partsAtApi.score.tracks.length : 0,
+    status: document.getElementById('ptAtStatus').textContent,
+    tempoText: Array.from(document.querySelectorAll('#ptAtHost svg text')).slice(0, 40).map((t) => t.textContent).join('|'),
+  }));
+  console.log('дорожек в песне:', multi, '; в GP-странице:', JSON.stringify(multiState));
+  console.log('темп:', JSON.stringify(await page.evaluate(() => ({ eff: getEffectiveBpm(sections[0]), input: DOM.bpmInput && DOM.bpmInput.value, scoreTempo: partsAtApi.score.tempo }))));
+  await page.evaluate(() => { songParts = songParts.filter((p) => p.id !== 9901); renderPartsScreen(); });
+  await sleep(1500);
+  // Бегущий курсор: вызываем тот же крюк, что дёргает проигрыватель.
+  const play = await page.evaluate(() => {
+    const before = document.getElementById('ptAtCursor').style.left;
+    syncPartsPlaybackHighlight(sections[1].id, 0, sections[1].squares[0].id, 0, 0);
+    const box = document.getElementById('ptAtCursor');
+    return { before, after: box.style.left, hidden: box.hidden, playing: partsAtPlaying };
+  });
+  console.log('бегущий курсор:', JSON.stringify(play));
   await page.screenshot({ path: '/tmp/b12-11-gp-view.png' });
   console.log('скриншот /tmp/b12-11-gp-view.png; ошибок страницы:', errors.length ? errors.slice(0, 3) : 'нет');
   await browser.close();

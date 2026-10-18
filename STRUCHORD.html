@@ -9731,6 +9731,9 @@ body.is-parts .container {
 .pt-at-bar { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.8rem; opacity: 0.85; padding: 0.25rem 0; }
 .pt-at-host { overflow: auto; max-height: 70vh; background: #fff; border-radius: 8px; }
 .pt-at-cursor { position: absolute; border: 2px solid var(--color-brand); border-radius: 4px; pointer-events: none; min-width: 14px; min-height: 18px; }
+.pt-notation-flags { display: inline-flex; gap: 0.6rem; align-items: center; font-size: 0.85rem; }
+.pt-notation-flags label { display: inline-flex; gap: 0.25rem; align-items: center; cursor: pointer; }
+.pt-at-follow { margin-left: auto; }
 .pt-engine button.is-active { font-weight: 700; text-decoration: underline; }
 [data-source-start].is-selected { stroke: var(--color-brand) !important; stroke-width: 2.5 !important; }
 .pt-score-cursor { stroke: var(--color-brand); stroke-width: 1.4; pointer-events: none; }
@@ -13613,7 +13616,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.653</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.654</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14175,7 +14178,11 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
               <option value="3">3</option><option value="4">4</option>
             </select>
           </label>
-          <button type="button" class="pt-view-toggle" id="ptNotationModeToggle" hidden aria-pressed="false" title="Переключить вид активной дорожки между нотами и табулатурой/сетки">Показ: Табы</button>
+          <span class="pt-notation-flags" id="ptNotationFlags" hidden role="group" aria-label="Нотация дорожки" title="Что показывать у дорожки (как Musical notation в Track Inspector Guitar Pro)">
+            <label><input type="checkbox" id="ptNotationStaff"> Стан</label>
+            <label><input type="checkbox" id="ptNotationTab"> Таб</label>
+            <label id="ptNotationSlashWrap"><input type="checkbox" id="ptNotationSlash"> Слэши</label>
+          </span>
           <button type="button" class="pt-view-toggle" id="ptInstrumentViewToggle" hidden aria-expanded="false">Гриф</button>
           <span class="pt-track-ops">
             <button type="button" id="ptTrackUp" title="Поднять дорожку выше">↑</button>
@@ -14289,7 +14296,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
             </div>
             <div class="pt-track" id="partsTrack"></div>
             <div class="pt-at" id="partsAlphaTab" hidden>
-              <div class="pt-at-bar"><span>GP-вид: окно тактов за курсором, ввод и звук — наши</span><span id="ptAtStatus"></span></div>
+              <div class="pt-at-bar"><span>GP-вид: вся песня страницей, ввод и звук — наши</span><span id="ptAtStatus"></span><button type="button" class="pt-at-follow" id="ptAtFollow" hidden>Продолжить автопрокрутку</button></div>
               <div class="pt-at-host" id="ptAtHost"></div>
               <div class="pt-at-cursor" id="ptAtCursor" hidden></div>
             </div>
@@ -52879,10 +52886,39 @@ function partNotationViewMode(part) {
 }
 
 function partNotationViewLabel(part) {
-  if (partNotationViewMode(part) === 'staff') return 'Ноты';
-  const inst = partInstrumentId(part);
-  if (inst === 'guitar' || inst === 'bass') return 'Табы';
-  return inst === 'drums' ? 'GM' : 'Сетка';
+  const flags = partNotationFlags(part);
+  const names = [];
+  if (flags.staff) names.push('Стан');
+  if (flags.tab) names.push('Таб');
+  if (flags.slash) names.push('Слэши');
+  return names.join('+') || 'Таб';
+}
+
+// B-12.11 этап 2 (план владельца): нотация дорожки — три независимые галочки
+// (стан/таб/слэши), как Musical notation в Track Inspector GP. Явный выбор
+// живёт в part.notation; без него гитара/бас по умолчанию — стан+таб вместе,
+// остальные роли — как раньше (viewMode). Хотя бы одна галочка всегда стоит.
+function partNotationFlags(part) {
+  let flags = null;
+  if (part && part.notation && typeof part.notation === 'object') {
+    flags = { staff: !!part.notation.staff, tab: !!part.notation.tab, slash: !!part.notation.slash };
+  } else {
+    const inst = part ? partInstrumentId(part) : 'guitar';
+    if (inst === 'guitar' || inst === 'bass') flags = { staff: true, tab: true, slash: false };
+    else if (part && part.viewMode === 'tab') flags = { staff: false, tab: true, slash: false };
+    else flags = { staff: true, tab: false, slash: false };
+  }
+  if (!flags.staff && !flags.tab && !flags.slash) flags.tab = true;
+  return flags;
+}
+
+// Цвета голосов как в плане: 1 жёлтый, 2 зелёный, 3 розовый, 4 фиолетовый.
+// Жёлтый на белой бумаге взят темнее чистого (#ffeb00 не читается) — честное
+// отступление ради читаемости; приглушённый чужой голос — серый.
+const PART_VOICE_COLORS = ['#d99a00', '#2e9e4f', '#e75480', '#7d3cff'];
+function partVoiceColorHex(voice, dimmed) {
+  if (dimmed) return '#c4c4c4';
+  return PART_VOICE_COLORS[Math.max(1, Math.min(4, Number(voice) || 1)) - 1];
 }
 
 function partDrumInfo(pitch) {
@@ -53081,6 +53117,10 @@ function togglePartsMode(force) {
 }
 
 function clearPartsPlaybackHighlight() {
+  if (partsAtPlaying) {
+    partsAtPlaying = false;
+    if (partsScoreEngine === 'alphatab') positionPartsAtCursor();
+  }
   partsPlayingSectionId = null;
   partsPlayingSquareId = null;
   partsPlayingSectionPass = 0;
@@ -53123,6 +53163,13 @@ function syncPartsPlaybackHighlight(secId, secPass, squareId, squarePass, eventI
   partsPlayingSectionPass = sectionPass;
   partsPlayingSquarePass = measurePass;
   partsPlayingEventIndex = event;
+  if (partsScoreEngine === 'alphatab' && square !== null && event !== null) {
+    const playSec = sections.find((item) => Number(item.id) === section);
+    const playSq = playSec && (playSec.squares || []).find((item) => Number(item.id) === square);
+    if (playSec && playSq && event >= 0 && event < (playSq.events || []).length) {
+      partsAtPlaybackCursor(section, partEventWindowUnits(playSec, playSq, event).start);
+    }
+  }
   partsPlayingElements.forEach((el) => el.classList.remove('is-playing'));
   partsPlayingElements = [];
   partsPlayingPassBadges.forEach((el) => {
@@ -53716,6 +53763,10 @@ window.addEventListener('resize', () => {
 let partsScoreEngine = 'alphatab'; // B-12.11: GP-вид по умолчанию (решение владельца 18.10.2026)
 try { const savedEngine = localStorage.getItem('struchord_parts_engine'); if (savedEngine === 'alphatab' || savedEngine === 'native') partsScoreEngine = savedEngine; } catch (_) {}
 let partsAtApi = null;
+let partsAtBarsLite = [];
+let partsAtFollow = true;       // автопрокрутка за курсором при игре
+let partsAtPlaying = false;     // идёт проигрывание (курсор бежит)
+let partsAtProgrammaticScroll = false;
 let partsAtRenderTimer = 0;
 let partsAtBeatMap = new Map();
 let partsAtBeatByKey = new Map();
@@ -53781,7 +53832,10 @@ function buildPartsAlphaScore(alphaTab) {
   const bars = partScoreBars(drawn);
   const score = new M.Score();
   score.title = (DOM.songTitle && DOM.songTitle.value) || 'Партии';
-  score.tempo = Math.max(30, Math.round(getEffectiveBpm(sections[0]) || 120));
+  // У alphaTab темп партитуры выводится из автоматизации первого такта,
+  // прямое поле score.tempo после finish не держится — ведём свой bpm.
+  const partsBpm = Math.max(30, Math.round(getEffectiveBpm(sections[0]) || 120));
+  score.tempo = partsBpm;
   const beatMap = new Map();
   const beatByKey = new Map();
   // Порядок важен для alphaTab: сначала дорожки и пустые такты, потом
@@ -53792,8 +53846,10 @@ function buildPartsAlphaScore(alphaTab) {
     score.addTrack(track);
     if (!track.staves.length) track.addStaff(new M.Staff());
     const staff = track.staves[0];
-    staff.showStandardNotation = true;
-    staff.showTablature = true;
+    const notationFlags = partNotationFlags(part);
+    staff.showStandardNotation = notationFlags.staff;
+    staff.showTablature = notationFlags.tab;
+    staff.showSlash = notationFlags.slash;
     const tuningNotes = partTuningNotes(part);
     staff.stringTuning = new M.Tuning(partTuningName(part) || 'Standard',
       tuningNotes.map(partsAtNoteMidi).reverse(), false);
@@ -53804,9 +53860,11 @@ function buildPartsAlphaScore(alphaTab) {
     });
     return { part, staff, tuningNotes, barObjs };
   });
-  bars.forEach((bar) => {
+  let firstMasterBar = null;
+  bars.forEach((bar, barIndex) => {
     const mb = new M.MasterBar();
     score.addMasterBar(mb);
+    if (barIndex === 0) firstMasterBar = mb;
     const sig = String(bar.timeSig || '4/4').split('/').map(Number);
     mb.timeSignatureNumerator = sig[0] || 4;
     mb.timeSignatureDenominator = sig[1] || 4;
@@ -53823,8 +53881,18 @@ function buildPartsAlphaScore(alphaTab) {
   trackCtx.forEach(({ part, tuningNotes, barObjs }) => {
     bars.forEach((bar, bi) => {
       const barObj = barObjs[bi];
-      const roll = (partRollFor(part, bar.sec.id) || [])
+      const sectionRoll = partRollFor(part, bar.sec.id) || [];
+      const roll = sectionRoll
         .filter((n) => Number(n.start) >= bar.start - 1e-9 && Number(n.start) < bar.end - 1e-9);
+      // Лиги через тактовую черту: нота, начавшаяся раньше и звучащая в этот
+      // такт, продолжается нотой-призраком связки (isTieDestination).
+      sectionRoll.forEach((n) => {
+        const start = Number(n.start);
+        const end = start + (Number(n.dur) || 0);
+        if (start < bar.start - 1e-9 && end > bar.start + 1e-9) {
+          roll.push({ ...n, start: bar.start, dur: Math.min(end, bar.end) - bar.start, tieCont: true });
+        }
+      });
       const byKey = new Map();
       roll.forEach((n) => {
         const k = Number(n.start).toFixed(4) + ':' + (Number(n.voice) || 1);
@@ -53833,9 +53901,21 @@ function buildPartsAlphaScore(alphaTab) {
       });
       const voiceNums = [...new Set(roll.map((n) => Number(n.voice) || 1))].sort((a, b) => a - b);
       const voices = new Map();
+      const isActivePart = part.id === partsActiveId;
+      const activeVoice = Math.max(1, Math.min(4, Number(partsVoice) || 1));
       (voiceNums.length ? voiceNums : [1]).forEach((vn) => {
         const voice = new M.Voice();
         barObj.addVoice(voice);
+        // Цвет голоса: активный голос активной дорожки — полный, чужие
+        // голоса приглушены серым (как в GP без multivoice).
+        try {
+          const hex = partVoiceColorHex(vn, isActivePart && vn !== activeVoice);
+          const rgb = [1, 3, 5].map((i) => parseInt(hex.substr(i, 2), 16));
+          const style = new M.VoiceStyle();
+          style.colors.set(alphaTab.model.VoiceSubElement.Glyphs,
+            new M.Color(rgb[0], rgb[1], rgb[2]));
+          voice.style = style;
+        } catch (_) {}
         voices.set(vn, voice);
       });
       const starts = [...byKey.keys()].sort((a, b) => parseFloat(a) - parseFloat(b));
@@ -53862,6 +53942,17 @@ function buildPartsAlphaScore(alphaTab) {
           if (n.letRing) note.isLetRing = true;
           if (n.vibrato) note.vibrato = n.vibrato === 'wide' ? M.VibratoType.Wide : M.VibratoType.Slight;
           if (n.harm) note.harmonicType = n.harm.type === 'natural' ? M.HarmonicType.Natural : M.HarmonicType.Artificial;
+          if (n.tieCont) note.isTieDestination = true;
+          try {
+            const hex = partVoiceColorHex(Number(n.voice) || 1,
+              part.id === partsActiveId && (Number(n.voice) || 1) !== Math.max(1, Math.min(4, Number(partsVoice) || 1)));
+            const rgb = [1, 3, 5].map((i) => parseInt(hex.substr(i, 2), 16));
+            const noteStyle = new M.NoteStyle();
+            const color = new M.Color(rgb[0], rgb[1], rgb[2]);
+            noteStyle.colors.set(alphaTab.model.NoteSubElement.GuitarTabFretNumber, color);
+            noteStyle.colors.set(alphaTab.model.NoteSubElement.StandardNotationNoteHead, color);
+            note.style = noteStyle;
+          } catch (_) {}
           beat.addNote(note);
         });
         beatMap.set(beat, { partId: part.id, secId: bar.sec.id, start: Number(first.start), line: Number(first.string) || 0 });
@@ -53871,13 +53962,19 @@ function buildPartsAlphaScore(alphaTab) {
     });
   });
   score.finish(new alphaTab.Settings());
+  // Темп и его подпись над первым тактом ставим ПОСЛЕ finish: он иначе
+  // сбрасывает tempo к стандартным 120.
+  if (firstMasterBar && M.Automation && typeof M.Automation.buildTempoAutomation === 'function') {
+    firstMasterBar.tempoAutomations = [M.Automation.buildTempoAutomation(false, 0, partsBpm, 2)];
+  }
   let cursorBarIndex = 0;
   if (partsCursor) {
     bars.forEach((bar, i) => {
       if (bar.sec.id === partsCursor.secId && partsCursor.pos >= bar.start - 1e-9 && partsCursor.pos < bar.end - 1e-9) cursorBarIndex = i;
     });
   }
-  return { score, beatMap, beatByKey, barCount: bars.length, cursorBarIndex };
+  return { score, beatMap, beatByKey, barCount: bars.length, cursorBarIndex,
+    barsLite: bars.map((bar) => ({ secId: bar.sec.id, start: bar.start, end: bar.end })) };
 }
 
 function renderPartsAlphaTab() {
@@ -53901,7 +53998,7 @@ function renderPartsAlphaTab() {
     if (!partsAtApi) {
       const settings = new alphaTab.Settings();
       settings.core.engine = 'svg';
-      settings.core.enableLazyLoading = false;
+      settings.core.enableLazyLoading = true;
       settings.core.includeNoteBounds = true;
       settings.core.useWorkers = false;
       const fontEl = document.getElementById('bravuraWoff2Data');
@@ -53909,7 +54006,8 @@ function renderPartsAlphaTab() {
         'data:font/woff2;base64,' + fontEl.textContent.trim()]]);
       settings.display.layoutMode = alphaTab.LayoutMode.Page;
       settings.display.scale = 0.9;
-      settings.display.barCount = 16;
+      // Ритм под табом — штили и балки как в GP, а не «автоматически».
+      settings.notation.rhythmMode = alphaTab.TabRhythmMode.ShowWithBeams;
       partsAtApi = new alphaTab.AlphaTabApi(host, settings);
       partsAtApi.renderFinished.on(() => positionPartsAtCursor());
       partsAtApi.error.on((e) => { if (status) status.textContent = 'GP-вид: ' + (e && e.message || e); });
@@ -53924,13 +54022,93 @@ function renderPartsAlphaTab() {
     }
     partsAtBeatMap = built.beatMap;
     partsAtBeatByKey = built.beatByKey;
-    partsAtApi.settings.display.startBar = Math.max(1, built.cursorBarIndex - 3 + 1);
+    partsAtBarsLite = built.barsLite;
+    partsAtApi.settings.display.startBar = 1;
+    partsAtApi.settings.display.barCount = built.barCount;
     partsAtApi.updateSettings();
     partsAtApi.load(built.score);
-    if (status) status.textContent = 'окно: 16 тактов из ' + built.barCount + ', курсор в такте ' + (built.cursorBarIndex + 1);
+    if (status) status.textContent = 'страница: ' + built.barCount + ' тактов, курсор в такте ' + (built.cursorBarIndex + 1);
+    bindPartsAtFollowUi();
   } catch (err) {
     if (status) status.textContent = 'GP-вид недоступен: ' + (err && err.message || err);
   }
+}
+
+// Автопрокрутка: страница едет за курсором при игре; ручная прокрутка её
+// выключает и показывает кнопку «Продолжить автопрокрутку» (GP, стр. 59–60).
+function bindPartsAtFollowUi() {
+  const host = document.getElementById('ptAtHost');
+  const btn = document.getElementById('ptAtFollow');
+  if (!host || host.dataset.followBound === '1') return;
+  host.dataset.followBound = '1';
+  host.addEventListener('scroll', () => {
+    if (partsAtProgrammaticScroll) { partsAtProgrammaticScroll = false; return; }
+    if (partsAtPlaying && partsAtFollow) {
+      partsAtFollow = false;
+      if (btn) btn.hidden = false;
+    }
+  }, { passive: true });
+  if (btn) btn.addEventListener('click', () => {
+    partsAtFollow = true;
+    btn.hidden = true;
+    positionPartsAtCursor(true);
+  });
+}
+
+function partsAtScrollHostTo(vb) {
+  const host = document.getElementById('ptAtHost');
+  if (!host || !vb || !partsAtFollow) return;
+  const target = Math.max(0, vb.y - host.clientHeight * 0.35);
+  if (Math.abs(host.scrollTop - target) < 40) return;
+  partsAtProgrammaticScroll = true;
+  host.scrollTo({ top: target });
+}
+
+// Рамка-курсор по доле alphaTab; followScroll — тащить страницу за ней.
+function partsAtPlaceCursorBox(beat, followScroll) {
+  const box = document.getElementById('ptAtCursor');
+  const host = document.getElementById('ptAtHost');
+  if (!box || !host || !partsAtApi) return false;
+  const lookup = partsAtApi.boundsLookup;
+  if (!lookup || typeof lookup.findBeat !== 'function') { box.hidden = true; return false; }
+  const bounds = lookup.findBeat(beat);
+  if (!bounds || !bounds.visualBounds) { box.hidden = true; return false; }
+  const vb = bounds.visualBounds;
+  box.hidden = false;
+  box.style.left = (host.offsetLeft + vb.x - host.scrollLeft) + 'px';
+  box.style.top = (host.offsetTop + vb.y - host.scrollTop) + 'px';
+  box.style.width = Math.max(12, vb.w) + 'px';
+  box.style.height = Math.max(16, vb.h) + 'px';
+  if (followScroll) partsAtScrollHostTo(vb);
+  return true;
+}
+
+// Бегущий курсор при проигрывании: наш звук, рамка едет по GP-странице.
+// Позиция приходит из syncPartsPlaybackHighlight (секция + доля в секции).
+function partsAtPlaybackCursor(secId, pos) {
+  if (!partsMode || partsScoreEngine !== 'alphatab' || !partsAtApi) return;
+  partsAtPlaying = true;
+  let beat = partsAtBeatByKey.get(partsActiveId + ':' + secId + ':' + Number(pos).toFixed(4));
+  if (!beat) {
+    // Ближайшая доля активной дорожки в этом такте.
+    const bar = partsAtBarsLite.find((b) => b.secId === secId && pos >= b.start - 1e-9 && pos < b.end - 1e-9);
+    if (!bar) return;
+    let best = null;
+    partsAtBeatMap.forEach((info, candidate) => {
+      if (info.partId !== partsActiveId || info.secId !== secId) return;
+      if (info.start < bar.start - 1e-9 || info.start >= bar.end - 1e-9) return;
+      if (!best || Math.abs(info.start - pos) < Math.abs(best.info.start - pos)) best = { info, candidate };
+    });
+    if (best) beat = best.candidate;
+  }
+  if (!beat) return;
+  const box = document.getElementById('ptAtCursor');
+  if (box) {
+    box.textContent = '';
+    box.style.borderColor = partVoiceColorHex(partsVoice, false);
+    box.style.background = partVoiceColorHex(partsVoice, false) + '26';
+  }
+  partsAtPlaceCursorBox(beat, true);
 }
 
 // Клик в GP-виде ставит наш курсор (и выделяет ноту) — ввод остаётся наш.
@@ -53949,24 +54127,18 @@ function selectPartsAtInfo(info, withNote) {
 }
 
 // Курсор-рамка поверх GP-вида по координатам alphaTab (boundsLookup).
-function positionPartsAtCursor() {
+function positionPartsAtCursor(followScroll) {
   const box = document.getElementById('ptAtCursor');
-  const host = document.getElementById('ptAtHost');
-  if (!box || !host || !partsAtApi || !partsCursor) return;
+  if (!box || !partsAtApi || !partsCursor) return;
   const key = partsCursor.partId + ':' + partsCursor.secId + ':' + Number(partsCursor.pos).toFixed(4);
   const beat = partsAtBeatByKey.get(key);
-  const lookup = partsAtApi.boundsLookup;
-  if (!beat || !lookup || typeof lookup.findBeat !== 'function') { box.hidden = true; return; }
-  const bounds = lookup.findBeat(beat);
-  if (!bounds || !bounds.visualBounds) { box.hidden = true; return; }
-  const vb = bounds.visualBounds;
-  box.hidden = false;
-  box.style.left = (host.offsetLeft + vb.x - host.scrollLeft) + 'px';
-  box.style.top = (host.offsetTop + vb.y - host.scrollTop) + 'px';
-  box.style.width = Math.max(12, vb.w) + 'px';
-  box.style.height = Math.max(16, vb.h) + 'px';
+  if (!beat) { box.hidden = true; return; }
   const note = partCursorNote();
+  const voice = note ? Number(note.voice) || 1 : Math.max(1, Math.min(4, Number(partsVoice) || 1));
+  box.style.borderColor = partVoiceColorHex(voice, false);
+  box.style.background = partVoiceColorHex(voice, false) + '26';
   box.textContent = note && Number.isInteger(note.fret) ? String(note.fret) : '';
+  partsAtPlaceCursorBox(beat, !!followScroll);
 }
 
 function renderPartsScreen() {
@@ -57871,15 +58043,35 @@ function movePartsCursorEdge(toEnd, wholeSong) {
 function setPartNotationView(mode) {
   const part = partActivePart();
   if (!part) return false;
-  const next = mode === 'staff' || mode === 'tab' ? mode : partDefaultNotationView(part);
-  if (partNotationViewMode(part) === next) return false;
-  part.viewMode = next;
+  const flags = partNotationFlags(part);
+  const next = mode === 'staff'
+    ? { staff: true, tab: false, slash: flags.slash }
+    : { staff: false, tab: true, slash: flags.slash };
+  return setPartNotationFlags(part, next);
+}
+
+// Смена галочек — метаданные вида, не шаг отмены и не правка нот (как раньше
+// было с кнопкой по кругу). viewMode синхронизируем для обычной ленты.
+function setPartNotationFlags(part, flags) {
+  if (!part || !flags) return false;
+  const next = { staff: !!flags.staff, tab: !!flags.tab, slash: !!flags.slash };
+  if (!next.staff && !next.tab && !next.slash) return false;
+  const prev = partNotationFlags(part);
+  if (prev.staff === next.staff && prev.tab === next.tab && prev.slash === next.slash) return false;
+  part.notation = next;
+  part.viewMode = next.tab ? 'tab' : 'staff';
   if (partsMode) renderPartsScreen();
   else {
     renderPartsTracks();
     syncPartsTrackBar();
   }
   return true;
+}
+
+function setPartNotationFlag(part, key, on) {
+  const flags = partNotationFlags(part);
+  flags[key] = !!on;
+  return setPartNotationFlags(part, flags);
 }
 
 // ---------- B-12.3: карточки дорожек, панель и операции ----------
@@ -58035,7 +58227,6 @@ function syncPartsTrackBar() {
   const voiceSelect = document.getElementById('ptVoice');
   const voiceField = document.getElementById('ptVoiceField');
   const viewToggle = document.getElementById('ptInstrumentViewToggle');
-  const notationToggle = document.getElementById('ptNotationModeToggle');
   if (!instSel || !tuneSel || !visBox || !nameInput) return;
   const part = partActivePart();
   const inst = part ? partInstrumentId(part) : 'guitar';
@@ -58121,15 +58312,18 @@ function syncPartsTrackBar() {
     viewToggle.textContent = inst === 'drums' ? 'GM-удары' : 'Гриф';
     viewToggle.setAttribute('aria-expanded', usesPitch && partsInstrumentViewOpen ? 'true' : 'false');
   }
-  if (notationToggle) {
-    const currentView = partNotationViewMode(part);
-    notationToggle.hidden = !part;
-    notationToggle.disabled = !part;
-    notationToggle.textContent = `Показ: ${partNotationViewLabel(part)}`;
-    notationToggle.setAttribute('aria-pressed', currentView === 'staff' ? 'true' : 'false');
-    notationToggle.title = currentView === 'staff'
-      ? 'Переключить активную дорожку на табулатуру/сетку'
-      : 'Переключить активную дорожку на ноты';
+  const notationFlagsEl = document.getElementById('ptNotationFlags');
+  if (notationFlagsEl) {
+    const flags = partNotationFlags(part);
+    notationFlagsEl.hidden = !part;
+    const staffBox = document.getElementById('ptNotationStaff');
+    const tabBox = document.getElementById('ptNotationTab');
+    const slashBox = document.getElementById('ptNotationSlash');
+    const slashWrap = document.getElementById('ptNotationSlashWrap');
+    if (staffBox) staffBox.checked = flags.staff;
+    if (tabBox) tabBox.checked = flags.tab;
+    if (slashBox) slashBox.checked = flags.slash;
+    if (slashWrap) slashWrap.hidden = !(inst === 'guitar' || inst === 'bass');
   }
   syncPartsInstrumentView(part);
 }
@@ -58152,7 +58346,6 @@ function ensurePartsTrackBar() {
   const nameInput = document.getElementById('ptTrackName');
   const voiceSelect = document.getElementById('ptVoice');
   const viewToggle = document.getElementById('ptInstrumentViewToggle');
-  const notationToggle = document.getElementById('ptNotationModeToggle');
   const viewClose = document.getElementById('ptInstrumentViewClose');
   if (voiceSelect) {
     voiceSelect.addEventListener('change', () => {
@@ -58171,15 +58364,21 @@ function ensurePartsTrackBar() {
       partsVoice = nextVoice;
       adoptPartsInputFromCursor();
       syncPartsCursorDom();
+      schedulePartsAlphaRender();
     });
   }
   if (viewToggle) viewToggle.addEventListener('click', () => {
     partsInstrumentViewOpen = !partsInstrumentViewOpen;
     syncPartsTrackBar();
   });
-  if (notationToggle) notationToggle.addEventListener('click', () => {
-    const part = partActivePart();
-    if (part) setPartNotationView(partNotationViewMode(part) === 'staff' ? 'tab' : 'staff');
+  [['ptNotationStaff', 'staff'], ['ptNotationTab', 'tab'], ['ptNotationSlash', 'slash']].forEach(([id, key]) => {
+    const box = document.getElementById(id);
+    if (box) box.addEventListener('change', () => {
+      const part = partActivePart();
+      if (!part) return;
+      // Хотя бы одна галочка: снятие последней откатываем.
+      if (!setPartNotationFlag(part, key, box.checked)) box.checked = !box.checked;
+    });
   });
   if (viewClose) viewClose.addEventListener('click', () => {
     partsInstrumentViewOpen = false;
@@ -64135,6 +64334,7 @@ toggleTimeAndBeats();
         // Вид нотации — свойство дорожки: всегда сохраняем явный выбор,
         // чтобы режим не зависел от будущего изменения дефолта роли.
         viewMode: partNotationViewMode(part),
+        ...(part.notation ? { notation: partNotationFlags(part) } : {}),
         tuning: part.tuning || null,
         // B-12.9.1: свой строй пишем только когда он есть и не совпадает с
         // пресетом или строем песни — иначе файл рос бы без нужды.
@@ -65476,6 +65676,7 @@ toggleTimeAndBeats();
             return {
               ...part,
               viewMode: part.viewMode === 'staff' || part.viewMode === 'tab' ? part.viewMode : roleDefault,
+              ...(part.notation ? { notation: { ...partNotationFlags(part) } } : {}),
             };
           })
         : [];
@@ -66036,6 +66237,9 @@ toggleTimeAndBeats();
           viewMode: rawPart.viewMode === 'staff' || rawPart.viewMode === 'tab'
             ? rawPart.viewMode
             : (inst === 'guitar' || inst === 'bass' ? 'tab' : 'staff'),
+          ...(rawPart.notation && typeof rawPart.notation === 'object'
+            ? { notation: { staff: !!rawPart.notation.staff, tab: !!rawPart.notation.tab, slash: !!rawPart.notation.slash } }
+            : {}),
           // Guitar/bass с null ссылаются на строй песни; остальные pitched-
           // роли по умолчанию используют E Standard (C4 остаётся MIDI 60).
           tuning: presetForStrings
@@ -70209,11 +70413,13 @@ function gpExportModal(title, bodyHtml, label) {
     // View mode is durable song metadata, not an undoable edit. Keep the
     // current per-track choice when restoring musical snapshots; tracks
     // brought back by undo use the mode stored in that snapshot/default.
-    const currentViews = new Map(songParts.map((part) => [String(part.id), partNotationViewMode(part)]));
+    const currentViews = new Map(songParts.map((part) => [String(part.id), { viewMode: partNotationViewMode(part), notation: part.notation ? partNotationFlags(part) : null }]));
     if (Array.isArray(data.parts) && currentViews.size) {
-      data.parts = data.parts.map((part) => part && currentViews.has(String(part.id))
-        ? { ...part, viewMode: currentViews.get(String(part.id)) }
-        : part);
+      data.parts = data.parts.map((part) => {
+        if (!part || !currentViews.has(String(part.id))) return part;
+        const cur = currentViews.get(String(part.id));
+        return { ...part, viewMode: cur.viewMode, ...(cur.notation ? { notation: cur.notation } : {}) };
+      });
     }
     historyRestoring = true;
     try {
