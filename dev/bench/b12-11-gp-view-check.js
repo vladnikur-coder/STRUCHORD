@@ -1,0 +1,123 @@
+#!/usr/bin/env node
+/* B-12.11 — одноразовая проверка GP-вида в настоящем Chromium (не тест приёмки).
+ * Открывает приложение, грузит демо-партию, включает GP-вид и смотрит:
+ * отрисовался ли alphaTab офлайн (шрифт из файла), сколько нот, где курсор,
+ * приходит ли наш курсор после клика. Запуск: node dev/bench/b12-11-gp-view-check.js */
+const fs = require('fs');
+const http = require('http');
+const path = require('path');
+const sparticuz = require('@sparticuz/chromium').default;
+const puppeteer = require('puppeteer-core');
+const ROOT = path.join(__dirname, '..', '..');
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+const server = http.createServer((req, res) => {
+  const url = decodeURIComponent((req.url || '/').split('?')[0]);
+  const file = path.join(ROOT, url.replace(/^\/+/, '') || 'STRUCHORD.html');
+  if (!file.startsWith(ROOT) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { res.writeHead(404); res.end(); return; }
+  res.writeHead(200, { 'Content-Type': file.endsWith('.html') ? 'text/html; charset=utf-8' : 'application/octet-stream' });
+  fs.createReadStream(file).pipe(res);
+});
+(async () => {
+  await new Promise((r) => server.listen(8903, '127.0.0.1', r));
+  const browser = await puppeteer.launch({
+    args: [...sparticuz.args, '--no-sandbox'],
+    executablePath: await sparticuz.executablePath(),
+    headless: 'shell',
+    defaultViewport: { width: 1400, height: 1000 },
+    env: { ...process.env, LD_LIBRARY_PATH: ['/tmp/al2023/lib', process.env.LD_LIBRARY_PATH].filter(Boolean).join(':') },
+  });
+  const page = await browser.newPage();
+  await page.setViewport({ width: 1440, height: 900 });
+  const errors = [];
+  page.on('pageerror', (e) => errors.push(e.message.slice(0, 200)));
+  await page.goto('http://127.0.0.1:8903/STRUCHORD.html', { waitUntil: 'load', timeout: 60000 });
+  await sleep(1500);
+  const fixture = fs.readFileSync(path.join(ROOT, 'dev/fixtures/b12-parts-demo.struchord'), 'utf8');
+  await page.evaluate((json) => {
+    localStorage.setItem('struchord_songs', JSON.stringify([JSON.parse(json)]));
+    loadSong(0);
+    render();
+    togglePartsMode(true);
+    setPartsScoreEngine('alphatab');
+  }, fixture);
+  await sleep(3500);
+  const state = await page.evaluate(() => ({
+    engine: partsScoreEngine,
+    status: document.getElementById('ptAtStatus') && document.getElementById('ptAtStatus').textContent,
+    svgs: document.querySelectorAll('#ptAtHost svg').length,
+    texts: document.querySelectorAll('#ptAtHost svg text').length,
+    cursorHidden: document.getElementById('ptAtCursor').hidden,
+    cursorBox: (() => { const b = document.getElementById('ptAtCursor'); return b ? { l: b.style.left, t: b.style.top, w: b.style.width } : null; })(),
+    fonts: Array.from(document.fonts).map((f) => f.family + ':' + f.status).join(','),
+    voiceColored: (() => { const fills = new Set(); document.querySelectorAll('#ptAtHost svg [fill]').forEach((el) => fills.add(el.getAttribute('fill'))); return Array.from(fills).join(' '); })(),
+    followBtnHidden: document.getElementById('ptAtFollow').hidden,
+    cursor: partsCursor && { sec: partsCursor.secId, pos: partsCursor.pos, str: partsCursor.string },
+  }));
+  console.log(JSON.stringify(state, null, 1));
+  // Клик по партитуре alphaTab: ищем текстовый глиф лада и кликаем.
+  const pt = await page.evaluate(async () => {
+    const texts = Array.from(document.querySelectorAll('#ptAtHost svg text')).filter((t) => /^[0-9]+$/.test(t.textContent.trim()));
+    if (!texts.length) return null;
+    texts[1].scrollIntoView({ block: 'center' });
+    await new Promise((r) => setTimeout(r, 350));
+    const r = texts[1].getBoundingClientRect();
+    return { x: r.x + r.width / 2, y: r.y + r.height / 2 };
+  });
+  if (pt) {
+    await page.mouse.click(pt.x, pt.y);
+    await sleep(800);
+    console.log('после клика курсор:', JSON.stringify(await page.evaluate(() => partsCursor && { pos: partsCursor.pos, str: partsCursor.string })));
+  } else console.log('клик: глифы ладов не найдены');
+  // Ввод цифры в GP-виде: модель меняется и перерисовка догоняет.
+  const before = await page.evaluate(() => (songParts[0].rolls[String(sections[0].id)] || []).length);
+  await page.keyboard.press('7');
+  await sleep(700);
+  const after = await page.evaluate(() => (songParts[0].rolls[String(sections[0].id)] || []).length);
+  const fretAtCursor = await page.evaluate(() => {
+    const n = partCursorNote();
+    return n ? n.fret : null;
+  });
+  console.log('ноты до/после цифры 7:', before, '/', after, '; лад под курсором после ввода:', fretAtCursor,
+    (after > before || fretAtCursor === 7) ? '(ввод работает)' : '(ВВОД НЕ СРАБОТАЛ)');
+  // Несколько дорожек в одной системе (F3 по смыслу плана).
+  const multi = await page.evaluate(() => {
+    const copy = JSON.parse(JSON.stringify(songParts[0]));
+    copy.id = 9901; copy.name = 'Вторая гитара';
+    songParts.push(copy);
+    renderPartsScreen();
+    return songParts.length;
+  });
+  await sleep(3000);
+  const multiState = await page.evaluate(() => ({
+    tracks: partsAtApi && partsAtApi.score ? partsAtApi.score.tracks.length : 0,
+    status: document.getElementById('ptAtStatus').textContent,
+    tempoText: Array.from(document.querySelectorAll('#ptAtHost svg text')).slice(0, 40).map((t) => t.textContent).join('|'),
+  }));
+  console.log('дорожек в песне:', multi, '; в GP-странице:', JSON.stringify(multiState));
+  console.log('темп:', JSON.stringify(await page.evaluate(() => ({ eff: getEffectiveBpm(sections[0]), input: DOM.bpmInput && DOM.bpmInput.value, scoreTempo: partsAtApi.score.tempo }))));
+  await page.evaluate(() => { songParts = songParts.filter((p) => p.id !== 9901); renderPartsScreen(); });
+  await sleep(1500);
+  // Бегущий курсор: вызываем тот же крюк, что дёргает проигрыватель.
+  const play = await page.evaluate(() => {
+    const before = document.getElementById('ptAtCursor').style.left;
+    syncPartsPlaybackHighlight(sections[1].id, 0, sections[1].squares[0].id, 0, 0);
+    const box = document.getElementById('ptAtCursor');
+    return { before, after: box.style.left, hidden: box.hidden, playing: partsAtPlaying };
+  });
+  console.log('бегущий курсор:', JSON.stringify(play));
+  const layout = await page.evaluate(() => {
+    const host = document.getElementById('ptAtHost');
+    const scorePct = host ? Math.round((host.clientWidth / window.innerWidth) * 1000) / 10 : 0;
+    const pal = document.getElementById('partsPalette');
+    const insp = document.getElementById('ptInspector');
+    return { scorePct, paletteW: pal ? pal.clientWidth : 0, inspectorW: insp ? insp.clientWidth : 0,
+      hintSheet: !!document.querySelector('.pt-pal-hint'),
+      paletteText: pal ? pal.textContent.replace(/\s+/g, ' ').slice(0, 120) : '' };
+  });
+  console.log('LAYOUT 1440x900:', JSON.stringify(layout));
+  console.log('КРИТЕРИЙ ЭТАПА 4 (партитура >= 60% ширины):', layout.scorePct >= 60 ? 'ВЫПОЛНЕН' : 'НЕ ВЫПОЛНЕН');
+  await page.screenshot({ path: '/tmp/b12-11-gp-view.png' });
+  console.log('скриншот /tmp/b12-11-gp-view.png; ошибок страницы:', errors.length ? errors.slice(0, 3) : 'нет');
+  await browser.close();
+  await new Promise((r) => server.close(r));
+})().catch((e) => { console.error(e); server.close(); process.exit(1); });

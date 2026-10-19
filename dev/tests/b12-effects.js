@@ -127,22 +127,23 @@ w.addEventListener('load', async () => {
     // ---------- 1. Палитра приёмов ----------
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const toneButtons = w.document.querySelectorAll('#ptToneGroup .pt-pal-btn');
     check('в палитре шестнадцать кнопок приёмов (9 штриха + 6 новых + бенд)', toneButtons.length === 16, String(toneButtons.length));
     check('у каждой кнопки есть подсказка с клавишей',
       Array.from(toneButtons).every((b) => (b.title || '').length > 10 && /клавиш/i.test(b.title)),
       JSON.stringify(Array.from(toneButtons).map((b) => b.title)));
-    check('подсказка палитры перечисляет клавиши приёмов',
-      /палм-мьют/.test(w.document.querySelector('.pt-pal-hint').textContent) &&
-      /стаккато/.test(w.document.querySelector('.pt-pal-hint').textContent),
-      w.document.querySelector('.pt-pal-hint').textContent);
+    check('подсказки кнопок палитры перечисляют клавиши приёмов (простыни подсказок нет)',
+      !w.document.querySelector('.pt-pal-hint') &&
+      /Палм-мьют/.test(w.document.querySelector('#ptToneGroup [data-tone="pm"]').title) &&
+      /Стаккато/.test(w.document.querySelector('#ptToneGroup [data-tone="staccato"]').title));
 
     // ---------- 2. Клавиши: постановка и снятие ----------
     cursorTo(0);
-    key('[', { code: 'BracketLeft' });
-    check('`[` поставил палм-мьют', noteAt(0, 0).pm === true, JSON.stringify(noteAt(0, 0)));
-    key('[', { code: 'BracketLeft' });
-    check('повторное `[` сняло палм-мьют', !('pm' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
+    key('p', { code: 'KeyP' });
+    check('`P` (GP) поставил палм-мьют', noteAt(0, 0).pm === true, JSON.stringify(noteAt(0, 0)));
+    key('p', { code: 'KeyP' });
+    check('повторное `P` сняло палм-мьют', !('pm' in noteAt(0, 0)), JSON.stringify(noteAt(0, 0)));
     key('x', { code: 'KeyX' });
     check('`X` поставил dead note', noteAt(0, 0).dead === true, JSON.stringify(noteAt(0, 0)));
     key('o', { code: 'KeyO' });
@@ -210,6 +211,7 @@ w.addEventListener('load', async () => {
     w.loadSong(0);
     w.eval('render()');
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     w.eval('renderPartsScreen()');
     check('все пять нот нарисованы', chipText() === 5, String(chipText()));
     check('PM подписан над серией', markTexts('pt-mark-pm').length === 2, JSON.stringify(markTexts('pt-mark-pm')));
@@ -252,6 +254,7 @@ w.addEventListener('load', async () => {
     // Стан без знаков остаётся геометрией 12.3: запас не тратится зря.
     load([{ ...guitar, rolls: { '1': [{ start: 0, dur: 1, string: 5, fret: 7 }] } }]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const plainBox = w.eval(
       `document.querySelector('.pt-row.is-active .pt-svg').getAttribute('viewBox')`
     ).split(' ').map(Number);
@@ -320,8 +323,9 @@ w.addEventListener('load', async () => {
     // ---------- 7. Файл и мусор ----------
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     cursorTo(0);
-    key('[', { code: 'BracketLeft' });
+    key('p', { code: 'KeyP' });
     key(':', { code: 'Semicolon', shiftKey: true });
     w.saveCurrentSong();
     const lib = JSON.parse(w.localStorage.getItem('struchord_songs'));
@@ -354,9 +358,10 @@ w.addEventListener('load', async () => {
     load([guitar]);
     w.eval('resetHistory()');
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     cursorTo(0);
     const neighbourBefore = JSON.stringify(noteAt(0, 1));
-    key('[', { code: 'BracketLeft' });
+    key('p', { code: 'KeyP' });
     check('знак поставлен только на ноту под курсором',
       noteAt(0, 0).pm === true && JSON.stringify(noteAt(0, 1)) === neighbourBefore,
       JSON.stringify(roll(0)));
@@ -381,6 +386,7 @@ w.addEventListener('load', async () => {
     // ---------- 9. Клавиши и палитра 12.6.2 ----------
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const toneBtn = (kind) => w.document.querySelector(`#ptToneGroup .pt-pal-btn[data-tone="${kind}"]`);
     check('шесть новых кнопок приёмов на месте',
       ['legato', 'slide', 'slideShift', 'vibrato', 'vibratoWide', 'tremolo'].every((kind) => !!toneBtn(kind)));
@@ -452,6 +458,7 @@ w.addEventListener('load', async () => {
     w.loadSong(0);
     w.eval('render()');
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const activeRow = () => w.document.querySelector('.pt-row.is-active');
     check('слайд рисуется линией от предыдущей ноты',
       activeRow().querySelectorAll('.pt-slide:not(.is-shift)').length === 1,
@@ -478,6 +485,7 @@ w.addEventListener('load', async () => {
       { start: 1, dur: 1, string: 5, fret: 7, vibrato: 'slight', legato: true },
     ] } }]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const slightWave = activeRow().querySelector('.pt-vibrato').getAttribute('d');
     check('узкое вибрато — та же волна, но ниже амплитуда', wideWave !== slightWave,
       JSON.stringify([wideWave, slightWave]));
@@ -562,6 +570,7 @@ w.addEventListener('load', async () => {
     // ---------- 12. Файл 12.6.2 ----------
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     cursorTo(0);
     key('h', { code: 'KeyH' });
     key('v', { code: 'KeyV', altKey: true });
@@ -572,6 +581,7 @@ w.addEventListener('load', async () => {
       savedNew.legato === true && savedNew.vibrato === 'wide', JSON.stringify(savedNew));
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     w.eval('setPartsCursorString(sections[0].id, 0, 5, 1)');
     key('s', { code: 'KeyS', altKey: true });
     toneBtn('tremolo').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
@@ -604,6 +614,7 @@ w.addEventListener('load', async () => {
     load([guitar]);
     w.eval('resetHistory()');
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     cursorTo(0);
     key('v', { code: 'KeyV' });
     check('вибрато поставлено', noteAt(0, 0).vibrato === 'slight', JSON.stringify(noteAt(0, 0)));
@@ -629,6 +640,7 @@ w.addEventListener('load', async () => {
     // ---------- 15. Окно редактора: открытие, пресеты, типы ----------
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const bendOverlay = () => w.document.getElementById('partsBend');
     const bendBtn = (sel) => w.document.querySelector(`#${sel} [data-${sel === 'ptBendTypes' ? 'bend' : 'preset'}="${arguments[1]}"]`);
     const typeBtn = (type) => w.document.querySelector(`#ptBendTypes [data-bend="${type}"]`);
@@ -749,6 +761,7 @@ w.addEventListener('load', async () => {
       { start: 2, dur: 1, string: 4, fret: 3 },
     ] } }]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     check('знак бенда нарисован и пишет величину долями тона',
       markTexts('pt-mark-bend').join(' ') === '↗full ↘full',
       JSON.stringify(markTexts('pt-mark-bend')));
@@ -804,6 +817,7 @@ w.addEventListener('load', async () => {
     // ---------- 19. Файл и мусор бенда ----------
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     cursorTo(0);
     key('b', { code: 'KeyB' });
     w.document.querySelector('#ptBendPresets [data-preset="riseFall"]')
@@ -843,6 +857,7 @@ w.addEventListener('load', async () => {
     // окно-инспектор переживает перерисовку окна партий и закрывается руками).
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     check('окно инспектора пережило переключение песни и закрывается', (() => {
       w.eval('openPartsBendEditor()');
       const openBefore = w.eval('partsBendOpen()');
@@ -857,10 +872,10 @@ w.addEventListener('load', async () => {
     check('у каждой кнопки новой группы есть подсказка',
       ornButtons.every((b) => (b.title || '').length > 10),
       JSON.stringify(ornButtons.map((b) => b.title)));
-    const hintText = w.document.querySelector('.pt-pal-hint').textContent;
-    check('подсказка палитры называет клавиши флажолетов, трели и трем-бара',
-      /Alt\+Y/.test(hintText) && /\bY\b/.test(hintText) && /\bN\b/.test(hintText) &&
-      /\bW\b/.test(hintText) && /Ctrl\+E/.test(hintText), hintText);
+    const hintText = Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).map((b) => b.title).join(' ');
+    check('подсказки палитры называют клавиши флажолетов, трели и трем-бара',
+      /Alt\+Y/.test(hintText) && /клавиша Y/.test(hintText) && /клавиша N/.test(hintText) &&
+      /Ctrl\+Alt\+W/.test(hintText) && !!w.document.getElementById('ptPalSearch'), hintText);
 
     // ================= 21. Клавиши и окно флажолета =================
     cursorTo(0);
@@ -912,10 +927,10 @@ w.addEventListener('load', async () => {
     check('`N` поставил трель', noteAt(0, 1).trill === true, JSON.stringify(noteAt(0, 1)));
     key('n', { code: 'KeyN' });
     check('повторный `N` снял трель', !('trill' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
-    key('w', { code: 'KeyW' });
-    check('`W` поставил тремоло-бар', noteAt(0, 1).tremBar === true, JSON.stringify(noteAt(0, 1)));
-    key('W', { code: 'KeyW', shiftKey: true });
-    check('повторный `W` снял тремоло-бар', !('tremBar' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
+    key('v', { code: 'KeyV', ctrlKey: true, altKey: true });
+    check('`Ctrl+Alt+V` (GP) поставил тремоло-бар', noteAt(0, 1).tremBar === true, JSON.stringify(noteAt(0, 1)));
+    key('v', { code: 'KeyV', ctrlKey: true, altKey: true });
+    check('повторный `Ctrl+Alt+V` снял тремоло-бар', !('tremBar' in noteAt(0, 1)), JSON.stringify(noteAt(0, 1)));
 
     // ================= 22. Украшения и поиск по палитре =================
     const clickTone = (kind) =>
@@ -942,7 +957,7 @@ w.addEventListener('load', async () => {
     check('Enter применяет первый найденный приём — натуральный флажолет',
       noteAt(0, 1).harm && noteAt(0, 1).harm.type === 'natural', JSON.stringify(noteAt(0, 1).harm));
     check('после Enter поиск очистился и палитра снова полная',
-      searchBox.value === '' && visiblePalette() === 38, String(visiblePalette()));
+      searchBox.value === '' && visiblePalette() === w.document.querySelectorAll('#partsPalette .pt-pal-btn').length, String(visiblePalette()));
     searchBox.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     check('Escape закрыл поиск', searchBox.hidden === true);
     check('палитра из окна партий закрывает оба окна-инспектора',
@@ -950,6 +965,7 @@ w.addEventListener('load', async () => {
         w.eval('togglePartsMode(false)');
         const closed = !w.eval('partsBendOpen()') && !w.eval('partsHarmOpen()');
         w.eval('togglePartsMode(true); setPartsEditMode("input")');
+        w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
         return closed;
       })());
 
@@ -960,6 +976,7 @@ w.addEventListener('load', async () => {
       { start: 2, dur: 1, string: 4, fret: 7, tremBar: true },
     ] } }]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const rowSvg = () => w.document.querySelector('.pt-row.is-active .pt-svg');
     check('натуральный флажолет показан номером лада в уголках, как в GP',
       markTexts('pt-mark-harm').indexOf('<12>') !== -1, JSON.stringify(markTexts('pt-mark-harm')));
@@ -983,6 +1000,7 @@ w.addEventListener('load', async () => {
       rowSvg().getAttribute('viewBox'));
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     check('стан без знаков сохранил геометрию 12.3',
       (() => {
         const box = rowSvg().getAttribute('viewBox').split(' ').map(Number);
@@ -1054,6 +1072,7 @@ w.addEventListener('load', async () => {
     // ================= 25. Файл и мусор 12.6.4 =================
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     cursorTo(0);
     key('y', { code: 'KeyY' });
     cursorTo(1);
@@ -1062,7 +1081,7 @@ w.addEventListener('load', async () => {
     // Третья нота живёт на струне 4 (E2), а не на «курсорной» струне 5:
     // ведём курсор на её струну, иначе трем-бар некуда ставить.
     w.eval(`setPartsCursorString(sections[0].id, 0, 4, 2)`);
-    key('w', { code: 'KeyW' });
+    key('v', { code: 'KeyV', ctrlKey: true, altKey: true });
     w.saveCurrentSong();
     const libOrn = JSON.parse(w.localStorage.getItem('struchord_songs'));
     const savedRoll = libOrn[libOrn.length - 1].parts[0].rolls['1'];
@@ -1097,6 +1116,7 @@ w.addEventListener('load', async () => {
     // ================= 26. Отмена знака 12.6.4 =================
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     cursorTo(0);
     await settle();
     key('y', { code: 'KeyY' });
@@ -1110,6 +1130,7 @@ w.addEventListener('load', async () => {
     // ================= 27. Форшлаг, dead slap, pick scrape =================
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     cursorTo(0);
     key('g', { code: 'KeyG' });
     check('`G` поставил форшлаг на ступень ниже основной ноты (лад 7 → 6)',
@@ -1194,6 +1215,7 @@ w.addEventListener('load', async () => {
       signPlucks.length === 1 && eqJson(signPlucks[0], plainPluck), JSON.stringify(signPlucks));
     load([guitar]);
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     cursorTo(0);
     key('g', { code: 'KeyG' });
     key('g', { code: 'KeyG' });

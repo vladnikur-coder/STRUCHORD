@@ -152,6 +152,7 @@ function clickAt(target, type, x, shiftKey = false) {
   ], { parts: [{ id: 50, name: 'Гитара', instrument: 'guitar', visible: true,
     tuning: null, rolls: { '1': [{ start: 0, dur: 1, string: 5, fret: 3 }] }, pitchRolls: {} }] }));
   w.eval('togglePartsMode(true)');
+  w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
   const partTrack = w.document.getElementById('partsTrack');
   check('табулатуры идут одной непрерывной лентой без карточек .pt-system',
     partTrack.querySelectorAll('.pt-continuous-body').length === 1 &&

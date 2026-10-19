@@ -195,6 +195,7 @@ w.addEventListener('load', () => {
       }],
     }));
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     check('body.is-parts выставлен', w.document.body.classList.contains('is-parts'));
     const track = w.document.getElementById('partsTrack');
     check('станков = секции × повторы (2 + 1)', track.querySelectorAll('.pt-section').length === 3,
@@ -219,9 +220,11 @@ w.addEventListener('load', () => {
     check('лента выключает окно партий', !w.document.body.classList.contains('is-parts') && w.document.body.classList.contains('is-timeline'));
     w.eval('toggleTimelineMode(false)');
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     check('Esc возвращает в редактор', !w.document.body.classList.contains('is-parts'));
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     check('кнопка подписана «Редактор»', w.document.getElementById('partsToggleLabel').textContent === 'Редактор');
     w.eval('togglePartsMode(false)');
 
@@ -268,6 +271,7 @@ w.addEventListener('load', () => {
       demoParts[0].rolls['2'].length === demo.parts[0].rolls['2'].length,
       JSON.stringify([demoParts[0].rolls['1'].length, demoParts[0].rolls['2'].length]));
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const demoChips = demo.parts[0].rolls['1'].length * 2 + demo.parts[0].rolls['2'].length;
     check(`демо: чипов = ${demoChips} (куплет ×2 повтора + припев)`,
       w.document.getElementById('partsTrack').querySelectorAll('.pt-svg rect:not(.pt-cursor)').length === demoChips,
@@ -313,6 +317,7 @@ w.addEventListener('load', () => {
     const emptySong = baseSong({ sections: [], parts: [] });
     loadSong(emptySong);
     w.eval('render(); togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const emptyBox = w.document.getElementById('partsEmpty');
     check('пустая песня: пустое состояние вместо белого экрана', emptyBox.hidden === false);
     check('пустая песня: текст говорит про секции',
@@ -331,6 +336,7 @@ w.addEventListener('load', () => {
       w.getComputedStyle(addLabel).display === 'none' && w.getComputedStyle(addBar).display !== 'none',
       `${w.getComputedStyle(addLabel).display} / ${w.getComputedStyle(addBar).display}`);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
 
     w.document.getElementById('ptCreatePart').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     w.eval('render()');
@@ -348,14 +354,10 @@ w.addEventListener('load', () => {
     check('пустая песня: курсор сразу в новой секции',
       w.eval('partsCursor && partsCursor.secId === sections[0].id') === true,
       JSON.stringify(w.eval('partsCursor')));
-    // Select открывается первым: цифра не пишет, пока явно не включён Input.
-    check('окно партии по умолчанию открывает Select', w.eval('partsEditMode') === 'select');
+    // B-12.11: как в GP, ввод сразу при открытии — цифра пишет ноту.
+    check('окно партии открывается сразу с вводом (GP)', w.eval('partsInputEnabled()') === true);
     w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: '5', bubbles: true }));
-    check('в Select цифра не добавляет ноту',
-      w.eval('(songParts[0].rolls[String(sections[0].id)] || []).length') === 0);
-    w.eval('setPartsEditMode("input")');
-    w.document.dispatchEvent(new w.KeyboardEvent('keydown', { key: '5', bubbles: true }));
-    check('после явного переключения в Input цифра добавляет ноту',
+    check('цифра сразу добавляет ноту без переключения режима',
       w.eval('(songParts[0].rolls[String(sections[0].id)] || []).length') === 1,
       w.eval('JSON.stringify(songParts[0].rolls)'));
 

@@ -72,6 +72,7 @@ function load(song) {
   w.confirm = () => true;
 }
 function openParts() { w.eval('togglePartsMode(true)'); }
+w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
 function setInput() { w.eval('setPartsEditMode("input")'); }
 function staffSvg(partId) {
   return w.document.querySelector(`.pt-row[data-part="${partId}"] svg.pt-score-staff-svg`);
@@ -136,16 +137,17 @@ w.addEventListener('load', async () => {
     load(makeSong([{ id: 1, name: 'Guitar', instrument: 'guitar', viewMode: 'tab', tuning: null,
       visible: true, rolls: { '1': [] } }]));
     openParts();
-    check('новое открытие партий начинается в Select', w.eval('partsEditMode') === 'select');
-    check('в Select голос и палитра редактирования выключены',
-      w.document.getElementById('ptVoice').disabled &&
-      Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).every((button) => button.disabled));
+    // B-12.11: как в GP, отдельных режимов нет — ввод сразу при открытии.
+    check('новое открытие партий начинается сразу с ввода (GP)', w.eval('partsInputEnabled()') === true);
+    check('голос и палитра редактирования доступны сразу',
+      !w.document.getElementById('ptVoice').disabled &&
+      Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).every((button) => !button.disabled));
     w.eval('setPartsCursorString(1, 0, 5, 0)');
-    w.eval('inputPartFret(4); setPartsDuration(3); togglePartsDots(1); togglePartTone("pm")');
-    key('5');
-    check('клавиши и прямые команды не меняют ноты/длительность в Select',
-      roll().length === 0 && w.eval('partInput.durIndex') === 4 && w.eval('partInput.dots') === 0,
-      JSON.stringify({ roll: roll(), duration: w.eval('partInput.durIndex'), dots: w.eval('partInput.dots') }));
+    w.eval('inputPartFret(4)');
+    check('команда ввода сразу создаёт ноту без переключения режима',
+      roll().length === 1 && roll()[0].fret === 4,
+      JSON.stringify(roll()));
+    w.eval('songParts[0].rolls["1"] = []; renderPartsScreen();');
 
     // Точечный выбор ноты округляется по активной dotted-eighth сетке.
     w.eval('partInput.durIndex = 3; partInput.dots = 1; partInput.triplet = false;');
@@ -156,7 +158,7 @@ w.addEventListener('load', async () => {
       JSON.stringify({ pos: w.eval('partsCursor.pos'), roll: roll() }));
     setInput();
     w.eval('inputPartFret(5)');
-    check('лад вводится только после переключения в Input',
+    check('лад вводится сразу, без переключения режима',
       roll().length === 1 && roll()[0].fret === 5 && Math.abs(roll()[0].start - 2.25) < 1e-6 &&
         Math.abs(roll()[0].dur - 0.75) < 1e-6 && roll()[0].dots === 1,
       JSON.stringify(roll()));
@@ -264,9 +266,11 @@ w.addEventListener('load', async () => {
     await settleHistory();
     check('staff-ввод вошёл в историю Store', w.eval('historyDebugState().length') >= 2,
       JSON.stringify(w.eval('historyDebugState()')));
-    key('ArrowRight', { code: 'ArrowRight', ctrlKey: true, shiftKey: true });
+    // B-12.11 этап 3: Ctrl+Shift+стрелки теперь выделение (GP), поэтому
+    // функцию сдвига ноты проверяем прямым вызовом — она жива для палитры/меню.
+    w.eval('moveSelectedPartNote("time", 1)');
     let edited = activeNoteInRoll((note) => note.fret === 5);
-    check('Ctrl+Shift+Right перемещает selected note на 1/16',
+    check('moveSelectedPartNote перемещает selected note на 1/16',
       edited && Math.abs(edited.start - 1.25) < 1e-6, JSON.stringify(edited));
     await settleHistory();
     check('перемещение стало отдельным Store-шагом', w.eval('historyDebugState().length') >= 3,
@@ -280,9 +284,9 @@ w.addEventListener('load', async () => {
     check('Redo восстанавливает сдвиг',
       activeNoteInRoll((note) => note.fret === 5)?.start === 1.25, JSON.stringify(roll()));
 
-    key('ArrowUp', { code: 'ArrowUp', ctrlKey: true, shiftKey: true });
+    w.eval('moveSelectedPartNote("pitch", 1)');
     edited = activeNoteInRoll((note) => Math.abs(note.start - 1.25) < 1e-6);
-    check('Ctrl+Shift+Up меняет sounding pitch на полутон и переаппликатуривает',
+    check('moveSelectedPartNote pitch меняет sounding pitch на полутон и переаппликатуривает',
       edited && Math.abs(w.eval(`partFretPitch(songParts[0], ${edited.string}, ${edited.fret})`) - 61) < 1e-6 &&
         edited.string === 4 && edited.fret === 2, JSON.stringify(edited));
     await settleHistory();
@@ -341,12 +345,11 @@ w.addEventListener('load', async () => {
       saved.schemaVersion === 9 && saved.parts[0].rolls['1'].some((note) => note.voice === 2),
       JSON.stringify(saved.parts[0].rolls['1']));
 
-    // Select не может изменять выделенную ноту даже клавиатурным сочетанием.
-    w.eval('setPartsEditMode("select")');
-    const beforeSelectEdit = JSON.stringify(roll());
-    key('ArrowDown', { code: 'ArrowDown', ctrlKey: true, shiftKey: true });
-    check('note-changing keyboard shortcut остаётся без эффекта в Select',
-      JSON.stringify(roll()) === beforeSelectEdit && w.eval('partsEditMode') === 'select');
+    // B-12.11 этап 3 (GP): Ctrl+Shift+стрелки расширяют выделение, ноту не двигают.
+    const beforeGpEdit = JSON.stringify(roll());
+    key('ArrowRight', { code: 'ArrowRight', ctrlKey: true, shiftKey: true });
+    check('Ctrl+Shift+→ (GP) выделяет, а не двигает ноту',
+      JSON.stringify(roll()) === beforeGpEdit && !!w.eval('partsNoteRange') && w.eval('partsInputEnabled()') === true);
 
     console.log(`\nитого: ${passed} ok, ${failed} FAIL`);
     if (failed) process.exitCode = 1;

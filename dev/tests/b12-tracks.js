@@ -112,6 +112,7 @@ w.addEventListener('load', () => {
     // ---------- 1. Стопка дорожек ----------
     load([guitar, bass]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G = pid(0);
     const B = pid(1);
     const track = w.document.getElementById('partsTrack');
@@ -130,9 +131,10 @@ w.addEventListener('load', () => {
     check('каждая дорожка нарисовала свою ноту своему ряду',
       row(G).querySelectorAll('.pt-note').length === 1 && row(B).querySelectorAll('.pt-note').length === 1,
       JSON.stringify([row(G).querySelectorAll('.pt-note').length, row(B).querySelectorAll('.pt-note').length]));
+    // «Виды», шаг 1: первый чип — аккомпанемент («Песня (аккорды)»), дальше партии.
     check('карточки дорожек построены по порядку',
       Array.from(w.document.querySelectorAll('#partsTracks .pt-track-chip')).map((el) => el.dataset.part).join(',') ===
-        `${G},${B}`,
+        `accomp,${G},${B}`,
       Array.from(w.document.querySelectorAll('#partsTracks .pt-track-chip')).map((el) => el.dataset.part).join(','));
     check('активна ровно одна карточка',
       chip(G).classList.contains('is-active') &&
@@ -259,8 +261,8 @@ w.addEventListener('load', () => {
     nameInput.dispatchEvent(new w.Event('blur', { bubbles: true }));
     check('переименование из панели', P(1, 'name') === 'Ритм-гитара', P(1, 'name'));
     check('карточка подписалась новым именем',
-      w.document.querySelectorAll('#partsTracks .pt-track-name')[1].textContent === 'Ритм-гитара',
-      w.document.querySelectorAll('#partsTracks .pt-track-name')[1].textContent);
+      w.document.querySelectorAll('#partsTracks .pt-track-name')[2].textContent === 'Ритм-гитара',
+      w.document.querySelectorAll('#partsTracks .pt-track-name')[2].textContent);
     check('пустое имя не переписывает дорожку',
       (nameInput.value = '   ',
       nameInput.dispatchEvent(new w.Event('blur', { bubbles: true })),
@@ -283,12 +285,13 @@ w.addEventListener('load', () => {
       w.eval('!!partActivePart()') === true &&
       w.eval('songParts.some((p) => p.id === partsActiveId)') === true,
       String(w.eval('partsActiveId')));
-    check('карточек ровно столько же, сколько дорожек',
-      w.document.querySelectorAll('#partsTracks .pt-track-chip').length === w.eval('songParts.length'));
+    check('карточек ровно столько же, сколько дорожек, плюс аккомпанемент',
+      w.document.querySelectorAll('#partsTracks .pt-track-chip').length === w.eval('songParts.length') + 1);
 
     // ---------- 7. Включение и выключение дорожки ----------
     load([guitar, bass]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G2 = pid(0);
     const B2 = pid(1);
     w.eval(`partsActiveId = ${B2}; renderPartsScreen();`);
@@ -332,6 +335,7 @@ w.addEventListener('load', () => {
       rolls: { '1': [{ start: 0, dur: 1, string: 5, fret: 7 }, { start: 1, dur: 1, string: 2, fret: 5 }] },
     }]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G3 = pid(0);
     let asked = null;
     w.confirm = (msg) => { asked = msg; return false; };
@@ -390,6 +394,7 @@ w.addEventListener('load', () => {
     load([guitar, bass]);
     w.eval('resetHistory()');
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G4 = pid(0);
     w.eval(`partsActiveId = ${G4}; renderPartsScreen();`);
     w.document.getElementById('ptTrackClone').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
@@ -397,7 +402,7 @@ w.addEventListener('load', () => {
     w.undoEdit();
     w.eval('render()');
     check('Ctrl+Z убрал клон',
-      w.eval('songParts.length') === 2 && w.document.querySelectorAll('#partsTracks .pt-track-chip').length === 2,
+      w.eval('songParts.length') === 2 && w.document.querySelectorAll('#partsTracks .pt-track-chip').length === 3,
       JSON.stringify({ parts: w.eval('songParts.length'),
         chips: w.document.querySelectorAll('#partsTracks .pt-track-chip').length }));
     w.redoEdit();
@@ -414,6 +419,7 @@ w.addEventListener('load', () => {
     load([guitar, bass]);
     w.eval('resetHistory()');
     w.eval('togglePartsMode(true); setPartsEditMode("input")');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const G5 = pid(0);
     const B5 = pid(1);
     chip(B5).dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
@@ -454,13 +460,18 @@ w.addEventListener('load', () => {
     // ---------- 13. Нет дорожек: панель скрыта, подсказка про переключение ----------
     load([]);
     w.eval('togglePartsMode(true)');
-    check('без дорожек панель активной дорожки скрыта',
-      w.document.getElementById('partsTrackBar').hidden === true);
-    check('без дорожек пустое состояние предлагает создать партию',
-      w.document.getElementById('partsEmpty').hidden === false &&
-      w.document.getElementById('ptCreatePart').hidden === false);
-    check('подсказка палитры знает про Ctrl+↑/↓',
-      w.document.querySelector('.pt-pal-hint').textContent.includes('Ctrl+'));
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
+    // «Виды», шаг 1: без партий активной становится строка аккомпанемента —
+    // панель видна (поля запрещены), пустого состояния нет, станок построен.
+    check('без дорожек активен аккомпанемент, панель видна',
+      w.document.getElementById('partsTrackBar').hidden === false &&
+      w.eval("partActivePart() && partActivePart().id") === 'accomp');
+    check('без дорожек вместо пустого состояния — станок аккомпанемента',
+      w.document.getElementById('partsEmpty').hidden === true &&
+      !!w.document.querySelector('#partsTrack .pt-score-scroll, #partsTrack .pt-row'));
+    check('простыни подсказок нет, клавиши живут в подсказках кнопок',
+      !w.document.querySelector('.pt-pal-hint') &&
+      Array.from(w.document.querySelectorAll('#partsPalette .pt-pal-btn')).some((b) => /Ctrl/.test(b.title)));
     w.document.getElementById('ptCreatePart').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     // createPartFromEmptyState правит модель через Store, а окно
     // перерисовывается в следующем кадре (в jsdom rAF не тикает сам).

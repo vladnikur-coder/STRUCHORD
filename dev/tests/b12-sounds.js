@@ -103,8 +103,13 @@ w.addEventListener('load', async () => {
       w.confirm = () => true;
     };
     const chId = (index) => `part:${w.eval(`songParts[${index}].id`)}`;
-    const card = (id) => w.document.querySelector(`#mixChannels [data-ch="${id}"]`);
-    const act = (id, action) => card(id).querySelector(`[data-act="${action}"]`);
+    // Этап 5: звук — в Inspector (F6) и канале «Песня» Global View.
+    const act = (id, action) => {
+      if (id === 'master') return null;
+      if (action === 'sound') return w.document.querySelector(id === 'song' ? '#ptGvSongSound' : '#ptSoundSelect');
+      if (action === 'soundAuto') return w.document.querySelector(id === 'song' ? '#ptGvSongAutoBtn' : '#ptSoundAutoBtn');
+      return null;
+    };
     const clickAct = (id, action) =>
       act(id, action).dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
     const selectSound = (id, value) => {
@@ -242,6 +247,7 @@ w.addEventListener('load', async () => {
     // ================= 4. Модель, файл, мусор =================
     load([guitar, bass]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     selectSound(chId(0), 'drive');
     check('выбор звучания в карточке дорожки уезжает в модель',
       partOf(0).sound === 'drive' && w.eval('soundChannelValue("' + chId(0) + '")') === 'drive',
@@ -251,10 +257,12 @@ w.addEventListener('load', async () => {
       w.eval('songSoundId()') === 'ambient' && w.eval('soundChannelValue("song")') === 'ambient');
     check('на карточке мастера нет ни звучания, ни автоматизаций',
       !act('master', 'sound') && !act('master', 'soundAuto'));
+    w.eval(`selectPartTrack(${JSON.stringify(w.eval('songParts[1].id'))})`);
     check('у дорожки-баса свой список звучаний — без «соло», но с перегрузом',
       eqJson(Array.from(act(chId(1), 'sound').options).map((o) => o.value),
         ['acoustic', 'clean', 'drive', 'ambient']),
       JSON.stringify(Array.from(act(chId(1), 'sound').options).map((o) => o.value)));
+    w.eval(`selectPartTrack(${JSON.stringify(w.eval('songParts[0].id'))})`);
 
     // Точки ставим в позиции курсора: 2-я доля первой секции.
     const ids4 = sectionIds();
@@ -376,6 +384,7 @@ w.addEventListener('load', async () => {
     // ================= 7. Окно и отмена =================
     load([guitar, bass]);
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     clickAct(chId(0), 'soundAuto');
     const before = JSON.stringify(partOf(0));
     clickAct(chId(0), 'soundAuto'); // окно уже открыто — повторное нажатие ничего не меняет

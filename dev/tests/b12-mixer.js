@@ -94,9 +94,19 @@ w.addEventListener('load', async () => {
       w.eval('render()');
       w.confirm = () => true;
     };
-    const channels = () => Array.from(w.document.querySelectorAll('#mixChannels .pt-mix-ch')).map((c) => c.dataset.ch);
-    const card = (id) => w.document.querySelector(`#mixChannels [data-ch="${id}"]`);
-    const act = (id, action) => card(id).querySelector(`[data-act="${action}"]`);
+    // Этап 5: карточки микшера заменены полосой Global View; EQ — окном.
+    const channels = () => Array.from(w.document.querySelectorAll('#ptGv .pt-gv-lab[data-ch]')).map((c) => c.dataset.ch);
+    const card = (id) => w.document.querySelector(`#ptGv .pt-gv-lab[data-ch="${id}"]`);
+    const act = (id, action) => {
+      if (/^eq\d$/.test(action)) {
+        w.eval(`openPartsEq(${JSON.stringify(id)})`);
+        return w.document.querySelector(`#ptEqBands [data-eq-band="${action.slice(2)}"]`);
+      }
+      const el = card(id);
+      if (!el) return null;
+      if (action === 'volume' || action === 'pan' || action === 'focus') return el.querySelector(`[data-gv-mix="${action}"]`);
+      return el.querySelector(`[data-gv-act="${action}"]`);
+    };
     const plan = () =>
       JSON.parse(w.eval(
         'JSON.stringify(Array.from(mixerPlan(songParts, songMixerState, mixerFocus, partsActiveId).entries()))'
@@ -123,10 +133,10 @@ w.addEventListener('load', async () => {
     check('в полосе микшера три канала: песня, две дорожки и мастер',
       eqJson(channels(), ['song', chId(0), chId(1), 'master']), JSON.stringify(channels()));
     check('подписи каналов — имена дорожек и «Песня»/«Мастер»',
-      card('song').querySelector('.pt-mix-name').textContent === 'Песня' &&
-      card(chId(1)).querySelector('.pt-mix-name').textContent === 'Бас' &&
-      card('master').querySelector('.pt-mix-name').textContent === 'Мастер',
-      JSON.stringify(channels().map((id) => card(id).querySelector('.pt-mix-name').textContent)));
+      card('song').querySelector('.pt-gv-name').textContent === '♪ Песня' &&
+      card(chId(1)).querySelector('.pt-gv-name').textContent === 'Бас' &&
+      card('master').querySelector('.pt-gv-name').textContent === 'Мастер',
+      JSON.stringify(channels().map((id) => card(id).querySelector('.pt-gv-name').textContent)));
     check('у дорожки есть M, S, громкость и панорама',
       !!act(chId(0), 'mute') && !!act(chId(0), 'solo') &&
       !!act(chId(0), 'volume') && !!act(chId(0), 'pan'), card(chId(0)).innerHTML);
@@ -207,8 +217,9 @@ w.addEventListener('load', async () => {
     check('при смене дорожки надбавка focus переезжает на неё',
       Math.abs(planFor(chId(1)).gain - 1.36) < 1e-9 && Math.abs(planFor(chId(0)).gain - 0.5) < 1e-9,
       JSON.stringify(plan()));
-    focusSlider.value = '100';
-    focusSlider.dispatchEvent(new w.Event('input', { bubbles: true }));
+    const focusBack = act('master', 'focus');
+    focusBack.value = '100';
+    focusBack.dispatchEvent(new w.Event('input', { bubbles: true }));
     check('focus возвращается в нейтраль', planFor(chId(1)).gain === 1, JSON.stringify(planFor(chId(1))));
 
     // ---------- 3. Карточки не пересобираются ----------
@@ -324,24 +335,23 @@ w.addEventListener('load', async () => {
     // ================= 7. Эквалайзер: полоса каналов =================
     load([guitar, bass]);
     w.eval('togglePartsMode(true)');
-    check('у канала и мастера есть кнопка EQ, а блок полос по умолчанию свёрнут',
+    check('у канала и мастера есть кнопка EQ, а окно полос по умолчанию закрыто',
       !!act(chId(0), 'eq') && !!act('master', 'eq') &&
-      card(chId(0)).querySelector('.pt-mix-eq').hidden === true &&
-      card('master').querySelector('.pt-mix-eq').hidden === true);
+      w.document.getElementById('partsEq').hidden === true);
     check('в блоке три полосы: низ, середина, верх',
       !!act(chId(0), 'eq0') && !!act(chId(0), 'eq1') && !!act(chId(0), 'eq2'),
-      card(chId(0)).querySelector('.pt-mix-eq').innerHTML);
+      w.document.getElementById('ptEqBands').innerHTML);
     check('по умолчанию полосы по нулям', eqJson(mixChannelValueOf(chId(0)), [0, 0, 0]),
       JSON.stringify(mixChannelValueOf(chId(0))));
     clickAct(chId(0), 'eq');
-    check('кнопка EQ разворачивает блок полос',
-      card(chId(0)).querySelector('.pt-mix-eq').hidden === false);
+    check('кнопка EQ открывает окно полос',
+      w.document.getElementById('partsEq').hidden === false);
     check('разворот блока — не правка песни: модель и монитор чисты',
-      mixEmpty(0) && w.eval('mixerPending.size') === 0 && w.eval('mixerEqOpen.has(songParts[0] && ("part:" + songParts[0].id))') === true,
+      mixEmpty(0) && w.eval('mixerPending.size') === 0 && w.eval('gvEqChannel') === chId(0),
       JSON.stringify(mixOf(0)));
     w.eval('renderPartsScreen()');
-    check('развёрнутый блок переживает перерисовку окна',
-      card(chId(0)).querySelector('.pt-mix-eq').hidden === false);
+    check('открытое окно EQ переживает перерисовку окна',
+      w.document.getElementById('partsEq').hidden === false);
 
     const eqLow = act(chId(0), 'eq0');
     eqLow.value = '6';
@@ -352,8 +362,8 @@ w.addEventListener('load', async () => {
     eqLow.dispatchEvent(new w.Event('change', { bubbles: true }));
     check('по отпускании полоса уезжает в модель',
       mixOf(0) && eqJson(mixOf(0).eq, [6, 0, 0]), JSON.stringify(mixOf(0)));
-    check('подпись полосы показывает знак', card(chId(0)).querySelector('[data-eq-value="0"]').textContent === '+6',
-      card(chId(0)).querySelector('[data-eq-value="0"]').textContent);
+    check('подпись полосы показывает знак', w.document.querySelector('[data-eq-val="0"]').textContent === '+6 дБ',
+      w.document.querySelector('[data-eq-val="0"]').textContent);
     const eqHigh = act('master', 'eq2');
     eqHigh.value = '-4';
     eqHigh.dispatchEvent(new w.Event('input', { bubbles: true }));
@@ -363,12 +373,13 @@ w.addEventListener('load', async () => {
       eqJson(JSON.parse(w.eval('JSON.stringify(songMixerState.master.eq)')), [0, 0, -4]),
       w.eval('JSON.stringify(songMixerState.master.eq)'));
     check('кнопка EQ подсвечена, когда полосы не по нулям',
-      card(chId(0)).querySelector('[data-act="eq"]').classList.contains('is-on') &&
-      card('master').querySelector('[data-act="eq"]').classList.contains('is-on'));
+      card(chId(0)).querySelector('[data-gv-act="eq"]').classList.contains('is-on') &&
+      card('master').querySelector('[data-gv-act="eq"]').classList.contains('is-on'));
     // Нулевую полосу модель не хранит: вернули в ноль — ключ ушёл.
-    eqLow.value = '0';
-    eqLow.dispatchEvent(new w.Event('input', { bubbles: true }));
-    eqLow.dispatchEvent(new w.Event('change', { bubbles: true }));
+    const eqLowBack = act(chId(0), 'eq0');
+    eqLowBack.value = '0';
+    eqLowBack.dispatchEvent(new w.Event('input', { bubbles: true }));
+    eqLowBack.dispatchEvent(new w.Event('change', { bubbles: true }));
     check('полоса, вернувшаяся в ноль, из модели уходит',
       mixEmpty(0), JSON.stringify(mixOf(0)));
 

@@ -213,6 +213,7 @@ function baselineSong() {
     report.textContent.includes('Динамики pitch-дорожек преобразованы в velocity'), report.textContent);
   closeReport();
   w.eval('togglePartsMode(true); renderPartsScreen()');
+  w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
   check('high frets remain visible with the unplayable dashed style',
     w.document.querySelectorAll('.pt-note.is-unplayable').length >= 2,
     String(w.document.querySelectorAll('.pt-note.is-unplayable').length));

@@ -138,6 +138,7 @@ w.addEventListener('load', () => {
     ];
     load(song(scoreParts));
     w.eval('togglePartsMode(true)');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     const track = w.document.getElementById('partsTrack');
     const partId = json('Object.fromEntries(songParts.map(p => [p.name, p.id]))');
     track.getBoundingClientRect = () => ({ left: 0, top: 0, right: 480, bottom: 400, width: 480, height: 400 });
@@ -268,20 +269,28 @@ w.addEventListener('load', () => {
     check('недоступный лад в смешанной партитуре остаётся видимым пунктирным',
       !!tabRow?.querySelector('.pt-score-tab-svg .pt-note.is-unplayable'));
     check('карточки показывают бейдж вида, панель даёт явный переключатель',
-      w.document.querySelector(`#partsTracks .pt-track-chip[data-part="${partId['Legacy guitar']}"] .pt-track-view`)?.textContent === 'Табы' &&
-      w.document.getElementById('ptNotationModeToggle').hidden === false);
+      w.document.querySelector(`#partsTracks .pt-track-chip[data-part="${partId['Legacy guitar']}"] .pt-track-view`)?.textContent === 'Стан+Таб' &&
+      w.document.getElementById('ptNotationFlags').hidden === false);
 
     // View choice is metadata, not an undo step and not a sound/note mutation.
     const keyPartId = w.eval('songParts.find(p => p.name === "Piano").id');
     w.eval(`selectPartTrack(${keyPartId})`);
     const originalPitchNotes = json(`songParts.find(p => p.id === ${keyPartId}).pitchRolls[String(sections[0].id)]`);
     const historyCount = w.eval('songStore.log().length');
-    w.document.getElementById('ptNotationModeToggle').click();
+    const tabBox = w.document.getElementById('ptNotationTab');
+    tabBox.checked = true;
+    tabBox.dispatchEvent(new w.Event('change', { bubbles: true }));
     const changedPart = json(`songParts.find(p => p.id === ${keyPartId})`);
-    check('переключатель меняет только вид дорожки и не создаёт undo-команду',
-      changedPart.viewMode === 'tab' && JSON.stringify(changedPart.pitchRolls[String(w.eval('sections[0].id'))]) === JSON.stringify(originalPitchNotes) &&
+    check('галочки меняют только вид дорожки и не создают undo-команду',
+      changedPart.viewMode === 'tab' && changedPart.notation && changedPart.notation.tab === true &&
+      JSON.stringify(changedPart.pitchRolls[String(w.eval('sections[0].id'))]) === JSON.stringify(originalPitchNotes) &&
       w.eval('songStore.log().length') === historyCount);
-    w.document.getElementById('ptNotationModeToggle').click();
+    const staffBox = w.document.getElementById('ptNotationStaff');
+    staffBox.checked = true;
+    staffBox.dispatchEvent(new w.Event('change', { bubbles: true }));
+    const tabBox2 = w.document.getElementById('ptNotationTab');
+    tabBox2.checked = false;
+    tabBox2.dispatchEvent(new w.Event('change', { bubbles: true }));
     check('возврат на стан сохраняет прежние ноты и звучание pitch-roll',
       json(`songParts.find(p => p.id === ${keyPartId}).pitchRolls[String(sections[0].id)]`).length === originalPitchNotes.length &&
       w.eval(`partUsesPitchNotes(songParts.find(p => p.id === ${keyPartId}))`));
@@ -322,6 +331,7 @@ w.addEventListener('load', () => {
       { id: 31, name: 'Bass', instrument: 'bass', visible: true, rolls: { '1': legacyRoll } },
     ]));
     w.eval('togglePartsMode(true); renderPartsScreen()');
+    w.eval("setPartsScoreEngine('native')"); // тест родной ленты: вид «Обычный»
     check('если все дорожки табовые, непрерывная таб-лента остаётся прежней',
       w.document.querySelectorAll('#partsTrack .pt-score-system').length === 0 &&
       w.document.querySelectorAll('#partsTrack .pt-score-marker').length === 2 &&
