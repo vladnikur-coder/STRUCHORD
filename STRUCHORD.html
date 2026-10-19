@@ -4967,6 +4967,18 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   display: inline-flex;
   align-items: baseline;
 }
+/* «Виды», шаг 3: ячейка с ручными нотами вместо подписи аккорда. */
+.accomp-notes-plate {
+  display: inline-block;
+  padding: 0.15em 0.6em;
+  border-radius: 999px;
+  background: rgba(128, 128, 128, 0.18);
+  color: var(--color-text-secondary, #8a8a8a);
+  font-size: 0.42em;
+  font-weight: 600;
+  letter-spacing: 0;
+  white-space: nowrap;
+}
 .chord-input:not([readonly]) ~ .chord-display {
   opacity: 0;
 }
@@ -13802,7 +13814,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.660</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.661</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -23745,25 +23757,36 @@ function setEventChord(ev, newChord, posCtx, keepShape) {
   if (!ev) return false;
   const readableChord = typeof newChord === 'string' ? normalizeReadableChordName(newChord) : newChord;
   if (String(ev.chord || '').trim() === String(readableChord || '').trim()) return false;
-  songStore.dispatch('cell/chord', () => {
-    // «Виды», шаг 2: у ячейки есть записанные ноты. Если они целиком
-    // выражаются аккордом (одна обычная нота на струну, без приёмов) —
-    // запись молча снимается, и ноты пересчитаются из нового аккорда.
-    // Невыразимые ноты не трогаем никогда (диалог согласия — шаг 3).
-    if (Array.isArray(ev.notes) && ev.notes.length && posCtx) {
-      const sec = sections.find((x) => x.id === posCtx.secId);
-      const sq = sec && (sec.squares || []).find((x) => x.id === (posCtx.sqId !== undefined ? posCtx.sqId : posCtx.squareId));
-      const ei = posCtx.ei !== undefined ? posCtx.ei : posCtx.eventIndex;
-      if (sec && sq && Number.isInteger(ei)) {
-        const win = partEventWindowUnits(sec, sq, ei);
-        const abs = accompCleanNotes(ev.notes, ev.span).map((n) => ({ ...n, start: win.start + n.start }));
-        const d = accompDeriveFromNotes(abs, {
-          chordName: ev.chord, shape: null, fingers: ev.fingers || null, pattern: null,
-          start: win.start, span: win.span, key: sec.key || globalKey,
-        });
-        if (d.expressible) delete ev.notes;
+  // «Виды», шаги 2–3: у ячейки есть записанные ноты. Целиком выразимые
+  // аккордом — запись снимается молча (ноты пересчитаются из нового
+  // аккорда). Невыразимые (мелодия, приёмы, второй голос) — спрашиваем
+  // один раз на эту правку; отказ — аккорд не меняем вовсе. Все пути
+  // сюда одиночные (ввод, колесо, «Переименовать?»), массовых нет:
+  // транспонирование идёт своим проходом и ноты двигает само.
+  let dropRecordedNotes = false;
+  if (Array.isArray(ev.notes) && ev.notes.length && posCtx) {
+    const sec = sections.find((x) => x.id === posCtx.secId);
+    const sq = sec && (sec.squares || []).find((x) => x.id === (posCtx.sqId !== undefined ? posCtx.sqId : posCtx.squareId));
+    const ei = posCtx.ei !== undefined ? posCtx.ei : posCtx.eventIndex;
+    if (sec && sq && Number.isInteger(ei)) {
+      const win = partEventWindowUnits(sec, sq, ei);
+      const abs = accompCleanNotes(ev.notes, ev.span).map((n) => ({ ...n, start: win.start + n.start }));
+      const d = accompDeriveFromNotes(abs, {
+        chordName: ev.chord, shape: null, fingers: ev.fingers || null, pattern: null,
+        start: win.start, span: win.span, key: sec.key || globalKey,
+      });
+      if (d.expressible) dropRecordedNotes = true;
+      else if (typeof window !== 'undefined' && window.confirm) {
+        if (!window.confirm('В ячейке есть ноты, введённые вручную. Заменить их аккордом «' + readableChord + '»?')) {
+          try { requestRender(); } catch (e) {}
+          return false;
+        }
+        dropRecordedNotes = true;
       }
     }
+  }
+  songStore.dispatch('cell/chord', () => {
+    if (dropRecordedNotes) delete ev.notes;
     if (!keepShape) {
       delete ev.fingering;
       delete ev.fingeringTuning;
@@ -30247,6 +30270,16 @@ function transposeAllGlobal(st) {
       for (let i = 0; i < sq.events.length; i++)
         if (sq.events[i].chord && sq.events[i].chord.trim() !== '') {
           sq.events[i].chord = transposeChord(sq.events[i].chord, st);
+          // «Виды»: записанные ноты ячейки транспонируются вместе с
+          // аккордом (та же струна, лад ± полутона). Вышедшие за гриф
+          // ноты честно отпадают; пустой остаток полем не держим.
+          if (Array.isArray(sq.events[i].notes) && sq.events[i].notes.length) {
+            const moved = sq.events[i].notes
+              .map((n) => (n.dead ? n : { ...n, fret: Number(n.fret) + st }))
+              .filter((n) => n.dead || (Number(n.fret) >= 0 && Number(n.fret) <= 30));
+            if (moved.length) sq.events[i].notes = moved;
+            else delete sq.events[i].notes;
+          }
           // Выбранную форму двигаем по грифу вместе с аккордом. Если
           // сдвинуть нельзя (открытые струны, выход за гриф) — снимаем
           // выбор, иначе ячейка показывала бы форму от чужого аккорда.
@@ -41207,6 +41240,20 @@ function measureChordFullWidth(raw) {
 // availWidth — ширина контентной коробки. ResizeObserver отдаёт её готовой
 // в entry.contentRect (padding уже вычтен), поэтому в горячем пути
 // getComputedStyle не нужен вовсе.
+// HTML плашки «♪ ноты» и её состояние для инпута ячейки: не-null,
+// только когда у ячейки есть записанные ноты, не соответствующие подписи.
+function accompNotesPlateHtml() {
+  return '<span class="accomp-notes-plate" title="В ячейке ноты, введённые вручную в Партиях">♪ ноты</span>';
+}
+function accompPlateHtmlForInput(input) {
+  if (!input || !input.dataset) return null;
+  const sec = sections.find((x) => x.id === +input.dataset.sec);
+  const sq = sec && (sec.squares || []).find((q) => q.id === +input.dataset.square);
+  const ev = sq && sq.events[+input.dataset.ei];
+  if (!ev || !Array.isArray(ev.notes) || !ev.notes.length) return null;
+  return accompSignatureFits(sec, sq, ev, +input.dataset.ei) ? null : accompNotesPlateHtml();
+}
+
 function fitChordDisplay(displayEl, availWidth) {
   if (!displayEl) return;
   const input = displayEl.previousElementSibling;
@@ -41218,6 +41265,18 @@ function fitChordDisplay(displayEl, availWidth) {
   const keepDegree = () => {
     if (degEl && degEl.parentNode !== displayEl) displayEl.insertBefore(degEl, displayEl.firstChild);
   };
+  // «Виды», шаг 3: ячейка с ручными нотами показывает плашку вместо
+  // подписи — на всех путях покраски, включая подгонку по ширине.
+  const plateHtml = accompPlateHtmlForInput(input);
+  if (plateHtml) {
+    if (displayEl.__fitRaw !== '\u0001notes') {
+      displayEl.innerHTML = plateHtml;
+      keepDegree();
+      displayEl.__fitRaw = '\u0001notes';
+      displayEl.__fitMode = '';
+    }
+    return;
+  }
   const raw = (input.value || '').trim();
   if (!raw) {
     if (displayEl.__fitRaw !== '') {
@@ -54588,6 +54647,7 @@ function accompAtChordMarks(bar) {
     const strings = Array.isArray(shape)
       ? shape.slice().reverse().map((v) => (v === 'x' || v == null ? -1 : Number(v)))
       : [];
+    if (!accompSignatureFits(bar.sec, bar.sq, ev, ei)) return;
     marks.push({ pos: Math.round(win.start * 10000) / 10000, name: String(ev.chord), strings });
   });
   return marks.sort((a, b) => a.pos - b.pos);
@@ -55429,7 +55489,7 @@ function accompSectionRoll(sec) {
       // ячейки вычисляются из аккорда и боя.
       if (Array.isArray(ev.notes) && ev.notes.length) {
         const win = partEventWindowUnits(sec, sq, ei);
-        ev.notes.forEach((n) => {
+        accompCleanNotes(ev.notes, ev.span).forEach((n) => {
           out.push({
             start: Math.round((win.start + Number(n.start)) * 10000) / 10000,
             dur: Number(n.dur) || 0.25, string: Number(n.string), fret: Number(n.fret),
@@ -55606,6 +55666,26 @@ function accompDeriveFromNotes(notes, ctx) {
   }
   const expressible = !reasons.length && !!chordName;
   return { expressible, chordName, nameKept, shape, fingers, pattern, reasons };
+}
+
+// Подпись ячейки с записанными нотами: имя аккорда «живёт», пока ноты
+// ему соответствуют (правило обратного пересчёта). Не соответствует —
+// Редактор честно показывает «♪ ноты», а GP-вид подпись не ставит.
+function accompSignatureFits(sec, sq, ev, ei) {
+  if (!ev || !Array.isArray(ev.notes) || !ev.notes.length) return true;
+  if (!ev.chord) return false;
+  const win = partEventWindowUnits(sec, sq, ei);
+  if (!win) return true;
+  const abs = ev.notes.map((n) => ({ ...n, start: Math.round((win.start + Number(n.start)) * 10000) / 10000 }));
+  let shape = null;
+  try {
+    shape = resolveShapeForScheduledChord(ev.chord, { secId: sec.id, squareId: sq.id, eventIndex: ei, key: sec.key || globalKey }).shape;
+  } catch (e) { shape = null; }
+  const d = accompDeriveFromNotes(abs, {
+    chordName: ev.chord, shape, fingers: ev.fingers || null, pattern: null,
+    start: win.start, span: win.span, key: sec.key || globalKey,
+  });
+  return !!(d.expressible && d.nameKept);
 }
 
 // Ячейка по абсолютной позиции в секции (доли родителя).
@@ -61006,9 +61086,47 @@ function inputPartStaffNote() {
   inputPartPitchNote(st.part, st.sec, st.pass, line, pitch, selected);
 }
 
+// Сдвиг ноты аккомпанемента (тот же вход, что у партий): время —
+// внутри своей ячейки, высота — лад ± полутон на той же струне.
+function accompMoveCursorNote(kind, direction) {
+  const st = partCursorState();
+  if (!st) return false;
+  const cell = accompCellAt(st.sec, st.pos);
+  if (!cell) return false;
+  const work = accompWorkNotes(st.sec, cell.sq, cell.ev, cell.ei);
+  const posRel = Math.round((st.pos - cell.win.start) * 10000) / 10000;
+  const note = work.find((n) => n.string === st.string && Math.abs(n.start - posRel) < 1e-4);
+  if (!note) { showToast('Под курсором нет ноты'); return false; }
+  const delta = direction < 0 ? -1 : 1;
+  if (kind === 'time') {
+    const step = partUnitsPerQuarter(partSectionTs(st.sec)) * PART_MICRO_GRID_QUARTERS;
+    const next = Math.round((note.start + delta * step) * 10000) / 10000;
+    if (next < -1e-9 || next + Number(note.dur) > (Number(cell.ev.span) || 1) + 1e-6) {
+      showToast('Ноту нельзя сдвинуть за границы ячейки');
+      return false;
+    }
+    if (work.some((o) => o !== note && o.string === note.string && Math.abs(o.start - next) < 1e-4)) {
+      showToast('Целевая доля на этой струне уже занята');
+      return false;
+    }
+    note.start = next;
+  } else if (kind === 'pitch') {
+    if (note.dead) { showToast('Заглушённую ноту по высоте не двигаем'); return false; }
+    const nextFret = Number(note.fret) + delta;
+    if (nextFret < 0 || nextFret > 24) { showToast('Нота выходит за гриф'); return false; }
+    note.fret = nextFret;
+  } else return false;
+  songStore.dispatch('accomp/note-edit', () => accompCommitCell(st.sec, cell.sq, cell.ev, cell.ei, work));
+  if (kind === 'time' && partsCursor) partsCursor.pos = partRoundUnits(cell.win.start + note.start);
+  renderPartsScreen();
+  return true;
+}
+
 function moveSelectedPartNote(kind, direction) {
   if (!partsInputEnabled()) return false;
   const st = partCursorState();
+  // «Виды», шаг 3: строка аккомпанемента двигает ноты своей ячейки.
+  if (st && partIsDerived(st.part)) return accompMoveCursorNote(kind, direction);
   const note = partSelectionNote();
   if (!st || !note || !partsSelection || partsSelection.partId !== st.part.id || partsSelection.secId !== st.sec.id) return false;
   const roll = partActiveRollFor(st.part, st.sec.id);
@@ -61973,7 +62091,7 @@ function renderSectionsGrid() {
           <div class="event-strum-preview" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}"></div>
           <div class="chord-content">
             <input class="chord-input" readonly data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" value="${escapeHtml(ev.chord || '')}" placeholder="—">
-            <div class="chord-display" aria-hidden="true">${renderChordDisplayHtml(ev.chord)}</div>
+            <div class="chord-display" aria-hidden="true">${accompSignatureFits(sec, sq, ev, ei) ? renderChordDisplayHtml(ev.chord) : accompNotesPlateHtml()}</div>
           </div>
           ${/* Счёт СНАРУЖИ .chord-content: у того overflow: hidden, и
                 подпись «1» на левом крае ячейки обрезалась по вертикали
@@ -63179,7 +63297,7 @@ function buildSquareInnerEventsHtml(sec, sq, distribution) {
       <div class="event-strum-preview" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}"></div>
       <div class="chord-content">
         <input class="chord-input" readonly data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" value="${escapeHtml(ev.chord || '')}" placeholder="—">
-        <div class="chord-display" aria-hidden="true">${renderChordDisplayHtml(ev.chord)}</div>
+        <div class="chord-display" aria-hidden="true">${accompSignatureFits(sec, sq, ev, ei) ? renderChordDisplayHtml(ev.chord) : accompNotesPlateHtml()}</div>
       </div>
       <div class="chord-ticks" aria-hidden="true" style="${buildInnerTicks(beats, epochOwnOffset, '--color-tick-line', 1, effectiveSpan, { ownOffset: epochOwnOffset, unitScale: epochUnitScale })}"></div>
       <div class="chord-ticks-step" aria-hidden="true" style="${buildInnerTicks(beats, epochOwnOffset, '--color-tick-substep', subdiv, effectiveSpan, { ownOffset: epochOwnOffset, unitScale: epochUnitScale })}"></div>
