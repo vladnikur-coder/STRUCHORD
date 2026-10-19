@@ -9735,6 +9735,10 @@ body.is-parts .container {
 .pt-notation-flags label { display: inline-flex; gap: 0.25rem; align-items: center; cursor: pointer; }
 .pt-at-follow { margin-left: auto; }
 .pt-engine button.is-active { font-weight: 700; text-decoration: underline; }
+.pt-views { display: inline-flex; gap: 2px; margin-right: 10px; }
+.pt-views button { font: inherit; }
+.pt-views button.is-active, .mode-toggle-btn.is-active { font-weight: 700; text-decoration: underline; }
+.pt-track-chip.is-derived { border-style: dashed; }
 [data-source-start].is-selected { stroke: var(--color-brand) !important; stroke-width: 2.5 !important; }
 .pt-score-cursor { stroke: var(--color-brand); stroke-width: 1.4; pointer-events: none; }
 .pt-score-cursor-head { fill: var(--color-tint); stroke: var(--color-brand); stroke-width: 1.6; pointer-events: none; }
@@ -13798,7 +13802,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.657</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.658</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -14305,6 +14309,11 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <span class="pt-title">Партии</span>
           <span class="pt-song" id="partsSongName"></span>
           <span class="pt-part-pill" id="partsActiveName" hidden></span>
+          <span class="pt-views" role="group" aria-label="Вид песни">
+            <button type="button" data-song-view="editor" onclick="setSongView('editor')">Редактор</button>
+            <button type="button" data-song-view="timeline" onclick="setSongView('timeline')">Лента</button>
+            <button type="button" data-song-view="parts" onclick="setSongView('parts')">Партии</button>
+          </span>
           <span class="pt-engine" role="group" aria-label="Вид партитуры">
             <button type="button" data-parts-engine="native" onclick="setPartsScoreEngine('native')">Обычный</button>
             <button type="button" data-parts-engine="alphatab" onclick="setPartsScoreEngine('alphatab')">GP-вид</button>
@@ -18419,6 +18428,15 @@ const songStore = (function () {
 
   function dispatch(label, mutator, opts) {
     if (typeof mutator !== 'function') return undefined;
+    // «Виды», шаг 1: аккомпанемент пока только показывается — его ноты
+    // вычисляются из аккордов. Правки нот и настроек производной строки
+    // не пропускаем: это не данные, записывать нечего (запись — шаг 2).
+    if (typeof partIsDerived === 'function' && typeof partActivePart === 'function' &&
+        /^(part\/(note|notes|bar-symbol|dynamics|text|clef|sound|capo|paste-bars|delete-bars))/.test(String(label)) &&
+        partIsDerived(partActivePart())) {
+      if (typeof showToast === 'function') showToast('Аккомпанемент пока только показывается: его ноты вычисляются из аккордов');
+      return undefined;
+    }
     // Гард вложенности: команда внутри мутатора другой команды (составной
     // сценарий) пишет метку в лог, но НЕ оповещает подписчиков — право
     // уведомления принадлежит внешней команде, когда её мутация целиком
@@ -51588,6 +51606,7 @@ function toggleTimelineMode(force) {
   if (timelineMode && isFingeringPinned()) unpinFingering();
   const label = document.getElementById('modeToggleLabel');
   if (label) label.textContent = timelineMode ? 'Редактор' : 'Лента';
+  if (typeof syncSongViewSwitch === 'function') syncSongViewSwitch();
   const btn = document.getElementById('btnModeToggle');
   if (btn) {
     btn.title = timelineMode
@@ -53297,6 +53316,37 @@ function partEventWindowUnits(sec, sq, ei) {
   return { start, span, end: start + span };
 }
 
+// «Виды», шаг 4: Редактор / Лента / Партии — три вида одной песни.
+// Переключение меняет только показ: данные, курсор, выделение и позиция
+// игры общие и не сбрасываются; переключение не пишет в файл и не
+// добавляет шагов в историю.
+function songViewName() {
+  return partsMode ? 'parts' : (typeof timelineMode !== 'undefined' && timelineMode) ? 'timeline' : 'editor';
+}
+function setSongView(view) {
+  if (view === 'parts') {
+    if (typeof timelineMode !== 'undefined' && timelineMode) toggleTimelineMode(false);
+    if (!partsMode) togglePartsMode(true);
+  } else if (view === 'timeline') {
+    if (partsMode) togglePartsMode(false);
+    if (!timelineMode) toggleTimelineMode(true);
+  } else {
+    if (partsMode) togglePartsMode(false);
+    if (typeof timelineMode !== 'undefined' && timelineMode) toggleTimelineMode(false);
+  }
+  syncSongViewSwitch();
+}
+function syncSongViewSwitch() {
+  const cur = songViewName();
+  document.querySelectorAll('[data-song-view]').forEach((b) => {
+    const on = b.dataset.songView === cur;
+    b.classList.toggle('is-active', on);
+    b.setAttribute('aria-pressed', on ? 'true' : 'false');
+  });
+  const lt = document.getElementById('btnPartsToggle');
+  if (lt) lt.classList.toggle('is-active', cur === 'parts');
+}
+
 function togglePartsMode(force) {
   const next = force === undefined ? !partsMode : !!force;
   if (next === partsMode) return;
@@ -53314,6 +53364,7 @@ function togglePartsMode(force) {
   if (partsMode && isFingeringPinned()) unpinFingering();
   const label = document.getElementById('partsToggleLabel');
   if (label) label.textContent = partsMode ? 'Редактор' : 'Партии';
+  syncSongViewSwitch();
   const btn = document.getElementById('btnPartsToggle');
   if (btn) {
     btn.title = partsMode
@@ -53472,7 +53523,13 @@ function syncPartsPlaybackHighlight(secId, secPass, squareId, squarePass, eventI
 let partsActiveId = null;
 
 function partActivePart() {
-  if (!songParts.length) return null;
+  if (partsActiveId === ACCOMP_PART_ID) {
+    const derived = accompDerivedPart();
+    if (derived) return derived;
+  }
+  // Партий нет вовсе — активной становится строка аккомпанемента:
+  // «Партии» у аккордовой песни не должны встречать пустым экраном.
+  if (!songParts.length) return accompDerivedPart();
   const found = partsActiveId === null ? null : songParts.find((p) => p.id === partsActiveId);
   if (found) return found;
   const fallback = songParts[0] || null;
@@ -53483,7 +53540,13 @@ function partActivePart() {
 // Партии, которые рисуются и звучат: включённые. Активная дорожка обязана
 // быть включённой — иначе она бы «пропала» с экрана вместе с курсором.
 function partVisibleList() {
-  return songParts.filter(partVisible);
+  const out = songParts.filter(partVisible);
+  const derived = accompDerivedPart();
+  // Аккомпанемент показывается первой строкой, когда выбран (чип —
+  // первый в списке дорожек), а у песни без партий он активен сам.
+  // Стопка остальных дорожек и пустые состояния от него не меняются.
+  if (derived && (partsActiveId === ACCOMP_PART_ID || !songParts.length)) out.unshift(derived);
+  return out;
 }
 
 // Системы активной партии — все секции песни и все проходы их повторов.
@@ -55130,6 +55193,282 @@ function partScoreChordEvents(bar) {
     out.push({ start: window.start, label });
   });
   return out;
+}
+
+
+// ===== B-12.11 «Виды», шаг 1: аккомпанемент как выводимые ноты =====
+// Аккордовая часть песни в виде «Партии» показывается нотами, но ноты эти
+// нигде не хранятся: они каждый раз вычисляются из аккорда, аппликатуры и
+// боя теми же функциями, что кормят звук. Правка нот и запись в файл —
+// шаг 2; здесь только показ и обратный пересчёт как чистая функция.
+const ACCOMP_PART_ID = 'accomp';
+
+function accompFretOf(shape, line) {
+  const v = shape ? shape[line] : null;
+  if (v === 'x' || v === undefined || v === null || v === '') return null;
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Ноты одной аккордовой ячейки: [{start, dur, string, fret, dead?}] в
+// абсолютных долях секции (как ноты партий). string — индекс струны от
+// толстой (0), как в shape и в строе песни.
+function accompCellNotes(sec, sq, ev, ei) {
+  if (!sec || !sq || !ev || !ev.chord) return [];
+  const win = partEventWindowUnits(sec, sq, ei);
+  if (!win || !(win.span > 0)) return [];
+  let shape = null;
+  try {
+    shape = resolveShapeForScheduledChord(ev.chord, {
+      secId: sec.id, squareId: sq.id, eventIndex: ei, key: sec.key || globalKey,
+    }).shape;
+  } catch (e) { shape = null; }
+  if (!shape) return [];
+  const count = shape.length;
+  const hits = []; // {pos, line, fret, dead}
+  const pushStrum = (pos, dead) => {
+    for (let line = 0; line < count; line++) {
+      const fret = accompFretOf(shape, line);
+      if (fret === null) continue;
+      hits.push({ pos, line, fret, dead: !!dead });
+    }
+  };
+  let pattern = null;
+  try { pattern = getSlicedPatternForEvent(sec, sq, ev, ei); } catch (e) { pattern = null; }
+  // Ячейка, покрытая ритм-рулоном, звучит окном рулона (планировщик берёт
+  // его раньше собственного и секционного боя) — показ обязан совпадать.
+  try {
+    const rollWin = (typeof songRhythmRolls !== 'undefined' && songRhythmRolls)
+      ? rhythmRollWindowFor(sec.id, sq, ei, songRhythmRolls) : null;
+    if (rollWin && Array.isArray(rollWin.steps) && rollWin.steps.length) pattern = rollWin;
+  } catch (e) { /* рулонов нет — обычный срез */ }
+  let sub = 1;
+  if (!pattern || !Array.isArray(pattern.steps) || !pattern.steps.length) {
+    pushStrum(win.start, false);
+  } else {
+    sub = Math.max(1, pattern.subdivision || 1);
+    // Число шагов и их шаг — как у планировщика: от сырого span ячейки,
+    // шаг = 1/sub родительской доли, даже если окно в долях длиннее.
+    const need = Math.max(1, Math.round((ev.span || 1) * sub));
+    for (let i = 0; i < need; i++) {
+      const symbol = pattern.steps[i % pattern.steps.length];
+      const pos = win.start + i / sub;
+      if (Array.isArray(symbol) || typeof symbol === 'number') {
+        let strings = [];
+        try { strings = resolvePickStepStrings(symbol, shape, ev.chord) || []; } catch (e) { strings = []; }
+        strings.forEach((num) => {
+          const line = count - Number(num);
+          if (line < 0 || line >= count) return;
+          const fret = accompFretOf(shape, line);
+          // Струна в хвате заглушена, а шаг перебора её трогает: звуковой
+          // движок играет её открытой (приближение pluckSingleGuitarString).
+          // Табы показывают то, что звучит, — 0; пометка openApprox не
+          // даёт обратному пересчёту принять эту ноту за прижатую струну.
+          if (fret === null) { hits.push({ pos, line, fret: 0, dead: false, openApprox: true }); return; }
+          hits.push({ pos, line, fret, dead: false });
+        });
+      } else if (symbol === 'D' || symbol === 'U') {
+        pushStrum(pos, false);
+      } else if (symbol === 'X') {
+        pushStrum(pos, true);
+      }
+    }
+  }
+  if (!hits.length) return [];
+  const onsets = Array.from(new Set(hits.map((h) => Math.round(h.pos * 10000) / 10000))).sort((a, b) => a - b);
+  return hits.map((h) => {
+    const next = onsets.find((o) => o > h.pos + 1e-9);
+    let dur = (next === undefined ? win.end : next) - h.pos;
+    if (h.dead) dur = Math.min(dur, 1 / sub);
+    return {
+      start: Math.round(h.pos * 10000) / 10000,
+      dur: Math.max(0.05, Math.round(dur * 10000) / 10000),
+      string: h.line,
+      fret: h.fret,
+      ...(h.dead ? { dead: true } : {}),
+      ...(h.openApprox ? { openApprox: true } : {}),
+    };
+  }).sort((a, b) => a.start - b.start || a.string - b.string);
+}
+
+function accompSectionRoll(sec) {
+  const out = [];
+  (sec.squares || []).forEach((sq) => {
+    (sq.events || []).forEach((ev, ei) => {
+      if (ev && ev.chord) out.push(...accompCellNotes(sec, sq, ev, ei));
+    });
+  });
+  return out.sort((a, b) => a.start - b.start || a.string - b.string);
+}
+
+let accompCache = { part: null, sectionsRef: null, dirty: true };
+let accompSubscribed = false;
+function accompInvalidate() { accompCache.dirty = true; }
+
+// Производная «дорожка» аккомпанемента: объект формы партии, но не часть
+// songParts — не сохраняется, не звучит отдельным каналом (звучит канал
+// «Песня» аккордовым движком), не правится до шага 2.
+function accompDerivedPart() {
+  if (!sections || !sections.length) return null;
+  // Кэш инвалидируется командами хранилища (любая правка модели) и
+  // сменой массива секций (загрузка песни) — без пересчёта подписей
+  // на каждый рендер экрана.
+  if (!accompSubscribed && typeof songStore !== 'undefined' && songStore.subscribe) {
+    songStore.subscribe(() => accompInvalidate());
+    accompSubscribed = true;
+  }
+  if (accompCache.part && !accompCache.dirty && accompCache.sectionsRef === sections) return accompCache.part;
+  const rolls = {};
+  sections.forEach((sec) => {
+    const roll = accompSectionRoll(sec);
+    if (roll.length) rolls[String(sec.id)] = roll;
+  });
+  const part = {
+    id: ACCOMP_PART_ID, name: 'Песня (аккорды)', instrument: 'guitar',
+    tuning: null, capo: songCapo || 0, visible: true, derivedAccomp: true, rolls,
+  };
+  accompCache = { part, sectionsRef: sections, dirty: false };
+  return part;
+}
+
+function partIsDerived(part) {
+  return !!part && (part.derivedAccomp === true || part.id === ACCOMP_PART_ID);
+}
+
+// Обратный пересчёт шага 2 (пока чистая функция без записи): ноты ячейки
+// -> {выразимо, имя, хват, пальцы, бой}. Подпись (ctx.chordName) остаётся,
+// пока ноты ей соответствуют: все звучащие высоты входят в состав аккорда
+// подписи, а бас первого момента — корень или слэш-бас подписи. Пальцы
+// прежние только при тех же ладах; иначе пересчёт computeFingersForShape.
+function accompDeriveFromNotes(notes, ctx) {
+  const c = ctx || {};
+  const count = (c.shape && c.shape.length) || 6;
+  const reasons = [];
+  const list = (Array.isArray(notes) ? notes : []).filter((n) => n && Number.isFinite(Number(n.start)));
+  if (list.some((n) => Number(n.voice || 1) !== 1)) reasons.push('второй голос');
+  if (list.some((n) => n.bend || n.legato || n.slide || n.harm || n.trill || n.tremBar)) reasons.push('приёмы у нот');
+  const fretsByLine = new Map();
+  const deadLines = new Set();
+  list.forEach((n) => {
+    const line = Number(n.string);
+    if (!Number.isInteger(line) || line < 0 || line >= count) { reasons.push('струна вне грифа'); return; }
+    if (n.openApprox) return; // звучание открытой струны — не хват
+    if (n.dead) { deadLines.add(line); return; }
+    if (!fretsByLine.has(line)) fretsByLine.set(line, new Set());
+    fretsByLine.get(line).add(Number(n.fret));
+  });
+  fretsByLine.forEach((set) => { if (set.size > 1) reasons.push('два лада на одной струне'); });
+  // Хват: звучащие струны — из нот, глушёные — «x», молчащие — как были.
+  const shape = [];
+  for (let line = 0; line < count; line++) {
+    if (fretsByLine.has(line) && fretsByLine.get(line).size === 1) shape.push(Array.from(fretsByLine.get(line))[0]);
+    else if (deadLines.has(line) && !fretsByLine.has(line)) shape.push('x');
+    else if (c.shape && c.shape[line] !== undefined && c.shape[line] !== null) shape.push(c.shape[line]);
+    else shape.push('x');
+  }
+  // Высоты нот (классы) по строю песни и каподастру.
+  const tuning = (() => { try { return songTuningNotes(); } catch (e) { return []; } })();
+  const pcOf = (line, fret) => {
+    const open = tunerNoteToMidi(tuning[line]);
+    return open === null ? null : (((open + Number(fret) + (songCapo || 0)) % 12) + 12) % 12;
+  };
+  const pcs = new Set();
+  let bassPc = null;
+  let bassMidi = null;
+  const firstStart = list.length ? Math.min(...list.map((n) => Number(n.start))) : 0;
+  list.forEach((n) => {
+    if (n.dead) return;
+    const pc = pcOf(Number(n.string), Number(n.fret));
+    if (pc === null) return;
+    pcs.add(pc);
+    // Бас — самая НИЗКАЯ высота первого момента, а не наименьший класс.
+    const open = tunerNoteToMidi(tuning[Number(n.string)]);
+    const midi = open === null ? null : open + Number(n.fret) + (songCapo || 0);
+    if (Math.abs(Number(n.start) - firstStart) < 1e-9 && midi !== null && (bassMidi === null || midi < bassMidi)) {
+      bassMidi = midi; bassPc = pc;
+    }
+  });
+  const namePcs = (name) => {
+    try {
+      return new Set((getChordNotes(name, getKeyStyle(c.key || globalKey)) || [])
+        .map((t) => { const m = tunerNoteToMidi(String(t).replace(/[0-9]/g, '') + '4'); return m === null ? null : ((m % 12) + 12) % 12; })
+        .filter((x) => x !== null));
+    } catch (e) { return new Set(); }
+  };
+  let chordName = null;
+  let nameKept = false;
+  if (c.chordName) {
+    const want = namePcs(c.chordName);
+    const slash = /\/([A-G][#b]?)/.exec(String(c.chordName));
+    let bassOk = true;
+    let slashPc = null;
+    if (slash) {
+      const bm = tunerNoteToMidi(slash[1].replace('b', '♭') + '4');
+      slashPc = bm === null ? null : ((bm % 12) + 12) % 12;
+      if (bassPc !== null) bassOk = slashPc === bassPc;
+    }
+    const fits = want.size > 0 && Array.from(pcs).every((pc) => want.has(pc) || pc === slashPc) && bassOk;
+    if (fits) { chordName = c.chordName; nameKept = true; }
+  }
+  if (!chordName) {
+    try { chordName = analyzeFingeringShape(shape).chordName || null; } catch (e) { chordName = null; }
+    if (!chordName) reasons.push('имя по нотам не определяется');
+  }
+  // Пальцы: те же лады — прежние; лады изменились — пересчёт или сброс.
+  const sameFrets = !!c.shape && shape.every((v, i) => String(v) === String(c.shape[i]));
+  let fingers = null;
+  if (sameFrets && Array.isArray(c.fingers)) fingers = c.fingers.slice();
+  else {
+    try { fingers = computeFingersForShape(shape, null); } catch (e) { fingers = null; }
+    if (!Array.isArray(fingers) || !fingers.length) fingers = null;
+  }
+  // Бой по моментам: совпал с прежним (без учёта направления) — прежний
+  // целиком (направления и свинг целы). Новые моменты: на долю — вниз,
+  // между долями — вверх.
+  const span = Math.max(0.05, Number(c.span) || 1);
+  const rel = list.map((n) => Number(n.start) - (Number(c.start) || 0));
+  let pattern = null;
+  const subs = [1, 2, 3, 4, 6, 8, 12, 16];
+  const sub = subs.find((s) => rel.every((r) => Math.abs(r * s - Math.round(r * s)) < 1e-6)) || 0;
+  if (!sub) reasons.push('моменты не на равномерной сетке');
+  else {
+    const steps = new Array(Math.max(1, Math.round(span * sub))).fill('_');
+    const byStep = new Map();
+    list.forEach((n, idx) => {
+      const st = Math.round(rel[idx] * sub);
+      if (st < 0 || st >= steps.length) { reasons.push('нота за окном ячейки'); return; }
+      if (!byStep.has(st)) byStep.set(st, []);
+      byStep.get(st).push(n);
+    });
+    byStep.forEach((group, st) => {
+      if (group.every((n) => n.dead)) steps[st] = 'X';
+      else if (group.length === 1) steps[st] = [count - Number(group[0].string)];
+      else steps[st] = (rel[0] !== undefined && Math.abs((st / sub) - Math.round(st / sub)) < 1e-9) ? 'D' : 'U';
+    });
+    const mode = steps.some((st) => Array.isArray(st)) && !steps.some((st) => st === 'D' || st === 'U') ? 'pick' : 'strum';
+    pattern = { mode, subdivision: sub, steps };
+    if (c.pattern && Array.isArray(c.pattern.steps)) {
+      const prevSub = Math.max(1, c.pattern.subdivision || 1);
+      const sameMoments = sub === prevSub && steps.length === c.pattern.steps.length &&
+        steps.every((st, i) => {
+          const prev = c.pattern.steps[i];
+          if ((st === '_') !== (prev === '_' || prev === null)) return false;
+          if (Array.isArray(st)) return JSON.stringify(st) === JSON.stringify(Array.isArray(prev) ? prev : [prev]);
+          if (st === 'X') return prev === 'X';
+          return prev === 'D' || prev === 'U' || prev === 'X';
+        });
+      if (sameMoments) pattern = c.pattern;
+    }
+  }
+  const expressible = !reasons.length && !!chordName;
+  return { expressible, chordName, nameKept, shape, fingers, pattern, reasons };
+}
+
+// Нормализация (как кастомный бой, совпавший с секционным): записанные
+// ноты, совпавшие с вычисленными из аккорда и боя, записью не хранятся.
+function accompNotesMatchComputed(notes, computed) {
+  const norm = (arr) => (arr || []).map((n) => [Math.round(Number(n.start) * 10000), Number(n.string), Number(n.fret), n.dead ? 1 : 0].join(':')).sort().join('|');
+  return norm(notes) === norm(computed);
 }
 
 function partScoreBars(parts) {
@@ -59216,12 +59555,34 @@ function renderPartsTracks() {
   const host = document.getElementById('partsTracks');
   if (!host) return;
   host.innerHTML = '';
-  if (!songParts.length) {
+  const derived = accompDerivedPart();
+  if (!songParts.length && !derived) {
     host.hidden = true;
     return;
   }
   host.hidden = false;
   const active = partActivePart();
+  if (derived) {
+    const chip = document.createElement('button');
+    chip.type = 'button';
+    chip.className = 'pt-track-chip is-derived';
+    chip.dataset.part = ACCOMP_PART_ID;
+    chip.setAttribute('role', 'tab');
+    const on = !!active && active.id === ACCOMP_PART_ID;
+    chip.classList.toggle('is-active', on);
+    chip.setAttribute('aria-selected', on ? 'true' : 'false');
+    const name = document.createElement('span');
+    name.className = 'pt-track-name';
+    name.textContent = derived.name;
+    const kind = document.createElement('span');
+    kind.className = 'pt-track-kind';
+    kind.textContent = 'из аккордов · показ';
+    chip.appendChild(name);
+    chip.appendChild(kind);
+    chip.title = 'Аккомпанемент: ноты вычисляются из аккордов, аппликатур и боя. Правка нот — следующим шагом';
+    chip.addEventListener('click', () => selectPartTrack(ACCOMP_PART_ID));
+    host.appendChild(chip);
+  }
   songParts.forEach((part) => {
     const chip = document.createElement('button');
     chip.type = 'button';
@@ -59366,6 +59727,12 @@ function syncPartsTrackBar() {
   const viewToggle = document.getElementById('ptInstrumentViewToggle');
   if (!instSel || !tuneSel || !visBox || !nameInput) return;
   const part = partActivePart();
+  if (partIsDerived(part)) {
+    if (document.activeElement !== nameInput) nameInput.value = part.name;
+    [instSel, tuneSel, capoSel, visBox, nameInput].forEach((el) => { if (el) el.disabled = true; });
+    if (voiceSelect) voiceSelect.disabled = true;
+    return;
+  }
   const inst = part ? partInstrumentId(part) : 'guitar';
   const usesPitch = !!part && partUsesPitchNotes(part);
   const hasSongTuning = inst === 'guitar' || inst === 'bass';
@@ -59587,7 +59954,7 @@ function ensurePartsTrackBar() {
 }
 
 function selectPartTrack(id, opts) {
-  const part = songParts.find((p) => p.id === id);
+  const part = id === ACCOMP_PART_ID ? accompDerivedPart() : songParts.find((p) => p.id === id);
   if (!part) return;
   if (partsActiveId !== id) {
     partsSelection = null;
@@ -59596,6 +59963,11 @@ function selectPartTrack(id, opts) {
   partsActiveId = id;
   // Активная дорожка обязана быть включённой: иначе станков не будет и
   // окно показывало бы пустое состояние вместо места ввода.
+  if (partIsDerived(part)) {
+    partsActiveId = id;
+    renderPartsScreen();
+    return;
+  }
   if (!partVisible(part)) {
     songStore.dispatch('part/track-visible', () => {
       part.visible = true;
@@ -60222,6 +60594,10 @@ function inputPartDrumPitch(pitch) {
 function inputPartFret(digit) {
   if (!partsInputEnabled()) return;
   const st = partCursorState();
+  if (st && partIsDerived(st.part)) {
+    showToast('Аккомпанемент пока только показывается: его ноты вычисляются из аккордов');
+    return;
+  }
   if (!st) return;
   const { part, sec, pass, string, pos } = st;
   if (partInstrumentId(part) === 'drums') {
@@ -61562,7 +61938,7 @@ function renderSectionsGrid() {
   // применил конечные стили без перехода. requestAnimationFrame, а не
   // setTimeout(0): нужен именно следующий кадр отрисовки.
   requestAnimationFrame(() => {
-    requestAnimationFrame(() => document.body.classList.remove('is-rerendering'));
+    requestAnimationFrame(() => { if (typeof document !== 'undefined' && document.body) document.body.classList.remove('is-rerendering'); });
   });
 
   // Возвращаем прокрутку на прежнее место содержимого.
