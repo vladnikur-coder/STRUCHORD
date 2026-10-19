@@ -13802,7 +13802,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.659</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.660</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -54568,6 +54568,31 @@ function partsAtDuration(alphaTab, notation) {
 
 // Конвертер напрямую из нашей модели (не через GP-экспорт): секции и
 // квадраты становятся тактами со знаками повтора/вольтами/секциями.
+// Подписи аккордов ячеек для GP-вида: в месте смены ячейки, над табом.
+// Имя — ev.chord (подпись ячейки: живёт, пока ноты ей соответствуют,
+// обратный пересчёт шага 2 её поддерживает). Атрибуты диаграммы —
+// хват ячейки (alphaTab ждёт струны от тонкой к толстой, -1 = не звучит).
+function accompAtChordMarks(bar) {
+  if (!bar || !bar.sq) return [];
+  const marks = [];
+  (bar.sq.events || []).forEach((ev, ei) => {
+    if (!ev || !ev.chord) return;
+    const win = partEventWindowUnits(bar.sec, bar.sq, ei);
+    if (!win || win.start < bar.start - 1e-9 || win.start >= bar.end - 1e-9) return;
+    let shape = null;
+    try {
+      shape = resolveShapeForScheduledChord(ev.chord, {
+        secId: bar.sec.id, squareId: bar.sq.id, eventIndex: ei, key: bar.sec.key || globalKey,
+      }).shape;
+    } catch (e) { shape = null; }
+    const strings = Array.isArray(shape)
+      ? shape.slice().reverse().map((v) => (v === 'x' || v == null ? -1 : Number(v)))
+      : [];
+    marks.push({ pos: Math.round(win.start * 10000) / 10000, name: String(ev.chord), strings });
+  });
+  return marks.sort((a, b) => a.pos - b.pos);
+}
+
 function buildPartsAlphaScore(alphaTab) {
   const M = alphaTab.model;
   const drawn = partVisibleList().filter((part) => ['guitar', 'bass'].includes(partInstrumentId(part)));
@@ -54626,7 +54651,7 @@ function buildPartsAlphaScore(alphaTab) {
       mb.section = section;
     }
   });
-  trackCtx.forEach(({ part, tuningNotes, barObjs }) => {
+  trackCtx.forEach(({ part, staff, tuningNotes, barObjs }) => {
     bars.forEach((bar, bi) => {
       const barObj = barObjs[bi];
       const sectionRoll = partRollFor(part, bar.sec.id) || [];
@@ -54674,6 +54699,11 @@ function buildPartsAlphaScore(alphaTab) {
         } catch (_) {}
         voices.set(vn, voice);
       });
+      // Подписи аккордов — только строка аккомпанемента (у партий своих
+      // аккордовых событий нет). Метка встаёт на первый sounding beat
+      // ячейки внутри такта.
+      const atMarks = partIsDerived(part) ? accompAtChordMarks(bar) : null;
+      let atMarkIdx = 0;
       const starts = [...byKey.keys()].sort((a, b) => parseFloat(a) - parseFloat(b));
       if (!starts.length) {
         const rest = new M.Beat();
@@ -54697,6 +54727,31 @@ function buildPartsAlphaScore(alphaTab) {
         }
         const lyrTexts = lyrByStart.get(parseFloat(k).toFixed(4));
         if (lyrTexts && lyrTexts.length) beat.lyrics = lyrTexts.slice();
+        if (atMarks) {
+          const beatPos = Number(first.start);
+          while (atMarkIdx < atMarks.length && atMarks[atMarkIdx].pos <= beatPos + 1e-9) {
+            const mark = atMarks[atMarkIdx++];
+            if (M.Chord && staff) {
+              try {
+                const cid = mark.name + '|' + mark.strings.join(',');
+                if (!staff.hasChord(cid)) {
+                  const chord = new M.Chord();
+                  chord.name = mark.name;
+                  chord.strings = mark.strings;
+                  chord.showName = true;
+                  chord.showDiagram = false;
+                  chord.showFingering = false;
+                  staff.addChord(cid, chord);
+                }
+                beat.chordId = cid;
+              } catch (_) {}
+            }
+          }
+        }
+        const brushNote = group.find((n) => n.brush);
+        if (brushNote && M.BrushType) {
+          beat.brushType = brushNote.brush === 'up' ? M.BrushType.BrushUp : M.BrushType.BrushDown;
+        }
         group.forEach((n) => {
           const note = new M.Note();
           note.fret = Math.max(0, Number(n.fret) || 0);
@@ -55251,12 +55306,12 @@ function accompCellNotes(sec, sq, ev, ei) {
   } catch (e) { shape = null; }
   if (!shape) return [];
   const count = shape.length;
-  const hits = []; // {pos, line, fret, dead}
-  const pushStrum = (pos, dead) => {
+  const hits = []; // {pos, line, fret, dead, brush}
+  const pushStrum = (pos, dead, brush) => {
     for (let line = 0; line < count; line++) {
       const fret = accompFretOf(shape, line);
       if (fret === null) continue;
-      hits.push({ pos, line, fret, dead: !!dead });
+      hits.push({ pos, line, fret, dead: !!dead, brush: brush || null });
     }
   };
   let pattern = null;
@@ -55294,7 +55349,9 @@ function accompCellNotes(sec, sq, ev, ei) {
           hits.push({ pos, line, fret, dead: false });
         });
       } else if (symbol === 'D' || symbol === 'U') {
-        pushStrum(pos, false);
+        // Направление боя живёт у нот момента: GP-вид рисует по нему
+        // знак Brush, записанная ячейка хранит его у первой ноты.
+        pushStrum(pos, false, symbol === 'D' ? 'down' : 'up');
       } else if (symbol === 'X') {
         pushStrum(pos, true);
       }
@@ -55312,6 +55369,7 @@ function accompCellNotes(sec, sq, ev, ei) {
       string: h.line,
       fret: h.fret,
       ...(h.dead ? { dead: true } : {}),
+      ...(h.brush ? { brush: h.brush } : {}),
       ...(h.openApprox ? { openApprox: true } : {}),
     };
   }).sort((a, b) => a.start - b.start || a.string - b.string);
