@@ -301,20 +301,26 @@ w.addEventListener('load', () => {
     selectPartTrack('accomp');
     const activeIsDerived = partActivePart() && partActivePart().id === 'accomp';
     const before = JSON.stringify(accompDerivedPart().rolls);
+    const evBefore = { chord: sections[0].squares[0].events[0].chord, fingering: sections[0].squares[0].events[0].fingering };
     partsCursor = { partId: 'accomp', secId: sections[0].id, pass: 0, string: 5, pos: 0, pitch: null, staffPitch: null, staffClef: null };
     inputPartFret(3);
     const after = JSON.stringify(accompDerivedPart().rolls);
+    const cellEv = sections[0].squares[0].events[0];
+    const recorded = (Array.isArray(cellEv.notes) && cellEv.notes.length > 0)
+      || cellEv.chord !== evBefore.chord || (cellEv.fingering || '') !== (evBefore.fingering || '');
     const chip = document.querySelector('.pt-track-chip.is-derived');
     setSongView('editor');
     const backToEditor = !partsMode;
     setSongView('parts');
     return { hasDerived: !!derived, firstIsDerived: list[0] && list[0].id === 'accomp', inParts, activeIsDerived,
-      rollsUnchanged: before === after, chip: !!chip, backToEditor, viewsOk: partsMode === true };
+      rollsUnchanged: before === after, recorded, chip: !!chip, backToEditor, viewsOk: partsMode === true };
   })()`);
   console.log('ПОКАЗ: ' + JSON.stringify(ui));
   check('шаг1: производная строка существует и первая', ui.hasDerived && ui.firstIsDerived, JSON.stringify(ui));
   check('шаг1: производной строки нет в songParts (файл не тронут)', ui.inParts === false, JSON.stringify(ui));
-  check('шаг1: ввод нот на аккомпанементе запрещён и ничего не меняет', ui.activeIsDerived && ui.rollsUnchanged, JSON.stringify(ui));
+  // Шаг 1 запрещал ввод; шаг 2 его разрешил как правку ячейки: рулон
+  // показа меняется через записанные ноты ячейки, а не через партию.
+  check('шаг2: ввод на аккомпанементе правит ячейку, не партию', ui.activeIsDerived && ui.recorded, JSON.stringify(ui));
   check('шаг4: виды переключаются туда-обратно одной функцией', ui.backToEditor && ui.viewsOk && ui.chip, JSON.stringify(ui));
 
   console.log('\nИТОГО: ' + pass + ' ok, ' + fail + ' FAIL');

@@ -13802,7 +13802,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.658</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.659</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -23746,6 +23746,24 @@ function setEventChord(ev, newChord, posCtx, keepShape) {
   const readableChord = typeof newChord === 'string' ? normalizeReadableChordName(newChord) : newChord;
   if (String(ev.chord || '').trim() === String(readableChord || '').trim()) return false;
   songStore.dispatch('cell/chord', () => {
+    // «Виды», шаг 2: у ячейки есть записанные ноты. Если они целиком
+    // выражаются аккордом (одна обычная нота на струну, без приёмов) —
+    // запись молча снимается, и ноты пересчитаются из нового аккорда.
+    // Невыразимые ноты не трогаем никогда (диалог согласия — шаг 3).
+    if (Array.isArray(ev.notes) && ev.notes.length && posCtx) {
+      const sec = sections.find((x) => x.id === posCtx.secId);
+      const sq = sec && (sec.squares || []).find((x) => x.id === (posCtx.sqId !== undefined ? posCtx.sqId : posCtx.squareId));
+      const ei = posCtx.ei !== undefined ? posCtx.ei : posCtx.eventIndex;
+      if (sec && sq && Number.isInteger(ei)) {
+        const win = partEventWindowUnits(sec, sq, ei);
+        const abs = accompCleanNotes(ev.notes, ev.span).map((n) => ({ ...n, start: win.start + n.start }));
+        const d = accompDeriveFromNotes(abs, {
+          chordName: ev.chord, shape: null, fingers: ev.fingers || null, pattern: null,
+          start: win.start, span: win.span, key: sec.key || globalKey,
+        });
+        if (d.expressible) delete ev.notes;
+      }
+    }
     if (!keepShape) {
       delete ev.fingering;
       delete ev.fingeringTuning;
@@ -30409,6 +30427,8 @@ function cloneSection(id) {
         barreOff: Array.isArray(e.barreOff) && e.barreOff.length ? [...e.barreOff] : null,
         // B-41: кастомные пальцы уносим в клон.
         fingers: Array.isArray(e.fingers) && e.fingers.length ? [...e.fingers] : null,
+        // «Виды», шаг 2: записанные ноты ячейки уезжают с её клоном.
+        notes: Array.isArray(e.notes) && e.notes.length ? e.notes.map((n) => ({ ...n })) : null,
       })),
       customBeats: sq.customBeats ?? null,
     })),
@@ -30691,6 +30711,8 @@ function cloneLastSquare(sid) {
       barreOff: Array.isArray(e.barreOff) && e.barreOff.length ? [...e.barreOff] : null,
       // B-41: кастомные пальцы.
       fingers: Array.isArray(e.fingers) && e.fingers.length ? [...e.fingers] : null,
+      // «Виды», шаг 2: записанные ноты ячейки уезжают с её клоном.
+      notes: Array.isArray(e.notes) && e.notes.length ? e.notes.map((n) => ({ ...n })) : null,
     })),
     customBeats: ls.customBeats ?? null,
   };
@@ -34072,7 +34094,11 @@ function scheduleNextEvent(ctx) {
     // B-12.5.3: какое звучание аккомпанемента звучит на этой позиции —
     // точки автоматизации тембра перекрывают исходное звучание канала.
     songSoundNow = songSoundAtEvent(next.section, next.square, next.eventIndex);
-    if (strumPattern) {
+    if (Array.isArray(next.event.notes) && next.event.notes.length) {
+      // «Виды», шаг 2: ячейка с записанными нотами звучит ими (канал
+      // «Песня»), бой этой ячейки планировщик пропускает целиком.
+      scheduleAccompNotes(next.event.notes, evStart, bpm, ts, next.event.chord, effectiveKey);
+    } else if (strumPattern) {
       timelinePassHint = tlPass;
       schedulePatternForEvent(
         next.event.chord,
@@ -55291,11 +55317,71 @@ function accompCellNotes(sec, sq, ev, ei) {
   }).sort((a, b) => a.start - b.start || a.string - b.string);
 }
 
+// Звук записанных нот ячейки (шаг 2): тот же гитарный синтез и канал
+// «Песня», что у вычисленного аккомпанемента; бой в этой ячейке не
+// планируется вовсе — двойного звука нет.
+function scheduleAccompNotes(notes, evStart, bpm, ts, chordName, key) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const unit = getGridUnitDurationSeconds(bpm, ts);
+  const count = songStringNotes().length;
+  notes.forEach((n) => {
+    const line = Number(n.string);
+    if (!Number.isInteger(line) || line < 0 || line >= count) return;
+    const shape = new Array(count).fill('x');
+    shape[line] = Number(n.fret);
+    const t = evStart + Number(n.start) * unit;
+    if (n.dead) pluckSingleGuitarString(ctx, shape, chordName, key, count - line, t, 0.07, 0.3);
+    else pluckSingleGuitarString(ctx, shape, chordName, key, count - line, t, Math.max(0.12, Number(n.dur) * unit), 0.42);
+  });
+}
+
+// Проверка нот записанной ячейки (шаг 2): битые значения отбрасываем
+// поштучно, как у партий. start — доли от начала ячейки.
+function accompCleanNotes(notes, span) {
+  if (!Array.isArray(notes)) return [];
+  const lim = Math.max(0.05, Number(span) || 1);
+  const byKey = new Map();
+  notes.forEach((n) => {
+    if (!n || typeof n !== 'object') return;
+    const start = Number(n.start); const dur = Number(n.dur);
+    const string = Number(n.string); const fret = Number(n.fret);
+    if (!Number.isFinite(start) || !Number.isFinite(dur) || dur <= 0) return;
+    if (!Number.isInteger(string) || string < 0 || string > 11) return;
+    if (!Number.isInteger(fret) || fret < 0 || fret > 30) return;
+    if (start < -1e-9 || start >= lim + 0.26) return;
+    const clean = {
+      start: Math.round(Math.max(0, start) * 10000) / 10000,
+      dur: Math.round(Math.min(dur, lim) * 10000) / 10000,
+      string, fret,
+      ...(n.dead ? { dead: true } : {}),
+      ...(n.brush === 'down' || n.brush === 'up' ? { brush: n.brush } : {}),
+    };
+    byKey.set(clean.start + ':' + clean.string, clean);
+  });
+  return Array.from(byKey.values()).sort((a, b) => a.start - b.start || a.string - b.string);
+}
+
 function accompSectionRoll(sec) {
   const out = [];
   (sec.squares || []).forEach((sq) => {
     (sq.events || []).forEach((ev, ei) => {
-      if (ev && ev.chord) out.push(...accompCellNotes(sec, sq, ev, ei));
+      if (!ev) return;
+      // Записанные ноты ячейки (шаг 2) показываем как есть; остальные
+      // ячейки вычисляются из аккорда и боя.
+      if (Array.isArray(ev.notes) && ev.notes.length) {
+        const win = partEventWindowUnits(sec, sq, ei);
+        ev.notes.forEach((n) => {
+          out.push({
+            start: Math.round((win.start + Number(n.start)) * 10000) / 10000,
+            dur: Number(n.dur) || 0.25, string: Number(n.string), fret: Number(n.fret),
+            ...(n.dead ? { dead: true } : {}),
+            ...(n.brush ? { brush: n.brush } : {}),
+          });
+        });
+      } else if (ev.chord) {
+        out.push(...accompCellNotes(sec, sq, ev, ei));
+      }
     });
   });
   return out.sort((a, b) => a.start - b.start || a.string - b.string);
@@ -55462,6 +55548,108 @@ function accompDeriveFromNotes(notes, ctx) {
   }
   const expressible = !reasons.length && !!chordName;
   return { expressible, chordName, nameKept, shape, fingers, pattern, reasons };
+}
+
+// Ячейка по абсолютной позиции в секции (доли родителя).
+function accompCellAt(sec, pos) {
+  if (!sec) return null;
+  let found = null;
+  (sec.squares || []).forEach((sq) => {
+    (sq.events || []).forEach((ev, ei) => {
+      if (found || !ev) return;
+      const win = partEventWindowUnits(sec, sq, ei);
+      if (pos >= win.start - 1e-9 && pos < win.end - 1e-9) found = { sq, ev, ei, win };
+    });
+  });
+  return found;
+}
+
+// Рабочие ноты ячейки относительными start (от её начала): записанные
+// как есть, иначе — вычисленные из аккорда и боя.
+function accompWorkNotes(sec, sq, ev, ei) {
+  const win = partEventWindowUnits(sec, sq, ei);
+  if (Array.isArray(ev.notes) && ev.notes.length) {
+    return ev.notes.map((n) => ({ ...n }));
+  }
+  return accompCellNotes(sec, sq, ev, ei).map((n) => {
+    const rel = { start: Math.round((n.start - win.start) * 10000) / 10000, dur: n.dur, string: n.string, fret: n.fret };
+    if (n.dead) rel.dead = true;
+    return rel;
+  });
+}
+
+// Фиксация правки нот ячейки (внутри dispatch вызывающего — один шаг
+// undo на ноты, аккорд, аппликатуру и бой): нормализация, обратный
+// пересчёт, кастомный бой через пул, совпал с секцией — демоция волны-7.
+function accompCommitCell(sec, sq, ev, ei, workRel) {
+  const win = partEventWindowUnits(sec, sq, ei);
+  const clean = accompCleanNotes(workRel, ev.span);
+  if (!clean.length) { delete ev.notes; accompInvalidate(); return { normalized: true }; }
+  const absWork = clean.map((n) => ({ ...n, start: Math.round((win.start + n.start) * 10000) / 10000 }));
+  const computed = accompCellNotes(sec, sq, ev, ei);
+  if (accompNotesMatchComputed(absWork, computed)) { delete ev.notes; accompInvalidate(); return { normalized: true }; }
+  let shape = null;
+  try {
+    shape = resolveShapeForScheduledChord(ev.chord, { secId: sec.id, squareId: sq.id, eventIndex: ei, key: sec.key || globalKey }).shape;
+  } catch (e) { shape = null; }
+  let sounding = null;
+  try { sounding = rhythmSoundingForEvent(sec, sq, ev, ei); } catch (e) { sounding = null; }
+  const derive = accompDeriveFromNotes(absWork, {
+    chordName: ev.chord, shape, fingers: ev.fingers || null, pattern: sounding,
+    start: win.start, span: win.span, key: sec.key || globalKey,
+  });
+  ev.notes = clean;
+  if (derive.expressible) {
+    if (derive.chordName && derive.chordName !== ev.chord) ev.chord = derive.chordName;
+    const shapeStr = derive.shape.map((v) => (v === 'x' ? 'x' : String(v))).join(',');
+    const curShape = shape ? shape.map((v) => (v === 'x' ? 'x' : String(v))).join(',') : '';
+    if (shapeStr !== curShape) ev.fingering = shapeStr;
+    if (Array.isArray(derive.fingers) && derive.fingers.length) ev.fingers = derive.fingers;
+    else if (shapeStr !== curShape) delete ev.fingers;
+    if (derive.pattern && derive.pattern !== sounding) {
+      ev.strumPattern = { mode: derive.pattern.mode, subdivision: derive.pattern.subdivision, steps: derive.pattern.steps.slice() };
+      try { ensureSquareRhythmRefs(sec, sq); } catch (e) {}
+      try { demoteMatchingCellRhythms(sec, sq); } catch (e) {}
+      // Бой мог полностью «впитать» правку: ноты снова совпали с
+      // вычисленными из аккорда и (нового) боя — запись не хранится.
+      const computed2 = accompCellNotes(sec, sq, ev, ei);
+      if (accompNotesMatchComputed(absWork, computed2)) delete ev.notes;
+    }
+  }
+  accompInvalidate();
+  return derive;
+}
+
+// Ввод цифры лада на строке аккомпанемента: та же механика двух цифр,
+// что у партий, но пишет в ячейку аккорда и пересчитывает её целиком.
+function accompInputFret(st, digit) {
+  const sec = st.sec;
+  const cell = accompCellAt(sec, st.pos);
+  if (!cell) { showToast('Курсор не на ячейке аккорда'); return; }
+  const { sq, ev, ei, win } = cell;
+  const now = Date.now();
+  const continues = partLastDigit &&
+    now - partLastDigit.at <= partDigitWindowMs &&
+    partLastDigit.secId === sec.id && partLastDigit.string === st.string &&
+    Math.abs(partLastDigit.pos - st.pos) < PART_POS_EPS;
+  const combined = continues ? partLastDigit.fret * 10 + digit : null;
+  const fret = combined !== null && combined <= PART_MAX_FRET ? combined : digit;
+  const work = accompWorkNotes(sec, sq, ev, ei);
+  const posRel = Math.round((st.pos - win.start) * 10000) / 10000;
+  const existing = work.find((n) => n.string === st.string && Math.abs(n.start - posRel) < 1e-4);
+  if (existing) existing.fret = fret;
+  else {
+    const step = partCursorStepUnits(sec) || 0.5;
+    work.push({ start: posRel, dur: Math.max(0.05, Math.min(step, (win.span || 1) - posRel)), string: st.string, fret });
+  }
+  let result = null;
+  songStore.dispatch('accomp/note-edit', () => { result = accompCommitCell(sec, sq, ev, ei, work); });
+  partLastDigit = { fret, secId: sec.id, pass: st.pass, string: st.string, pos: st.pos, at: now };
+  try { previewPartNote(sec, st.string, fret, partCursorStepUnits(sec)); } catch (e) {}
+  if (result && result.expressible === false && result.reasons && result.reasons.length) {
+    showToast('Ноты ячейки не выражаются аккордом — в Редакторе будет «♪ ноты»');
+  }
+  renderPartsScreen();
 }
 
 // Нормализация (как кастомный бой, совпавший с секционным): записанные
@@ -60595,7 +60783,7 @@ function inputPartFret(digit) {
   if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (st && partIsDerived(st.part)) {
-    showToast('Аккомпанемент пока только показывается: его ноты вычисляются из аккордов');
+    accompInputFret(st, digit);
     return;
   }
   if (!st) return;
@@ -60999,6 +61187,20 @@ function deletePartNote() {
   if (!partsInputEnabled()) return;
   const st = partCursorState();
   if (!st) return;
+  // «Виды», шаг 2: удаление ноты аккомпанемента — правка её ячейки.
+  if (partIsDerived(st.part)) {
+    const cell = accompCellAt(st.sec, st.pos);
+    if (!cell) return;
+    const work = accompWorkNotes(st.sec, cell.sq, cell.ev, cell.ei);
+    const posRel = Math.round((st.pos - cell.win.start) * 10000) / 10000;
+    const idx = work.findIndex((n) => n.string === st.string && Math.abs(n.start - posRel) < 1e-4);
+    if (idx < 0) return;
+    work.splice(idx, 1);
+    songStore.dispatch('accomp/note-edit', () => accompCommitCell(st.sec, cell.sq, cell.ev, cell.ei, work));
+    partsSelection = null;
+    renderPartsScreen();
+    return;
+  }
   // Этап 5: выделенные такты Global View чистятся целиком.
   if (partsBarSel && deletePartsBarsNotes()) return;
   // B-12.11 этап 3: с выделением Delete убирает все ноты диапазона.
@@ -66046,6 +66248,12 @@ toggleTimeAndBeats();
             ...(Array.isArray(e.fingers) && e.fingers.length
               ? { fingers: [...e.fingers] }
               : {}),
+            // «Виды», шаг 2: ноты ячейки, правленые в табах. Пусто/нет —
+            // поле в файл не пишем: песня без таких правок сохраняется
+            // байт-в-байт как раньше, старые версии поле не заметят.
+            ...(Array.isArray(e.notes) && e.notes.length
+              ? { notes: accompCleanNotes(e.notes, e.span) }
+              : {}),
           })),
         })),
       })),
@@ -68221,7 +68429,16 @@ toggleTimeAndBeats();
       squares: sec.squares.map((sq) => ({
         ...sq,
         repeat: sq.repeat || 1,
-        events: sq.events.map((e) => ({ ...e })),
+        events: sq.events.map((e) => {
+          const ev = { ...e };
+          // «Виды», шаг 2: битые записанные ноты отбрасываем при загрузке,
+          // пустой список полем не держим.
+          if (Array.isArray(ev.notes)) {
+            const clean = accompCleanNotes(ev.notes, ev.span);
+            if (clean.length) ev.notes = clean; else delete ev.notes;
+          }
+          return ev;
+        }),
       })),
     }));
     // B-12.1 «Партии»: независимые табулатурные слои. Ноты копируем
