@@ -40,6 +40,11 @@
         if (new URLSearchParams(window.location.search).get('view') !== 'editor') {
           document.documentElement.classList.add('is-home-screen');
         }
+        // B-12.12 (E0.3): «Партии» скрыты из обычного интерфейса; вход остаётся
+        // только в dev-палитре (?dev=1 или Ctrl+Shift+D). Код, тесты и alphaTab
+        // не удаляются — задел для отдельного приложения.
+        var isDev = new URLSearchParams(window.location.search).get('dev') === '1';
+        if (isDev) document.documentElement.classList.add('is-dev');
         try {
           var saved = localStorage.getItem('struchord-theme');
           var theme =
@@ -5076,6 +5081,78 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   background: var(--color-background-secondary);
   border-color: var(--color-text-tertiary);
 }
+.add-tab-btn {
+  width: 2.5rem;
+  height: 2.5rem;
+  border: 0.0625rem dashed var(--color-accent);
+  border-radius: 50%;
+  background: var(--color-surface);
+  cursor: pointer;
+  font-size: 1.125rem;
+  color: var(--color-accent);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: 0.15s;
+}
+.add-tab-btn:hover {
+  background: var(--color-accent);
+  color: var(--color-background);
+  border-color: var(--color-accent);
+}
+/* Мини-таб в квадрате вставки (B-12.12). */
+.tab-insert {
+  border: 0.0625rem solid var(--color-border-medium);
+  border-radius: 0.5rem;
+  background: var(--color-background-secondary);
+  padding: 0.375rem 0.5rem;
+  cursor: pointer;
+  transition: border-color 0.15s, background 0.15s;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  align-items: center;
+}
+.tab-insert:hover {
+  border-color: var(--color-accent);
+  background: var(--color-surface);
+}
+.tab-insert-count {
+  font-size: 0.6875rem;
+  color: var(--color-text-tertiary);
+  text-align: center;
+  line-height: 1.2;
+}
+.tab-insert svg text {
+  pointer-events: none;
+  user-select: none;
+}
+.tab-note-row {
+  display: flex;
+  gap: 0.5rem;
+  align-items: center;
+  margin: 0.375rem 0;
+}
+.tab-note-row select,
+.tab-note-row input {
+  width: 4.5rem;
+  padding: 0.25rem;
+  font-size: 0.875rem;
+}
+.tab-note-row button {
+  background: var(--color-border-medium);
+  border: none;
+  border-radius: 0.25rem;
+  width: 1.5rem;
+  height: 1.5rem;
+  cursor: pointer;
+  font-weight: bold;
+  color: var(--color-text-tertiary);
+}
+.tab-note-row button:hover {
+  background: var(--color-text-tertiary);
+  color: var(--color-background);
+}
 .add-section-btn {
   padding: 0.625rem 1rem;
   border-radius: var(--border-radius-pill);
@@ -7269,6 +7346,30 @@ html:not([data-theme='dark']) #btnPlay.active:hover {
 .del-square-btn:hover {
   background: var(--color-neutral-bg);
   color: var(--color-danger);
+}
+.tab-btn {
+  background: none;
+  border: none;
+  font-size: 1rem;
+  cursor: pointer;
+  color: var(--color-accent);
+  padding: 0.125rem 0.5rem;
+  border-radius: 0.25rem;
+  transition: opacity 0.3s ease, transform 0.25s ease, background 0.15s, color 0.15s;
+  line-height: 1;
+  white-space: nowrap;
+  opacity: 0;
+  transform: scale(0.85);
+  pointer-events: auto;
+}
+.square:hover .tab-btn,
+.tab-btn:hover {
+  opacity: 1;
+  transform: scale(1);
+}
+.tab-btn:hover {
+  background: var(--color-neutral-bg);
+  color: var(--color-accent-hover);
 }
 .square-beats-badge {
   background: rgba(var(--color-accent-rgb), 0.08);
@@ -11387,6 +11488,13 @@ body.is-timeline .mode-toggle-btn {
   color: var(--color-brand-on);
 }
 
+/* B-12.12 (E0.3): «Партии» скрыты из обычного интерфейса — вход только
+   в dev-палитре (?dev=1). Код, тесты и alphaTab не удаляются. */
+html:not(.is-dev) #btnPartsToggle,
+html:not(.is-dev) [data-song-view="parts"] {
+  display: none !important;
+}
+
 /* ---- Лента ---- */
 .timeline-viewport {
   position: relative;
@@ -13814,7 +13922,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.661</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.667</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -18742,6 +18850,7 @@ function getEventSpanInParentUnits(ev, parentTs) {
 // редактировании через setSquareCustomBeats, но безопаснее не полагаться на
 // него как на источник истины (например, при импорте песни извне).
 function getSquareBeats(sq, parentTs) {
+  if (sq.type === 'tab') return sq.beats || getGridUnitsPerBar(parentTs);
   return sq.events.reduce((sum, e) => sum + getEventSpanInParentUnits(e, parentTs), 0);
 }
 
@@ -18756,6 +18865,7 @@ function getSquareBeats(sq, parentTs) {
 // доля в таком квадрате получает лишние пиксели: 56.25 против 46.88 у
 // соседей. Раскладка живёт в визуальных единицах — берём их.
 function getSquareVisualBeats(sq, parentTs) {
+  if (sq.type === 'tab') return sq.beats || getGridUnitsPerBar(parentTs);
   return sq.events.reduce((sum, e) => sum + getEventVisualSpanInParentUnits(e, parentTs), 0);
 }
 
@@ -19796,11 +19906,172 @@ function buildInnerCounts(spanBeats, offsetBeats, subdivide, cellCols, beatsPerB
     // замер показал срез 2px. Класс переключает transform.
     const atEdge = j < 1e-6;
     out.push(
-      `<span class="chord-count${sub === 0 ? ' is-beat' : ''}${text === '1' ? ' is-downbeat' : ''}${atEdge ? ' is-edge' : ''}"` +
-      ` style="left:${pos}">${text}</span>`
+      `<span class=\"chord-count${sub === 0 ? ' is-beat' : ''}${text === '1' ? ' is-downbeat' : ''}${atEdge ? ' is-edge' : ''}\"` +
+      ` style=\"left:${pos}\">${text}</span>`
     );
   }
   return out.join('');
+}
+
+// ========== B-12.12 «Таб-вставка»: мини-таб в редакторе ==========
+// Рендер таб-вставки: 6 линий, номера ладов, деления по долям, длительности.
+// Вставка — отдельный квадрат типа 'tab' с полями beats + notes.
+// Клик по струне ставит курсор и вводит ноту (ладу по умолчанию 0).
+function renderTabInsertHtml(sec, sq, parentTs) {
+  const beatsPerBar = getGridUnitsPerBar(parentTs);
+  const beats = Math.max(0.25, sq.beats || beatsPerBar);
+  const notes = Array.isArray(sq.notes) ? sq.notes : [];
+  const strCount = 6;
+  // Позиции нот по времени: dur в единицах сетки секции, start накапливается.
+  let cursor = 0;
+  const placed = [];
+  notes.forEach((n) => {
+    const dur = Math.max(0.125, n.dur || 1);
+    placed.push({ string: n.string, fret: n.fret, dur, pause: !!n.pause, start: cursor });
+    cursor += dur;
+  });
+  const totalUnit = beats;
+  // viewBox: ширина пропорциональна длине вставки, высота — 6 строк.
+  const pxPerBeat = 44;
+  const svgW = Math.max(120, totalUnit * pxPerBeat);
+  const lineGap = 14;
+  const svgH = (strCount - 1) * lineGap + 26;
+  const colW = svgW / Math.max(1, totalUnit);
+  const linesHtml = [];
+  for (let si = 0; si < strCount; si++) {
+    // В табулатуре верхняя линия — 1-я струна (высокое E), нижняя — 6-я (низкое E).
+    const y = (strCount - 1 - si) * lineGap + 13;
+    linesHtml.push(
+      `<line x1="0" y1="${y}" x2="${svgW}" y2="${y}" ` +
+      `stroke="${getComputedStyle(document.documentElement).color || '#111'}" stroke-width="1.2" />`
+    );
+  }
+  // Вертикальные деления по долям (если вставка длиннее доли).
+  const dividerHtml = [];
+  for (let b = 1; b < Math.floor(totalUnit); b++) {
+    const x = b * colW;
+    dividerHtml.push(
+      `<line x1="${x}" y1="0" x2="${x}" y2="${svgH}" stroke="#e8e4ee" stroke-width="0.6" />`
+    );
+  }
+  const notesHtml = placed.map((n) => {
+    const x = n.start * colW + colW / 2;
+    const y = (strCount - 1 - n.string) * lineGap + 13;
+    const effDur = (n.dur || 1) * (1 + 0.5 * (n.dots || 0)) * (n.triplet ? 2 / 3 : 1);
+    const label = n.pause ? 'x' : String(n.fret) + (n.dots ? '.' : '') + (n.triplet ? '3' : '');
+    // Черта длительности после числа (как в табулатуре GP).
+    const durLen = Math.min(svgW - x - 4, Math.max(6, effDur * colW * 0.9));
+    return `<g data-tab-note data-string="${n.string}" data-fret="${n.fret}" ` +
+      `onclick="event.stopPropagation();playTabNote(${n.string},${n.fret})" ` +
+      `title="${n.pause ? 'пауза' : 'струна ' + (n.string + 1) + ', лад ' + n.fret + (n.dots?' с точкой':'') + (n.triplet?' триоль':'')} (${effDur.toFixed(2)} дол)">` +
+      `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" ` +
+      `font-size="11" font-family="ui-monospace,SFMono-Regular,Consolas,monospace" ` +
+      `fill="${getComputedStyle(document.documentElement).color || '#111'}" ` +
+      `pointer-events="none">${escapeHtml(label)}</text>` +
+      (n.pause ? '' : `<line x1="${x + 6}" y1="${y}" x2="${x + 6 + durLen}" y2="${y}" ` +
+      `stroke="${getComputedStyle(document.documentElement).color || '#111'}" stroke-width="1.4" stroke-linecap="round" pointer-events="none" />`) +
+      `</g>`;
+  }).join('');
+  const durationText = `♪ ${placed.length} нота${placed.length === 1 ? '' : 'ы'} · ${formatSquareBars(beats / beatsPerBar)} такт${formatSquareBars(beats / beatsPerBar) !== 1 ? 'а' : ''}`;
+  return `<div class=\"tab-insert\" data-sec=\"${sec.id}\" data-square=\"${sq.id}\" onclick=\"event.stopPropagation();openTabInsertEditor(${sec.id},${sq.id})\" title=\"${durationText}\">` +
+    `<svg viewBox=\"0 0 ${svgW} ${svgH}\" preserveAspectRatio=\"none\" style=\"width:100%;height:7rem;display:block;\">` +
+    dividerHtml.join('') + linesHtml.join('') + notesHtml +
+    `</svg>` +
+    `<div class=\"tab-insert-count\" title=\"${durationText}\">${durationText}</div>` +
+    `</div>`;
+}
+
+
+
+// Открыть редактор таб-вставки (мини-редактор нот).
+function openTabInsertEditor(secId, sqId) {
+  const s = sections.find((x) => x.id === secId);
+  const sq = s && s.squares.find((x) => x.id === sqId);
+  if (!s || !sq || sq.type !== 'tab') return;
+  const beatsPerBar = getGridUnitsPerBar(s.timeSig || globalTimeSig);
+  const notesHtml = (sq.notes || []).map((n, i) =>
+    `<div class=\"tab-note-row\" data-index=\"${i}\">` +
+    `струна <select class=\"tab-str-sel\" onchange=\"tabInsertSetString(${secId},${sqId},${i},this.value)\">${[6,5,4,3,2,1].map(st=>`<option value=\"${6-st}\" ${n.string===6-st?'selected':''}>${st}</option>`).join('')}</select>` +
+    ` лад <input class=\"tab-fret-sel\" type=\"number\" value=\"${n.fret}\" onchange=\"tabInsertSetFret(${secId},${sqId},${i},this.value)\" min=\"0\" max=\"24\">` +
+    ` длит <select class=\"tab-dur-sel\" onchange=\"tabInsertSetDur(${secId},${sqId},${i},this.value)\">${[1,1/2,1/4,1/8,1/16,1/32,1/64].map(d=>`<option value=\"${d}\" ${Math.abs((n.dur||1)-d)<1e-9?'selected':''}>1/${Math.round(beatsPerBar/d)}</option>`).join('')}</select>` +
+    ` <button onclick=\"tabInsertRemoveNote(${secId},${sqId},${i})\">×</button> ${n.pause?'пауза ':''}<input type="checkbox" class="tab-pause" onchange="tabInsertSetPause(${secId},${sqId},${i},this.checked)" ${n.pause?'checked':''} > пауза <input type="checkbox" class="tab-dots" onchange="tabInsertSetDots(${secId},${sqId},${i},this.checked)" ${n.dots?'checked':''} > . <input type="checkbox" class="tab-triplet" onchange="tabInsertSetTriplet(${secId},${sqId},${i},this.checked)" ${n.triplet?'checked':''} > ▵` +
+    `</div>`
+  ).join('');
+  const dlg = document.createElement('div');
+  dlg.className = 'strum-modal-overlay';
+  dlg.innerHTML = `
+    <div class=\"strum-modal-content\" style=\"max-width:34rem;\">
+      <div class=\"modal-head\">Таб-вставка: ${escapeHtml(s.type || 'таб')}</div>
+      <div class=\"modal-body\" style=\"padding:1rem;\">
+        <div style=\"margin-bottom:0.75rem;\">Длина: <span id=\"tab-beats-display\">${sq.beats} дол</span></div>
+        <div id=\"tab-notes-list\">${notesHtml || '<div style=\"color:var(--color-text-tertiary);\">Нет нот — добавьте ниже</div>'}</div>
+        <div style=\"margin-top:0.75rem;\">
+          <button onclick=\"tabInsertAddNote(${secId},${sqId})\">+ ноту</button>
+          <button onclick=\"tabInsertSetBeats(${secId},${sqId}, prompt('Длина в долях (напр. 4 для целого такта 4/4)', sq.beats) || sq.beats)\">установить длину</button>
+        </div>
+      </div>
+      <div class=\"modal-foot\">
+        <button onclick=\"this.closest('.strum-modal-overlay').remove()\">Закрыть</button>
+      </div>
+    </div>`;
+  document.body.appendChild(dlg);
+  dlg.querySelector('.strum-modal-overlay')?.addEventListener('click',(e)=>{if(e.target===dlg)dlg.remove();});
+}
+function tabInsertSetString(secId, sqId, idx, val) {
+  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
+  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
+  songStore.dispatch('tab/note-string', () => { sq.notes[idx].string = Math.max(0, Math.min(5, parseInt(val,10))); }, {quiet:true});
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+}
+function tabInsertSetFret(secId, sqId, idx, val) {
+  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
+  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
+  songStore.dispatch('tab/note-fret', () => { sq.notes[idx].fret = Math.max(0, Math.min(24, parseInt(val,10))); }, {quiet:true});
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+}
+function tabInsertSetDur(secId, sqId, idx, val) {
+  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
+  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
+  songStore.dispatch('tab/note-dur', () => { sq.notes[idx].dur = parseFloat(val) || 1; }, {quiet:true});
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+}
+function tabInsertRemoveNote(secId, sqId, idx) {
+  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
+  if(!sq || !Array.isArray(sq.notes)) return;
+  songStore.dispatch('tab/note-remove', () => { sq.notes.splice(idx,1); }, {quiet:true});
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+}
+function tabInsertAddNote(secId, sqId) {
+  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
+  if(!sq || !Array.isArray(sq.notes)) return;
+  songStore.dispatch('tab/note-add', () => { sq.notes.push({ string: 0, fret: 0, dur: 1, dots: 0, triplet: false, pause: false }); }, {quiet:true});
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+}
+function tabInsertSetBeats(secId, sqId, val) {
+  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
+  if(!sq) return;
+  const b = Math.max(0.25, parseFloat(val) || 1);
+  songStore.dispatch('tab/set-beats', () => { sq.beats = b; }, {quiet:true});
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+}
+
+function tabInsertSetDots(secId, sqId, idx, val) {
+  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
+  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
+  songStore.dispatch('tab/note-dots', () => { sq.notes[idx].dots = val ? 1 : 0; }, {quiet:true});
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+}
+function tabInsertSetTriplet(secId, sqId, idx, val) {
+  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
+  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
+  songStore.dispatch('tab/note-triplet', () => { sq.notes[idx].triplet = !!val; }, {quiet:true});
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+}
+function tabInsertSetPause(secId, sqId, idx, val) {
+  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
+  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
+  songStore.dispatch('tab/note-pause', () => { sq.notes[idx].pause = !!val; }, {quiet:true});
+  if (!rerenderSectionSquaresDom(s)) requestRender();
 }
 
 function distributeVisualSpans(events, parentTs) {
@@ -30714,6 +30985,74 @@ function addSquare(sid) {
   }, { quiet: true });
   if (!rerenderSectionSquaresDom(s)) requestRender();
 }
+
+// B-12.12 «Таб-вставка» (E1.2): такт табулатуры внутри секции.
+// Квадрат типа 'tab' живёт в рулоне секции рядом с аккордовыми ячейками,
+// увеличивает длительность секции на свои такты и сдвигает всё, что за ним.
+// Звук: свои ноты тем же гитарным тембром; аккордовый бой в его такте молчит.
+function addTabInsert(sid, beforeSqId) {
+  const s = sections.find((s) => s.id === sid);
+  if (!s || s.squares.length >= CONFIG.MAX_SQUARES_PER_SECTION) return;
+  const refBeats = getGridUnitsPerBar(s.timeSig || globalTimeSig);
+  const newSq = {
+    id: nextId++,
+    type: 'tab',
+    repeat: 1,
+    beats: refBeats,           // длина вставки в единицах сетки секции
+    notes: [],                 // [{ string, fret, dur, dots?, triplet?, pause? }]
+    events: [],                // таб-вставка не использует события аккордов
+    customBeats: null,
+  };
+  songStore.dispatch('square/tab-insert', () => {
+    if (beforeSqId) {
+      const idx = s.squares.findIndex((sq) => sq.id === beforeSqId);
+      if (idx >= 0) s.squares.splice(idx, 0, newSq);
+      else s.squares.push(newSq);
+    } else {
+      s.squares.push(newSq);
+    }
+  }, { quiet: true });
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+  showToast('Таб-вставка добавлена — кликните по струне, чтобы ввести ноту');
+}
+
+// Клонировать таб-квадрат (с нотами).
+function cloneTabSquare(sid, sqid) {
+  const s = sections.find((s) => s.id === sid);
+  if (!s) return;
+  const src = s.squares.find((sq) => sq.id === sqid);
+  if (!src || src.type !== 'tab') return;
+  const idx = s.squares.indexOf(src);
+  const copy = {
+    id: nextId++,
+    type: 'tab',
+    repeat: src.repeat || 1,
+    beats: src.beats,
+    notes: JSON.parse(JSON.stringify(src.notes || [])),
+    events: [],
+    customBeats: null,
+  };
+  songStore.dispatch('square/tab-clone', () => {
+    s.squares.splice(idx + 1, 0, copy);
+  }, { quiet: true });
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+  showToast('Таб-вставка скопирована');
+}
+
+// Переместить таб-квадрат вверх/вниз внутри секции.
+function moveTabSquare(sid, sqid, dir) {
+  const s = sections.find((s) => s.id === sid);
+  if (!s) return;
+  const idx = s.squares.findIndex((sq) => sq.id === sqid);
+  if (idx < 0) return;
+  const newIdx = idx + dir;
+  if (newIdx < 0 || newIdx >= s.squares.length) return;
+  songStore.dispatch('square/tab-move', () => {
+    const [moved] = s.squares.splice(idx, 1);
+    s.squares.splice(newIdx, 0, moved);
+  }, { quiet: true });
+  if (!rerenderSectionSquaresDom(s)) requestRender();
+}
 function removeSquare(sid, sqid) {
   const s = sections.find((s) => s.id === sid);
   if (!s) return;
@@ -33853,6 +34192,19 @@ function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount, walk)
     }
 
     // (c) Событие квадрата — то, ради чего всё считалось.
+    if (sq.type === 'tab') {
+      // Таб-квадрат — одна синтетическая ячейка на весь квадрат.
+      // Ноты играются в scheduleNextEvent через playTabNotesAt.
+      return {
+        sectionIndex: curSi,
+        squareIndex: curSqi,
+        eventIndex: 0,
+        section: sec,
+        square: sq,
+        event: { span: Math.max(1, Math.round(sq.beats)), chord: null, isTab: true },
+        walk,
+      };
+    }
     if (curEi < sq.events.length) {
       return {
         sectionIndex: curSi,
@@ -34163,6 +34515,12 @@ function scheduleNextEvent(ctx) {
   if (typeof schedulePartsForEvent === 'function') {
     schedulePartsForEvent(ctx, next.section, next.square, next.eventIndex, evStart, dur);
     syncPartsPlaybackHighlight(next.section.id, tlPass.secPass, next.square.id, tlPass.sqPass, next.eventIndex);
+  }
+
+  // B-12.12: ноты таб-вставки звучат при проигрывании (как партии, но без
+  // окна партий — отдельные струны/лады, позиция по времени внутри квадрата).
+  if (next.square.type === 'tab' && Array.isArray(next.square.notes)) {
+    playTabNotesAt(next.square, evStart, bpm, ts, next.section);
   }
 
   // === РАБОТА С ПРЕВЬЮ ===
@@ -37011,6 +37369,45 @@ function pluckString(ctx, opts) {
   // Периодическая уборка отзвучавших голосов, чтобы массив не рос бесконечно.
   if (ringingVoices.length > 400) {
     ringingVoices = ringingVoices.filter((v) => v.decayEnd > startTime - 3);
+  }
+}
+
+// B-12.12: проигрывание одной таб-ноты тембром песни (гитарный пресет).
+function playTabNote(stringIdx, fret) {
+  const ctx = audioCtx;
+  if (!ctx) return;
+  const freqs = songStringFreqs();
+  const base = freqs[stringIdx];
+  if (!base) return;
+  const freq = base * Math.pow(2, fret / 12);
+  pluckString(ctx, { freq, startTime: ctx.currentTime, gain: 0.5, duration: 1.2, brightness: 0.5 });
+}
+
+// Проигрывает все ноты таб-квадрата в момент времени evStart, позиционируя
+// каждую ноту по накопленному dur (как при рендере mini-таба).
+function playTabNotesAt(sq, evStart, bpm, ts, section) {
+  const ctx = getAudioContext();
+  if (!ctx) return;
+  const parentTs = section.timeSig || globalTimeSig;
+  const secondsPerUnit = getGridUnitDurationSeconds(bpm, parentTs);
+  const freqs = songStringFreqs();
+  let cursor = 0;
+  for (const note of sq.notes) {
+    if (note.pause) {
+      cursor += Math.max(0.125, note.dur || 1);
+      continue;
+    }
+    const base = freqs[note.string];
+    if (!base) {
+      cursor += Math.max(0.125, note.dur || 1);
+      continue;
+    }
+    const freq = base * Math.pow(2, note.fret / 12);
+    const effDur = Math.max(0.125, note.dur || 1) * (1 + 0.5 * (note.dots || 0)) * (note.triplet ? 2 / 3 : 1);
+    const at = evStart + cursor * secondsPerUnit;
+    const ring = Math.min(1.2, Math.max(0.12, effDur * secondsPerUnit));
+    pluckString(ctx, { freq, startTime: at, gain: 0.5, duration: ring, brightness: 0.5 });
+    cursor += effDur;
   }
 }
 
@@ -62061,7 +62458,12 @@ function renderSectionsGrid() {
       let epochOwnOffset = 0;
       let epochBeatsPerBar = beatsPerBar;
       let epochUnitScale = 1;
-      sq.events.forEach((ev, ei) => {
+      let sqTotalCols = totalCols;
+      if (sq.type === 'tab') {
+        totalBarUnits += Math.max(0.25, sq.beats || beatsPerBar);
+        sqTotalCols = Math.max(totalCols, Math.ceil(totalBarUnits));
+      }
+      (sq.type === 'tab' ? [] : sq.events).forEach((ev, ei) => {
         const evTsEff = ev.timeSig || parentTs;
         if (evTsEff !== epochTs) {
           epochTs = evTsEff;
@@ -62115,6 +62517,10 @@ function renderSectionsGrid() {
         epochOwnOffset += ev.span || 1; // собственные единицы эпохи
       });
 
+      if (sq.type === 'tab') {
+        eventsHtml += renderTabInsertHtml(sec, sq, parentTs);
+      }
+
       const totalBars = Math.round((totalBarUnits / beatsPerBar) * 1e10) / 1e10;
       const sqBeats = totalBarUnits;
       // sqBeats — логическая длина (для бейджа «N тактов»), а ширину
@@ -62137,11 +62543,16 @@ function renderSectionsGrid() {
         (sqIdx === sec.squares.length - 1 ? ' square--last' : '') +
         structureSquareClass(sq);
       squaresHtml += `<div class="square${edgeClass}" data-sec="${sec.id}" data-square="${sq.id}">
-        <div class="square-inner" style="grid-template-columns:repeat(${totalCols},minmax(0,1fr));width:${widthPercent}%;">
+        <div class="square-inner" style="grid-template-columns:repeat(${sqTotalCols},minmax(0,1fr));width:${widthPercent}%;">
           ${eventsHtml}
         </div>
         <div style="position:absolute; right:calc((100% - ${widthPercent}%) - 3.0625rem); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; align-items:center; gap:0.125rem;">
           <button class="del-square-btn" onclick="event.stopPropagation();removeSquare(${sec.id},${sq.id})" aria-label="Удалить квадрат"><i class="ti ti-x"></i></button>
+          ${sq.type === 'tab' ? `
+  <button class="tab-btn" onclick="event.stopPropagation();moveTabSquare(${sec.id},${sq.id},-1)" title="Переместить таб вверх"><i class="ti ti-arrow-up"></i></button>
+  <button class="tab-btn" onclick="event.stopPropagation();moveTabSquare(${sec.id},${sq.id},1)" title="Переместить таб вниз"><i class="ti ti-arrow-down"></i></button>
+  <button class="tab-btn" onclick="event.stopPropagation();cloneTabSquare(${sec.id},${sq.id})" title="Копировать таб-вставку"><i class="ti ti-clipboard-copy"></i></button>
+` : ''}
           ${structureBadgeHtml(sec, sq)}
           ${sqRepeatHtml}
           <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${formatSquareBars(sqBeats / beatsPerBar)} такт${formatSquareBars(sqBeats / beatsPerBar) !== 1 ? 'а' : ''}</span>
@@ -62200,6 +62611,7 @@ function renderSectionsGrid() {
     </div></div>
     <div class="square-actions-row" style="display:flex;gap:0.5rem;align-items:center;">
       <button class="add-square-btn" onclick="addSquare(${sec.id})" aria-label="Добавить квадрат"><i class="ti ti-plus"></i></button>
+      <button class="add-tab-btn" onclick="addTabInsert(${sec.id})" title="Вставить таб (B-12.12)" aria-label="Вставить таб"><i class="ti ti-music"></i></button>
       <button class="clone-square-btn" onclick="cloneLastSquare(${sec.id})" title="Клонировать последний квадрат" aria-label="Клонировать последний квадрат"><i class="ti ti-clipboard-copy"></i></button>
     </div>
     </div>`;
@@ -63482,6 +63894,11 @@ function buildSectionSquaresListHtml(sec) {
       </div>
       <div style="position:absolute; right:calc((100% - ${widthPercent}%) - 3.0625rem); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; align-items:center; gap:0.125rem;">
         <button class="del-square-btn" onclick="event.stopPropagation();removeSquare(${sec.id},${sq.id})" aria-label="Удалить квадрат"><i class="ti ti-x"></i></button>
+        ${sq.type === 'tab' ? `
+  <button class="tab-btn" onclick="event.stopPropagation();moveTabSquare(${sec.id},${sq.id},-1)" title="Переместить таб вверх"><i class="ti ti-arrow-up"></i></button>
+  <button class="tab-btn" onclick="event.stopPropagation();moveTabSquare(${sec.id},${sq.id},1)" title="Переместить таб вниз"><i class="ti ti-arrow-down"></i></button>
+  <button class="tab-btn" onclick="event.stopPropagation();cloneTabSquare(${sec.id},${sq.id})" title="Копировать таб-вставку"><i class="ti ti-clipboard-copy"></i></button>
+` : ''}
         ${structureBadgeHtml(sec, sq)}
         ${sqRepeatHtml}
         <span class="square-beats-badge" onclick="event.stopPropagation(); setSquareBeats(${sec.id},${sq.id})" title="Изменить количество тактов">${formatSquareBars(sqBeats / beatsPerBar)} такт${formatSquareBars(sqBeats / beatsPerBar) !== 1 ? 'а' : ''}</span>
@@ -66391,8 +66808,11 @@ toggleTimeAndBeats();
         strumPattern: sec.strumPattern || null,
         squares: sec.squares.map((sq) => ({
           id: sq.id,
+          type: sq.type || null,
           repeat: sq.repeat || 1,
           customBeats: sq.customBeats ?? null,
+          beats: sq.type === 'tab' ? (sq.beats ?? null) : null,
+          notes: sq.type === 'tab' && Array.isArray(sq.notes) ? sq.notes : null,
           // B-12.7: знаки структуры — необязательные поля квадрата (вольта,
           // метка Segno/Coda/Fine/To Coda, переход D.C./D.S., черты повтора).
           ...(structureVoltaOf(sq) ? { volta: structureVoltaOf(sq) } : {}),
@@ -68969,6 +69389,91 @@ toggleTimeAndBeats();
     return { bar: plan.firstBar + index * plan.baseBarCount + barInSection, start: Math.max(0, offsetUnits), dur: localDuration };
   }
 
+
+// ========== B-12.12 «Таб-вставка»: экспорт табов в Guitar Pro ==========
+// Собирает все таб-вставки из секций песни в отдельную дорожку «Табы»,
+// чтобы экспорт .gpx/.gp5 содержал ноты табулатуры.
+function gpExportBuildTabPart(songData, plans, report) {
+  const tabSquares = [];
+  (songData.sections || []).forEach((section) => {
+    (section.squares || []).forEach((sq) => {
+      if (sq.type === 'tab' && Array.isArray(sq.notes) && sq.notes.length) {
+        tabSquares.push({ section, sq });
+      }
+    });
+  });
+  if (!tabSquares.length) return null;
+
+  const exportPart = {
+    name: 'Табы',
+    instrument: 'guitar',
+    viewMode: 'tab',
+    capo: Number(songData.capo) || 0,
+    gmProgram: null,
+    midiChannel: null,
+    mix: null,
+    lyrics: [],
+    notes: [],
+    tuning: songData.tuningNotes || ['E','A','D','G','B','E'],
+  };
+
+  const planBySectionId = new Map();
+  (plans || []).forEach((plan) => planBySectionId.set(String(plan.section.id), plan));
+
+  // Предварительный расчёт firstBar для секций без плана (чтобы ноты таба
+  // не выбрасывались при экспорте такой секции).
+  const sectionFirstBar = new Map();
+  let sectionBarCursor = 0;
+  (songData.sections || []).forEach((section) => {
+    sectionFirstBar.set(String(section.id), sectionBarCursor);
+    const plan = planBySectionId.get(String(section.id));
+    sectionBarCursor += plan ? plan.barCount : 1;
+  });
+
+  let tabNotes = 0;
+  for (const { section, sq } of tabSquares) {
+    const plan = planBySectionId.get(String(section.id));
+    const beatsPerBar = plan ? plan.unitsPerBar : getGridUnitsPerBar(section.timeSig || globalTimeSig);
+    const planFirstBar = plan ? plan.firstBar : sectionFirstBar.get(String(section.id));
+    const planBaseBarCount = plan ? plan.baseBarCount : 1;
+    const planRepeatCount = plan ? plan.repeatCount : 1;
+    let cursor = 0;
+    let squareOffset = 0;
+    for (const other of section.squares || []) {
+      if (other === sq) break;
+      squareOffset += Math.max(0.25, other.type === 'tab' ? (other.beats || beatsPerBar) : getSquareBeats(other, section.timeSig || globalTimeSig));
+    }
+    const localPlan = plan || {
+      unitsPerBar: beatsPerBar,
+      baseBarCount: planBaseBarCount,
+      repeatCount: planRepeatCount,
+      firstBar: planFirstBar,
+    };
+    for (const note of sq.notes) {
+      if (note.pause) continue;
+      const effDur = Math.max(0.125, Number(note.dur || 1)) * (1 + 0.5 * (Number(note.dots) || 0)) * (note.triplet === true ? 2 / 3 : 1);
+      const startUnits = squareOffset + cursor;
+      const placed = gpExportPlace(localPlan, startUnits, effDur, report, 'Табулатура (B-12.12)', 0);
+      if (!placed) {
+        cursor += effDur;
+        continue;
+      }
+      exportPart.notes.push({
+        bar: placed.bar,
+        voice: 1,
+        start: placed.start,
+        dur: placed.dur,
+        string: Math.max(1, Math.min(6, Number(note.string) + 1)),
+        fret: Math.max(0, Math.min(24, Number(note.fret))),
+      });
+      tabNotes++;
+      cursor += effDur;
+    }
+  }
+  if (tabNotes) gpExportGain(report, 'Ноты табулатуры (B-12.12)', tabNotes);
+  return exportPart;
+}
+
   function gpExportBuildModel(songData, report) {
     const globalTimeSig = songData.globalTimeSig || '4/4';
     const globalKey = songData.globalKey || 'C';
@@ -69177,6 +69682,10 @@ toggleTimeAndBeats();
     }
     if (songData.keyMode === 'manual') gpExportGain(report, 'Ручной ключ тональности', 1);
     gpExportLoss(report, 'BinaryStylesheet и конфигурации оформления Guitar Pro не переносятся — Guitar Pro соберёт их заново');
+
+    // Таб-вставки B-12.12 — отдельная дорожка
+    const tabPart = gpExportBuildTabPart(songData, plans, report);
+    if (tabPart) model.parts.push(tabPart);
     return model;
   }
 
@@ -69440,6 +69949,9 @@ toggleTimeAndBeats();
     gpExportLoss(report, 'Вложения Guitar Pro (звук, картинки) в бинарном GP5 не переносятся', (songData.gpAssets || []).length);
     gpExportLoss(report, 'Аппликатуры и раскладки пальцев в Guitar Pro не переносятся', (songData.userFingerings || []).length);
     gpExportLoss(report, 'Оформление, колонтитулы и конфигурации Guitar Pro 5 собираются приложением заново');
+    // Таб-вставки B-12.12 — отдельная дорожка
+    const tabPartGp5 = gpExportBuildTabPart(songData, plans, report);
+    if (tabPartGp5) model.parts.push(tabPartGp5);
     return model;
   }
 
