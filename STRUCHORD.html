@@ -5100,33 +5100,55 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   color: var(--color-background);
   border-color: var(--color-accent);
 }
-/* Мини-таб в квадрате вставки (B-12.12). */
+/* Таб — отдельная строка: авто-высота исключает обрезку шести струн. */
+.square--tab .square-inner { grid-auto-rows: auto; }
 .tab-insert {
+  grid-column: 1 / -1;
+  min-width: 0;
+  box-sizing: border-box;
   border: 0.0625rem solid var(--color-border-medium);
   border-radius: 0.5rem;
   background: var(--color-background-secondary);
-  padding: 0.375rem 0.5rem;
+  color: var(--color-text-primary);
+  padding: 0.5rem 0.75rem;
   cursor: pointer;
-  transition: border-color 0.15s, background 0.15s;
   display: flex;
   flex-direction: column;
   gap: 0.25rem;
-  align-items: center;
+  width: 100%;
 }
-.tab-insert:hover {
-  border-color: var(--color-accent);
-  background: var(--color-surface);
+.tab-insert:hover, .tab-insert.playback-active { border-color: var(--color-accent); }
+.tab-insert-heading { display: flex; justify-content: space-between; gap: 0.5rem; align-items: center; }
+.tab-insert-label { font-size: 0.75rem; letter-spacing: 0.08em; color: var(--color-accent); }
+.tab-insert-count, .tab-insert-empty { font-size: 0.75rem; color: var(--color-text-secondary); }
+.tab-insert-body { position: relative; height: 7rem; }
+.tab-insert svg { width: 100%; height: 100%; display: block; }
+.tab-insert svg line { stroke: currentColor; stroke-width: 0.8; opacity: 0.45; vector-effect: non-scaling-stroke; }
+.tab-insert svg .tab-beat-line { opacity: 0.12; }
+.tab-insert svg .tab-beat-line.is-bar { opacity: 0.5; stroke-width: 1.5; }
+.tab-note-position { position: absolute; top: 0; bottom: 0; font-family: ui-monospace, monospace; }
+.tab-fret-number, .tab-string-number { position: absolute; transform: translate(-50%, -50%); line-height: 1; }
+.tab-insert .tab-fret-number { font-size: 0.875rem; font-weight: 700; padding: 0.0625rem 0.125rem; background: var(--color-background-secondary); }
+.tab-insert .tab-string-number { left: 1%; font-size: 0.625rem; opacity: 0.65; }
+.tab-insert .tab-note-duration { position: absolute; bottom: 0; transform: translateX(-50%); font-size: 0.625rem; white-space: nowrap; }
+.tl-cell.tl-cell--tab { height: auto; min-height: 9.5rem; padding: 0; align-items: stretch; }
+.tl-cell--tab .tab-insert { border-radius: 0; }
+.tab-insert-editor .strum-modal-content { width: min(52rem, 94vw); max-width: 52rem; }
+.tab-editor-body { max-height: 65vh; overflow: auto; padding: 0.5rem 0; }
+.tab-editor-actions { display: flex; justify-content: flex-end; gap: 0.5rem; padding-top: 0.75rem; }
+.tab-insert-editor button, .tab-insert-editor select, .tab-insert-editor input {
+  font: inherit; color: var(--color-text-primary); background: var(--color-surface);
+  border: 0.0625rem solid var(--color-border-medium); border-radius: 0.375rem; padding: 0.375rem 0.5rem;
 }
-.tab-insert-count {
-  font-size: 0.6875rem;
-  color: var(--color-text-tertiary);
-  text-align: center;
-  line-height: 1.2;
-}
-.tab-insert svg text {
-  pointer-events: none;
-  user-select: none;
-}
+.tab-insert-editor button { cursor: pointer; }
+.tab-insert-editor [data-tab-apply] { background: var(--color-accent); color: var(--color-background); }
+.tab-editor-length { display: flex; gap: 0.5rem; align-items: center; margin-bottom: 0.75rem; }
+.tab-editor-preview { margin-bottom: 0.75rem; }
+.tab-insert-editor .tab-note-row { flex-wrap: wrap; gap: 0.5rem; padding: 0.5rem 0; border-bottom: 0.0625rem solid var(--color-border-medium); }
+.tab-insert-editor .tab-note-row label { display: flex; flex-direction: column; gap: 0.25rem; font-size: 0.75rem; }
+.tab-insert-editor .tab-note-row .tab-check { flex-direction: row; align-items: center; }
+.tab-insert-editor .tab-check input { width: 1rem; padding: 0; }
+.tab-row-position { width: 2rem; color: var(--color-text-secondary); font-size: 0.75rem; }
 .tab-note-row {
   display: flex;
   gap: 0.5rem;
@@ -13922,7 +13944,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.667</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.668</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -18563,6 +18585,8 @@ const songStore = (function () {
     // завершена. Иначе история и рендер увидели бы промежуточное
     // состояние.
     const outermost = dispatchDepth === 0;
+    const atomicHistory = outermost && opts && opts.history === 'atomic';
+    if (atomicHistory && window.captureHistorySnapshot) window.captureHistorySnapshot();
     dispatchDepth++;
     let result;
     try {
@@ -18576,6 +18600,7 @@ const songStore = (function () {
     log.push({ label: command.label, t: Date.now() });
     if (log.length > LOG_LIMIT) log.shift();
     if (outermost) notifySubscribers(command);
+    if (atomicHistory && window.captureHistorySnapshot) window.captureHistorySnapshot();
     return result;
   }
 
@@ -18850,8 +18875,28 @@ function getEventSpanInParentUnits(ev, parentTs) {
 // редактировании через setSquareCustomBeats, но безопаснее не полагаться на
 // него как на источник истины (например, при импорте песни извне).
 function getSquareBeats(sq, parentTs) {
-  if (sq.type === 'tab') return sq.beats || getGridUnitsPerBar(parentTs);
+  if (sq.type === 'tab') return getTabInsertBeats(sq, parentTs);
   return sq.events.reduce((sum, e) => sum + getEventSpanInParentUnits(e, parentTs), 0);
+}
+
+// B-12.12: длительность таба — самостоятельное время, а не сумма events.
+// Синтетическая ячейка существует только у читателей времени; в файл/модель
+// фиктивный аккорд не попадает. Индекс 1 уже означает конец таб-квадрата.
+function getTabInsertBeats(sq, parentTs) {
+  const beats = Number(sq && sq.beats);
+  return Number.isFinite(beats) && beats > 0 ? beats : getGridUnitsPerBar(parentTs);
+}
+function getSquarePlaybackEvents(sq, parentTs) {
+  if (!sq) return [];
+  return sq.type === 'tab'
+    ? [{ span: getTabInsertBeats(sq, parentTs), chord: '', timeSig: null, isTab: true }]
+    : (sq.events || []);
+}
+function getSquareDisplayWidthPercent(sq, parentTs, sectionMaxBeats) {
+  // Таб — самостоятельная читаемая строка, не узкая аккордовая клетка.
+  // В ленте ширина по-прежнему строго пропорциональна музыкальному времени.
+  return sq.type === 'tab' ? 100
+    : Math.min(100, (getSquareVisualBeats(sq, parentTs) / sectionMaxBeats) * 100);
 }
 
 // ВИЗУАЛЬНАЯ длина квадрата — сумма ширин ячеек в единицах родительского
@@ -18865,7 +18910,7 @@ function getSquareBeats(sq, parentTs) {
 // доля в таком квадрате получает лишние пиксели: 56.25 против 46.88 у
 // соседей. Раскладка живёт в визуальных единицах — берём их.
 function getSquareVisualBeats(sq, parentTs) {
-  if (sq.type === 'tab') return sq.beats || getGridUnitsPerBar(parentTs);
+  if (sq.type === 'tab') return getTabInsertBeats(sq, parentTs);
   return sq.events.reduce((sum, e) => sum + getEventVisualSpanInParentUnits(e, parentTs), 0);
 }
 
@@ -19913,165 +19958,322 @@ function buildInnerCounts(spanBeats, offsetBeats, subdivide, cellCols, beatsPerB
   return out.join('');
 }
 
+// Базовая dur — единицы размера секции ДО точки/триоли (не четверти
+// независимо от размера). 1/64 = denominator/64; меньшее не подменяем.
+const TAB_INSERT_MAX_BARS = 4;
+const TAB_INSERT_MAX_NOTES = 4096;
+function tabInsertNoteDuration(note) {
+  return note.dur * (note.dots === 1 ? 1.5 : 1) * (note.triplet === true ? 2 / 3 : 1);
+}
+function tabInsertValidBeats(beats, parentTs) {
+  if (typeof beats !== 'number' || !Number.isFinite(beats)) return false;
+  const bars = beats / getGridUnitsPerBar(parentTs);
+  return bars >= 1 && bars <= TAB_INSERT_MAX_BARS && Math.abs(bars - Math.round(bars)) < 1e-8;
+}
+function tabInsertCleanNotes(rawNotes, beats, parentTs) {
+  if (!Array.isArray(rawNotes)) return [];
+  const denominator = parseTimeSig(parentTs).denominator;
+  const allowed = [1, 2, 4, 8, 16, 32, 64].map(d => denominator / d);
+  const candidates = [];
+  let legacyCursor = 0;
+  rawNotes.slice(0, TAB_INSERT_MAX_NOTES).forEach(raw => {
+    if (!raw || typeof raw !== 'object') return;
+    const dur = raw.dur;
+    if (typeof dur !== 'number' || !Number.isFinite(dur) || !allowed.some(d => Math.abs(d - dur) < 1e-9)) return;
+    const dots = raw.dots == null ? 0 : raw.dots;
+    if (dots !== 0 && dots !== 1) return;
+    if (raw.triplet != null && typeof raw.triplet !== 'boolean') return;
+    if (raw.pause != null && typeof raw.pause !== 'boolean') return;
+    const note = { dur, ...(dots ? { dots: 1 } : {}), ...(raw.triplet ? { triplet: true } : {}) };
+    const duration = tabInsertNoteDuration(note);
+    const start = Object.prototype.hasOwnProperty.call(raw, 'start') ? raw.start : legacyCursor;
+    // В старой последовательности неверная струна не сжимает время хвоста.
+    if (typeof start === 'number' && Number.isFinite(start)) legacyCursor = start + duration;
+    if (typeof start !== 'number' || !Number.isFinite(start) || start < 0 || start >= beats || start + duration > beats + 1e-8) return;
+    note.start = Math.round(start * 1e9) / 1e9;
+    if (raw.pause === true) note.pause = true;
+    else {
+      if (!Number.isInteger(raw.string) || raw.string < 0 || raw.string > 5) return;
+      if (!Number.isInteger(raw.fret) || raw.fret < 0 || raw.fret > 24) return;
+      note.string = raw.string; note.fret = raw.fret;
+    }
+    candidates.push(note);
+  });
+  candidates.sort((a, b) => a.start - b.start);
+  const out = [];
+  let groupStart = -1, groupEnd = -1, groupDuration = 0, groupPause = false, groupRhythm = '';
+  let strings = new Set();
+  candidates.forEach(note => {
+    const duration = tabInsertNoteDuration(note);
+    const rhythm = `${note.dur}/${note.dots || 0}/${note.triplet === true}`;
+    if (Math.abs(note.start - groupStart) < 1e-8) {
+      // Один голос: созвучие имеет общую длительность, струна не дублируется.
+      if (groupPause || note.pause || rhythm !== groupRhythm || Math.abs(duration - groupDuration) > 1e-8 || strings.has(note.string)) return;
+    } else {
+      if (note.start < groupEnd - 1e-8) return;
+      groupStart = note.start; groupEnd = note.start + duration;
+      groupDuration = duration; groupPause = !!note.pause; groupRhythm = rhythm; strings = new Set();
+    }
+    strings.add(note.string);
+    out.push({ start: note.start, ...(note.pause ? { pause: true } : { string: note.string, fret: note.fret }),
+      dur: note.dur, ...(note.dots ? { dots: 1 } : {}), ...(note.triplet ? { triplet: true } : {}) });
+  });
+  return out;
+}
+
+// Смена размера сохраняет музыкальную длительность (валюта — знаменатель
+// размера), затем дополняет только хвост до целого такта. Ничего не режем.
+function tabInsertConvertMeter(sq, oldTs, newTs) {
+  if (!tabInsertValidBeats(sq.beats, oldTs) || !Array.isArray(sq.notes)) return null;
+  const notes = tabInsertCleanNotes(sq.notes, sq.beats, oldTs);
+  if (notes.length !== sq.notes.length) return null;
+  const ratio = parseTimeSig(newTs).denominator / parseTimeSig(oldTs).denominator;
+  const bar = getGridUnitsPerBar(newTs);
+  const bars = Math.ceil(sq.beats * ratio / bar - 1e-9);
+  if (bars < 1 || bars > TAB_INSERT_MAX_BARS) return null;
+  const beats = bars * bar;
+  const converted = tabInsertCleanNotes(notes.map(n => ({ ...n, start: n.start * ratio, dur: n.dur * ratio })), beats, newTs);
+  return converted.length === notes.length ? { beats, notes: converted } : null;
+}
+
 // ========== B-12.12 «Таб-вставка»: мини-таб в редакторе ==========
 // Рендер таб-вставки: 6 линий, номера ладов, деления по долям, длительности.
 // Вставка — отдельный квадрат типа 'tab' с полями beats + notes.
-// Клик по струне ставит курсор и вводит ноту (ладу по умолчанию 0).
-function renderTabInsertHtml(sec, sq, parentTs) {
+// В основе 0.668 клик открывает диалог; прямой ввод курсором — следующий этап.
+function renderTabInsertHtml(sec, sq, parentTs, interactive = true) {
   const beatsPerBar = getGridUnitsPerBar(parentTs);
-  const beats = Math.max(0.25, sq.beats || beatsPerBar);
-  const notes = Array.isArray(sq.notes) ? sq.notes : [];
-  const strCount = 6;
-  // Позиции нот по времени: dur в единицах сетки секции, start накапливается.
-  let cursor = 0;
-  const placed = [];
-  notes.forEach((n) => {
-    const dur = Math.max(0.125, n.dur || 1);
-    placed.push({ string: n.string, fret: n.fret, dur, pause: !!n.pause, start: cursor });
-    cursor += dur;
-  });
-  const totalUnit = beats;
-  // viewBox: ширина пропорциональна длине вставки, высота — 6 строк.
-  const pxPerBeat = 44;
-  const svgW = Math.max(120, totalUnit * pxPerBeat);
-  const lineGap = 14;
-  const svgH = (strCount - 1) * lineGap + 26;
-  const colW = svgW / Math.max(1, totalUnit);
-  const linesHtml = [];
-  for (let si = 0; si < strCount; si++) {
-    // В табулатуре верхняя линия — 1-я струна (высокое E), нижняя — 6-я (низкое E).
-    const y = (strCount - 1 - si) * lineGap + 13;
-    linesHtml.push(
-      `<line x1="0" y1="${y}" x2="${svgW}" y2="${y}" ` +
-      `stroke="${getComputedStyle(document.documentElement).color || '#111'}" stroke-width="1.2" />`
-    );
-  }
-  // Вертикальные деления по долям (если вставка длиннее доли).
-  const dividerHtml = [];
-  for (let b = 1; b < Math.floor(totalUnit); b++) {
-    const x = b * colW;
-    dividerHtml.push(
-      `<line x1="${x}" y1="0" x2="${x}" y2="${svgH}" stroke="#e8e4ee" stroke-width="0.6" />`
-    );
-  }
-  const notesHtml = placed.map((n) => {
-    const x = n.start * colW + colW / 2;
-    const y = (strCount - 1 - n.string) * lineGap + 13;
-    const effDur = (n.dur || 1) * (1 + 0.5 * (n.dots || 0)) * (n.triplet ? 2 / 3 : 1);
-    const label = n.pause ? 'x' : String(n.fret) + (n.dots ? '.' : '') + (n.triplet ? '3' : '');
-    // Черта длительности после числа (как в табулатуре GP).
-    const durLen = Math.min(svgW - x - 4, Math.max(6, effDur * colW * 0.9));
-    return `<g data-tab-note data-string="${n.string}" data-fret="${n.fret}" ` +
-      `onclick="event.stopPropagation();playTabNote(${n.string},${n.fret})" ` +
-      `title="${n.pause ? 'пауза' : 'струна ' + (n.string + 1) + ', лад ' + n.fret + (n.dots?' с точкой':'') + (n.triplet?' триоль':'')} (${effDur.toFixed(2)} дол)">` +
-      `<text x="${x}" y="${y}" text-anchor="middle" dominant-baseline="middle" ` +
-      `font-size="11" font-family="ui-monospace,SFMono-Regular,Consolas,monospace" ` +
-      `fill="${getComputedStyle(document.documentElement).color || '#111'}" ` +
-      `pointer-events="none">${escapeHtml(label)}</text>` +
-      (n.pause ? '' : `<line x1="${x + 6}" y1="${y}" x2="${x + 6 + durLen}" y2="${y}" ` +
-      `stroke="${getComputedStyle(document.documentElement).color || '#111'}" stroke-width="1.4" stroke-linecap="round" pointer-events="none" />`) +
-      `</g>`;
+  const beats = getTabInsertBeats(sq, parentTs);
+  const notes = tabInsertCleanNotes(sq.notes, beats, parentTs);
+  const count = notes.filter(n => !n.pause).length;
+  const bars = formatSquareBars(beats / beatsPerBar);
+  const noteWord = count % 10 === 1 && count % 100 !== 11 ? 'нота'
+    : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? 'ноты' : 'нот';
+  const durationText = `${count} ${noteWord} · ${bars} ${bars === 1 ? 'такт' : 'такта'}`;
+  const w = Math.max(320, beats * 64), left = 26, right = w - 12;
+  const gap = 14, top = 12, height = 106;
+  const xAt = start => left + (start / beats) * (right - left) + 10;
+  const lines = Array.from({ length: 6 }, (_, string) => {
+    const y = top + (5 - string) * gap;
+    return `<line data-tab-string="${string}" x1="${left}" y1="${y}" x2="${right}" y2="${y}" />`;
   }).join('');
-  const durationText = `♪ ${placed.length} нота${placed.length === 1 ? '' : 'ы'} · ${formatSquareBars(beats / beatsPerBar)} такт${formatSquareBars(beats / beatsPerBar) !== 1 ? 'а' : ''}`;
-  return `<div class=\"tab-insert\" data-sec=\"${sec.id}\" data-square=\"${sq.id}\" onclick=\"event.stopPropagation();openTabInsertEditor(${sec.id},${sq.id})\" title=\"${durationText}\">` +
-    `<svg viewBox=\"0 0 ${svgW} ${svgH}\" preserveAspectRatio=\"none\" style=\"width:100%;height:7rem;display:block;\">` +
-    dividerHtml.join('') + linesHtml.join('') + notesHtml +
-    `</svg>` +
-    `<div class=\"tab-insert-count\" title=\"${durationText}\">${durationText}</div>` +
-    `</div>`;
+  let divisions = '';
+  for (let beat = 1; beat < beats; beat++) {
+    const x = left + (beat / beats) * (right - left);
+    divisions += `<line class="tab-beat-line${beat % beatsPerBar === 0 ? ' is-bar' : ''}" x1="${x}" y1="6" x2="${x}" y2="88" />`;
+  }
+  const labels = notes.map(n => {
+    const x = xAt(n.start), y = n.pause ? 47 : top + (5 - n.string) * gap;
+    const duration = parseTimeSig(parentTs).denominator / n.dur;
+    const durationLabel = `1/${Math.round(duration)}${n.dots ? '·' : ''}${n.triplet ? ' (3)' : ''}`;
+    return `<span class="tab-note-position" data-tab-note data-start="${n.start}"${n.pause ? ' data-pause="true"' : ` data-string="${n.string}" data-fret="${n.fret}"`} style="left:${x/w*100}%;" title="${n.pause ? 'Пауза' : `Струна ${6 - n.string}, лад ${n.fret}`} · ${durationLabel}">` +
+      `<span class="tab-fret-number" style="top:${y/height*100}%;">${n.pause ? '𝄽' : n.fret}</span>` +
+      `<span class="tab-note-duration">${durationLabel}</span></span>`;
+  }).join('');
+  return `<div class="tab-insert" data-sec="${sec.id}" data-square="${sq.id}" data-ei="0" ` +
+    (interactive ? `onclick="event.stopPropagation();openTabInsertEditor(${sec.id},${sq.id})" ` : '') + `title="${durationText}">` +
+    `<div class="tab-insert-heading"><strong class="tab-insert-label">TAB</strong><span class="tab-insert-count">${durationText}</span></div>` +
+    `<div class="tab-insert-body"><svg viewBox="0 0 ${w} ${height}" preserveAspectRatio="none" aria-hidden="true">${divisions}${lines}</svg>` +
+    Array.from({ length: 6 }, (_, string) => `<span class="tab-string-number" style="top:${(top+(5-string)*gap)/height*100}%;">${6-string}</span>`).join('') + labels + '</div>' +
+    (notes.length ? '' : '<span class="tab-insert-empty">Нет нот</span>') + '</div>';
 }
 
-
-
-// Открыть редактор таб-вставки (мини-редактор нот).
-function openTabInsertEditor(secId, sqId) {
-  const s = sections.find((x) => x.id === secId);
-  const sq = s && s.squares.find((x) => x.id === sqId);
-  if (!s || !sq || sq.type !== 'tab') return;
-  const beatsPerBar = getGridUnitsPerBar(s.timeSig || globalTimeSig);
-  const notesHtml = (sq.notes || []).map((n, i) =>
-    `<div class=\"tab-note-row\" data-index=\"${i}\">` +
-    `струна <select class=\"tab-str-sel\" onchange=\"tabInsertSetString(${secId},${sqId},${i},this.value)\">${[6,5,4,3,2,1].map(st=>`<option value=\"${6-st}\" ${n.string===6-st?'selected':''}>${st}</option>`).join('')}</select>` +
-    ` лад <input class=\"tab-fret-sel\" type=\"number\" value=\"${n.fret}\" onchange=\"tabInsertSetFret(${secId},${sqId},${i},this.value)\" min=\"0\" max=\"24\">` +
-    ` длит <select class=\"tab-dur-sel\" onchange=\"tabInsertSetDur(${secId},${sqId},${i},this.value)\">${[1,1/2,1/4,1/8,1/16,1/32,1/64].map(d=>`<option value=\"${d}\" ${Math.abs((n.dur||1)-d)<1e-9?'selected':''}>1/${Math.round(beatsPerBar/d)}</option>`).join('')}</select>` +
-    ` <button onclick=\"tabInsertRemoveNote(${secId},${sqId},${i})\">×</button> ${n.pause?'пауза ':''}<input type="checkbox" class="tab-pause" onchange="tabInsertSetPause(${secId},${sqId},${i},this.checked)" ${n.pause?'checked':''} > пауза <input type="checkbox" class="tab-dots" onchange="tabInsertSetDots(${secId},${sqId},${i},this.checked)" ${n.dots?'checked':''} > . <input type="checkbox" class="tab-triplet" onchange="tabInsertSetTriplet(${secId},${sqId},${i},this.checked)" ${n.triplet?'checked':''} > ▵` +
-    `</div>`
-  ).join('');
-  const dlg = document.createElement('div');
-  dlg.className = 'strum-modal-overlay';
-  dlg.innerHTML = `
-    <div class=\"strum-modal-content\" style=\"max-width:34rem;\">
-      <div class=\"modal-head\">Таб-вставка: ${escapeHtml(s.type || 'таб')}</div>
-      <div class=\"modal-body\" style=\"padding:1rem;\">
-        <div style=\"margin-bottom:0.75rem;\">Длина: <span id=\"tab-beats-display\">${sq.beats} дол</span></div>
-        <div id=\"tab-notes-list\">${notesHtml || '<div style=\"color:var(--color-text-tertiary);\">Нет нот — добавьте ниже</div>'}</div>
-        <div style=\"margin-top:0.75rem;\">
-          <button onclick=\"tabInsertAddNote(${secId},${sqId})\">+ ноту</button>
-          <button onclick=\"tabInsertSetBeats(${secId},${sqId}, prompt('Длина в долях (напр. 4 для целого такта 4/4)', sq.beats) || sq.beats)\">установить длину</button>
-        </div>
-      </div>
-      <div class=\"modal-foot\">
-        <button onclick=\"this.closest('.strum-modal-overlay').remove()\">Закрыть</button>
-      </div>
-    </div>`;
-  document.body.appendChild(dlg);
-  dlg.querySelector('.strum-modal-overlay')?.addEventListener('click',(e)=>{if(e.target===dlg)dlg.remove();});
+// Мини-редактор работает с входным снимком/черновиком. Отмена и Escape
+// не меняют песню; подтверждение — одна атомарная команда той же истории.
+let tabInsertEditorState = null;
+let tabInsertHoverBlocked = false;
+let tabInsertHoverUnblock = null;
+function blockTabInsertCloseHover() {
+  // Закрытая модалка не должна «навести» мышь на лежащий под ней Em:
+  // подсказка аппликатуры закрепляет форму и иначе создаёт лишнее Undo.
+  if (tabInsertHoverUnblock) tabInsertHoverUnblock();
+  tabInsertHoverBlocked = true;
+  const release = event => {
+    if (event && event.type === 'pointermove' && !event.movementX && !event.movementY) return;
+    tabInsertHoverBlocked = false;
+    ['pointermove', 'pointerdown'].forEach(type => document.removeEventListener(type, release, true));
+    tabInsertHoverUnblock = null;
+  };
+  tabInsertHoverUnblock = release;
+  ['pointermove', 'pointerdown'].forEach(type => document.addEventListener(type, release, true));
+  suppressFingeringTooltips();
+}
+function tabInsertTarget(secId, sqId) {
+  const sec = sections.find(s => s.id === secId), sq = sec && sec.squares.find(q => q.id === sqId);
+  if (!sq || sq.type !== 'tab') return null;
+  const editor = tabInsertEditorState;
+  return { sec, sq, editor: editor && editor.secId === secId && editor.sqId === sqId ? editor : null };
+}
+function tabInsertEditNotes(secId, sqId, label, mutate) {
+  const target = tabInsertTarget(secId, sqId);
+  if (!target) return false;
+  const { sec, sq, editor } = target, ts = sec.timeSig || globalTimeSig;
+  const source = editor ? editor.draft : sq;
+  const next = { ...source, notes: tabInsertCleanNotes(source.notes, source.beats, ts) };
+  if (mutate(next, ts) === false) return false;
+  const end = next.notes.reduce((max, n) => Math.max(max, n.start + tabInsertNoteDuration(n)), 0);
+  if (end > next.beats + 1e-8) {
+    // При одном переполнении добавляем ровно один такт, не произвольный хвост.
+    const extended = next.beats + getGridUnitsPerBar(ts);
+    if (!tabInsertValidBeats(extended, ts) || end > extended + 1e-8) {
+      showToast('Ноты не помещаются: максимум 4 такта, за один раз добавляется один такт'); return false;
+    }
+    next.beats = extended;
+  }
+  const clean = tabInsertCleanNotes(next.notes, next.beats, ts);
+  if (clean.length !== next.notes.length) {
+    showToast('Правка не применена: ноты пересекаются или выходят за допустимые границы'); return false;
+  }
+  next.notes = clean;
+  if (editor) { editor.draft = next; renderTabInsertEditor(editor); }
+  else {
+    songStore.dispatch(label, () => { sq.beats = next.beats; sq.notes = next.notes; }, { quiet: true, history: 'atomic' });
+    if (!rerenderSectionSquaresDom(sec)) requestRender();
+  }
+  return true;
 }
 function tabInsertSetString(secId, sqId, idx, val) {
-  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
-  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
-  songStore.dispatch('tab/note-string', () => { sq.notes[idx].string = Math.max(0, Math.min(5, parseInt(val,10))); }, {quiet:true});
-  if (!rerenderSectionSquaresDom(s)) requestRender();
+  const string = Number(val);
+  if (!Number.isInteger(string) || string < 0 || string > 5) return false;
+  return tabInsertEditNotes(secId, sqId, 'tab/note-string', next => {
+    if (!next.notes[idx] || next.notes[idx].pause) return false;
+    next.notes[idx].string = string;
+  });
 }
 function tabInsertSetFret(secId, sqId, idx, val) {
-  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
-  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
-  songStore.dispatch('tab/note-fret', () => { sq.notes[idx].fret = Math.max(0, Math.min(24, parseInt(val,10))); }, {quiet:true});
-  if (!rerenderSectionSquaresDom(s)) requestRender();
+  const fret = typeof val === 'string' && !val.trim() ? NaN : Number(val);
+  if (!Number.isInteger(fret) || fret < 0 || fret > 24) return false;
+  return tabInsertEditNotes(secId, sqId, 'tab/note-fret', next => {
+    if (!next.notes[idx] || next.notes[idx].pause) return false;
+    next.notes[idx].fret = fret;
+  });
+}
+function tabInsertChangeGroup(secId, sqId, idx, label, change) {
+  return tabInsertEditNotes(secId, sqId, label, next => {
+    const note = next.notes[idx]; if (!note) return false;
+    const start = note.start, oldDuration = tabInsertNoteDuration(note);
+    const group = next.notes.filter(n => Math.abs(n.start - start) < 1e-8);
+    group.forEach(change);
+    const delta = tabInsertNoteDuration(group[0]) - oldDuration;
+    next.notes.forEach(n => { if (n.start > start + 1e-8) n.start = Math.round((n.start + delta) * 1e9) / 1e9; });
+  });
 }
 function tabInsertSetDur(secId, sqId, idx, val) {
-  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
-  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
-  songStore.dispatch('tab/note-dur', () => { sq.notes[idx].dur = parseFloat(val) || 1; }, {quiet:true});
-  if (!rerenderSectionSquaresDom(s)) requestRender();
+  const dur = Number(val), target = tabInsertTarget(secId, sqId);
+  if (!target || ![1, 2, 4, 8, 16, 32, 64].some(d => Math.abs(dur - parseTimeSig(target.sec.timeSig || globalTimeSig).denominator / d) < 1e-9)) return false;
+  return tabInsertChangeGroup(secId, sqId, idx, 'tab/note-dur', n => { n.dur = dur; });
 }
-function tabInsertRemoveNote(secId, sqId, idx) {
-  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
-  if(!sq || !Array.isArray(sq.notes)) return;
-  songStore.dispatch('tab/note-remove', () => { sq.notes.splice(idx,1); }, {quiet:true});
-  if (!rerenderSectionSquaresDom(s)) requestRender();
-}
-function tabInsertAddNote(secId, sqId) {
-  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
-  if(!sq || !Array.isArray(sq.notes)) return;
-  songStore.dispatch('tab/note-add', () => { sq.notes.push({ string: 0, fret: 0, dur: 1, dots: 0, triplet: false, pause: false }); }, {quiet:true});
-  if (!rerenderSectionSquaresDom(s)) requestRender();
-}
-function tabInsertSetBeats(secId, sqId, val) {
-  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
-  if(!sq) return;
-  const b = Math.max(0.25, parseFloat(val) || 1);
-  songStore.dispatch('tab/set-beats', () => { sq.beats = b; }, {quiet:true});
-  if (!rerenderSectionSquaresDom(s)) requestRender();
-}
-
 function tabInsertSetDots(secId, sqId, idx, val) {
-  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
-  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
-  songStore.dispatch('tab/note-dots', () => { sq.notes[idx].dots = val ? 1 : 0; }, {quiet:true});
-  if (!rerenderSectionSquaresDom(s)) requestRender();
+  return tabInsertChangeGroup(secId, sqId, idx, 'tab/note-dots', n => { if (val) n.dots = 1; else delete n.dots; });
 }
 function tabInsertSetTriplet(secId, sqId, idx, val) {
-  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
-  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
-  songStore.dispatch('tab/note-triplet', () => { sq.notes[idx].triplet = !!val; }, {quiet:true});
-  if (!rerenderSectionSquaresDom(s)) requestRender();
+  return tabInsertChangeGroup(secId, sqId, idx, 'tab/note-triplet', n => { if (val) n.triplet = true; else delete n.triplet; });
+}
+function tabInsertRemoveNote(secId, sqId, idx) {
+  return tabInsertEditNotes(secId, sqId, 'tab/note-remove', next => {
+    const note = next.notes[idx]; if (!note) return false;
+    next.notes.splice(idx, 1);
+    if (!next.notes.some(n => Math.abs(n.start - note.start) < 1e-8)) {
+      const duration = tabInsertNoteDuration(note);
+      next.notes.forEach(n => { if (n.start > note.start + 1e-8) n.start = Math.round((n.start - duration) * 1e9) / 1e9; });
+    }
+  });
+}
+function tabInsertAddNote(secId, sqId) {
+  return tabInsertEditNotes(secId, sqId, 'tab/note-add', (next, ts) => {
+    const end = next.notes.reduce((max, n) => Math.max(max, n.start + tabInsertNoteDuration(n)), 0);
+    next.notes.push({ start: end, string: 0, fret: 0, dur: parseTimeSig(ts).denominator / 4 });
+  });
+}
+function tabInsertSetBeats(secId, sqId, val) {
+  const target = tabInsertTarget(secId, sqId); if (!target) return false;
+  const { sec, sq, editor } = target, ts = sec.timeSig || globalTimeSig, beats = Number(val);
+  if (!tabInsertValidBeats(beats, ts)) { showToast('Длина таб-вставки — от 1 до 4 целых тактов'); return false; }
+  const source = editor ? editor.draft : sq;
+  const end = tabInsertCleanNotes(source.notes, source.beats, ts).reduce((max, n) => Math.max(max, n.start + tabInsertNoteDuration(n)), 0);
+  if (end > beats + 1e-8) { showToast('Нельзя уменьшить длину: за новой границей есть ноты'); return false; }
+  if (source.beats === beats) return true;
+  if (editor) { editor.draft.beats = beats; renderTabInsertEditor(editor); }
+  else {
+    songStore.dispatch('tab/set-beats', () => { sq.beats = beats; }, { quiet: true, history: 'atomic' });
+    if (!rerenderSectionSquaresDom(sec)) requestRender();
+  }
+  return true;
 }
 function tabInsertSetPause(secId, sqId, idx, val) {
-  const s = sections.find((x)=>x.id===secId); const sq = s&&s.squares.find((x)=>x.id===sqId);
-  if(!sq || !Array.isArray(sq.notes) || !sq.notes[idx]) return;
-  songStore.dispatch('tab/note-pause', () => { sq.notes[idx].pause = !!val; }, {quiet:true});
-  if (!rerenderSectionSquaresDom(s)) requestRender();
+  return tabInsertEditNotes(secId, sqId, 'tab/note-pause', next => {
+    const note = next.notes[idx]; if (!note) return false;
+    if (val) {
+      next.notes = next.notes.filter(n => Math.abs(n.start - note.start) > 1e-8);
+      next.notes.push({ start: note.start, dur: note.dur, ...(note.dots ? { dots: 1 } : {}), ...(note.triplet ? { triplet: true } : {}), pause: true });
+    } else {
+      delete note.pause; note.string = 0; note.fret = 0;
+    }
+  });
+}
+function renderTabInsertEditor(editor) {
+  const target = tabInsertTarget(editor.secId, editor.sqId);
+  if (!target) return;
+  const { sec } = target, ts = sec.timeSig || globalTimeSig, denominator = parseTimeSig(ts).denominator;
+  const options = (values, selected) => values.map(([value, label]) => `<option value="${value}"${Math.abs(Number(value) - selected) < 1e-9 ? ' selected' : ''}>${label}</option>`).join('');
+  const rows = editor.draft.notes.map((n, i) => `<div class="tab-note-row" data-index="${i}">
+    <span class="tab-row-position">${Math.round(n.start * 100) / 100}</span>
+    <label>Струна<select data-tab-field="string"${n.pause ? ' disabled' : ''}>${options([0,1,2,3,4,5].map(s => [s, 6-s]), n.string)}</select></label>
+    <label>Лад<input data-tab-field="fret" type="number" min="0" max="24" step="1" value="${n.fret ?? 0}"${n.pause ? ' disabled' : ''}></label>
+    <label>Длительность<select data-tab-field="dur">${options([1,2,4,8,16,32,64].map(d => [denominator/d, '1/'+d]), n.dur)}</select></label>
+    <label class="tab-check"><input data-tab-field="dots" type="checkbox"${n.dots ? ' checked' : ''}>Точка</label>
+    <label class="tab-check"><input data-tab-field="triplet" type="checkbox"${n.triplet ? ' checked' : ''}>Триоль</label>
+    <label class="tab-check"><input data-tab-field="pause" type="checkbox"${n.pause ? ' checked' : ''}>Пауза</label>
+    <button type="button" data-tab-remove="${i}" aria-label="Удалить ноту">×</button>
+  </div>`).join('');
+  editor.overlay.querySelector('.tab-editor-body').innerHTML = `
+    <label class="tab-editor-length">Длина<select data-tab-beats>${options([1,2,3,4].map(b => [b*getGridUnitsPerBar(ts), b+' '+(b === 1 ? 'такт' : 'такта')]), editor.draft.beats)}</select></label>
+    <div class="tab-editor-preview">${renderTabInsertHtml(sec, editor.draft, ts, false)}</div>
+    <div id="tab-notes-list">${rows || '<p>Нет нот — добавьте первую.</p>'}</div>
+    <button type="button" data-tab-add>+ Ноту</button>`;
+}
+function openTabInsertEditor(secId, sqId) {
+  if (tabInsertEditorState) return;
+  const target = tabInsertTarget(secId, sqId); if (!target) return;
+  const overlay = document.createElement('div');
+  overlay.className = 'strum-modal-overlay tab-insert-editor';
+  overlay.innerHTML = `<div class="strum-modal-content" role="dialog" aria-modal="true" aria-labelledby="tabEditorTitle">
+    <h3 id="tabEditorTitle">Таб-вставка</h3><div class="tab-editor-body"></div>
+    <div class="tab-editor-actions"><button type="button" data-tab-cancel>Отмена</button><button type="button" data-tab-apply>Применить</button></div></div>`;
+  const entrySnapshot = JSON.parse(JSON.stringify(target.sq));
+  const editor = { secId, sqId, overlay, entrySnapshot, draft: JSON.parse(JSON.stringify(entrySnapshot)), source: target.sq };
+  editor.draft.notes = tabInsertCleanNotes(editor.draft.notes, editor.draft.beats, target.sec.timeSig || globalTimeSig);
+  tabInsertEditorState = editor;
+  const close = () => {
+    blockTabInsertCloseHover();
+    overlay.remove(); tabInsertEditorState = null;
+  };
+  overlay.addEventListener('click', event => {
+    if (event.target === overlay || event.target.closest('[data-tab-cancel]')) { close(); return; }
+    if (event.target.closest('[data-tab-add]')) tabInsertAddNote(secId, sqId);
+    const remove = event.target.closest('[data-tab-remove]');
+    if (remove) tabInsertRemoveNote(secId, sqId, Number(remove.dataset.tabRemove));
+    if (event.target.closest('[data-tab-apply]')) {
+      const current = tabInsertTarget(secId, sqId);
+      if (!current || current.sq !== editor.source) { close(); showToast('Песня изменилась — откройте вставку заново'); return; }
+      if (JSON.stringify(editor.draft) !== JSON.stringify(editor.entrySnapshot)) {
+        const draft = editor.draft;
+        songStore.dispatch('tab/editor-apply', () => { current.sq.beats = draft.beats; current.sq.notes = draft.notes.map(n => ({ ...n })); }, { quiet: true, history: 'atomic' });
+        if (!rerenderSectionSquaresDom(current.sec)) requestRender();
+      }
+      close();
+    }
+  });
+  overlay.addEventListener('change', event => {
+    const input = event.target, row = input.closest('[data-index]');
+    if (input.hasAttribute('data-tab-beats')) { if (!tabInsertSetBeats(secId, sqId, input.value)) renderTabInsertEditor(editor); return; }
+    const setter = { string: tabInsertSetString, fret: tabInsertSetFret, dur: tabInsertSetDur, dots: tabInsertSetDots, triplet: tabInsertSetTriplet, pause: tabInsertSetPause }[input.dataset.tabField];
+    if (!setter || !row) return;
+    if (!setter(secId, sqId, Number(row.dataset.index), input.type === 'checkbox' ? input.checked : input.value)) renderTabInsertEditor(editor);
+  });
+  overlay.addEventListener('keydown', event => { event.stopPropagation(); if (event.key === 'Escape') { event.preventDefault(); close(); } });
+  suppressFingeringTooltips();
+  document.body.appendChild(overlay); renderTabInsertEditor(editor);
+  requestAnimationFrame(() => overlay.querySelector('[data-tab-cancel]')?.focus());
 }
 
 function distributeVisualSpans(events, parentTs) {
@@ -23798,6 +24000,7 @@ const preferredFingeringByChord = new Map();
 // этот момент конкурировал бы и за видимость, и за pointer-фокус, поэтому
 // все маршруты показа спрашивают одно и то же состояние.
 function isFingeringTooltipSuppressed(wrapper) {
+  if (tabInsertEditorState || (tabInsertHoverBlocked && !playbackState.isPlaying)) return true;
   if (DOM?.chordWheelModal?.classList.contains('open')) return true;
   const input = wrapper?.querySelector?.('.chord-input');
   return !!(input && !input.hasAttribute('readonly'));
@@ -30934,6 +31137,12 @@ function setSectionTimeSig(sid, nts) {
   if (nts === oldTimeSig) return;
 
   const newTimeSig = nts || globalTimeSig;
+  const tabSquares = s.squares.filter(sq => sq.type === 'tab');
+  if (tabSquares.some(sq => !tabInsertConvertMeter(sq, oldTimeSig, newTimeSig))) {
+    showToast('Размер не изменён: таб-вставка не помещается в 4 такта без обрезки');
+    if (!syncSectionHeaderDom(s)) requestRender();
+    return;
+  }
 
   // Обновляем размер секции (если равен глобальному – сбрасываем в null)
   // и перестраиваем её квадраты — одной командой: подписчики (история)
@@ -30952,7 +31161,7 @@ function setSectionTimeSig(sid, nts) {
     for (const sq of s.squares) {
       migrateSquareForTimeSig(sq, oldTimeSig, newTimeSig);
     }
-  }, { quiet: true });
+  }, { quiet: true, ...(tabSquares.length ? { history: 'atomic' } : {}) });
 
   // B-25: размер секции мигрирует её квадраты, но не требует полной
   // пересборки документа: обновляем header + squares-list этой секции.
@@ -30995,15 +31204,16 @@ function addTabInsert(sid, beforeSqId) {
   if (!s || s.squares.length >= CONFIG.MAX_SQUARES_PER_SECTION) return;
   const refBeats = getGridUnitsPerBar(s.timeSig || globalTimeSig);
   const newSq = {
-    id: nextId++,
+    id: nextId,
     type: 'tab',
     repeat: 1,
     beats: refBeats,           // длина вставки в единицах сетки секции
-    notes: [],                 // [{ string, fret, dur, dots?, triplet?, pause? }]
+    notes: [],                 // [{ start, string, fret, dur, dots?, triplet?, pause? }]
     events: [],                // таб-вставка не использует события аккордов
     customBeats: null,
   };
   songStore.dispatch('square/tab-insert', () => {
+    nextId++;
     if (beforeSqId) {
       const idx = s.squares.findIndex((sq) => sq.id === beforeSqId);
       if (idx >= 0) s.squares.splice(idx, 0, newSq);
@@ -31011,20 +31221,20 @@ function addTabInsert(sid, beforeSqId) {
     } else {
       s.squares.push(newSq);
     }
-  }, { quiet: true });
+  }, { quiet: true, history: 'atomic' });
   if (!rerenderSectionSquaresDom(s)) requestRender();
-  showToast('Таб-вставка добавлена — кликните по струне, чтобы ввести ноту');
+  showToast('Таб-вставка добавлена');
 }
 
 // Клонировать таб-квадрат (с нотами).
 function cloneTabSquare(sid, sqid) {
   const s = sections.find((s) => s.id === sid);
-  if (!s) return;
+  if (!s || s.squares.length >= CONFIG.MAX_SQUARES_PER_SECTION) return;
   const src = s.squares.find((sq) => sq.id === sqid);
   if (!src || src.type !== 'tab') return;
   const idx = s.squares.indexOf(src);
   const copy = {
-    id: nextId++,
+    id: nextId,
     type: 'tab',
     repeat: src.repeat || 1,
     beats: src.beats,
@@ -31033,8 +31243,9 @@ function cloneTabSquare(sid, sqid) {
     customBeats: null,
   };
   songStore.dispatch('square/tab-clone', () => {
+    nextId++;
     s.squares.splice(idx + 1, 0, copy);
-  }, { quiet: true });
+  }, { quiet: true, history: 'atomic' });
   if (!rerenderSectionSquaresDom(s)) requestRender();
   showToast('Таб-вставка скопирована');
 }
@@ -31050,15 +31261,16 @@ function moveTabSquare(sid, sqid, dir) {
   songStore.dispatch('square/tab-move', () => {
     const [moved] = s.squares.splice(idx, 1);
     s.squares.splice(newIdx, 0, moved);
-  }, { quiet: true });
+  }, { quiet: true, history: 'atomic' });
   if (!rerenderSectionSquaresDom(s)) requestRender();
 }
 function removeSquare(sid, sqid) {
   const s = sections.find((s) => s.id === sid);
   if (!s) return;
+  const isTab = s.squares.some(sq => sq.id === sqid && sq.type === 'tab');
   songStore.dispatch('square/remove', () => {
     s.squares = s.squares.filter((sq) => sq.id !== sqid);
-  }, { quiet: true });
+  }, { quiet: true, ...(isTab ? { history: 'atomic' } : {}) });
   if (keyMode === 'auto') refreshAutoDetectedKey();
   if (!rerenderSectionSquaresDom(s)) requestRender();
 }
@@ -31612,6 +31824,11 @@ function setSquareBeats(sectionId, squareId) {
   if (!sec) return;
   const sq = sec.squares.find(s => s.id === squareId);
   if (!sq) return;
+  if (sq.type === 'tab') {
+    const bars = prompt('Длина таб-вставки: от 1 до 4 целых тактов', String(sq.beats / getGridUnitsPerBar(sec.timeSig || globalTimeSig)));
+    if (bars !== null) tabInsertSetBeats(sectionId, squareId, Number(bars) * getGridUnitsPerBar(sec.timeSig || globalTimeSig));
+    return;
+  }
 
   const beatsPerBar = getGridUnitsPerBar(sec.timeSig || globalTimeSig);
   const currentBeats = sq.customBeats !== null ? sq.customBeats / beatsPerBar : 4;
@@ -31754,6 +31971,13 @@ function migrateSquareForTimeSig(sq, oldParentTs, newParentTs) {
   // зовётся в цикле по квадратам: повторные вызовы холостые (пул уже
   // пуст). Дальше работаем по-старому, прямо на рисунках событий.
   dropRhythmStorage();
+  if (sq.type === 'tab') {
+    // Внешние сеттеры предварительно проверяют ВСЕ табы до первой мутации.
+    const converted = tabInsertConvertMeter(sq, oldParentTs, newParentTs);
+    if (!converted) return false;
+    sq.beats = converted.beats; sq.notes = converted.notes; sq.events = [];
+    return true;
+  }
   // Рисунки боя ячеек переносим ВМЕСТЕ с длительностями. Иначе они
   // остались бы размеченными по старому такту и поехали бы по фазе.
   (sq.events || []).forEach((ev) => {
@@ -31812,7 +32036,13 @@ function getEffectiveBpm(section) {
   return (section && section.bpm) || parseInt(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
 }
 function onGlobalTimeSigChange() {
-  const oldTimeSig = globalTimeSig;
+  const oldTimeSig = globalTimeSig, newTimeSig = DOM.globalTimeSig.value;
+  const tabSquares = sections.filter(sec => !sec.timeSig).flatMap(sec => sec.squares.filter(sq => sq.type === 'tab'));
+  if (tabSquares.some(sq => !tabInsertConvertMeter(sq, oldTimeSig, newTimeSig))) {
+    DOM.globalTimeSig.value = oldTimeSig;
+    showToast('Размер не изменён: таб-вставка не помещается в 4 такта без обрезки');
+    return;
+  }
   songStore.dispatch('song/timesig', () => {
   globalTimeSig = DOM.globalTimeSig.value;
   updateCachedMeasuresForTimeSig(globalTimeSig);
@@ -31831,7 +32061,7 @@ function onGlobalTimeSigChange() {
   }
 
   dropRhythmStorage();
-  });
+  }, tabSquares.length ? { history: 'atomic' } : undefined);
   requestRender();
   updateMetronomeUIForTimeSig(globalTimeSig);
   showToast('Глобальный размер изменён');
@@ -34192,28 +34422,11 @@ function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount, walk)
     }
 
     // (c) Событие квадрата — то, ради чего всё считалось.
-    if (sq.type === 'tab') {
-      // Таб-квадрат — одна синтетическая ячейка на весь квадрат.
-      // Ноты играются в scheduleNextEvent через playTabNotesAt.
+    const squareEvents = getSquarePlaybackEvents(sq, sec.timeSig || globalTimeSig);
+    if (curEi < squareEvents.length) {
       return {
-        sectionIndex: curSi,
-        squareIndex: curSqi,
-        eventIndex: 0,
-        section: sec,
-        square: sq,
-        event: { span: Math.max(1, Math.round(sq.beats)), chord: null, isTab: true },
-        walk,
-      };
-    }
-    if (curEi < sq.events.length) {
-      return {
-        sectionIndex: curSi,
-        squareIndex: curSqi,
-        eventIndex: curEi,
-        section: sec,
-        square: sq,
-        event: sq.events[curEi],
-        walk,
+        sectionIndex: curSi, squareIndex: curSqi, eventIndex: curEi,
+        section: sec, square: sq, event: squareEvents[curEi], walk,
       };
     }
 
@@ -34369,6 +34582,10 @@ function scheduleNextEvent(ctx) {
 
   const dur = getEventDurationForTimeSig(next.event.span || 1, bpm, ts);
   const evStart = nextEventTime;
+  // TAB ставим в Web Audio ДО построения панелей/превью аппликатуры.
+  // Холодный расчёт следующего Em в ленте может занять >120 мс: если
+  // отложить щипки до него, первая нота окажется запланирована в прошлом.
+  if (next.event.isTab) playTabNotesAt(next.square, evStart, bpm, ts, next.section);
   // B-38 (0.154): старт/длительность текущей ячейки — питание кругляшка
   // «до смены аккорда» в превью закреплённого ряда (та же семантика,
   // что у tl-next-timer ленты).
@@ -34398,7 +34615,7 @@ function scheduleNextEvent(ctx) {
   // обратным, подсветка шагов синхронизировалась бы с уже отсоединённым
   // (от предыдущего аккорда) DOM-узлом виджета в тултипе.
   const newWrapper = document.querySelector(
-    `.chord-wrapper[data-sec="${next.section.id}"][data-square="${next.square.id}"][data-ei="${next.eventIndex}"]`
+    `${next.event.isTab ? '.section-card .tab-insert' : '.chord-wrapper'}[data-sec="${next.section.id}"][data-square="${next.square.id}"][data-ei="${next.eventIndex}"]`
   );
 
   // Лента ведётся по МОДЕЛИ, а не по найденному DOM-узлу редактора:
@@ -34515,12 +34732,6 @@ function scheduleNextEvent(ctx) {
   if (typeof schedulePartsForEvent === 'function') {
     schedulePartsForEvent(ctx, next.section, next.square, next.eventIndex, evStart, dur);
     syncPartsPlaybackHighlight(next.section.id, tlPass.secPass, next.square.id, tlPass.sqPass, next.eventIndex);
-  }
-
-  // B-12.12: ноты таб-вставки звучат при проигрывании (как партии, но без
-  // окна партий — отдельные струны/лады, позиция по времени внутри квадрата).
-  if (next.square.type === 'tab' && Array.isArray(next.square.notes)) {
-    playTabNotesAt(next.square, evStart, bpm, ts, next.section);
   }
 
   // === РАБОТА С ПРЕВЬЮ ===
@@ -37380,35 +37591,30 @@ function playTabNote(stringIdx, fret) {
   const base = freqs[stringIdx];
   if (!base) return;
   const freq = base * Math.pow(2, fret / 12);
-  pluckString(ctx, { freq, startTime: ctx.currentTime, gain: 0.5, duration: 1.2, brightness: 0.5 });
+  pluckString(ctx, { freq, startTime: ctx.currentTime, gain: 0.5, duration: 1.2, brightness: 0.5, pan: 0 });
 }
 
 // Проигрывает все ноты таб-квадрата в момент времени evStart, позиционируя
-// каждую ноту по накопленному dur (как при рендере mini-таба).
+// каждую ноту по явному start; точка/триоль изменяют звучащую длительность.
 function playTabNotesAt(sq, evStart, bpm, ts, section) {
   const ctx = getAudioContext();
   if (!ctx) return;
-  const parentTs = section.timeSig || globalTimeSig;
+  const parentTs = section.timeSig || ts || globalTimeSig;
   const secondsPerUnit = getGridUnitDurationSeconds(bpm, parentTs);
   const freqs = songStringFreqs();
-  let cursor = 0;
-  for (const note of sq.notes) {
-    if (note.pause) {
-      cursor += Math.max(0.125, note.dur || 1);
-      continue;
-    }
+  const sound = songSoundAtEvent(section, sq, 0);
+  const notes = tabInsertCleanNotes(sq.notes, getTabInsertBeats(sq, parentTs), parentTs);
+  notes.forEach(note => {
+    if (note.pause) return;
     const base = freqs[note.string];
-    if (!base) {
-      cursor += Math.max(0.125, note.dur || 1);
-      continue;
-    }
-    const freq = base * Math.pow(2, note.fret / 12);
-    const effDur = Math.max(0.125, note.dur || 1) * (1 + 0.5 * (note.dots || 0)) * (note.triplet ? 2 / 3 : 1);
-    const at = evStart + cursor * secondsPerUnit;
-    const ring = Math.min(1.2, Math.max(0.12, effDur * secondsPerUnit));
-    pluckString(ctx, { freq, startTime: at, gain: 0.5, duration: ring, brightness: 0.5 });
-    cursor += effDur;
-  }
+    if (!base) return;
+    pluckString(ctx, {
+      freq: base * Math.pow(2, note.fret / 12),
+      startTime: evStart + note.start * secondsPerUnit,
+      gain: 0.5, duration: tabInsertNoteDuration(note) * secondsPerUnit,
+      brightness: 0.5, pan: 0, sound,
+    });
+  });
 }
 
 // Вычисляет громкость, которую в момент времени t уже имеет голос,
@@ -50358,6 +50564,12 @@ function buildTimelineCell(sec, sq, ev, ei, parentTs, dist, secPass, sqPass, har
   cell.dataset.ei = ei;
   cell.dataset.secPass = secPass || 0;
   cell.dataset.sqPass = sqPass || 0;
+  if (ev.isTab) {
+    cell.classList.add('tl-cell--tab');
+    cell.innerHTML = renderTabInsertHtml(sec, sq, parentTs);
+    timelineCellByKey.set(timelineKey(sec.id, sq.id, ei, secPass, sqPass), cell);
+    return cell;
+  }
   if (width < TIMELINE_NARROW_PX) cell.classList.add('is-narrow');
   if (width < TIMELINE_TINY_PX) cell.classList.add('is-tiny');
 
@@ -50522,7 +50734,7 @@ function renderTimeline() {
           sqEl.dataset.sqPass = sqPass;
           if (sqPass > 0) sqEl.classList.add('is-repeat');
           let offset = 0;
-          sq.events.forEach((ev, ei) => {
+          getSquarePlaybackEvents(sq, parentTs).forEach((ev, ei) => {
             sqEl.appendChild(
               buildTimelineCell(
                 sec,
@@ -50530,7 +50742,7 @@ function renderTimeline() {
                 ev,
                 ei,
                 parentTs,
-                { offset, cols: distribution.spans[ei] },
+                { offset, cols: ev.isTab ? ev.span : distribution.spans[ei] },
                 secPass,
                 sqPass,
                 harmonyByEvent
@@ -50638,13 +50850,13 @@ function renderRhythmTrack() {
     const [secId, sqId, ei] = key.split(':').map(Number);
     const sec = sections.find((x) => x.id === secId);
     const sq = sec && sec.squares.find((q) => q.id === sqId);
-    const ev = sq && sq.events[ei];
+    const parentTs = sec && (sec.timeSig || globalTimeSig);
+    const ev = getSquarePlaybackEvents(sq, parentTs)[ei];
     if (!ev) return;
 
-    const parentTs = sec.timeSig || globalTimeSig;
     const beats = getEventVisualSpanInParentUnits(ev, parentTs);
 
-    const pattern = rhythmSoundingForEvent(sec, sq, ev, ei);
+    const pattern = ev.isTab ? null : rhythmSoundingForEvent(sec, sq, ev, ei);
 
     // Дробление счёта берём из паттерна, который РЕАЛЬНО здесь играет:
     // на восьмых считают «1 и 2 и», на шестнадцатых «1 та и та».
@@ -51601,7 +51813,7 @@ function positionTimelinePanels() {
 function timelineHasChords() {
   return sections.some((sec) =>
     (sec.squares || []).some((sq) =>
-      (sq.events || []).some((ev) => (ev.chord || '').trim() !== '')
+      sq.type === 'tab' || (sq.events || []).some((ev) => (ev.chord || '').trim() !== '')
     )
   );
 }
@@ -52126,7 +52338,7 @@ function toggleTimelineMode(force) {
         updateTimelinePanels({
           section: sec,
           square: sq,
-          event: sq.events[ei],
+          event: getSquarePlaybackEvents(sq, sec.timeSig || globalTimeSig)[ei],
           sectionIndex: si,
           squareIndex: sqi,
           eventIndex: ei,
@@ -53793,8 +54005,9 @@ function partEventWindowUnits(sec, sq, ei) {
     if (s === sq) break;
     start += getSquareBeats(s, parentTs);
   }
-  for (let i = 0; i < ei; i++) start += getEventSpanInParentUnits(sq.events[i], parentTs);
-  const span = getEventSpanInParentUnits(sq.events[ei], parentTs);
+  const events = getSquarePlaybackEvents(sq, parentTs);
+  for (let i = 0; i < ei; i++) start += getEventSpanInParentUnits(events[i], parentTs);
+  const span = getEventSpanInParentUnits(events[ei], parentTs);
   return { start, span, end: start + span };
 }
 
@@ -62461,7 +62674,7 @@ function renderSectionsGrid() {
       let sqTotalCols = totalCols;
       if (sq.type === 'tab') {
         totalBarUnits += Math.max(0.25, sq.beats || beatsPerBar);
-        sqTotalCols = Math.max(totalCols, Math.ceil(totalBarUnits));
+        sqTotalCols = 1;
       }
       (sq.type === 'tab' ? [] : sq.events).forEach((ev, ei) => {
         const evTsEff = ev.timeSig || parentTs;
@@ -62526,7 +62739,7 @@ function renderSectionsGrid() {
       // sqBeats — логическая длина (для бейджа «N тактов»), а ширину
       // считаем в визуальных единицах: см. getSquareVisualBeats.
       const sqVisualBeats = getSquareVisualBeats(sq, parentTs);
-      const widthPercent = Math.min(100, (sqVisualBeats / sectionMaxBeats) * 100);
+      const widthPercent = getSquareDisplayWidthPercent(sq, parentTs, sectionMaxBeats);
       // Бейдж повтора секции прижимается к правому краю ПОСЛЕДНЕГО
       // квадрата. Если тот занимает не всю ширину (например, 2 такта
       // против 4 у соседа), бейдж у края секции висел бы в пустоте,
@@ -62541,7 +62754,7 @@ function renderSectionsGrid() {
       const edgeClass =
         (sqIdx === 0 ? ' square--first' : '') +
         (sqIdx === sec.squares.length - 1 ? ' square--last' : '') +
-        structureSquareClass(sq);
+        structureSquareClass(sq) + (sq.type === 'tab' ? ' square--tab' : '');
       squaresHtml += `<div class="square${edgeClass}" data-sec="${sec.id}" data-square="${sq.id}">
         <div class="square-inner" style="grid-template-columns:repeat(${sqTotalCols},minmax(0,1fr));width:${widthPercent}%;">
           ${eventsHtml}
@@ -63674,6 +63887,7 @@ function songSoundMarkForEvent(sec, sq, ei) {
 
 function buildSquareInnerEventsHtml(sec, sq, distribution) {
   const parentTs = sec.timeSig || globalTimeSig;
+  if (sq.type === 'tab') return renderTabInsertHtml(sec, sq, parentTs);
   const effectiveSpans = distribution.spans;
   const beatsPerBar = getGridUnitsPerBar(parentTs);
   const subdiv = Math.round(1 / getResizeStep());
@@ -63738,7 +63952,7 @@ function syncSectionSquaresGeometry(sec) {
   sec.squares.forEach((sq) => {
     const sqEl = card.querySelector(`.square[data-square="${sq.id}"]`);
     if (!sqEl) return;
-    const widthPercent = Math.min(100, (getSquareVisualBeats(sq, parentTs) / sectionMaxBeats) * 100);
+    const widthPercent = getSquareDisplayWidthPercent(sq, parentTs, sectionMaxBeats);
     lastSquareWidthPercent = widthPercent;
     const bi = sqEl.querySelector('.square-inner');
     if (bi) bi.style.width = widthPercent + '%';
@@ -63880,16 +64094,16 @@ function buildSectionSquaresListHtml(sec) {
     const distribution = sectionDistributions[sqIdx];
     const totalCols = distribution.totalCols;
     const sqBeats = getSquareBeats(sq, parentTs);
-    const widthPercent = Math.min(100, (getSquareVisualBeats(sq, parentTs) / sectionMaxBeats) * 100);
+    const widthPercent = getSquareDisplayWidthPercent(sq, parentTs, sectionMaxBeats);
     lastSquareWidthPercent = widthPercent;
     const sqRepeat = sq.repeat || 1;
     const sqRepeatHtml = `<span class="repeat-badge${sqRepeat > 1 ? ' repeat-badge--visible' : ''}" onclick="event.stopPropagation(); var c=prompt('Сколько раз повторить этот квадрат?','${sqRepeat}'); if(c&&parseInt(c)>=1) setSquareRepeat(${sec.id},${sq.id},parseInt(c))" title="Повторять квадрат ×${sqRepeat}">×${sqRepeat}</span>`;
     const edgeClass =
       (sqIdx === 0 ? ' square--first' : '') +
       (sqIdx === sec.squares.length - 1 ? ' square--last' : '') +
-      structureSquareClass(sq);
+      structureSquareClass(sq) + (sq.type === 'tab' ? ' square--tab' : '');
     squaresHtml += `<div class="square${edgeClass}" data-sec="${sec.id}" data-square="${sq.id}">
-      <div class="square-inner" style="grid-template-columns:repeat(${totalCols},minmax(0,1fr));width:${widthPercent}%;">
+      <div class="square-inner" style="grid-template-columns:repeat(${sq.type === 'tab' ? 1 : totalCols},minmax(0,1fr));width:${widthPercent}%;">
         ${buildSquareInnerEventsHtml(sec, sq, distribution)}
       </div>
       <div style="position:absolute; right:calc((100% - ${widthPercent}%) - 3.0625rem); top:50%; transform:translateY(-50%); display:flex; flex-direction:column; align-items:center; gap:0.125rem;">
@@ -66808,11 +67022,12 @@ toggleTimeAndBeats();
         strumPattern: sec.strumPattern || null,
         squares: sec.squares.map((sq) => ({
           id: sq.id,
-          type: sq.type || null,
           repeat: sq.repeat || 1,
           customBeats: sq.customBeats ?? null,
-          beats: sq.type === 'tab' ? (sq.beats ?? null) : null,
-          notes: sq.type === 'tab' && Array.isArray(sq.notes) ? sq.notes : null,
+          ...(sq.type === 'tab' ? {
+            type: 'tab', beats: getTabInsertBeats(sq, sec.timeSig || globalTimeSig),
+            notes: tabInsertCleanNotes(sq.notes, getTabInsertBeats(sq, sec.timeSig || globalTimeSig), sec.timeSig || globalTimeSig),
+          } : {}),
           // B-12.7: знаки структуры — необязательные поля квадрата (вольта,
           // метка Segno/Coda/Fine/To Coda, переход D.C./D.S., черты повтора).
           ...(structureVoltaOf(sq) ? { volta: structureVoltaOf(sq) } : {}),
@@ -68485,9 +68700,13 @@ toggleTimeAndBeats();
         sectionIdMap.set(String(rawSec.id), sec.id);
       }
       for (const rawSq of rawSec.squares) {
-        if (!rawSq || typeof rawSq !== 'object' || !Array.isArray(rawSq.events) || !rawSq.events.length || rawSq.events.length > SONG_LIMITS.MAX_EVENTS_PER_SQUARE) return null;
+        if (!rawSq || typeof rawSq !== 'object' || !Array.isArray(rawSq.events) || rawSq.events.length > SONG_LIMITS.MAX_EVENTS_PER_SQUARE) return null;
+        const isTab = rawSq.type === 'tab';
+        const parentTs = sec.timeSig || globalTimeSig;
+        if (isTab ? (rawSq.events.length !== 0 || !tabInsertValidBeats(rawSq.beats, parentTs)) : !rawSq.events.length) return null;
         const sq = {
           id: idFor(rawSq.id),
+          ...(isTab ? { type: 'tab', beats: rawSq.beats, notes: tabInsertCleanNotes(rawSq.notes, rawSq.beats, parentTs) } : {}),
           repeat: asSafeInt(rawSq.repeat, 1, 1, 99),
           // B-12.7: знаки структуры. Мусор отбрасывается поштучно: вольта —
           // только 1…9, метка — только из списка, переход — только dc/ds с
@@ -68542,7 +68761,7 @@ toggleTimeAndBeats();
       sectionBeatsById.set(
         sec.id,
         sec.squares.reduce(
-          (sum, sq) => sum + sq.events.reduce((s, ev) => s + getEventSpanInParentUnits(ev, sec.timeSig || globalTimeSig), 0),
+          (sum, sq) => sum + getSquareBeats(sq, sec.timeSig || globalTimeSig),
           0
         )
       );
@@ -69024,6 +69243,7 @@ toggleTimeAndBeats();
       repeat: sec.repeat || 1,
       squares: sec.squares.map((sq) => ({
         ...sq,
+        ...(sq.type === 'tab' ? { notes: sq.notes.map(n => ({ ...n })) } : {}),
         repeat: sq.repeat || 1,
         events: sq.events.map((e) => {
           const ev = { ...e };
@@ -73023,6 +73243,13 @@ function gpExportModal(title, bodyHtml, label) {
     historyIndex = historyStack.length - 1;
     updateHistoryButtons();
   }
+
+  // Один завершённый таб-жест = один снимок, даже при правках быстрее 400 мс.
+  window.captureHistorySnapshot = function () {
+    if (historyTimer) clearTimeout(historyTimer);
+    historyTimer = null;
+    captureHistoryNow();
+  };
 
   window.scheduleHistorySnapshot = function () {
     if (historyRestoring) return;

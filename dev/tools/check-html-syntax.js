@@ -31,7 +31,12 @@ while ((match = re.exec(html)) !== null) {
 }
 
 let failures = 0;
+let checked = 0;
 for (const script of scripts) {
+  // Bravura — base64-данные шрифта, не JavaScript. Инертные JS-рантаймы
+  // при этом компилируем как прежде: text/plain не повод их пропускать.
+  if (/\bid=["']bravuraWoff2Data["']/.test(script.attrs)) continue;
+  checked++;
   const line = html.slice(0, script.at).split('\n').length;
   try {
     new vm.Script(script.code, { filename: `STRUCHORD.html:script#${script.index} (строка ${line})` });
@@ -62,5 +67,5 @@ for (const id of INERT_BLOCK_IDS) {
   }
 }
 
-console.log(`scripts checked: ${scripts.length}, inert blocks checked: ${seenInert.length}, failures: ${failures}`);
+console.log(`scripts checked: ${checked}, inert blocks checked: ${seenInert.length}, failures: ${failures}`);
 process.exitCode = failures ? 1 : 0;
