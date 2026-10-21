@@ -78,13 +78,14 @@ async function openEditor(page) {
         beats: tabAtState.beats,
         cursor: { ...tabAtCursor },
         toolsDisplay: tools ? getComputedStyle(tools).display : null,
+        desktopPointer: matchMedia('(hover: hover) and (pointer: fine)').matches,
         hintText: (document.querySelector('.tab-editor-hint') || {}).textContent.trim().slice(0, 60),
       };
     });
     check('стан alphaTab построен (svg на месте)', measurements.mount.svgWidth > 100, measurements.mount);
     check('стан укладывается в ширину без прокрутки', measurements.mount.hostScrollWidth <= measurements.mount.hostWidth + 1, measurements.mount);
-    check('на компьютере панели кнопок нет — только стан и клавиатура',
-      measurements.mount.toolsDisplay === 'none', measurements.mount.toolsDisplay);
+    check('панель соответствует типу ввода: мышь — скрыта, сенсор/неизвестное устройство — видна',
+      measurements.mount.toolsDisplay === (measurements.mount.desktopPointer ? 'none' : 'flex'), measurements.mount);
     check('курсор стоит на первой доле шестой струны', measurements.mount.cursor.start === 0 && measurements.mount.cursor.string === 0);
     check('по умолчанию выбрана 1/4', measurements.mount.cursor && (await page.evaluate(() => tabAtInput.dValue)) === 4);
     await page.screenshot({ path: path.join(output, 'e01-empty.png') });
@@ -372,6 +373,7 @@ async function openEditor(page) {
         hostWidth: Math.round(host.getBoundingClientRect().width),
         hostScrollWidth: host.scrollWidth,
         toolsDisplay: tools ? getComputedStyle(tools).display : null,
+        desktopPointer: matchMedia('(hover: hover) and (pointer: fine)').matches,
         keySize: r ? [Math.round(r.width), Math.round(r.height)] : null,
         keys: keys.length,
         columns: getComputedStyle(document.querySelector('.tab-fret-pad')).gridTemplateColumns.split(' ').length,
