@@ -12,7 +12,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
-  await page.goto('http://127.0.0.1:8000/STRUCHORD.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await page.goto('http://127.0.0.1:8000/STRUCHORD.html?view=editor&tabfallback=1', { waitUntil: 'domcontentloaded', timeout: 60000 });
   await page.waitForFunction('typeof addTabInsert === "function"');
   await page.evaluate(() => {
     startNewSongFromHome();

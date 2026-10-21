@@ -13,7 +13,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const errors = [];
   page.on('pageerror', e => errors.push(String(e)));
   page.on('console', m => { if (m.type() === 'error') errors.push('console: ' + m.text()); });
-  await page.goto('http://127.0.0.1:8000/STRUCHORD.html', { waitUntil: 'networkidle2', timeout: 60000 });
+  await page.goto('http://127.0.0.1:8000/STRUCHORD.html?view=editor&tabfallback=1', { waitUntil: 'networkidle2', timeout: 60000 });
   await page.waitForFunction('typeof addTabInsert === "function" && typeof sections !== "undefined"', { timeout: 30000 });
   await page.evaluate(() => {
     startNewSongFromHome();
@@ -169,7 +169,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const mobile = await browser.newPage();
   mobile.on('pageerror', e => errors.push('mobile: ' + String(e)));
   await mobile.setViewport({ width: 390, height: 844, deviceScaleFactor: 2 });
-  await mobile.goto('http://127.0.0.1:8000/STRUCHORD.html', { waitUntil: 'domcontentloaded', timeout: 60000 });
+  await mobile.goto('http://127.0.0.1:8000/STRUCHORD.html?view=editor&tabfallback=1', { waitUntil: 'domcontentloaded', timeout: 60000 });
   await mobile.waitForFunction('typeof addTabInsert === "function"', { timeout: 30000 });
   await mobile.evaluate(() => {
     startNewSongFromHome();

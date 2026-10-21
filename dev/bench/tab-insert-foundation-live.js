@@ -14,6 +14,9 @@ const root = path.join(__dirname, '..', '..');
 const output = path.resolve(process.env.B12_TAB_RESULTS || path.join(__dirname, 'results', 'tab-insert-0.668'));
 const url = new URL(process.env.STRUCHORD_URL || 'http://127.0.0.1:8000/STRUCHORD.html');
 url.searchParams.set('view', 'editor');
+// 0.670: стенд 0.668 проверяет резервный список нот (?tabfallback=1),
+// потому что по умолчанию в редакторе теперь стан alphaTab.
+url.searchParams.set('tabfallback', '1');
 const htmlBytes = fs.readFileSync(path.join(root, 'STRUCHORD.html'));
 const artifact = { sha256: crypto.createHash('sha256').update(htmlBytes).digest('hex'), bytes: htmlBytes.length };
 const fixture = JSON.parse(fs.readFileSync(path.join(root, 'dev/fixtures/b12-tab-insert.struchord'), 'utf8'));

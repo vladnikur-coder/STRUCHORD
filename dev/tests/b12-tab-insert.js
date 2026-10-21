@@ -125,6 +125,28 @@ async function main() {
     catch (e) { check('playTabNote(0,0) не бросает', false, e.message); }
   }
 
+  // 0.670: редактор открывается со станом alphaTab и панелью ввода.
+  const sqId = Number(w.eval(`(sections.find(x => x.id === ${sid}).squares.find(q => q.type === 'tab') || {}).id`));
+  w.openTabInsertEditor(sid, sqId);
+  await wait(200);
+  const modal = doc.querySelector('.tab-insert-editor');
+  check('редактор таба открывается', !!modal);
+  if (modal) {
+    check('в редакторе есть стан (.tab-at-host)', !!modal.querySelector('.tab-at-host'));
+    check('есть место под статус стана', !!modal.querySelector('.tab-at-status'));
+    check('без alphaTab показан простой список нот', !!modal.querySelector('[data-tab-fallback]'));
+    check('панель длительностей: 1/1…1/64', modal.querySelectorAll('[data-tab-dur]').length === 7);
+    check('лад-пад: десять цифр', modal.querySelectorAll('[data-tab-digit]').length === 10);
+    check('есть ↑/↓ струны', modal.querySelectorAll('[data-tab-string-step]').length === 2);
+    check('есть пауза, удаление, отмена и повтор',
+      modal.querySelectorAll('[data-tab-rest],[data-tab-delete],[data-tab-undo],[data-tab-redo]').length === 4);
+    check('цифры лада читаются как кнопки', [...modal.querySelectorAll('[data-tab-digit]')].map(b => b.textContent.trim()).join('') === '0123456789');
+    const cancel = modal.querySelector('[data-tab-cancel]');
+    if (cancel) cancel.click();
+    await wait(120);
+    check('редактор закрывается по «Отмена»', !doc.querySelector('.tab-insert-editor'));
+  }
+
   console.log(`итого: ${pass} ok, ${fail} FAIL`);
   process.exitCode = fail ? 1 : 0;
 }
