@@ -105,6 +105,122 @@
     return { bar: plan.firstBar + index * plan.baseBarCount + barInSection, start: Math.max(0, offsetUnits), dur: localDuration };
   }
 
+
+// E4: имена открытых струн берём из ПЕСНИ, с октавами, не из fallback тюнера.
+  function gpExportSongTuning(songData) {
+    if (Array.isArray(songData.tuningNotes) && songData.tuningNotes.length === 6) return songData.tuningNotes.slice();
+    const preset = TUNER_TUNINGS.find(t => t.id === songData.tuning) || TUNER_TUNINGS[0];
+    return preset.notes.slice();
+  }
+
+  function gpExportSongProgram(sound) {
+    return ({ acoustic: 25, clean: 27, drive: 29, lead: 30, ambient: 27 })[sound] ?? 25;
+  }
+
+  // Производные ноты не попадают в songParts/сохранение. TAB здесь исключён:
+  // он экспортируется ровно один раз своей дорожкой.
+  function gpExportPrepareSong(songData, report) {
+    gpExportLoss(report, 'Исполнительский свинг аккомпанемента не кодируется: записан письменный ритм');
+    const rolls = {};
+    for (const sec of sections) {
+      const notes = accompSectionRoll(sec);
+      if (notes.length) rolls[sec.id] = notes;
+    }
+    let parts = (songData.parts || []).slice();
+    if (Object.keys(rolls).length) {
+      parts.push({ name: 'Песня (аккорды)', instrument: 'guitar', viewMode: 'tab',
+        strings: gpExportSongTuning(songData), capo: songData.capo || 0,
+        gmProgram: gpExportSongProgram(songData.sound), mix: songData.mix || null, rolls });
+      gpExportGain(report, 'Аккомпанемент из аккордов/записанных нот без дублирования TAB', Object.values(rolls).reduce((sum,n) => sum + n.length, 0));
+    }
+    // Бейдж ×N квадрата в GP разворачивается внутри секции. Абсолютные
+    // рулоны партий следуют тем же окнам — повторяются и сдвигаются вместе.
+    const windows = new Map();
+    const exportSections = (songData.sections || []).map(sec => {
+      const ts = sec.timeSig || songData.globalTimeSig;
+      let sourceStart = 0, start = 0; const squares = [], list = [];
+      for (const sq of sec.squares || []) {
+        const length = getSquareBeats(sq, ts);
+        for (let pass = 0; pass < Math.max(1, Number(sq.repeat) || 1); pass++) {
+          list.push({ sourceStart, start, length });
+          squares.push({ ...sq, repeat: 1 }); start += length;
+        }
+        sourceStart += length;
+      }
+      windows.set(String(sec.id), list);
+      return { ...sec, squares };
+    });
+    parts = parts.map(part => {
+      const remap = rolls => Object.fromEntries(Object.entries(rolls || {}).map(([id, notes]) => {
+        const out = [];
+        for (const win of windows.get(id) || []) for (const note of notes) {
+          if (note.start >= win.sourceStart - 1e-9 && note.start < win.sourceStart + win.length - 1e-9)
+            out.push({ ...note, start: win.start + note.start - win.sourceStart });
+        }
+        return [id, out];
+      }));
+      return { ...part, rolls: remap(part.rolls), pitchRolls: remap(part.pitchRolls) };
+    });
+    return { ...songData, sections: exportSections, parts };
+  }
+
+  // GP5 writer принимает четверти, GPIF — единицы знаменателя такта.
+  // Разрез через тактовую черту связываем лигой, не новым ударом.
+  function gpExportSplitModel(model, quarters = false) {
+    const writer = quarters ? gpExportEnsureGp5Writer() : null;
+    for (const part of model.parts) {
+      const notes = [];
+      for (const note of part.notes) {
+        const unit = 4 / parseTimeSig(model.bars[note.bar].timeSig || model.timeSig).denominator;
+        let start = note.start * unit, remaining = note.dur * unit, bar = note.bar, tail = false;
+        while (remaining > 1e-7 && bar < model.bars.length) {
+          const sig = parseTimeSig(model.bars[bar].timeSig || model.timeSig);
+          const factor = quarters ? 1 : sig.denominator / 4;
+          const length = sig.numerator * 4 / sig.denominator;
+          let dur = Math.min(remaining, length - start);
+          if (quarters && !writer.durationCode(dur / 4)) {
+            dur = writer.durationParts(dur)[0].units * 4;
+          }
+          notes.push({ ...note, bar, start: start * factor, dur: dur * factor,
+            tieDestination: tail, tieOrigin: remaining > dur + 1e-7 });
+          remaining -= dur; start += dur; tail = true;
+          if (start >= length - 1e-7) { bar++; start = 0; }
+        }
+      }
+      part.notes = notes;
+    }
+    return model;
+  }
+
+  function gpExportBuildTabPart(songData, plans, report, nativeRepeats = false) {
+    const part = {
+      name: 'Табы', instrument: 'guitar', viewMode: 'tab',
+      capo: Number(songData.capo) || 0, gmProgram: gpExportSongProgram(songData.sound),
+      tuning: gpExportSongTuning(songData), mix: songData.mix || null, lyrics: [], notes: [],
+    };
+    for (const plan of plans) {
+      let offset = 0;
+      for (const sq of plan.section.squares || []) {
+        const length = getSquareBeats(sq, plan.parentTimeSig);
+        if (sq.type === 'tab') {
+          const clean = tabInsertCleanNotes(sq.notes, length, plan.parentTimeSig);
+          for (let pass = 0; pass < (nativeRepeats ? 1 : plan.repeatCount); pass++) {
+            for (const note of clean) {
+              if (note.pause) continue;
+              const placed = gpExportPlace(plan, offset + note.start, tabInsertNoteDuration(note), report, 'Табулатура', pass);
+              if (!placed) continue;
+              part.notes.push({ ...placed, voice: 1, string: note.string, fret: note.fret });
+            }
+          }
+        }
+        offset += length;
+      }
+    }
+    if (!part.notes.length) return null;
+    gpExportGain(report, 'Ноты табулатуры (B-12.12)', part.notes.length);
+    return part;
+  }
+
   function gpExportBuildModel(songData, report) {
     const globalTimeSig = songData.globalTimeSig || '4/4';
     const globalKey = songData.globalKey || 'C';
@@ -167,6 +283,7 @@
       const exportPart = {
         name: partName,
         instrument,
+        viewMode: partNotationViewMode(part),
         capo: Number(part.capo) || 0,
         gmProgram: Number.isInteger(part.gmProgram) ? part.gmProgram : null,
         midiChannel: Number.isInteger(part.midiChannel) ? part.midiChannel : partIndex + 1,
@@ -217,6 +334,15 @@
               legato: note.legato === true,
               trill: note.trill === true,
               tremolo: note.tremolo === true,
+              tremBar: note.tremBar === true,
+              fade: note.fade || null,
+              dead: note.dead === true,
+              deadSlap: note.deadSlap === true,
+              pickScrape: note.pickScrape === true,
+              bend: note.bend || null,
+              harm: note.harm || null,
+              grace: note.grace || null,
+              ornament: note.ornament || null,
             });
             tabNotes++;
             }
@@ -270,7 +396,14 @@
         for (let pass = 0; pass < (plan.repeatCount || 1); pass++) {
           const placed = gpExportPlace(plan, Number(lyric.start) || 0, 0.0001, report, `Дорожка «${partName}»: строка текста`, pass);
           if (!placed) break;
-          exportPart.lyrics.push({ bar: placed.bar, text: String(lyric.text || '') });
+          exportPart.lyrics.push({
+            bar: placed.bar,
+            start: placed.start,
+            text: String(lyric.text || ''),
+            line: Math.max(1, Math.min(16, Math.trunc(Number(lyric.line) || 1))),
+            voice: Math.max(1, Math.min(4, Math.trunc(Number(lyric.voice) || 1))),
+            dur: Number(lyric.dur) || 0,
+          });
         }
       }
       if (exportPart.lyrics.length) gpExportGain(report, 'Строки текста', exportPart.lyrics.length);
@@ -281,9 +414,8 @@
     if (tabNotes) gpExportGain(report, 'Ноты табулатурой', tabNotes);
     if (pitchNotes) gpExportGain(report, 'Ноты с абсолютной высотой', pitchNotes);
     const effectNotes = model.parts.reduce((sum, part) => sum + part.notes.filter((note) =>
-      note.letRing || note.pm || note.staccato || note.accent || note.tenuto || note.ghost || note.vibrato
-      || note.slide || note.legato || note.trill || note.tremolo).length, 0);
-    if (effectNotes) gpExportGain(report, 'Пометки нот (-letRing, palm mute, staccato, акцент, вибрато, слайд, легато)', effectNotes);
+      note.letRing || note.staccato || Number(note.accent) === 1 || note.tenuto || note.ghost || note.vibrato || note.legato).length, 0);
+    if (effectNotes) gpExportGain(report, 'Поддержанные пометки GPIF (let ring, ghost, staccato, обычный акцент, tenuto, vibrato, legato/tie)', effectNotes);
 
     if (songData.mix && songData.mix.master && (Number(songData.mix.master.volume) !== 100 || Number(songData.mix.master.pan) !== 0)) {
       model.masterMix = { volume: Number(songData.mix.master.volume) || 100, pan: Number(songData.mix.master.pan) || 0 };
@@ -297,6 +429,10 @@
     }
     if (songData.keyMode === 'manual') gpExportGain(report, 'Ручной ключ тональности', 1);
     gpExportLoss(report, 'BinaryStylesheet и конфигурации оформления Guitar Pro не переносятся — Guitar Pro соберёт их заново');
+
+    // Таб-вставки B-12.12 — отдельная дорожка
+    const tabPart = gpExportBuildTabPart(songData, plans, report);
+    if (tabPart) model.parts.push(tabPart);
     return model;
   }
 
@@ -363,6 +499,8 @@
           marker: isFirst ? (name || null) : null,
           volta,
           sectionIndex: index,
+          bpm: Number(section.bpm) || model.bpm,
+          key: section.key || globalKey,
         });
       }
       cursor += baseBarCount;
@@ -406,6 +544,22 @@
     let pitchNotes = 0;
     let effectNotes = 0;
     let graceNotes = 0;
+    const reportGp5NoteLosses = (note, partName) => {
+      if (note.tenuto === true) gpExportLoss(report, `Дорожка «${partName}»: tenuto не имеет отдельного флага в текущем GP5-writer и не переносится`, 1);
+      if (Number(note.accent) === 2) gpExportLoss(report, `Дорожка «${partName}»: сила акцента 2 в GP5 сведена к обычному акценту`, 1);
+      if (note.fade === 'out') gpExportLoss(report, `Дорожка «${partName}»: fade-out не кодируется текущим GP5-writer`, 1);
+      if (note.ornament) gpExportLoss(report, `Дорожка «${partName}»: ornament «${note.ornament}» не кодируется текущим GP5-writer`, 1);
+      if (note.deadSlap === true) gpExportLoss(report, `Дорожка «${partName}»: знак dead slap не кодируется текущим GP5-writer`, 1);
+      if (note.pickScrape === true) gpExportLoss(report, `Дорожка «${partName}»: знак pick scrape не кодируется текущим GP5-writer`, 1);
+      if (note.harm && note.harm.type === 'feedback') gpExportLoss(report, `Дорожка «${partName}»: harmonic feedback не кодируется текущим GP5-writer`, 1);
+      else if (note.harm && note.harm.type !== 'natural' && note.harm.note) {
+        gpExportLoss(report, `Дорожка «${partName}»: целевая высота harmonic не записывается; сохраняется только тип флажолета`, 1);
+      }
+      if (note.bend && Array.isArray(note.bend.points)
+        && note.bend.points.some((point) => Number(point && point[1]) < 0 || Number(point && point[1]) > 12)) {
+        gpExportLoss(report, `Дорожка «${partName}»: GP5-writer ограничивает точки bend диапазоном 0–12 полутонов`, 1);
+      }
+    };
 
     parts.forEach((part, partIndex) => {
       const instrument = partInstrumentId(part);
@@ -414,6 +568,7 @@
       const exportPart = {
         name: partName,
         instrument,
+        viewMode: partNotationViewMode(part),
         capo: Number(part.capo) || 0,
         gmProgram: Number.isInteger(part.gmProgram) ? part.gmProgram : null,
         midiChannel: Number.isInteger(part.midiChannel) ? part.midiChannel : partIndex + 1,
@@ -444,7 +599,7 @@
             if (!placed) continue;
             exportPart.notes.push({
               bar: placed.bar,
-              voice: Math.max(1, Math.min(2, Number(note.voice) || 1)),
+              voice: Math.max(1, Math.min(4, Number(note.voice) || 1)),
               start: placed.start,
               dur: placed.dur,
               string: Number(note.string),
@@ -453,23 +608,28 @@
               pm: note.pm === true,
               staccato: note.staccato === true,
               accent: Number(note.accent) || 0,
-              tenuto: note.tenuto === true,
+              // Текущий GP5 writer не различает tenuto и staccato; не выдаём
+              // tenuto за стаккато и явно показываем потерю ниже.
+              tenuto: false,
               ghost: note.ghost === true,
               vibrato: note.vibrato || null,
               slide: note.slide || null,
               legato: note.legato === true,
               trill: note.trill === true,
               tremolo: note.tremolo === true,
+              fadeIn: note.fade === 'in',
+              tremoloBar: note.tremBar === true ? true : null,
               // Приёмы, которые GP5 кодирует, а модель уже умеет хранить.
               bend: note.bend || null,
-              harm: note.harm || null,
+              harm: note.harm && note.harm.type !== 'feedback' ? note.harm : null,
               dead: note.dead === true,
-
             });
+            reportGp5NoteLosses(note, partName);
             if (note.grace) graceNotes++;
-            if (note.letRing || note.pm || note.staccato || note.accent || note.tenuto || note.ghost
+            if (note.letRing || note.pm || note.staccato || Number(note.accent) === 1 || note.ghost
               || note.vibrato || note.slide || note.legato || note.trill || note.tremolo
-              || note.bend || note.harm || note.dead) effectNotes++;
+              || note.bend || (note.harm && note.harm.type !== 'feedback') || note.dead
+              || note.fade === 'in' || note.tremBar) effectNotes++;
             tabNotes++;
           }
         } else if (pitchRolls.length) {
@@ -490,7 +650,7 @@
               positions.sort((a, b) => a.fret - b.fret || b.line - a.line);
               exportPart.notes.push({
                 bar: placed.bar,
-                voice: Math.max(1, Math.min(2, Number(note.voice) || 1)),
+                voice: Math.max(1, Math.min(4, Number(note.voice) || 1)),
                 start: placed.start,
                 dur: placed.dur,
                 string: positions[0].line,
@@ -500,7 +660,7 @@
             } else {
               exportPart.notes.push({
                 bar: placed.bar,
-                voice: Math.max(1, Math.min(2, Number(note.voice) || 1)),
+                voice: Math.max(1, Math.min(4, Number(note.voice) || 1)),
                 start: placed.start,
                 dur: placed.dur,
                 pitch,
@@ -515,7 +675,13 @@
         if (!plan) continue;
         const placed = gpExportPlace(plan, Number(lyric.start) || 0, 0.0001, report, `Дорожка «${partName}»: строка текста`, 0);
         if (!placed) continue;
-        exportPart.lyrics.push({ bar: placed.bar, start: placed.start, text: String(lyric.text || '') });
+        exportPart.lyrics.push({
+          bar: placed.bar,
+          start: placed.start,
+          text: String(lyric.text || ''),
+          line: Math.max(1, Math.min(16, Math.trunc(Number(lyric.line) || 1))),
+          voice: Math.max(1, Math.min(4, Math.trunc(Number(lyric.voice) || 1))),
+        });
       }
       if (exportPart.lyrics.length) gpExportGain(report, 'Строки текста', exportPart.lyrics.length);
       model.parts.push(exportPart);
@@ -523,7 +689,7 @@
 
     if (tabNotes) gpExportGain(report, 'Ноты табулатурой', tabNotes);
     if (pitchNotes) gpExportGain(report, 'Ноты с абсолютной высотой', pitchNotes);
-    if (effectNotes) gpExportGain(report, 'Пометки нот (letRing, palm mute, staccato, tenuto, акцент, призрак, вибрато, слайд, молоток, трель, тремоло, бенд, флажолет, форшлаг, «мёртвая» нота)', effectNotes);
+    if (effectNotes) gpExportGain(report, 'Поддержанные пометки GP5 (let ring, palm mute, staccato, обычный акцент, ghost, vibrato, slide, legato, trill, tremolo, bend, harmonic type, dead note, fade-in, tremolo bar)', effectNotes);
     if (graceNotes) gpExportLoss(report, 'Форшлаги не переносятся: наш импорт Guitar Pro 3–5 читает форшлаг вместо основной ноты, поэтому перенос испортил бы круг', graceNotes);
     if (songData.mix && songData.mix.master && (Number(songData.mix.master.volume) !== 100 || Number(songData.mix.master.pan) !== 0)) {
       model.masterMix = { volume: Number(songData.mix.master.volume) || 100, pan: Number(songData.mix.master.pan) || 0 };
@@ -532,6 +698,9 @@
     gpExportLoss(report, 'Вложения Guitar Pro (звук, картинки) в бинарном GP5 не переносятся', (songData.gpAssets || []).length);
     gpExportLoss(report, 'Аппликатуры и раскладки пальцев в Guitar Pro не переносятся', (songData.userFingerings || []).length);
     gpExportLoss(report, 'Оформление, колонтитулы и конфигурации Guitar Pro 5 собираются приложением заново');
+    // Таб-вставки B-12.12 — отдельная дорожка
+    const tabPartGp5 = gpExportBuildTabPart(songData, plans, report, true);
+    if (tabPartGp5) model.parts.push(tabPartGp5);
     return model;
   }
 
@@ -605,7 +774,7 @@
       container: '',
     };
     const writer = gpExportEnsureWriter();
-    const model = gpExportBuildModel(songData, report);
+    const model = gpExportSplitModel(gpExportBuildModel(gpExportPrepareSong(songData, report), report));
     if (!model.bars.length) throw new Error('В песне нет тактов — экспортировать нечего.');
     if (!model.parts.length) gpExportLoss(report, 'В песне нет дорожек: файл откроется пустым');
     const result = gpExportContainerFiles(model, writer, report);
@@ -629,7 +798,7 @@
       version: '5.10',
     };
     const writer = gpExportEnsureGp5Writer();
-    const model = gpExportBuildModelGP5(songData, report);
+    const model = gpExportSplitModel(gpExportBuildModelGP5(gpExportPrepareSong(songData, report), report), true);
     if (!model.bars.length) throw new Error('В песне нет тактов — экспортировать нечего.');
     if (!model.parts.length) gpExportLoss(report, 'В песне нет дорожек: файл откроется пустым');
     const written = writer.writeGP5(model, {});

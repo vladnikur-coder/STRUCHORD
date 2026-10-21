@@ -14207,7 +14207,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.672</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.673</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -15926,7 +15926,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     { denominator: 8, dots: 0 }, { denominator: 8, dots: 1 }, { denominator: 8, dots: 2 },
     { denominator: 16, dots: 0 }, { denominator: 16, dots: 1 },
     { denominator: 32, dots: 0 }, { denominator: 32, dots: 1 },
-    { denominator: 64, dots: 0 },
+    { denominator: 64, dots: 0 }, { denominator: 64, dots: 1 },
   ];
 
   function dottedFactor(dots) {
@@ -15946,7 +15946,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       return best;
     };
     const plain = find(whole);
-    if (plain.error <= 0.02) {
+    if (plain.error <= 0.00001 && plain.duration.dots <= 1) {
       return {
         code: Math.round(Math.log2(plain.duration.denominator)) - 2,
         dots: plain.duration.dots,
@@ -15956,7 +15956,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     }
     // Триоль: длительность в 2/3 раза короче базовой.
     const triplet = find(whole * 1.5);
-    if (triplet.error <= 0.02) {
+    if (triplet.error <= 0.00001 && triplet.duration.dots <= 1) {
       return {
         code: Math.round(Math.log2(triplet.duration.denominator)) - 2,
         dots: triplet.duration.dots,
@@ -16114,7 +16114,8 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
 
   // В одном голосе Guitar Pro ноты не накладываются: нота, начавшаяся внутри
   // уже идущей, уходит во второй голос — ровно так же поступает сам Guitar Pro.
-  // Если заняты оба голоса, нота обрезается до первого свободного места.
+  // Созвучие с общим началом/концом — один голос, разные струны. Третий
+  // независимый голос не записываем и явно отмечаем потерю.
   function spreadVoices(placed) {
     const voices = [];
     for (let index = 0; index < GP5_VOICE_COUNT; index++) voices.push([]);
@@ -16124,23 +16125,15 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       const start = note.start;
       const end = start + note.rawDur;
       let voice = -1;
-      let cut = Infinity;
       for (let index = 0; index < GP5_VOICE_COUNT; index++) {
         const overlap = busy[index].some((segment) => segment.bar === note.bar
-          && start < segment.end - EPS && segment.start < end - EPS);
+          && start < segment.end - EPS && segment.start < end - EPS
+          && !(Math.abs(start - segment.start) < EPS && Math.abs(end - segment.end) < EPS && segment.string !== note.string));
         if (!overlap) { voice = index; break; }
-        const blockedUntil = busy[index]
-          .filter((segment) => segment.bar === note.bar && segment.start <= start + EPS && segment.end > start)
-          .reduce((max, segment) => Math.max(max, segment.end), start);
-        cut = Math.min(cut, blockedUntil);
       }
       if (voice < 0) {
-        if (cut - start < 0.125) {
-          note.source.__lost = (note.source.__lost || '') + 'оба голоса такта заняты';
-          continue;
-        }
-        note.source.__trimmed = true;
-        note.rawDur = cut - start;
+        note.source.__lost = (note.source.__lost || '') + 'оба голоса такта заняты';
+        continue;
       } else if (note.preferredVoice === 2 && voice === 0) {
         // Предпочтение второго голоса уступает свободному первому — так файл
         // выглядит в Guitar Pro аккуратнее, а музыка не меняется.
@@ -16153,7 +16146,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       }
       note.dur = dur;
       voices[voice].push(note);
-      busy[voice].push({ bar: note.bar, start, end: start + note.rawDur });
+      busy[voice].push({ bar: note.bar, start, end: start + note.rawDur, string: note.string });
     }
     return voices;
   }
@@ -16299,7 +16292,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     if (Number.isFinite(Number(source.velocity))) flags |= 0x10;
     writer.u8(flags);
     // Тип ноты GP5: 1 — обычная, 2 — связанная, 3 — «мёртвая» (знак x).
-    writer.u8(source.dead === true ? 3 : 1);
+    writer.u8(source.dead === true ? 3 : source.tieDestination ? 2 : 1);
     if (flags & 0x10) {
       // Динамика GP: (velocity + 16 - 15) / 16, округление вниз.
       const velocity = clamp(Math.round(Number(source.velocity)), 15, 127);
@@ -16403,50 +16396,52 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
   }
 
   function restGapCodes(gapUnits) {
-    const codes = [];
-    let left = Number(gapUnits);
-    while (left > 0.12) {
-      let code = Math.floor(-Math.log2(left));
-      if (!Number.isFinite(code)) code = 0;
-      code = clamp(code, -2, 4);
-      let units = durationUnitsForCode(code);
-      if (units <= 0 || units > left + EPS) { code = 0; units = 1; }
-      codes.push(code);
-      left -= units;
-      if (units < 0.25 && left <= 0.12) break;
+    const target = Math.round(Number(gapUnits) * 960);
+    if (Math.abs(target / 960 - gapUnits) > .00001) throw new Error('GP5: пауза вне ритмической сетки');
+    const exact = durationCode(gapUnits / 4);
+    if (exact) return [exact];
+    // Жадное деление неверно: 150 тиков = 90+60, а не 120+30
+    // (1/128 GP5 не поддерживает). Ищем точную сумму допустимых ритмов.
+    const values = [...new Set(DURATIONS.filter(d => d.dots <= 1).flatMap(d => {
+      const ticks = 3840 / d.denominator * dottedFactor(d.dots);
+      return [ticks, ticks * 2 / 3];
+    }).filter(Number.isInteger))].sort((a,b) => b-a);
+    const previous = new Int32Array(target + 1).fill(-1); previous[0] = 0;
+    for (let at = 1; at <= target; at++) {
+      for (const value of values) if (value <= at && previous[at - value] >= 0) { previous[at] = value; break; }
     }
+    if (previous[target] < 0) throw new Error(`GP5: невыразимая пауза ${gapUnits} четверти`);
+    const codes = []; let left = target;
+    while (left > 0) { const value = previous[left]; codes.push(durationCode(value / 3840)); left -= value; }
     return codes;
   }
 
-  // План голоса такта: биты и паузы-заполнители между ними, в порядке записи.
-  function voicePlan(barBeats) {
-    const plan = [];
-    let cursor = 0;
+  function voicePlan(barBeats, barLength) {
+    const plan = []; let cursor = 0;
+    const rest = length => { for (const code of restGapCodes(length)) plan.push({ rest: true, code }); };
     for (const beat of barBeats) {
       const gap = Number(beat.start) - cursor;
-      if (gap > 0.12) {
-        for (const code of restGapCodes(gap)) plan.push({ rest: true, code });
-        cursor += gap;
-      }
+      if (gap > EPS) rest(gap);
       plan.push({ beat });
       cursor = Number(beat.start) + Number((beat.notes[0] && beat.notes[0].rawDur) || 0);
     }
+    if (barLength > cursor + EPS) rest(barLength - cursor);
     return plan;
   }
 
-  function writeRestBeat(writer, durationCodeValue) {
-    writer.u8(0x40); // у бита задан статус
-    writer.u8(0x02); // пауза
-    writer.i8(durationCodeValue);
-    writer.u8(0); // ни одной струны
-    writer.i16(0); // флаги отображения
+  function writeRestBeat(writer, duration, change) {
+    writer.u8(0x40 | (duration.dots ? 0x01 : 0) | (duration.tuplet ? 0x20 : 0) | (change ? 0x10 : 0));
+    writer.u8(2); // rest status
+    writer.i8(duration.code);
+    if (duration.tuplet) writer.i32(duration.tuplet);
+    if (change) writeMixChange(writer, change);
+    writer.u8(0); // no strings
+    writer.i16(0);
   }
 
-  // Длина такта в долях целой ноты: 4/4 — это одна целая.
   function wholeUnits(bar, model) {
     const sig = parseTimeSig(bar.timeSig || model.timeSig);
-    const quarters = (sig.numerator / sig.denominator) * 4;
-    return Math.max(0.125, quarters / 4);
+    return sig.numerator / sig.denominator;
   }
 
   function writeBeat(writer, beat, change) {
@@ -16527,11 +16522,11 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       }
     }
 
-    let noteCount = 0;
+    let noteCount = 0, noteheadCount = 0;
     let beatCount = 0;
     for (const track of tracks) {
       for (const beats of track.beats) {
-        for (const beat of beats) { beatCount++; noteCount += beat.notes.length; }
+        for (const beat of beats) { beatCount++; noteheadCount += beat.notes.length; noteCount += beat.notes.filter(n => !n.source.tieDestination).length; }
       }
     }
     if (settings.debug) {
@@ -16747,7 +16742,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       // (бит 0 — «1-й конец») и ощущение триолей (1 — восьмые). При флаге 0x10
       // первый байт читается как маска окончаний, без флага — пропускается.
       writer.u8(flags & 0x10 ? 1 << (volta - 1) : 0);
-      writer.u8(1);
+      writer.u8(0); // Straight: не навязываем свинг всем восьмым
       previousTimeSig = timeSig;
       previousKey = key;
     });
@@ -16818,7 +16813,9 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     bars.forEach((bar, barIndex) => {
       for (let trackIndex = 0; trackIndex < Math.max(1, tracks.length); trackIndex++) {
         const track = tracks[trackIndex] || emptyTrack;
-        const change = barIndex === 0 ? changesByTrack.get(track.index) : null;
+        let change = barIndex === 0 ? { ...(changesByTrack.get(track.index) || {}) } : {};
+        if (Number(bar.bpm) && (barIndex === 0 || Number(bar.bpm) !== Number(bars[barIndex - 1].bpm))) change.tempo = Number(bar.bpm);
+        if (!Object.keys(change).length) change = null;
         if (change) {
           if (Number.isFinite(Number(track.part.bpm)) && track.part.bpm && Number(track.part.bpm) !== tempo) {
             change.tempo = Math.round(Number(track.part.bpm));
@@ -16827,19 +16824,18 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         // GP5 держит в каждом такте ровно два голоса, и в каждом обязан быть
         // хотя бы один бит: для пустого голоса записываем паузу на такт.
         const rest = durationCode(wholeUnits(bar, model));
-        const restCode = rest ? rest.code : -2;
         for (let voice = 0; voice < GP5_VOICE_COUNT; voice++) {
           const beats = (track.beats && track.beats[voice]) || [];
           const barBeats = beats.filter((beat) => beat.bar === barIndex);
-          const plan = voicePlan(barBeats);
+          const plan = voicePlan(barBeats, wholeUnits(bar, model) * 4);
           writer.i32(plan.length || 1);
           let first = true;
           for (const item of plan) {
-            if (item.rest) { writeRestBeat(writer, item.code); continue; }
+            if (item.rest) { writeRestBeat(writer, item.code, first && voice === 0 ? change : null); first = false; continue; }
             writeBeat(writer, item.beat, first ? change : null);
             first = false;
           }
-          if (!plan.length) writeRestBeat(writer, restCode);
+          if (!plan.length) writeRestBeat(writer, rest || durationCode(1));
         }
         writer.u8(0); // разрыв строки
       }
@@ -16862,6 +16858,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         bars: bars.length,
         tracks: tracks.length,
         notes: noteCount,
+        noteheads: noteheadCount,
         beats: beatCount,
         lyrics: lyricLines.filter((line) => line && line.text).length,
         bytes: writer.length,
@@ -16887,6 +16884,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     GP5_VERSION,
     writeGP5,
     durationCode,
+    durationParts: restGapCodes,
     parseTimeSig,
     keyOf,
     tuningPitch,
@@ -17158,8 +17156,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     }
     const totalBars = barIndex;
 
-    // Master bars group the bars of one section (Guitar Pro writes one
-    // MasterBar per section and lists the three staff bars of each measure).
+    // Один MasterBar — один такт; Bars содержит по одному Bar на дорожку.
     const sections = Array.isArray(song.sections) ? song.sections : [];
     let cursor = 0;
     for (const section of sections) {
@@ -17178,15 +17175,15 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           section: withSection && section.type && section.type !== 'Custom' ? section.type : (withSection ? (section.name || '') : ''),
           sectionText: withSection ? (section.name || '') : '',
           bars: [],
-          bpm: Number(section.bpm) || null,
+          bpm: Number(section.bpm) || globalBpm,
         });
         return masterBars[masterBars.length - 1];
       };
       // Повтор секции в GPIF записывается копиями тактов: отдельные MasterBar
       // на каждый повтор с собственными копиями нот.
       for (let pass = 0; pass < repeat; pass++) {
-        const master = newMasterBar(pass === 0);
         for (let index = 0; index < count && cursor < totalBars; index++) {
+          const master = newMasterBar(pass === 0 && index === 0);
           for (let track = 0; track < trackTotal; track++) {
             master.bars.push(cursor * trackTotal + track);
           }
@@ -17300,6 +17297,8 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           if (!grouped.has(entry.voice)) grouped.set(entry.voice, []);
           grouped.get(entry.voice).push(entry);
         }
+        const voiceCount = Math.max(1, ...(track.part.notes || []).map(n => clamp(Number(n.voice) || 1, 1, 4)));
+        for (let voice = 1; voice <= voiceCount; voice++) if (!grouped.has(voice)) grouped.set(voice, []);
         const voiceIds = [];
         for (const [voice, list] of Array.from(grouped.entries()).sort((a, b) => a[0] - b[0])) {
           const beats = [];
@@ -17344,8 +17343,20 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
             }
             groups.push({ start: segment.start, end: segment.end, key, active: segment.active });
           }
-          const partCounter = new Map();
+          // Остаток после триоли/точки может требовать нескольких пауз/лиг.
+          const values = NOTE_VALUES.flatMap(([v]) => DOT_FACTORS.flatMap(f => [v*f, v*f*2/3])).sort((a,b) => b-a);
+          const expanded = [];
           for (const group of groups) {
+            let start = group.start;
+            while (group.end - start > EPS) {
+              const left = group.end - start;
+              const size = encodeLength(left) ? left : values.find(v => v <= left + EPS);
+              if (!size) { loss(`Дорожка «${track.part.name}»: невыразимый остаток ритма`, 1); break; }
+              expanded.push({ ...group, start, end: start + size }); start += size;
+            }
+          }
+          const partCounter = new Map();
+          for (const group of expanded) {
             const length = round(group.end - group.start, 9);
             if (!(length > EPS)) continue;
             const encoded = encodeLength(length);
@@ -17361,11 +17372,9 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
               if (track.isPercussion) record.percussion = true;
               const seen = partCounter.get(entry.noteKey) || 0;
               partCounter.set(entry.noteKey, seen + 1);
-              const more = overlapped.has(entry.noteKey)
-                && groups.slice(groups.indexOf(group) + 1)
-                  .some((next) => next.active.includes(entry));
-              if (seen > 0 || more) record.tieDestination = true;
-              if (seen === 0 && more) record.tieOrigin = true;
+              const more = expanded.slice(expanded.indexOf(group) + 1).some(next => next.active.includes(entry));
+              if (seen > 0 || entry.note.tieDestination) record.tieDestination = true;
+              if (more || entry.note.tieOrigin) record.tieOrigin = true;
               layout.notes.push(record);
               noteIds.push(id);
             }
@@ -17383,17 +17392,12 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     }
 
     // Tempo automation: one entry per bar whose tempo differs from the song.
-    const tempoByBar = new Map();
-    for (const master of masterBars) {
-      if (!master.bpm) continue;
-      for (const bar of master.bars) tempoByBar.set(bar, master.bpm);
-    }
-    for (let index = 0; index < totalBars; index++) {
-      if (!tempoByBar.has(index)) tempoByBar.set(index, index === 0 ? globalBpm : tempoByBar.get(index - 1) || globalBpm);
-    }
-    for (const [bar, bpm] of Array.from(tempoByBar.entries()).sort((a, b) => a[0] - b[0])) {
-      tempoChanges.push({ bar, bpm: Math.round(bpm * 1000) / 1000 });
-    }
+    let previousBpm = null;
+    masterBars.forEach((master, bar) => {
+      const bpm = master.bpm || globalBpm;
+      if (bpm !== previousBpm) tempoChanges.push({ bar, bpm });
+      previousBpm = bpm;
+    });
 
     // --- XML ----------------------------------------------------------------
     const out = [];
@@ -17665,9 +17669,10 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       losses,
       stats: {
         bars: totalBars,
-        sections: masterBars.length,
+        sections: sections.length,
         tracks: trackRows.length,
-        notes: layout.notes.length,
+        notes: new Set(layout.notes.filter(n => !n.tieDestination).map(n => n.noteKey)).size,
+        noteheads: layout.notes.length,
         beats: layout.beats.length,
         rhythms: layout.rhythms.length,
       },
@@ -35647,7 +35652,7 @@ function structureCloseRegion(si, sqi, walk) {
   return { walk, jumpBack: false };
 }
 
-function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount, walk) {
+function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount, walk, opts) {
   // ВАЖНО: эта функция должна быть ЧИСТОЙ по отношению к состоянию
   // воспроизведения. Счётчики повторов передаются явными аргументами
   // (а не берутся/мутируются напрямую из playbackState), потому что
@@ -35687,7 +35692,7 @@ function findNextEvent(si, sqi, ei, sectionRepeatCount, squareRepeatCount, walk)
   for (let guard = 0; guard < STRUCTURE_WALK_MAX_STEPS; guard++) {
     const sec = sections[curSi];
     if (!sec) {
-      if (playbackState.isLooping) {
+      if (playbackState.isLooping && !(opts && opts.noLoop)) {
         // Пьеса кончилась и повтор включён: играем сначала, знаки — с чистого
         // листа (иначе D.C. во второй раз не сработал бы).
         return findNextEvent(0, 0, 0, sectionRepeatCount, squareRepeatCount, structureWalkState());
@@ -70816,8 +70821,7 @@ toggleTimeAndBeats();
     });
   };
 
-                      // ---------- ЭКСПОРТ В GUITAR PRO 6 (.gpx) — B-12.9.8 ----------
-// ---------- ЭКСПОРТ В GUITAR PRO 6 (.gpx) — B-12.9.8 ----------
+  // ---------- ЭКСПОРТ В GUITAR PRO 6 (.gpx) — B-12.9.8 ----------
   // Формат: BCFS/BCFZ-контейнер с score.gpif (см. dev/gpif-writer.js и
   // dev/gpx-bcfz-runtime.js). Гитары и бас уезжают таб-дорожками, остальные
   // партии — дорожками с абсолютной высотой нот, ударные — пер-дорожками.
@@ -70925,89 +70929,120 @@ toggleTimeAndBeats();
   }
 
 
-// ========== B-12.12 «Таб-вставка»: экспорт табов в Guitar Pro ==========
-// Собирает все таб-вставки из секций песни в отдельную дорожку «Табы»,
-// чтобы экспорт .gpx/.gp5 содержал ноты табулатуры.
-function gpExportBuildTabPart(songData, plans, report) {
-  const tabSquares = [];
-  (songData.sections || []).forEach((section) => {
-    (section.squares || []).forEach((sq) => {
-      if (sq.type === 'tab' && Array.isArray(sq.notes) && sq.notes.length) {
-        tabSquares.push({ section, sq });
-      }
-    });
-  });
-  if (!tabSquares.length) return null;
-
-  const exportPart = {
-    name: 'Табы',
-    instrument: 'guitar',
-    viewMode: 'tab',
-    capo: Number(songData.capo) || 0,
-    gmProgram: null,
-    midiChannel: null,
-    mix: null,
-    lyrics: [],
-    notes: [],
-    tuning: songData.tuningNotes || ['E','A','D','G','B','E'],
-  };
-
-  const planBySectionId = new Map();
-  (plans || []).forEach((plan) => planBySectionId.set(String(plan.section.id), plan));
-
-  // Предварительный расчёт firstBar для секций без плана (чтобы ноты таба
-  // не выбрасывались при экспорте такой секции).
-  const sectionFirstBar = new Map();
-  let sectionBarCursor = 0;
-  (songData.sections || []).forEach((section) => {
-    sectionFirstBar.set(String(section.id), sectionBarCursor);
-    const plan = planBySectionId.get(String(section.id));
-    sectionBarCursor += plan ? plan.barCount : 1;
-  });
-
-  let tabNotes = 0;
-  for (const { section, sq } of tabSquares) {
-    const plan = planBySectionId.get(String(section.id));
-    const beatsPerBar = plan ? plan.unitsPerBar : getGridUnitsPerBar(section.timeSig || globalTimeSig);
-    const planFirstBar = plan ? plan.firstBar : sectionFirstBar.get(String(section.id));
-    const planBaseBarCount = plan ? plan.baseBarCount : 1;
-    const planRepeatCount = plan ? plan.repeatCount : 1;
-    let cursor = 0;
-    let squareOffset = 0;
-    for (const other of section.squares || []) {
-      if (other === sq) break;
-      squareOffset += Math.max(0.25, other.type === 'tab' ? (other.beats || beatsPerBar) : getSquareBeats(other, section.timeSig || globalTimeSig));
-    }
-    const localPlan = plan || {
-      unitsPerBar: beatsPerBar,
-      baseBarCount: planBaseBarCount,
-      repeatCount: planRepeatCount,
-      firstBar: planFirstBar,
-    };
-    for (const note of sq.notes) {
-      if (note.pause) continue;
-      const effDur = Math.max(0.125, Number(note.dur || 1)) * (1 + 0.5 * (Number(note.dots) || 0)) * (note.triplet === true ? 2 / 3 : 1);
-      const startUnits = squareOffset + cursor;
-      const placed = gpExportPlace(localPlan, startUnits, effDur, report, 'Табулатура (B-12.12)', 0);
-      if (!placed) {
-        cursor += effDur;
-        continue;
-      }
-      exportPart.notes.push({
-        bar: placed.bar,
-        voice: 1,
-        start: placed.start,
-        dur: placed.dur,
-        string: Math.max(1, Math.min(6, Number(note.string) + 1)),
-        fret: Math.max(0, Math.min(24, Number(note.fret))),
-      });
-      tabNotes++;
-      cursor += effDur;
-    }
+// E4: имена открытых струн берём из ПЕСНИ, с октавами, не из fallback тюнера.
+  function gpExportSongTuning(songData) {
+    if (Array.isArray(songData.tuningNotes) && songData.tuningNotes.length === 6) return songData.tuningNotes.slice();
+    const preset = TUNER_TUNINGS.find(t => t.id === songData.tuning) || TUNER_TUNINGS[0];
+    return preset.notes.slice();
   }
-  if (tabNotes) gpExportGain(report, 'Ноты табулатуры (B-12.12)', tabNotes);
-  return exportPart;
-}
+
+  function gpExportSongProgram(sound) {
+    return ({ acoustic: 25, clean: 27, drive: 29, lead: 30, ambient: 27 })[sound] ?? 25;
+  }
+
+  // Производные ноты не попадают в songParts/сохранение. TAB здесь исключён:
+  // он экспортируется ровно один раз своей дорожкой.
+  function gpExportPrepareSong(songData, report) {
+    gpExportLoss(report, 'Исполнительский свинг аккомпанемента не кодируется: записан письменный ритм');
+    const rolls = {};
+    for (const sec of sections) {
+      const notes = accompSectionRoll(sec);
+      if (notes.length) rolls[sec.id] = notes;
+    }
+    let parts = (songData.parts || []).slice();
+    if (Object.keys(rolls).length) {
+      parts.push({ name: 'Песня (аккорды)', instrument: 'guitar', viewMode: 'tab',
+        strings: gpExportSongTuning(songData), capo: songData.capo || 0,
+        gmProgram: gpExportSongProgram(songData.sound), mix: songData.mix || null, rolls });
+      gpExportGain(report, 'Аккомпанемент из аккордов/записанных нот без дублирования TAB', Object.values(rolls).reduce((sum,n) => sum + n.length, 0));
+    }
+    // Бейдж ×N квадрата в GP разворачивается внутри секции. Абсолютные
+    // рулоны партий следуют тем же окнам — повторяются и сдвигаются вместе.
+    const windows = new Map();
+    const exportSections = (songData.sections || []).map(sec => {
+      const ts = sec.timeSig || songData.globalTimeSig;
+      let sourceStart = 0, start = 0; const squares = [], list = [];
+      for (const sq of sec.squares || []) {
+        const length = getSquareBeats(sq, ts);
+        for (let pass = 0; pass < Math.max(1, Number(sq.repeat) || 1); pass++) {
+          list.push({ sourceStart, start, length });
+          squares.push({ ...sq, repeat: 1 }); start += length;
+        }
+        sourceStart += length;
+      }
+      windows.set(String(sec.id), list);
+      return { ...sec, squares };
+    });
+    parts = parts.map(part => {
+      const remap = rolls => Object.fromEntries(Object.entries(rolls || {}).map(([id, notes]) => {
+        const out = [];
+        for (const win of windows.get(id) || []) for (const note of notes) {
+          if (note.start >= win.sourceStart - 1e-9 && note.start < win.sourceStart + win.length - 1e-9)
+            out.push({ ...note, start: win.start + note.start - win.sourceStart });
+        }
+        return [id, out];
+      }));
+      return { ...part, rolls: remap(part.rolls), pitchRolls: remap(part.pitchRolls) };
+    });
+    return { ...songData, sections: exportSections, parts };
+  }
+
+  // GP5 writer принимает четверти, GPIF — единицы знаменателя такта.
+  // Разрез через тактовую черту связываем лигой, не новым ударом.
+  function gpExportSplitModel(model, quarters = false) {
+    const writer = quarters ? gpExportEnsureGp5Writer() : null;
+    for (const part of model.parts) {
+      const notes = [];
+      for (const note of part.notes) {
+        const unit = 4 / parseTimeSig(model.bars[note.bar].timeSig || model.timeSig).denominator;
+        let start = note.start * unit, remaining = note.dur * unit, bar = note.bar, tail = false;
+        while (remaining > 1e-7 && bar < model.bars.length) {
+          const sig = parseTimeSig(model.bars[bar].timeSig || model.timeSig);
+          const factor = quarters ? 1 : sig.denominator / 4;
+          const length = sig.numerator * 4 / sig.denominator;
+          let dur = Math.min(remaining, length - start);
+          if (quarters && !writer.durationCode(dur / 4)) {
+            dur = writer.durationParts(dur)[0].units * 4;
+          }
+          notes.push({ ...note, bar, start: start * factor, dur: dur * factor,
+            tieDestination: tail, tieOrigin: remaining > dur + 1e-7 });
+          remaining -= dur; start += dur; tail = true;
+          if (start >= length - 1e-7) { bar++; start = 0; }
+        }
+      }
+      part.notes = notes;
+    }
+    return model;
+  }
+
+  function gpExportBuildTabPart(songData, plans, report, nativeRepeats = false) {
+    const part = {
+      name: 'Табы', instrument: 'guitar', viewMode: 'tab',
+      capo: Number(songData.capo) || 0, gmProgram: gpExportSongProgram(songData.sound),
+      tuning: gpExportSongTuning(songData), mix: songData.mix || null, lyrics: [], notes: [],
+    };
+    for (const plan of plans) {
+      let offset = 0;
+      for (const sq of plan.section.squares || []) {
+        const length = getSquareBeats(sq, plan.parentTimeSig);
+        if (sq.type === 'tab') {
+          const clean = tabInsertCleanNotes(sq.notes, length, plan.parentTimeSig);
+          for (let pass = 0; pass < (nativeRepeats ? 1 : plan.repeatCount); pass++) {
+            for (const note of clean) {
+              if (note.pause) continue;
+              const placed = gpExportPlace(plan, offset + note.start, tabInsertNoteDuration(note), report, 'Табулатура', pass);
+              if (!placed) continue;
+              part.notes.push({ ...placed, voice: 1, string: note.string, fret: note.fret });
+            }
+          }
+        }
+        offset += length;
+      }
+    }
+    if (!part.notes.length) return null;
+    gpExportGain(report, 'Ноты табулатуры (B-12.12)', part.notes.length);
+    return part;
+  }
 
   function gpExportBuildModel(songData, report) {
     const globalTimeSig = songData.globalTimeSig || '4/4';
@@ -71287,6 +71322,8 @@ function gpExportBuildTabPart(songData, plans, report) {
           marker: isFirst ? (name || null) : null,
           volta,
           sectionIndex: index,
+          bpm: Number(section.bpm) || model.bpm,
+          key: section.key || globalKey,
         });
       }
       cursor += baseBarCount;
@@ -71485,7 +71522,7 @@ function gpExportBuildTabPart(songData, plans, report) {
     gpExportLoss(report, 'Аппликатуры и раскладки пальцев в Guitar Pro не переносятся', (songData.userFingerings || []).length);
     gpExportLoss(report, 'Оформление, колонтитулы и конфигурации Guitar Pro 5 собираются приложением заново');
     // Таб-вставки B-12.12 — отдельная дорожка
-    const tabPartGp5 = gpExportBuildTabPart(songData, plans, report);
+    const tabPartGp5 = gpExportBuildTabPart(songData, plans, report, true);
     if (tabPartGp5) model.parts.push(tabPartGp5);
     return model;
   }
@@ -71560,7 +71597,7 @@ function gpExportBuildTabPart(songData, plans, report) {
       container: '',
     };
     const writer = gpExportEnsureWriter();
-    const model = gpExportBuildModel(songData, report);
+    const model = gpExportSplitModel(gpExportBuildModel(gpExportPrepareSong(songData, report), report));
     if (!model.bars.length) throw new Error('В песне нет тактов — экспортировать нечего.');
     if (!model.parts.length) gpExportLoss(report, 'В песне нет дорожек: файл откроется пустым');
     const result = gpExportContainerFiles(model, writer, report);
@@ -71584,7 +71621,7 @@ function gpExportBuildTabPart(songData, plans, report) {
       version: '5.10',
     };
     const writer = gpExportEnsureGp5Writer();
-    const model = gpExportBuildModelGP5(songData, report);
+    const model = gpExportSplitModel(gpExportBuildModelGP5(gpExportPrepareSong(songData, report), report), true);
     if (!model.bars.length) throw new Error('В песне нет тактов — экспортировать нечего.');
     if (!model.parts.length) gpExportLoss(report, 'В песне нет дорожек: файл откроется пустым');
     const written = writer.writeGP5(model, {});
@@ -71632,6 +71669,178 @@ function gpExportBuildTabPart(songData, plans, report) {
     return report;
   };
 
+// ---------- E4: Standard MIDI File format 1, локальный писатель ----------
+// Один conductor track + один track на слышимый канал. PPQ 960 точно хранит
+// 1/64 и триоли. Источник порядка — тот же чистый обход, что у транспорта.
+  function midiExportBuild(songData, report) {
+    const ppq = 960;
+    const tracks = [];
+    const conductor = [];
+    const sourceParts = songData.parts || [];
+    const solo = sourceParts.some(p => p.mix && p.mix.solo);
+    const masterMute = songData.mix && songData.mix.master && songData.mix.master.mute;
+    const audible = mix => !masterMute && !(mix && mix.mute);
+    const makeTrack = (name, instrument, mix, program, tuning, capo, source) => {
+      const track = { name, instrument, mix: mix || {}, program, tuning, capo: Number(capo) || 0, source, notes: [], programs: [] };
+      tracks.push(track); return track;
+    };
+    const songTrack = !solo && audible(songData.mix)
+      ? makeTrack('Песня', 'guitar', songData.mix, gpExportSongProgram(songData.sound), gpExportSongTuning(songData), songData.capo) : null;
+    const partTracks = sourceParts.filter(p => audible(p.mix) && (!solo || p.mix && p.mix.solo)).map(p => {
+      const inst = partInstrumentId(p);
+      return makeTrack(p.name || 'Дорожка', inst, p.mix,
+        Number.isInteger(p.gmProgram) ? p.gmProgram : inst === 'bass' ? 32 : inst === 'guitar' ? gpExportSongProgram(p.sound) : 0,
+        partTuningNotes(p), p.capo, p);
+    });
+    if (tracks.filter(t => t.instrument !== 'drums').length > 15) {
+      throw new Error('MIDI поддерживает 15 мелодических каналов и канал ударных. Уберите лишние дорожки из микса.');
+    }
+    let channel = 0;
+    tracks.forEach(t => { if (channel === 9) channel++; t.channel = t.instrument === 'drums' ? 9 : channel++; });
+    const add = (track, note, start, unit, localStart = 0, duration = Number(note.dur)) => {
+      if (!track || note.pause) return;
+      const open = tunerNoteToMidi(track.tuning[note.string]);
+      const pitch = Number.isInteger(note.pitch) ? note.pitch
+        : open === null ? null : open + Number(note.fret) + track.capo;
+      if (!Number.isInteger(pitch) || pitch < 0 || pitch > 127) {
+        gpExportLoss(report, `Дорожка «${track.name}»: нота вне диапазона MIDI пропущена`, 1); return;
+      }
+      const at = Math.round((start + localStart * unit) * ppq);
+      const end = Math.round((start + (localStart + duration) * unit) * ppq);
+      if (end <= at) return;
+      track.notes.push({ at, end, pitch, velocity: Math.max(1, Math.min(127, Number(note.velocity) || 90)) });
+      if (note.dead || note.bend || note.harm || note.slide || note.legato || note.trill || note.tremolo || note.grace) {
+        gpExportLoss(report, 'MIDI: приёмы записаны основными нотами без гитарного звукоизвлечения', 1);
+      }
+    };
+    let si = 0, sqi = 0, ei = 0, position = 0, walk = structureWalkState();
+    const sr = {}, qr = {};
+    let lastBpm = null, lastTs = null, lastSection = null, done = false;
+    const rolls = new Map();
+    for (let guard = 0; guard < 100000; guard++) {
+      const next = findNextEvent(si, sqi, ei, sr, qr, walk, { noLoop: true });
+      if (!next) { done = true; break; }
+      const sec = next.section, sq = next.square, ev = next.event;
+      const ts = sec.timeSig || songData.globalTimeSig || '4/4';
+      const sig = parseTimeSig(ts), unit = 4 / sig.denominator;
+      const bpm = Number(sec.bpm) || Number(songData.bpm) || 120;
+      const at = Math.round(position * ppq);
+      if (bpm !== lastBpm) { conductor.push({ at, type: 'tempo', bpm }); lastBpm = bpm; }
+      if (ts !== lastTs) { conductor.push({ at, type: 'time', numerator: sig.numerator, denominator: sig.denominator }); lastTs = ts; }
+      if (sec !== lastSection || (next.squareIndex === 0 && next.eventIndex === 0)) {
+        conductor.push({ at, type: 'marker', text: sec.customName || sec.type || 'Секция' }); lastSection = sec;
+      }
+      const win = partEventWindowUnits(sec, sq, next.eventIndex);
+      if (songTrack) {
+        const program = gpExportSongProgram(songSoundAt(sec.id, win.start));
+        if (!songTrack.programs.length || songTrack.programs[songTrack.programs.length - 1].program !== program) songTrack.programs.push({ at, program });
+        if (sq.type === 'tab') {
+          tabInsertCleanNotes(sq.notes, getSquareBeats(sq, ts), ts).forEach(n => add(songTrack, n, position, unit, n.start, tabInsertNoteDuration(n)));
+        } else {
+          const list = ev.notes && ev.notes.length
+            ? accompCleanNotes(ev.notes, ev.span).map(n => ({ ...n, start: win.start + n.start }))
+            : accompCellNotes(sec, sq, ev, next.eventIndex);
+          list.forEach(n => add(songTrack, n, position, unit, n.start - win.start));
+        }
+      }
+      for (const track of partTracks) {
+        const p = track.source, key = `${p.id}:${sec.id}`;
+        if (!rolls.has(key)) {
+          const pitched = partUsesPitchNotes(p);
+          rolls.set(key, pitched ? ((p.pitchRolls || {})[sec.id] || []) : ((p.rolls || {})[sec.id] || []));
+        }
+        for (const n of rolls.get(key)) {
+          if (n.start >= win.start - 1e-9 && n.start < win.end - 1e-9) add(track, n, position, unit, n.start - win.start);
+        }
+      }
+      position += getEventSpanInParentUnits(ev, ts) * unit;
+      si = next.sectionIndex; sqi = next.squareIndex; ei = next.eventIndex + 1; walk = next.walk;
+    }
+    if (!done) throw new Error('Слишком длинный обход песни: MIDI не сохранён частично.');
+    if (!(position > 0)) throw new Error('В песне нет времени — экспортировать нечего.');
+    if ((songData.mix?.master?.volume ?? 100) !== 100 || (songData.mix?.master?.pan ?? 0) !== 0) gpExportLoss(report, 'MIDI: мастер-громкость и мастер-панорама не переносятся, настройте их в DAW');
+    if (tracks.some(t => (t.mix.volume ?? 100) > 100)) gpExportLoss(report, 'MIDI: громкость выше 100 % записана как 100 %');
+    gpExportLoss(report, 'MIDI не хранит аппликатуры, номера струн, звук синтеза, исполнительский свинг, EQ, реверберацию и оформление');
+    if (songData.soundAuto && songData.soundAuto.length) gpExportGain(report, 'Смена гитарного тембра (приближение GM)', songTrack ? songTrack.programs.length : 0);
+    if (sourceParts.some(p => p.soundAuto && p.soundAuto.length)) gpExportLoss(report, 'Автоматизация тембра партий в MIDI пока не переносится');
+    return { ppq, tracks, conductor, end: Math.round(position * ppq) };
+  }
+
+  function midiExportWrite(model, report) {
+    const u16 = n => [n >>> 8 & 255, n & 255];
+    const u32 = n => [n >>> 24 & 255, n >>> 16 & 255, n >>> 8 & 255, n & 255];
+    const text = s => Array.from(new TextEncoder().encode(String(s)));
+    const vlq = n => {
+      if (!Number.isSafeInteger(n) || n < 0 || n > 0x0fffffff) throw new Error('Время MIDI вне диапазона SMF.');
+      const out = [n & 127]; while ((n = Math.floor(n / 128))) out.unshift((n & 127) | 128); return out;
+    };
+    const meta = (type, data) => [255, type, ...vlq(data.length), ...data];
+    const chunk = events => {
+      events.sort((a,b) => a.at - b.at || a.order - b.order);
+      const bytes = []; let at = 0;
+      for (const event of events) { bytes.push(...vlq(event.at - at), ...event.data); at = event.at; }
+      bytes.push(...vlq(Math.max(0, model.end - at)), 255, 47, 0);
+      return [...text('MTrk'), ...u32(bytes.length), ...bytes];
+    };
+    const conductor = model.conductor.map(e => {
+      let data;
+      if (e.type === 'tempo') { const micros = Math.round(60000000 / e.bpm); data = meta(81, u32(micros).slice(1)); }
+      else if (e.type === 'time') data = meta(88, [e.numerator, Math.log2(e.denominator), e.denominator === 8 && e.numerator % 3 === 0 ? 36 : 24, 8]);
+      else data = meta(6, text(e.text));
+      return { at: e.at, order: 0, data };
+    });
+    conductor.unshift({ at: 0, order: -1, data: meta(3, text('Темп и размер')) });
+    const chunks = [chunk(conductor)];
+    let noteCount = 0;
+    for (const track of model.tracks) {
+      const ch = track.channel;
+      const events = [{ at: 0, order: -3, data: meta(3, text(track.name)) },
+        { at: 0, order: -2, data: [192 | ch, track.program] },
+        { at: 0, order: -2, data: [176 | ch, 7, Math.round(Math.min(100, track.mix.volume ?? 100) * 1.27)] },
+        { at: 0, order: -2, data: [176 | ch, 10, Math.round(((track.mix.pan ?? 0) + 100) * 127 / 200)] }];
+      for (const p of track.programs) events.push({ at: p.at, order: -1, data: [192 | ch, p.program] });
+      // Один MIDI-канал не различает унисон на двух струнах: одинаковое начало
+      // объединяем, предыдущий хвост той же высоты обрываем новым ударом.
+      const byPitch = new Map();
+      for (const n of track.notes.sort((a,b) => a.at - b.at)) {
+        const prev = byPitch.get(n.pitch);
+        if (prev && prev.at === n.at) { prev.end = Math.max(prev.end, n.end); gpExportLoss(report, 'Унисон на одном MIDI-канале объединён', 1); continue; }
+        if (prev && prev.end > n.at) { prev.end = n.at; gpExportLoss(report, 'Хвост той же MIDI-высоты укорочен перед новым ударом', 1); }
+        byPitch.set(n.pitch, n);
+      }
+      // Ссылки на уже скорректированные интервалы, без повторов одного начала.
+      const seen = new Set();
+      for (const n of track.notes) {
+        const key = `${n.at}:${n.pitch}`; if (seen.has(key)) continue; seen.add(key);
+        events.push({ at: n.at, order: 1, data: [144 | ch, n.pitch, n.velocity] }, { at: n.end, order: 0, data: [128 | ch, n.pitch, 0] }); noteCount++;
+      }
+      chunks.push(chunk(events));
+    }
+    const header = [...text('MThd'), ...u32(6), ...u16(1), ...u16(chunks.length), ...u16(model.ppq)];
+    const size = header.length + chunks.reduce((sum,c) => sum + c.length, 0);
+    const bytes = new Uint8Array(size); bytes.set(header); let offset = header.length;
+    for (const c of chunks) { bytes.set(c, offset); offset += c.length; }
+    return { bytes, stats: { tracks: model.tracks.length, conductorTracks: 1, notes: noteCount, ticks: model.end, ppq: model.ppq } };
+  }
+
+  function midiExportRun() {
+    const data = serializeCurrentSong({ includeGpAssetData: false });
+    const report = { format: 'MIDI (.mid), SMF format 1', transferred: [], losses: [], fileName: gpExportFileBase(data) + '.mid' };
+    const model = midiExportBuild(data, report), result = midiExportWrite(model, report);
+    report.stats = result.stats; report.bytes = result.bytes.length;
+    gpExportGain(report, 'Звучащие ноты', result.stats.notes);
+    gpExportGain(report, 'Темп, размер и секции в conductor track', model.conductor.length);
+    return { report, bytes: Array.from(result.bytes) };
+  }
+  window.midiExportBytes = midiExportRun;
+  window.exportMidi = function () {
+    try {
+      const result = midiExportRun();
+      gpExportDownload(Uint8Array.from(result.bytes), result.report.fileName);
+      gpExportShowReport(result.report); return result.report;
+    } catch (error) { showToast(`Экспорт MIDI не удался: ${error.message}`); return null; }
+  };
+
 function gpExportModal(title, bodyHtml, label) {
     const overlay = document.createElement('div');
     overlay.className = 'strum-modal-overlay';
@@ -71668,6 +71877,7 @@ function gpExportModal(title, bodyHtml, label) {
         ${gpExportFormatButton('<i class="ti ti-file-export"></i> Файл STRUCHORD (.struchord)', 'Полная копия песни: секции, партии, микшер, все эффекты и вложения. Открывается обратно в STRUCHORD без потерь.', 'gpExportStruchordBtn')}
         ${gpExportFormatButton('<i class="ti ti-music"></i> Guitar Pro 6 (.gpx)', 'Файл для Guitar Pro 6, 7 и 8: секции, такты, табулатура и ноты, темп, размер, тональность, микшер, капо, строй. После сохранения покажем, что перенеслось и что осталось в приложении.', 'gpExportGpBtn')}
         ${gpExportFormatButton('<i class="ti ti-music"></i> Guitar Pro 5 (.gp5)', 'Настоящий бинарный файл .gp5 для Guitar Pro 5: такты, табулатура, лирика, приёмы, повторы, темп, тональность, капо, строй и микшер. Повторы секций остаются повторами, а не копиями тактов.', 'gpExportGp5Btn')}
+        ${gpExportFormatButton('MIDI (.mid)', 'SMF format 1: темп и размер, звучащие ноты песни и партий. Mute-дорожки исключены; строй и каподастр учтены в высотах. Гитарное звучание заменяется GM-инструментом.', 'gpExportMidiBtn')}
       </div>
       <button type="button" id="gpExportCancelBtn" style="${GP_EXPORT_BUTTON_STYLE}">Отмена</button>
     `, 'Экспорт песни');
@@ -71679,6 +71889,9 @@ function gpExportModal(title, bodyHtml, label) {
     modal.querySelector('#gpExportGpBtn').onclick = () => {
       removeModalOverlay(overlay);
       window.exportGuitarPro();
+    };
+    modal.querySelector('#gpExportMidiBtn').onclick = () => {
+      removeModalOverlay(overlay); window.exportMidi();
     };
     modal.querySelector('#gpExportGp5Btn').onclick = () => {
       removeModalOverlay(overlay);
@@ -71699,15 +71912,16 @@ function gpExportModal(title, bodyHtml, label) {
   function gpExportShowReport(report) {
     if (!report) return;
     const stats = report.stats || {};
+    const isMidi = report.format.startsWith('MIDI');
     const version = report.version ? ` · версия GP ${report.version}` : '';
     const summary = `Файл: ${report.fileName} · ${report.bytes.toLocaleString('ru-RU')} байт${report.container ? ` · контейнер ${report.container}` : ''}${version}`;
     const body = `
       <p style="margin:0;font-size:0.9375rem;line-height:1.45;">Песня сохранена как <strong>${report.format}</strong>.</p>
       <p style="margin:0;font-size:0.875rem;line-height:1.4;color:var(--color-text-secondary);">${summary}</p>
-      <p style="margin:0;font-size:0.875rem;line-height:1.4;color:var(--color-text-secondary);">Дорожек: ${stats.tracks || 0} · тактов: ${stats.bars || 0} · нот: ${stats.notes || 0} · долей: ${stats.beats || 0}.</p>
+      <p style="margin:0;font-size:0.875rem;line-height:1.4;color:var(--color-text-secondary);">Дорожек: ${stats.tracks || 0} · ${isMidi ? `conductor: 1 · PPQ: ${stats.ppq} · тиков: ${stats.ticks}` : `тактов: ${stats.bars || 0} · долей: ${stats.beats || 0}`} · нот: ${stats.notes || 0}.</p>
       ${gpExportReportList('Перенесено в файл', report.transferred, 'gain')}
       ${gpExportReportList('Не переносится или приблизительно', report.losses, 'loss')}
-      <p style="margin:0;font-size:0.8125rem;line-height:1.4;color:var(--color-text-secondary);">Громкость и панорама в Guitar Pro хранятся 17 ступенями, поэтому округляются примерно на 6 % (панорама — на 12 %).</p>
+      <p style="margin:0;font-size:0.8125rem;line-height:1.4;color:var(--color-text-secondary);">${!isMidi ? 'Счёт нот — атаки: продолжения через лигу не считаются новыми нотами. ' : ''}${isMidi ? 'MIDI хранит высоты, а не струны и лады. Тембр и эффекты зависят от инструмента в DAW; это не запись звука STRUCHORD.' : 'Громкость и панорама в Guitar Pro хранятся 17 ступенями, поэтому округляются примерно на 6 % (панорама — на 12 %).'}</p>
       <button type="button" id="gpExportReportClose" style="${GP_EXPORT_BUTTON_STYLE}">Готово</button>
     `;
     const { overlay, modal } = gpExportModal('Отчёт об экспорте', body, 'Отчёт об экспорте в Guitar Pro');

@@ -105,9 +105,9 @@ const ok = (name, cond, extra = '') => {
   const before = await page.evaluate(() => ({
     sections: sections.length,
     squares: sections.reduce((sum, section) => sum + section.squares.length, 0),
-    parts: songParts.length,
+    parts: songParts.length + (sections.some(sec => accompSectionRoll(sec).length) ? 1 : 0),
     notes: songParts.reduce((sum, part) => sum + Object.values(part.rolls || {}).flat().length
-      + Object.values(part.pitchRolls || {}).flat().length, 0),
+      + Object.values(part.pitchRolls || {}).flat().length, 0) + sections.reduce((sum, sec) => sum + accompSectionRoll(sec).length, 0),
     detail: songParts.map((part) => `${part.instrument}:${Object.values(part.rolls || {}).flat().length}/${Object.values(part.pitchRolls || {}).flat().length}`).join(','),
     repeats: sections.map((section) => (section.squares || []).map((square) => square.repeat).join('/')),
     passes: sections.reduce((sum, section) => {

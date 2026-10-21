@@ -261,8 +261,7 @@
     }
     const totalBars = barIndex;
 
-    // Master bars group the bars of one section (Guitar Pro writes one
-    // MasterBar per section and lists the three staff bars of each measure).
+    // Один MasterBar — один такт; Bars содержит по одному Bar на дорожку.
     const sections = Array.isArray(song.sections) ? song.sections : [];
     let cursor = 0;
     for (const section of sections) {
@@ -281,15 +280,15 @@
           section: withSection && section.type && section.type !== 'Custom' ? section.type : (withSection ? (section.name || '') : ''),
           sectionText: withSection ? (section.name || '') : '',
           bars: [],
-          bpm: Number(section.bpm) || null,
+          bpm: Number(section.bpm) || globalBpm,
         });
         return masterBars[masterBars.length - 1];
       };
       // Повтор секции в GPIF записывается копиями тактов: отдельные MasterBar
       // на каждый повтор с собственными копиями нот.
       for (let pass = 0; pass < repeat; pass++) {
-        const master = newMasterBar(pass === 0);
         for (let index = 0; index < count && cursor < totalBars; index++) {
+          const master = newMasterBar(pass === 0 && index === 0);
           for (let track = 0; track < trackTotal; track++) {
             master.bars.push(cursor * trackTotal + track);
           }
@@ -403,6 +402,8 @@
           if (!grouped.has(entry.voice)) grouped.set(entry.voice, []);
           grouped.get(entry.voice).push(entry);
         }
+        const voiceCount = Math.max(1, ...(track.part.notes || []).map(n => clamp(Number(n.voice) || 1, 1, 4)));
+        for (let voice = 1; voice <= voiceCount; voice++) if (!grouped.has(voice)) grouped.set(voice, []);
         const voiceIds = [];
         for (const [voice, list] of Array.from(grouped.entries()).sort((a, b) => a[0] - b[0])) {
           const beats = [];
@@ -447,8 +448,20 @@
             }
             groups.push({ start: segment.start, end: segment.end, key, active: segment.active });
           }
-          const partCounter = new Map();
+          // Остаток после триоли/точки может требовать нескольких пауз/лиг.
+          const values = NOTE_VALUES.flatMap(([v]) => DOT_FACTORS.flatMap(f => [v*f, v*f*2/3])).sort((a,b) => b-a);
+          const expanded = [];
           for (const group of groups) {
+            let start = group.start;
+            while (group.end - start > EPS) {
+              const left = group.end - start;
+              const size = encodeLength(left) ? left : values.find(v => v <= left + EPS);
+              if (!size) { loss(`Дорожка «${track.part.name}»: невыразимый остаток ритма`, 1); break; }
+              expanded.push({ ...group, start, end: start + size }); start += size;
+            }
+          }
+          const partCounter = new Map();
+          for (const group of expanded) {
             const length = round(group.end - group.start, 9);
             if (!(length > EPS)) continue;
             const encoded = encodeLength(length);
@@ -464,11 +477,9 @@
               if (track.isPercussion) record.percussion = true;
               const seen = partCounter.get(entry.noteKey) || 0;
               partCounter.set(entry.noteKey, seen + 1);
-              const more = overlapped.has(entry.noteKey)
-                && groups.slice(groups.indexOf(group) + 1)
-                  .some((next) => next.active.includes(entry));
-              if (seen > 0 || more) record.tieDestination = true;
-              if (seen === 0 && more) record.tieOrigin = true;
+              const more = expanded.slice(expanded.indexOf(group) + 1).some(next => next.active.includes(entry));
+              if (seen > 0 || entry.note.tieDestination) record.tieDestination = true;
+              if (more || entry.note.tieOrigin) record.tieOrigin = true;
               layout.notes.push(record);
               noteIds.push(id);
             }
@@ -486,17 +497,12 @@
     }
 
     // Tempo automation: one entry per bar whose tempo differs from the song.
-    const tempoByBar = new Map();
-    for (const master of masterBars) {
-      if (!master.bpm) continue;
-      for (const bar of master.bars) tempoByBar.set(bar, master.bpm);
-    }
-    for (let index = 0; index < totalBars; index++) {
-      if (!tempoByBar.has(index)) tempoByBar.set(index, index === 0 ? globalBpm : tempoByBar.get(index - 1) || globalBpm);
-    }
-    for (const [bar, bpm] of Array.from(tempoByBar.entries()).sort((a, b) => a[0] - b[0])) {
-      tempoChanges.push({ bar, bpm: Math.round(bpm * 1000) / 1000 });
-    }
+    let previousBpm = null;
+    masterBars.forEach((master, bar) => {
+      const bpm = master.bpm || globalBpm;
+      if (bpm !== previousBpm) tempoChanges.push({ bar, bpm });
+      previousBpm = bpm;
+    });
 
     // --- XML ----------------------------------------------------------------
     const out = [];
@@ -768,9 +774,10 @@
       losses,
       stats: {
         bars: totalBars,
-        sections: masterBars.length,
+        sections: sections.length,
         tracks: trackRows.length,
-        notes: layout.notes.length,
+        notes: new Set(layout.notes.filter(n => !n.tieDestination).map(n => n.noteKey)).size,
+        noteheads: layout.notes.length,
         beats: layout.beats.length,
         rhythms: layout.rhythms.length,
       },
