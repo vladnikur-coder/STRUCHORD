@@ -5328,6 +5328,11 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   color: var(--color-text-secondary);
   font-variant-numeric: tabular-nums;
 }
+/* Как в Guitar Pro: на компьютере — только стан и клавиатура. Панель
+   кнопок остаётся для телефона и планшета, где нет физических клавиш. */
+@media (min-width: 46.0625rem) {
+  .tab-tools { display: none; }
+}
 .tab-editor-hint {
   font-size: 0.75rem;
   color: var(--color-text-secondary);
@@ -5343,7 +5348,8 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
   background: var(--color-surface);
 }
 @media (max-width: 46rem) {
-  .tab-fret-pad { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.25rem; }
+  .tab-fret-pad { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 0.25rem; flex: 1 1 100%; }
+  .tab-tools-row { align-items: flex-start; }
   .tab-insert-editor .tab-fret-key { min-width: 0; width: 100%; height: 2.625rem; }
   .tab-editor-hint { display: none; }
 }
@@ -14201,7 +14207,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.670</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.671</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20659,6 +20665,9 @@ function tabAtSettings(alphaTab, scale) {
   // Один такт — это и первая, и последняя система: без justifyLastSystem
   // alphaTab оставил бы справа пустое место, а не растянул строку.
   settings.display.justifyLastSystem = true;
+  // Номер такта над станом здесь лишний: в редакторе 1–4 такта, и метка
+  // курсора уже говорит «такт 1, доля …».
+  try { settings.notation.barNumberDisplay = 2; } catch (_) {}
   // «Строй песни» над станом здесь лишний: в редакторе одна дорожка.
   try {
     settings.display.singleTrackTrackNamePolicy = 0;
@@ -20751,7 +20760,8 @@ function tabAtPlaceCursor() {
   dot.style.top = pos.y + 'px';
   if (readout) {
     readout.hidden = false;
-    readout.textContent = `такт ${barNo}, доля ${Math.round(inBar * 100) / 100} · струна ${6 - tabAtCursor.string}`;
+    const sign = `${tabAtInput.dots ? '·'.repeat(tabAtInput.dots) : ''}${tabAtInput.triplet ? '₃' : ''}`;
+    readout.textContent = `такт ${barNo}, доля ${Math.round(inBar * 100) / 100} · струна ${6 - tabAtCursor.string} · 1/${tabAtInput.dValue}${sign}`;
     // Метка не должна вылезать за стан: сдвигаем её по фактической ширине.
     const hostWidth = host.clientWidth || 320;
     const half = Math.min(readout.offsetWidth, hostWidth - 8) / 2;
@@ -20768,6 +20778,7 @@ function tabAtRefreshReadout() {
   if (stringEl) stringEl.textContent = `${6 - tabAtCursor.string} (${['6-я', '5-я', '4-я', '3-я', '2-я', '1-я'][tabAtCursor.string]})`;
   const durEl = overlay.querySelector('[data-tab-current-dur]');
   if (durEl) durEl.textContent = `1/${tabAtInput.dValue}${tabAtInput.dots === 1 ? '·' : tabAtInput.dots === 2 ? '··' : ''}${tabAtInput.triplet ? ' (3)' : ''}`;
+  if (tabAtHostEl) tabAtPlaceCursor();
   overlay.querySelectorAll('[data-tab-dur]').forEach(btn => {
     const val = Number(btn.dataset.tabDur);
     btn.setAttribute('aria-pressed', String(val === tabAtInput.dValue));
@@ -20782,23 +20793,43 @@ function tabAtRefreshReadout() {
 function tabAtSetCursor(start, string) {
   const st = tabAtState;
   if (!st) return;
+  tabAtCancelAdvance();
   const step = st.unitsPerBar / 16;
   const snapped = Math.round(Math.max(0, Math.min(st.beats - step, start)) / step) * step;
   tabAtCursor = {
     start: Math.round(snapped * 1e9) / 1e9,
     string: Math.max(0, Math.min(5, Number.isInteger(string) ? string : tabAtCursor.string)),
   };
+  tabAtPullInputAtCursor();
   tabAtPlaceCursor();
   tabAtRefreshReadout();
-  // Длительность и знаки подтягиваются с доли под курсором: панель
-  // показывает то, что реально записано, а не последний выбор.
+}
+
+// Длительность и знаки подтягиваются с доли под курсором: панель показывает
+// то, что реально записано, а не последний выбор.
+function tabAtPullInputAtCursor() {
   const at = tabAtInfoAt(tabAtCursor.start);
-  if (at && !at.rest) {
-    tabAtInput.dValue = at.d;
-    tabAtInput.dots = at.dots || 0;
-    tabAtInput.triplet = !!at.triplet;
-    tabAtRefreshReadout();
-  }
+  if (!at || at.rest) return;
+  tabAtInput.dValue = at.d;
+  tabAtInput.dots = at.dots || 0;
+  tabAtInput.triplet = !!at.triplet;
+}
+
+// Как в Guitar Pro: после ввода лада курсор сам идёт на следующую долю —
+// ровно на длину только что записанной ноты. Если нота добавилась к уже
+// существующей доле (созвучие), курсор остаётся: можно доставить струны.
+function tabAtAdvance(note) {
+  const st = tabAtState;
+  if (!st || !note) return;
+  const step = st.unitsPerBar / 16;
+  const limit = Math.max(0, st.beats - Math.min(step, tabInsertNoteDuration(note)));
+  const raw = tabAtCursor.start + tabInsertNoteDuration(note);
+  const start = Math.round(Math.min(raw, limit) * 1e9) / 1e9;
+  tabAtCursor = { start, string: tabAtCursor.string };
+  tabAtLastDigit = null;
+  tabAtPullInputAtCursor();
+  tabAtPlaceCursor();
+  tabAtRefreshReadout();
 }
 
 function tabAtInfoAt(start) {
@@ -21055,25 +21086,50 @@ function tabAtPutFretCore(fret) {
   if (ok) tabAtRender(editor);
 }
 
-// Ввод лада: вторая цифра в течение окна даёт 10–24 и заменяет первую,
-// не создавая отдельного шага отмены (в задании — «одна Undo»).
+// Ввод лада. Как в Guitar Pro: цифра сразу ставит ноту, а курсор через
+// мгновение уходит на следующую долю. Небольшая задержка нужна для
+// двузначного лада: 1 → 12 складываются в один лад и один шаг отмены.
+const TAB_AT_MERGE_MS = 600;
 let tabAtMergeHistory = false;
+let tabAtAdvanceTimer = null;
+
+function tabAtCancelAdvance() {
+  if (tabAtAdvanceTimer) { clearTimeout(tabAtAdvanceTimer); tabAtAdvanceTimer = null; }
+}
+
+function tabAtScheduleAdvance(start) {
+  tabAtCancelAdvance();
+  tabAtAdvanceTimer = setTimeout(() => {
+    tabAtAdvanceTimer = null;
+    const editor = tabInsertEditorState;
+    if (!editor || Math.abs(tabAtCursor.start - start) > TAB_AT_EPS) return;
+    const note = editor.draft.notes.find(n => Math.abs(n.start - start) < TAB_AT_EPS && !n.pause);
+    if (note) tabAtAdvance(note);
+  }, TAB_AT_MERGE_MS + 60);
+}
+
 function tabAtInputFret(digit) {
   const editor = tabInsertEditorState;
   if (!editor || !Number.isInteger(digit)) return;
   const now = Date.now();
+  const start = tabAtCursor.start, string = tabAtCursor.string;
   let fret = digit;
   let merge = false;
-  if (tabAtLastDigit && now - tabAtLastDigit.at <= 700 &&
-      Math.abs(tabAtLastDigit.start - tabAtCursor.start) < TAB_AT_EPS &&
-      tabAtLastDigit.string === tabAtCursor.string) {
+  if (tabAtLastDigit && now - tabAtLastDigit.at <= TAB_AT_MERGE_MS &&
+      Math.abs(tabAtLastDigit.start - start) < TAB_AT_EPS &&
+      tabAtLastDigit.string === string) {
     const combined = tabAtLastDigit.fret * 10 + digit;
     if (combined <= 24) { fret = combined; merge = true; }
   }
-  tabAtLastDigit = { fret, start: tabAtCursor.start, string: tabAtCursor.string, at: now };
+  tabAtLastDigit = { fret, start, string, at: now };
+  // Доля уже занята: это созвучие или правка ноты — курсор не уводим.
+  const occupied = editor.draft.notes.some(n => Math.abs(n.start - start) < TAB_AT_EPS && !n.pause);
   tabAtMergeHistory = merge;
   tabAtPutFret(fret);
   tabAtMergeHistory = false;
+  if (merge) tabAtScheduleAdvance(start);
+  else if (!occupied) tabAtScheduleAdvance(start);
+  else tabAtCancelAdvance();
 }
 
 function tabAtDeleteAtCursor() {
@@ -21236,9 +21292,9 @@ function renderTabInsertEditor(editor) {
       </div>
     </div>
     <p class="tab-editor-hint">
-      Цифры — лад (две подряд: 10–24) · <kbd>↑</kbd>/<kbd>↓</kbd> струна ·
-      <kbd>←</kbd>/<kbd>→</kbd> доля · <kbd>R</kbd> пауза · <kbd>−</kbd>/<kbd>=</kbd> длительность ·
-      <kbd>.</kbd> точка · <kbd>/</kbd> триоль · <kbd>Delete</kbd> удалить
+      Цифры — лад, курсор идёт дальше сам · <kbd>↑</kbd><kbd>↓</kbd> струна ·
+      <kbd>←</kbd><kbd>→</kbd> доля · <kbd>−</kbd><kbd>=</kbd> длительность ·
+      <kbd>.</kbd> точка · <kbd>/</kbd> триоль · <kbd>R</kbd> пауза · <kbd>Delete</kbd> удалить
     </p>
     <div class="tab-editor-fallback" data-tab-fallback hidden>
       <div class="tab-editor-preview">${renderTabInsertHtml(sec, editor.draft, ts, false)}</div>
@@ -21314,6 +21370,7 @@ function openTabInsertEditor(secId, sqId, options) {
     tabAtScaleIndex = 0;
     tabAtMountedOnce = false;
     tabAtLastDigit = null;
+    tabAtCancelAdvance();
     overlay.remove(); tabInsertEditorState = null;
   };
   overlay.addEventListener('click', event => {
