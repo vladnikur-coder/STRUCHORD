@@ -14207,7 +14207,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.671</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.672</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20593,6 +20593,15 @@ function tabAtBuildScore(alphaTab, draft, sec) {
   const layout = tabAtLayout(draft.notes, draft.beats, ts);
   const score = new M.Score();
   score.title = '';
+  // Номер такта, строй и имя дорожки над станом здесь лишние: тактов 1–4,
+  // дорожка одна, а метка курсора уже говорит «такт 1, доля …».
+  // Это свойства стиля партитуры, а не настроек отрисовщика.
+  try {
+    score.stylesheet.barNumberDisplay = 2;            // Hide
+    score.stylesheet.globalDisplayTuning = false;
+    score.stylesheet.singleTrackTrackNamePolicy = 0;  // Hidden
+    score.stylesheet.multiTrackTrackNamePolicy = 0;
+  } catch (_) {}
   const track = new M.Track();
   track.name = '';
   score.addTrack(track);
@@ -20601,7 +20610,7 @@ function tabAtBuildScore(alphaTab, draft, sec) {
   staff.showTablature = true;
   const tuning = tabAtTuningNotes();
   try {
-    staff.stringTuning = new M.Tuning('Строй песни', tuning.map(partsAtNoteMidi), true);
+    staff.stringTuning = new M.Tuning('Строй песни', tuning.map(partsAtNoteMidi), false);
   } catch (_) {}
   if (!track.staves.length) track.addStaff(staff);
   const barObjs = layout.bars.map(() => {
@@ -20665,47 +20674,43 @@ function tabAtSettings(alphaTab, scale) {
   // Один такт — это и первая, и последняя система: без justifyLastSystem
   // alphaTab оставил бы справа пустое место, а не растянул строку.
   settings.display.justifyLastSystem = true;
-  // Номер такта над станом здесь лишний: в редакторе 1–4 такта, и метка
-  // курсора уже говорит «такт 1, доля …».
-  try { settings.notation.barNumberDisplay = 2; } catch (_) {}
-  // «Строй песни» над станом здесь лишний: в редакторе одна дорожка.
-  try {
-    settings.display.singleTrackTrackNamePolicy = 0;
-    settings.display.multiTrackTrackNamePolicy = 0;
-    settings.display.firstTrackTrackNamePolicy = 0;
-  } catch (_) {}
+
   settings.notation.rhythmMode = alphaTab.TabRhythmMode.ShowWithBeams;
   return settings;
 }
 
 // Геометрия строк таба: alphaTab отдаёт noteHeadBounds для каждой ноты,
 // из них получаем зависимость y от номера струны (1 — тонкая).
-function tabAtStringGeometry(api) {
-  const points = [];
-  const lb = api && api.boundsLookup;
-  if (!lb || !Array.isArray(lb.staffSystems)) return null;
-  lb.staffSystems.forEach(sys => (sys.bars || []).forEach(sb => (sb.bars || []).forEach(barBounds => {
-    (barBounds.beats || []).forEach(bb => (bb.notes || []).forEach(nb => {
-      if (nb.note && nb.noteHeadBounds) points.push({ string: nb.note.string, y: nb.noteHeadBounds.y + nb.noteHeadBounds.h / 2 });
-    }));
-  })));
-  if (points.length >= 2) {
-    const uniq = new Map();
-    points.forEach(pt => { if (!uniq.has(pt.string) || uniq.get(pt.string) > pt.y) uniq.set(pt.string, pt.y); });
-    const arr = Array.from(uniq.entries()).sort((a, b) => a[0] - b[0]);
-    if (arr.length >= 2) {
-      const [s1, y1] = arr[0], [s2, y2] = arr[arr.length - 1];
-      if (s2 !== s1) return { yAt: string => y1 + ((y2 - y1) * (string - s1)) / (s2 - s1), gap: Math.abs(y2 - y1) / Math.abs(s2 - s1) };
-    }
-    // Одна нота — уже лучше, чем «середина стана»: расстояние между
-    // струнами берём типовое для текущего масштаба.
-    if (arr.length === 1) {
-      const [s1, y1] = arr[0];
-      const gap = 9 * (HOST_SCALE_HINT || 1);
-      return { yAt: string => y1 + (string - s1) * gap, gap, approx: true };
-    }
+// Геометрия струн. alphaTab отдаёт noteHeadBounds каждой ноты; привязываем
+// их к системе координат, в которой стоит нужный такт: на втором-четвёртом
+// такте строка рисуется ниже, и общая подгонка по всему стану промахивалась
+// бы по вертикали на высоту системы.
+function tabAtGeometryFromPoints(points) {
+  const uniq = new Map();
+  points.forEach(pt => { if (!uniq.has(pt.string) || uniq.get(pt.string) > pt.y) uniq.set(pt.string, pt.y); });
+  const arr = Array.from(uniq.entries()).sort((a, b) => a[0] - b[0]);
+  if (arr.length >= 2) {
+    const [s1, y1] = arr[0], [s2, y2] = arr[arr.length - 1];
+    if (s2 !== s1) return { yAt: string => y1 + ((y2 - y1) * (string - s1)) / (s2 - s1), gap: Math.abs(y2 - y1) / Math.abs(s2 - s1) };
+  }
+  // Одна нота — уже лучше, чем «середина стана»: расстояние между струнами
+  // берём типовое для текущего масштаба.
+  if (arr.length === 1) {
+    // Одна нота: расстояние между струнами типовое для масштаба, а номер
+    // струны растёт вверх — значит y уменьшается.
+    const [s1, y1] = arr[0];
+    const gap = 13 * (HOST_SCALE_HINT || 1);
+    return { yAt: string => y1 - (string - s1) * gap, gap, approx: true };
   }
   return null;
+}
+
+function tabAtHeadPoints(barBounds) {
+  const points = [];
+  (barBounds && barBounds.beats || []).forEach(bb => (bb.notes || []).forEach(nb => {
+    if (nb.note && nb.noteHeadBounds) points.push({ string: nb.note.string, y: nb.noteHeadBounds.y + nb.noteHeadBounds.h / 2 });
+  }));
+  return points;
 }
 
 function tabAtBarBounds(api, barIndex) {
@@ -20721,6 +20726,96 @@ function tabAtBarBounds(api, barIndex) {
   return null;
 }
 
+// Реальные границы доли. alphaTab расставляет доли неравномерно (первая
+// начинается после ключа, у нот разная ширина), поэтому линейная доля от
+// ширины такта даёт промах до 60 px. Берём x самой доли.
+function tabAtBeatBoundsAt(api, start) {
+  const st = tabAtState;
+  const lb = api && api.boundsLookup;
+  if (!st || !lb || !Array.isArray(lb.staffSystems)) return null;
+  for (const sys of lb.staffSystems) {
+    for (const sb of (sys.bars || [])) {
+      for (const barBounds of (sb.bars || [])) {
+        for (const bb of (barBounds.beats || [])) {
+          const info = bb.beat && st.beatInfo.get(bb.beat);
+          if (!info || !bb.visualBounds) continue;
+          if (Math.abs(info.start - start) < TAB_AT_EPS) return bb;
+        }
+      }
+    }
+  }
+  return null;
+}
+
+// Все доли с их настоящими x — нужны, когда точного попадания нет
+// (курсор между записанными долями) и для перехода между соседними.
+function tabAtBeatAnchors(api) {
+  const st = tabAtState;
+  const lb = api && api.boundsLookup;
+  const out = [];
+  if (!st || !lb || !Array.isArray(lb.staffSystems)) return out;
+  for (const sys of lb.staffSystems) {
+    for (const sb of (sys.bars || [])) {
+      for (const barBounds of (sb.bars || [])) {
+        for (const bb of (barBounds.beats || [])) {
+          const info = bb.beat && st.beatInfo.get(bb.beat);
+          const vb = bb.visualBounds;
+          if (!info || !vb) continue;
+          out.push({ start: info.start, x: vb.x + vb.w / 2 });
+        }
+      }
+    }
+  }
+  return out.sort((a, b) => a.start - b.start);
+}
+
+function tabAtSystemOfBar(api, barIndex) {
+  const lb = api && api.boundsLookup;
+  if (!lb || !Array.isArray(lb.staffSystems)) return null;
+  for (const sys of lb.staffSystems) {
+    for (const sb of (sys.bars || [])) {
+      for (const barBounds of (sb.bars || [])) {
+        if (barBounds.bar && barBounds.bar.index === barIndex) return sys;
+      }
+    }
+  }
+  return null;
+}
+
+function tabAtSystemHeadPoints(sys) {
+  const points = [];
+  if (!sys) return points;
+  (sys.bars || []).forEach(sb => (sb.bars || []).forEach(barBounds => {
+    points.push(...tabAtHeadPoints(barBounds));
+  }));
+  return points;
+}
+
+// Геометрия строки: сначала ищем ноты в той же системе, что и такт. Если
+// система пустая — берём первую систему и сдвигаем на разницу по вертикали:
+// сравнивать координаты нот из разных систем нельзя, они уже сдвинуты.
+function tabAtStringGeometry(api, barIndex) {
+  const lb = api && api.boundsLookup;
+  if (!lb || !Array.isArray(lb.staffSystems)) return null;
+  if (Number.isInteger(barIndex)) {
+    const sys = tabAtSystemOfBar(api, barIndex);
+    if (sys) {
+      const local = tabAtGeometryFromPoints(tabAtSystemHeadPoints(sys));
+      if (local) return local;
+      const first = lb.staffSystems[0];
+      const ref = first ? tabAtGeometryFromPoints(tabAtSystemHeadPoints(first)) : null;
+      if (ref) {
+        const shift = (sys.visualBounds ? sys.visualBounds.y : 0) - (first.visualBounds ? first.visualBounds.y : 0);
+        return { yAt: string => ref.yAt(string) + shift, gap: ref.gap, approx: true, shifted: shift };
+      }
+      return null;
+    }
+  }
+  const all = [];
+  lb.staffSystems.forEach(sys => all.push(...tabAtSystemHeadPoints(sys)));
+  return tabAtGeometryFromPoints(all);
+}
+
 function tabAtCursorPosition(api) {
   const st = tabAtState;
   if (!st || !api) return null;
@@ -20731,11 +20826,41 @@ function tabAtCursorPosition(api) {
   const bounds = tabAtBarBounds(api, barIndex);
   const host = tabAtHostEl;
   if (!bounds || !host) return null;
-  const x = bounds.x + bounds.w * Math.max(0, Math.min(1, ratio));
-  const geom = tabAtStringGeometry(api);
+
+  let x = null;
   const atString = 1 + Math.max(0, Math.min(5, tabAtCursor.string));
-  const y = geom ? geom.yAt(atString) : bounds.y + bounds.h * 0.5;
-  return { x, y, top: bounds.y, height: bounds.h, barIndex };
+  let noteY = null, noteH = null;
+  const beat = tabAtBeatBoundsAt(api, tabAtCursor.start);
+  if (beat) {
+    x = beat.visualBounds.x + beat.visualBounds.w / 2;
+    // Если на этой доле уже стоит нота на струне курсора, точка садится
+    // ровно на её головку — так курсор и цифра совпадают.
+    for (const nb of (beat.notes || [])) {
+      if (!nb.note || !nb.noteHeadBounds || nb.note.string !== atString) continue;
+      noteY = nb.noteHeadBounds.y + nb.noteHeadBounds.h / 2;
+      noteH = nb.noteHeadBounds.h;
+      break;
+    }
+  } else {
+    const anchors = tabAtBeatAnchors(api);
+    if (anchors.length) {
+      let prev = anchors[0], next = anchors[anchors.length - 1];
+      for (const a of anchors) { if (a.start <= tabAtCursor.start + TAB_AT_EPS) prev = a; }
+      for (let i = anchors.length - 1; i >= 0; i--) { if (anchors[i].start >= tabAtCursor.start - TAB_AT_EPS) next = anchors[i]; }
+      if (prev.start === next.start) x = prev.x;
+      else {
+        const t = (tabAtCursor.start - prev.start) / (next.start - prev.start);
+        x = prev.x + (next.x - prev.x) * Math.max(0, Math.min(1, t));
+      }
+      if (x < bounds.x) x = bounds.x;
+      if (x > bounds.x + bounds.w) x = bounds.x + bounds.w;
+    }
+  }
+  if (x == null) x = bounds.x + bounds.w * Math.max(0, Math.min(1, ratio));
+
+  const geom = tabAtStringGeometry(api, barIndex);
+  const y = noteY != null ? noteY : (geom ? geom.yAt(atString) : bounds.y + bounds.h * 0.5);
+  return { x, y, top: bounds.y, height: bounds.h, barIndex, noteH };
 }
 
 function tabAtPlaceCursor() {

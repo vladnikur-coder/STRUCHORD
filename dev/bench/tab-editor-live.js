@@ -1,12 +1,13 @@
 #!/usr/bin/env node
-/* Приёмка 0.671: ввод в редакторе «Таб-вставка» как в Guitar Pro.
+/* Приёмка 0.672: ввод в редакторе «Таб-вставка» как в Guitar Pro
+ * и совпадение курсора с напечатанными цифрами лада.
  *
  * На компьютере панели кнопок нет — только стан и клавиатура; цифра ставит
  * лад и курсор сам уходит на следующую долю. Панель кнопок остаётся на
  * телефоне, там проверяются тапы.
  *
  *   STRUCHORD_URL=http://127.0.0.1:8000/STRUCHORD.html \
- *   LD_LIBRARY_PATH=/tmp/libs/lib node dev/bench/tab-editor-0.671-live.js
+ *   LD_LIBRARY_PATH=/tmp/libs/lib node dev/bench/tab-editor-live.js
  */
 const fs = require('fs');
 const path = require('path');
@@ -15,7 +16,7 @@ const crypto = require('crypto');
 const puppeteer = require('puppeteer-core');
 
 const root = path.join(__dirname, '..', '..');
-const output = path.resolve(process.env.B12_TAB_RESULTS || path.join(__dirname, 'results', 'tab-editor-0.671'));
+const output = path.resolve(process.env.B12_TAB_RESULTS || path.join(__dirname, 'results', 'tab-editor-0.672'));
 const base = process.env.STRUCHORD_URL || 'http://127.0.0.1:8000/STRUCHORD.html';
 const htmlBytes = fs.readFileSync(path.join(root, 'STRUCHORD.html'));
 const artifact = { sha256: crypto.createHash('sha256').update(htmlBytes).digest('hex'), bytes: htmlBytes.length };
@@ -162,6 +163,90 @@ async function openEditor(page) {
     await page.evaluate(() => tabAtSetCursor(0, 0));
     await settle(200);
     await page.screenshot({ path: path.join(output, 'e02-typed.png') });
+
+    // 4b. Курсор стоит ровно там, где напечатана цифра лада.
+    const sync = await page.evaluate(() => {
+      const host = document.querySelector('.tab-at-host');
+      const rows = [];
+      for (const start of [0, 1, 2, 3]) {
+        tabAtSetCursor(start, 0);
+        const line = host.querySelector('.tab-at-cursor');
+        const bb = tabAtBeatBoundsAt(tabAtApi, start);
+        if (!bb) { rows.push({ start, missing: true }); continue; }
+        const headX = bb.visualBounds.x + bb.visualBounds.w / 2;
+        rows.push({
+          start,
+          cursorX: Math.round(parseFloat(line.style.left)),
+          digitX: Math.round(headX),
+          delta: Math.round(Math.abs(parseFloat(line.style.left) - headX)),
+        });
+      }
+      const bar = tabAtBarBounds(tabAtApi, 0);
+      const naive = x => Math.round(bar.x + bar.w * (x / 4));
+      return { rows, naive: rows.map(r => (r.missing ? null : Math.round(Math.abs(naive(r.start) - r.digitX)))) };
+    });
+    measurements.cursorSync = sync;
+    check('курсор стоит на каждой напечатанной цифре (промах ≤ 3 px)',
+      sync.rows.every(r => !r.missing && r.delta <= 3), sync.rows.map(r => [r.start, r.cursorX, r.digitX, r.delta]));
+    check('прежняя линейная раскладка промахивалась сильнее — регрессия закрыта',
+      sync.naive.some(d => d !== null && d > 10), sync.naive);
+
+    // 4c. Четыре такта: курсор остаётся в своей системе и на своей доле.
+    await page.evaluate(() => {
+      const ed = tabInsertEditorState;
+      tabInsertSetBeats(ed.secId, ed.sqId, 16);
+    });
+    await wait(1200);
+    await page.evaluate(() => {
+      const ed = tabInsertEditorState;
+      ed.draft.notes = [
+        { start: 0, string: 0, fret: 5, dur: 1 },
+        { start: 5, string: 2, fret: 3, dur: 1 },
+        { start: 9, string: 1, fret: 7, dur: 1 },
+        { start: 14, string: 4, fret: 2, dur: 1 },
+      ];
+      tabAtRender(ed);
+    });
+    await wait(1500);
+    const multi = await page.evaluate(() => {
+      const host = document.querySelector('.tab-at-host');
+      const rows = [];
+      for (const [start, string] of [[0, 0], [5, 2], [9, 1], [14, 4]]) {
+        tabAtSetCursor(start, string);
+        const line = host.querySelector('.tab-at-cursor');
+        const dot = host.querySelector('.tab-at-cursor-dot');
+        const bb = tabAtBeatBoundsAt(tabAtApi, start);
+        const bar = tabAtBarBounds(tabAtApi, Math.floor(start / 4));
+        rows.push({
+          start,
+          dx: bb ? Math.round(Math.abs(parseFloat(line.style.left) - (bb.visualBounds.x + bb.visualBounds.w / 2))) : null,
+          dotY: Math.round(parseFloat(dot.style.top)),
+          barTop: bar ? Math.round(bar.y) : null,
+          barBottom: bar ? Math.round(bar.y + bar.h) : null,
+        });
+      }
+      return { bars: tabAtState.barCount, rows };
+    });
+    measurements.multiBar = multi;
+    check('четыре такта: на каждой доле курсор совпадает с цифрой',
+      multi.bars === 4 && multi.rows.every(r => r.dx !== null && r.dx <= 3), multi.rows);
+    check('четыре такта: точка курсора не уезжает в чужую систему',
+      multi.rows.every(r => r.dotY >= r.barTop - 2 && r.dotY <= r.barBottom + 2),
+      multi.rows.map(r => [r.start, r.dotY, r.barTop, r.barBottom]));
+    await page.screenshot({ path: path.join(output, 'e07-multibar.png') });
+    // Сначала убираем ноты за первым тактом, потом сокращаем длину.
+    await page.evaluate(() => {
+      const ed = tabInsertEditorState;
+      ed.draft.notes = ed.draft.notes.filter(n => n.start < 4);
+      tabAtRender(ed);
+    });
+    await wait(600);
+    await page.evaluate(() => {
+      const ed = tabInsertEditorState;
+      tabInsertSetBeats(ed.secId, ed.sqId, 4);
+      tabAtSetCursor(0, 0);
+    });
+    await wait(1000);
 
     // 5. Клик по стану и ввод в месте клика.
     const box = await (await page.$('.tab-at-host')).boundingBox();
