@@ -14219,7 +14219,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.674</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.675</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20766,7 +20766,7 @@ function tabAtBeatBoundsAt(api, start) {
 
 // Все доли с их настоящими x — нужны, когда точного попадания нет
 // (курсор между записанными долями) и для перехода между соседними.
-function tabAtBeatAnchors(api) {
+function tabAtBeatAnchors(api, barIndex) {
   const st = tabAtState;
   const lb = api && api.boundsLookup;
   const out = [];
@@ -20774,6 +20774,7 @@ function tabAtBeatAnchors(api) {
   for (const sys of lb.staffSystems) {
     for (const sb of (sys.bars || [])) {
       for (const barBounds of (sb.bars || [])) {
+        if (Number.isInteger(barIndex) && barBounds.bar.index !== barIndex) continue;
         for (const bb of (barBounds.beats || [])) {
           const info = bb.beat && st.beatInfo.get(bb.beat);
           const vb = bb.visualBounds;
@@ -20782,6 +20783,12 @@ function tabAtBeatAnchors(api) {
         }
       }
     }
+  }
+  if (Number.isInteger(barIndex) && out.length) {
+    const bounds = tabAtBarBounds(api, barIndex);
+    // Конец такта — временной якорь, не новая нота. Без него на пустом
+    // такте есть только один якорь (целая пауза), и стрелки «стоят» на месте.
+    out.push({ start: (barIndex + 1) * st.unitsPerBar, x: bounds.x + bounds.w - 8 });
   }
   return out.sort((a, b) => a.start - b.start);
 }
@@ -20825,6 +20832,8 @@ function tabAtStringGeometry(api, barIndex) {
         const shift = (sys.visualBounds ? sys.visualBounds.y : 0) - (first.visualBounds ? first.visualBounds.y : 0);
         return { yAt: string => ref.yAt(string) + shift, gap: ref.gap, approx: true, shifted: shift };
       }
+      const bounds = tabAtBarBounds(api, barIndex);
+      if (bounds) return { yAt: string => bounds.y + bounds.h * (6 - string) / 5, gap: bounds.h / 5 };
       return null;
     }
   }
@@ -20859,7 +20868,7 @@ function tabAtCursorPosition(api) {
       break;
     }
   } else {
-    const anchors = tabAtBeatAnchors(api);
+    const anchors = tabAtBeatAnchors(api, barIndex);
     if (anchors.length) {
       let prev = anchors[0], next = anchors[anchors.length - 1];
       for (const a of anchors) { if (a.start <= tabAtCursor.start + TAB_AT_EPS) prev = a; }
@@ -20935,11 +20944,11 @@ function tabAtRefreshReadout() {
 function tabAtSetCursor(start, string) {
   const st = tabAtState;
   if (!st) return;
-  tabAtCancelAdvance();
-  const step = st.unitsPerBar / 16;
-  const snapped = Math.round(Math.max(0, Math.min(st.beats - step, start)) / step) * step;
+  // Не округляем к шестнадцатым: выбранная длительность может быть
+  // 1/64 или триолью. Клик сам выбирает сетку, стрелки — точный шаг.
+  tabAtLastDigit = null;
   tabAtCursor = {
-    start: Math.round(snapped * 1e9) / 1e9,
+    start: Math.round(Math.max(0, Math.min(st.beats - TAB_AT_EPS, start)) * 1e9) / 1e9,
     string: Math.max(0, Math.min(5, Number.isInteger(string) ? string : tabAtCursor.string)),
   };
   tabAtPullInputAtCursor();
@@ -20955,23 +20964,6 @@ function tabAtPullInputAtCursor() {
   tabAtInput.dValue = at.d;
   tabAtInput.dots = at.dots || 0;
   tabAtInput.triplet = !!at.triplet;
-}
-
-// Как в Guitar Pro: после ввода лада курсор сам идёт на следующую долю —
-// ровно на длину только что записанной ноты. Если нота добавилась к уже
-// существующей доле (созвучие), курсор остаётся: можно доставить струны.
-function tabAtAdvance(note) {
-  const st = tabAtState;
-  if (!st || !note) return;
-  const step = st.unitsPerBar / 16;
-  const limit = Math.max(0, st.beats - Math.min(step, tabInsertNoteDuration(note)));
-  const raw = tabAtCursor.start + tabInsertNoteDuration(note);
-  const start = Math.round(Math.min(raw, limit) * 1e9) / 1e9;
-  tabAtCursor = { start, string: tabAtCursor.string };
-  tabAtLastDigit = null;
-  tabAtPullInputAtCursor();
-  tabAtPlaceCursor();
-  tabAtRefreshReadout();
 }
 
 function tabAtInfoAt(start) {
@@ -21091,48 +21083,40 @@ function tabAtFitWidth() {
   tabAtApi.render();
 }
 
-// Попадание клика: сначала по готовым границам битов, потом по геометрии
-// такта (пустое место в такте — тоже осмысленный клик).
+// Клик и курсор используют одну шкалу времени в СВОЁМ такте/системе.
+// Длинная пауза не должна поглощать клик по любой точке пустого такта.
 function tabAtHitTest(x, y) {
   const api = tabAtApi, st = tabAtState;
   if (!api || !st) return null;
-  const lb = api.boundsLookup;
-  let best = null;
-  if (lb && Array.isArray(lb.staffSystems)) {
-    lb.staffSystems.forEach(sys => (sys.bars || []).forEach(sb => (sb.bars || []).forEach(barBounds => {
-      const barIndex = barBounds.bar ? barBounds.bar.index : 0;
-      (barBounds.beats || []).forEach(bb => {
-        const info = bb.beat && st.beatInfo.get(bb.beat);
-        if (!info) return;
-        const vb = bb.visualBounds;
-        if (!vb) return;
-        const dx = x < vb.x ? vb.x - x : x > vb.x + vb.w ? x - (vb.x + vb.w) : 0;
-        if (!best || dx < best.dx) best = { dx, start: info.start, barIndex };
-      });
-    })));
+  let barIndex = -1, distance = Infinity;
+  for (let b = 0; b < st.barCount; b++) {
+    const bounds = tabAtBarBounds(api, b);
+    if (!bounds || x < bounds.x - 2 || x > bounds.x + bounds.w + 2) continue;
+    const dy = Math.max(bounds.y - y, y - bounds.y - bounds.h, 0);
+    if (dy <= 16 && dy < distance) { barIndex = b; distance = dy; }
   }
-  let start = null, barIndex = 0;
-  if (best && best.dx <= 40) { start = best.start; barIndex = best.barIndex; }
+  if (barIndex < 0) return null;
+  const anchors = tabAtBeatAnchors(api, barIndex);
+  if (!anchors.length) return null;
+  let start = anchors[0].start;
+  const exact = anchors.slice(0, -1).sort((a, b) => Math.abs(a.x - x) - Math.abs(b.x - x)).find(a => Math.abs(a.x - x) <= 10);
+  if (exact) start = exact.start;
   else {
-    const step = st.unitsPerBar / 16;
-    for (let b = 0; b < st.barCount; b++) {
-      const bounds = tabAtBarBounds(api, b);
-      if (!bounds) continue;
-      if (x >= bounds.x - 2 && x <= bounds.x + bounds.w + 2) {
-        barIndex = b;
-        const ratio = Math.max(0, Math.min(1, (x - bounds.x) / Math.max(1, bounds.w)));
-        start = Math.round((b * st.unitsPerBar + ratio * st.unitsPerBar) / step) * step;
+    for (let i = 1; i < anchors.length; i++) {
+      const left = anchors[i - 1], right = anchors[i];
+      if (x <= right.x || i === anchors.length - 1) {
+        const ratio = Math.max(0, Math.min(1, (x - left.x) / Math.max(1, right.x - left.x)));
+        const step = st.unitsPerBar / 16;
+        start = Math.round((left.start + ratio * (right.start - left.start)) / step) * step;
         break;
       }
     }
   }
-  if (start === null) return null;
-  const geom = tabAtStringGeometry(api);
-  let string = tabAtCursor.string;
-  if (geom) {
-    const atString = Math.round((y - geom.yAt(0)) / (geom.yAt(1) - geom.yAt(0)));
-    if (Number.isFinite(atString)) string = Math.max(0, Math.min(5, 6 - Math.max(1, Math.min(6, atString))));
-  }
+  // Сетка ограничивает только пустое место, не точное время записанной ноты.
+  const limit = (barIndex + 1) * st.unitsPerBar - (exact ? TAB_AT_EPS : st.unitsPerBar / 16);
+  start = Math.max(barIndex * st.unitsPerBar, Math.min(limit, start));
+  const geom = tabAtStringGeometry(api, barIndex);
+  const string = geom ? Math.max(0, Math.min(5, Math.round((y - geom.yAt(1)) / (geom.yAt(2) - geom.yAt(1))))) : tabAtCursor.string;
   return { start: Math.round(start * 1e9) / 1e9, string };
 }
 
@@ -21233,27 +21217,9 @@ function tabAtPutFretCore(fret) {
   if (ok) tabAtRender(editor);
 }
 
-// Ввод лада. Как в Guitar Pro: цифра сразу ставит ноту, а курсор через
-// мгновение уходит на следующую долю. Небольшая задержка нужна для
-// двузначного лада: 1 → 12 складываются в один лад и один шаг отмены.
+// Две быстрые цифры — один лад, но курсор никогда не уходит сам.
 const TAB_AT_MERGE_MS = 600;
 let tabAtMergeHistory = false;
-let tabAtAdvanceTimer = null;
-
-function tabAtCancelAdvance() {
-  if (tabAtAdvanceTimer) { clearTimeout(tabAtAdvanceTimer); tabAtAdvanceTimer = null; }
-}
-
-function tabAtScheduleAdvance(start) {
-  tabAtCancelAdvance();
-  tabAtAdvanceTimer = setTimeout(() => {
-    tabAtAdvanceTimer = null;
-    const editor = tabInsertEditorState;
-    if (!editor || Math.abs(tabAtCursor.start - start) > TAB_AT_EPS) return;
-    const note = editor.draft.notes.find(n => Math.abs(n.start - start) < TAB_AT_EPS && !n.pause);
-    if (note) tabAtAdvance(note);
-  }, TAB_AT_MERGE_MS + 60);
-}
 
 function tabAtInputFret(digit) {
   const editor = tabInsertEditorState;
@@ -21269,14 +21235,9 @@ function tabAtInputFret(digit) {
     if (combined <= 24) { fret = combined; merge = true; }
   }
   tabAtLastDigit = { fret, start, string, at: now };
-  // Доля уже занята: это созвучие или правка ноты — курсор не уводим.
-  const occupied = editor.draft.notes.some(n => Math.abs(n.start - start) < TAB_AT_EPS && !n.pause);
   tabAtMergeHistory = merge;
   tabAtPutFret(fret);
   tabAtMergeHistory = false;
-  if (merge) tabAtScheduleAdvance(start);
-  else if (!occupied) tabAtScheduleAdvance(start);
-  else tabAtCancelAdvance();
 }
 
 function tabAtDeleteAtCursor() {
@@ -21348,9 +21309,12 @@ function tabAtToggleFlag(kind) {
 function tabAtMove(delta) {
   const st = tabAtState;
   if (!st) return;
-  const step = st.unitsPerBar / 16;
-  const start = Math.round((tabAtCursor.start + delta * step) / step) * step;
-  tabAtSetCursor(Math.max(0, Math.min(st.beats - step, start)), tabAtCursor.string);
+  const step = tabInsertNoteDuration(tabAtInputNotation(st.ts));
+  const start = Math.round((tabAtCursor.start + delta * step) * 1e9) / 1e9;
+  // Не делаем укороченный «последний шаг»: у границы просто остаёмся
+  // на месте. Это сохраняет ровно выбранную длительность, включая триоли.
+  if (start < -TAB_AT_EPS || start >= st.beats - TAB_AT_EPS) return;
+  tabAtSetCursor(Math.max(0, start), tabAtCursor.string);
 }
 
 function tabAtMoveString(delta) {
@@ -21440,11 +21404,11 @@ function renderTabInsertEditor(editor) {
       </div>
     </div>
     <p class="tab-editor-hint">
-      Цифры — лад, курсор идёт дальше сам · <kbd>↑</kbd><kbd>↓</kbd> струна ·
-      <kbd>←</kbd><kbd>→</kbd> доля · <kbd>−</kbd><kbd>=</kbd> длительность ·
+      Цифры — лад, курсор остаётся на месте · <kbd>↑</kbd><kbd>↓</kbd> струна ·
+      <kbd>←</kbd><kbd>→</kbd> на выбранную длительность · <kbd>−</kbd><kbd>=</kbd> длительность ·
       <kbd>.</kbd> точка · <kbd>/</kbd> триоль · <kbd>R</kbd> пауза · <kbd>Delete</kbd> удалить.<br>
       <strong>Лады 10–24:</strong> две цифры быстро подряд (1 → 2 = 12).<br>
-      <strong>Созвучие:</strong> ←/→ вернитесь на долю первой ноты, ↑/↓ выберите другую струну и введите лад.
+      <strong>Созвучие:</strong> не меняя долю, ↑/↓ выберите другую струну и введите лад.
       Кнопки панели работают так же, как клавиши. Следующие струны добавляются на той же доле.
     </p>
     <div class="tab-editor-fallback" data-tab-fallback hidden>
@@ -21521,7 +21485,6 @@ function openTabInsertEditor(secId, sqId, options) {
     tabAtScaleIndex = 0;
     tabAtMountedOnce = false;
     tabAtLastDigit = null;
-    tabAtCancelAdvance();
     overlay.remove(); tabInsertEditorState = null;
   };
   overlay.addEventListener('click', event => {

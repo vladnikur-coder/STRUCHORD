@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-/* Приёмка 0.672: ввод в редакторе «Таб-вставка» как в Guitar Pro
+/* Приёмка 0.675: ручной ввод в редакторе «Таб-вставка» как в Guitar Pro
  * и совпадение курсора с напечатанными цифрами лада.
  *
  * На компьютере панели кнопок нет — только стан и клавиатура; цифра ставит
- * лад и курсор сам уходит на следующую долю. Панель кнопок остаётся на
+ * лад, курсор остаётся; стрелки — на выбранную длительность. Панель кнопок остаётся на
  * телефоне, там проверяются тапы.
  *
  *   STRUCHORD_URL=http://127.0.0.1:8000/STRUCHORD.html \
@@ -90,31 +90,34 @@ async function openEditor(page) {
     check('по умолчанию выбрана 1/4', measurements.mount.cursor && (await page.evaluate(() => tabAtInput.dValue)) === 4);
     await page.screenshot({ path: path.join(output, 'e01-empty.png') });
 
-    // 1. Цифра ставит ноту и сама уводит курсор дальше — как в GP.
+    // 1. Цифра ставит ноту и оставляет курсор на месте.
     await page.keyboard.press('Digit5');
     await settle();
     let st = await stateOf(page);
     check('цифра 5 ставит ноту лада 5 на шестой струне',
       st.notes.length === 1 && st.notes[0].fret === 5 && st.notes[0].string === 0, st.notes);
-    check('после ввода курсор сам перешёл на следующую долю (1/4)',
-      st.cursor.start === 1, st.cursor);
+    check('после ввода курсор остался на месте',
+      st.cursor.start === 0, st.cursor);
 
-    // 2. Набор подряд: 3, 12, 0 без единой стрелки.
+    // 2. Набор 3, 12, 0 с явными стрелками.
+    await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Digit3');
     await settle();
+    await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Digit1');
     await page.keyboard.press('Digit2');
     await settle();
+    await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Digit0');
     await settle();
     st = await stateOf(page);
     measurements.typed = st.notes;
-    check('набор подряд без стрелок даёт четыре ноты подряд',
+    check('ввод с явными стрелками даёт четыре последовательные ноты',
       st.notes.length === 4, st.notes.map(n => [n.start, n.fret]));
     check('две цифры подряд складываются в лад 12', st.notes.some(n => n.fret === 12), st.notes.map(n => n.fret));
     check('позиции идут по длительности четверти', st.notes.map(n => n.start).join(',') === '0,1,2,3', st.notes.map(n => n.start));
     check('после четвёртой ноты курсор остановился в конце такта, а не ушёл за него',
-      st.cursor.start === 3.75 && st.cursor.string === 0, st.cursor);
+      st.cursor.start === 3 && st.cursor.string === 0, st.cursor);
 
     // 3. Двузначный лад — один шаг отмены.
     const historyBeforeDouble = await page.evaluate(() => tabInsertEditorState.history.length);
@@ -142,16 +145,15 @@ async function openEditor(page) {
     check('ввод на занятую долю не уводит курсор — можно доставить струну',
       st.cursor.start === 0 && st.cursor.string === 1, st.cursor);
 
-    // Свободная доля в середине такта: ввод на выбранной струне + авто-переход.
+    // Свободная доля в середине такта: ввод на выбранной струне, без авто-перехода.
     await page.evaluate(() => tabAtSetCursor(1.5, 2));
     await page.keyboard.press('Digit7');
     await settle();
     st = await stateOf(page);
-    // Курсор ушёл ровно на длину ноты: до следующей ноты было полдоли,
-    // поэтому и длительность, и шаг — 1/2 (свободное место важнее выбранного 1/4).
-    check('на свободной доле ввод идёт на выбранную струну и курсор уходит дальше',
+    // Ввод в свободном месте больше не запускает таймер перехода.
+    check('на свободной доле ввод идёт на выбранную струну, курсор остаётся',
       st.notes.some(n => n.start === 1.5 && n.string === 2 && n.fret === 7) &&
-      st.cursor.start === 2 && st.cursor.string === 2, { cursor: st.cursor, notes: st.notes.filter(n => n.start === 1.5) });
+      st.cursor.start === 1.5 && st.cursor.string === 2, { cursor: st.cursor, notes: st.notes.filter(n => n.start === 1.5) });
 
     // Созвучие: ↑ сразу после цифры — курсор остаётся, вторая струна встаёт туда же.
     await page.evaluate(() => tabAtSetCursor(1.5, 2));
@@ -391,7 +393,7 @@ async function openEditor(page) {
       await mobile.evaluate(s => { const el = document.querySelector(s); if (el) el.scrollIntoView({ block: 'center' }); }, sel);
       await mobile.evaluate(s => { const el = document.querySelector(s); if (el) el.dispatchEvent(new MouseEvent('click', { bubbles: true })); }, sel);
       // Ждём дольше окна склейки двузначного лада: только тогда видно,
-      // куда уехал курсор после автоперехода.
+      // что курсор не уходит по таймеру.
       await wait(820);
       if (process.env.B12_DEBUG) console.log('tap', sel, JSON.stringify(await stateOf(mobile)));
     };
@@ -401,14 +403,15 @@ async function openEditor(page) {
     const afterString = await stateOf(mobile);
     await tap('[data-tab-digit="5"]');
     const afterSecond = await stateOf(mobile);
+    await tap('[data-tab-time-step="1"]');
     await tap('[data-tab-dur="16"]');
     await tap('[data-tab-digit="7"]');
     await wait(700);
     const mobileState = await stateOf(mobile);
     measurements.mobile.notes = mobileState.notes;
     measurements.mobile.steps = { afterDigit, afterString, afterSecond };
-    check('тап по цифре ставит ноту и уводит курсор дальше',
-      afterDigit.notes.some(n => n.fret === 3 && n.string === 0) && afterDigit.cursor.start === 1, afterDigit.cursor);
+    check('тап по цифре ставит ноту и оставляет курсор',
+      afterDigit.notes.some(n => n.fret === 3 && n.string === 0) && afterDigit.cursor.start === 0, afterDigit.cursor);
     check('тап по ↑ переносит курсор на пятую струну', afterString.cursor.string === 1, afterString.cursor);
     check('следующий тап по цифре пишется на выбранной струне',
       afterSecond.notes.some(n => n.fret === 5 && n.string === 1), afterSecond.notes);

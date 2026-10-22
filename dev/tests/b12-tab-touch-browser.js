@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 0.674: чистая новая песня, касания без системной клавиатуры, настоящий
+// 0.675: чистая новая песня, касания без системной клавиатуры, настоящий
 // alphaTab / история / FileReader / Web Audio. Артефакты только по opt-in.
 const fs = require('fs'), path = require('path'), assert = require('assert/strict'), crypto = require('crypto');
 const chromium = require('@sparticuz/chromium').default, puppeteer = require('puppeteer-core');
@@ -16,7 +16,7 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
   try {
     const page = await browser.newPage();
     const client = await page.createCDPSession();
-    page.on('pageerror', e => errors.push(e.message));
+    page.on('pageerror', e => {errors.push(e.message);console.error('PAGEERROR',e.message)});
     page.on('dialog', async d => d.type() === 'beforeunload' ? d.accept() : d.dismiss());
     await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
     await page.goto(process.env.STRUCHORD_URL || 'http://127.0.0.1:8000/STRUCHORD.html', { waitUntil: 'load' });
@@ -80,12 +80,12 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     await page.keyboard.press('Escape'); await page.select('[data-tab-position]', '0');
     gestures.push({ type: 'native-select', label: 'В начале секции (автоматизирован выбор в системном списке)' }); await wait(160);
     check('нативный список: выбрано начало секции через UI', await page.evaluate(() => tabInsertEditorState.position === 0));
-    for (const d of [0, 3]) await tap(`[data-tab-digit="${d}"]`, 'Лад ' + d, 820);
+    for (const d of [0, 3]) { await tap(`[data-tab-digit="${d}"]`, 'Лад ' + d, 820); await tap('[data-tab-time-step="1"]', 'Следующая четверть'); }
     await tap('[data-tab-string-step="1"]', '5-я струна');
-    for (const d of [0, 2]) await tap(`[data-tab-digit="${d}"]`, 'Лад ' + d, 820);
+    for (const d of [0, 2]) { await tap(`[data-tab-digit="${d}"]`, 'Лад ' + d, 820); if(d===0)await tap('[data-tab-time-step="1"]', 'Следующая четверть'); }
     const expected = await notes(page);
     check('четыре четверти E2 G2 A2 B2 на струнах 6/5', expected.map(n => `${n.start}:${n.string}:${n.fret}:${n.dur}`).join() === '0:0:0:1,1:0:3:1,2:1:0:1,3:1:2:1', expected);
-    check('курсор без десятичной доли: «доля 4 и»', await page.$eval('.tab-at-cursor-readout', e => e.textContent.includes('доля 4 и') && !e.textContent.includes('4.75')));
+    check('курсор без десятичной доли: «доля 4»', await page.$eval('.tab-at-cursor-readout', e => e.textContent.includes('доля 4 ·') && !e.textContent.includes('4.75')));
     check('нет системного текстового поля и сжатия viewport при вводе', await page.evaluate(() => !document.activeElement.matches('input,textarea') && Math.abs(visualViewport.height - 844) < 2));
     const geometry = [];
     for (const theme of ['light', 'dark']) {
@@ -121,15 +121,15 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     await reveal('.section-card .tab-insert'); await page.tap('.section-card .tab-insert'); await page.waitForSelector('.tab-at-host svg'); await wait(500);
     check('повторное открытие редактора показывает те же ноты', JSON.stringify(await notes(page)) === JSON.stringify(expected));
     // Лад 12, затем вернуть исходный черновик одним Ctrl+Z.
-    await tap('[data-tab-digit="1"]', '', 80); await tap('[data-tab-digit="2"]', '', 820);
+    await reveal('[data-tab-digit="1"]');
+    const digitPoints=await page.evaluate(()=>[1,2].map(n=>{const r=document.querySelector(`[data-tab-digit="${n}"]`).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}}));
+    await page.touchscreen.tap(digitPoints[0].x,digitPoints[0].y); await wait(50); await page.touchscreen.tap(digitPoints[1].x,digitPoints[1].y); await wait(820);
     check('экранные 1 → 2 дают один лад 12', (await notes(page)).some(n => n.start === 0 && n.fret === 12));
     await shortcut('KeyZ'); check('двузначный лад отменяется одним шагом черновика', JSON.stringify(await notes(page)) === JSON.stringify(expected));
     await page.keyboard.press('Digit2'); await page.keyboard.press('Digit4'); await wait(820);
-    check('клавиатурные 2 → 4 дают лад 24', (await notes(page)).some(n => n.start === 1 && n.fret === 24));
+    check('клавиатурные 2 → 4 дают лад 24', (await notes(page)).some(n => n.start === 0 && n.fret === 24));
     await shortcut('KeyZ'); check('лад 24 тоже один шаг отмены', JSON.stringify(await notes(page)) === JSON.stringify(expected));
-    // Созвучие, только экранные кнопки: после второй попытки двойного лада
-    // курсор после 24 сдвинут на 2; восемь ← возвращают в начало (шаг 1/16).
-    for (let i = 0; i < 8; i++) await tap('[data-tab-time-step="-1"]', '', 30);
+    // Созвучие без возврата назад: после цифр курсор остался на 0.
     await tap('[data-tab-string-step="1"]', '', 40); await tap('[data-tab-digit="2"]', '', 820);
     await tap('[data-tab-string-step="1"]', '', 40); await tap('[data-tab-digit="2"]', '', 820);
     check('панель: три ноты на одной доле, не последовательность', (await notes(page)).filter(n => n.start === 0).length === 3, await notes(page));
@@ -154,8 +154,11 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     check('экспорт песни содержит четыре ноты и четыре аккордовых квадрата', JSON.parse(saved).sections[0].squares.length === 5);
     if (output) fs.writeFileSync(path.join(output, 'four-notes-before-em.struchord'), saved);
     await page.reload({ waitUntil: 'load' });
-    await page.evaluate(text => importSong(new File([text], 'four-notes-before-em.struchord', { type: 'application/json' })), saved);
-    await page.waitForFunction(() => sections[0]?.squares[0]?.notes?.length === 4);
+    await page.evaluate(()=>document.fonts.ready); await wait(350);
+    const reopenFile=path.join(require('os').tmpdir(),`struchord-touch-${process.pid}.struchord`); fs.writeFileSync(reopenFile,saved);
+    const chooserPromise=page.waitForFileChooser(); await page.tap('#homeImportSongBtn'); const chooser=await chooserPromise; await chooser.accept([reopenFile]);
+    try { await page.waitForSelector('.section-card .tab-insert',{visible:true}); } catch(e) { console.error('IMPORT DIAGNOSTIC',await page.evaluate(()=>({sections,bodyClass:document.body.className,html:document.querySelector('#sectionsContainer')?.innerHTML.slice(0,200),renderDepth,needsRender,toast:document.querySelector('#toast')?.textContent,hidden:document.hidden}))); throw e; }
+    await page.waitForFunction(() => sections[0]?.squares[0]?.notes?.length === 4); fs.unlinkSync(reopenFile);
     check('перезагрузка + реальный FileReader: те же ноты после открытия файла', await page.evaluate(expected => JSON.stringify(sections[0].squares[0].notes) === JSON.stringify(expected), expected));
     await reveal('.section-card .tab-insert'); await shot('reopened-390');
     await page.tap('.section-card .tab-insert'); await page.waitForSelector('.tab-at-host svg'); await wait(500);
@@ -193,7 +196,7 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     }
     delete audio.chunks;
     check('нет ошибок страницы', errors.length===0, errors);
-    if (output) { const html=fs.readFileSync(path.join(root,'STRUCHORD.html')); fs.writeFileSync(path.join(output,'checks.json'),JSON.stringify({version:'0.674',sha256:crypto.createHash('sha256').update(html).digest('hex'),bytes:html.length,checks,errors,geometry,acceptance,audio,levels},null,2)+'\n'); }
+    if (output) { const html=fs.readFileSync(path.join(root,'STRUCHORD.html')); fs.writeFileSync(path.join(output,'checks.json'),JSON.stringify({version:'0.675',sha256:crypto.createHash('sha256').update(html).digest('hex'),bytes:html.length,checks,errors,geometry,acceptance,audio,levels},null,2)+'\n'); }
     console.log(`${checks.length} ok / 0 FAIL`);
   } finally { await browser.close(); }
 })().catch(e => { console.error(e.stack);process.exitCode=1; });
