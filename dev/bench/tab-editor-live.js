@@ -9,6 +9,7 @@
  *   STRUCHORD_URL=http://127.0.0.1:8000/STRUCHORD.html \
  *   LD_LIBRARY_PATH=/tmp/libs/lib node dev/bench/tab-editor-live.js
  */
+const {isDeepStrictEqual} = require('util');
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert/strict');
@@ -145,8 +146,8 @@ async function openEditor(page) {
     check('ввод на занятую долю не уводит курсор — можно доставить струну',
       st.cursor.start === 0 && st.cursor.string === 1, st.cursor);
 
-    // Свободная доля в середине такта: ввод на выбранной струне, без авто-перехода.
-    await page.evaluate(() => tabAtSetCursor(1.5, 2));
+    // 0.678: явный Insert после восьмой создаёт новую позицию 1.5, не подрезая занятую долю.
+    await page.evaluate(() => {tabAtSetCursor(1,2);tabAtChangeDuration(1);tabGpInsert(tabInsertEditorState);});
     await page.keyboard.press('Digit7');
     await settle();
     st = await stateOf(page);
@@ -272,16 +273,16 @@ async function openEditor(page) {
     check('Delete убирает ноту под курсором', !st.notes.some(n => n.start === clicked.start && n.fret === 7), st.notes.length);
 
     // 7. Пауза.
-    await page.evaluate(() => tabAtSetCursor(2, 0));
+    await page.evaluate(() => tabAtSetCursor(0, 0));
     await page.keyboard.press('KeyR');
     await settle();
     st = await stateOf(page);
     check('R ставит паузу на выбранной доле', st.notes.some(n => n.pause), st.notes.filter(n => n.pause));
-    check('пауза не уводит курсор', st.cursor.start === 2, st.cursor);
+    check('пауза не уводит курсор', st.cursor.start === 0, st.cursor);
     await page.keyboard.press('KeyR');
     await settle();
     st = await stateOf(page);
-    check('повторное R снимает паузу', !st.notes.some(n => n.pause), st.notes.length);
+    check('повторное R возвращает ноту на той же позиции', st.notes.some(n => n.start===0 && !n.pause && n.fret===0) && !st.notes.some(n => n.start===0 && n.pause), st.notes.length);
 
     // 8. Длительность клавишами − и =, без кнопок.
     await page.evaluate(() => tabAtSetCursor(3, 0));
@@ -323,13 +324,20 @@ async function openEditor(page) {
     await wait(700);
     const afterUndo = await stateOf(page);
     check('Ctrl+Z отменяет последнюю правку черновика',
-      JSON.stringify(beforeUndo.notes) !== JSON.stringify(afterUndo.notes), { before: beforeUndo.notes.length, after: afterUndo.notes.length });
+      !isDeepStrictEqual(beforeUndo.notes,afterUndo.notes), { before: beforeUndo.notes.length, after: afterUndo.notes.length });
     await page.keyboard.down('Control'); await page.keyboard.down('Shift'); await page.keyboard.press('KeyZ');
     await page.keyboard.up('Shift'); await page.keyboard.up('Control');
     await wait(700);
     check('Ctrl+Shift+Z возвращает отменённое',
-      JSON.stringify((await stateOf(page)).notes) === JSON.stringify(beforeUndo.notes));
+      isDeepStrictEqual((await stateOf(page)).notes,beforeUndo.notes));
 
+    // 0.678: увеличение восьмой до четверти не обрезает хвост автоматически.
+    // Убираем две оставшиеся шестнадцатые явным DeleteBeats и только потом Apply.
+    for(let i=0;i<2;i++){
+    await page.evaluate(()=>{const e=tabInsertEditorState;tabGpSetPoint(e,{bar:0,index:e.gpBars[0].length-1},0);});
+    await page.keyboard.down('Meta');await page.keyboard.press('Minus');await page.keyboard.up('Meta');await settle(200);
+    }
+    check('после явного исправления переполнения Apply доступен',await page.$eval('[data-tab-apply]',e=>!e.disabled),await page.evaluate(()=>({error:document.querySelector('[data-tab-gp-error]').textContent,groups:tabInsertEditorState.gpBars[0].map(g=>[g.dur,!!g.implicit,!!g.notes.length]),focus:document.activeElement.className})));
     measurements.draft = await stateOf(page);
     await page.click('[data-tab-apply]');
     await wait(900);
@@ -351,7 +359,7 @@ async function openEditor(page) {
     await wait(1800);
     const reopened = await stateOf(page);
     check('повторное открытие показывает те же ноты',
-      JSON.stringify(reopened.notes) === JSON.stringify(measurements.saved.notes), reopened.notes.length);
+      isDeepStrictEqual(reopened.notes,measurements.saved.notes), reopened.notes.length);
     await page.screenshot({ path: path.join(output, 'e06-reopened.png') });
     await page.click('[data-tab-cancel]');
     await wait(500);

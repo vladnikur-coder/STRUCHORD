@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // 0.675: чистая новая песня, касания без системной клавиатуры, настоящий
 // alphaTab / история / FileReader / Web Audio. Артефакты только по opt-in.
+const {isDeepStrictEqual} = require('util');
 const fs = require('fs'), path = require('path'), assert = require('assert/strict'), crypto = require('crypto');
 const chromium = require('@sparticuz/chromium').default, puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '../..');
@@ -117,24 +118,24 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     await page.evaluate(() => document.activeElement.blur()); await shortcut('KeyZ');
     check('один Ctrl+Z убрал всю новую вставку, Em и четыре квадрата остались', await page.evaluate(() => sections[0].squares.length === 4 && sections[0].squares.every(s => s.type !== 'tab') && sections[0].squares[0].events[0].chord === 'Em'));
     await shortcut('KeyY');
-    check('один Redo вернул позицию и все четыре ноты', await page.evaluate(expected => sections[0].squares[0].type === 'tab' && JSON.stringify(sections[0].squares[0].notes) === JSON.stringify(expected), expected));
+    check('один Redo вернул позицию и все четыре ноты', await page.evaluate(()=>sections[0].squares[0].type==='tab') && isDeepStrictEqual(await page.evaluate(()=>sections[0].squares[0].notes),expected));
     await reveal('.section-card .tab-insert'); await page.tap('.section-card .tab-insert'); await page.waitForSelector('.tab-at-host svg'); await wait(500);
-    check('повторное открытие редактора показывает те же ноты', JSON.stringify(await notes(page)) === JSON.stringify(expected));
+    check('повторное открытие редактора показывает те же ноты', isDeepStrictEqual(await notes(page),expected));
     // Лад 12, затем вернуть исходный черновик одним Ctrl+Z.
     await reveal('[data-tab-digit="1"]');
     const digitPoints=await page.evaluate(()=>[1,2].map(n=>{const r=document.querySelector(`[data-tab-digit="${n}"]`).getBoundingClientRect();return {x:r.x+r.width/2,y:r.y+r.height/2}}));
     await page.touchscreen.tap(digitPoints[0].x,digitPoints[0].y); await wait(50); await page.touchscreen.tap(digitPoints[1].x,digitPoints[1].y); await wait(820);
     check('экранные 1 → 2 дают один лад 12', (await notes(page)).some(n => n.start === 0 && n.fret === 12));
-    await shortcut('KeyZ'); check('двузначный лад отменяется одним шагом черновика', JSON.stringify(await notes(page)) === JSON.stringify(expected));
+    await shortcut('KeyZ'); check('двузначный лад отменяется одним шагом черновика', isDeepStrictEqual(await notes(page),expected));
     await page.keyboard.press('Digit2'); await page.keyboard.press('Digit4'); await wait(820);
     check('клавиатурные 2 → 4 дают лад 24', (await notes(page)).some(n => n.start === 0 && n.fret === 24));
-    await shortcut('KeyZ'); check('лад 24 тоже один шаг отмены', JSON.stringify(await notes(page)) === JSON.stringify(expected));
+    await shortcut('KeyZ'); check('лад 24 тоже один шаг отмены', isDeepStrictEqual(await notes(page),expected));
     // Созвучие без возврата назад: после цифр курсор остался на 0.
     await tap('[data-tab-string-step="1"]', '', 40); await tap('[data-tab-digit="2"]', '', 820);
     await tap('[data-tab-string-step="1"]', '', 40); await tap('[data-tab-digit="2"]', '', 820);
     check('панель: три ноты на одной доле, не последовательность', (await notes(page)).filter(n => n.start === 0).length === 3, await notes(page));
     await shortcut('KeyZ'); await shortcut('KeyZ');
-    check('отмена экранного созвучия сохранила исходную фразу', JSON.stringify(await notes(page)) === JSON.stringify(expected));
+    check('отмена экранного созвучия сохранила исходную фразу', isDeepStrictEqual(await notes(page),expected));
     // Тот же способ с физическими клавишами. Курсор в начале на струне 4.
     await page.keyboard.press('ArrowUp'); await page.keyboard.press('Digit2'); await wait(820);
     check('клавиатура: другая струна добавляет одновременную ноту', (await notes(page)).filter(n => n.start === 0).length === 2);
@@ -145,7 +146,7 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     await reveal('.section-card .tab-insert'); await page.tap('.section-card .tab-insert'); await page.waitForSelector('.tab-at-host svg');
     await tap('[data-tab-digit="5"]', '', 820); await page.tap('[data-tab-apply]');
     await page.evaluate(() => document.activeElement.blur()); await shortcut('KeyZ');
-    check('Undo повторной правки не удаляет уже существующую вставку', await page.evaluate(expected => sections[0].squares.length === 5 && JSON.stringify(sections[0].squares[0].notes) === JSON.stringify(expected), expected));
+    check('Undo повторной правки не удаляет уже существующую вставку', await page.evaluate(()=>sections[0].squares.length===5) && isDeepStrictEqual(await page.evaluate(()=>sections[0].squares[0].notes),expected));
 
     // Настоящий скачиваемый Blob, а не собственноручно собранный fixture.
     await page.evaluate(() => { const original = URL.createObjectURL; URL.createObjectURL = function (blob) { window.__touchBlob = blob; return original.call(this, blob); }; });
@@ -159,10 +160,10 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     const chooserPromise=page.waitForFileChooser(); await page.tap('#homeImportSongBtn'); const chooser=await chooserPromise; await chooser.accept([reopenFile]);
     try { await page.waitForSelector('.section-card .tab-insert',{visible:true}); } catch(e) { console.error('IMPORT DIAGNOSTIC',await page.evaluate(()=>({sections,bodyClass:document.body.className,html:document.querySelector('#sectionsContainer')?.innerHTML.slice(0,200),renderDepth,needsRender,toast:document.querySelector('#toast')?.textContent,hidden:document.hidden}))); throw e; }
     await page.waitForFunction(() => sections[0]?.squares[0]?.notes?.length === 4); fs.unlinkSync(reopenFile);
-    check('перезагрузка + реальный FileReader: те же ноты после открытия файла', await page.evaluate(expected => JSON.stringify(sections[0].squares[0].notes) === JSON.stringify(expected), expected));
+    check('перезагрузка + реальный FileReader: те же ноты после открытия файла', isDeepStrictEqual(await page.evaluate(()=>sections[0].squares[0].notes),expected));
     await reveal('.section-card .tab-insert'); await shot('reopened-390');
     await page.tap('.section-card .tab-insert'); await page.waitForSelector('.tab-at-host svg'); await wait(500);
-    check('редактор после открытия файла: все струны/лады/время прежние', JSON.stringify(await notes(page)) === JSON.stringify(expected)); await shot('reopened-editor-390'); await page.tap('[data-tab-cancel]');
+    check('редактор после открытия файла: все струны/лады/время прежние', isDeepStrictEqual(await notes(page),expected)); await shot('reopened-editor-390'); await page.tap('[data-tab-cancel]');
     await page.evaluate(() => toggleTimelineMode(true)); await wait(250);
     await page.$eval('#timelineTrack .tab-insert', e => e.scrollIntoView({ block: 'center', inline: 'start' })); await wait(200);
     check('Лента показывает четыре ноты перед Em, без наложенного боя', await page.evaluate(() => document.querySelectorAll('#timelineTrack .tab-insert [data-tab-note]').length === 4 && !document.querySelector('#timelineTrack .tl-cell--tab .event-strum-preview'))); await shot('timeline-390');

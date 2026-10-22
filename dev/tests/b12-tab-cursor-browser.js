@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// 0.675: реальный alphaTab, независимые SVG-линии и noteHeadBounds.
+// 0.678: реальный alphaTab, независимые SVG-линии и noteHeadBounds.
 const fs=require('fs'),path=require('path'),assert=require('assert/strict'),crypto=require('crypto');
 const chromium=require('@sparticuz/chromium').default,puppeteer=require('puppeteer-core');
 const root=path.resolve(__dirname,'../..'),output=process.env.B12_CURSOR_RESULTS?path.resolve(process.env.B12_CURSOR_RESULTS):null;
@@ -39,10 +39,10 @@ function check(name,ok,detail){checks.push({name,ok:!!ok,detail});console.log((o
    check(`${width}: пустая вставка — курсор на 6-й струне, не посередине`,!empty.hidden&&st.notes.length===0&&st.cursor.start===0&&st.cursor.string===0&&Math.abs(empty.dotY-g.lines[5].y)<2,empty);
    check(`${width}: вертикаль пересекает все шесть струн`,empty.top<=g.lines[0].y&&empty.bottom>=g.lines[5].y,empty);
    await shot('empty');
-   const xs=[];for(let i=0;i<3;i++){await press('ArrowRight');xs.push(await page.$eval('.tab-at-cursor',e=>parseFloat(e.style.left)))}
-   check(`${width}: в пустом такте стрелки действительно двигают линию вправо`,xs[0]>empty.x+10&&xs[1]>xs[0]+10&&xs[2]>xs[1]+10,xs);
-   await press('ArrowRight');st=await state();check(`${width}: за концом такта → добавляет следующий`,st.cursor.start===4&&st.beats===8,st);
-   await page.keyboard.down('Control');await page.keyboard.press('KeyZ');await page.keyboard.up('Control');await wait(180);
+   const starts=[];for(let i=0;i<3;i++){await press('ArrowRight');starts.push((await state()).cursor.start)}
+   check(`${width}: пустые стрелки переходят по тактам, а не длительностям`,starts.join()==='4,8,12',starts);
+   await press('ArrowRight');st=await state();check(`${width}: за концом такта → добавляет следующий`,st.cursor.start===12&&st.beats===16,st);
+   for(let i=0;i<3;i++){await page.keyboard.down('Control');await page.keyboard.press('KeyZ');await page.keyboard.up('Control');await wait(180);}
    for(let i=0;i<4;i++)await press('ArrowLeft');check(`${width}: влево до 0 и не дальше`,(await state()).cursor.start===0);
    const clicks=[];for(let string=0;string<6;string++){
     await clickAt(g.x0+(g.xEnd-g.x0)/2,g.lines[5-string].y);st=await state();clicks.push(st.cursor);
@@ -60,7 +60,7 @@ function check(name,ok,detail){checks.push({name,ok:!!ok,detail});console.log((o
     await page.click(`[data-tab-dur="${d}"]`);
     for(const [flag,want] of [['dot',dot],['triplet',triplet]]){const on=await page.$eval(`[data-tab-flag="${flag}"]`,e=>e.getAttribute('aria-pressed')==='true');if(on!==want)await page.click(`[data-tab-flag="${flag}"]`)}
     await press('ArrowRight');const right=(await state()).cursor.start;await press('ArrowLeft');const left=(await state()).cursor.start;
-    check(`${width}: ←/→ 1/${d}${dot?' с точкой':''}${triplet?' триоль':''} = точная длительность`,Math.abs(right-step)<1e-8&&left===0,{right,left,expected:step});
+    check(`${width}: ←/→ при вводе 1/${d}${dot?' с точкой':''}${triplet?' триоль':''} посещает записанную позицию`,right===2&&left===0,{right,left,expected:2});
    }
    await page.evaluate(()=>tabAtSetCursor(0,0));await page.click('[data-tab-dur="4"]');for(const flag of ['dot','triplet'])if(await page.$eval(`[data-tab-flag="${flag}"]`,e=>e.getAttribute('aria-pressed')==='true'))await page.click(`[data-tab-flag="${flag}"]`);
    await press('Digit1');await press('ArrowRight');await press('Digit2');

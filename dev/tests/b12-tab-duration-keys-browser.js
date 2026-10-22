@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 // GP8: +/= укорачивают, минус удлиняет. Основная клавиатура и Numpad.
 // Fixtures через модель; проверяемые действия — реальные клавиши Chromium.
+const {isDeepStrictEqual} = require('util');
 const fs = require('fs'), path = require('path'), assert = require('assert/strict'), crypto = require('crypto');
 const chromium = require('@sparticuz/chromium').default, puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '../..');
@@ -58,8 +59,8 @@ function check(name, ok, detail) {
         check(`${label}: GP-направление обеих нот созвучия`, after.notes.length === 3 && after.notes.slice(0, 2).every(n => n.dur === expected) && after.input.dValue === 4 / expected, after);
         check(`${label}: знаки и лады сохранены, хвост сдвинут правильно`, after.notes.slice(0, 2).every(n => !!n.dots === dots && !!n.triplet === triplet) && after.notes.map(n => n.fret).join() === '3,5,7' && Math.abs(after.notes[2].start - expected * factor) < 1e-8, after);
         check(`${label}: курсор не сдвинут, один шаг Undo`, after.cursor.start === 0 && after.cursor.string === 0 && after.history === 1, after);
-        await shortcut(); check(`${label}: Undo вернул исходные ноты`, JSON.stringify((await state()).notes) === JSON.stringify(before.notes));
-        await shortcut(true); check(`${label}: Redo вернул новую длительность`, JSON.stringify((await state()).notes) === JSON.stringify(after.notes));
+        await shortcut(); check(`${label}: Undo вернул исходные ноты`, isDeepStrictEqual((await state()).notes,before.notes));
+        await shortcut(true); check(`${label}: Redo вернул новую длительность`, isDeepStrictEqual((await state()).notes,after.notes));
       }
     }
     for (const [dValue, key] of [[64, 'Equal'], [64, 'NumpadAdd'], [1, 'Minus'], [1, 'NumpadSubtract']]) {
@@ -69,7 +70,7 @@ function check(name, ok, detail) {
     await fixture(false, false, true); await press('Equal'); let after = await state();
     check('пустое место: + выбирает восьмую без записи ноты', after.input.dValue === 8 && after.notes.length === 0 && after.cursor.start === 0, after);
     await press('ArrowRight'); await press('Digit3'); await wait(850); after = await state();
-    check('стрелки и ручной ввод прежние: шаг восьмая, без автоперехода', after.cursor.start === .5 && after.notes.length === 1 && after.notes[0].start === .5 && after.notes[0].dur === .5 && after.notes[0].fret === 3, after);
+    check('0.678: пустой такт пропущен, восьмая в новом такте без автоперехода', after.cursor.start === 4 && after.notes.length === 1 && after.notes[0].start === 4 && after.notes[0].dur === .5 && after.notes[0].fret === 3, after);
     check('нет ошибок JavaScript', errors.length === 0, errors);
     if (output) {
       fs.mkdirSync(output, { recursive: true }); const html = fs.readFileSync(path.join(root, 'STRUCHORD.html'));
