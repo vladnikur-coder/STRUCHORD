@@ -182,7 +182,7 @@
             dur = writer.durationParts(dur)[0].units * 4;
           }
           notes.push({ ...note, bar, start: start * factor, dur: dur * factor,
-            tieDestination: tail, tieOrigin: remaining > dur + 1e-7 });
+            tieDestination: tail || note.tieDestination === true, tieOrigin: remaining > dur + 1e-7 || note.tieOrigin === true });
           remaining -= dur; start += dur; tail = true;
           if (start >= length - 1e-7) { bar++; start = 0; }
         }
@@ -203,13 +203,20 @@
       for (const sq of plan.section.squares || []) {
         const length = getSquareBeats(sq, plan.parentTimeSig);
         if (sq.type === 'tab') {
-          const clean = tabInsertCleanNotes(sq.notes, length, plan.parentTimeSig);
+          const raw = tabInsertCleanNotes(sq.notes, length, plan.parentTimeSig), edges = tabTechEdges(raw);
+          for (const n of raw) {const issue=tabTechIssue(n,part.tuning,part.capo);if(issue)gpExportLoss(report,'TAB: '+issue+' — нота не экспортирована',1);}
+          for (const n of raw) for (const key of ['legato','slur',...(['legato','shift'].includes(n.slide)?['slide']:[])])
+            if (n[key] && !edges.some(e=>e.from===n&&e.key===key)) gpExportLoss(report,'TAB: незавершённая связь H/P, фразировки или слайда без соседней ноты не экспортирована',1);
+          const clean = tabTechExportNotes(raw, part.tuning, part.capo);
           for (let pass = 0; pass < (nativeRepeats ? 1 : plan.repeatCount); pass++) {
             for (const note of clean) {
               if (note.pause) continue;
               const placed = gpExportPlace(plan, offset + note.start, tabInsertNoteDuration(note), report, 'Табулатура', pass);
               if (!placed) continue;
-              part.notes.push({ ...placed, voice: 1, string: note.string, fret: note.fret });
+              part.notes.push({ ...note, ...placed, voice: 1, string: note.string, fret: note.fret });
+              if (nativeRepeats && note.harm?.type === 'artificial' && note.harmonicFret == null) gpExportLoss(report, 'GP5: искусственный флажолет вне поддержанных узлов записан октавным', 1);
+              if (nativeRepeats && note.vibrato === "wide") gpExportLoss(report, "GP5: широкое вибрато записано обычным — амплитуда не кодируется", 1);
+              if (note.phraseOrigin && nativeRepeats) gpExportLoss(report, "GP5: отдельная фразировочная лига не кодируется; H/P и лиги длительности сохранены", 1);
             }
           }
         }

@@ -462,11 +462,11 @@
     if (source.vibrato) flags2 |= 0x40;
     writer.u8(flags1);
     writer.u8(flags2);
-    if (flags1 & 0x01) writeBend(writer, source.bend);
+    if (flags1 & 0x01) writeBend(writer, source.bend, source.tabEffects === true);
     if (flags1 & 0x10) writeGraceNote(writer, source.grace, note);
     if (flags2 & 0x04) writer.i8(pickLengthCode(source.tremolo));
     if (flags2 & 0x08) writer.i8(slideCode(source));
-    if (flags2 & 0x10) writeHarmonic(writer, source.harm || source.harmonic);
+    if (flags2 & 0x10) writeHarmonic(writer, source.harm || source.harmonic, source);
     if (flags2 & 0x20) {
       writer.i8(clamp(Math.round(Number(source.trillFret) || 24), 0, 36));
       writer.i8(1); // трель шестнадцатыми
@@ -480,13 +480,12 @@
     return 1;
   }
 
-  // Слайд в GP5 — один байт с типом, а не битовая маска: 1 — сдвиг на лад,
-  // 2 — легато вверх, 3 — исходящий вниз, 4 — исходящий вверх, −1 — входящий
-  // снизу, −2 — входящий сверху (guitarpro.models.SlideType).
+  // GP5 хранит битовую маску (не signed enum SlideType из GP3/4):
+  // shift=1, legato=2, outDown=4, outUp=8, inBelow=16, inAbove=32.
   function slideCode(source) {
     const kind = String(source.slide || '').toLowerCase();
     if (kind === 'legato' || kind === 'легато') return 2;
-    return 1;
+    return ({'in-below':16,'in-above':32,'out-down':4,'out-up':8})[kind] || 1;
   }
 
   // Бенд GP5: тип, значение, число точек, затем точки (сдвиг по горизонтали,
@@ -497,24 +496,27 @@
   const GP5_MAX_BEND_POINTS = 8;
   const GP5_BEND_SEMITONE = 25;
   const GP5_BEND_POSITION = 60;
-  const GP5_BEND_TYPES = { bend: 1, release: 2, prebend: 4, 'prebend-release': 5 };
+  const GP5_BEND_TYPES = { bend: 1, 'bend-release': 3, release: 2, prebend: 4, 'prebend-release': 5 };
 
-  function writeBend(writer, value) {
+  function writeBend(writer, value, tabEffects = false) {
     const info = typeof value === 'object' && value ? value : {};
     const raw = Array.isArray(info.points) ? info.points
       .map((point) => Array.isArray(point)
         ? [clamp(Number(point[0]) || 0, 0, 1), clamp(Number(point[1]) || 0, 0, 12)]
         : [clamp(Number(point && point.x) || 0, 0, 1), clamp(Number(point && point.y) || 0, 0, 12)])
       : [];
-    const points = raw.length >= 2 ? raw.slice(0, GP5_MAX_BEND_POINTS) : [[0, 0], [1, 1]];
+    const points = raw.length >= 2 ? raw.slice(0, tabEffects ? 32 : GP5_MAX_BEND_POINTS) : [[0, 0], [1, 1]];
     const type = GP5_BEND_TYPES[String(info.type || 'bend')] || 1;
+    // TAB 0.679: y — полутоны, файл GP5 — 50 ед./полутон; alphaTab
+    // возвращает четвертитоны (25 ед.). Legacy-путь партий не переопределяем.
+    const scale = tabEffects ? 50 : GP5_BEND_SEMITONE;
     const peak = Math.max(...points.map((point) => point[1]));
     writer.i8(type);
-    writer.i32(Math.round(peak * GP5_BEND_SEMITONE));
+    writer.i32(Math.round(peak * scale));
     writer.i32(points.length);
     for (const point of points) {
       writer.i32(Math.round(point[0] * GP5_BEND_POSITION));
-      writer.i32(Math.round(point[1] * GP5_BEND_SEMITONE));
+      writer.i32(Math.round(point[1] * scale));
       writer.u8(0); // вибрато в точке
     }
   }
@@ -540,16 +542,18 @@
     writer.u8(info.dead === true ? 0x01 : (info.onBeat === true ? 0x02 : 0x00));
   }
 
-  // Флажолет GP5 — ровно один байт: 1 натуральный, 3 взятый, 4 пинч, 5
-  // полуфлажолет, 15 искусственный на n+5, 17 на n+7, 22 на n+12
-  // (guitarpro.gp4.readHarmonic). Никаких дополнительных байтов после типа нет —
-  // прежний код писал их и ломал поток байтов, но не вызывался.
-  function writeHarmonic(writer, value) {
+  // Прежний путь партий оставлен совместимым со старыми ожиданиями.
+  // Новый TAB ниже использует GP5 type 2 с параметрами, не GP4 enum 15/17/22.
+  function writeHarmonic(writer, value, source = {}) {
     const info = typeof value === 'object' && value ? value : {};
     const type = String(info.type || value || 'natural').toLowerCase();
     if (type.includes('pinch') || type.includes('пинч')) { writer.i8(4); return; }
     if (type.includes('semi') || type.includes('полу')) { writer.i8(5); return; }
     if (type.includes('artificial') || type.includes('искус') || type.includes('a.h')) {
+      if (source.tabEffects) {
+        // GP5 type 2 + pitch class / accidental / relative octave, не GP4 type 15.
+        writer.i8(2);writer.i8(source.harmonicPitchClass ?? 0);writer.i8(0);writer.i8(source.harmonicOctave ?? 1);return;
+      }
       writer.i8(Number(info.code) === 17 || Number(info.code) === 22 ? Number(info.code) : 15);
       return;
     }
@@ -568,7 +572,8 @@
     let flags = 0x20;
     if (hasEffects) flags |= 0x08;
     if (source.ghost) flags |= 0x04;
-    if (accent) flags |= 0x40;
+    if (source.tabEffects && source.accent === 2) flags |= 0x02;
+    else if (accent) flags |= 0x40;
     if (Number.isFinite(Number(source.velocity))) flags |= 0x10;
     writer.u8(flags);
     // Тип ноты GP5: 1 — обычная, 2 — связанная, 3 — «мёртвая» (знак x).

@@ -217,6 +217,11 @@
     const reportUnsupportedNoteEffects = (part, partIndex, note) => {
       const name = part.name || partIndex + 1;
       const unsupported = [];
+      if (note.tabEffects) {
+        if (note.harm?.type === 'artificial' && note.harmonicFret == null) loss(`Дорожка «${name}»: GPIF — искусственный флажолет вне поддержанных узлов записан октавным`,1);
+        if (note.bend?.points?.length > 4 || (note.bend?.points?.length === 4 && note.bend.points[1][1] !== note.bend.points[2][1])) loss(`Дорожка «${name}»: GPIF — сложная кривая бенда приближена четырьмя опорными точками`,1);
+        return;
+      }
       if (note.pm === true) unsupported.push('palm mute');
       if (note.dead === true) unsupported.push('dead note');
       if (note.deadSlap === true) unsupported.push('dead slap');
@@ -708,10 +713,12 @@
     }
     out.push('</Voices>');
 
+    const notesById = new Map(layout.notes.map(note => [note.id, note]));
     out.push('<Beats>');
     for (const beat of layout.beats) {
       out.push(`<Beat id="${beat.id}">`);
       if (beat.noteIds.length) out.push(`<Notes>${beat.noteIds.join(' ')}</Notes>`);
+      if (beat.noteIds.some(id=>notesById.get(id)?.note?.phraseOrigin)) out.push('<Legato origin="true" destination="false" />');
       out.push(`<Rhythm ref="${beat.rhythmRef}" />`);
       out.push('</Beat>');
     }
@@ -741,6 +748,24 @@
         out.push(`<Property name="String"><String>${note.string}</String></Property>`);
         out.push(`<Property name="Fret"><Fret>${note.fret}</Fret></Property>`);
       }
+      const tech = note.note || {};
+      if (tech.tabEffects) {
+        const property=(name,type,value)=>out.push(`<Property name="${name}"><${type}>${value == null ? '' : value}</${type}></Property>`);
+        if (tech.pm) property('PalmMuted','Enable',null);
+        if (tech.dead) property('Muted','Enable',null);
+        if (tech.hammer) property('HopoOrigin','Enable',null);
+        const slideFlags={shift:1,legato:2,'out-down':4,'out-up':8,'in-below':16,'in-above':32};
+        if (tech.slide) property('Slide','Flags',slideFlags[tech.slide]||0);
+        if (tech.harm) {
+          property('HarmonicType','HType',tech.harm.type==='natural'?'Natural':'Artificial');
+          property('HarmonicFret','HFret',tech.harmonicFret ?? (tech.harm.type==='natural'?note.fret:12));
+        }
+        if (tech.bend) {
+          const ps=tech.bend.points, a=ps[0],z=ps[ps.length-1],m=ps.length>2?ps[1]:[(a[0]+z[0])/2,(a[1]+z[1])/2],m2=ps.length>3?ps[ps.length-2]:m;
+          property('Bended','Enable',null);
+          for (const [name,value] of [['OriginOffset',a[0]*100],['OriginValue',a[1]*50],['MiddleOffset1',m[0]*100],['MiddleOffset2',m2[0]*100],['MiddleValue',m[1]*50],['DestinationOffset',z[0]*100],['DestinationValue',z[1]*50]]) property('Bend'+name,'Float',value);
+        }
+      }
       out.push('</Properties>');
       // Связка читается парсером Guitar Pro как прямой узел Note, не Property.
       if (note.tieOrigin || note.tieDestination) {
@@ -750,8 +775,12 @@
       const flags = note.note || {};
       if (flags.letRing) out.push('<LetRing />');
       if (flags.ghost) out.push('<AntiAccent>Normal</AntiAccent>');
-      if (flags.staccato) out.push('<Accent>1</Accent>');
-      else if (flags.accent) out.push('<Accent>8</Accent>');
+      if (flags.tabEffects) {
+        const accent=(flags.staccato?1:0)|(flags.accent===2?4:flags.accent===1?8:0);
+        if(accent)out.push(`<Accent>${accent}</Accent>`);
+      }
+      else if (flags.staccato) out.push('<Accent>1</Accent>');
+      else if (!flags.tabEffects && flags.accent) out.push('<Accent>8</Accent>');
       else if (flags.tenuto) out.push('<Accent>16</Accent>');
       if (flags.vibrato === 'wide') out.push('<Vibrato>Wide</Vibrato>');
       else if (flags.vibrato === 'slight') out.push('<Vibrato>Slight</Vibrato>');

@@ -29,8 +29,9 @@
     const add = (track, note, start, unit, localStart = 0, duration = Number(note.dur)) => {
       if (!track || note.pause) return;
       const open = tunerNoteToMidi(track.tuning[note.string]);
-      const pitch = Number.isInteger(note.pitch) ? note.pitch
+      let pitch = Number.isInteger(note.pitch) ? note.pitch
         : open === null ? null : open + Number(note.fret) + track.capo;
+      if (note.tabEffects && note.harm && open !== null) {const h=tabTechHarmonicOffset(note);if(h)pitch=h.freq?Math.round(69+12*Math.log2(h.freq/440)):open+h.semitones+track.capo;}
       if (!Number.isInteger(pitch) || pitch < 0 || pitch > 127) {
         gpExportLoss(report, `Дорожка «${track.name}»: нота вне диапазона MIDI пропущена`, 1); return;
       }
@@ -38,8 +39,8 @@
       const end = Math.round((start + (localStart + duration) * unit) * ppq);
       if (end <= at) return;
       track.notes.push({ at, end, pitch, velocity: Math.max(1, Math.min(127, Number(note.velocity) || 90)) });
-      if (note.dead || note.bend || note.harm || note.slide || note.legato || note.trill || note.tremolo || note.grace) {
-        gpExportLoss(report, 'MIDI: приёмы записаны основными нотами без гитарного звукоизвлечения', 1);
+      if (note.dead || note.bend || note.harm || note.slide || note.legato || note.trill || note.tremolo || note.grace || note.vibrato || note.slur) {
+        gpExportLoss(report, 'MIDI: гитарные приёмы переданы приближённо, без точного тембра и кривых высоты', 1);
       }
     };
     let si = 0, sqi = 0, ei = 0, position = 0, walk = structureWalkState();
@@ -64,7 +65,17 @@
         const program = gpExportSongProgram(songSoundAt(sec.id, win.start));
         if (!songTrack.programs.length || songTrack.programs[songTrack.programs.length - 1].program !== program) songTrack.programs.push({ at, program });
         if (sq.type === 'tab') {
-          tabInsertCleanNotes(sq.notes, getSquareBeats(sq, ts), ts).forEach(n => add(songTrack, n, position, unit, n.start, tabInsertNoteDuration(n)));
+          const notes=tabInsertCleanNotes(sq.notes,getSquareBeats(sq,ts),ts);
+          for (const ev of tabTechPerformance(notes,getSquareBeats(sq,ts))) {
+            const n=ev.note, seconds=getGridUnitDurationSeconds(bpm,ts);
+            const issue=ev.segments.map(s=>tabTechIssue(s.note)).find(Boolean);
+            if(issue){gpExportLoss(report, 'MIDI: '+issue+' — нота не экспортирована',1);continue;}
+            let duration=n.letRing?ev.room:ev.duration;
+            if(n.staccato)duration*=.4;if(n.pm)duration*=.35;if(n.dead)duration=Math.min(duration,.07/seconds);
+            const velocity=Math.round(90*(n.ghost?.45:1)*(n.accent===2?1.4:n.accent===1?1.2:1)*(n.pm?.7:1)*(n.dead?.5:1));
+            add(songTrack,{...n,velocity,tabEffects:true},position,unit,n.start,duration);
+            if(n.pm||n.letRing)gpExportLoss(report,'MIDI: palm mute / let ring приближены длительностью, тембр глушения не переносится',1);
+          }
         } else {
           const list = ev.notes && ev.notes.length
             ? accompCleanNotes(ev.notes, ev.span).map(n => ({ ...n, start: win.start + n.start }))

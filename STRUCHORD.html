@@ -5237,6 +5237,14 @@ body.is-resizing .chord-wrapper .chord-ticks-step {
 .tab-gp-invalid { z-index:3; border:2px dashed var(--color-danger); border-radius:4px; }
 .tab-gp-ghost text { fill:var(--color-text-secondary) !important; }
 .tab-gp-error { color:var(--color-danger); font-size:.8125rem; font-weight:600; margin:.5rem 0; }
+.tab-tech-marks text { stroke:none;fill:currentColor;font-size:9px;text-anchor:middle; }
+.tab-tech { margin:.75rem 0; color:var(--color-text-primary); }
+.tab-tech summary { cursor:pointer; font-weight:600; margin-bottom:.5rem; }
+.tab-tech .tab-tool, .tab-tech select, .tab-tech input { min-height:2.75rem; }
+.tab-tech label { display:inline-flex; gap:.375rem; align-items:center; flex-wrap:wrap; font-size:.8125rem; }
+.tab-tech select, .tab-tech input { max-width:100%; color:var(--color-text-primary); background:var(--color-surface); border:1px solid var(--color-border-medium); border-radius:.375rem; padding:.25rem; }
+.tab-tech-status { font-size:.75rem; color:var(--color-text-secondary); }
+[data-tab-bend-grid] { display:block; width:100%; max-width:32rem; height:7.5rem; touch-action:none; cursor:crosshair; }
 .tab-gp-tools { flex-wrap:wrap; }
 .tab-insert-editor .tab-gp-tools .tab-tool { min-height:2.75rem; }
 .tab-insert-editor [data-tab-apply]:disabled { opacity:.5; cursor:not-allowed; }
@@ -14227,7 +14235,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.678</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.679</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -16202,11 +16210,11 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     if (source.vibrato) flags2 |= 0x40;
     writer.u8(flags1);
     writer.u8(flags2);
-    if (flags1 & 0x01) writeBend(writer, source.bend);
+    if (flags1 & 0x01) writeBend(writer, source.bend, source.tabEffects === true);
     if (flags1 & 0x10) writeGraceNote(writer, source.grace, note);
     if (flags2 & 0x04) writer.i8(pickLengthCode(source.tremolo));
     if (flags2 & 0x08) writer.i8(slideCode(source));
-    if (flags2 & 0x10) writeHarmonic(writer, source.harm || source.harmonic);
+    if (flags2 & 0x10) writeHarmonic(writer, source.harm || source.harmonic, source);
     if (flags2 & 0x20) {
       writer.i8(clamp(Math.round(Number(source.trillFret) || 24), 0, 36));
       writer.i8(1); // трель шестнадцатыми
@@ -16220,13 +16228,12 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     return 1;
   }
 
-  // Слайд в GP5 — один байт с типом, а не битовая маска: 1 — сдвиг на лад,
-  // 2 — легато вверх, 3 — исходящий вниз, 4 — исходящий вверх, −1 — входящий
-  // снизу, −2 — входящий сверху (guitarpro.models.SlideType).
+  // GP5 хранит битовую маску (не signed enum SlideType из GP3/4):
+  // shift=1, legato=2, outDown=4, outUp=8, inBelow=16, inAbove=32.
   function slideCode(source) {
     const kind = String(source.slide || '').toLowerCase();
     if (kind === 'legato' || kind === 'легато') return 2;
-    return 1;
+    return ({'in-below':16,'in-above':32,'out-down':4,'out-up':8})[kind] || 1;
   }
 
   // Бенд GP5: тип, значение, число точек, затем точки (сдвиг по горизонтали,
@@ -16237,24 +16244,27 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
   const GP5_MAX_BEND_POINTS = 8;
   const GP5_BEND_SEMITONE = 25;
   const GP5_BEND_POSITION = 60;
-  const GP5_BEND_TYPES = { bend: 1, release: 2, prebend: 4, 'prebend-release': 5 };
+  const GP5_BEND_TYPES = { bend: 1, 'bend-release': 3, release: 2, prebend: 4, 'prebend-release': 5 };
 
-  function writeBend(writer, value) {
+  function writeBend(writer, value, tabEffects = false) {
     const info = typeof value === 'object' && value ? value : {};
     const raw = Array.isArray(info.points) ? info.points
       .map((point) => Array.isArray(point)
         ? [clamp(Number(point[0]) || 0, 0, 1), clamp(Number(point[1]) || 0, 0, 12)]
         : [clamp(Number(point && point.x) || 0, 0, 1), clamp(Number(point && point.y) || 0, 0, 12)])
       : [];
-    const points = raw.length >= 2 ? raw.slice(0, GP5_MAX_BEND_POINTS) : [[0, 0], [1, 1]];
+    const points = raw.length >= 2 ? raw.slice(0, tabEffects ? 32 : GP5_MAX_BEND_POINTS) : [[0, 0], [1, 1]];
     const type = GP5_BEND_TYPES[String(info.type || 'bend')] || 1;
+    // TAB 0.679: y — полутоны, файл GP5 — 50 ед./полутон; alphaTab
+    // возвращает четвертитоны (25 ед.). Legacy-путь партий не переопределяем.
+    const scale = tabEffects ? 50 : GP5_BEND_SEMITONE;
     const peak = Math.max(...points.map((point) => point[1]));
     writer.i8(type);
-    writer.i32(Math.round(peak * GP5_BEND_SEMITONE));
+    writer.i32(Math.round(peak * scale));
     writer.i32(points.length);
     for (const point of points) {
       writer.i32(Math.round(point[0] * GP5_BEND_POSITION));
-      writer.i32(Math.round(point[1] * GP5_BEND_SEMITONE));
+      writer.i32(Math.round(point[1] * scale));
       writer.u8(0); // вибрато в точке
     }
   }
@@ -16280,16 +16290,18 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     writer.u8(info.dead === true ? 0x01 : (info.onBeat === true ? 0x02 : 0x00));
   }
 
-  // Флажолет GP5 — ровно один байт: 1 натуральный, 3 взятый, 4 пинч, 5
-  // полуфлажолет, 15 искусственный на n+5, 17 на n+7, 22 на n+12
-  // (guitarpro.gp4.readHarmonic). Никаких дополнительных байтов после типа нет —
-  // прежний код писал их и ломал поток байтов, но не вызывался.
-  function writeHarmonic(writer, value) {
+  // Прежний путь партий оставлен совместимым со старыми ожиданиями.
+  // Новый TAB ниже использует GP5 type 2 с параметрами, не GP4 enum 15/17/22.
+  function writeHarmonic(writer, value, source = {}) {
     const info = typeof value === 'object' && value ? value : {};
     const type = String(info.type || value || 'natural').toLowerCase();
     if (type.includes('pinch') || type.includes('пинч')) { writer.i8(4); return; }
     if (type.includes('semi') || type.includes('полу')) { writer.i8(5); return; }
     if (type.includes('artificial') || type.includes('искус') || type.includes('a.h')) {
+      if (source.tabEffects) {
+        // GP5 type 2 + pitch class / accidental / relative octave, не GP4 type 15.
+        writer.i8(2);writer.i8(source.harmonicPitchClass ?? 0);writer.i8(0);writer.i8(source.harmonicOctave ?? 1);return;
+      }
       writer.i8(Number(info.code) === 17 || Number(info.code) === 22 ? Number(info.code) : 15);
       return;
     }
@@ -16308,7 +16320,8 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     let flags = 0x20;
     if (hasEffects) flags |= 0x08;
     if (source.ghost) flags |= 0x04;
-    if (accent) flags |= 0x40;
+    if (source.tabEffects && source.accent === 2) flags |= 0x02;
+    else if (accent) flags |= 0x40;
     if (Number.isFinite(Number(source.velocity))) flags |= 0x10;
     writer.u8(flags);
     // Тип ноты GP5: 1 — обычная, 2 — связанная, 3 — «мёртвая» (знак x).
@@ -17132,6 +17145,11 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     const reportUnsupportedNoteEffects = (part, partIndex, note) => {
       const name = part.name || partIndex + 1;
       const unsupported = [];
+      if (note.tabEffects) {
+        if (note.harm?.type === 'artificial' && note.harmonicFret == null) loss(`Дорожка «${name}»: GPIF — искусственный флажолет вне поддержанных узлов записан октавным`,1);
+        if (note.bend?.points?.length > 4 || (note.bend?.points?.length === 4 && note.bend.points[1][1] !== note.bend.points[2][1])) loss(`Дорожка «${name}»: GPIF — сложная кривая бенда приближена четырьмя опорными точками`,1);
+        return;
+      }
       if (note.pm === true) unsupported.push('palm mute');
       if (note.dead === true) unsupported.push('dead note');
       if (note.deadSlap === true) unsupported.push('dead slap');
@@ -17623,10 +17641,12 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     }
     out.push('<\/Voices>');
 
+    const notesById = new Map(layout.notes.map(note => [note.id, note]));
     out.push('<Beats>');
     for (const beat of layout.beats) {
       out.push(`<Beat id="${beat.id}">`);
       if (beat.noteIds.length) out.push(`<Notes>${beat.noteIds.join(' ')}<\/Notes>`);
+      if (beat.noteIds.some(id=>notesById.get(id)?.note?.phraseOrigin)) out.push('<Legato origin="true" destination="false" />');
       out.push(`<Rhythm ref="${beat.rhythmRef}" />`);
       out.push('<\/Beat>');
     }
@@ -17656,6 +17676,24 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         out.push(`<Property name="String"><String>${note.string}<\/String><\/Property>`);
         out.push(`<Property name="Fret"><Fret>${note.fret}<\/Fret><\/Property>`);
       }
+      const tech = note.note || {};
+      if (tech.tabEffects) {
+        const property=(name,type,value)=>out.push(`<Property name="${name}"><${type}>${value == null ? '' : value}<\/${type}><\/Property>`);
+        if (tech.pm) property('PalmMuted','Enable',null);
+        if (tech.dead) property('Muted','Enable',null);
+        if (tech.hammer) property('HopoOrigin','Enable',null);
+        const slideFlags={shift:1,legato:2,'out-down':4,'out-up':8,'in-below':16,'in-above':32};
+        if (tech.slide) property('Slide','Flags',slideFlags[tech.slide]||0);
+        if (tech.harm) {
+          property('HarmonicType','HType',tech.harm.type==='natural'?'Natural':'Artificial');
+          property('HarmonicFret','HFret',tech.harmonicFret ?? (tech.harm.type==='natural'?note.fret:12));
+        }
+        if (tech.bend) {
+          const ps=tech.bend.points, a=ps[0],z=ps[ps.length-1],m=ps.length>2?ps[1]:[(a[0]+z[0])/2,(a[1]+z[1])/2],m2=ps.length>3?ps[ps.length-2]:m;
+          property('Bended','Enable',null);
+          for (const [name,value] of [['OriginOffset',a[0]*100],['OriginValue',a[1]*50],['MiddleOffset1',m[0]*100],['MiddleOffset2',m2[0]*100],['MiddleValue',m[1]*50],['DestinationOffset',z[0]*100],['DestinationValue',z[1]*50]]) property('Bend'+name,'Float',value);
+        }
+      }
       out.push('<\/Properties>');
       // Связка читается парсером Guitar Pro как прямой узел Note, не Property.
       if (note.tieOrigin || note.tieDestination) {
@@ -17665,8 +17703,12 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       const flags = note.note || {};
       if (flags.letRing) out.push('<LetRing />');
       if (flags.ghost) out.push('<AntiAccent>Normal<\/AntiAccent>');
-      if (flags.staccato) out.push('<Accent>1<\/Accent>');
-      else if (flags.accent) out.push('<Accent>8<\/Accent>');
+      if (flags.tabEffects) {
+        const accent=(flags.staccato?1:0)|(flags.accent===2?4:flags.accent===1?8:0);
+        if(accent)out.push(`<Accent>${accent}<\/Accent>`);
+      }
+      else if (flags.staccato) out.push('<Accent>1<\/Accent>');
+      else if (!flags.tabEffects && flags.accent) out.push('<Accent>8<\/Accent>');
       else if (flags.tenuto) out.push('<Accent>16<\/Accent>');
       if (flags.vibrato === 'wide') out.push('<Vibrato>Wide<\/Vibrato>');
       else if (flags.vibrato === 'slight') out.push('<Vibrato>Slight<\/Vibrato>');
@@ -20258,6 +20300,904 @@ function tabInsertValidBeats(beats, parentTs) {
   const bars = beats / getGridUnitsPerBar(parentTs);
   return bars >= 1 && bars <= TAB_INSERT_MAX_BARS && Math.abs(bars - Math.round(bars)) < 1e-8;
 }
+// B-12.12: приёмы TAB. Санитайзеры и звук переиспользованы из партий; связь — на принимающей
+// ноте только у tie; H/P, фразировка и слайды — на исходной, как в GP.
+// Лига длительности не сливает записанные позиции и не съедает паузы.
+const TAB_TECH_SLIDES = ['legato', 'shift', 'in-below', 'in-above', 'out-down', 'out-up'];
+const TAB_TECH_LINKS = ['tie', 'legato', 'slur'];
+function tabTechExportNotes(notes, tuning = songTuningNotes(), capo = songCapo) {
+  const copies = new Map(notes.map((n) => [n, { ...n, ...tabTechClean(n), tabEffects: true }]));
+  for (const n of copies.values()) {
+    delete n.tie;
+    delete n.legato;
+    delete n.slur;
+    if (['legato', 'shift'].includes(n.slide)) delete n.slide;
+  }
+  for (const e of tabTechEdges(notes)) {
+    if (tabTechIssue(e.from, tuning, capo) || tabTechIssue(e.to, tuning, capo)) continue;
+    const a = copies.get(e.from),
+      b = copies.get(e.to);
+    if (e.key === 'tie') {
+      a.tieOrigin = true;
+      b.tieDestination = true;
+    }
+    if (e.key === 'legato') a.hammer = true;
+    if (e.key === 'slur') a.phraseOrigin = true;
+    if (e.key === 'slide') a.slide = e.from.slide;
+  }
+  for (const n of copies.values())
+    if (n.harm?.type === 'natural') n.harmonicFret = tabTechNaturalFret(n.fret);
+    else if (n.harm?.type === 'artificial') {
+      const base = tunerNoteToMidi(tuning[n.string]) + (Number(capo) || 0) + n.fret;
+      const target = tunerNoteToMidi(n.harm.note);
+      n.harmonicFret = tabTechHarmonicFret(target - base);
+      // GP5 type 2 кодирует узел относительно основного pitch class,
+      // не абсолютную звучащую ноту: иначе +28/+31/+34/+36 читаются октавой.
+      const delta = { 12: 12, 19: 7, 24: 5, 28: 4, 31: 3, 34: 10, 36: 2 }[target - base] ?? 12;
+      n.harmonicPitchClass = ((base % 12) + delta) % 12;
+      n.harmonicOctave = Math.floor(((base % 12) + delta) / 12);
+    }
+  return [...copies.values()].filter((n) => !tabTechIssue(n, tuning, capo));
+}
+// Узлы GP: написанный целочисленный лад и фактический harmonicValue различаются.
+// Неподдержанный узел не подменяется звучащей октавой старого редактора.
+const TAB_TECH_NATURAL = {
+  2: [2.4, 36],
+  3: [3.2, 31],
+  4: [4, 28],
+  5: [5, 24],
+  7: [7, 19],
+  8: [8.2, 36],
+  9: [9, 28],
+  10: [9.6, 34],
+  12: [12, 12],
+  14: [14.7, 34],
+  15: [14.7, 34],
+  16: [16, 28],
+  17: [17, 36],
+  19: [19, 19],
+  21: [21.7, 36],
+  22: [21.7, 36],
+  24: [24, 24],
+};
+function tabTechNaturalFret(fret) {
+  return TAB_TECH_NATURAL[fret]?.[0] ?? null;
+}
+function tabTechNaturalPitch(fret) {
+  return TAB_TECH_NATURAL[fret]?.[1] ?? null;
+}
+function tabTechIssue(n, tuning = songTuningNotes(), capo = songCapo) {
+  if (n.pause || !n.harm) return '';
+  if (n.harm.type === 'natural')
+    return tabTechNaturalPitch(n.fret) === null
+      ? 'Натуральный флажолет: на этом ладу нет поддержанного узла струны'
+      : '';
+  const pitch = tunerNoteToMidi(n.harm.note),
+    base = tunerNoteToMidi(tuning[n.string]);
+  return pitch === null || base === null || pitch <= base + (Number(capo) || 0) + n.fret
+    ? 'Искусственный флажолет должен звучать выше основной ноты'
+    : '';
+}
+function tabTechHarmonicOffset(n) {
+  return n.harm?.type === 'natural' ? { semitones: tabTechNaturalPitch(n.fret) } : partHarmonicOffset(n);
+}
+function tabTechHarmonicFret(interval) {
+  return { 12: 12, 19: 7, 24: 5, 28: 4, 31: 3, 34: 2.7, 36: 2.4 }[interval] ?? null;
+}
+
+// alphaTab 1.8.4 рисует N.H./A.H. поверх друг друга на одной позиции.
+// Объединяем только совпавшие подписи; номера струн/ладов и bounds нетронуты.
+function tabTechConsolidateHarmonics(host) {
+  const labels = [...host.querySelectorAll('svg text')].filter((t) =>
+    ['N.H.', 'A.H.'].includes(t.textContent.trim()),
+  );
+  const boxes = new Map(labels.map((t) => [t, t.getBoundingClientRect()]));
+  const used = new Set();
+  for (const first of labels) {
+    if (used.has(first)) continue;
+    const a = boxes.get(first),
+      names = [first.textContent.trim()];
+    for (const other of labels) {
+      if (other === first || used.has(other)) continue;
+      const b = boxes.get(other);
+      if (Math.abs(a.left - b.left) < 3 && Math.abs(a.top - b.top) < 3) {
+        names.push(other.textContent.trim());
+        used.add(other);
+        other.remove();
+      }
+    }
+    if (names.length > 1) {
+      first.textContent = [...new Set(names)].join('/');
+      first.dataset.tabHarmonics = 'combined';
+    }
+  }
+}
+function tabTechNative(M, n, spec) {
+  n.isPalmMute = !!spec.pm;
+  n.isLetRing = !!spec.letRing;
+  n.isDead = !!spec.dead;
+  n.isGhost = !!spec.ghost;
+  n.isStaccato = !!spec.staccato;
+  if (spec.accent) n.accentuated = spec.accent === 2 ? M.AccentuationType.Heavy : M.AccentuationType.Normal;
+  if (spec.vibrato) n.vibrato = spec.vibrato === 'wide' ? M.VibratoType.Wide : M.VibratoType.Slight;
+  if (spec.harm && !tabTechIssue({ ...spec, string: spec.string - 1 })) {
+    n.harmonicType = spec.harm.type === 'natural' ? M.HarmonicType.Natural : M.HarmonicType.Artificial;
+    const base = tunerNoteToMidi(songTuningNotes()[spec.string - 1]) + (Number(songCapo) || 0) + spec.fret;
+    n.harmonicValue =
+      spec.harm.type === 'natural'
+        ? tabTechNaturalFret(spec.fret)
+        : (tabTechHarmonicFret(tunerNoteToMidi(spec.harm.note) - base) ?? 12);
+  }
+  if (spec.bend) {
+    for (const [x, y] of spec.bend.points) n.addBendPoint(new M.BendPoint(Math.round(x * 60), y * 2));
+    n.bendType = M.BendType.Custom;
+  }
+  if (spec.slide === 'in-below') n.slideInType = M.SlideInType.IntoFromBelow;
+  if (spec.slide === 'in-above') n.slideInType = M.SlideInType.IntoFromAbove;
+  if (spec.slide === 'out-down') n.slideOutType = M.SlideOutType.OutDown;
+  if (spec.slide === 'out-up') n.slideOutType = M.SlideOutType.OutUp;
+}
+function tabTechNativeLinks(M, records) {
+  const lookup = new Map(records.map((r) => [r.data, r]));
+  for (const edge of tabTechEdges(records.map((r) => r.data))) {
+    const a = lookup.get(edge.from),
+      b = lookup.get(edge.to);
+    if (edge.key === 'tie') b.note.isTieDestination = true;
+    if (edge.key === 'legato') a.note.isHammerPullOrigin = true;
+    if (edge.key === 'slide')
+      a.note.slideOutType = edge.from.slide === 'legato' ? M.SlideOutType.Legato : M.SlideOutType.Shift;
+    if (edge.key === 'slur') a.beat.isLegatoOrigin = true;
+  }
+}
+function tabTechPerformance(notes, total) {
+  const edges = tabTechEdges(notes),
+    tie = new Map(edges.filter((e) => e.key === 'tie').map((e) => [e.from, e.to]));
+  const dest = new Set(tie.values());
+  return notes
+    .filter((n) => !n.pause && !dest.has(n))
+    .map((n) => {
+      let duration = tabInsertNoteDuration(n),
+        last = n;
+      const segments = [{ note: n, offset: 0, duration }];
+      while (tie.has(last)) {
+        last = tie.get(last);
+        const d = tabInsertNoteDuration(last);
+        segments.push({ note: last, offset: duration, duration: d });
+        duration += d;
+      }
+      const after = notes.filter(
+        (m) =>
+          m.start > n.start + 1e-7 &&
+          (m.pause || m.string === n.string) &&
+          !segments.some((s) => s.note === m),
+      );
+      const room = Math.max(duration, Math.min(total, ...after.map((m) => m.start)) - n.start);
+      const incoming = edges.find((e) => e.to === n && ['legato', 'slur', 'slide'].includes(e.key));
+      const outgoing = edges.find((e) => e.from === last && e.key === 'slide');
+      return {
+        note: n,
+        start: n.start,
+        duration,
+        room,
+        segments,
+        soft: incoming?.key === 'legato' || incoming?.key === 'slur' || incoming?.from.slide === 'legato',
+        outgoing,
+      };
+    });
+}
+function tabTechSoundOptions(event, unit, freqs, start, sound) {
+  const n = event.note,
+    open = freqs[n.string];
+  if (event.segments.some((s) => tabTechIssue(s.note))) return null;
+  if (!open) return null;
+  const written = event.duration * unit;
+  // Используем тот же движок приёмов, что у скрытых партий, но тембр песни.
+  const v = partNoteSound(n, { gain: 0.5, bright: 0.5 }, written, written, event.room * unit);
+  if (n.harm) v.harm = tabTechHarmonicOffset(n);
+  const freq = v.harm?.freq || open * Math.pow(2, (v.harm?.semitones ?? n.fret) / 12);
+  let points = null;
+  if (event.segments.some((s) => s.note.bend)) {
+    points = [];
+    for (const s of event.segments)
+      for (const [x, y] of s.note.bend?.points || [
+        [0, 0],
+        [1, 0],
+      ])
+        points.push([(s.offset + x * s.duration) / event.duration, y]);
+  }
+  if (event.outgoing || ['out-down', 'out-up'].includes(n.slide)) {
+    const delta = event.outgoing
+      ? event.outgoing.to.fret - n.fret
+      : n.slide === 'out-up'
+        ? 3
+        : -Math.min(3, n.fret);
+    const base = points || [
+        [0, 0],
+        [1, 0],
+      ],
+      at = 0.75;
+    const valueAt = (x) => {
+      let a = base[0],
+        b = base[base.length - 1];
+      for (let i = 1; i < base.length; i++)
+        if (base[i][0] >= x) {
+          a = base[i - 1];
+          b = base[i];
+          break;
+        }
+      return a[1] + ((b[1] - a[1]) * (x - a[0])) / Math.max(1e-9, b[0] - a[0]);
+    };
+    points = [...base.filter((p) => p[0] < at), [at, valueAt(at)], [1, valueAt(1) + delta]];
+  }
+  const into = ['in-below', 'in-above'].includes(n.slide);
+  return {
+    freq,
+    startTime: start + event.start * unit,
+    duration: v.ring,
+    gain: v.gain,
+    brightness: v.bright,
+    pan: 0,
+    sound,
+    vibratoDepth: v.vibratoDepth || 0,
+    bendPoints: points,
+    bendSpan: points ? written : 0,
+    startRate: into ? Math.pow(2, (n.slide === 'in-above' ? 3 : -Math.min(3, n.fret)) / 12) : 1,
+    glide: into ? Math.min(0.15, written * 0.3) : 0,
+    skipAttack: event.soft ? 0.025 : 0,
+    releaseAt: v.damp ? start + event.start * unit + v.ring : 0,
+    releaseTime: 0.03,
+  };
+}
+function tabTechMiniSvg(notes, xAt, yAt) {
+  const edges = tabTechEdges(notes),
+    out = [];
+  for (const edge of edges) {
+    const x1 = xAt(edge.from.start),
+      x2 = xAt(edge.to.start),
+      y1 = yAt(edge.from.string),
+      y2 = yAt(edge.to.string);
+    if (edge.key === 'slide')
+      out.push(`<path data-tab-tech-mark="slide" d="M ${x1 + 6} ${y1 - 3} L ${x2 - 6} ${y2 - 3}"/>`);
+    else {
+      out.push(
+        `<path data-tab-tech-mark="${edge.key}" d="M ${x1 + 5} ${y1 - 5} Q ${(x1 + x2) / 2} ${Math.min(y1, y2) - 22} ${x2 - 5} ${y2 - 5}"/>`,
+      );
+      if (edge.key === 'legato')
+        out.push(
+          `<text x="${(x1 + x2) / 2}" y="${Math.min(y1, y2) - 12}">${edge.to.fret > edge.from.fret ? 'H' : 'P'}</text>`,
+        );
+    }
+  }
+  const spans = partPalmMuteSpans(
+    notes.map((n) => ({ ...n, dur: tabInsertNoteDuration(n) })),
+    Infinity,
+  );
+  for (const span of new Map(spans.map((s) => [`${s.from}:${s.to}`, s])).values())
+    out.push(
+      `<text x="${xAt(span.from)}" y="9">P.M.</text><path stroke-dasharray="3 2" d="M ${xAt(span.from) + 24} 7 H ${xAt(span.to) - 4}"/>`,
+    );
+  for (const n of notes.filter((n) => !n.pause)) {
+    const x = xAt(n.start),
+      y = yAt(n.string),
+      label = [
+        n.letRing ? 'L.R.' : '',
+        n.harm && !tabTechIssue(n) ? (n.harm.type === 'natural' ? 'N.H.' : 'A.H.') : '',
+        n.vibrato ? '∿' : '',
+        n.bend ? partBendMark(n) : '',
+        n.accent ? (n.accent === 2 ? '^' : '>') : '',
+        n.staccato ? '·' : '',
+      ]
+        .filter(Boolean)
+        .join(' ');
+    if (label) out.push(`<text data-tab-tech-mark="note" x="${x}" y="${y - 10}">${escapeHtml(label)}</text>`);
+    if (['in-below', 'in-above', 'out-down', 'out-up'].includes(n.slide)) {
+      const into = n.slide.startsWith('in'),
+        up = ['in-above', 'out-down'].includes(n.slide);
+      out.push(
+        `<path data-tab-tech-mark="slide" d="M ${x + (into ? -14 : 5)} ${y + (up ? -7 : 7)} L ${x + (into ? -5 : 14)} ${y + (up ? 7 : -7)}"/>`,
+      );
+    }
+  }
+  return `<g class="tab-tech-marks" style="stroke:currentColor;fill:none;color:var(--color-text-primary)">${out.join('')}</g>`;
+}
+
+function tabTechBendDefaults(type) {
+  if (type === 'prebend-release') return partBendDefaults('release');
+  return partBendDefaults(type === 'bend-release' ? 'prebend-release' : type);
+}
+function tabTechClean(raw) {
+  const out = {};
+  if (!raw || raw.pause) return out;
+  for (const key of ['pm', 'letRing', 'dead', 'ghost', 'staccato', ...TAB_TECH_LINKS])
+    if (raw[key] === true) out[key] = true;
+  if (raw.accent === 1 || raw.accent === 2) out.accent = raw.accent;
+  if (TAB_TECH_SLIDES.includes(raw.slide)) out.slide = raw.slide;
+  if (['slight', 'wide'].includes(raw.vibrato)) out.vibrato = raw.vibrato;
+  const harm = partSanitizeHarm(raw.harm);
+  if (
+    harm &&
+    (harm.type === 'natural' ||
+      (harm.type === 'artificial' &&
+        Number.isInteger(tunerNoteToMidi(harm.note)) &&
+        tunerNoteToMidi(harm.note) >= 0 &&
+        tunerNoteToMidi(harm.note) <= 127))
+  )
+    out.harm = harm;
+  // Жёсткие пределы до вызова общего нормализатора, в том числе для clipboard.
+  if (
+    raw.bend &&
+    Array.isArray(raw.bend.points) &&
+    raw.bend.points.length >= 2 &&
+    raw.bend.points.length <= 8 &&
+    raw.bend.points.every(
+      (p) =>
+        Array.isArray(p) &&
+        p.length === 2 &&
+        p.every(Number.isFinite) &&
+        p[0] >= 0 &&
+        p[0] <= 1 &&
+        p[1] >= 0 &&
+        p[1] <= 6 &&
+        Number.isInteger(p[1] * 2),
+    )
+  ) {
+    const bend = partSanitizeBend({
+      ...raw.bend,
+      type: raw.bend.type === 'bend-release' ? 'prebend-release' : raw.bend.type,
+    });
+    if (bend) {
+      bend.type = raw.bend.type;
+      if (bend.type === 'prebend-release') bend.points[0][1] = raw.bend.points[0][1];
+      out.bend = bend;
+    }
+  }
+  if (out.dead) {
+    delete out.tie;
+    delete out.legato;
+    delete out.harm;
+    delete out.bend;
+    delete out.slide;
+  }
+  if (out.tie && ['in-below', 'in-above'].includes(out.slide)) delete out.slide;
+  if (out.slide) delete out.legato;
+  return out;
+}
+function tabTechGroups(notes) {
+  const groups = [];
+  for (const n of notes.slice().sort((a, b) => a.start - b.start)) {
+    let g = groups[groups.length - 1];
+    if (!g || Math.abs(g.start - n.start) > 1e-7) groups.push((g = { start: n.start, notes: [] }));
+    g.notes.push(n);
+  }
+  return groups;
+}
+function tabTechEdges(notes, length = tabInsertNoteDuration) {
+  const edges = [];
+  const groups = tabTechGroups(notes);
+  groups.forEach((g, i) => {
+    const prev = groups[i - 1];
+    if (!prev || Math.abs(prev.start + length(prev.notes[0]) - g.start) > 1e-7 || prev.notes[0].pause) return;
+    for (const n of g.notes) {
+      if (n.pause || n.dead) continue;
+      const p = prev.notes.find((p) => p.string === n.string && !p.pause && !p.dead);
+      if (p) {
+        if (n.tie && p.fret === n.fret && JSON.stringify(n.harm || null) === JSON.stringify(p.harm || null))
+          edges.push({ from: p, to: n, key: 'tie' });
+        if (p.legato && p.fret !== n.fret) edges.push({ from: p, to: n, key: 'legato' });
+        if (['legato', 'shift'].includes(p.slide) && p.fret !== n.fret)
+          edges.push({ from: p, to: n, key: 'slide' });
+      }
+      const phrase = prev.notes.find((p) => p.slur && !p.dead && !p.pause);
+      if (phrase) edges.push({ from: phrase, to: n, key: 'slur' });
+    }
+  });
+  return edges;
+}
+function tabTechRepair(notes, length, clipboard = false) {
+  const valid = tabTechEdges(notes, length);
+  for (const n of notes) {
+    // Исходный H/P/слайд может ожидать следующую вводимую ноту. Из clipboard
+    // связи за границами диапазона не переносятся на чужих соседей.
+    for (const key of [
+      'tie',
+      ...(clipboard ? ['legato', 'slur', ...(['legato', 'shift'].includes(n.slide) ? ['slide'] : [])] : []),
+    ]) {
+      const incoming = key === 'tie';
+      if (n[key] && !valid.some((e) => (incoming ? e.to : e.from) === n && e.key === key))
+        delete (n._tabRef || n)[key];
+    }
+  }
+  return notes;
+}
+function tabTechDraftNotes(e) {
+  const out = [];
+  let offset = 0;
+  for (const bar of e.gpBars) {
+    let start = offset;
+    for (const g of bar) {
+      for (const n of g.notes)
+        out.push({
+          ...n,
+          start,
+          dur: g.dur,
+          dots: g.dots || 0,
+          triplet: !!g.triplet,
+          _tabRef: n,
+        });
+      start += tabGpLength(g);
+    }
+    offset += Math.max(getGridUnitsPerBar(tabGpMeter(e)), start - offset);
+  }
+  return out;
+}
+function tabTechGuard(e, beforeEdges) {
+  const notes = tabTechDraftNotes(e),
+    now = tabTechEdges(notes);
+  // Не перепривязать связь к чужой ноте после удаления доли/замены выделения.
+  for (const old of beforeEdges)
+    if (
+      !now.some(
+        (n) => n.from._tabRef === old.from._tabRef && n.to._tabRef === old.to._tabRef && n.key === old.key,
+      )
+    )
+      delete (old.key === 'tie' ? old.to : old.from)._tabRef[old.key];
+  tabTechRepair(notes);
+}
+function tabTechTargets(e, whole = false) {
+  if (!Array.isArray(e.gpBars)) return [];
+  return tabGpRange(e)
+    .flatMap((p) => p.beat?.notes || [])
+    .filter((n) => whole || e.gpSelection || n.string === tabAtCursor.string);
+}
+function tabTechTieEmpty(e, whole) {
+  const notes = tabTechDraftNotes(e),
+    previous = tabTechGroups(notes)
+      .filter((g) => g.start < tabAtCursor.start - 1e-7)
+      .at(-1);
+  const source =
+    previous?.notes.filter(
+      (n) =>
+        !n.dead &&
+        Math.abs(n.start + tabInsertNoteDuration(n) - tabAtCursor.start) < 1e-7 &&
+        (whole || n.string === tabAtCursor.string),
+    ) || [];
+  if (!source.length) {
+    showToast('Для лиги нужна соседняя предыдущая нота этой струны');
+    return false;
+  }
+  return tabGpEdit(e, () => {
+    tabGpMaterialize(e);
+    const bar = e.gpBars[e.gpCursor.bar];
+    let g = tabGpGroup(e);
+    if (!g || !g.notes.length) {
+      const old = g ? tabGpLength(g) : 0;
+      g = { ...tabGpNotation(), notes: [] };
+      const count = bar[e.gpCursor.index] ? 1 : 0;
+      bar.splice(
+        e.gpCursor.index,
+        count,
+        g,
+        ...(old > tabGpLength(g) + 1e-7
+          ? tabGpRests(old - tabGpLength(g), parseTimeSig(tabGpMeter(e)).denominator)
+          : []),
+      );
+    }
+    for (const n of source)
+      if (!g.notes.some((m) => m.string === n.string))
+        g.notes.push({
+          string: n.string,
+          fret: n.fret,
+          ...(n.harm ? { harm: structuredClone(n.harm) } : {}),
+          tie: true,
+        });
+    delete g.ghost;
+    delete g.implicit;
+    delete g.wholeBar;
+  });
+}
+function tabTechApply(e, kind, value, whole = false) {
+  if (!Array.isArray(e.gpBars)) return false;
+  tabAtLastDigit = null;
+  let targets = tabTechTargets(e, whole);
+  if (kind === 'tie' && !targets.length) return tabTechTieEmpty(e, whole);
+  if (kind === 'slur' && e.gpSelection) {
+    const projected = tabTechDraftNotes(e),
+      selected = projected.filter((n) => targets.includes(n._tabRef)),
+      max = Math.max(...selected.map((n) => n.start));
+    if (new Set(selected.map((n) => n.start)).size > 1)
+      targets = targets.filter((n) => projected.find((p) => p._tabRef === n).start < max);
+  }
+  if (!targets.length) {
+    showToast('Сначала выберите ноту: на паузе приём не ставится');
+    return false;
+  }
+  if (kind === 'bend-editor' || kind === 'harm-editor') {
+    e.techPanel = kind === 'bend-editor' ? 'bend' : 'harm';
+    tabTechRefresh(e);
+    return true;
+  }
+  const changed = tabGpEdit(e, () => {
+    const notes = tabTechDraftNotes(e);
+    const key = kind === 'slide' ? 'slide' : kind;
+    const remove = targets.every((n) =>
+      value === undefined ? n[key] === true : JSON.stringify(n[key]) === JSON.stringify(value),
+    );
+    if (!remove && kind === 'harm') {
+      const issue = targets.map((n) => tabTechIssue({ ...n, harm: value })).find(Boolean);
+      if (issue) {
+        showToast(issue);
+        return false;
+      }
+    }
+    if (!remove && (kind === 'legato' || (kind === 'slide' && ['legato', 'shift'].includes(value)))) {
+      for (const n of targets) {
+        const src = notes.find((p) => p._tabRef === n),
+          next = notes.find(
+            (p) =>
+              Math.abs(p.start - src.start - tabInsertNoteDuration(src)) < 1e-7 && p.string === src.string,
+          );
+        if (next && next.fret === src.fret) {
+          showToast('Для H/P или межнотного слайда нужны разные лады');
+          return false;
+        }
+      }
+    }
+    if (!remove && kind === 'tie') {
+      // Проверить всю команду до мутации: не половинчатая правка созвучия.
+      for (const n of targets) {
+        const probe = {
+          ...notes.find((m) => m._tabRef === n),
+          [key]: value === undefined ? true : value,
+        };
+        const list = notes.map((m) => (m._tabRef === n ? probe : m));
+        if (!tabTechEdges(list).some((x) => x.to === probe && x.key === key)) {
+          showToast(
+            kind === 'tie'
+              ? 'Для лиги нужна предыдущая соседняя нота того же лада и струны'
+              : 'Для связи нужна соседняя звучащая нота; H/P и слайд — на той же струне с другим ладом',
+          );
+          return false;
+        }
+      }
+    }
+    for (const n of targets) {
+      if (remove || value === null) delete n[key];
+      else n[key] = value === undefined ? true : structuredClone(value);
+      if (kind === 'tie' && n.tie) {
+        if (['in-below', 'in-above'].includes(n.slide)) delete n.slide;
+        delete n.dead;
+      }
+      if (kind === 'legato' && n.legato) {
+        delete n.slide;
+        delete n.dead;
+      }
+      if (kind === 'slide' && n.slide) {
+        delete n.legato;
+        if (['in-below', 'in-above'].includes(n.slide)) delete n.tie;
+        delete n.dead;
+      }
+      if (kind === 'dead' && n.dead) for (const k of ['tie', 'legato', 'slide', 'harm', 'bend']) delete n[k];
+      if (kind === 'harm' && n.harm) delete n.dead;
+      if (kind === 'bend' && n.bend) delete n.dead;
+    }
+  });
+  if (changed) {
+    const notes = tabTechDraftNotes(e),
+      event = tabTechPerformance(notes, tabGpLayout(e).totalSpan).find((p) =>
+        p.segments.some(
+          (s) => Math.abs(s.note.start - tabAtCursor.start) < 1e-7 && s.note.string === tabAtCursor.string,
+        ),
+      );
+    if (event) {
+      const ctx = getAudioContext();
+      if (ctx) {
+        const target = tabInsertTarget(e.secId, e.sqId),
+          unit = getGridUnitDurationSeconds(getEffectiveBpm(target.sec), tabGpMeter(e));
+        const opts = tabTechSoundOptions(
+          event,
+          unit,
+          songStringFreqs(),
+          ctx.currentTime + 0.01 - event.start * unit,
+          songSoundAtEvent(target.sec, target.sq, 0),
+        );
+        if (opts) pluckString(ctx, opts);
+      }
+    }
+  }
+  return changed;
+}
+function tabTechKey(e, event) {
+  if (event.metaKey || event.ctrlKey) return false;
+  const c = event.code,
+    s = event.shiftKey,
+    a = event.altKey;
+  if (c === 'KeyL' && !a) tabTechApply(e, 'tie', undefined, s);
+  else if (c === 'KeyH' && !a) tabTechApply(e, s ? 'slur' : 'legato', undefined, s);
+  else if (c === 'KeyP' && !a) tabTechApply(e, 'pm', undefined, s);
+  else if (c === 'KeyS' && !s) tabTechApply(e, 'slide', a ? 'shift' : 'legato');
+  else if (c === 'KeyV' && !s) tabTechApply(e, 'vibrato', a ? 'wide' : 'slight');
+  else if (c === 'KeyB' && !a && !s) tabTechApply(e, 'bend-editor');
+  else if (c === 'KeyY' && !s) {
+    if (a) tabTechApply(e, 'harm-editor');
+    else tabTechApply(e, 'harm', { type: 'natural' });
+  } else if (c === 'KeyI' && !a && !s) tabTechApply(e, 'letRing');
+  else if (c === 'KeyX' && !a && !s) tabTechApply(e, 'dead');
+  else if (c === 'KeyO' && !a && !s) tabTechApply(e, 'ghost');
+  else if (c === 'Semicolon' && !a) tabTechApply(e, 'accent', s ? 2 : 1);
+  else if (c === 'Digit1' && s && !a) tabTechApply(e, 'staccato');
+  else return false;
+  return true;
+}
+function tabTechPalette() {
+  const buttons = [
+    ['tie', 'Лига', 'L'],
+    ['tie-beat', 'Лиги позиции', '⇧L'],
+    ['slur', 'Фразировка', '⇧H'],
+    ['legato', 'H/P', 'H'],
+    ['pm', 'P.M.', 'P'],
+    ['pm-beat', 'P.M. позиции', '⇧P'],
+    ['letRing', 'Let ring', 'I'],
+    ['dead', 'Dead ×', 'X'],
+    ['ghost', 'Ghost ( )', 'O'],
+    ['staccato', 'Стаккато', '!'],
+    ['accent', 'Акцент', ';'],
+    ['strong', 'Сильный акцент', ':'],
+    ['natural', 'Флажолет', 'Y'],
+    ['harm-editor', 'Искусств. флажолет', '⌥Y'],
+    ['bend-editor', 'Бенд…', 'B'],
+  ];
+  return `<details class="tab-tech" open><summary>Приёмы</summary><div class="tab-tools-row">${buttons.map(([k, t, h]) => `<button type="button" class="tab-tool" data-tab-tech="${k}" aria-pressed="false" title="${t} (${h})">${t}</button>`).join('')}
+    <label>Слайд <select data-tab-tech-slide aria-label="Слайд"><option value="">Нет</option>${TAB_TECH_SLIDES.map((s, i) => `<option value="${s}">${['Legato (S)', 'Shift (⌥S)', 'Вход снизу', 'Вход сверху', 'Выход вниз', 'Выход вверх'][i]}</option>`).join('')}</select></label>
+    <label>Вибрато <select data-tab-tech-vibrato aria-label="Вибрато"><option value="">Нет</option><option value="slight">Обычное (V)</option><option value="wide">Широкое (⌥V)</option></select></label>
+    </div><div data-tab-tech-params></div><p class="tab-tech-status" data-tab-tech-status role="status"></p></details>`;
+}
+function tabTechRefresh(e) {
+  const root = e.overlay.querySelector('.tab-tech');
+  if (!root) return;
+  root.hidden = !Array.isArray(e.gpBars);
+  if (root.hidden) return;
+  const ns = tabTechTargets(e),
+    n = ns[0];
+  const map = {
+    'tie-beat': 'tie',
+    'pm-beat': 'pm',
+    natural: 'harm',
+    strong: 'accent',
+  };
+  root.querySelectorAll('[data-tab-tech]').forEach((b) => {
+    const k = b.dataset.tabTech,
+      field = map[k] || k;
+    const on =
+      ns.length &&
+      ns.every((n) =>
+        k === 'natural'
+          ? n.harm?.type === 'natural'
+          : k === 'strong'
+            ? n.accent === 2
+            : k === 'accent'
+              ? n.accent === 1
+              : !!n[field],
+      );
+    b.setAttribute('aria-pressed', String(!!on));
+  });
+  for (const key of ['slide', 'vibrato']) {
+    const el = root.querySelector(`[data-tab-tech-${key}]`);
+    el.value = n?.[key] || '';
+  }
+  root.querySelector('[data-tab-tech-status]').textContent = n
+    ? tabTechLabel(n)
+    : 'Приём применяется к ноте под курсором; при выделении — ко всем выбранным нотам.';
+  const params = root.querySelector('[data-tab-tech-params]');
+  if (e.techPanel === 'harm') {
+    if (params.dataset.panel !== 'harm')
+      params.innerHTML = `<label>Звучащая нота <input data-tab-tech-harm placeholder="E5" aria-label="Звучащая нота флажолета"></label><button type="button" class="tab-tool" data-tab-tech="harm-apply">Применить</button><button type="button" class="tab-tool" data-tab-tech="harm-clear">Снять</button>`;
+    if (document.activeElement !== params.querySelector('input'))
+      params.querySelector('input').value = n?.harm?.note || '';
+  } else if (e.techPanel === 'bend') {
+    if (params.dataset.panel !== 'bend')
+      params.innerHTML = `<div class="tab-tools-row"><label>Бенд <select data-tab-tech-bend-type>${['bend', 'bend-release', 'release', 'prebend', 'prebend-release'].map((v, i) => `<option value="${v}">${['Подтяжка', 'Подтяжка с отпусканием', 'Отпускание', 'Предбенд', 'Предбенд с отпусканием'][i]}</option>`).join('')}</select></label>${[
+        [0.5, '¼ тона'],
+        [1, '½ тона'],
+        [2, 'Full'],
+        [3, '1½ тона'],
+      ]
+        .map(([v, t]) => `<button type="button" class="tab-tool" data-tab-bend="${v}">${t}</button>`)
+        .join(
+          '',
+        )}<button type="button" class="tab-tool" data-tab-tech="bend-clear">Снять бенд</button></div><svg data-tab-bend-grid viewBox="0 0 320 120" preserveAspectRatio="none" role="img" aria-label="Кривая бенда: клик добавляет или перемещает точку, двойной клик удаляет"></svg><label>Точка <select data-tab-bend-point aria-label="Точка бенда"></select></label><label>Полутонов <input data-tab-bend-value type="number" min="0" max="6" step="0.5" aria-label="Высота точки бенда"></label><p>Тап — точка, перетаскивание — кривая; двойной клик — удалить. Клавиатура: выберите точку и измените высоту.</p>`;
+    const bend = n?.bend || {
+      type: 'bend',
+      points: [
+        [0, 0],
+        [1, 0],
+      ],
+    };
+    params.querySelector('[data-tab-tech-bend-type]').value = bend.type;
+    const select = params.querySelector('[data-tab-bend-point]'),
+      i = Math.min(Number(select.value) || 0, bend.points.length - 1);
+    select.innerHTML = bend.points
+      .map((p, j) => `<option value="${j}">${j + 1} · ${Math.round(p[0] * 100)}%</option>`)
+      .join('');
+    select.value = String(i);
+    params.querySelector('[data-tab-bend-value]').value = bend.points[i][1];
+    params.querySelector('svg').innerHTML =
+      Array.from(
+        { length: 7 },
+        (_, v) =>
+          `<path d="M 0 ${120 - v * 20} H 320" stroke="currentColor" opacity=".2"/><text x="2" y="${118 - v * 20}" fill="currentColor" font-size="9">${v}</text>`,
+      ).join('') +
+      `<polyline points="${bend.points.map(([x, y]) => `${x * 320},${120 - y * 20}`).join(' ')}" fill="none" stroke="var(--color-accent)" stroke-width="2"/>` +
+      bend.points
+        .map(([x, y]) => `<circle cx="${x * 320}" cy="${120 - y * 20}" r="4" fill="var(--color-accent)"/>`)
+        .join('');
+  } else params.innerHTML = '';
+  params.dataset.panel = e.techPanel || '';
+}
+function tabTechLabel(n) {
+  const fields = [];
+  for (const [k, t] of [
+    ['tie', 'Лига'],
+    ['slur', 'Фразировка'],
+    ['legato', 'H/P'],
+    ['pm', 'P.M.'],
+    ['letRing', 'L.R.'],
+    ['dead', '×'],
+    ['ghost', 'Ghost'],
+    ['staccato', 'Стаккато'],
+  ])
+    if (n[k]) fields.push(t);
+  if (n.slide) fields.push('Слайд: ' + n.slide);
+  if (n.vibrato) fields.push(n.vibrato === 'wide' ? 'Широкое вибрато' : 'Вибрато');
+  if (n.accent) fields.push(n.accent === 2 ? 'Сильный акцент' : 'Акцент');
+  if (n.harm) fields.push(n.harm.type === 'natural' ? 'N.H.' : 'A.H. ' + n.harm.note);
+  if (n.harm?.type === 'artificial' && !tabTechIssue(n)) {
+    const base = tunerNoteToMidi(songTuningNotes()[n.string]) + (Number(songCapo) || 0) + n.fret;
+    if (tabTechHarmonicFret(tunerNoteToMidi(n.harm.note) - base) === null)
+      fields.push('SVG / GP5 / GPIF: октавное приближение; звук песни и MIDI сохраняют заданную высоту');
+  }
+  if (n.bend) fields.push(partBendMark(n));
+  return fields.join(' · ');
+}
+function tabTechEvents(e) {
+  e.overlay.addEventListener('click', (event) => {
+    const b = event.target.closest('[data-tab-tech],[data-tab-bend]');
+    if (!b) return;
+    if (b.hasAttribute('data-tab-bend')) {
+      const type = e.overlay.querySelector('[data-tab-tech-bend-type]').value,
+        amount = Number(b.dataset.tabBend);
+      const points = tabTechBendDefaults(type).map(([x, y]) => [x, (y * amount) / 2]);
+      tabTechApply(e, 'bend', { type, points });
+    } else {
+      const k = b.dataset.tabTech;
+      if (k === 'tie-beat' || k === 'pm-beat') tabTechApply(e, k.split('-')[0], undefined, true);
+      else if (k === 'natural') tabTechApply(e, 'harm', { type: 'natural' });
+      else if (k === 'strong' || k === 'accent') tabTechApply(e, 'accent', k === 'strong' ? 2 : 1);
+      else if (k === 'harm-clear' || k === 'bend-clear') tabTechApply(e, k.split('-')[0], null);
+      else if (k === 'harm-apply') {
+        const h = partSanitizeHarm({
+          type: 'artificial',
+          note: e.overlay.querySelector('[data-tab-tech-harm]').value,
+        });
+        if (h && tabTechClean({ harm: h }).harm) tabTechApply(e, 'harm', h);
+        else showToast('Укажите звучащую ноту, например E5');
+      } else tabTechApply(e, k);
+    }
+  });
+  e.overlay.addEventListener('change', (event) => {
+    const t = event.target;
+    if (t.matches('[data-tab-tech-slide]')) tabTechApply(e, 'slide', t.value || null);
+    else if (t.matches('[data-tab-tech-vibrato]')) tabTechApply(e, 'vibrato', t.value || null);
+    else if (t.matches('[data-tab-bend-point]')) tabTechRefresh(e);
+    else if (t.matches('[data-tab-bend-value]')) {
+      const n = tabTechTargets(e)[0];
+      if (!n?.bend) return;
+      const b = structuredClone(n.bend),
+        i = Number(e.overlay.querySelector('[data-tab-bend-point]').value),
+        v = Number(t.value);
+      if (Number.isFinite(v) && v >= 0 && v <= 6) {
+        b.points[i][1] = v;
+        tabTechApply(e, 'bend', b);
+      } else tabTechRefresh(e);
+    } else if (t.matches('[data-tab-tech-bend-type]')) {
+      const b = tabTechTargets(e)[0]?.bend;
+      if (b)
+        tabTechApply(e, 'bend', {
+          type: t.value,
+          points: tabTechBendDefaults(t.value),
+        });
+    }
+  });
+  const position = (event, svg) => {
+    const r = svg.getBoundingClientRect();
+    return [
+      Math.max(0, Math.min(1, (event.clientX - r.left) / r.width)),
+      Math.max(0, Math.min(6, Math.round((1 - (event.clientY - r.top) / r.height) * 12) / 2)),
+    ];
+  };
+  const move = (event) => {
+    const d = e.techDrag;
+    if (!d || d.pointer !== event.pointerId) return;
+    let [x, y] = position(event, d.svg);
+    const i = d.index,
+      ps = d.bend.points;
+    x =
+      i === 0
+        ? 0
+        : i === ps.length - 1
+          ? 1
+          : Math.max(ps[i - 1][0] + 0.01, Math.min(ps[i + 1][0] - 0.01, Math.round(x * 100) / 100));
+    if (i === 0 && ['bend', 'bend-release'].includes(d.bend.type)) y = 0;
+    ps[i] = [x, y];
+    d.svg
+      .querySelector('polyline')
+      .setAttribute('points', ps.map(([x, y]) => `${x * 320},${120 - y * 20}`).join(' '));
+    d.svg.querySelectorAll('circle').forEach((c) => c.remove());
+    for (const [x, y] of ps) {
+      const c = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+      c.setAttribute('cx', x * 320);
+      c.setAttribute('cy', 120 - y * 20);
+      c.setAttribute('r', 4);
+      c.setAttribute('fill', 'var(--color-accent)');
+      d.svg.appendChild(c);
+    }
+  };
+  e.overlay.addEventListener('pointerdown', (event) => {
+    const svg = event.target.closest('[data-tab-bend-grid]'),
+      n = tabTechTargets(e)[0];
+    if (!svg || !n) return;
+    event.preventDefault();
+    const [x, y] = position(event, svg),
+      bend = structuredClone(
+        n.bend || {
+          type: 'bend',
+          points: [
+            [0, 0],
+            [1, 0],
+          ],
+        },
+      );
+    let index = bend.points.findIndex((p) => Math.abs(p[0] - x) < 0.045);
+    if (index < 0) {
+      if (bend.points.length >= 8) return;
+      bend.points.push([Math.round(x * 100) / 100, y]);
+      bend.points.sort((a, b) => a[0] - b[0]);
+      index = bend.points.findIndex((p) => Math.abs(p[0] - x) < 0.01);
+    }
+    e.techDrag = {
+      svg,
+      bend,
+      index,
+      pointer: event.pointerId,
+      before: tabGpSnapshot(e),
+    };
+    svg.setPointerCapture(event.pointerId);
+    move(event);
+  });
+  e.overlay.addEventListener('pointermove', move);
+  const finish = (event, cancel) => {
+    const d = e.techDrag;
+    if (!d || d.pointer !== event.pointerId) return;
+    e.techDrag = null;
+    if (!cancel && tabInsertEditorState === e && tabGpSnapshot(e) === d.before)
+      tabTechApply(e, 'bend', d.bend);
+    tabTechRefresh(e);
+  };
+  e.overlay.addEventListener('pointerup', (event) => finish(event, false));
+  e.overlay.addEventListener('pointercancel', (event) => finish(event, true));
+  e.overlay.addEventListener('dblclick', (event) => {
+    const svg = event.target.closest('[data-tab-bend-grid]'),
+      n = tabTechTargets(e)[0];
+    if (!svg || !n?.bend) return;
+    const [x] = position(event, svg),
+      b = structuredClone(n.bend),
+      i = b.points.findIndex((p) => Math.abs(p[0] - x) < 0.045);
+    if (i > 0 && i < b.points.length - 1) {
+      b.points.splice(i, 1);
+      tabTechApply(e, 'bend', b);
+    }
+  });
+}
+
 function tabInsertCleanNotes(rawNotes, beats, parentTs) {
   if (!Array.isArray(rawNotes)) return [];
   const denominator = parseTimeSig(parentTs).denominator;
@@ -20283,7 +21223,7 @@ function tabInsertCleanNotes(rawNotes, beats, parentTs) {
     else {
       if (!Number.isInteger(raw.string) || raw.string < 0 || raw.string > 5) return;
       if (!Number.isInteger(raw.fret) || raw.fret < 0 || raw.fret > 24) return;
-      note.string = raw.string; note.fret = raw.fret;
+      note.string = raw.string; note.fret = raw.fret; Object.assign(note, tabTechClean(raw));
     }
     candidates.push(note);
   });
@@ -20304,9 +21244,9 @@ function tabInsertCleanNotes(rawNotes, beats, parentTs) {
     }
     strings.add(note.string);
     out.push({ start: note.start, ...(note.pause ? { pause: true } : { string: note.string, fret: note.fret }),
-      dur: note.dur, ...(note.dots ? { dots: 1 } : {}), ...(note.triplet ? { triplet: true } : {}) });
+      dur: note.dur, ...(note.dots ? { dots: 1 } : {}), ...(note.triplet ? { triplet: true } : {}), ...tabTechClean(note) });
   });
-  return out;
+  return tabTechRepair(out);
 }
 
 // Смена размера сохраняет музыкальную длительность (валюта — знаменатель
@@ -20338,7 +21278,8 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true) {
     : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? 'ноты' : 'нот';
   const durationText = `${count} ${noteWord} · ${bars} ${bars === 1 ? 'такт' : 'такта'}`;
   const w = Math.max(320, beats * 64), left = 26, right = w - 12;
-  const gap = 14, top = 12, height = 106;
+  const hasTech=notes.some(n=>Object.keys(tabTechClean(n)).length);
+  const gap = 14, top = hasTech?32:12, height = hasTech?140:106;
   const xAt = start => left + (start / beats) * (right - left) + 10;
   const lines = Array.from({ length: 6 }, (_, string) => {
     const y = top + (5 - string) * gap;
@@ -20347,20 +21288,20 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true) {
   let divisions = '';
   for (let beat = 1; beat < beats; beat++) {
     const x = left + (beat / beats) * (right - left);
-    divisions += `<line class="tab-beat-line${beat % beatsPerBar === 0 ? ' is-bar' : ''}" x1="${x}" y1="6" x2="${x}" y2="88" />`;
+    divisions += `<line class="tab-beat-line${beat % beatsPerBar === 0 ? ' is-bar' : ''}" x1="${x}" y1="${hasTech?26:6}" x2="${x}" y2="${top+5*gap+6}" />`;
   }
   const labels = notes.map(n => {
     const x = xAt(n.start), y = n.pause ? 47 : top + (5 - n.string) * gap;
     const duration = parseTimeSig(parentTs).denominator / n.dur;
     const durationLabel = `1/${Math.round(duration)}${n.dots ? '·' : ''}${n.triplet ? ' (3)' : ''}`;
     return `<span class="tab-note-position" data-tab-note data-start="${n.start}"${n.pause ? ' data-pause="true"' : ` data-string="${n.string}" data-fret="${n.fret}"`} style="left:${x/w*100}%;" title="${n.pause ? 'Пауза' : `Струна ${6 - n.string}, лад ${n.fret}`} · ${durationLabel}">` +
-      `<span class="tab-fret-number" style="top:${y/height*100}%;">${n.pause ? '𝄽' : n.fret}</span>` +
+      `<span class="tab-fret-number" style="top:${y/height*100}%;">${n.pause ? '𝄽' : n.ghost ? '('+(n.dead?'×':n.fret)+')' : n.dead ? '×' : n.fret}</span>` +
       `<span class="tab-note-duration">${durationLabel}</span></span>`;
   }).join('');
   return `<div class="tab-insert" data-sec="${sec.id}" data-square="${sq.id}" data-ei="0" ` +
     (interactive ? `onclick="event.stopPropagation();openTabInsertEditor(${sec.id},${sq.id})" ` : '') + `title="${durationText}">` +
     `<div class="tab-insert-heading"><strong class="tab-insert-label">TAB</strong><span class="tab-insert-count">${durationText}</span></div>` +
-    `<div class="tab-insert-body"><svg viewBox="0 0 ${w} ${height}" preserveAspectRatio="none" aria-hidden="true">${divisions}${lines}</svg>` +
+    `<div class="tab-insert-body"${hasTech?` style="height:${height/16}rem"`:""}><svg viewBox="0 0 ${w} ${height}" preserveAspectRatio="none" aria-hidden="true">${divisions}${lines}${hasTech?tabTechMiniSvg(notes,xAt,string=>top+(5-string)*gap):""}</svg>` +
     Array.from({ length: 6 }, (_, string) => `<span class="tab-string-number" style="top:${(top+(5-string)*gap)/height*100}%;">${6-string}</span>`).join('') + labels + '</div>' +
     (notes.length ? '' : '<span class="tab-insert-empty">Нет нот</span>') + '</div>';
 }
@@ -20607,7 +21548,7 @@ function tabGpImport(e) {
         dur: first.dur,
         ...(first.dots ? { dots: first.dots } : {}),
         ...(first.triplet ? { triplet: true } : {}),
-        notes: first.pause ? [] : ns.map((n) => ({ string: n.string, fret: n.fret })),
+        notes: first.pause ? [] : ns.map((n) => ({ string: n.string, fret: n.fret, ...tabTechClean(n) })),
         ...(first.pause ? { ghost: true } : {}),
       });
       offset = start + tabInsertNoteDuration(first);
@@ -20634,7 +21575,7 @@ function tabGpLayout(e) {
         dots: g.dots || 0,
         triplet: !!g.triplet,
         rest: !g.notes.length,
-        notes: g.notes.map((n) => ({ string: n.string + 1, fret: n.fret })),
+        notes: g.notes.map((n) => ({ string: n.string + 1, fret: n.fret, ...tabTechClean(n) })),
         ghost: !!g.ghost,
         gpIndex: index,
       };
@@ -20790,6 +21731,7 @@ function tabGpSync(e) {
   tabGpDecorate(e);
 }
 function tabGpEdit(e, fn, merge = false) {
+  const beforeEdges = tabTechEdges(tabTechDraftNotes(e));
   const before = tabGpSnapshot(e),
     savedSelection = tabGpClone(e.gpSelection);
   const restore = () => {
@@ -20821,6 +21763,7 @@ function tabGpEdit(e, fn, merge = false) {
     showToast('Операция целиком отменена: максимум 4 такта / 4096 позиций/нот');
     return false;
   }
+  tabTechGuard(e, beforeEdges);
   if (JSON.stringify(JSON.parse(before).bars) === JSON.stringify(e.gpBars)) {
     restore();
     return false;
@@ -20869,10 +21812,10 @@ function tabGpValidate(e) {
   const status = e.overlay.querySelector('[data-tab-gp-error]'),
     apply = e.overlay.querySelector('[data-tab-apply]');
   const canonical = errors.length ? null : tabInsertCleanNotes(e.draft.notes, e.draft.beats, tabGpMeter(e));
-  const modelError =
-    canonical && canonical.length !== e.draft.notes.length
+  const modelError = e.gpBars.flatMap(bar => bar.flatMap(g => g.notes)).map(n => tabTechIssue(n)).find(Boolean)
+    || (canonical && canonical.length !== e.draft.notes.length
       ? 'Неверная ритмическая позиция: сохранение запрещено'
-      : null;
+      : null);
   if (status) {
     status.hidden = !errors.length && !e.gpError && !modelError;
     status.textContent =
@@ -21123,6 +22066,9 @@ function tabGpCopy(e, cut = false) {
       });
     }
   }
+  let copyTime=0;segments.flat().forEach(g=>{for(const n of g.notes){n._copyStart=copyTime;}copyTime+=tabGpLength(g);});
+  const projected=segments.flat().flatMap(g=>g.notes.map(n=>({...n,start:n._copyStart,dur:g.dur,dots:g.dots,triplet:g.triplet,_tabRef:n})));
+  tabTechRepair(projected,undefined,true);segments.flat().forEach(g=>g.notes.forEach(n=>delete n._copyStart));
   tabAtLastDigit = null;
   tabGpClipboard = { segments, denom: parseTimeSig(tabGpMeter(e)).denominator };
   if (cut) tabGpDelete(e, true);
@@ -21238,7 +22184,7 @@ function tabGpReadClipboard(raw) {
           throw Error('Неверная нота в буфере');
         strings.add(n.string);
         notes++;
-        return { string: n.string, fret: n.fret };
+        return { string: n.string, fret: n.fret, ...tabTechClean(n) };
       });
       return {
         dur: g.dur,
@@ -21251,6 +22197,9 @@ function tabGpReadClipboard(raw) {
   });
   if (!positions || positions > TAB_INSERT_MAX_NOTES || notes > TAB_INSERT_MAX_NOTES)
     throw Error('Превышен лимит буфера таб-вставки');
+  let time=0;const projected=[];
+  for(const g of segments.flat()){for(const n of g.notes)projected.push({...n,start:time,dur:g.dur,dots:g.dots,triplet:g.triplet,_tabRef:n});time+=tabGpLength(g);}
+  tabTechRepair(projected,undefined,true);
   return { denom: data.denom, segments };
 }
 // Настоящие события copy/cut/paste не требуют Clipboard API permissions.
@@ -21319,6 +22268,7 @@ async function tabGpToolbarClipboard(e, action) {
 }
 
 function tabGpKey(e, event) {
+  if(tabTechKey(e,event))return true;
   const code = event.code,
     key = event.key,
     cmd = event.metaKey,
@@ -21466,6 +22416,7 @@ function tabGpKey(e, event) {
   return false;
 }
 function tabGpDecorate(e) {
+  tabTechRefresh(e);
   if (!tabAtHostEl || !tabAtState || !tabAtApi) return;
   const host = tabAtHostEl;
   host.querySelectorAll('.tab-gp-box').forEach((n) => n.remove());
@@ -21592,7 +22543,7 @@ function tabAtLayout(notes, beats, ts) {
         rest: pause,
         // alphaTab в этой раскладке считает струны снизу вверх: нижняя
         // линия — 1. Модель: 0 — низкая, значит номер = модель + 1.
-        notes: pause ? [] : group.map(n => ({ string: n.string + 1, fret: n.fret })),
+        notes: pause ? [] : group.map(n => ({ string: n.string + 1, fret: n.fret, ...tabTechClean(n) })),
       });
       cursor = Math.round((start + tabInsertNoteDuration(first)) * 1e9) / 1e9;
     });
@@ -21623,9 +22574,10 @@ function tabAtBuildScore(alphaTab, draft, sec) {
   const staff = new M.Staff();
   staff.showStandardNotation = false;
   staff.showTablature = true;
+  staff.capo = songCapo;
   const tuning = tabAtTuningNotes();
   try {
-    staff.stringTuning = new M.Tuning('Строй песни', tuning.map(partsAtNoteMidi), false);
+    staff.stringTuning = new M.Tuning('Строй песни', tuning.map(partsAtNoteMidi).reverse(), false);
   } catch (_) {}
   if (!track.staves.length) track.addStaff(staff);
   const barObjs = layout.bars.map(() => {
@@ -21641,6 +22593,7 @@ function tabAtBuildScore(alphaTab, draft, sec) {
     mb.timeSignatureDenominator = sig.denominator;
     score.addMasterBar(mb);
   });
+  const nativeRecords = [];
   const beatInfo = new Map();
   const startInfo = new Map();
   layout.bars.forEach((bar, bi) => {
@@ -21658,6 +22611,8 @@ function tabAtBuildScore(alphaTab, draft, sec) {
           note.string = Math.max(1, Math.min(6, spec.string));
           note.fret = Math.max(0, Number(spec.fret) || 0);
           beat.addNote(note);
+          tabTechNative(M,note,spec);
+          nativeRecords.push({note,beat,data:{...spec,start:bit.start,dur:layout.denom/bit.d,dots:bit.dots||0,triplet:!!bit.triplet}});
         });
       }
       voice.addBeat(beat);
@@ -21666,6 +22621,7 @@ function tabAtBuildScore(alphaTab, draft, sec) {
       if (!startInfo.has(bit.start)) startInfo.set(bit.start, { beat, info });
     });
   });
+  tabTechNativeLinks(M,nativeRecords);
   score.finish(new alphaTab.Settings());
   return { score, beatInfo, startInfo, layout, barCount: layout.bars.length };
 }
@@ -22022,6 +22978,7 @@ function tabAtRender(editor) {
         host.querySelectorAll('svg text').forEach(text => {
           if (text.textContent.trim() === 'rendered by alphaTab') text.remove();
         });
+        tabTechConsolidateHarmonics(host);
         tabAtFitWidth();
         tabAtPlaceCursor();
         if(editor.gpBars)tabGpDecorate(editor);
@@ -22489,6 +23446,7 @@ function renderTabInsertEditor(editor) {
       </div>
       ${gpControls}
     </div>
+    ${editor.gpBars ? tabTechPalette() : ""}
     <p class="tab-editor-hint">
       Цифры — лад, курсор остаётся на месте · <kbd>↑</kbd><kbd>↓</kbd> струна ·
       <kbd>←</kbd><kbd>→</kbd> соседняя позиция; в пустом такте — следующий такт · <kbd>−</kbd><kbd>=</kbd> длительность ·
@@ -22561,6 +23519,7 @@ function openTabInsertEditor(secId, sqId, options) {
   tabInsertEditorState = editor;
   if(tabAtSupported()){try{tabGpImport(editor);}catch(err){editor.gpError=err.message;editor.gpBars=null;}}
   tabGpInstallClipboard(editor);
+  tabTechEvents(editor);
   editor.themeObserver=new MutationObserver(()=>{if(tabInsertEditorState===editor)tabAtRender(editor);});
   editor.themeObserver.observe(document.documentElement,{attributes:true,attributeFilter:['data-theme','data-palette']});
   // Отмена только что добавленной пустой вставки убирает и сам квадрат:
@@ -22628,7 +23587,7 @@ function openTabInsertEditor(secId, sqId, options) {
         const draft = editor.draft, pos = editor.position;
         songStore.dispatch('tab/editor-apply', () => {
           current.sq.beats = draft.beats;
-          current.sq.notes = draft.notes.map(n => ({ ...n }));
+          current.sq.notes = tabInsertCleanNotes(draft.notes,draft.beats,current.sec.timeSig||globalTimeSig);
           if (moved) {
             const list = current.sec.squares;
             const from = list.indexOf(current.sq);
@@ -40027,17 +40986,10 @@ function playTabNotesAt(sq, evStart, bpm, ts, section) {
   const freqs = songStringFreqs();
   const sound = songSoundAtEvent(section, sq, 0);
   const notes = tabInsertCleanNotes(sq.notes, getTabInsertBeats(sq, parentTs), parentTs);
-  notes.forEach(note => {
-    if (note.pause) return;
-    const base = freqs[note.string];
-    if (!base) return;
-    pluckString(ctx, {
-      freq: base * Math.pow(2, note.fret / 12),
-      startTime: evStart + note.start * secondsPerUnit,
-      gain: 0.5, duration: tabInsertNoteDuration(note) * secondsPerUnit,
-      brightness: 0.5, pan: 0, sound,
-    });
-  });
+  for (const event of tabTechPerformance(notes,getTabInsertBeats(sq,parentTs))) {
+    const options=tabTechSoundOptions(event,secondsPerUnit,freqs,evStart,sound);
+    if(options)pluckString(ctx,options);
+  }
 }
 
 // Вычисляет громкость, которую в момент времени t уже имеет голос,
@@ -72104,7 +73056,7 @@ toggleTimeAndBeats();
             dur = writer.durationParts(dur)[0].units * 4;
           }
           notes.push({ ...note, bar, start: start * factor, dur: dur * factor,
-            tieDestination: tail, tieOrigin: remaining > dur + 1e-7 });
+            tieDestination: tail || note.tieDestination === true, tieOrigin: remaining > dur + 1e-7 || note.tieOrigin === true });
           remaining -= dur; start += dur; tail = true;
           if (start >= length - 1e-7) { bar++; start = 0; }
         }
@@ -72125,13 +73077,20 @@ toggleTimeAndBeats();
       for (const sq of plan.section.squares || []) {
         const length = getSquareBeats(sq, plan.parentTimeSig);
         if (sq.type === 'tab') {
-          const clean = tabInsertCleanNotes(sq.notes, length, plan.parentTimeSig);
+          const raw = tabInsertCleanNotes(sq.notes, length, plan.parentTimeSig), edges = tabTechEdges(raw);
+          for (const n of raw) {const issue=tabTechIssue(n,part.tuning,part.capo);if(issue)gpExportLoss(report,'TAB: '+issue+' — нота не экспортирована',1);}
+          for (const n of raw) for (const key of ['legato','slur',...(['legato','shift'].includes(n.slide)?['slide']:[])])
+            if (n[key] && !edges.some(e=>e.from===n&&e.key===key)) gpExportLoss(report,'TAB: незавершённая связь H/P, фразировки или слайда без соседней ноты не экспортирована',1);
+          const clean = tabTechExportNotes(raw, part.tuning, part.capo);
           for (let pass = 0; pass < (nativeRepeats ? 1 : plan.repeatCount); pass++) {
             for (const note of clean) {
               if (note.pause) continue;
               const placed = gpExportPlace(plan, offset + note.start, tabInsertNoteDuration(note), report, 'Табулатура', pass);
               if (!placed) continue;
-              part.notes.push({ ...placed, voice: 1, string: note.string, fret: note.fret });
+              part.notes.push({ ...note, ...placed, voice: 1, string: note.string, fret: note.fret });
+              if (nativeRepeats && note.harm?.type === 'artificial' && note.harmonicFret == null) gpExportLoss(report, 'GP5: искусственный флажолет вне поддержанных узлов записан октавным', 1);
+              if (nativeRepeats && note.vibrato === "wide") gpExportLoss(report, "GP5: широкое вибрато записано обычным — амплитуда не кодируется", 1);
+              if (note.phraseOrigin && nativeRepeats) gpExportLoss(report, "GP5: отдельная фразировочная лига не кодируется; H/P и лиги длительности сохранены", 1);
             }
           }
         }
@@ -72799,8 +73758,9 @@ toggleTimeAndBeats();
     const add = (track, note, start, unit, localStart = 0, duration = Number(note.dur)) => {
       if (!track || note.pause) return;
       const open = tunerNoteToMidi(track.tuning[note.string]);
-      const pitch = Number.isInteger(note.pitch) ? note.pitch
+      let pitch = Number.isInteger(note.pitch) ? note.pitch
         : open === null ? null : open + Number(note.fret) + track.capo;
+      if (note.tabEffects && note.harm && open !== null) {const h=tabTechHarmonicOffset(note);if(h)pitch=h.freq?Math.round(69+12*Math.log2(h.freq/440)):open+h.semitones+track.capo;}
       if (!Number.isInteger(pitch) || pitch < 0 || pitch > 127) {
         gpExportLoss(report, `Дорожка «${track.name}»: нота вне диапазона MIDI пропущена`, 1); return;
       }
@@ -72808,8 +73768,8 @@ toggleTimeAndBeats();
       const end = Math.round((start + (localStart + duration) * unit) * ppq);
       if (end <= at) return;
       track.notes.push({ at, end, pitch, velocity: Math.max(1, Math.min(127, Number(note.velocity) || 90)) });
-      if (note.dead || note.bend || note.harm || note.slide || note.legato || note.trill || note.tremolo || note.grace) {
-        gpExportLoss(report, 'MIDI: приёмы записаны основными нотами без гитарного звукоизвлечения', 1);
+      if (note.dead || note.bend || note.harm || note.slide || note.legato || note.trill || note.tremolo || note.grace || note.vibrato || note.slur) {
+        gpExportLoss(report, 'MIDI: гитарные приёмы переданы приближённо, без точного тембра и кривых высоты', 1);
       }
     };
     let si = 0, sqi = 0, ei = 0, position = 0, walk = structureWalkState();
@@ -72834,7 +73794,17 @@ toggleTimeAndBeats();
         const program = gpExportSongProgram(songSoundAt(sec.id, win.start));
         if (!songTrack.programs.length || songTrack.programs[songTrack.programs.length - 1].program !== program) songTrack.programs.push({ at, program });
         if (sq.type === 'tab') {
-          tabInsertCleanNotes(sq.notes, getSquareBeats(sq, ts), ts).forEach(n => add(songTrack, n, position, unit, n.start, tabInsertNoteDuration(n)));
+          const notes=tabInsertCleanNotes(sq.notes,getSquareBeats(sq,ts),ts);
+          for (const ev of tabTechPerformance(notes,getSquareBeats(sq,ts))) {
+            const n=ev.note, seconds=getGridUnitDurationSeconds(bpm,ts);
+            const issue=ev.segments.map(s=>tabTechIssue(s.note)).find(Boolean);
+            if(issue){gpExportLoss(report, 'MIDI: '+issue+' — нота не экспортирована',1);continue;}
+            let duration=n.letRing?ev.room:ev.duration;
+            if(n.staccato)duration*=.4;if(n.pm)duration*=.35;if(n.dead)duration=Math.min(duration,.07/seconds);
+            const velocity=Math.round(90*(n.ghost?.45:1)*(n.accent===2?1.4:n.accent===1?1.2:1)*(n.pm?.7:1)*(n.dead?.5:1));
+            add(songTrack,{...n,velocity,tabEffects:true},position,unit,n.start,duration);
+            if(n.pm||n.letRing)gpExportLoss(report,'MIDI: palm mute / let ring приближены длительностью, тембр глушения не переносится',1);
+          }
         } else {
           const list = ev.notes && ev.notes.length
             ? accompCleanNotes(ev.notes, ev.span).map(n => ({ ...n, start: win.start + n.start }))
