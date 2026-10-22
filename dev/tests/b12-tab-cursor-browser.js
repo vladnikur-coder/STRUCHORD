@@ -15,7 +15,7 @@ function check(name,ok,detail){checks.push({name,ok:!!ok,detail});console.log((o
    await page.goto(process.env.STRUCHORD_URL||'http://127.0.0.1:8000/STRUCHORD.html',{waitUntil:'load'});
    await page.evaluate(()=>{startNewSongFromHome();addSection('Verse');addTabInsert(sections[0].id)});
    await page.waitForSelector('.tab-at-host svg',{timeout:30000});await wait(500);
-   const state=()=>page.evaluate(()=>({cursor:{...tabAtCursor},notes:tabInsertEditorState.draft.notes,history:tabInsertEditorState.history?.length||0}));
+   const state=()=>page.evaluate(()=>({cursor:{...tabAtCursor},beats:tabInsertEditorState.draft.beats,notes:tabInsertEditorState.draft.notes,history:tabInsertEditorState.history?.length||0}));
    const press=async key=>{await page.$eval('.tab-at-host',e=>e.focus());await page.keyboard.press(key);await wait(40)};
    const shot=async name=>{if(output)await page.screenshot({path:path.join(output,`${name}-${width}.png`)})};
    // Только реально нарисованные прямоугольники шести струн, не функция
@@ -41,7 +41,8 @@ function check(name,ok,detail){checks.push({name,ok:!!ok,detail});console.log((o
    await shot('empty');
    const xs=[];for(let i=0;i<3;i++){await press('ArrowRight');xs.push(await page.$eval('.tab-at-cursor',e=>parseFloat(e.style.left)))}
    check(`${width}: в пустом такте стрелки действительно двигают линию вправо`,xs[0]>empty.x+10&&xs[1]>xs[0]+10&&xs[2]>xs[1]+10,xs);
-   await press('ArrowRight');check(`${width}: вправо за конец такта не выходит`,(await state()).cursor.start===3);
+   await press('ArrowRight');st=await state();check(`${width}: за концом такта → добавляет следующий`,st.cursor.start===4&&st.beats===8,st);
+   await page.keyboard.down('Control');await page.keyboard.press('KeyZ');await page.keyboard.up('Control');await wait(180);
    for(let i=0;i<4;i++)await press('ArrowLeft');check(`${width}: влево до 0 и не дальше`,(await state()).cursor.start===0);
    const clicks=[];for(let string=0;string<6;string++){
     await clickAt(g.x0+(g.xEnd-g.x0)/2,g.lines[5-string].y);st=await state();clicks.push(st.cursor);

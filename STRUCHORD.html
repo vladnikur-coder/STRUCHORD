@@ -14219,7 +14219,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.676</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.677</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20960,7 +20960,7 @@ function tabAtSetCursor(start, string) {
 // то, что реально записано, а не последний выбор.
 function tabAtPullInputAtCursor() {
   const at = tabAtInfoAt(tabAtCursor.start);
-  if (!at || at.rest) return;
+  if (!at || (at.rest && !tabInsertEditorState?.draft.notes.some(n => n.pause && Math.abs(n.start - tabAtCursor.start) < TAB_AT_EPS))) return;
   tabAtInput.dValue = at.d;
   tabAtInput.dots = at.dots || 0;
   tabAtInput.triplet = !!at.triplet;
@@ -21307,14 +21307,53 @@ function tabAtToggleFlag(kind) {
 }
 
 function tabAtMove(delta) {
-  const st = tabAtState;
-  if (!st) return;
-  const step = tabInsertNoteDuration(tabAtInputNotation(st.ts));
-  const start = Math.round((tabAtCursor.start + delta * step) * 1e9) / 1e9;
-  // Не делаем укороченный «последний шаг»: у границы просто остаёмся
-  // на месте. Это сохраняет ровно выбранную длительность, включая триоли.
-  if (start < -TAB_AT_EPS || start >= st.beats - TAB_AT_EPS) return;
-  tabAtSetCursor(Math.max(0, start), tabAtCursor.string);
+  const st = tabAtState, editor = tabInsertEditorState;
+  if (!st || !editor || !delta) return;
+  tabAtLastDigit = null;
+  const dir = delta < 0 ? -1 : 1, current = tabAtCursor.start;
+  const groups = Array.from(new Map(editor.draft.notes.map(n => [n.start, n])).values()).sort((a, b) => a.start - b.start);
+  const at = groups.find(n => Math.abs(n.start - current) < TAB_AT_EPS);
+  let start;
+  if (at) {
+    // На записанной позиции — соседнее начало ноты/паузы, а не шаг
+    // длительности текущей ноты. Созвучие считается одной позицией.
+    const positions = Array.from(new Set([0, st.beats,
+      ...st.bars.flatMap(bar => bar.bits.map(bit => bit.start)),
+      ...groups.map(n => n.start + tabInsertNoteDuration(n)),
+    ])).filter(pos => pos >= 0 && pos <= st.beats + TAB_AT_EPS &&
+      !groups.some(n => pos > n.start + TAB_AT_EPS && pos < n.start + tabInsertNoteDuration(n) - TAB_AT_EPS))
+      .sort((a, b) => a - b);
+    start = dir > 0 ? positions.find(pos => pos > current + TAB_AT_EPS)
+      : positions.slice().reverse().find(pos => pos < current - TAB_AT_EPS);
+    if (start === undefined) start = dir > 0 ? st.beats : 0;
+  } else {
+    // Пустое место: прежний шаг выбранной длительности, но не через
+    // существующую ноту и не мимо начала следующего такта.
+    const step = tabInsertNoteDuration(tabAtInputNotation(st.ts));
+    const boundary = dir > 0 ? (Math.floor((current + TAB_AT_EPS) / st.unitsPerBar) + 1) * st.unitsPerBar
+      : Math.max(0, (Math.ceil((current - TAB_AT_EPS) / st.unitsPerBar) - 1) * st.unitsPerBar);
+    start = dir > 0 ? Math.min(current + step, boundary) : Math.max(current - step, boundary);
+    if (dir > 0) {
+      for (const n of groups) {
+        if (n.start > current + TAB_AT_EPS && n.start <= start + TAB_AT_EPS) { start = n.start; break; }
+        const end = n.start + tabInsertNoteDuration(n);
+        if (n.start < current - TAB_AT_EPS && end > current + TAB_AT_EPS) { start = end; break; }
+      }
+    } else {
+      for (let i = groups.length - 1; i >= 0; i--) {
+        const n = groups[i];
+        if (n.start < current - TAB_AT_EPS && n.start + tabInsertNoteDuration(n) > start + TAB_AT_EPS) { start = n.start; break; }
+      }
+    }
+  }
+  start = Math.round(Math.max(0, start) * 1e9) / 1e9;
+  if (start >= st.beats - TAB_AT_EPS) {
+    const extended = st.beats + st.unitsPerBar;
+    if (!tabInsertValidBeats(extended, st.ts)) return;
+    start = st.beats;
+    if (!tabInsertSetBeats(editor.secId, editor.sqId, extended)) return;
+  }
+  tabAtSetCursor(start, tabAtCursor.string);
 }
 
 function tabAtMoveString(delta) {
@@ -21405,7 +21444,7 @@ function renderTabInsertEditor(editor) {
     </div>
     <p class="tab-editor-hint">
       Цифры — лад, курсор остаётся на месте · <kbd>↑</kbd><kbd>↓</kbd> струна ·
-      <kbd>←</kbd><kbd>→</kbd> на выбранную длительность · <kbd>−</kbd><kbd>=</kbd> длительность ·
+      <kbd>←</kbd><kbd>→</kbd> соседняя нота/пауза (в пустом месте — выбранная длительность) · <kbd>−</kbd><kbd>=</kbd> длительность ·
       <kbd>.</kbd> точка · <kbd>/</kbd> триоль · <kbd>R</kbd> пауза · <kbd>Delete</kbd> удалить.<br>
       <strong>Лады 10–24:</strong> две цифры быстро подряд (1 → 2 = 12).<br>
       <strong>Созвучие:</strong> не меняя долю, ↑/↓ выберите другую струну и введите лад.
@@ -21425,31 +21464,35 @@ function renderTabInsertEditor(editor) {
 function tabAtPushHistory(editor) {
   if (!editor) return;
   if (!Array.isArray(editor.history)) editor.history = [];
-  editor.history.push(JSON.stringify({ beats: editor.draft.beats, notes: editor.draft.notes }));
+  editor.history.push(JSON.stringify({ beats: editor.draft.beats, notes: editor.draft.notes, cursor: { ...tabAtCursor } }));
   if (editor.history.length > 50) editor.history.shift();
   editor.forward = [];
 }
 function tabAtUndoDraft() {
   const editor = tabInsertEditorState;
   if (!editor || !editor.history || !editor.history.length) return false;
-  const current = JSON.stringify({ beats: editor.draft.beats, notes: editor.draft.notes });
+  const current = JSON.stringify({ beats: editor.draft.beats, notes: editor.draft.notes, cursor: { ...tabAtCursor } });
   if (!Array.isArray(editor.forward)) editor.forward = [];
   editor.forward.push(current);
   const prev = JSON.parse(editor.history.pop());
+  const resized = editor.draft.beats !== prev.beats;
   editor.draft.beats = prev.beats;
   editor.draft.notes = prev.notes;
   renderTabInsertEditor(editor);
+  if (resized && prev.cursor) tabAtSetCursor(prev.cursor.start, prev.cursor.string);
   return true;
 }
 function tabAtRedoDraft() {
   const editor = tabInsertEditorState;
   if (!editor || !editor.forward || !editor.forward.length) return false;
   if (!Array.isArray(editor.history)) editor.history = [];
-  editor.history.push(JSON.stringify({ beats: editor.draft.beats, notes: editor.draft.notes }));
+  editor.history.push(JSON.stringify({ beats: editor.draft.beats, notes: editor.draft.notes, cursor: { ...tabAtCursor } }));
   const next = JSON.parse(editor.forward.pop());
+  const resized = editor.draft.beats !== next.beats;
   editor.draft.beats = next.beats;
   editor.draft.notes = next.notes;
   renderTabInsertEditor(editor);
+  if (resized && next.cursor) tabAtSetCursor(next.cursor.start, next.cursor.string);
   return true;
 }
 
