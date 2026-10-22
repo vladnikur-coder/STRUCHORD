@@ -285,17 +285,17 @@ async function openEditor(page) {
 
     // 8. Длительность клавишами − и =, без кнопок.
     await page.evaluate(() => tabAtSetCursor(3, 0));
-    await page.keyboard.press('Minus');
+    await page.keyboard.press('Equal');
     await settle(300);
-    const durAfterMinus = await page.evaluate(() => tabAtInput.dValue);
+    const durAfterPlus = await page.evaluate(() => tabAtInput.dValue);
     await page.keyboard.press('Digit4');
     await settle();
     st = await stateOf(page);
-    check('«−» уменьшает длительность до 1/8', durAfterMinus === 8, durAfterMinus);
+    check('«+ / =» уменьшает длительность до 1/8', durAfterPlus === 8, durAfterPlus);
     check('новая нота записана длительностью 1/8', st.notes.some(n => n.start === 3 && n.dur === 0.5), st.notes.filter(n => n.start === 3));
-    await page.keyboard.press('Equal');
+    await page.keyboard.press('Minus');
     await settle(300);
-    check('«=» возвращает 1/4', (await page.evaluate(() => tabAtInput.dValue)) === 4);
+    check('«−» возвращает 1/4', (await page.evaluate(() => tabAtInput.dValue)) === 4);
 
     // 9. Точка и триоль клавишами.
     await page.evaluate(() => tabAtSetCursor(0, 4));
