@@ -105,7 +105,7 @@ const ok = (name, cond, extra = '') => {
     sections: sections.length,
     squares: sections.reduce((sum, section) => sum + section.squares.length, 0),
     passes: sections.reduce((sum, section) => sum + (Number(section.repeat) || 1), 0),
-    parts: songParts.length,
+    parts: songParts.length + (sections.some(sec => accompSectionRoll(sec).length) ? 1 : 0),
     notes: songParts.reduce((sum, part) => sum + Object.values(part.rolls || {}).flat().length
       + Object.values(part.pitchRolls || {}).flat().length, 0),
     detail: songParts.map((part) => `${part.instrument}:${Object.values(part.rolls || {}).flat().length}/${Object.values(part.pitchRolls || {}).flat().length}`).join(','),

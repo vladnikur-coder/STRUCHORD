@@ -208,9 +208,9 @@ w.addEventListener('load', async () => {
     const formatDialog = Array.from(w.document.querySelectorAll('.strum-modal-content'))
       .find((item) => item.querySelector('#gpExportGpBtn'));
     check('кнопка «Экспорт» открывает окно выбора формата', !!formatDialog);
-    check('в окне три пункта: STRUCHORD, Guitar Pro 6 и Guitar Pro 5',
+    check('в окне четыре формата: STRUCHORD, GP6, GP5 и MIDI',
       !!formatDialog && !!formatDialog.querySelector('#gpExportStruchordBtn')
-      && !!formatDialog.querySelector('#gpExportGp5Btn'));
+      && !!formatDialog.querySelector('#gpExportGp5Btn') && !!formatDialog.querySelector('#gpExportMidiBtn'));
     check('подпись пункта GP5 обещает настоящий бинарный .gp5',
       !!formatDialog && /бинарный файл \.gp5/.test(formatDialog.querySelector('#gpExportGp5Btn')
         .parentElement.textContent));
@@ -239,8 +239,8 @@ w.addEventListener('load', async () => {
       (exported.report.losses || []).some((item) => /dead slap/.test(item.label)) &&
       (exported.report.losses || []).some((item) => /pick scrape/.test(item.label)),
       JSON.stringify(exported.report.losses));
-    check('отчёт называет три дорожки и два такта',
-      exported.report.stats && exported.report.stats.tracks === 3 && exported.report.stats.bars === 2,
+    check('отчёт: 3 партии + аккомпанемент и два такта',
+      exported.report.stats && exported.report.stats.tracks === 4 && exported.report.stats.bars === 2,
       JSON.stringify(exported.report.stats));
 
     const file = '/tmp/struchord-gp5-roundtrip.gp5';
@@ -261,7 +261,7 @@ w.addEventListener('load', async () => {
     check('тональность записана как фасовый корень G (1)', gp5.key === 1, String(gp5.key));
     check('размер такта записан 4/4', gp5.measureHeaders[0].numerator === 4 && gp5.measureHeaders[0].denominator === 4,
       `${gp5.measureHeaders[0].numerator}/${gp5.measureHeaders[0].denominator}`);
-    check('в файле три дорожки', gp5.trackCount === 3, String(gp5.trackCount));
+    check('в файле 3 партии + аккомпанемент', gp5.trackCount === 4, String(gp5.trackCount));
 
     // Повторы: секция 11 повторяется дважды, но в файле два такта, а не три.
     check('повторы не развёрнуты в копии тактов', gp5.measureCount === 2, String(gp5.measureCount));
@@ -276,14 +276,16 @@ w.addEventListener('load', async () => {
     check('во втором такте повторов нет', !(gp5.measureHeaders[1] || {}).repeatOpen);
 
     const names = gp5.tracks.map((item) => item.name);
-    check('имена дорожек записаны', names.join('|') === before.parts.map((p) => p.name).join('|'), names.join('|'));
+    check('имена дорожек записаны', names.join('|') === before.parts.map((p) => p.name).concat('Песня (аккорды)').join('|'), names.join('|'));
     check('капо первой дорожки записан', gp5.tracks[0].capo === 2, String(gp5.tracks[0].capo));
     check('строй гитары записан', JSON.stringify(gp5.tracks[0].tuning) === JSON.stringify([64, 59, 55, 50, 45, 40]),
       JSON.stringify(gp5.tracks[0].tuning));
     check('ударные дорожки помечены перкуссией и каналом 10',
       !!(gp5.tracks[2].flags & 0x01) && gp5.tracks[2].channel === 10,
       `${gp5.tracks[2].flags} / ${gp5.tracks[2].channel}`);
-    const expectedNotes = before.parts.reduce((sum, part) => sum + part.tabNotes + part.pitchNotes, 0);
+    const accompanimentNotes = w.eval('sections.reduce((sum, sec) => sum + accompSectionRoll(sec).length, 0)');
+    check('выведенный аккомпанемент содержит 42 ноты', accompanimentNotes === 42);
+    const expectedNotes = accompanimentNotes + before.parts.reduce((sum, part) => sum + part.tabNotes + part.pitchNotes, 0);
     check('все ноты доехали в файл', gp5.totalNotes === expectedNotes, `${gp5.totalNotes} из ${expectedNotes}`);
     check('разбор не нашёл подозрительных мест', gp5.problems.length === 0, gp5.problems.join(' | '));
 
@@ -317,12 +319,12 @@ w.addEventListener('load', async () => {
     await wait(250);
     const after = songState();
 
-    check('после круга песня содержит 3 дорожки', after.parts.length === 3, String(after.parts.length));
+    check('после круга 3 исходных дорожки + аккомпанемент', after.parts.length === 4 && after.parts[3].name === 'Песня (аккорды)', String(after.parts.length));
     check('имена дорожек сохранены',
-      after.parts.map((p) => p.name).join('|') === before.parts.map((p) => p.name).join('|'),
+      after.parts.slice(0, 3).map((p) => p.name).join('|') === before.parts.map((p) => p.name).join('|'),
       after.parts.map((p) => p.name).join('|'));
     check('инструменты дорожек сохранены',
-      after.parts.map((p) => p.instrument).join('|') === before.parts.map((p) => p.instrument).join('|'),
+      after.parts.slice(0, 3).map((p) => p.instrument).join('|') === before.parts.map((p) => p.instrument).join('|'),
       after.parts.map((p) => p.instrument).join('|'));
     check('капо сохранён', Number(after.parts[0].capo) === 2, String(after.parts[0].capo));
     // Импорт узнаёт пресет и хранит его id, а не копию нот.

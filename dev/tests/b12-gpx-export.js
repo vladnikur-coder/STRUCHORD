@@ -333,9 +333,9 @@ w.addEventListener('load', async () => {
     const scoreText = Buffer.from((container.entries.find((entry) => entry.name === 'score.gpif') || {}).data).toString('utf8');
     check('score.gpif — валидный GPIF 6',
       /<GPIF>/.test(scoreText) && /<GPVersion>6<\/GPVersion>/.test(scoreText));
-    check('в score.gpif есть три дорожки', (scoreText.match(/<Track id=/g) || []).length === 3,
+    check('в score.gpif 3 партии + аккомпанемент', (scoreText.match(/<Track id=/g) || []).length === 4,
       String((scoreText.match(/<Track id=/g) || []).length));
-    check('в score.gpif микшер записан в ChannelStrip', (scoreText.match(/<ChannelStrip/g) || []).length === 3);
+    check('в score.gpif микшер записан в ChannelStrip', (scoreText.match(/<ChannelStrip/g) || []).length === 4);
 
     // ---------- 3. Круг: экспорт → собственный импорт ----------
     w.importSong(new w.File([bytes], 'круг.gpx', { type: 'application/octet-stream' }));
@@ -354,12 +354,12 @@ w.addEventListener('load', async () => {
     await wait(200);
     const after = songState();
 
-    check('после круга песня содержит 3 дорожки', after.parts.length === 3, String(after.parts.length));
+    check('после круга 3 исходных дорожки + аккомпанемент', after.parts.length === 4 && after.parts[3].name === 'Песня (аккорды)', String(after.parts.length));
     check('имена дорожек сохранены',
-      after.parts.map((p) => p.name).join('|') === before.parts.map((p) => p.name).join('|'),
+      after.parts.slice(0, 3).map((p) => p.name).join('|') === before.parts.map((p) => p.name).join('|'),
       after.parts.map((p) => p.name).join('|'));
     check('инструменты дорожек сохранены',
-      after.parts.map((p) => p.instrument).join('|') === before.parts.map((p) => p.instrument).join('|'),
+      after.parts.slice(0, 3).map((p) => p.instrument).join('|') === before.parts.map((p) => p.instrument).join('|'),
       after.parts.map((p) => p.instrument).join('|'));
     check('две секции на месте', after.sections.length === 2, String(after.sections.length));
     check('названия секций сохранены',
@@ -417,7 +417,7 @@ w.addEventListener('load', async () => {
 
     // Микшер: у GP 17 ступеней, поэтому сравниваем с допуском.
     const mixBefore = before.parts.map((part) => part.mix);
-    const mixAfter = after.parts.map((part) => part.mix);
+    const mixAfter = after.parts.slice(0, 3).map((part) => part.mix);
     check('микшер дорожек вернулся кругом',
       mixAfter.every((mix, index) => mix
         && closeNear(quantizedVolume(mix.volume), quantizedVolume(mixBefore[index].volume), 0.01)

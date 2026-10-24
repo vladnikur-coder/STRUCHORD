@@ -34,6 +34,7 @@ function gpExportModal(title, bodyHtml, label) {
         ${gpExportFormatButton('<i class="ti ti-file-export"></i> Файл STRUCHORD (.struchord)', 'Полная копия песни: секции, партии, микшер, все эффекты и вложения. Открывается обратно в STRUCHORD без потерь.', 'gpExportStruchordBtn')}
         ${gpExportFormatButton('<i class="ti ti-music"></i> Guitar Pro 6 (.gpx)', 'Файл для Guitar Pro 6, 7 и 8: секции, такты, табулатура и ноты, темп, размер, тональность, микшер, капо, строй. После сохранения покажем, что перенеслось и что осталось в приложении.', 'gpExportGpBtn')}
         ${gpExportFormatButton('<i class="ti ti-music"></i> Guitar Pro 5 (.gp5)', 'Настоящий бинарный файл .gp5 для Guitar Pro 5: такты, табулатура, лирика, приёмы, повторы, темп, тональность, капо, строй и микшер. Повторы секций остаются повторами, а не копиями тактов.', 'gpExportGp5Btn')}
+        ${gpExportFormatButton('MIDI (.mid)', 'SMF format 1: темп и размер, звучащие ноты песни и партий. Mute-дорожки исключены; строй и каподастр учтены в высотах. Гитарное звучание заменяется GM-инструментом.', 'gpExportMidiBtn')}
       </div>
       <button type="button" id="gpExportCancelBtn" style="${GP_EXPORT_BUTTON_STYLE}">Отмена</button>
     `, 'Экспорт песни');
@@ -45,6 +46,9 @@ function gpExportModal(title, bodyHtml, label) {
     modal.querySelector('#gpExportGpBtn').onclick = () => {
       removeModalOverlay(overlay);
       window.exportGuitarPro();
+    };
+    modal.querySelector('#gpExportMidiBtn').onclick = () => {
+      removeModalOverlay(overlay); window.exportMidi();
     };
     modal.querySelector('#gpExportGp5Btn').onclick = () => {
       removeModalOverlay(overlay);
@@ -65,15 +69,16 @@ function gpExportModal(title, bodyHtml, label) {
   function gpExportShowReport(report) {
     if (!report) return;
     const stats = report.stats || {};
+    const isMidi = report.format.startsWith('MIDI');
     const version = report.version ? ` · версия GP ${report.version}` : '';
     const summary = `Файл: ${report.fileName} · ${report.bytes.toLocaleString('ru-RU')} байт${report.container ? ` · контейнер ${report.container}` : ''}${version}`;
     const body = `
       <p style="margin:0;font-size:0.9375rem;line-height:1.45;">Песня сохранена как <strong>${report.format}</strong>.</p>
       <p style="margin:0;font-size:0.875rem;line-height:1.4;color:var(--color-text-secondary);">${summary}</p>
-      <p style="margin:0;font-size:0.875rem;line-height:1.4;color:var(--color-text-secondary);">Дорожек: ${stats.tracks || 0} · тактов: ${stats.bars || 0} · нот: ${stats.notes || 0} · долей: ${stats.beats || 0}.</p>
+      <p style="margin:0;font-size:0.875rem;line-height:1.4;color:var(--color-text-secondary);">Дорожек: ${stats.tracks || 0} · ${isMidi ? `conductor: 1 · PPQ: ${stats.ppq} · тиков: ${stats.ticks}` : `тактов: ${stats.bars || 0} · долей: ${stats.beats || 0}`} · нот: ${stats.notes || 0}.</p>
       ${gpExportReportList('Перенесено в файл', report.transferred, 'gain')}
       ${gpExportReportList('Не переносится или приблизительно', report.losses, 'loss')}
-      <p style="margin:0;font-size:0.8125rem;line-height:1.4;color:var(--color-text-secondary);">Громкость и панорама в Guitar Pro хранятся 17 ступенями, поэтому округляются примерно на 6 % (панорама — на 12 %).</p>
+      <p style="margin:0;font-size:0.8125rem;line-height:1.4;color:var(--color-text-secondary);">${!isMidi ? 'Счёт нот — атаки: продолжения через лигу не считаются новыми нотами. ' : ''}${isMidi ? 'MIDI хранит высоты, а не струны и лады. Тембр и эффекты зависят от инструмента в DAW; это не запись звука STRUCHORD.' : 'Громкость и панорама в Guitar Pro хранятся 17 ступенями, поэтому округляются примерно на 6 % (панорама — на 12 %).'}</p>
       <button type="button" id="gpExportReportClose" style="${GP_EXPORT_BUTTON_STYLE}">Готово</button>
     `;
     const { overlay, modal } = gpExportModal('Отчёт об экспорте', body, 'Отчёт об экспорте в Guitar Pro');

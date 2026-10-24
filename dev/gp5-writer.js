@@ -206,7 +206,7 @@
     { denominator: 8, dots: 0 }, { denominator: 8, dots: 1 }, { denominator: 8, dots: 2 },
     { denominator: 16, dots: 0 }, { denominator: 16, dots: 1 },
     { denominator: 32, dots: 0 }, { denominator: 32, dots: 1 },
-    { denominator: 64, dots: 0 },
+    { denominator: 64, dots: 0 }, { denominator: 64, dots: 1 },
   ];
 
   function dottedFactor(dots) {
@@ -226,7 +226,7 @@
       return best;
     };
     const plain = find(whole);
-    if (plain.error <= 0.02) {
+    if (plain.error <= 0.00001 && plain.duration.dots <= 1) {
       return {
         code: Math.round(Math.log2(plain.duration.denominator)) - 2,
         dots: plain.duration.dots,
@@ -236,7 +236,7 @@
     }
     // Триоль: длительность в 2/3 раза короче базовой.
     const triplet = find(whole * 1.5);
-    if (triplet.error <= 0.02) {
+    if (triplet.error <= 0.00001 && triplet.duration.dots <= 1) {
       return {
         code: Math.round(Math.log2(triplet.duration.denominator)) - 2,
         dots: triplet.duration.dots,
@@ -394,7 +394,8 @@
 
   // В одном голосе Guitar Pro ноты не накладываются: нота, начавшаяся внутри
   // уже идущей, уходит во второй голос — ровно так же поступает сам Guitar Pro.
-  // Если заняты оба голоса, нота обрезается до первого свободного места.
+  // Созвучие с общим началом/концом — один голос, разные струны. Третий
+  // независимый голос не записываем и явно отмечаем потерю.
   function spreadVoices(placed) {
     const voices = [];
     for (let index = 0; index < GP5_VOICE_COUNT; index++) voices.push([]);
@@ -404,23 +405,15 @@
       const start = note.start;
       const end = start + note.rawDur;
       let voice = -1;
-      let cut = Infinity;
       for (let index = 0; index < GP5_VOICE_COUNT; index++) {
         const overlap = busy[index].some((segment) => segment.bar === note.bar
-          && start < segment.end - EPS && segment.start < end - EPS);
+          && start < segment.end - EPS && segment.start < end - EPS
+          && !(Math.abs(start - segment.start) < EPS && Math.abs(end - segment.end) < EPS && segment.string !== note.string));
         if (!overlap) { voice = index; break; }
-        const blockedUntil = busy[index]
-          .filter((segment) => segment.bar === note.bar && segment.start <= start + EPS && segment.end > start)
-          .reduce((max, segment) => Math.max(max, segment.end), start);
-        cut = Math.min(cut, blockedUntil);
       }
       if (voice < 0) {
-        if (cut - start < 0.125) {
-          note.source.__lost = (note.source.__lost || '') + 'оба голоса такта заняты';
-          continue;
-        }
-        note.source.__trimmed = true;
-        note.rawDur = cut - start;
+        note.source.__lost = (note.source.__lost || '') + 'оба голоса такта заняты';
+        continue;
       } else if (note.preferredVoice === 2 && voice === 0) {
         // Предпочтение второго голоса уступает свободному первому — так файл
         // выглядит в Guitar Pro аккуратнее, а музыка не меняется.
@@ -433,7 +426,7 @@
       }
       note.dur = dur;
       voices[voice].push(note);
-      busy[voice].push({ bar: note.bar, start, end: start + note.rawDur });
+      busy[voice].push({ bar: note.bar, start, end: start + note.rawDur, string: note.string });
     }
     return voices;
   }
@@ -469,11 +462,11 @@
     if (source.vibrato) flags2 |= 0x40;
     writer.u8(flags1);
     writer.u8(flags2);
-    if (flags1 & 0x01) writeBend(writer, source.bend);
+    if (flags1 & 0x01) writeBend(writer, source.bend, source.tabEffects === true);
     if (flags1 & 0x10) writeGraceNote(writer, source.grace, note);
     if (flags2 & 0x04) writer.i8(pickLengthCode(source.tremolo));
     if (flags2 & 0x08) writer.i8(slideCode(source));
-    if (flags2 & 0x10) writeHarmonic(writer, source.harm || source.harmonic);
+    if (flags2 & 0x10) writeHarmonic(writer, source.harm || source.harmonic, source);
     if (flags2 & 0x20) {
       writer.i8(clamp(Math.round(Number(source.trillFret) || 24), 0, 36));
       writer.i8(1); // трель шестнадцатыми
@@ -487,13 +480,12 @@
     return 1;
   }
 
-  // Слайд в GP5 — один байт с типом, а не битовая маска: 1 — сдвиг на лад,
-  // 2 — легато вверх, 3 — исходящий вниз, 4 — исходящий вверх, −1 — входящий
-  // снизу, −2 — входящий сверху (guitarpro.models.SlideType).
+  // GP5 хранит битовую маску (не signed enum SlideType из GP3/4):
+  // shift=1, legato=2, outDown=4, outUp=8, inBelow=16, inAbove=32.
   function slideCode(source) {
     const kind = String(source.slide || '').toLowerCase();
     if (kind === 'legato' || kind === 'легато') return 2;
-    return 1;
+    return ({'in-below':16,'in-above':32,'out-down':4,'out-up':8})[kind] || 1;
   }
 
   // Бенд GP5: тип, значение, число точек, затем точки (сдвиг по горизонтали,
@@ -504,24 +496,27 @@
   const GP5_MAX_BEND_POINTS = 8;
   const GP5_BEND_SEMITONE = 25;
   const GP5_BEND_POSITION = 60;
-  const GP5_BEND_TYPES = { bend: 1, release: 2, prebend: 4, 'prebend-release': 5 };
+  const GP5_BEND_TYPES = { bend: 1, 'bend-release': 3, release: 2, prebend: 4, 'prebend-release': 5 };
 
-  function writeBend(writer, value) {
+  function writeBend(writer, value, tabEffects = false) {
     const info = typeof value === 'object' && value ? value : {};
     const raw = Array.isArray(info.points) ? info.points
       .map((point) => Array.isArray(point)
         ? [clamp(Number(point[0]) || 0, 0, 1), clamp(Number(point[1]) || 0, 0, 12)]
         : [clamp(Number(point && point.x) || 0, 0, 1), clamp(Number(point && point.y) || 0, 0, 12)])
       : [];
-    const points = raw.length >= 2 ? raw.slice(0, GP5_MAX_BEND_POINTS) : [[0, 0], [1, 1]];
+    const points = raw.length >= 2 ? raw.slice(0, tabEffects ? 32 : GP5_MAX_BEND_POINTS) : [[0, 0], [1, 1]];
     const type = GP5_BEND_TYPES[String(info.type || 'bend')] || 1;
+    // TAB 0.679: y — полутоны, файл GP5 — 50 ед./полутон; alphaTab
+    // возвращает четвертитоны (25 ед.). Legacy-путь партий не переопределяем.
+    const scale = tabEffects ? 50 : GP5_BEND_SEMITONE;
     const peak = Math.max(...points.map((point) => point[1]));
     writer.i8(type);
-    writer.i32(Math.round(peak * GP5_BEND_SEMITONE));
+    writer.i32(Math.round(peak * scale));
     writer.i32(points.length);
     for (const point of points) {
       writer.i32(Math.round(point[0] * GP5_BEND_POSITION));
-      writer.i32(Math.round(point[1] * GP5_BEND_SEMITONE));
+      writer.i32(Math.round(point[1] * scale));
       writer.u8(0); // вибрато в точке
     }
   }
@@ -547,16 +542,18 @@
     writer.u8(info.dead === true ? 0x01 : (info.onBeat === true ? 0x02 : 0x00));
   }
 
-  // Флажолет GP5 — ровно один байт: 1 натуральный, 3 взятый, 4 пинч, 5
-  // полуфлажолет, 15 искусственный на n+5, 17 на n+7, 22 на n+12
-  // (guitarpro.gp4.readHarmonic). Никаких дополнительных байтов после типа нет —
-  // прежний код писал их и ломал поток байтов, но не вызывался.
-  function writeHarmonic(writer, value) {
+  // Прежний путь партий оставлен совместимым со старыми ожиданиями.
+  // Новый TAB ниже использует GP5 type 2 с параметрами, не GP4 enum 15/17/22.
+  function writeHarmonic(writer, value, source = {}) {
     const info = typeof value === 'object' && value ? value : {};
     const type = String(info.type || value || 'natural').toLowerCase();
     if (type.includes('pinch') || type.includes('пинч')) { writer.i8(4); return; }
     if (type.includes('semi') || type.includes('полу')) { writer.i8(5); return; }
     if (type.includes('artificial') || type.includes('искус') || type.includes('a.h')) {
+      if (source.tabEffects) {
+        // GP5 type 2 + pitch class / accidental / relative octave, не GP4 type 15.
+        writer.i8(2);writer.i8(source.harmonicPitchClass ?? 0);writer.i8(0);writer.i8(source.harmonicOctave ?? 1);return;
+      }
       writer.i8(Number(info.code) === 17 || Number(info.code) === 22 ? Number(info.code) : 15);
       return;
     }
@@ -575,11 +572,12 @@
     let flags = 0x20;
     if (hasEffects) flags |= 0x08;
     if (source.ghost) flags |= 0x04;
-    if (accent) flags |= 0x40;
+    if (source.tabEffects && source.accent === 2) flags |= 0x02;
+    else if (accent) flags |= 0x40;
     if (Number.isFinite(Number(source.velocity))) flags |= 0x10;
     writer.u8(flags);
     // Тип ноты GP5: 1 — обычная, 2 — связанная, 3 — «мёртвая» (знак x).
-    writer.u8(source.dead === true ? 3 : 1);
+    writer.u8(source.dead === true ? 3 : source.tieDestination ? 2 : 1);
     if (flags & 0x10) {
       // Динамика GP: (velocity + 16 - 15) / 16, округление вниз.
       const velocity = clamp(Math.round(Number(source.velocity)), 15, 127);
@@ -683,50 +681,52 @@
   }
 
   function restGapCodes(gapUnits) {
-    const codes = [];
-    let left = Number(gapUnits);
-    while (left > 0.12) {
-      let code = Math.floor(-Math.log2(left));
-      if (!Number.isFinite(code)) code = 0;
-      code = clamp(code, -2, 4);
-      let units = durationUnitsForCode(code);
-      if (units <= 0 || units > left + EPS) { code = 0; units = 1; }
-      codes.push(code);
-      left -= units;
-      if (units < 0.25 && left <= 0.12) break;
+    const target = Math.round(Number(gapUnits) * 960);
+    if (Math.abs(target / 960 - gapUnits) > .00001) throw new Error('GP5: пауза вне ритмической сетки');
+    const exact = durationCode(gapUnits / 4);
+    if (exact) return [exact];
+    // Жадное деление неверно: 150 тиков = 90+60, а не 120+30
+    // (1/128 GP5 не поддерживает). Ищем точную сумму допустимых ритмов.
+    const values = [...new Set(DURATIONS.filter(d => d.dots <= 1).flatMap(d => {
+      const ticks = 3840 / d.denominator * dottedFactor(d.dots);
+      return [ticks, ticks * 2 / 3];
+    }).filter(Number.isInteger))].sort((a,b) => b-a);
+    const previous = new Int32Array(target + 1).fill(-1); previous[0] = 0;
+    for (let at = 1; at <= target; at++) {
+      for (const value of values) if (value <= at && previous[at - value] >= 0) { previous[at] = value; break; }
     }
+    if (previous[target] < 0) throw new Error(`GP5: невыразимая пауза ${gapUnits} четверти`);
+    const codes = []; let left = target;
+    while (left > 0) { const value = previous[left]; codes.push(durationCode(value / 3840)); left -= value; }
     return codes;
   }
 
-  // План голоса такта: биты и паузы-заполнители между ними, в порядке записи.
-  function voicePlan(barBeats) {
-    const plan = [];
-    let cursor = 0;
+  function voicePlan(barBeats, barLength) {
+    const plan = []; let cursor = 0;
+    const rest = length => { for (const code of restGapCodes(length)) plan.push({ rest: true, code }); };
     for (const beat of barBeats) {
       const gap = Number(beat.start) - cursor;
-      if (gap > 0.12) {
-        for (const code of restGapCodes(gap)) plan.push({ rest: true, code });
-        cursor += gap;
-      }
+      if (gap > EPS) rest(gap);
       plan.push({ beat });
       cursor = Number(beat.start) + Number((beat.notes[0] && beat.notes[0].rawDur) || 0);
     }
+    if (barLength > cursor + EPS) rest(barLength - cursor);
     return plan;
   }
 
-  function writeRestBeat(writer, durationCodeValue) {
-    writer.u8(0x40); // у бита задан статус
-    writer.u8(0x02); // пауза
-    writer.i8(durationCodeValue);
-    writer.u8(0); // ни одной струны
-    writer.i16(0); // флаги отображения
+  function writeRestBeat(writer, duration, change) {
+    writer.u8(0x40 | (duration.dots ? 0x01 : 0) | (duration.tuplet ? 0x20 : 0) | (change ? 0x10 : 0));
+    writer.u8(2); // rest status
+    writer.i8(duration.code);
+    if (duration.tuplet) writer.i32(duration.tuplet);
+    if (change) writeMixChange(writer, change);
+    writer.u8(0); // no strings
+    writer.i16(0);
   }
 
-  // Длина такта в долях целой ноты: 4/4 — это одна целая.
   function wholeUnits(bar, model) {
     const sig = parseTimeSig(bar.timeSig || model.timeSig);
-    const quarters = (sig.numerator / sig.denominator) * 4;
-    return Math.max(0.125, quarters / 4);
+    return sig.numerator / sig.denominator;
   }
 
   function writeBeat(writer, beat, change) {
@@ -807,11 +807,11 @@
       }
     }
 
-    let noteCount = 0;
+    let noteCount = 0, noteheadCount = 0;
     let beatCount = 0;
     for (const track of tracks) {
       for (const beats of track.beats) {
-        for (const beat of beats) { beatCount++; noteCount += beat.notes.length; }
+        for (const beat of beats) { beatCount++; noteheadCount += beat.notes.length; noteCount += beat.notes.filter(n => !n.source.tieDestination).length; }
       }
     }
     if (settings.debug) {
@@ -1027,7 +1027,7 @@
       // (бит 0 — «1-й конец») и ощущение триолей (1 — восьмые). При флаге 0x10
       // первый байт читается как маска окончаний, без флага — пропускается.
       writer.u8(flags & 0x10 ? 1 << (volta - 1) : 0);
-      writer.u8(1);
+      writer.u8(0); // Straight: не навязываем свинг всем восьмым
       previousTimeSig = timeSig;
       previousKey = key;
     });
@@ -1098,7 +1098,9 @@
     bars.forEach((bar, barIndex) => {
       for (let trackIndex = 0; trackIndex < Math.max(1, tracks.length); trackIndex++) {
         const track = tracks[trackIndex] || emptyTrack;
-        const change = barIndex === 0 ? changesByTrack.get(track.index) : null;
+        let change = barIndex === 0 ? { ...(changesByTrack.get(track.index) || {}) } : {};
+        if (Number(bar.bpm) && (barIndex === 0 || Number(bar.bpm) !== Number(bars[barIndex - 1].bpm))) change.tempo = Number(bar.bpm);
+        if (!Object.keys(change).length) change = null;
         if (change) {
           if (Number.isFinite(Number(track.part.bpm)) && track.part.bpm && Number(track.part.bpm) !== tempo) {
             change.tempo = Math.round(Number(track.part.bpm));
@@ -1107,19 +1109,18 @@
         // GP5 держит в каждом такте ровно два голоса, и в каждом обязан быть
         // хотя бы один бит: для пустого голоса записываем паузу на такт.
         const rest = durationCode(wholeUnits(bar, model));
-        const restCode = rest ? rest.code : -2;
         for (let voice = 0; voice < GP5_VOICE_COUNT; voice++) {
           const beats = (track.beats && track.beats[voice]) || [];
           const barBeats = beats.filter((beat) => beat.bar === barIndex);
-          const plan = voicePlan(barBeats);
+          const plan = voicePlan(barBeats, wholeUnits(bar, model) * 4);
           writer.i32(plan.length || 1);
           let first = true;
           for (const item of plan) {
-            if (item.rest) { writeRestBeat(writer, item.code); continue; }
+            if (item.rest) { writeRestBeat(writer, item.code, first && voice === 0 ? change : null); first = false; continue; }
             writeBeat(writer, item.beat, first ? change : null);
             first = false;
           }
-          if (!plan.length) writeRestBeat(writer, restCode);
+          if (!plan.length) writeRestBeat(writer, rest || durationCode(1));
         }
         writer.u8(0); // разрыв строки
       }
@@ -1142,6 +1143,7 @@
         bars: bars.length,
         tracks: tracks.length,
         notes: noteCount,
+        noteheads: noteheadCount,
         beats: beatCount,
         lyrics: lyricLines.filter((line) => line && line.text).length,
         bytes: writer.length,
@@ -1167,6 +1169,7 @@
     GP5_VERSION,
     writeGP5,
     durationCode,
+    durationParts: restGapCodes,
     parseTimeSig,
     keyOf,
     tuningPitch,
