@@ -94,6 +94,17 @@ function check(name, actual, expected = true) {
         await wait(25);
       }
       async function button(selector) {
+        const neededTab = await page.$eval(selector, (e) => {
+          const pane = e.closest('[data-mobile-pane]');
+          if (!pane || getComputedStyle(pane).display !== 'none') return null;
+          return pane.getAttribute('data-mobile-pane');
+        });
+        if (neededTab) {
+          const tabSel = `[data-tab-mobile-tab="${neededTab}"]`;
+          if (touch) await page.tap(tabSel);
+          else await page.click(tabSel);
+          await wait(25);
+        }
         await page.$eval(selector, (e) => e.scrollIntoView({ block: 'center' }));
         if (touch) await page.tap(selector);
         else await page.click(selector);
@@ -152,17 +163,26 @@ function check(name, actual, expected = true) {
         s = await state();
         check(`${prefix}: DeleteNote сохраняет другие струны`, s.notes, base);
         await key('ArrowDown');
-        await key('Backspace');
+        await key('Delete');
         s = await state();
-        check(`${prefix}: удаление сохраняет время и хвост`, s.notes, [
+        check(`${prefix}: Delete сохраняет время и хвост (ghost rest)`, s.notes, [
           base[0],
           { start: 1, dur: 1, pause: true },
           base[2],
           base[3],
         ]);
-        check(`${prefix}: после удаления пауза реальной длительности`, s.disabled, false);
+        check(`${prefix}: после Delete пауза реальной длительности`, s.disabled, false);
         await key('KeyZ', 'Meta');
         check(`${prefix}: Undo удаления`, await frets(), [3, 5, 7, 9]);
+        await key('Backspace');
+        s = await state();
+        check(`${prefix}: Backspace на одиночной ноте удаляет долю со сдвигом хвоста`, s.notes.map((n) => [n.start, n.fret]), [
+          [0, 3],
+          [1, 7],
+          [2, 9],
+        ]);
+        await key('KeyZ', 'Meta');
+        check(`${prefix}: Undo Backspace возвращает [3, 5, 7, 9]`, await frets(), [3, 5, 7, 9]);
         await fixture(
           [
             note(0, 3, 1, 0, { dots: 1 }),
@@ -171,7 +191,7 @@ function check(name, actual, expected = true) {
           ],
           1.5,
         );
-        await key('Backspace');
+        await key('Delete');
         s = await state();
         check(
           `${prefix}: удалённая триоль остаётся триольной паузой`,
@@ -429,7 +449,7 @@ function check(name, actual, expected = true) {
         check(`${prefix}: экранная команда прерывает две цифры лада`, (await state()).notes[0].fret, 2);
         // Независимые проверки цветов native SVG, ghost rest, выделения и границ ошибки.
         await fixture(base);
-        await key('Backspace');
+        await key('Delete');
         await key('ArrowRight', null, true);
         await key('Minus');
         await wait(100);
@@ -486,12 +506,13 @@ function check(name, actual, expected = true) {
         await page.evaluate(() => sections[0].squares.find((q) => q.type === 'tab').notes.map((n) => n.fret)),
         [3, 5, 7, 9],
       );
+      const tabBar = await page.evaluate(() => sections[0].squares.findIndex((q) => q.type === 'tab'));
       const bytes = await page.evaluate(() => Array.from(gpExportBytesGP5().bytes)),
         score = readScore(bytes);
       check(
         `${width}: введённые ноты сохранены в настоящем GP5`,
         Array.from(
-          oracleNotes(score).filter((n) => n.bar === score.masterBars.length - 1),
+          oracleNotes(score).filter((n) => n.bar === tabBar),
           (n) => n.fret,
         ),
         [3, 5, 7, 9],
