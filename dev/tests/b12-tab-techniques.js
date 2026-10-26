@@ -368,7 +368,7 @@ function gpNotes(bytes, format) {
       tabTechPerformance(tabInsertEditorState.draft.notes,4)[0], .5, [noteToFrequency('E2')], 0, 'guitar')`),
       null,
     );
-    run("tabInsertEditorState.overlay.querySelector('[data-tab-cancel]').click()");
+    run("tabInsertEditorState.overlay.querySelector('[data-tab-cancel]').click(); tabInsertEditorState?.overlay.querySelector('[data-tab-confirm-leave]')?.click()");
     fixture([note(0, 11, { harm: { type: 'natural' } })]);
     check(
       'invalid saved NH has an export warning',
