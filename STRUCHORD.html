@@ -5553,7 +5553,21 @@ body.is-resizing .tab-insert > .chord-ticks-step {
 .tab-at-host svg { display: block; }
 .tab-gp-box { position: absolute; box-sizing: border-box; pointer-events: none; z-index: 2; }
 .tab-gp-selected { background: color-mix(in srgb, var(--color-accent) 20%, transparent); border: 2px solid var(--color-accent); border-radius: 3px; }
-.tab-gp-invalid { z-index: 3; border: 2px dashed var(--color-danger); border-radius: 4px; }
+/* 0.688: неполный такт заливается лёгким красным, как в Guitar Pro,
+   а такт под курсором не красится вовсе. */
+.tab-gp-invalid {
+  z-index: 1;
+  background: color-mix(in srgb, var(--color-danger) 13%, transparent);
+  border-radius: 4px;
+}
+.tab-gp-invalid.is-current { background: transparent; }
+/* 0.688: свободный хвост неполного такта — просто пустое место.
+   Серая пауза-заполнитель появляется, когда курсор стоит на крайней доле
+   перед пустотой (или в самой пустоте) либо на неё наведена мышь. */
+.tab-at-host .tab-gp-placeholder { opacity: 0; }
+.tab-at-host .tab-gp-placeholder.is-active,
+.tab-at-host .tab-gp-placeholder.is-hover { opacity: 1; }
+.tab-at-host .tab-gp-placeholder text { fill: var(--color-text-tertiary) !important; }
 .tab-gp-out-fret {
   z-index: 2;
   display: flex;
@@ -15185,7 +15199,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.687</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.688</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22823,6 +22837,23 @@ function tabGpMeter(e) {
 function tabGpLength(beat) {
   return tabInsertNoteDuration(beat);
 }
+// 0.688: сколько такта занимают настоящие доли. Паузы, которые программа
+// добавила сама в конец неполного такта, в счёт не идут — иначе такт всегда
+// выглядел бы полным, хотя нот в нём меньше.
+function tabGpUsedUnits(groups) {
+  if (!Array.isArray(groups) || !groups.length) return 0;
+  let end = groups.length;
+  while (end > 0 && groups[end - 1]?.filler) end--;
+  if (!end) end = groups.length;
+  let sum = 0;
+  for (let i = 0; i < end; i++) sum += tabGpLength(groups[i]);
+  return sum;
+}
+// Паузы-«заполнители»: их программа добавила сама, чтобы такт дотянул до размера.
+// Пользователь их не ставил, поэтому на стане они не рисуются.
+function tabGpFillers(units, denom) {
+  return tabGpRests(units, denom).map((g) => ({ ...g, filler: true }));
+}
 function tabGpBlank(e) {
   return { dur: getGridUnitsPerBar(tabGpMeter(e)), notes: [], ghost: true, wholeBar: true };
 }
@@ -22904,7 +22935,7 @@ function tabGpImport(e) {
       offset = start + tabInsertNoteDuration(first);
     }
     if (!groups.length) groups.push(tabGpBlank(e));
-    else groups.push(...tabGpRests(bar.end - offset, denom));
+    else groups.push(...tabGpFillers(bar.end - offset, denom));
     return groups;
   });
   e.gpCursor = { bar: 0, index: 0 };
@@ -22927,11 +22958,20 @@ function tabGpLayout(e) {
         rest: !g.notes.length,
         notes: g.notes.map((n) => ({ string: n.string + 1, fret: n.fret, ...tabTechClean(n) })),
         ghost: !!g.ghost,
+        implicit: !!g.implicit,
+        filler: !!g.filler,
         gpIndex: index,
       };
       time += tabGpLength(g);
       return bit;
     });
+    // 0.688: паузы, добавленные программой в конец такта, — не настоящие доли,
+    // а «заполнитель» свободного хвоста: на стане он не рисуется.
+    let fillerFrom = bits.length;
+    while (fillerFrom > 0 && bits[fillerFrom - 1].filler) fillerFrom--;
+    // Если в такте вообще нет настоящих долей, ничего не прячем: пустой такт
+    // по-прежнему показывает одну целую паузу.
+    if (fillerFrom > 0) for (let i = fillerFrom; i < bits.length; i++) bits[i].placeholder = true;
     const used = time - offset;
     if (used < unitsPerBar - TAB_AT_EPS) {
       let restStart = time;
@@ -22943,6 +22983,10 @@ function tabGpLayout(e) {
           triplet: !!rest.triplet,
           rest: true,
           ghost: true,
+          // 0.688: это не настоящая пауза, а «заполнитель» свободного хвоста
+          // неполного такта. Он остаётся в раскладке для курсора и навигации,
+          // но на стане не рисуется, пока курсор не встанет на это место.
+          placeholder: true,
           gpIndex: groups.length,
         });
         restStart += tabGpLength(rest);
@@ -23248,11 +23292,16 @@ function tabGpFixBars(e, mode) {
     denom = parseTimeSig(tabGpMeter(e)).denominator;
   return tabGpEdit(e, () => {
     e.gpBars.forEach((bar, b) => {
-      const used = bar.reduce((s, g) => s + tabGpLength(g), 0);
+      const used = tabGpUsedUnits(bar);
       if (mode === 'pad' && used < meter - TAB_AT_EPS) {
         if (used < TAB_AT_EPS) {
           e.gpBars[b] = [tabGpBlank(e)];
         } else {
+          // 0.688: убираем прежние «пустые» паузы в конце и добавляем ровно
+          // столько, сколько не хватает до полного такта.
+          let end = bar.length;
+          while (end > 0 && bar[end - 1]?.filler) end--;
+          bar.length = end;
           bar.forEach((g) => delete g.autoAdded);
           bar.push(...tabGpRests(meter - used, denom));
         }
@@ -23310,7 +23359,7 @@ function tabGpValidate(e) {
   }
   const meter = getGridUnitsPerBar(tabGpMeter(e)),
     errors = e.gpBars
-      .map((bar, i) => ({ bar: i, used: bar.reduce((s, g) => s + tabGpLength(g), 0) }))
+      .map((bar, i) => ({ bar: i, used: tabGpUsedUnits(bar) }))
       .filter((b) => Math.abs(b.used - meter) > 1e-8);
   const status = e.overlay.querySelector('[data-tab-gp-error]'),
     apply = e.overlay.querySelector('[data-tab-apply]');
@@ -24279,12 +24328,34 @@ function tabGpKey(e, event) {
   }
   return false;
 }
+// 0.688: какой такт и какие его «серые паузы» показывать при наведении мыши.
+let tabAtHoverStart = null;
+function tabAtHoverTail(start) {
+  const key = start == null ? null : Math.round(start * 1e9) / 1e9;
+  if (tabAtHoverStart === key) return;
+  tabAtHoverStart = key;
+  tabAtApplyHover();
+}
+function tabAtApplyHover() {
+  const host = tabAtHostEl;
+  if (!host) return;
+  host.querySelectorAll('.tab-gp-placeholder.is-hover').forEach((n) => n.classList.remove('is-hover'));
+  const tails = tabAtState?.tails;
+  const key = tabAtHoverStart;
+  if (key == null || !tails) return;
+  tails.forEach((tail) => {
+    if (!tail.keys.has(key)) return;
+    tail.nodes.forEach((sel) => host.querySelectorAll(sel).forEach((n) => n.classList.add('is-hover')));
+  });
+}
 function tabGpDecorate(e) {
   tabTechRefresh(e);
   if (!tabAtHostEl || !tabAtState || !tabAtApi) return;
   const host = tabAtHostEl;
   host.querySelectorAll('.tab-gp-box').forEach((n) => n.remove());
   host.querySelectorAll('.tab-gp-ghost').forEach((n) => n.classList.remove('tab-gp-ghost'));
+  host.querySelectorAll('.tab-gp-placeholder').forEach((n) => n.classList.remove('tab-gp-placeholder', 'is-active', 'is-hover'));
+  const tailNodes = new Map();
   const selected = e.gpSelection ? tabGpRange(e) : [],
     meter = getGridUnitsPerBar(tabGpMeter(e)),
     barSelMin = e.gpSelection?.barMode ? Math.min(e.gpSelection.anchor.bar, e.gpSelection.focus.bar) : -1,
@@ -24295,23 +24366,57 @@ function tabGpDecorate(e) {
     div.className = 'tab-gp-box ' + kind;
     Object.assign(div.style, { left: r.x + 'px', top: r.y + 'px', width: r.w + 'px', height: r.h + 'px' });
     host.appendChild(div);
+    return div;
   };
+  const tailMap = new Map();
   for (const sys of tabAtApi.boundsLookup?.staffSystems || [])
     for (const m of sys.bars || [])
       for (const bar of m.bars || []) {
         const bi = bar.bar.index,
-          used = e.gpBars[bi]?.reduce((s, g) => s + tabGpLength(g), 0);
-        if (Math.abs(used - meter) > 1e-8) box('tab-gp-invalid', bar.visualBounds);
+          used = tabGpUsedUnits(e.gpBars[bi]);
+        if (Math.abs(used - meter) > 1e-8) {
+          // В такте под курсором заливку не показываем — как в Guitar Pro.
+          const mark = box('tab-gp-invalid', bar.visualBounds);
+          if (e.gpCursor?.bar === bi) mark.classList.add('is-current');
+        }
         if (e.gpSelection?.barMode && bi >= barSelMin && bi <= barSelMax) {
           const b = bar.visualBounds;
           box('tab-gp-selected', { x: b.x - 2, y: b.y - 4, w: b.w + 4, h: b.h + 8 });
         }
         const geom = e.gpSelection?.stringScoped ? tabAtStringGeometry(tabAtApi, bi) : null;
+        // 0.688: где в этом такте начинается «пустой хвост» и последняя настоящая доля перед ним.
+        const beatInfos = (bar.beats || []).map((bb) => tabAtState.beatInfo.get(bb.beat)).filter(Boolean);
+        const phInfo = beatInfos.find((i) => i.placeholder);
+        const lastReal = phInfo
+          ? beatInfos.filter((i) => i.gpIndex < phInfo.gpIndex).pop()
+          : null;
+        const tailStart = lastReal ? lastReal.start : phInfo ? phInfo.start : null;
+        // Серая пауза показывается, только если курсор стоит на этой последней доле
+        // или уже в пустом хвосте. В остальное время там просто белое место.
+        const tailActive =
+          !!phInfo &&
+          e.gpCursor?.bar === bi &&
+          (lastReal == null || e.gpCursor.index >= lastReal.gpIndex);
+        if (phInfo) {
+          const keys = new Set(
+            beatInfos.filter((i) => i.placeholder).map((i) => Math.round(i.start * 1e9) / 1e9),
+          );
+          if (tailStart != null) keys.add(Math.round(tailStart * 1e9) / 1e9);
+          tailMap.set(bi, { keys, nodes: [] });
+        }
         for (const bb of bar.beats || []) {
           const info = tabAtState.beatInfo.get(bb.beat);
           if (!info) continue;
           if (info.ghost)
             host.querySelectorAll(`.b${bb.beat.id}`).forEach((n) => n.classList.add('tab-gp-ghost'));
+          if (info.placeholder) {
+            host.querySelectorAll(`.b${bb.beat.id}`).forEach((n) => {
+              n.classList.add('tab-gp-placeholder');
+              if (tailActive) n.classList.add('is-active');
+            });
+            if (!tailNodes.has(bi)) tailNodes.set(bi, []);
+            tailNodes.get(bi).push(`.b${bb.beat.id}`);
+          }
           for (const nb of bb.notes || []) {
             const meta = nb?.note && tabAtState.noteMeta?.get(nb.note);
             const hb = nb?.noteHeadBounds;
@@ -24355,6 +24460,13 @@ function tabGpDecorate(e) {
           }
         }
       }
+  if (tabAtState) {
+    tailMap.forEach((tail, bi) => {
+      tail.nodes = tailNodes.get(bi) || [];
+    });
+    tabAtState.tails = tailMap;
+    tabAtApplyHover();
+  }
   const select = e.overlay.querySelector('[data-tab-gp="select"]');
   if (select) select.setAttribute('aria-pressed', String(!!e.gpSelecting));
 }
@@ -24518,7 +24630,7 @@ function tabAtBuildScore(alphaTab, draft, sec) {
         });
       }
       voice.addBeat(beat);
-      const info = { start: bit.start, bar: bi, rest: bit.rest, d: bit.d, dots: bit.dots, triplet: bit.triplet, ghost:bit.ghost, gpIndex:bit.gpIndex };
+      const info = { start: bit.start, bar: bi, rest: bit.rest, d: bit.d, dots: bit.dots, triplet: bit.triplet, ghost:bit.ghost, gpIndex:bit.gpIndex, placeholder: !!bit.placeholder };
       beatInfo.set(beat, info);
       if (!startInfo.has(bit.start)) startInfo.set(bit.start, { beat, info });
     });
@@ -24992,6 +25104,14 @@ function tabAtRender(editor) {
         if(!drag||!(event.buttons&1)||Math.hypot(event.clientX-drag.x,event.clientY-drag.y)<5)return;
         const hit=pointerHit(event);if(hit){drag.moved=true;tabGpSetTime(editor,hit.start,hit.string,true);}
       });
+      // 0.688: серые паузы в свободном хвосте неполного такта видны и при наведении мыши.
+      host.addEventListener('pointermove',event=>{
+        if(event.pointerType==='touch'||(event.buttons&1))return;
+        const rect=host.getBoundingClientRect();
+        const hit=tabAtHitTest(event.clientX-rect.left+host.scrollLeft,event.clientY-rect.top+host.scrollTop);
+        tabAtHoverTail(hit?hit.start:null);
+      });
+      host.addEventListener('pointerleave',()=>tabAtHoverTail(null));
       host.addEventListener('pointerup',()=>{if(drag?.moved)editor.gpIgnoreClick=true;drag=null;});
       host.addEventListener('pointercancel',()=>{drag=null;});
       host.addEventListener('click', event => {

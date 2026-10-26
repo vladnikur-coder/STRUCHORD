@@ -245,10 +245,12 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       { start: 2, dur: 1, string: 0, fret: 7 },
     ], 3);
     ui = await readUi();
+    // 0.688: свободный хвост не рисуется паузой, поэтому такт из трёх нот
+    // честно считается неполным — «Применить» ждёт «Заполнить паузами».
     check(
-      'Исходный такт из трёх нот и паузы в конце заполнен, «Применить» доступно',
-      [ui.groupsPerBar, ui.applyDisabled],
-      [[4], false],
+      'Такт из трёх нот с пустым хвостом считается неполным и объясняет это словами (0.688)',
+      [ui.groupsPerBar, ui.applyDisabled, ui.errorText.includes('3 из 4 — не заполнен')],
+      [[4], true, true],
     );
     await key('Delete');
     ui = await readUi();
