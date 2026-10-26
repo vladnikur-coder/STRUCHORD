@@ -15185,7 +15185,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.686</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.687</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22160,7 +22160,7 @@ function tabShortcutsPopoverHtml() {
       ['На полтона вверх / вниз (лад ±1)', `${alt}${sh}↑ / ${alt}${sh}↓`],
     ]],
     ['Правка, такты и буфер', [
-      ['Удалить ноту (оставить паузу)', mac ? '⌫ / Delete' : 'Backspace / Delete'],
+      ['Удалить ноту в паузу (ещё раз — пауза со сдвигом)', mac ? '⌫ / Delete' : 'Backspace / Delete'],
       ['Удалить долю со сдвигом', mac ? '⇧⌫ / ⌘−' : 'Shift+Delete / Shift+Backspace'],
       ['Вставить такт / вставить долю', mac ? 'Insert (⌘+) / ⌃+ (⌃Ins)' : 'Insert / Ctrl+Insert'],
       ['Удалить такт', mac ? '⌘⌫ / ⌃−' : 'Ctrl+Delete'],
@@ -23462,28 +23462,60 @@ function tabGpPut(e, digit) {
   );
   tabAtLastDigit = { key, fret, at: now, changed: ok, historySize: e.history?.length || 0 };
 }
+// 0.687: пауза тоже удаляется. Доля паузы исчезает со стана, ноты правее
+// подтягиваются влево, такт становится «не заполнен» с кнопкой «Заполнить паузами»,
+// а сам такт остаётся на месте: пустой такт удаляют только Ctrl+Delete / «− Такт».
+function tabGpDeletePositions(e, range) {
+  const touchedBars = new Set();
+  let removed = 0;
+  for (const p of range.slice().reverse()) {
+    if (!p.beat || p.beat.wholeBar) continue;
+    e.gpBars[p.bar].splice(p.index, 1);
+    touchedBars.add(p.bar);
+    removed++;
+  }
+  for (const b of touchedBars) if (!e.gpBars[b].length) e.gpBars[b] = [tabGpBlank(e)];
+  return removed;
+}
 function tabGpDelete(e, beats = false) {
-  tabGpEdit(e, () => {
+  let nothing = null;
+  const changed = tabGpEdit(e, () => {
     const range = tabGpRange(e);
-    if (beats) {
-      for (const p of range.slice().reverse()) if (p.beat) e.gpBars[p.bar].splice(p.index, 1);
-    } else
-      for (const p of range)
-        if (p.beat && p.beat.notes.length) {
-          p.beat.notes = e.gpSelection
-            ? p.beat.notes.filter((n) => !tabGpNoteInSel(e, n.string))
-            : p.beat.notes.filter((n) => n.string !== tabAtCursor.string);
-          if (!p.beat.notes.length) {
-            p.beat.ghost = true;
-            delete p.beat.wholeBar;
-          }
+    const hasNotes = range.some((p) => p.beat && p.beat.notes.length);
+    if (beats || !hasNotes) {
+      if (!tabGpDeletePositions(e, range)) {
+        nothing = range.some((p) => p.beat?.wholeBar) ? 'bar' : 'rest';
+        return false;
+      }
+      e.gpCursor = { bar: range[0].bar, index: Math.min(range[0].index, e.gpBars[range[0].bar].length) };
+      e.gpSelection = null;
+      return;
+    }
+    for (const p of range)
+      if (p.beat && p.beat.notes.length) {
+        p.beat.notes = e.gpSelection
+          ? p.beat.notes.filter((n) => !tabGpNoteInSel(e, n.string))
+          : p.beat.notes.filter((n) => n.string !== tabAtCursor.string);
+        if (!p.beat.notes.length) {
+          p.beat.ghost = true;
+          delete p.beat.wholeBar;
         }
+      }
     e.gpCursor = {
       bar: range[0].bar,
       index: Math.min(range[0].index, Math.max(0, e.gpBars[range[0].bar].length - 1)),
     };
-    e.gpSelection = null;
+    // Выделение не снимаем: ноты уже стали паузами, и повторное нажатие
+    // удалит эти паузы разом (два шага вместо одного случайного).
   });
+  if (!changed && nothing)
+    tabGpNotice(
+      e,
+      nothing === 'bar'
+        ? 'Такт пустой — он остаётся на месте: такт удаляют Ctrl+Delete или кнопкой «− Такт»'
+        : 'Здесь уже тишина — удалять нечего',
+    );
+  return changed;
 }
 function tabGpBackspace(e) {
   if (!Array.isArray(e.gpBars)) return false;
@@ -25506,7 +25538,7 @@ function renderTabInsertEditor(editor) {
   const gpNavBarButtons = editor.gpBars ? `
     <span class="tab-tool-sep" aria-hidden="true"></span>
     <button type="button" class="tab-tool" data-tab-gp="insert" ${tabGpTipAttr('Вставить долю', '⌃+ / Ctrl+Insert', 'Ctrl+Insert')}>${tabGpIcon('beat-plus')}</button>
-    <button type="button" class="tab-tool" data-tab-gp="delete" ${tabGpTipAttr('Удалить долю со сдвигом', '⇧⌫ / ⌘−', 'Shift+Delete / Shift+Backspace')}>${tabGpIcon('beat-minus')}</button>
+    <button type="button" class="tab-tool" data-tab-gp="delete" ${tabGpTipAttr('Удалить: ноту — в паузу, паузу — со сдвигом', '⌫', 'Delete')}>${tabGpIcon('beat-minus')}</button>
     <button type="button" class="tab-tool" data-tab-gp="bar" ${tabGpTipAttr('Добавить такт перед курсором', 'Insert / ⌘+', 'Insert')}>${tabGpIcon('bar-plus')}</button>
     <button type="button" class="tab-tool" data-tab-gp="unbar" ${tabGpTipAttr('Удалить текущий такт', '⌘⌫ / Ctrl+Delete', 'Ctrl+Delete')}>${tabGpIcon('bar-minus')}</button>` : '';
   const fretKeys = Array.from({ length: 10 }, (_, digit) =>
@@ -26007,7 +26039,7 @@ function openTabInsertEditor(secId, sqId, options) {
       else if(action==='select'){editor.gpSelecting=!editor.gpSelecting;if(!editor.gpSelecting)editor.gpSelection=null;tabGpDecorate(editor);}
       else if(['copy','cut','paste'].includes(action))tabGpToolbarClipboard(editor,action);
       else if(action==='insert'||action==='bar')tabGpInsert(editor,action==='bar');
-      else if(action==='delete')tabGpDelete(editor,true);else if(action==='unbar')tabGpDeleteBar(editor);
+      else if(action==='delete')tabGpDelete(editor);else if(action==='unbar')tabGpDeleteBar(editor);
       tabAtHostEl?.focus({ preventScroll: true });return;
     }
     if (event.target.closest('[data-tab-add]')) tabInsertAddNote(secId, sqId);
