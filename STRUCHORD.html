@@ -15156,7 +15156,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.683</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.684</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -76238,7 +76238,7 @@ toggleTimeAndBeats();
     const writer = gpExportEnsureWriter();
     const model = gpExportSplitModel(gpExportBuildModel(gpExportPrepareSong(songData, report), report));
     if (!model.bars.length) throw new Error('В песне нет тактов — экспортировать нечего.');
-    if (!model.parts.length) gpExportLoss(report, 'В песне нет дорожек: файл откроется пустым');
+    if (!model.parts.length) throw new Error('В песне пока нет аккордов или нот — сначала добавьте хотя бы один аккорд или таб.');
     const result = gpExportContainerFiles(model, writer, report);
     report.stats = result.written.stats;
     report.fileName = gpExportFileBase(songData) + '.gpx';
@@ -76262,7 +76262,7 @@ toggleTimeAndBeats();
     const writer = gpExportEnsureGp5Writer();
     const model = gpExportSplitModel(gpExportBuildModelGP5(gpExportPrepareSong(songData, report), report), true);
     if (!model.bars.length) throw new Error('В песне нет тактов — экспортировать нечего.');
-    if (!model.parts.length) gpExportLoss(report, 'В песне нет дорожек: файл откроется пустым');
+    if (!model.parts.length) throw new Error('В песне пока нет аккордов или нот — сначала добавьте хотя бы один аккорд или таб.');
     const written = writer.writeGP5(model, {});
     for (const loss of written.losses) gpExportLoss(report, loss.label, loss.count);
     report.stats = written.stats;
@@ -79273,13 +79273,22 @@ function gpExportModal(title, bodyHtml, label) {
 
   window.importSong = function (file) {
     if (!file) return;
-    const fileName = String(file.name || '');
+    const fileName = String(file.name || '').trim();
+    if (!fileName && file.type === 'application/json') {
+      importSongAsText(file);
+      return;
+    }
     const extension = fileName.toLowerCase().match(/\.([a-z0-9]+)$/);
-    const isGp35 = !!(extension && ['gp3', 'gp4', 'gp5'].includes(extension[1]));
-    const isGp78 = !!(extension && extension[1] === 'gp');
-    const isGpx = !!(extension && extension[1] === 'gpx');
-    const isSongJson = !!(extension && ['json', 'struchord'].includes(extension[1]));
-    const isMidi = !!(extension && ['mid', 'midi'].includes(extension[1]));
+    const ext = extension ? extension[1] : '';
+    const isGp35 = ['gp3', 'gp4', 'gp5'].includes(ext);
+    const isGp78 = ext === 'gp';
+    const isGpx = ext === 'gpx';
+    const isSongJson = ['json', 'struchord'].includes(ext);
+    const isMidi = ['mid', 'midi'].includes(ext);
+    if (!isGp35 && !isGp78 && !isGpx && !isSongJson && !isMidi) {
+      showToast('Этот тип файла не поддерживается: .struchord, .json, .gp3–.gp5, .gp, .gpx, .mid');
+      return;
+    }
     if (isMidi) {
       const midiReader = new FileReader();
       midiReader.onload = (event) => {
@@ -79294,37 +79303,18 @@ function gpExportModal(title, bodyHtml, label) {
       midiReader.readAsArrayBuffer(file);
       return;
     }
-    if (isGpx || (!isGp78 && !isGp35 && !isSongJson && !isMidi)) {
-      // Файл с чужим расширением сначала читается как контейнер GP6: подпись
-      // BCFZ/BCFS видна в первых четырёх байтах, а имя может быть любым.
-      const sniffReader = new FileReader();
-      sniffReader.onload = (event) => {
-        const buffer = event.target.result;
-        if (isGpx || gpxIsContainerBytes(buffer)) {
-          try {
-            gpxBeginImport(buffer, fileName);
-          } catch (error) {
-            console.error('GP6 import preview failed', error);
-            showToast('Не удалось прочитать Guitar Pro: ' + gpxReadableError(error));
-          }
-          return;
+    if (isGpx) {
+      const gpxReader = new FileReader();
+      gpxReader.onload = (event) => {
+        try {
+          gpxBeginImport(event.target.result, fileName);
+        } catch (error) {
+          console.error('GP6 import preview failed', error);
+          showToast('Не удалось прочитать Guitar Pro: ' + gpxReadableError(error));
         }
-        // Подпись MThd видна в первых четырёх байтах — файл MIDI читается даже
-        // под чужим расширением.
-        if (midiIsContainerBytes(buffer)) {
-          try {
-            midiBeginImport(buffer, fileName);
-          } catch (error) {
-            console.error('MIDI import preview failed', error);
-            showToast('Не удалось прочитать MIDI: ' + midiReadableError(error));
-          }
-          return;
-        }
-        // Не контейнер GP6 — читаем файл обычным текстовым путём (как раньше).
-        importSongAsText(file);
       };
-      sniffReader.onerror = () => showToast('Ошибка чтения файла');
-      sniffReader.readAsArrayBuffer(file);
+      gpxReader.onerror = () => showToast('Ошибка чтения файла Guitar Pro');
+      gpxReader.readAsArrayBuffer(file);
       return;
     }
     if (isGp78) {
@@ -79593,11 +79583,18 @@ function gpExportModal(title, bodyHtml, label) {
   window.importSongFile = function () {
   const input = document.createElement('input');
   input.type = 'file';
-  // ---- собственное расширение + обратная совместимость ----
-  // Новые файлы STRUCHORD используют отдельное расширение .struchord.
-  // Старые .struchord.json остаются доступны через .json, как и обычные
-  // JSON-файлы, сохранённые в прошлых версиях.
-  input.accept = '.struchord,.json,application/json,.gp3,.gp4,.gp5,.gp';
+  // ---- собственное расширение + Guitar Pro + MIDI + разблокировка iPadOS/iOS ----
+  // На iOS/iPadOS система делает серыми и невыбираемыми все незнакомые ей
+  // расширения (.struchord, .gp5, .gpx и др.), поэтому только на Apple-тач
+  // устройствах (включая iPadOS в режиме MacIntel + maxTouchPoints > 1)
+  // добавляем application/octet-stream, не опустошая accept целиком.
+  const TAB_FILE_EXTS = '.struchord,.json,.gp3,.gp4,.gp5,.gp,.gpx,.mid,.midi';
+  const nav = typeof navigator !== 'undefined' ? navigator : {};
+  const isIos = /iPad|iPhone|iPod/.test(String(nav.userAgent || ''))
+    || (nav.platform === 'MacIntel' && Number(nav.maxTouchPoints) > 1);
+  input.accept = isIos
+    ? TAB_FILE_EXTS + ',application/json,application/octet-stream'
+    : TAB_FILE_EXTS + ',application/json';
   // ---- input ОБЯЗАН лежать в документе ----
   //
   // Раньше click() звался на узле, которого нет в DOM. Chrome такое

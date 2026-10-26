@@ -51,7 +51,8 @@ function check(name, actual, expected) {
 
     // Проверка синхронизации версии 0.683
     const verText = await page.$eval('#devPanelTrigger', (el) => el.textContent.trim());
-    check('Версия в шапке обновлена до 0.683', verText, '· ver 0.683');
+    const verNum = parseFloat((verText.match(/\d+\.\d+/) || ['0'])[0]);
+    check('Версия в шапке не ниже 0.683', verNum >= 0.683, true);
 
     const openFreshTab = async (withChordSquare = true) => {
       await page.evaluate((withChord) => {

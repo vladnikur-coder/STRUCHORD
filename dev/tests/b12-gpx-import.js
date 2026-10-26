@@ -179,11 +179,13 @@ const cp1251Gp6 = fixture.compressBcfz(fixture.buildImage([
   check('encoding notice reports the chosen encoding', /Windows-1251/.test(cpPreview.closest('.strum-modal-content').textContent));
   clickButton(cpModal, 'Отмена');
 
-  // --- Файл с чужим расширением узнаётся по подписи -------------------------
-  const sniffed = await openImport(sampleGp6, 'renamed-song.dat');
-  check('a BCFZ container opens even without the .gpx extension',
-    sniffed.closest('.strum-modal-content').textContent.includes('Импорт Guitar Pro 6'));
-  clickButton(sniffed.closest('.strum-modal-content'), 'Отмена');
+  // --- Файл с чужим расширением отклоняется строго по списку (0.684 R8) ---
+  toastMessages.length = 0;
+  w.importSong(new w.File([sampleGp6], 'renamed-song.dat', { type: 'application/octet-stream' }));
+  await wait(80);
+  check('an unsupported extension (.dat) is refused with the supported-formats message',
+    /Этот тип файла не поддерживается/.test(lastToast()) && !previewModal(),
+    lastToast());
 
   // --- Append ---------------------------------------------------------------
   await wait(40);
