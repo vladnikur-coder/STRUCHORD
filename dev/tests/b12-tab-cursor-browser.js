@@ -46,21 +46,21 @@ function check(name,ok,detail){checks.push({name,ok:!!ok,detail});console.log((o
    for(let i=0;i<4;i++)await press('ArrowLeft');check(`${width}: влево до 0 и не дальше`,(await state()).cursor.start===0);
    const clicks=[];for(let string=0;string<6;string++){
     await clickAt(g.x0+(g.xEnd-g.x0)/2,g.lines[5-string].y);st=await state();clicks.push(st.cursor);
-    check(`${width}: клик на струне ${6-string} в пустом такте даёт начало такта (GP8) и правильную струну`,st.cursor.string===string&&st.cursor.start===0,st.cursor);
+    check(`${width}: клик на струне ${6-string} даёт долю 3 и правильную струну`,st.cursor.string===string&&st.cursor.start===2,st.cursor);
    }
    await shot('clicked-empty');
-   await press('Digit5');await wait(850);st=await state();check(`${width}: цифра 5 записана в начале такта без лишних пауз и НЕ сдвинула курсор`,st.notes.filter(n=>!n.pause).length===1&&st.notes[0].string===5&&st.notes[0].start===0&&st.notes[0].fret===5&&st.cursor.start===0&&st.cursor.string===5,st);
+   await press('Digit5');await wait(850);st=await state();check(`${width}: цифра 5 записана в месте клика и НЕ сдвинула курсор`,st.notes.length===1&&st.notes[0].string===5&&st.notes[0].start===2&&st.notes[0].fret===5&&st.cursor.start===2&&st.cursor.string===5,st);
    const align=await page.evaluate(()=>{const h=document.querySelector('.tab-at-host'),hr=h.getBoundingClientRect(),d=h.querySelector('.tab-at-cursor-dot').getBoundingClientRect();const b=tabAtApi.boundsLookup.staffSystems.flatMap(s=>s.bars.flatMap(m=>m.bars)).flatMap(b=>b.beats).find(b=>b.notes?.length);const n=b.notes[0].noteHeadBounds;return {dx:Math.abs(parseFloat(h.querySelector('.tab-at-cursor').style.left)-(n.x+n.w/2)),dy:Math.abs(d.y+d.height/2-hr.y-(n.y+n.h/2))}});
    check(`${width}: курсор совпадает с настоящей головкой ноты ≤2 px`,align.dx<2&&align.dy<2,align);await shot('typed');
-   const before=st.history;await press('Digit1');await press('Digit2');await wait(850);st=await state();check(`${width}: 1→2 = 12, курсор всё ещё на той же доле`,st.notes[0].fret===12&&st.cursor.start===0&&st.history===before+1,st);
+   const before=st.history;await press('Digit1');await press('Digit2');await wait(850);st=await state();check(`${width}: 1→2 = 12, курсор всё ещё на той же доле`,st.notes[0].fret===12&&st.cursor.start===2&&st.history===before+1,st);
    await page.keyboard.down('Control');await page.keyboard.press('KeyZ');await page.keyboard.up('Control');await wait(200);check(`${width}: двузначный лад — одно Undo`,(await state()).notes[0].fret===5);
    // Изменение длительности в пустом месте не правит уже введённую ноту.
    for(const [d,dot,triplet,step] of [[4,false,false,1],[8,false,false,.5],[16,false,false,.25],[64,false,false,.0625],[4,true,false,1.5],[8,false,true,1/3],[8,true,true,.5]]){
-    await page.evaluate(()=>tabGpSetTime(tabInsertEditorState,0,0));
+    await page.evaluate(()=>tabAtSetCursor(0,0));
     await page.click(`[data-tab-dur="${d}"]`);
     for(const [flag,want] of [['dot',dot],['triplet',triplet]]){const on=await page.$eval(`[data-tab-flag="${flag}"]`,e=>e.getAttribute('aria-pressed')==='true');if(on!==want)await page.click(`[data-tab-flag="${flag}"]`)}
     await press('ArrowRight');const right=(await state()).cursor.start;await press('ArrowLeft');const left=(await state()).cursor.start;
-    check(`${width}: ←/→ при вводе 1/${d}${dot?' с точкой':''}${triplet?' триоль':''} посещает записанную позицию`,Math.abs(right-step)<1e-6&&left===0,{right,left,expected:step});
+    check(`${width}: ←/→ при вводе 1/${d}${dot?' с точкой':''}${triplet?' триоль':''} посещает записанную позицию`,right===2&&left===0,{right,left,expected:2});
    }
    await page.evaluate(()=>tabAtSetCursor(0,0));await page.click('[data-tab-dur="4"]');for(const flag of ['dot','triplet'])if(await page.$eval(`[data-tab-flag="${flag}"]`,e=>e.getAttribute('aria-pressed')==='true'))await page.click(`[data-tab-flag="${flag}"]`);
    await press('Digit1');await press('ArrowRight');await press('Digit2');

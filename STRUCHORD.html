@@ -6388,11 +6388,19 @@ body.is-resizing .tab-insert > .chord-ticks-step {
   font-size: 0.8125rem;
   font-weight: 500;
   backdrop-filter: blur(0.5rem);
-  z-index: 10000;
+  z-index: 30000;
   pointer-events: none;
 }
 .toast.show {
   opacity: 1;
+}
+body:has(.tab-insert-editor, .strum-modal-overlay.open) .toast {
+  left: 50%;
+  right: auto;
+  bottom: 1.25rem;
+  transform: translateX(-50%);
+  max-width: calc(100vw - 2rem);
+  text-align: center;
 }
 /* B-40 — контекстный круг аккордов.
    Это больше не модальная завеса: корневой слой пропускает события к
@@ -15156,7 +15164,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.684</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.685</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21693,10 +21701,27 @@ function tabTechGuard(e, beforeEdges) {
       delete (old.key === 'tie' ? old.to : old.from)._tabRef[old.key];
   tabTechRepair(notes);
 }
+let tabGpNoticeTimer = 0;
 function tabGpNotice(e, msg) {
   if (!e) return;
+  if (tabGpNoticeTimer) {
+    clearTimeout(tabGpNoticeTimer);
+    tabGpNoticeTimer = 0;
+  }
   e.gpNotice = msg || null;
   if (typeof tabGpValidate === 'function') tabGpValidate(e);
+}
+function tabGpFlashNotice(e, msg, durationMs = 2200) {
+  showToast(msg);
+  if (!e) return;
+  tabGpNotice(e, msg);
+  tabGpNoticeTimer = setTimeout(() => {
+    tabGpNoticeTimer = 0;
+    if (e.gpNotice === msg) {
+      e.gpNotice = null;
+      if (typeof tabGpValidate === 'function') tabGpValidate(e);
+    }
+  }, durationMs);
 }
 function tabTechMidiNoteName(midi) {
   const m = Math.max(0, Math.min(127, Math.round(midi)));
@@ -22110,7 +22135,8 @@ function tabShortcutsPopoverHtml() {
       ['Начало такта / начало вставки', `Home / ${mod}Home`],
       ['Прямоугольное выделение', `${sh}стрелки`],
       ['Выделение целыми тактами', `${sh}${mod}← / →`],
-      ['Перенести ноту на соседнюю струну', `${alt}↑ / ${alt}↓`],
+      ['На соседнюю струну (высота та же)', `${alt}↑ / ${alt}↓`],
+      ['На полтона вверх / вниз (лад ±1)', `${alt}${sh}↑ / ${alt}${sh}↓`],
     ]],
     ['Правка, такты и буфер', [
       ['Удалить ноту (оставить паузу)', mac ? '⌫ / Delete' : 'Backspace / Delete'],
@@ -23496,27 +23522,97 @@ function tabGpBackspace(e) {
     e.gpSelection = null;
   });
 }
-function tabGpShiftStrings(e, delta) {
-  if (!Array.isArray(e.gpBars) || !delta) return false;
+function tabGpOpenMidi(stringIdx) {
+  const tuning = typeof songTuningNotes === 'function' ? songTuningNotes() : null;
+  const raw = Array.isArray(tuning) && tuning[stringIdx]
+    ? String(tuning[stringIdx]).replace(/♯/g, '#').replace(/♭/g, 'b')
+    : '';
+  const midi = raw ? tunerNoteToMidi(raw) : null;
+  if (midi !== null) return midi;
+  const fallback = [40, 45, 50, 55, 59, 64];
+  return Number.isInteger(fallback[stringIdx]) ? fallback[stringIdx] : null;
+}
+function tabGpCollectMoveTargets(e) {
+  if (!Array.isArray(e?.gpBars)) return [];
   const pairs = [];
+  const movingSet = new Set();
   for (const p of tabGpRange(e)) {
     if (!p.beat?.notes?.length) continue;
     for (const n of p.beat.notes) {
-      if (e.gpSelection ? tabGpNoteInSel(e, n.string) : n.string === tabAtCursor.string) {
+      if ((e.gpSelection ? tabGpNoteInSel(e, n.string) : n.string === tabAtCursor.string) && !movingSet.has(n)) {
+        movingSet.add(n);
         pairs.push({ beat: p.beat, note: n });
       }
     }
   }
+  if (!pairs.length) return [];
+  // Связанные лигой ноты образуют один непрерывный тянущийся звук — двигаем цепочку целиком.
+  const noteToBeat = new Map();
+  for (const bar of e.gpBars) {
+    for (const g of bar) {
+      for (const n of g.notes || []) noteToBeat.set(n, g);
+    }
+  }
+  const tieEdges = tabTechEdges(tabTechDraftNotes(e)).filter((edge) => edge.key === 'tie');
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const edge of tieEdges) {
+      const a = edge.from?._tabRef;
+      const b = edge.to?._tabRef;
+      if (!a || !b) continue;
+      if (movingSet.has(a) && !movingSet.has(b) && noteToBeat.has(b)) {
+        movingSet.add(b);
+        pairs.push({ beat: noteToBeat.get(b), note: b });
+        expanded = true;
+      } else if (movingSet.has(b) && !movingSet.has(a) && noteToBeat.has(a)) {
+        movingSet.add(a);
+        pairs.push({ beat: noteToBeat.get(a), note: a });
+        expanded = true;
+      }
+    }
+  }
+  return pairs;
+}
+function tabGpShiftStrings(e, delta) {
+  if (!Array.isArray(e.gpBars) || !delta) return false;
+  const pairs = tabGpCollectMoveTargets(e);
   if (!pairs.length) return false;
+  const REFUSE_MSG = 'Эту ноту нельзя перенести на соседнюю струну';
+  const refuse = () => {
+    tabGpFlashNotice(e, REFUSE_MSG);
+    return false;
+  };
   const movingSet = new Set(pairs.map((x) => x.note));
+  const planned = [];
   for (const { beat, note } of pairs) {
     const nextStr = note.string + delta;
-    if (nextStr < 0 || nextStr > 5) return false;
-    if (beat.notes.some((m) => !movingSet.has(m) && m.string === nextStr)) return false;
+    if (nextStr < 0 || nextStr > 5) return refuse();
+    if (beat.notes.some((m) => !movingSet.has(m) && m.string === nextStr)) return refuse();
+    let nextFret = note.fret;
+    if (!note.dead) {
+      const fromOpen = tabGpOpenMidi(note.string);
+      const toOpen = tabGpOpenMidi(nextStr);
+      if (fromOpen === null || toOpen === null) return refuse();
+      nextFret = fromOpen + note.fret - toOpen;
+      if (nextFret < 0 || nextFret > 24) return refuse();
+      if (note.harm?.type === 'natural' && tabTechNaturalPitch(nextFret) === null) return refuse();
+    }
+    planned.push({ note, nextStr, nextFret });
   }
+  if (tabGpNoticeTimer) {
+    clearTimeout(tabGpNoticeTimer);
+    tabGpNoticeTimer = 0;
+  }
+  e.gpNotice = null;
+  const toastEl = document.getElementById('toast');
+  if (toastEl && toastEl.textContent === REFUSE_MSG) toastEl.classList.remove('show');
   const nextCursorStr = Math.max(0, Math.min(5, tabAtCursor.string + delta));
   const ok = tabGpEdit(e, () => {
-    for (const { note } of pairs) note.string += delta;
+    for (const { note, nextStr, nextFret } of planned) {
+      note.string = nextStr;
+      note.fret = nextFret;
+    }
     if (e.gpSelection?.stringScoped) {
       e.gpSelection.anchorString = Math.max(0, Math.min(5, e.gpSelection.anchorString + delta));
       e.gpSelection.focusString = Math.max(0, Math.min(5, e.gpSelection.focusString + delta));
@@ -23527,7 +23623,42 @@ function tabGpShiftStrings(e, delta) {
     getAudioContext();
     const curBeat = tabGpGroup(e);
     const toPlay = curBeat?.notes?.filter((n) => n.string === nextCursorStr || movingSet.has(n));
-    (toPlay?.length ? toPlay : [pairs[0].note]).forEach((n) => playTabNote(n.string, n.fret));
+    (toPlay?.length ? toPlay : [planned[0].note]).forEach((n) => playTabNote(n.string, n.fret));
+  }
+  return ok;
+}
+function tabGpShiftSemitones(e, deltaSemi) {
+  if (!Array.isArray(e.gpBars) || !deltaSemi) return false;
+  const pairs = tabGpCollectMoveTargets(e);
+  const pitched = pairs.filter((x) => !x.note.dead);
+  if (!pitched.length) return false;
+  const planned = [];
+  for (const { note } of pitched) {
+    const nextFret = note.fret + deltaSemi;
+    if (nextFret < 0 || nextFret > 24) return false;
+    if (note.harm?.type === 'natural' && tabTechNaturalPitch(nextFret) === null) return false;
+    let nextHarmNote = null;
+    if (note.harm?.type === 'artificial' && note.harm.note) {
+      const hm = tunerNoteToMidi(String(note.harm.note).replace(/♯/g, '#').replace(/♭/g, 'b'));
+      if (hm !== null && hm + deltaSemi >= 0 && hm + deltaSemi <= 127) {
+        nextHarmNote = tabTechMidiNoteName(hm + deltaSemi);
+      }
+    }
+    planned.push({ note, nextFret, nextHarmNote });
+  }
+  e.gpNotice = null;
+  const movingSet = new Set(planned.map((x) => x.note));
+  const ok = tabGpEdit(e, () => {
+    for (const { note, nextFret, nextHarmNote } of planned) {
+      note.fret = nextFret;
+      if (nextHarmNote && note.harm) note.harm = { ...note.harm, note: nextHarmNote };
+    }
+  });
+  if (ok) {
+    getAudioContext();
+    const curBeat = tabGpGroup(e);
+    const toPlay = curBeat?.notes?.filter((n) => movingSet.has(n));
+    (toPlay?.length ? toPlay : [planned[0].note]).forEach((n) => playTabNote(n.string, n.fret));
   }
   return ok;
 }
@@ -23907,7 +24038,9 @@ function tabGpKey(e, event) {
       return true;
     }
     if (key === 'ArrowUp' || key === 'ArrowDown' || code === 'ArrowUp' || code === 'ArrowDown') {
-      tabGpShiftStrings(e, key === 'ArrowUp' || code === 'ArrowUp' ? 1 : -1);
+      const dir = key === 'ArrowUp' || code === 'ArrowUp' ? 1 : -1;
+      if (shift) tabGpShiftSemitones(e, dir);
+      else tabGpShiftStrings(e, dir);
       return true;
     }
     return false;
@@ -53293,13 +53426,18 @@ function startModeAnimation() {
   }, 300);
 }
 
+let toastHideTimer = 0;
 function showToast(msg) {
   const isHome = document.documentElement.classList.contains('is-home-screen');
   const t = isHome ? (document.getElementById('homeToast') || DOM.toast) : DOM.toast;
   if (!t) return;
+  if (toastHideTimer) clearTimeout(toastHideTimer);
   t.textContent = msg;
   t.classList.add('show');
-  setTimeout(() => t.classList.remove('show'), 2000);
+  toastHideTimer = setTimeout(() => {
+    t.classList.remove('show');
+    toastHideTimer = 0;
+  }, 2200);
 }
 function clearAll(options) {
   const skipConfirm = options === true || !!(options && options.skipConfirm === true);
@@ -75643,8 +75781,10 @@ toggleTimeAndBeats();
       capo: Number(songData.capo) || 0, gmProgram: gpExportSongProgram(songData.sound),
       tuning: gpExportSongTuning(songData), mix: songData.mix || null, lyrics: [], notes: [],
     };
+    let hadSourceTabNotes = false;
     const appendTabSegment = (plan, rawNotes, segBeats, baseOffset) => {
       const raw = tabInsertCleanNotes(rawNotes, segBeats, plan.parentTimeSig), edges = tabTechEdges(raw);
+      if (raw.some((n) => !n.pause)) hadSourceTabNotes = true;
       for (const n of raw) {const issue=tabTechIssue(n,part.tuning,part.capo);if(issue)gpExportLoss(report,'TAB: '+issue+' — нота не экспортирована',1);}
       for (const n of raw) for (const key of ['legato','slur',...(['legato','shift'].includes(n.slide)?['slide']:[])])
         if (n[key] && !edges.some(e=>e.from===n&&e.key===key)) gpExportLoss(report,'TAB: незавершённая связь H/P, фразировки или слайда без соседней ноты не экспортирована',1);
@@ -75678,8 +75818,8 @@ toggleTimeAndBeats();
         offset += length;
       }
     }
-    if (!part.notes.length) return null;
-    gpExportGain(report, 'Ноты табулатуры (B-12.12)', part.notes.length);
+    if (!part.notes.length && !hadSourceTabNotes) return null;
+    if (part.notes.length) gpExportGain(report, 'Ноты табулатуры (B-12.12)', part.notes.length);
     return part;
   }
 

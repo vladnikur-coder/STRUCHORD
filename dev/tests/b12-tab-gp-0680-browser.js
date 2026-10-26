@@ -174,33 +174,37 @@ async function runDesktopSuite(browser, width, height, theme, captureShots = fal
       return orig.apply(this, arguments);
     };
   });
-  await fixture([note(0, 3, 1, 0, { vibrato: 'slight' }), note(1, 5), note(2, 7), note(3, 9)], 0, 4, 0);
+  await fixture([note(0, 24, 1, 0, { vibrato: 'slight' }), note(1, 5), note(2, 7), note(3, 9)], 0, 4, 0);
   for (let i = 0; i < 4; i++) await key('ArrowUp', 'Alt');
   let s = await state();
   check(
-    `${prefix} P0-1: 4× ⌥↑ переносит лад 3 с 6-й на 2-ю струну с сохранением вибрато`,
+    `${prefix} P0-1 (0.685 GP8): 4× ⌥↑ переносит ноту E4 (лад 24 на 6-й → лад 5 на 2-й) с сохранением высоты и вибрато`,
     [s.notes[0].string, s.notes[0].fret, s.notes[0].vibrato, s.cursor.string, s.stringReadout?.includes('2-я струна')],
-    [4, 3, 'slight', 4, true],
+    [4, 5, 'slight', 4, true],
   );
   const playedLog = await page.evaluate(() => window.__playedTabNotes.slice(-4));
-  check(`${prefix} P0-1: звук playTabNote сыграл на каждом переносе`, playedLog, [
-    [1, 3],
-    [2, 3],
-    [3, 3],
-    [4, 3],
+  check(`${prefix} P0-1: звук playTabNote сыграл с пересчитанными ладами на каждом переносе`, playedLog, [
+    [1, 19],
+    [2, 14],
+    [3, 9],
+    [4, 5],
   ]);
-  await key('ArrowUp', 'Alt');
+  await key('ArrowUp', 'Alt'); // лад 5 на 2-й -> лад 0 на 1-й (string 5)
   await key('ArrowUp', 'Alt'); // упор на 1-й струне (string 5)
   s = await state();
-  check(`${prefix} P0-1: упор на 1-й струне без потери ноты и лишнего Undo`, [s.notes[0].string, s.history, s.stringReadout?.includes('1-я струна')], [5, 5, true]);
+  check(
+    `${prefix} P0-1: на 1-й струне лад стал 0 и упор края не создаёт лишнего Undo`,
+    [s.notes[0].string, s.notes[0].fret, s.history, s.stringReadout?.includes('1-я струна')],
+    [5, 0, 5, true],
+  );
 
-  // Проверка защиты от коллизии на занятой струне и группового сдвига интервала
+  // Проверка защиты от коллизии на занятой струне и группового сдвига интервала с сохранением высоты
   await fixture(
     [
-      note(0, 3, 1, 0),
-      note(0, 5, 1, 1),
-      note(1, 5, 1, 0),
-      note(1, 7, 1, 1),
+      note(0, 5, 1, 0),
+      note(0, 7, 1, 1),
+      note(1, 7, 1, 0),
+      note(1, 9, 1, 1),
       note(2, 7, 1, 0),
       note(3, 9, 1, 0),
     ],
@@ -215,33 +219,33 @@ async function runDesktopSuite(browser, width, height, theme, captureShots = fal
     s.history,
   ], [
     [
-      [0, 3],
-      [1, 5],
+      [0, 5],
+      [1, 7],
     ],
     0,
   ]);
   await key('ArrowRight', null, true); // выделяем доли 0..1 целиком
-  await key('ArrowUp', 'Alt'); // обе струны интервала движутся вместе 0,1 -> 1,2 за 1 шаг Undo!
+  await key('ArrowUp', 'Alt'); // обе струны интервала движутся вместе 0,1 -> 1,2 с пересчётом лада −5 за 1 шаг Undo!
   s = await state();
-  check(`${prefix} P0-1: выделенный интервал сдвигается целиком без сплющивания`, [
+  check(`${prefix} P0-1 (0.685 GP8): выделенный интервал сдвигается целиком с сохранением высоты`, [
     s.notes.filter((n) => n.start <= 1).map((n) => [n.start, n.string, n.fret]),
     s.history,
   ], [
     [
-      [0, 1, 3],
-      [0, 2, 5],
-      [1, 1, 5],
-      [1, 2, 7],
+      [0, 1, 0],
+      [0, 2, 2],
+      [1, 1, 2],
+      [1, 2, 4],
     ],
     1,
   ]);
   await key('KeyZ', 'Meta');
   s = await state();
-  check(`${prefix} P0-1: один ⌘Z возвращает интервал на струны 6 и 5`, s.notes.filter((n) => n.start <= 1).map((n) => [n.start, n.string, n.fret]), [
-    [0, 0, 3],
-    [0, 1, 5],
-    [1, 0, 5],
-    [1, 1, 7],
+  check(`${prefix} P0-1: один ⌘Z возвращает интервал и исходные лады на струны 6 и 5`, s.notes.filter((n) => n.start <= 1).map((n) => [n.start, n.string, n.fret]), [
+    [0, 0, 5],
+    [0, 1, 7],
+    [1, 0, 7],
+    [1, 1, 9],
   ]);
 
   // --- P0-2: Ctrl+Del / ⌘Backspace / ⇧⌘→ / Shift+Del / Backspace ---

@@ -95,17 +95,6 @@ const flatten = (score) =>
         await wait(20);
       }
       async function click(sel) {
-        const neededTab = await page.$eval(sel, (e) => {
-          const pane = e.closest('[data-mobile-pane]');
-          if (!pane || getComputedStyle(pane).display !== 'none') return null;
-          return pane.getAttribute('data-mobile-pane');
-        });
-        if (neededTab) {
-          const tabSel = `[data-tab-mobile-tab="${neededTab}"]`;
-          if (touch) await page.tap(tabSel);
-          else await page.click(tabSel);
-          await wait(20);
-        }
         await page.$eval(sel, (e) => e.scrollIntoView({ block: 'center' }));
         if (touch) await page.tap(sel);
         else await page.click(sel);

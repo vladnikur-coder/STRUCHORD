@@ -75,11 +75,12 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     await page.waitForSelector('.add-tab-btn');
     await tap('.add-tab-btn', 'Таб');
     await page.waitForSelector('.tab-at-host svg', { timeout: 30000 }); await wait(700);
-    await tap('[data-tab-mobile-tab="edit"]', 'Вкладка Правка');
-    await tap('.tab-editor-length:nth-child(2) [data-tab-select-trigger]', 'Позиция');
-    await tap('.tab-editor-length:nth-child(2) .tab-select-option[data-select-val="0"]', 'В начале секции');
-    await tap('[data-tab-mobile-tab="notes"]', 'Вкладка Ноты');
-    check('кастомный список: выбрано начало секции через UI', await page.evaluate(() => tabInsertEditorState.position === 0));
+    await tap('[data-tab-position]', 'Позиция');
+    // Native popup вне DOM: CDP не маршрутизирует в него touch/mouse.
+    // Не имитируем успешное касание: отдельный native-select в журнале.
+    await page.keyboard.press('Escape'); await page.select('[data-tab-position]', '0');
+    gestures.push({ type: 'native-select', label: 'В начале секции (автоматизирован выбор в системном списке)' }); await wait(160);
+    check('нативный список: выбрано начало секции через UI', await page.evaluate(() => tabInsertEditorState.position === 0));
     for (const d of [0, 3]) { await tap(`[data-tab-digit="${d}"]`, 'Лад ' + d, 820); await tap('[data-tab-time-step="1"]', 'Следующая четверть'); }
     await tap('[data-tab-string-step="1"]', '5-я струна');
     for (const d of [0, 2]) { await tap(`[data-tab-digit="${d}"]`, 'Лад ' + d, 820); if(d===0)await tap('[data-tab-time-step="1"]', 'Следующая четверть'); }
@@ -94,21 +95,14 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     }
     for (const width of [390, 1024]) {
       await page.setViewport({ width, height: width === 390 ? 844 : 768, isMobile: true, hasTouch: true }); await wait(550);
-      if (width === 390) await tap('[data-tab-mobile-tab="edit"]', 'Правка для проверки Позиции', 100);
-      const posInfo = await page.evaluate(() => {
-        const label = document.querySelector('[data-tab-position]').closest('.tab-editor-length').querySelector('span');
-        const l = label.getBoundingClientRect();
-        return { text: label.textContent, width: l.width, scroll: label.scrollWidth, right: l.right };
-      });
-      if (width === 390) await tap('[data-tab-mobile-tab="notes"]', 'Ноты', 100);
-      const g = await page.evaluate((position) => {
-        const body = document.querySelector('.tab-editor-body'), host = document.querySelector('.tab-at-host');
-        const b = body.getBoundingClientRect();
+      const g = await page.evaluate(() => {
+        const body = document.querySelector('.tab-editor-body'), host = document.querySelector('.tab-at-host'), label = document.querySelector('[data-tab-position]').previousElementSibling;
+        const b = body.getBoundingClientRect(), l = label.getBoundingClientRect();
         return { width: innerWidth, tools: getComputedStyle(document.querySelector('.tab-tools')).display,
           credit: host.textContent.includes('rendered by alphaTab'), hostOverflow: host.scrollWidth - host.clientWidth,
-          position,
+          position: { text: label.textContent, width: l.width, scroll: label.scrollWidth, right: l.right },
           digits: [...document.querySelectorAll('[data-tab-digit]')].map(e => { const r = e.getBoundingClientRect(); const hit = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2); return { text: e.textContent, w: r.width, h: r.height, visible: r.top >= b.top && r.bottom <= b.bottom && r.right <= innerWidth && !!hit && e.contains(hit) }; }) };
-      }, posInfo); geometry.push(g);
+      }); geometry.push(g);
       check(`${width}: все 10 цифр видны, настоящие цели не меньше 44 px`, g.tools !== 'none' && g.digits.length === 10 && g.digits.every(n => n.visible && n.w >= 44 && n.h >= 44), g);
       check(`${width}: Позиция целиком, стан не прокручивается вбок`, g.position.text === 'Позиция' && g.position.scroll <= g.position.width + 1 && g.position.right < width && g.hostOverflow <= 1, g);
       check(`${width}: рекламной подписи нет`, !g.credit);
@@ -146,9 +140,7 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     await page.keyboard.press('ArrowUp'); await page.keyboard.press('Digit2'); await wait(820);
     check('клавиатура: другая струна добавляет одновременную ноту', (await notes(page)).filter(n => n.start === 0).length === 2);
     await shortcut('KeyZ');
-    await tap('[data-tab-help]', 'Шпаргалка клавиш', 120);
-    check('шпаргалка клавиш содержит двузначный лад и видна по кнопке «?» на телефоне', await page.$eval('[data-tab-shortcuts-popover]', e => !e.hidden && e.textContent.includes('10–24') && getComputedStyle(e).display !== 'none'));
-    await tap('[data-tab-help]', 'Закрыть шпаргалку', 80);
+    check('подсказка содержит двузначный лад и созвучие и видна на телефоне', await page.$eval('.tab-editor-hint', e => e.textContent.includes('Лады 10–24') && e.textContent.includes('Созвучие') && getComputedStyle(e).display !== 'none'));
     await page.tap('[data-tab-cancel]');
     // Правка существующего таба отменяется отдельно, не удаляет его.
     await reveal('.section-card .tab-insert'); await page.tap('.section-card .tab-insert'); await page.waitForSelector('.tab-at-host svg');

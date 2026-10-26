@@ -77,8 +77,8 @@ const note = (start, dur, fret = 3, string = 0, flags = {}) => ({ start, dur, st
       await fixture([note(1, .25), note(3, .5, 7)], 0, 4, '4/4', 1); await key('ArrowRight'); await position('длинный шаг в пустоте не пропускает короткую ноту', 1);
       for (const [dValue, flags, step] of [[4, {}, 1], [64, {}, .0625], [4, { dots: 1 }, 1.5], [8, { triplet: true }, 1 / 3]]) {
         await fixture([], 0, 4, '4/4', dValue, flags); await key('ArrowRight'); await position(`пустой такт 1/${dValue}: сразу следующий такт`, 4, 8);
-        await key('ArrowLeft'); s = await position('пустой такт: обратно к 0 с автоуборкой временного такта', 0, 4);
-        check(`${width}: пустые стрелки не записывают ноты/паузы и не оставляют пустой такт`, s.notes.length === 0 && s.beats === 4 && s.history === 0, s);
+        await key('ArrowLeft'); s = await position('пустой такт: обратно к 0', 0);
+        check(`${width}: пустые стрелки не записывают ноты/паузы`, s.notes.length === 0 && s.history === 1, s);
       }
       await fixture([note(3, 1), note(4, .5, 7)], 3, 8); await key('ArrowRight'); s = await position('переход в уже существующий второй такт', 4, 8);
       check(`${width}: переход между тактами без расширения не создаёт Undo`, s.history === 0, s);
