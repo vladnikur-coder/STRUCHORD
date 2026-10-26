@@ -185,35 +185,34 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     );
     await page.screenshot({ path: path.join(OUT_DIR, '01-pitch-move-standard.png') });
 
-    // --- Пункт 2: Выход за 0–24 блокируется, нота и курсор на месте, подсказка видна ~2 с ---
+    // --- Пункт 2: Упор в крайнюю 6-ю струну блокируется, нота и курсор на месте, подсказка видна ~2 с (в 0.686 лады <0 и >24 разрешены с красной меткой) ---
     await setFixture([
       { start: 0, dur: 1, string: 0, fret: 3 },
       { start: 1, dur: 1, string: 4, fret: 21 },
       { start: 2, dur: 1, string: 0, fret: 7 },
       { start: 3, dur: 1, string: 0, fret: 9 },
     ], 0, 0);
-    await sendCombo('ArrowUp', { alt: true }); // 3 - 5 = -2 < 0
+    await sendCombo('ArrowDown', { alt: true }); // ниже 6-й струны струн нет
     st = await getEditorState();
     check(
-      '#2: При пересчитанном ладе < 0 (3 на 6-й → −2) нота и курсор остаются на месте, показана подсказка',
+      '#2: На крайней 6-й струне Alt+↓ оставляет ноту и курсор на месте и показывает подсказку',
       [st.notes[0].string, st.notes[0].fret, st.cursor.string, st.history, st.notice, st.toastShown],
       [0, 3, 0, 0, 'Эту ноту нельзя перенести на соседнюю струну', true],
     );
-    await page.screenshot({ path: path.join(OUT_DIR, '02-refuse-out-of-range.png') });
 
     // Подождём 2.4 секунды — подсказка должна сама исчезнуть
     await wait(2400);
     st = await getEditorState();
     check('#2: Через пару секунд подсказка аккуратно исчезает сама', [st.notice, st.toastShown], ['', false]);
 
-    // Проверим лад > 24 (21 на 2-й струне + 4 = 25 > 24 при Alt+↓ на 3-ю струну)
+    // В 0.686 лад > 24 (21 на 2-й струне + 4 = 25 на 3-й струне) переносится с сохранением звука
     await page.evaluate(() => tabGpSetTime(tabInsertEditorState, 1, 4));
     await sendCombo('ArrowDown', { alt: true });
     st = await getEditorState();
     check(
-      '#2: При пересчитанном ладе > 24 (21 на 2-й → 25 на 3-й) перенос отклонён с подсказкой',
-      [st.notes[1].string, st.notes[1].fret, st.cursor.string, st.history, st.notice],
-      [4, 21, 4, 0, 'Эту ноту нельзя перенести на соседнюю струну'],
+      '#2 (0.686): При пересчитанном ладе > 24 (21 на 2-й → 25 на 3-й) нота переносится с сохранением высоты',
+      [st.notes[1].string, st.notes[1].fret, st.cursor.string],
+      [3, 25, 3],
     );
 
     // --- Пункт 3: Занятая соседняя струна на той же доле ---
@@ -259,16 +258,28 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       [[0, 5], [1, 7]],
     );
 
-    // Смешанное выделение: доля 1 (лад 7 → 2 можно) + доля 2 (лад 3 → −2 нельзя) => не переносится НИЧЕГО!
+    // Смешанное выделение: доля 1 (6-я занята и 5-я занята -> одиночная 6-я струна упирается в 5-ю!) + доля 2 (6-я свободна на 5-й)
     await page.evaluate(() => {
       tabInsertEditorState.gpSelection = null;
       tabGpSetTime(tabInsertEditorState, 1, 0);
     });
-    await sendCombo('ArrowRight', { shift: true }); // выделили доли 1..2
+    // Сделаем stringScoped выделение только 6-й струны на долях 1..2: на доле 1 струна 1 (5-я) уже занята нотой [1,9]!
+    await page.evaluate(() => {
+      const e = tabInsertEditorState;
+      e.gpSelection = {
+        anchor: { bar: 0, index: 1 },
+        focus: { bar: 0, index: 2 },
+        anchorString: 0,
+        focusString: 0,
+        stringScoped: true,
+        barMode: false,
+      };
+      tabGpDecorate(e);
+    });
     await sendCombo('ArrowUp', { alt: true });
     st = await getEditorState();
     check(
-      '#4: В выделении нескольких нот, если хоть одну перенести нельзя, не меняется ни одна и показана подсказка',
+      '#4: В выделении нескольких нот, если хоть одну перенести нельзя (занята струна), не меняется ни одна и показана подсказка',
       [
         st.notes.filter((n) => n.start === 1 || n.start === 2).map((n) => [n.start, n.string, n.fret]),
         st.notice,
@@ -276,7 +287,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       [[[1, 0, 7], [1, 1, 9], [2, 0, 3]], 'Эту ноту нельзя перенести на соседнюю струну'],
     );
 
-    // --- Пункт 5: Alt+Shift+↑ / Alt+Shift+↓ = на полтона вверх/вниз (лад ±1) + шпаргалка «?» ---
+    // --- Пункт 5: Alt+Shift+↑ / Alt+Shift+↓ = на полтона вверх/вниз (лад ±1, в 0.686 включая <0 и >24) + шпаргалка «?» ---
     await setFixture([
       { start: 0, dur: 1, string: 0, fret: 5 },
       { start: 1, dur: 1, string: 0, fret: 0 },
@@ -298,17 +309,16 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       [0, 5],
     );
 
-    // Границы 0 и 24 на Alt+Shift+↑/↓ ничего не меняют
+    // В 0.686 на ладу 0 Alt+Shift+↓ уводит в -1, а на ладу 24 Alt+Shift+↑ уводит в 25
     await page.evaluate(() => tabGpSetTime(tabInsertEditorState, 1, 0));
-    const histBefore0 = (await getEditorState()).history;
     await sendCombo('ArrowDown', { alt: true, shift: true });
     st = await getEditorState();
-    check('#5: На ладу 0 нажатие Alt+Shift+↓ ничего не меняет', [st.notes[1].fret, st.history], [0, histBefore0]);
+    check('#5 (0.686): На ладу 0 нажатие Alt+Shift+↓ уводит в красный лад −1', st.notes[1].fret, -1);
 
     await page.evaluate(() => tabGpSetTime(tabInsertEditorState, 2, 0));
     await sendCombo('ArrowUp', { alt: true, shift: true });
     st = await getEditorState();
-    check('#5: На ладу 24 нажатие Alt+Shift+↑ ничего не меняет', [st.notes[2].fret, st.history], [24, histBefore0]);
+    check('#5 (0.686): На ладу 24 нажатие Alt+Shift+↑ уводит в красный лад 25', st.notes[2].fret, 25);
 
     // Dead note × свободно переставляется на соседнюю струну по Alt+↑
     await page.evaluate(() => tabGpSetTime(tabInsertEditorState, 3, 0));
@@ -358,14 +368,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     );
     await page.screenshot({ path: path.join(OUT_DIR, '05-drop-d-move.png') });
 
-    // А лад 5 на 6-й струне в Drop D (38 + 5 = 43 < 45) уже ниже открытой 5-й струны -> отказ!
+    // В 0.686 лад 5 на 6-й струне в Drop D (38 + 5 = 43 = G2) переносится на 5-ю струну как красный лад −2!
     await page.evaluate(() => tabGpSetTime(tabInsertEditorState, 1, 0));
     await sendCombo('ArrowUp', { alt: true });
     st = await getEditorState();
     check(
-      '#6: В строю Drop D лад 5 на 6-й струне нельзя перенести на 5-ю (G2 ниже открытой A2) — показана подсказка',
-      [st.notes[1].string, st.notes[1].fret, st.notice],
-      [0, 5, 'Эту ноту нельзя перенести на соседнюю струну'],
+      '#6 (0.686): В строю Drop D лад 5 на 6-й струне переносится на 5-ю струну в красный лад −2 (G2 = MIDI 43)',
+      [st.notes[1].string, st.notes[1].fret, st.notes[1].midi],
+      [1, -2, 43],
     );
 
     // И обратно в Drop D: лад 0 на 5-й струне -> Alt+↓ -> лад 7 на 6-й струне!

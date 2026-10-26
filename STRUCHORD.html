@@ -5216,6 +5216,7 @@ body.is-resizing .tab-insert > .chord-ticks-step {
 .tab-note-position { position: absolute; top: 0; bottom: 0; font-family: ui-monospace, monospace; pointer-events: none; }
 .tab-fret-number, .tab-string-number { position: absolute; transform: translate(-50%, -50%); line-height: 1; }
 .tab-insert .tab-fret-number { font-size: 0.8125rem; font-weight: 700; padding: 0.0625rem 0.125rem; border-radius: 0.1875rem; background: var(--color-background-secondary); }
+.tab-insert .tab-fret-number.is-out-fret { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 14%, var(--color-surface)); border: 0.0625rem solid var(--color-danger); padding: 0.0625rem 0.25rem; }
 .tab-insert--cell .tab-fret-number { background: color-mix(in srgb, var(--color-accent) 6%, var(--color-background-secondary)); }
 .tab-insert .tab-string-number { left: -0.95rem; width: 0.6875rem; text-align: right; transform: translateY(-50%); font-size: 0.5625rem; opacity: 0.65; pointer-events: none; }
 .tab-insert .tab-note-duration { position: absolute; bottom: -0.125rem; transform: translateX(-50%); font-size: 0.5625rem; opacity: 0.72; white-space: nowrap; }
@@ -5553,6 +5554,21 @@ body.is-resizing .tab-insert > .chord-ticks-step {
 .tab-gp-box { position: absolute; box-sizing: border-box; pointer-events: none; z-index: 2; }
 .tab-gp-selected { background: color-mix(in srgb, var(--color-accent) 20%, transparent); border: 2px solid var(--color-accent); border-radius: 3px; }
 .tab-gp-invalid { z-index: 3; border: 2px dashed var(--color-danger); border-radius: 4px; }
+.tab-gp-out-fret {
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: color-mix(in srgb, var(--color-danger) 14%, var(--color-surface));
+  border: 0.09375rem solid var(--color-danger);
+  border-radius: 0.25rem;
+  color: var(--color-danger);
+  font-family: var(--font-sans);
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  white-space: nowrap;
+}
 .tab-gp-ghost text { fill: var(--color-text-secondary) !important; }
 .tab-gp-error {
   color: var(--color-danger);
@@ -5699,7 +5715,12 @@ body.is-resizing .tab-insert > .chord-ticks-step {
   background: color-mix(in srgb, var(--color-accent) 11%, transparent);
   box-shadow: 0 0 0 0.0625rem color-mix(in srgb, var(--color-accent) 20%, transparent);
   pointer-events: none;
-  z-index: 3;
+  z-index: 4;
+}
+.tab-at-cursor-dot.is-out-fret {
+  border-color: var(--color-danger);
+  background: transparent;
+  box-shadow: 0 0 0 0.15rem color-mix(in srgb, var(--color-danger) 28%, transparent);
 }
 
 /* ===== Палитра Guitar Pro 8: группы с короткими заголовками, разделителями и иконками ===== */
@@ -15164,7 +15185,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.685</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.686</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21468,7 +21489,7 @@ function tabTechSoundOptions(event, unit, freqs, start, sound) {
       ? event.outgoing.to.fret - n.fret
       : n.slide === 'out-up'
         ? 3
-        : -Math.min(3, n.fret);
+        : -Math.min(3, Math.max(0, n.fret));
     const base = points || [
         [0, 0],
         [1, 0],
@@ -21499,7 +21520,7 @@ function tabTechSoundOptions(event, unit, freqs, start, sound) {
     vibratoDepth: v.vibratoDepth || 0,
     bendPoints: points,
     bendSpan: points ? written : 0,
-    startRate: into ? Math.pow(2, (n.slide === 'in-above' ? 3 : -Math.min(3, n.fret)) / 12) : 1,
+    startRate: into ? Math.pow(2, (n.slide === 'in-above' ? 3 : -Math.min(3, Math.max(0, n.fret))) / 12) : 1,
     glide: into ? Math.min(0.15, written * 0.3) : 0,
     skipAttack: event.soft ? 0.025 : 0,
     releaseAt: v.damp ? start + event.start * unit + v.ring : 0,
@@ -22461,6 +22482,9 @@ function tabTechEvents(e) {
   });
 }
 
+const TAB_INSERT_MAX_SAVE_FRET = 30;
+const TAB_DRAFT_MIN_FRET = -36;
+const TAB_DRAFT_MAX_FRET = 60;
 function tabInsertCleanNotes(rawNotes, beats, parentTs) {
   if (!Array.isArray(rawNotes)) return [];
   const denominator = parseTimeSig(parentTs).denominator;
@@ -22485,7 +22509,7 @@ function tabInsertCleanNotes(rawNotes, beats, parentTs) {
     if (raw.pause === true) note.pause = true;
     else {
       if (!Number.isInteger(raw.string) || raw.string < 0 || raw.string > 5) return;
-      if (!Number.isInteger(raw.fret) || raw.fret < 0 || raw.fret > 24) return;
+      if (!Number.isInteger(raw.fret) || raw.fret < 0 || raw.fret > TAB_INSERT_MAX_SAVE_FRET) return;
       note.string = raw.string; note.fret = raw.fret; Object.assign(note, tabTechClean(raw));
     }
     candidates.push(note);
@@ -22585,7 +22609,7 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
     const duration = parseTimeSig(effTs).denominator / n.dur;
     const durationLabel = `1/${Math.round(duration)}${n.dots ? '·' : ''}${n.triplet ? ' (3)' : ''}`;
     return `<span class="tab-note-position" data-tab-note data-start="${n.start}"${n.pause ? ' data-pause="true"' : ` data-string="${n.string}" data-fret="${n.fret}"`} style="left:${x / w * 100}%;" title="${n.pause ? 'Пауза' : `Струна ${6 - n.string}, лад ${n.fret}`} · ${durationLabel}">` +
-      `<span class="tab-fret-number" style="top:${y / height * 100}%;">${n.pause ? '𝄽' : n.ghost ? '(' + (n.dead ? '×' : n.fret) + ')' : n.dead ? '×' : n.fret}</span>` +
+      `<span class="tab-fret-number${!n.pause && !n.dead && (n.fret < 0 || n.fret > 24) ? ' is-out-fret' : ''}" style="top:${y / height * 100}%;">${n.pause ? '𝄽' : n.ghost ? '(' + (n.dead ? '×' : n.fret) + ')' : n.dead ? '×' : n.fret}</span>` +
       `<span class="tab-note-duration">${durationLabel}</span></span>`;
   }).join('');
   const subdiv = Math.round(1 / (typeof getResizeStep === 'function' ? getResizeStep() : 1));
@@ -22694,7 +22718,7 @@ function tabInsertSetString(secId, sqId, idx, val) {
 }
 function tabInsertSetFret(secId, sqId, idx, val) {
   const fret = typeof val === 'string' && !val.trim() ? NaN : Number(val);
-  if (!Number.isInteger(fret) || fret < 0 || fret > 24) return false;
+  if (!Number.isInteger(fret) || fret < 0 || fret > TAB_INSERT_MAX_SAVE_FRET) return false;
   return tabInsertEditNotes(secId, sqId, 'tab/note-fret', next => {
     if (!next.notes[idx] || next.notes[idx].pause) return false;
     next.notes[idx].fret = fret;
@@ -23290,9 +23314,19 @@ function tabGpValidate(e) {
       .filter((b) => Math.abs(b.used - meter) > 1e-8);
   const status = e.overlay.querySelector('[data-tab-gp-error]'),
     apply = e.overlay.querySelector('[data-tab-apply]');
-  const canonical = errors.length ? null : tabInsertCleanNotes(e.draft.notes, e.draft.beats, tabGpMeter(e));
-  const modelError = e.gpBars.flatMap(bar => bar.flatMap(g => g.notes)).map(n => tabTechIssue(n)).find(Boolean)
-    || (canonical && canonical.length !== e.draft.notes.length
+  const allNotes = e.gpBars.flatMap((bar) => bar.flatMap((g) => g.notes));
+  const negNote = allNotes.find((n) => !n.dead && n.fret < 0);
+  const tooHighNote = allNotes.find((n) => !n.dead && n.fret > TAB_INSERT_MAX_SAVE_FRET);
+  const saveFretError = negNote
+    ? 'Есть ноты ниже открытой струны (красные лады со знаком минус) — перед сохранением верните их на лад 0 и выше'
+    : tooHighNote
+      ? `Есть ноты выше ${TAB_INSERT_MAX_SAVE_FRET}-го лада — перед сохранением верните их в диапазон 0–${TAB_INSERT_MAX_SAVE_FRET}`
+      : null;
+  const canonical = errors.length || saveFretError ? null : tabInsertCleanNotes(e.draft.notes, e.draft.beats, tabGpMeter(e));
+  const modelError =
+    saveFretError ||
+    allNotes.map((n) => tabTechIssue(n)).find(Boolean) ||
+    (canonical && canonical.length !== e.draft.notes.length
       ? 'Неверная ритмическая позиция: сохранение запрещено'
       : null);
   if (status) {
@@ -23595,8 +23629,7 @@ function tabGpShiftStrings(e, delta) {
       const toOpen = tabGpOpenMidi(nextStr);
       if (fromOpen === null || toOpen === null) return refuse();
       nextFret = fromOpen + note.fret - toOpen;
-      if (nextFret < 0 || nextFret > 24) return refuse();
-      if (note.harm?.type === 'natural' && tabTechNaturalPitch(nextFret) === null) return refuse();
+      if (nextFret < TAB_DRAFT_MIN_FRET || nextFret > TAB_DRAFT_MAX_FRET) return refuse();
     }
     planned.push({ note, nextStr, nextFret });
   }
@@ -23635,8 +23668,7 @@ function tabGpShiftSemitones(e, deltaSemi) {
   const planned = [];
   for (const { note } of pitched) {
     const nextFret = note.fret + deltaSemi;
-    if (nextFret < 0 || nextFret > 24) return false;
-    if (note.harm?.type === 'natural' && tabTechNaturalPitch(nextFret) === null) return false;
+    if (nextFret < TAB_DRAFT_MIN_FRET || nextFret > TAB_DRAFT_MAX_FRET) return false;
     let nextHarmNote = null;
     if (note.harm?.type === 'artificial' && note.harm.note) {
       const hm = tunerNoteToMidi(String(note.harm.note).replace(/♯/g, '#').replace(/♭/g, 'b'));
@@ -23930,8 +23962,8 @@ function tabGpReadClipboard(raw) {
           n.string > 5 ||
           strings.has(n.string) ||
           !Number.isInteger(n.fret) ||
-          n.fret < 0 ||
-          n.fret > 24
+          n.fret < TAB_DRAFT_MIN_FRET ||
+          n.fret > TAB_DRAFT_MAX_FRET
         )
           throw Error('Неверная нота в буфере');
         strings.add(n.string);
@@ -24248,6 +24280,27 @@ function tabGpDecorate(e) {
           if (!info) continue;
           if (info.ghost)
             host.querySelectorAll(`.b${bb.beat.id}`).forEach((n) => n.classList.add('tab-gp-ghost'));
+          for (const nb of bb.notes || []) {
+            const meta = nb?.note && tabAtState.noteMeta?.get(nb.note);
+            const hb = nb?.noteHeadBounds;
+            if (!meta || meta.dead || !hb || (meta.fret >= 0 && meta.fret <= 24)) continue;
+            const label = meta.ghost ? `(${meta.fret})` : String(meta.fret);
+            const w = Math.max(22, Math.round(hb.w + 8), label.length * 9 + 6);
+            const h = Math.max(19, Math.round(hb.h + 4));
+            const badge = document.createElement('div');
+            badge.className = 'tab-gp-box tab-gp-out-fret';
+            badge.dataset.outFret = String(meta.fret);
+            badge.dataset.outString = String((nb.note?.string || 1) - 1);
+            badge.textContent = label;
+            Object.assign(badge.style, {
+              left: Math.round(hb.x + hb.w / 2 - w / 2) + 'px',
+              top: Math.round(hb.y + hb.h / 2 - h / 2) + 'px',
+              width: w + 'px',
+              height: h + 'px',
+              fontSize: Math.max(12, Math.min(18, Math.round(hb.h * 0.9))) + 'px',
+            });
+            host.appendChild(badge);
+          }
           if (!e.gpSelection?.barMode && selected.some((p) => p.bar === bi && p.index === info.gpIndex)) {
             const v = bb.visualBounds,
               b = bar.visualBounds,
@@ -24410,6 +24463,7 @@ function tabAtBuildScore(alphaTab, draft, sec) {
   const nativeRecords = [];
   const beatInfo = new Map();
   const startInfo = new Map();
+  const noteMeta = new Map();
   layout.bars.forEach((bar, bi) => {
     const barObj = barObjs[bi];
     const voice = new M.Voice();
@@ -24422,8 +24476,10 @@ function tabAtBuildScore(alphaTab, draft, sec) {
       if (!bit.rest) {
         bit.notes.forEach(spec => {
           const note = new M.Note();
+          const rawFret = Number.isInteger(spec.fret) ? spec.fret : (Number(spec.fret) || 0);
           note.string = Math.max(1, Math.min(6, spec.string));
-          note.fret = Math.max(0, Number(spec.fret) || 0);
+          note.fret = rawFret < 0 ? Math.min(99, Math.abs(rawFret) + 10) : rawFret;
+          noteMeta.set(note, { fret: rawFret, dead: !!spec.dead, ghost: !!spec.ghost });
           beat.addNote(note);
           tabTechNative(M,note,spec);
           nativeRecords.push({note,beat,data:{...spec,start:bit.start,dur:layout.denom/bit.d,dots:bit.dots||0,triplet:!!bit.triplet}});
@@ -24437,7 +24493,7 @@ function tabAtBuildScore(alphaTab, draft, sec) {
   });
   tabTechNativeLinks(M,nativeRecords);
   score.finish(new alphaTab.Settings());
-  return { score, beatInfo, startInfo, layout, barCount: layout.bars.length };
+  return { score, beatInfo, startInfo, noteMeta, layout, barCount: layout.bars.length };
 }
 
 function tabAtSettings(alphaTab, scale, barCount = 1) {
@@ -24658,7 +24714,7 @@ function tabAtCursorPosition(api) {
 
   let x = null;
   const atString = 1 + Math.max(0, Math.min(5, tabAtCursor.string));
-  let noteY = null, noteW = null, noteH = null;
+  let noteY = null, noteW = null, noteH = null, isOutFret = false;
   const beat = tabAtBeatBoundsAt(api, tabAtCursor.start);
   if (beat) {
     const info = beat.beat && st.beatInfo.get(beat.beat);
@@ -24671,6 +24727,8 @@ function tabAtCursorPosition(api) {
       noteY = nb.noteHeadBounds.y + nb.noteHeadBounds.h / 2;
       noteW = nb.noteHeadBounds.w;
       noteH = nb.noteHeadBounds.h;
+      const meta = st.noteMeta?.get(nb.note);
+      isOutFret = !!(meta && !meta.dead && (meta.fret < 0 || meta.fret > 24));
       break;
     }
   } else {
@@ -24692,7 +24750,7 @@ function tabAtCursorPosition(api) {
 
   const geom = tabAtStringGeometry(api, barIndex);
   const y = noteY != null ? noteY : (geom ? geom.yAt(atString) : bounds.y + bounds.h * 0.5);
-  return { x, y, top: bounds.y, height: bounds.h, barIndex, noteW, noteH };
+  return { x, y, top: bounds.y, height: bounds.h, barIndex, noteW, noteH, isOutFret };
 }
 
 function tabAtPlaceCursor() {
@@ -24717,7 +24775,8 @@ function tabAtPlaceCursor() {
   const inBar = tabAtCursor.start - (st?.bars?.[pos.barIndex]?.start ?? (barNo-1)*sig.numerator) + 1;
   line.hidden = false;
   dot.hidden = false;
-  const boxW = Math.max(26, Math.round((pos.noteW || 16) + 10));
+  dot.classList.toggle('is-out-fret', !!pos.isOutFret);
+  const boxW = Math.max(pos.isOutFret ? 28 : 26, Math.round((pos.noteW || 16) + (pos.isOutFret ? 12 : 10)));
   const boxH = Math.max(24, Math.round((pos.noteH || 16) + 8));
   dot.style.width = boxW + 'px';
   dot.style.height = boxH + 'px';
@@ -24924,6 +24983,7 @@ function tabAtRender(editor) {
       barCount: built.barCount,
       beatInfo: built.beatInfo,
       startInfo: built.startInfo,
+      noteMeta: built.noteMeta,
       bars: built.layout.bars,
     };
     if (status) status.hidden = true;
@@ -25416,7 +25476,7 @@ function renderTabInsertEditor(editor) {
   const rows = editor.draft.notes.map((n, i) => `<div class="tab-note-row" data-index="${i}">
     <span class="tab-row-position">${Math.round(n.start * 100) / 100}</span>
     <label><span class="tab-cell-label">Струна</span><select data-tab-field="string" aria-label="Струна"${n.pause ? ' disabled' : ''}>${options([0,1,2,3,4,5].map(s => [s, 6-s]), n.string)}</select></label>
-    <label><span class="tab-cell-label">Лад</span><input data-tab-field="fret" type="number" min="0" max="24" step="1" aria-label="Лад" value="${n.fret ?? 0}"${n.pause ? ' disabled' : ''}></label>
+    <label><span class="tab-cell-label">Лад</span><input data-tab-field="fret" type="number" min="0" max="30" step="1" aria-label="Лад" value="${n.fret ?? 0}"${n.pause ? ' disabled' : ''}></label>
     <label><span class="tab-cell-label">Длительность</span><select data-tab-field="dur" aria-label="Длительность">${options([1,2,4,8,16,32,64].map(d => [denominator/d, '1/'+d]), n.dur)}</select></label>
     <label class="tab-check"><input data-tab-field="dots" type="checkbox"${n.dots ? ' checked' : ''}><span>Точка</span></label>
     <label class="tab-check"><input data-tab-field="triplet" type="checkbox"${n.triplet ? ' checked' : ''}><span>Триоль</span></label>
@@ -25975,7 +26035,14 @@ function openTabInsertEditor(secId, sqId, options) {
     if (strBtn) { tabAtMoveString(Number(strBtn.dataset.tabStringStep)); tabAtHostEl?.focus({ preventScroll: true }); return; }
     if (event.target.closest('[data-tab-apply]')) {
       if (editor.gpBars) tabGpTrimAutoBars(editor, 1);
-      if((editor.gpBars||editor.gpError)&&!tabGpValidate(editor)){showToast('Сначала исправьте ритм черновика');return;}
+      if ((editor.gpBars || editor.gpError) && !tabGpValidate(editor)) {
+        const errMsg =
+          editor.overlay.querySelector('[data-tab-gp-error-msg]')?.textContent ||
+          editor.overlay.querySelector('[data-tab-gp-error]')?.textContent ||
+          'Сначала исправьте черновик';
+        showToast(errMsg);
+        return;
+      }
       const current = tabInsertTarget(secId, sqId);
       const currentRef = editor.isCell ? current?.ev : current?.sq;
       if (!current || currentRef !== editor.source) { close(true); showToast('Песня изменилась — откройте вставку заново'); return; }
