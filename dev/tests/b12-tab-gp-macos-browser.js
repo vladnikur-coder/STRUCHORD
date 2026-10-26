@@ -176,10 +176,11 @@ function check(name, actual, expected = true) {
         check(`${prefix}: Undo удаления`, await frets(), [3, 5, 7, 9]);
         await key('Backspace');
         s = await state();
-        check(`${prefix}: Backspace на одиночной ноте удаляет долю со сдвигом хвоста`, s.notes.map((n) => [n.start, n.fret]), [
-          [0, 3],
-          [1, 7],
-          [2, 9],
+        check(`${prefix}: Backspace по GP8 (0.683) очищает ноту в паузу без сдвига хвоста`, s.notes, [
+          base[0],
+          { start: 1, dur: 1, pause: true },
+          base[2],
+          base[3],
         ]);
         await key('KeyZ', 'Meta');
         check(`${prefix}: Undo Backspace возвращает [3, 5, 7, 9]`, await frets(), [3, 5, 7, 9]);
@@ -539,6 +540,7 @@ function check(name, actual, expected = true) {
       await key('KeyV', 'Meta');
       check(`${width}: буфер переживает закрытие диалога`, await frets(), [3, 7, 5, 7, 9]);
       await button('[data-tab-cancel]');
+      if (await page.$('[data-tab-confirm-discard]:not([hidden])')) await button('[data-tab-confirm-leave]');
       check(
         `${width}: Cancel не сохраняет ошибочный хвост`,
         await page.evaluate(() => sections[0].squares.find((q) => q.type === 'tab').notes.map((n) => n.fret)),
@@ -673,6 +675,7 @@ function check(name, actual, expected = true) {
       await wait(60);
       check(`${width}: запоздалый Clipboard API не меняет уже другой курсор`, await frets(), [3, 5, 7, 9]);
       await button('[data-tab-cancel]');
+      if (await page.$('[data-tab-confirm-discard]:not([hidden])')) await button('[data-tab-confirm-leave]');
       await page.close();
     }
     check('нет ошибок JavaScript', errors, []);

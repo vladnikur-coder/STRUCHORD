@@ -297,12 +297,23 @@ async function runDesktopSuite(browser, width, height, theme, captureShots = fal
     [2, 9],
   ]);
 
-  // Backspace без модификаторов в пустом такте с одной нотой очищает такт без явной паузы
-  await fixture([], 0, 4, 0);
-  await key('3');
+  // Backspace без модификаторов по GP8 (0.683) очищает ноту в паузу той же длины без сдвига хвоста и без блокировки Применить
+  await fixture([note(0, 3), note(1, 5), note(2, 7), note(3, 9)], 1, 4, 0);
   await key('Backspace');
   s = await state();
-  check(`${prefix} P0-2: Backspace единственной ноты в такте возвращает чистый пустой такт без паузы`, [s.notes.length, s.disabled], [0, false]);
+  check(
+    `${prefix} P0-2 (0.683 GP8): Backspace очищает ноту в паузу без сдвига хвоста и не блокирует Применить`,
+    [s.notes.map((n) => (n.pause ? ['rest', n.start, n.dur] : [n.fret, n.start, n.dur])), s.disabled],
+    [
+      [
+        [3, 0, 1],
+        ['rest', 1, 1],
+        [7, 2, 1],
+        [9, 3, 1],
+      ],
+      false,
+    ],
+  );
 
   // --- P0-3: Space и ⇧Space проигрывают черновик, не закрывая модалку ---
   await fixture([note(0, 3), note(1, 5), note(2, 7), note(3, 9)], 3, 4, 0);

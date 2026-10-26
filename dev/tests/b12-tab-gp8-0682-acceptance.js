@@ -447,6 +447,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     });
 
     await page.click('[data-tab-cancel]');
+    if (await page.$('[data-tab-confirm-discard]:not([hidden])')) await page.click('[data-tab-confirm-leave]');
     await wait(150);
 
     // =========================================================================

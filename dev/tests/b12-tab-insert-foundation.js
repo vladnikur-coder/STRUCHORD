@@ -168,6 +168,7 @@ async function main() {
   check('список диалога обновляется до пяти строк', overlay.querySelectorAll('.tab-note-row').length === 5);
   check('черновик не меняет песню до подтверждения', state()[0].squares[0].notes.length === 4 && state()[0].squares[0].beats === 4);
   overlay.querySelector('[data-tab-cancel]').click();
+  overlay.querySelector('[data-tab-confirm-leave]')?.click();
   check('Отмена восстанавливает входное состояние без шага истории', !w.document.querySelector('.tab-insert-editor') && state()[0].squares[0].notes.length === 4 && w.historyDebugState().length === 1);
   w.openTabInsertEditor(1, 101);
   w.document.querySelector('[data-tab-add]').click();
