@@ -5198,7 +5198,6 @@ body.is-resizing .tab-insert > .chord-ticks-step {
   height: 100%;
   flex: 1 1 auto;
 }
-.tab-insert--cell .tab-note-duration { display: none; }
 .chord-wrapper--tab.playback-active .tab-insert--cell,
 .tab-insert:hover,
 .tab-insert.playback-active { border-color: var(--color-accent); }
@@ -5208,18 +5207,22 @@ body.is-resizing .tab-insert > .chord-ticks-step {
 .tab-insert-heading { display: flex; justify-content: space-between; gap: 0.375rem; align-items: center; pointer-events: none; }
 .tab-insert-label { font-size: 0.6875rem; font-weight: 700; letter-spacing: 0.08em; color: var(--color-accent); }
 .tab-insert-count, .tab-insert-empty { font-size: 0.6875rem; color: var(--color-text-secondary); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.tab-insert-body { position: relative; height: 5.5rem; flex: 1 1 auto; min-height: 4.75rem; margin-left: 1.05rem; }
-.tab-insert svg { width: 100%; height: 100%; display: block; }
-.tab-insert svg line { stroke: currentColor; stroke-width: 0.85; opacity: 0.45; vector-effect: non-scaling-stroke; }
-.tab-insert svg .tab-beat-line { opacity: 0.14; }
-.tab-insert svg .tab-beat-line.is-bar { opacity: 0.5; stroke-width: 1.5; }
-.tab-note-position { position: absolute; top: 0; bottom: 0; font-family: ui-monospace, monospace; pointer-events: none; }
-.tab-fret-number, .tab-string-number { position: absolute; transform: translate(-50%, -50%); line-height: 1; }
-.tab-insert .tab-fret-number { font-size: 0.8125rem; font-weight: 700; padding: 0.0625rem 0.125rem; border-radius: 0.1875rem; background: var(--color-background-secondary); }
-.tab-insert .tab-fret-number.is-out-fret { color: var(--color-danger); background: color-mix(in srgb, var(--color-danger) 14%, var(--color-surface)); border: 0.0625rem solid var(--color-danger); padding: 0.0625rem 0.25rem; }
-.tab-insert--cell .tab-fret-number { background: color-mix(in srgb, var(--color-accent) 6%, var(--color-background-secondary)); }
-.tab-insert .tab-string-number { left: -0.95rem; width: 0.6875rem; text-align: right; transform: translateY(-50%); font-size: 0.5625rem; opacity: 0.65; pointer-events: none; }
-.tab-insert .tab-note-duration { position: absolute; bottom: -0.125rem; transform: translateX(-50%); font-size: 0.5625rem; opacity: 0.72; white-space: nowrap; }
+.tab-insert-body { position: relative; height: 5.5rem; flex: 1 1 auto; min-height: 4.75rem; }
+/* 0.692: таб в клетке — готовая картинка alphaTab, вписанная в клетку. */
+.tab-insert-body .tab-thumb { position: absolute; inset: 0; display: block; pointer-events: none; }
+.tab-insert-body .tab-thumb svg { width: 100%; height: 100%; display: block; }
+.tab-insert-body .tab-thumb-wait {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  color: var(--color-text-secondary);
+  opacity: 0.55;
+}
+.tab-insert-body.is-unavailable .tab-thumb-wait { opacity: 0.45; }
 .tab-insert--square-wrap { position: relative; grid-column: 1 / -1; width: 100%; }
 .tl-cell.tl-cell--tab { height: auto; min-height: 9.5rem; padding: 0; align-items: stretch; }
 .tl-cell--tab .tab-insert { border-radius: 0; padding-bottom: 0.5rem; }
@@ -13720,9 +13723,6 @@ body.is-harmony-highlights-on .tl-cell[data-harmony-profile]:not([data-harmony-p
     text-overflow: ellipsis;
     white-space: nowrap;
   }
-  .tab-insert--cell .tab-note-duration {
-    display: none;
-  }
   /* Номер версии на 24.375rem съедал строку и переносил заголовок. */
   .app-title span {
     display: none;
@@ -15200,7 +15200,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.691</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.692</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21542,59 +21542,6 @@ function tabTechSoundOptions(event, unit, freqs, start, sound) {
     releaseTime: 0.03,
   };
 }
-function tabTechMiniSvg(notes, xAt, yAt) {
-  const edges = tabTechEdges(notes),
-    out = [];
-  for (const edge of edges) {
-    const x1 = xAt(edge.from.start),
-      x2 = xAt(edge.to.start),
-      y1 = yAt(edge.from.string),
-      y2 = yAt(edge.to.string);
-    if (edge.key === 'slide')
-      out.push(`<path data-tab-tech-mark="slide" d="M ${x1 + 6} ${y1 - 3} L ${x2 - 6} ${y2 - 3}"/>`);
-    else {
-      out.push(
-        `<path data-tab-tech-mark="${edge.key}" d="M ${x1 + 5} ${y1 - 5} Q ${(x1 + x2) / 2} ${Math.min(y1, y2) - 22} ${x2 - 5} ${y2 - 5}"/>`,
-      );
-      if (edge.key === 'legato')
-        out.push(
-          `<text x="${(x1 + x2) / 2}" y="${Math.min(y1, y2) - 12}">${edge.to.fret > edge.from.fret ? 'H' : 'P'}</text>`,
-        );
-    }
-  }
-  const spans = partPalmMuteSpans(
-    notes.map((n) => ({ ...n, dur: tabInsertNoteDuration(n) })),
-    Infinity,
-  );
-  for (const span of new Map(spans.map((s) => [`${s.from}:${s.to}`, s])).values())
-    out.push(
-      `<text x="${xAt(span.from)}" y="9">P.M.</text><path stroke-dasharray="3 2" d="M ${xAt(span.from) + 24} 7 H ${xAt(span.to) - 4}"/>`,
-    );
-  for (const n of notes.filter((n) => !n.pause)) {
-    const x = xAt(n.start),
-      y = yAt(n.string),
-      label = [
-        n.letRing ? 'L.R.' : '',
-        n.harm && !tabTechIssue(n) ? (n.harm.type === 'natural' ? 'N.H.' : 'A.H.') : '',
-        n.vibrato ? '∿' : '',
-        n.bend ? partBendMark(n) : '',
-        n.accent ? (n.accent === 2 ? '^' : '>') : '',
-        n.staccato ? '·' : '',
-      ]
-        .filter(Boolean)
-        .join(' ');
-    if (label) out.push(`<text data-tab-tech-mark="note" x="${x}" y="${y - 10}">${escapeHtml(label)}</text>`);
-    if (['in-below', 'in-above', 'out-down', 'out-up'].includes(n.slide)) {
-      const into = n.slide.startsWith('in'),
-        up = ['in-above', 'out-down'].includes(n.slide);
-      out.push(
-        `<path data-tab-tech-mark="slide" d="M ${x + (into ? -14 : 5)} ${y + (up ? -7 : 7)} L ${x + (into ? -5 : 14)} ${y + (up ? 7 : -7)}"/>`,
-      );
-    }
-  }
-  return `<g class="tab-tech-marks" style="stroke:currentColor;fill:none;color:var(--color-text-primary)">${out.join('')}</g>`;
-}
-
 function tabTechBendDefaults(type) {
   if (type === 'prebend-release') return partBendDefaults('release');
   return partBendDefaults(type === 'bend-release' ? 'prebend-release' : type);
@@ -22583,6 +22530,317 @@ function tabInsertConvertEventMeter(ev, oldTs, newTs) {
 }
 
 // ========== B-12.12 «Таб-вставка»: мини-таб в редакторе (строкой и ячейкой внутри квадрата) ==========
+// ── Мини-таб в клетках песни: рисует alphaTab, а не собственный рисунок ─────
+// До 0.692 клетка таба рисовалась вручную: свои линии струн, цифры ладов и
+// чёрточки долей. Теперь ту же картинку отдаёт alphaTab — тот же движок, что
+// и в редакторе вставки: настоящий стан, ритм, штили и знаки приёмов.
+const TAB_THUMB_CACHE = new Map();
+const TAB_THUMB_QUEUE = [];
+const TAB_THUMB_PENDING = new Map();
+let tabThumbApi = null;
+let tabThumbHost = null;
+let tabThumbResolve = null;
+let tabThumbBusy = false;
+let tabThumbObserver = null;
+let tabThumbScanQueued = false;
+
+// Клетка может показывать не весь такт, а его часть (одну долю, две доли).
+// alphaTab рисует целые такты, поэтому для такого фрагмента берём размер,
+// совпадающий с его длиной: одна доля — «1/4», полторы — «3/8».
+function tabThumbTimeSig(beats, ts) {
+  const src = ts || globalTimeSig;
+  const units = getGridUnitsPerBar(src);
+  if (!(beats > 1e-9) || !(units > 1e-9)) return src;
+  const factor = beats / units;
+  if (Math.abs(factor - Math.round(factor)) < 1e-6) return src;
+  for (const denom of [4, 8, 16, 32]) {
+    const num = (beats * denom) / 4;
+    if (Math.abs(num - Math.round(num)) < 1e-6 && num >= 1 && num <= 32) return `${Math.round(num)}/${denom}`;
+  }
+  return src;
+}
+
+function tabThumbSpecFrom(notes, beats, ts) {
+  // 0.692: размер такта остаётся настоящим, а свободный хвост такта, как и в
+  // редакторе, не дорисовывается паузой — `u` говорит, где кончилось содержимое.
+  let used = 0;
+  for (const n of notes) used = Math.max(used, (Number(n.start) || 0) + tabInsertNoteDuration(n));
+  used = Math.round(used * 1e9) / 1e9;
+  return {
+    n: notes,
+    b: beats,
+    u: used,
+    t: tabThumbTimeSig(beats, ts),
+    th: document.documentElement.dataset.theme || 'light',
+  };
+}
+
+// Одна общая «мастерская» alphaTab: она живёт за экраном, рисует по одному
+// табу за раз, а клеткам раздаётся уже готовая картинка.
+function tabThumbEnsureApi(width) {
+  const alphaTab = partsEnsureAlphaTab();
+  if (!tabThumbHost) {
+    tabThumbHost = document.createElement('div');
+    tabThumbHost.id = 'tabThumbHost';
+    tabThumbHost.setAttribute('aria-hidden', 'true');
+    tabThumbHost.style.cssText =
+      'position:fixed;left:-10000px;top:0;width:320px;height:auto;visibility:hidden;pointer-events:none;';
+    document.body.appendChild(tabThumbHost);
+  }
+  if (!tabThumbApi) {
+    const settings = tabAtSettings(alphaTab, 1, 1);
+    tabThumbApi = new alphaTab.AlphaTabApi(tabThumbHost, settings);
+    const done = () => {
+      const resolve = tabThumbResolve;
+      tabThumbResolve = null;
+      if (resolve) resolve();
+    };
+    tabThumbApi.renderFinished.on(done);
+    tabThumbApi.error.on(done);
+  }
+  const widthPx = Math.max(120, Math.round(width));
+  if (tabThumbHost.style.width !== widthPx + 'px') tabThumbHost.style.width = widthPx + 'px';
+  return alphaTab;
+}
+
+// Цвет «несуществующего» лада — тот же красный, что и в редакторе.
+function tabThumbMarkOutFrets(alphaTab, built) {
+  const M = alphaTab.model;
+  if (!built?.noteMeta?.size) return;
+  built.gpOutFrets = [...built.noteMeta.values()].map((m) => m.fret).filter((f) => f < 0 || f > 24);
+  if (!M?.NoteSubElement) return;
+  let color = '';
+  try {
+    color = getComputedStyle(document.documentElement).getPropertyValue('--color-danger').trim();
+  } catch (_) {}
+  if (!color) return;
+  for (const [note, meta] of built.noteMeta) {
+    if (meta.fret < 0 || meta.fret > 24) {
+      try {
+        // У ноты нет готового стиля — создаём его, иначе цвет просто некуда писать.
+        if (!note.style && M.NoteStyle) note.style = new M.NoteStyle();
+        note.style.colors.set(M.NoteSubElement.GuitarTabFretNumber, M.Color.fromJson(color));
+      } catch (_) {}
+    }
+  }
+}
+
+// Готовый рисунок alphaTab имеет жёсткие размеры в пикселях. Добавляем
+// viewBox — тогда картинка аккуратно вписывается в любую клетку.
+// 0.692: паузы-заглушки свободного хвоста такта из картинки убираем: в
+// редакторе их тоже не видно (0.688). Настоящая пауза, поставленная
+// человеком, остаётся — в раскладке она не заглушка.
+function tabThumbDropTailPlaceholders(svgEl, built) {
+  if (!svgEl || !built?.beatInfo) return;
+  for (const [beat, info] of built.beatInfo) {
+    if (!info.placeholder) continue;
+    try {
+      svgEl.querySelectorAll(`.b${beat.id}`).forEach((n) => n.remove());
+    } catch (_) {}
+  }
+}
+
+function tabThumbSvgForCell(svgEl, outFretList = '') {
+  if (!svgEl) return '';
+  const clone = svgEl.cloneNode(true);
+  const w = parseFloat(svgEl.getAttribute('width')) || svgEl.getBoundingClientRect().width || 320;
+  const h = parseFloat(svgEl.getAttribute('height')) || svgEl.getBoundingClientRect().height || 100;
+  if (!(w > 0) || !(h > 0)) return '';
+  clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  clone.setAttribute('width', '100%');
+  clone.setAttribute('height', '100%');
+  clone.setAttribute('preserveAspectRatio', 'xMidYMid meet');
+  // Классы `at-surface at` включают музыкальный шрифт alphaTab. Без них
+  // цифры и ноты рисуются «квадратиками»: стиль шрифта привязан к ним.
+  clone.setAttribute(
+    'class',
+    ((clone.getAttribute('class') || '') + ' tab-thumb-svg at-surface at').trim(),
+  );
+  // Служебную подпись alphaTab в клетке не показываем.
+  // В SVG alphaTab цвет номера лада не всегда доходит из модели (стиль
+  // применяется на этапе отрисовки). Поэтому высокие/отрицательные лады
+  // красим по готовой картинке — тем же красным, что и в редакторе.
+  const outFrets = new Set(
+    (function () {
+      try {
+        return JSON.parse(decodeURIComponent(outFretList));
+      } catch (_) {
+        return [];
+      }
+    })(),
+  );
+  if (outFrets.size) {
+    const danger = getComputedStyle(document.documentElement).getPropertyValue('--color-danger').trim();
+    if (danger) {
+      clone.querySelectorAll('text').forEach((t) => {
+        const txt = (t.textContent || '').trim();
+        if (/^-?\d+$/.test(txt) && outFrets.has(Number(txt))) t.setAttribute('fill', danger);
+      });
+    }
+  }
+  clone.querySelectorAll('text').forEach((t) => {
+    if ((t.textContent || '').toLowerCase().includes('alphatab')) t.remove();
+  });
+  clone.setAttribute('aria-hidden', 'true');
+  return clone.outerHTML;
+}
+
+async function tabThumbRender(spec, width) {
+  // Печатаем в натуральную величину: alphaTab сам подгоняет такт под ширину
+  // клетки, а поля по краям (35 px слева и справа) в маленькой клетке съедали
+  // половину места — поэтому для клеток они отключены.
+  const scale = 1;
+  const alphaTab = tabThumbEnsureApi(width);
+  const built = tabAtBuildScore(alphaTab, { notes: spec.n, beats: spec.b }, { timeSig: spec.t }, { tailPlaceholder: true });
+  tabThumbMarkOutFrets(alphaTab, built);
+  if (tabThumbApi.settings) {
+    tabThumbApi.settings.display.startBar = 1;
+    tabThumbApi.settings.display.barCount = built.barCount;
+    tabThumbApi.settings.display.scale = scale;
+    tabThumbApi.settings.display.padding = [2, 2];
+    tabThumbApi.settings.display.systemPaddingTop = 0;
+    tabThumbApi.settings.display.systemPaddingBottom = 0;
+    tabThumbApi.settings.display.lastSystemPaddingBottom = 0;
+    // Цвета берём из текущей темы: при её смене картинка перерисовывается.
+    try { tabGpTheme(alphaTab, tabThumbApi.settings); } catch (_) {}
+    try { tabThumbApi.updateSettings(); } catch (_) {}
+  }
+  await new Promise((resolve) => {
+    tabThumbResolve = resolve;
+    tabThumbApi.load(built.score);
+    setTimeout(() => {
+      if (tabThumbResolve === resolve) {
+        tabThumbResolve = null;
+        resolve();
+      }
+    }, 8000);
+  });
+  const outList = built.gpOutFrets || [];
+  const svgEl = tabThumbHost.querySelector('svg');
+  tabThumbDropTailPlaceholders(svgEl, built);
+  return tabThumbSvgForCell(svgEl, encodeURIComponent(JSON.stringify(outList)));
+}
+
+function tabThumbApply(el, html) {
+  if (!el || !el.isConnected) return;
+  el.dataset.thumbDone = '1';
+  el.innerHTML = `<div class="tab-thumb">${html}</div>`;
+}
+
+async function tabThumbFlush() {
+  if (tabThumbBusy) return;
+  tabThumbBusy = true;
+  try {
+    while (TAB_THUMB_QUEUE.length) {
+      const job = TAB_THUMB_QUEUE.shift();
+      TAB_THUMB_PENDING.delete(job.key);
+      let html = '';
+      try {
+        html = await tabThumbRender(job.spec, job.width);
+      } catch (_) {
+        html = '';
+      }
+      if (html) {
+        TAB_THUMB_CACHE.set(job.key, html);
+        job.els.forEach((el) => tabThumbApply(el, html));
+      } else {
+        job.els.forEach((el) => {
+          if (!el || !el.isConnected) return;
+          el.dataset.thumbDone = 'fail';
+          el.classList.add('is-unavailable');
+        });
+      }
+      await new Promise((r) => (typeof requestAnimationFrame === 'function' ? requestAnimationFrame(r) : setTimeout(r, 16)));
+    }
+  } finally {
+    tabThumbBusy = false;
+  }
+}
+
+function tabThumbScan(root) {
+  const scope = root && root.querySelectorAll ? root : document;
+  const list = scope.querySelectorAll('[data-tab-thumb]:not([data-thumb-done])');
+  if (!list.length) return;
+  let bumped = false;
+  list.forEach((el) => {
+    let spec = null;
+    try {
+      spec = JSON.parse(decodeURIComponent(el.dataset.tabThumb));
+    } catch (_) {
+      el.dataset.thumbDone = 'bad';
+      return;
+    }
+    if (!spec || !Array.isArray(spec.n) || !spec.n.length) {
+      el.dataset.thumbDone = 'bad';
+      return;
+    }
+    const measured = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 320;
+    const width = Math.max(120, Math.round(measured / 8) * 8);
+    const key = [spec.th, spec.b, spec.t, width, JSON.stringify(spec.n)].join('|');
+    const cached = TAB_THUMB_CACHE.get(key);
+    if (cached) {
+      tabThumbApply(el, cached);
+      return;
+    }
+    let job = TAB_THUMB_PENDING.get(key);
+    if (!job) {
+      job = { key, spec, width, els: [] };
+      TAB_THUMB_PENDING.set(key, job);
+      TAB_THUMB_QUEUE.push(job);
+      bumped = true;
+    }
+    job.els.push(el);
+  });
+  if (bumped) tabThumbFlush();
+}
+
+function tabThumbScheduleScan() {
+  if (tabThumbScanQueued) return;
+  tabThumbScanQueued = true;
+  const run = () => {
+    tabThumbScanQueued = false;
+    tabThumbScan(document);
+  };
+  if (typeof requestAnimationFrame === 'function') requestAnimationFrame(run);
+  else setTimeout(run, 16);
+}
+
+// Сменилась тема — картинки перерисовываются в новых цветах.
+function tabThumbInvalidate() {
+  TAB_THUMB_CACHE.clear();
+  TAB_THUMB_PENDING.clear();
+  TAB_THUMB_QUEUE.length = 0;
+  document.querySelectorAll('[data-tab-thumb][data-thumb-done]').forEach((el) => {
+    let notes = [];
+    try {
+      notes = JSON.parse(decodeURIComponent(el.dataset.tabThumb)).n || [];
+    } catch (_) {}
+    delete el.dataset.thumbDone;
+    el.classList.remove('is-unavailable');
+    const word = notes.length === 1 ? 'нота' : notes.length >= 2 && notes.length <= 4 ? 'ноты' : 'нот';
+    el.innerHTML = `<span class="tab-thumb-wait">TAB · ${notes.length} ${word}</span>`;
+  });
+  tabThumbScheduleScan();
+}
+
+function tabThumbInit() {
+  if (tabThumbObserver || typeof MutationObserver === 'undefined') return;
+  tabThumbObserver = new MutationObserver((records) => {
+    for (const rec of records) {
+      if (rec.addedNodes && rec.addedNodes.length) {
+        tabThumbScheduleScan();
+        return;
+      }
+    }
+  });
+  tabThumbObserver.observe(document.body, { childList: true, subtree: true });
+  new MutationObserver(() => tabThumbInvalidate()).observe(document.documentElement, {
+    attributes: true,
+    attributeFilter: ['data-theme'],
+  });
+  tabThumbScan(document);
+}
+
 function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = null) {
   const ev = cellOpts && (cellOpts.ev || cellOpts.event) ? (cellOpts.ev || cellOpts.event) : null;
   const isCell = !!ev;
@@ -22604,29 +22862,10 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
     lenLabel = `${bars} ${bars === 1 ? 'такт' : 'такта'}`;
   }
   const durationText = `${count} ${noteWord} · ${lenLabel}`;
-  const w = Math.max(isCell ? 140 : 320, Math.round(beats * 64)), left = 4, right = w - 8;
-  const hasTech = notes.some(n => Object.keys(tabTechClean(n)).length);
-  const gap = 14, top = hasTech ? 32 : 12, height = hasTech ? 140 : 106;
-  const xStart = isCell ? 18 : 16;
-  const xSpan = Math.max(12, right - xStart - (isCell ? 6 : 8));
-  const xAt = start => xStart + (start / beats) * xSpan;
-  const lines = Array.from({ length: 6 }, (_, string) => {
-    const y = top + (5 - string) * gap;
-    return `<line data-tab-string="${string}" x1="${left}" y1="${y}" x2="${right}" y2="${y}" />`;
-  }).join('');
-  let divisions = '';
-  for (let beat = 1; beat < beats - 1e-6; beat++) {
-    const x = left + (beat / beats) * (right - left);
-    divisions += `<line class="tab-beat-line${beat % beatsPerBar === 0 ? ' is-bar' : ''}" x1="${x}" y1="${hasTech ? 26 : 6}" x2="${x}" y2="${top + 5 * gap + 6}" />`;
-  }
-  const labels = notes.map(n => {
-    const x = xAt(n.start), y = n.pause ? 47 : top + (5 - n.string) * gap;
-    const duration = parseTimeSig(effTs).denominator / n.dur;
-    const durationLabel = `1/${Math.round(duration)}${n.dots ? '·' : ''}${n.triplet ? ' (3)' : ''}`;
-    return `<span class="tab-note-position" data-tab-note data-start="${n.start}"${n.pause ? ' data-pause="true"' : ` data-string="${n.string}" data-fret="${n.fret}"`} style="left:${x / w * 100}%;" title="${n.pause ? 'Пауза' : `Струна ${6 - n.string}, лад ${n.fret}`} · ${durationLabel}">` +
-      `<span class="tab-fret-number${!n.pause && !n.dead && (n.fret < 0 || n.fret > 24) ? ' is-out-fret' : ''}" style="top:${y / height * 100}%;">${n.pause ? '𝄽' : n.ghost ? '(' + (n.dead ? '×' : n.fret) + ')' : n.dead ? '×' : n.fret}</span>` +
-      `<span class="tab-note-duration">${durationLabel}</span></span>`;
-  }).join('');
+  // 0.692: таб в клетке рисует alphaTab — тот же движок, что и в редакторе.
+  // Своих линий, цифр и чёрточек больше нет: клетка просит картинку у alphaTab.
+  const outFret = notes.some(n => !n.pause && !n.dead && (n.fret < 0 || n.fret > 24));
+  const thumbSpec = notes.length ? encodeURIComponent(JSON.stringify(tabThumbSpecFrom(notes, beats, effTs))) : '';
   const subdiv = Math.round(1 / (typeof getResizeStep === 'function' ? getResizeStep() : 1));
   const fullRowRuler = (!isCell && interactive && !cellOpts?.inTimeline && typeof buildInnerTicks === 'function' && typeof buildInnerCounts === 'function')
     ? `<div class="chord-ticks" aria-hidden="true" style="${buildInnerTicks(beats, 0, '--color-tick-line', 1, Math.max(1, Math.round(beats * 4)))}"></div>` +
@@ -22640,9 +22879,11 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
   return `<div class="tab-insert${isCell ? ' tab-insert--cell' : ''}" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" ` +
     (interactive ? `onclick="if(typeof isResizing==='undefined'||!isResizing){event.stopPropagation();${openCall}}" ` : '') + `title="${durationText}">` +
     `<div class="tab-insert-heading"><strong class="tab-insert-label">TAB</strong><span class="tab-insert-count">${durationText}</span></div>` +
-    `<div class="tab-insert-body"${hasTech ? ` style="height:${height / 16}rem"` : ''}><svg viewBox="0 0 ${w} ${height}" preserveAspectRatio="none" aria-hidden="true">${divisions}${lines}${hasTech ? tabTechMiniSvg(notes, xAt, string => top + (5 - string) * gap) : ''}</svg>` +
-    Array.from({ length: 6 }, (_, string) => `<span class="tab-string-number" style="top:${(top + (5 - string) * gap) / height * 100}%;">${6 - string}</span>`).join('') + labels + '</div>' +
-    (notes.length ? '' : '<span class="tab-insert-empty">Нет нот</span>') +
+    `<div class="tab-insert-body"${thumbSpec ? ` data-tab-thumb="${thumbSpec}"${outFret ? ' data-tab-out-fret="1"' : ''}` : ''}>` +
+    (thumbSpec
+      ? '<span class="tab-thumb-wait">TAB · ' + count + ' ' + noteWord + '</span>'
+      : '<span class="tab-insert-empty">Нет нот</span>') +
+    '</div>' +
     fullRowRuler + '</div>';
 }
 
@@ -24632,7 +24873,11 @@ function tabAtRestSpecs(lengthUnits, denom) {
 
 // Раскладка модели по тактам: alphaTab ставит биты последовательно, поэтому
 // пустые места между нотами заполняются паузами, а не «растяжкой».
-function tabAtLayout(notes, beats, ts) {
+function tabAtLayout(notes, beats, ts, opts) {
+  // 0.692: в клетке таба свободный хвост такта не должен дорисовываться
+  // паузой (как и в редакторе с 0.688). Таким паузам ставим метку
+  // «заглушка» и потом убираем их из готовой картинки.
+  const tailPlaceholder = !!(opts && opts.tailPlaceholder);
   const sig = parseTimeSig(ts);
   const denom = sig.denominator;
   const unitsPerBar = getGridUnitsPerBar(ts);
@@ -24647,10 +24892,11 @@ function tabAtLayout(notes, beats, ts) {
     const starts = Array.from(new Set(inBar.map(n => Math.round(n.start * 1e9) / 1e9))).sort((a, b) => a - b);
     const bits = [];
     let cursor = barStart;
-    const pushRests = until => {
+    const pushRests = (until, isTail) => {
       if (until <= cursor + TAB_AT_EPS) return;
+      const placeholder = tailPlaceholder && isTail;
       tabAtRestSpecs(until - cursor, denom).forEach(spec => {
-        bits.push({ ...spec, start: cursor });
+        bits.push({ ...spec, start: cursor, ...(placeholder ? { placeholder: true } : {}) });
         cursor = Math.round((cursor + (denom / spec.d) * (spec.dots === 1 ? 1.5 : spec.dots === 2 ? 1.75 : 1)) * 1e9) / 1e9;
       });
       cursor = Math.max(cursor, until);
@@ -24672,16 +24918,16 @@ function tabAtLayout(notes, beats, ts) {
       });
       cursor = Math.round((start + tabInsertNoteDuration(first)) * 1e9) / 1e9;
     });
-    pushRests(barEnd);
+    pushRests(barEnd, true);
     bars.push({ start: barStart, end: barEnd, bits });
   }
   return { bars, denom, unitsPerBar, totalBars };
 }
 
-function tabAtBuildScore(alphaTab, draft, sec) {
+function tabAtBuildScore(alphaTab, draft, sec, opts) {
   const M = alphaTab.model;
   const ts = (tabInsertEditorState && draft === tabInsertEditorState.draft) ? tabGpMeter(tabInsertEditorState) : (sec.timeSig || globalTimeSig);
-  const layout = tabInsertEditorState?.gpBars && draft === tabInsertEditorState.draft ? tabGpLayout(tabInsertEditorState) : tabAtLayout(draft.notes, draft.beats, ts);
+  const layout = tabInsertEditorState?.gpBars && draft === tabInsertEditorState.draft ? tabGpLayout(tabInsertEditorState) : tabAtLayout(draft.notes, draft.beats, ts, opts);
   const score = new M.Score();
   score.title = '';
   try {
@@ -80130,6 +80376,8 @@ function gpExportModal(title, bodyHtml, label) {
 };
 
 initializeHomeScreen();
+// 0.692: клетки таба рисует alphaTab — запускаем «мастерскую» картинок.
+try { tabThumbInit(); } catch (_) {}
 })();
     </script>
     <!-- B-16: быстрый выбор цветовой схемы. Открывается длинным

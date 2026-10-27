@@ -174,7 +174,16 @@ const notes = page => page.evaluate(() => JSON.parse(JSON.stringify(tabInsertEdi
     check('редактор после открытия файла: все струны/лады/время прежние', isDeepStrictEqual(await notes(page),expected)); await shot('reopened-editor-390'); await page.tap('[data-tab-cancel]');
     await page.evaluate(() => toggleTimelineMode(true)); await wait(250);
     await page.$eval('#timelineTrack .tab-insert', e => e.scrollIntoView({ block: 'center', inline: 'start' })); await wait(200);
-    check('Лента показывает четыре ноты перед Em, без наложенного боя', await page.evaluate(() => document.querySelectorAll('#timelineTrack .tab-insert [data-tab-note]').length === 4 && !document.querySelector('#timelineTrack .tl-cell--tab .event-strum-preview'))); await shot('timeline-390');
+    check('Лента показывает четыре ноты перед Em, без наложенного боя', await page.evaluate(() => {
+      // 0.692: состав нот в клетке лежит в задании для alphaTab.
+      let notes = 0;
+      document.querySelectorAll('#timelineTrack .tab-insert-body[data-tab-thumb]').forEach((el) => {
+        try {
+          notes += (JSON.parse(decodeURIComponent(el.dataset.tabThumb)).n || []).length;
+        } catch (_) {}
+      });
+      return notes === 4 && !document.querySelector('#timelineTrack .tl-cell--tab .event-strum-preview');
+    })); await shot('timeline-390');
     // Подключение к реальному мастер-выходу; synth/планировщик не подменяем.
     await page.evaluate(async () => {
       if (countInEnabled) toggleCountIn(); if (!playbackState.metronomeMuted) toggleMetronome();

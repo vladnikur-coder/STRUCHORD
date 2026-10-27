@@ -290,9 +290,14 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     const savedSongCheck = await page.evaluate(() => {
       const editorOpen = !!document.querySelector('.tab-insert-editor');
       const sq = sections[0].squares[0];
-      const redMini = [...document.querySelectorAll('.tab-insert .tab-fret-number.is-out-fret')].map((el) =>
-        el.textContent.trim(),
-      );
+      // 0.692: таб в клетке рисует alphaTab; высокий лад помечается на самой
+      // клетке, а в готовом рисунке его номер окрашен предупреждающим цветом.
+      const body = document.querySelector('.tab-insert .tab-insert-body');
+      const redMini = body && body.dataset.tabOutFret
+        ? [...body.querySelectorAll('.tab-thumb text')]
+            .filter((el) => /^\d+$/.test(el.textContent.trim()) && Number(el.textContent) > 24)
+            .map((el) => el.textContent.trim())
+        : [];
       const gp5 = gpExportBytesGP5();
       const gpx = gpExportBytes();
       const midi = midiExportBytes();

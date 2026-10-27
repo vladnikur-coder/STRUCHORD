@@ -116,7 +116,25 @@ async function main() {
   await wait(200);
   const tabEl = doc.querySelector('.tab-insert');
   check('мини-таб отрендерен (.tab-insert)', !!tabEl);
-  check('в мини-табе 6 строк', tabEl && tabEl.querySelectorAll('line').length >= 6);
+  // 0.692: клетка не рисует стан сама — она получает картинку от alphaTab,
+  // а состав нот лежит в задании data-tab-thumb.
+  const bodyEl = tabEl && tabEl.querySelector('.tab-insert-body');
+  const thumbSpec = (() => {
+    try {
+      return bodyEl && bodyEl.dataset.tabThumb ? JSON.parse(decodeURIComponent(bodyEl.dataset.tabThumb)) : null;
+    } catch (_) {
+      return null;
+    }
+  })();
+  const selfDrawn = tabEl
+    ? tabEl.querySelectorAll('.tab-insert-body > svg, .tab-fret-number, .tab-note-position, .tab-string-number, .tab-note-duration').length
+    : 0;
+  // Свежая вставка пустая: тогда в клетке честно «Нет нот», иначе — задание для alphaTab.
+  check(
+    'клетка таба не рисует стан сама: либо задание для alphaTab, либо «Нет нот»',
+    !!bodyEl && selfDrawn === 0 && (thumbSpec ? (thumbSpec.n || []).length >= 1 : (bodyEl.textContent || '').trim() === 'Нет нот'),
+    { selfDrawn, hasSpec: !!thumbSpec, text: bodyEl && bodyEl.textContent },
+  );
 
   // Звук: playTabNote не выбрасывает ошибку.
   check('playTabNote существует', typeof w.playTabNote === 'function');

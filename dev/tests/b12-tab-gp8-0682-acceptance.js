@@ -162,13 +162,19 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
         { start: 1, dur: 1, string: 0, fret: 5 },
       ]);
       tabAtSetCursor(1, 0);
+      const miniSpec = (html) => {
+        // 0.692: таб в клетке рисует alphaTab, поэтому по готовой разметке
+        // проверяем, что подпись с данными для рисунка содержит нужный приём.
+        const m = html.match(/data-tab-thumb="([^"]+)"/);
+        return m ? JSON.parse(decodeURIComponent(m[1])) : null;
+      };
       document.querySelector('[data-tab-tech="tie"]').click();
       await waitMs(120);
       const tieCalls = await playDraftAndCapture();
       const miniTie = renderTabInsertHtml(sections[0], tabInsertEditorState.draft, '4/4', false);
       results.tie = {
         applied: !!draftNotes().find((n) => n.start === 1)?.tie,
-        shownInMini: miniTie.includes('<path'),
+        shownInMini: !!miniSpec(miniTie)?.n?.some((n) => n.tie === true),
         plucksCount: tieCalls.length,
         sustainedDuration: tieCalls[0]?.duration,
         baseDuration: base.duration,
@@ -238,7 +244,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       const deadMini = renderTabInsertHtml(sections[0], tabInsertEditorState.draft, '4/4', false);
       results.dead = {
         applied: !!draftNotes()[0]?.dead,
-        shownInMini: deadMini.includes('×'),
+        shownInMini: !!miniSpec(deadMini)?.n?.some((n) => n.dead === true),
         shortPercussiveClick: deadCalls[0].duration <= 0.08 && deadCalls[0].damped,
       };
 
@@ -251,7 +257,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       const ghostMini = renderTabInsertHtml(sections[0], tabInsertEditorState.draft, '4/4', false);
       results.ghost = {
         applied: !!draftNotes()[0]?.ghost,
-        shownInMini: ghostMini.includes('(5)'),
+        shownInMini: !!miniSpec(ghostMini)?.n?.some((n) => n.ghost === true && n.fret === 5),
         softerGain: ghostCalls[0].gain < base.gain * 0.6,
       };
 
@@ -718,13 +724,23 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     });
     await wait(250);
 
-    // Пункт 3: проверим отступ между номером 6-й струны и нулём первой ноты И в полнострочном табе, И в узкой встроенной ячейке на 390px!
-    const string6GapFullRow = await phonePage.evaluate(() => {
-      const ti = document.querySelector('.tab-insert');
-      const s6 = [...ti.querySelectorAll('.tab-string-number')].find((el) => el.textContent.trim() === '6').getBoundingClientRect();
-      const n0 = ti.querySelector('.tab-note-position[data-start="0"] .tab-fret-number').getBoundingClientRect();
-      return { s6Right: Math.round(s6.right * 10) / 10, n0Left: Math.round(n0.left * 10) / 10, gap: Math.round((n0.left - s6.right) * 10) / 10 };
-    });
+    // Пункт 3: с 0.692 таб в клетке рисует alphaTab, поэтому проверяем, что на
+    // телефоне картинка действительно появилась, вписалась в клетку и старых
+    // самодельных линий/цифр больше нет.
+    const thumbState = (sel) => {
+      const body = document.querySelector(sel + ' .tab-insert-body');
+      const svg = body && body.querySelector('.tab-thumb svg');
+      const br = body ? body.getBoundingClientRect() : null;
+      const sr = svg ? svg.getBoundingClientRect() : null;
+      return {
+        drawn: !!(body && body.dataset.thumbDone === '1' && svg),
+        digits: svg ? [...svg.querySelectorAll('text')].filter((t) => /^\d+$/.test((t.textContent || '').trim())).length : 0,
+        fits: !!(br && sr && sr.left >= br.left - 1 && sr.right <= br.right + 1 && sr.top >= br.top - 1 && sr.bottom <= br.bottom + 1),
+        legacy: (body ? body.querySelectorAll('.tab-fret-number, .tab-note-position, .tab-string-number').length : 0),
+      };
+    };
+    await wait(600);
+    const string6GapFullRow = await phonePage.evaluate(thumbState, '.tab-insert:not(.tab-insert--cell)');
 
     await phonePage.evaluate(() => {
       document.querySelector('.section-card')?.scrollIntoView({ block: 'start' });
@@ -751,18 +767,25 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       });
       requestRender();
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      const ti = document.querySelector('.tab-insert--cell');
-      const s6 = [...ti.querySelectorAll('.tab-string-number')].find((el) => el.textContent.trim() === '6').getBoundingClientRect();
-      const n0 = ti.querySelector('.tab-note-position[data-start="0"] .tab-fret-number').getBoundingClientRect();
+      const body = document.querySelector('.tab-insert--cell .tab-insert-body');
+      const svg = body && body.querySelector('.tab-thumb svg');
+      const br = body ? body.getBoundingClientRect() : null;
+      const sr = svg ? svg.getBoundingClientRect() : null;
+      const result = {
+        drawn: !!(body && body.dataset.thumbDone === '1' && svg),
+        digits: svg ? [...svg.querySelectorAll('text')].filter((t) => /^\d+$/.test((t.textContent || '').trim())).length : 0,
+        fits: !!(br && sr && sr.left >= br.left - 1 && sr.right <= br.right + 1 && sr.top >= br.top - 1 && sr.bottom <= br.bottom + 1),
+        legacy: (body ? body.querySelectorAll('.tab-fret-number, .tab-note-position, .tab-string-number').length : 0),
+      };
       sec.squares.pop();
       requestRender();
       await new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(r)));
-      return { s6Right: Math.round(s6.right * 10) / 10, n0Left: Math.round(n0.left * 10) / 10, gap: Math.round((n0.left - s6.right) * 10) / 10 };
+      return result;
     });
-    check('П.3: на телефоне 390px номер 6-й струны слева НЕ перекрывается нулём первой ноты (ни в строке, ни в узкой ячейке)', [
-      string6GapFullRow.gap >= 4,
-      string6GapInlineCell.gap >= 3,
-    ], [true, true]);
+    check('П.3: на телефоне 390px таб в клетке рисует alphaTab — картинка внутри клетки, цифры ладов есть, старых самодельных линий нет', [
+      string6GapFullRow.drawn, string6GapFullRow.digits > 0, string6GapFullRow.fits, string6GapFullRow.legacy === 0,
+      string6GapInlineCell.drawn, string6GapInlineCell.digits > 0, string6GapInlineCell.fits, string6GapInlineCell.legacy === 0,
+    ], [true, true, true, true, true, true, true, true]);
 
     // Откроем таб-редактор на 390px на 4-й ноте («Такт 1 · Доля 4 · 5-я струна · 1/4») и проверим П.4!
     await phonePage.evaluate(() => openTabInsertEditor(sections[0].id, sections[0].squares[0].id));

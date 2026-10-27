@@ -59,6 +59,17 @@ function walk(limit = 30) {
     return JSON.stringify({done: false, events: out});
   })()`));
 }
+// 0.692: клетка таба больше не рисует цифры сама — она получает картинку от
+// alphaTab, а состав нот лежит в data-tab-thumb. Считаем ноты оттуда.
+function tabNotesIn(doc, scopeSel) {
+  let total = 0;
+  doc.querySelectorAll(`${scopeSel} .tab-insert-body[data-tab-thumb]`).forEach((el) => {
+    try {
+      total += (JSON.parse(decodeURIComponent(el.dataset.tabThumb)).n || []).length;
+    } catch (_) {}
+  });
+  return total;
+}
 async function main() {
   await wait(200);
   await load(fixture);
@@ -71,10 +82,10 @@ async function main() {
   w.render(); await wait(70);
   check('время вставки ровно 4 доли', w.eval('getSquareBeats(sections[0].squares[0], "4/4")') === 4);
   check('секция содержит 20 долей, не 16', w.eval('partSectionUnits(sections[0])') === 20);
-  check('полный рендер содержит четыре лада', w.document.querySelectorAll('.tab-insert [data-tab-note]').length === 4);
+  check('полный рендер содержит четыре лада', tabNotesIn(w.document, '.tab-insert') === 4);
   check('таб занимает все колонки своей строки', w.getComputedStyle(w.document.querySelector('.tab-insert')).gridColumn === '1 / -1');
   w.rerenderSectionSquaresDom(w.eval('sections[0]'));
-  check('локальный рендер сохраняет четыре лада', w.document.querySelectorAll('.tab-insert [data-tab-note]').length === 4);
+  check('локальный рендер сохраняет четыре лада', tabNotesIn(w.document, '.tab-insert') === 4);
   const played = walk();
   check('ходьба заканчивается, а не зацикливается на табе', played.done, JSON.stringify(played.events.slice(0, 6)));
   check('порядок TAB → Em → Em → Em → Em', played.events.length === 5 && played.events[0].tab && played.events.slice(1).every(n => n.chord === 'Em'));
@@ -85,7 +96,7 @@ async function main() {
   w.eval('sections[0].squares[0].repeat = 1; sections[0].repeat = 1;');
   w.toggleTimelineMode(true); await wait(50);
   check('лента содержит такт таба и четыре аккорда', w.document.querySelectorAll('#timelineTrack .tl-cell').length === 5);
-  check('вставка в ленте содержит те же четыре лада', w.document.querySelectorAll('#timelineTrack .tab-insert [data-tab-note]').length === 4);
+  check('вставка в ленте содержит те же четыре лада', tabNotesIn(w.document, '#timelineTrack .tab-insert') === 4);
   check('бой не нарисован поверх вставки в ленте', w.document.querySelectorAll('.tl-cell--tab .event-strum-preview').length === 0);
   w.toggleTimelineMode(false);
   const exported = await save();
@@ -246,7 +257,7 @@ async function main() {
   check('переполнение при смене размера секции не обрезает ноты и не меняет песню', JSON.stringify(state()) === beforeMeterRejection && w.historyDebugState().length === 1);
   const onlyTab = clone(fixture); onlyTab.sections[0].squares.pop();
   await load(onlyTab); w.toggleTimelineMode(true); await wait(50);
-  check('песня из одного таба не считается пустой', w.document.getElementById('tlEmpty').hidden && w.document.querySelectorAll('#timelineTrack [data-tab-note]').length === 4);
+  check('песня из одного таба не считается пустой', w.document.getElementById('tlEmpty').hidden && tabNotesIn(w.document, '#timelineTrack') === 4);
   check('нет ошибок выполнения', errors.length === 0, errors.join('\n'));
 }
 main().catch(error => { fail++; console.error(error.stack); }).finally(() => {
