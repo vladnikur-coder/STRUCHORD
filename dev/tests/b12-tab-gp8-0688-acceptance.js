@@ -236,13 +236,13 @@ const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
       [0, 0, false, true],
     );
 
-    // === 7. Пустой такт — целая пауза, всё как раньше ===
+    // === 7. Пустой такт: с 0.690 пауза-заполнитель скрыта, такт не краснеет ===
     await setFixture([], 0, 0, 4);
     ui = await readUi();
     check(
-      'Пустой такт: целая пауза видна, такт полный',
-      [ui.placeholderCount, ui.invalidCount, ui.applyDisabled, ui.ghostAll > 0],
-      [0, 0, false, true],
+      'Пустой такт: пауза скрыта (появится под курсором), такт не подсвечен, «Применить» доступна',
+      [ui.placeholderCount, ui.placeholderVisible, ui.invalidCount, ui.applyDisabled],
+      [1, 1, 0, false],
     );
 
     // === 8. Тёмная тема: заливка есть и видна ===

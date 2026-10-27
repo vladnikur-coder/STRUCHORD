@@ -15201,7 +15201,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.689</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.690</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22848,7 +22848,13 @@ function tabGpUsedUnits(groups) {
   while (end > 0 && groups[end - 1]?.filler) end--;
   if (!end) end = groups.length;
   let sum = 0;
-  for (let i = 0; i < end; i++) sum += tabGpLength(groups[i]);
+  for (let i = 0; i < end; i++) {
+    const g = groups[i];
+    // 0.690: целая пауза, которую программа ставит в такт без нот, — не содержимое,
+    // а «пустое место». Иначе такт, из которого удалили всё, выглядел бы полным.
+    if (g?.wholeBar && !(g.notes || []).length) continue;
+    sum += tabGpLength(g);
+  }
   return sum;
 }
 // Паузы-«заполнители»: их программа добавила сама, чтобы такт дотянул до размера.
@@ -22962,6 +22968,7 @@ function tabGpLayout(e) {
         ghost: !!g.ghost,
         implicit: !!g.implicit,
         filler: !!g.filler,
+        wholeBar: !!g.wholeBar,
         gpIndex: index,
       };
       time += tabGpLength(g);
@@ -22969,10 +22976,11 @@ function tabGpLayout(e) {
     });
     // 0.688: паузы, добавленные программой в конец такта, — не настоящие доли,
     // а «заполнитель» свободного хвоста: на стане он не рисуется.
+    // 0.690: целая пауза в такте без нот — такой же заполнитель: на стане её нет,
+    // пока курсор не встанет в этот такт. Такт честно выглядит пустым.
+    for (const bit of bits) if (bit.wholeBar) bit.placeholder = true;
     let fillerFrom = bits.length;
     while (fillerFrom > 0 && bits[fillerFrom - 1].filler) fillerFrom--;
-    // Если в такте вообще нет настоящих долей, ничего не прячем: пустой такт
-    // по-прежнему показывает одну целую паузу.
     if (fillerFrom > 0) for (let i = fillerFrom; i < bits.length; i++) bits[i].placeholder = true;
     const used = time - offset;
     if (used < unitsPerBar - TAB_AT_EPS) {
@@ -23362,7 +23370,9 @@ function tabGpValidate(e) {
   const meter = getGridUnitsPerBar(tabGpMeter(e)),
     errors = e.gpBars
       .map((bar, i) => ({ bar: i, used: tabGpUsedUnits(bar) }))
-      .filter((b) => Math.abs(b.used - meter) > 1e-8);
+      // 0.690: такт без единой доли — не ошибка: он просто пустой,
+      // «Применить» его пропускает. Считаем только недобор и перебор.
+      .filter((b) => b.used > TAB_AT_EPS && Math.abs(b.used - meter) > 1e-8);
   const status = e.overlay.querySelector('[data-tab-gp-error]'),
     apply = e.overlay.querySelector('[data-tab-apply]');
   const allNotes = e.gpBars.flatMap((bar) => bar.flatMap((g) => g.notes));
@@ -24376,7 +24386,7 @@ function tabGpDecorate(e) {
       for (const bar of m.bars || []) {
         const bi = bar.bar.index,
           used = tabGpUsedUnits(e.gpBars[bi]);
-        if (Math.abs(used - meter) > 1e-8) {
+        if (used > TAB_AT_EPS && Math.abs(used - meter) > 1e-8) {
           // В такте под курсором заливку не показываем — как в Guitar Pro.
           const mark = box('tab-gp-invalid', bar.visualBounds);
           if (e.gpCursor?.bar === bi) mark.classList.add('is-current');
