@@ -15335,7 +15335,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.696</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.697</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -30807,6 +30807,13 @@ function findEventByPosKey(posKey) {
 // Запоминает выбор: и на событии (главное хранилище), и в Map (запасное).
 function setPreferredFingering(posKey, shapeStr, ev, barreOff, fingers) {
   if (!shapeStr) return;
+  // 0.697: пока тащат таб-вставку, курсор едет над ячейками, и обработчик
+  // наведения тянется «запомнить» аппликатуру каждой из них. Это правка
+  // модели прямо во время жеста: через 400 мс планировщик истории делает из
+  // неё отдельный снимок, и один бросок превращается в ДВА шага отмены
+  // (замер: первое Ctrl+Z после переноса не делало видно ничего). Жест — не
+  // повод запоминать хваты, поэтому на время переноса ничего не пишем.
+  if (document.body.classList.contains('is-tab-dragging')) return;
   // Список вариантов схлопывает формы с одинаковым хватом, но
   // выбранные пользователем оставляет отдельной строкой. Раз состав
   // выбранных изменился — прежний список устарел, иначе только что
@@ -31291,6 +31298,14 @@ function isLastEventInSquare(secId, sqId, evIndex) {
 }
 
 function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLast = false) {
+  // 0.697: пока тащат таб-вставку, всплывающие подсказки с аппликатурой не
+  // нужны: они всплывают под курсором, закрывают метку броска и к тому же
+  // перехватывают нажатие, если карточку берут сразу после наведения на
+  // аккорд. Поэтому на время жеста — тишина.
+  if (document.body.classList.contains('is-tab-dragging')) {
+    hideFingeringTooltip(isPreview);
+    return;
+  }
   if (isFingeringTooltipSuppressed(wrapper)) {
     hideFingeringTooltip(isPreview);
     return;
@@ -32634,10 +32649,21 @@ function attachFingeringEvents() {
 
       if (currentTooltipWrapper !== wrapper) {
         // сохраняем аппликатуру для предыдущей ячейки
-        if (currentTooltipWrapper) {
+        // 0.697: пишем хват прежней ячейки только если она ещё на экране.
+        // После пересборки разметки (рендер, бросок таб-вставки) в этой
+        // переменной остаётся отсоединённый узел, а в dataset подсказки —
+        // ключ прежней ячейки. Запись «в никуда» меняла модель сама по
+        // себе: планировщик истории превращал её в отдельный шаг, и одно
+        // действие отменялось двумя нажатиями (замер: после переноса таба
+        // первое Ctrl+Z не делало ничего).
+        if (currentTooltipWrapper && currentTooltipWrapper.isConnected) {
           const oldCacheKey = tooltip.dataset.cacheKey;
           const oldCurrentShape = tooltip.dataset.currentShape;
           if (oldCacheKey && oldCurrentShape) {
+            // 0.697: это НЕ правка песни — хват запоминается сам, от
+            // наведения. Помечаем время, чтобы планировщик истории не
+            // сделал из такой записи отдельный шаг отмены.
+            window.__passiveFingeringAt = Date.now();
             setPreferredFingering(oldCacheKey, oldCurrentShape);
           }
         }
@@ -38127,14 +38153,29 @@ function tabDragLayout(st) {
   // прячется, соседи смыкаются), и устаревшие координаты уводили цель.
   st.lists = [...document.querySelectorAll('.section-card')].map((card) => {
     const list = card.querySelector('.squares-list');
+    const cr = card.getBoundingClientRect();
+    // Пустая секция: квадратов нет вовсе. Список может быть и схлопнут в
+    // ноль, и раздут открытым зазором — в обоих случаях целью считаем саму
+    // карточку. Иначе таб нельзя было бросить в секцию, где не осталось ни
+    // одного квадрата (например, после удаления последнего), а у верха
+    // растущей карточки цель мигала между ней и соседом сверху.
+    const empty = !list || !list.querySelector(':scope > .square');
+    let lr = list ? list.getBoundingClientRect() : cr;
+    if (empty) {
+      const padX = 8, padY = 6;
+      lr = { left: cr.left + padX, right: cr.right - padX, top: cr.top + padY, bottom: cr.bottom - padY,
+        width: Math.max(1, cr.width - padX * 2), height: Math.max(1, cr.height - padY * 2),
+        x: cr.left + padX, y: cr.top + padY };
+    }
     return {
       card,
       list,
-      cr: card.getBoundingClientRect(),
-      lr: list ? list.getBoundingClientRect() : null,
+      cr,
+      lr,
+      empty,
       secId: parseInt(card.dataset.id, 10),
     };
-  }).filter((x) => x.list && x.lr && x.lr.height > 0);
+  }).filter((x) => x.list && x.lr);
   st.rectsDirty = false;
   return st.lists;
 }
@@ -38167,25 +38208,34 @@ function tabInlineInsertIndex(rowEl, x) {
 // ряд уезжал вниз на 178 px и бросок падал в начало секции).
 function tabDragTargetAt(st, x, y) {
   const lists = tabDragLayout(st);
-  // Открытое пустое место живёт в потоке и раздвигает всё, что ниже него:
-  // и соседей в своей секции, и секции под ней. Поэтому цель считаем по
-  // раскладке, где зазора нет: всё, что ниже его верхней кромки, мысленно
-  // поднимаем на его высоту. Иначе цель уезжала от курсора ровно на высоту
-  // зазора (а для нижних секций — на целую карточку), и метка мигала между
-  // двумя местами (замер: 602 → 781 → 602).
+  // Открытое пустое место стоит в потоке и раздвигает всё, что ниже него:
+  // соседей в своей секции и секции под ней. Поэтому и ряды, и сам курсор
+  // переводим в «раскладку без зазора» — там цель не зависит от того, где
+  // сейчас открыт зазор, и не мигает. Раньше высота вычиталась только у
+  // курсора, а ряды мерились «как есть» — из-за этого бросок между рядами
+  // уходил на строку выше (замер: целился в ячейку F, вставилось строкой
+  // перед F).
   const gapEl = st.gap && st.gap.parentElement ? st.gap : null;
   const gapRect = gapEl ? gapEl.getBoundingClientRect() : null;
   const gapH = gapRect ? gapRect.height : 0;
-  // Курсор над самим зазором — это «между двумя местами»: считаем его ровно
-  // на верхней кромке зазора. Иначе вычитание высоты уводило его в соседнюю
-  // секцию, и метка перескакивала туда-обратно (замер: 602 ↔ 781).
-  const yy = !gapH || y < gapRect.top ? y
-    : (y <= gapRect.top + gapH ? gapRect.top : y - gapH);
+  const belowGap = (el) => !!gapEl && !!(gapEl.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+  // Курсор ниже открытого зазора — значит он в «сдвинутой» части.
+  const yLog = gapH > 0 && y >= gapRect.bottom ? y - gapH : y;
   let best = null;
   for (const L of lists) {
-    const inside = x >= L.cr.left - 24 && x <= L.cr.right + 24 && yy >= L.cr.top - 20 && yy <= L.cr.bottom + 20;
+    const shift = gapH > 0 && belowGap(L.card) ? gapH : 0;
+    const crTop = L.cr.top - shift, crBottom = L.cr.bottom - shift;
+    const lrTop = L.lr.top - shift;
+    let lrBottom = L.lr.bottom - shift;
+    // Зазор стоит ВНУТРИ этого списка — в раскладке «без зазора» список
+    // короче на его высоту. Без этой поправки карточка с открытым зазором
+    // всегда оказывалась «ближе всех» (её низ = низ зазора), и курсор у
+    // верха ПУСТОЙ секции под ней выбирал предыдущую секцию: таб уезжал в
+    // конец верхней, а не в пустую.
+    if (gapH > 0 && !shift && !L.empty && gapEl && L.list.contains(gapEl)) lrBottom -= gapH;
+    const inside = x >= L.cr.left - 24 && x <= L.cr.right + 24 && yLog >= crTop - 20 && yLog <= crBottom + 20;
     const dx = Math.max(L.lr.left - x, 0, x - L.lr.right);
-    const dy = Math.max(L.lr.top - yy, 0, yy - L.lr.bottom);
+    const dy = Math.max(lrTop - yLog, 0, yLog - lrBottom);
     const dist = Math.hypot(dx, dy);
     if (!inside && dist > 90) continue;
     if (!best || dist < best.dist) best = Object.assign({}, L, { dist });
@@ -38194,13 +38244,15 @@ function tabDragTargetAt(st, x, y) {
   const rows = [];
   for (const el of best.list.querySelectorAll(':scope > .square')) {
     if (el.getClientRects().length === 0) continue;
-    rows.push({ el, r: el.getBoundingClientRect() });
+    const r = el.getBoundingClientRect();
+    const shift = gapH > 0 && belowGap(el) ? gapH : 0;
+    rows.push({ el, r, top: r.top - shift, bottom: r.bottom - shift });
   }
   // 1) Внутрь ряда, между ячейками: у самого края ряда — не считаем, там
   //    честнее предложить вставку строкой.
   for (const row of rows) {
     if (row.el.classList.contains('square--tab')) continue;
-    if (yy < row.r.top + TAB_DRAG_EDGE_PX || yy > row.r.bottom - TAB_DRAG_EDGE_PX) continue;
+    if (yLog < row.top + TAB_DRAG_EDGE_PX || yLog > row.bottom - TAB_DRAG_EDGE_PX) continue;
     if (x < row.r.left - 12 || x > row.r.right + 12) continue;
     const inline = tabInlineInsertIndex(row.el, x);
     if (inline) return Object.assign({}, best, { mode: 'cell', inline });
@@ -38208,7 +38260,7 @@ function tabDragTargetAt(st, x, y) {
   // 2) Строкой — пустое место во всю ширину.
   let beforeEl = null;
   for (const row of rows) {
-    if (yy < row.r.top + row.r.height / 2) { beforeEl = row.el; break; }
+    if (yLog < row.top + (row.bottom - row.top) / 2) { beforeEl = row.el; break; }
   }
   return Object.assign({}, best, { mode: 'row', beforeEl });
 }
@@ -38282,6 +38334,7 @@ function tabDragPlaceGap(st, target) {
   if (!target) {
     tabDragClearRowGap(st);
     tabDragClearCellLine(st);
+    tabDragClearHighlights();
     return;
   }
   tabDragClearCellLine(st);
@@ -38315,10 +38368,8 @@ function updateTabDragTarget(st) {
   const target = tabDragTargetAt(st, st.lastX, st.lastY);
   st.target = target;
   if (target && target.mode === 'cell') {
-    if (st.gapRow && st.gapRow !== target.card) {
-      st.gapRow.classList.remove('is-tab-drop-target');
-      st.gapRow = null;
-    }
+    document.querySelectorAll('.section-card.is-tab-drop-target')
+      .forEach((el) => { if (el !== target.card) el.classList.remove('is-tab-drop-target'); });
     target.card.classList.add('is-tab-drop-target');
     tabDragPlaceCellLine(st, target);
   } else {
@@ -38473,6 +38524,9 @@ function beginTabSquareDrag(pending) {
     beats = Math.max(1 / 16, Number(ev.span) || 1);
     notes = ev.tabNotes || [];
   }
+  // Наведение «забыто»: после жеста мышью в прежней ячейке не окажется, и
+  // запоминать её хват от имени пользователя не за что.
+  currentTooltipWrapper = null;
   const rect = pending.card.getBoundingClientRect();
   const chip = tabDragChipEl();
   fillTabDragChip(chip, { beats, notes, ts: sec.timeSig || globalTimeSig });
@@ -38512,6 +38566,8 @@ function beginTabSquareDrag(pending) {
   // и убрать ряд кнопок — обе делают страницу короче).
   st.docH0 = document.documentElement.scrollHeight;
   document.body.classList.add('is-tab-dragging');
+  hideFingeringTooltip();
+  hideFingeringTooltip(true);
   tabSquareDrag = st;
   tabDragSourceEl(st);
   // Место источника закрываем сразу: тащим саму вставку, а не её копию.
@@ -38521,6 +38577,16 @@ function beginTabSquareDrag(pending) {
   // Цель пока не ищем: иначе пустое место открылось бы прямо на старом месте
   // карточки, и казалось бы, что она никуда не делась.
   tabDragSuppressClickUntil = Date.now() + 400;
+}
+
+// Подсветка секции/ряда ставится на разных шагах жеста (сначала ячейка,
+// потом пустое место, потом «мимо») — поэтому снимаем её со ВСЕХ карточек
+// сразу, а не только с последней. Иначе рамка остаётся висеть после броска.
+function tabDragClearHighlights() {
+  document.querySelectorAll('.section-card.is-tab-drop-target')
+    .forEach((el) => el.classList.remove('is-tab-drop-target'));
+  document.querySelectorAll('.square.is-tab-cell-drop-target')
+    .forEach((el) => el.classList.remove('is-tab-cell-drop-target'));
 }
 
 function clearTabDragVisuals(st) {
@@ -38533,8 +38599,9 @@ function clearTabDragVisuals(st) {
   tabDragRestoreSource(st);
   if (st.srcEl) st.srcEl.classList.remove('is-tab-pressed', 'is-tab-drag-source');
   st.card.classList.remove('is-tab-pressed', 'is-tab-drag-source');
-  if (st.gapRow) { st.gapRow.classList.remove('is-tab-drop-target'); st.gapRow = null; }
-  if (st.cellRow) { st.cellRow.classList.remove('is-tab-cell-drop-target'); st.cellRow = null; }
+  tabDragClearHighlights();
+  st.gapRow = null;
+  st.cellRow = null;
   document.body.classList.remove('is-tab-dragging');
 }
 
@@ -38639,11 +38706,21 @@ function attachTabSquareDragEvents() {
     if (tabSquareDrag) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     const cont = document.getElementById('sectionsContainer');
-    if (!cont || !cont.contains(e.target)) return;
+    if (!cont) return;
+    // Нажали по всплывающей подсказке с аппликатурой? Она лежит ПОВЕРХ
+    // ячейки и держится, пока курсор на ней, — значит «нажали на то, что
+    // под ней». Убираем подсказку и смотрим, что там на самом деле.
+    let pressTarget = e.target;
+    if (pressTarget.closest && pressTarget.closest('#fingering-tooltip, #preview-tooltip')) {
+      hideFingeringTooltip();
+      hideFingeringTooltip(true);
+      pressTarget = document.elementFromPoint(e.clientX, e.clientY) || pressTarget;
+    }
+    if (!cont.contains(pressTarget)) return;
     // Кнопки, счётчики и ручки — не повод тащить.
-    if (e.target.closest('button, .tab-btn, .del-square-btn, .square-resize-handle, .resize-handle, .repeat-badge, .square-beats-badge, .chord-btn')) return;
-    const rowCard = e.target.closest('.square--tab');
-    const cellCard = rowCard ? null : e.target.closest('.chord-wrapper--tab[data-ei]');
+    if (pressTarget.closest('button, .tab-btn, .del-square-btn, .square-resize-handle, .resize-handle, .repeat-badge, .square-beats-badge, .chord-btn')) return;
+    const rowCard = pressTarget.closest('.square--tab');
+    const cellCard = rowCard ? null : pressTarget.closest('.chord-wrapper--tab[data-ei]');
     const card = rowCard || cellCard;
     if (!card || !cont.contains(card)) return;
     const secId = parseInt(card.dataset.sec, 10);
@@ -81017,12 +81094,51 @@ function gpExportModal(title, bodyHtml, label) {
   let historyIndex = -1;
   let historyTimer = null;
   let historyRestoring = false;
+  // Откуда пришёл снимок: 'atomic' — команда сама сняла «до/после»,
+  // 'debounce' — отложенный планировщик после правки. Различие нужно
+  // одному правилу: пассивную запись хватов впитываем только в отложенном
+  // снимке, чтобы не съесть настоящую правку пользователя.
+  let historyCaptureMode = 'debounce';
+
+  // Снимок, который отличается от предыдущего ТОЛЬКО запомненными хватами
+  // (карта выбора + поля fingering/fingeringTuning на ячейках)? Формы —
+  // это память о показанном, а не музыка: отдельного шага отмены они не
+  // стоят. Замер до правила: один бросок таб-вставки давал ДВА шага, и
+  // первое Ctrl+Z не меняло ничего видимого.
+  function onlyFingeringsDiffer(prevJson, nextJson) {
+    if (!prevJson || !nextJson) return false;
+    const strip = (json) => {
+      let data;
+      try { data = JSON.parse(json); } catch (e) { return null; }
+      delete data.preferredFingerings;
+      if (Array.isArray(data.sections)) {
+        data.sections.forEach((sec) => (sec.squares || []).forEach((sq) => (sq.events || []).forEach((ev) => {
+          if (!ev || typeof ev !== 'object') return;
+          delete ev.fingering;
+          delete ev.fingeringTuning;
+        })));
+      }
+      return JSON.stringify(data);
+    };
+    const a = strip(prevJson);
+    return a !== null && a === strip(nextJson);
+  }
 
   function captureHistoryNow() {
     if (historyRestoring) return;
     const snap = currentSongSnapshot();
     if (snap === null) return;
     if (historyIndex >= 0 && historyStack[historyIndex] === snap) return;
+    // Пассивная запись хватов «прилипает» к уже стоящему шагу: отмена
+    // перешагивает её и возвращает настоящее действие пользователя.
+    if (historyCaptureMode === 'debounce' && historyIndex >= 0 &&
+        window.__passiveFingeringAt && Date.now() - window.__passiveFingeringAt < 2500 &&
+        onlyFingeringsDiffer(historyStack[historyIndex], snap)) {
+      historyStack[historyIndex] = snap;
+      window.__passiveFingeringAt = 0;
+      updateHistoryButtons();
+      return;
+    }
     // Новая правка после отмены обрывает ветку «вперёд»: вернуться в неё
     // уже нельзя, и держать её в списке значило бы обещать невыполнимое.
     historyStack.length = historyIndex + 1;
@@ -81036,7 +81152,12 @@ function gpExportModal(title, bodyHtml, label) {
   window.captureHistorySnapshot = function () {
     if (historyTimer) clearTimeout(historyTimer);
     historyTimer = null;
-    captureHistoryNow();
+    historyCaptureMode = 'atomic';
+    try {
+      captureHistoryNow();
+    } finally {
+      historyCaptureMode = 'debounce';
+    }
   };
 
   window.scheduleHistorySnapshot = function () {
