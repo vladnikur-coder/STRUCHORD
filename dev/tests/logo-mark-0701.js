@@ -1,12 +1,12 @@
 'use strict';
-// 0.700 · логотип: стручок, перец, слива, малина (патч patch_logo.py 1.2).
+// 0.700–0.701 · логотип: стручок, перец, слива, малина (патч patch_logo.py 1.5).
 // Проверяет ровно то, что владелец просил посмотреть руками:
 //   1) главный экран — стручок слева от STRUCHORD, а не медиатор;
 //   2) в шапке редактора — стручок;
 //   3) переключение темы (☾) — знак меняет цвет вместе с темой;
 //   4) схемы «Перец», «Слива», «Малина» — перец, слива, малина; другая схема — стручок;
 //   5) телефон — знак уменьшается, но не исчезает (в шапке редактора скрыт);
-//   6) PWA — новый кэш приложения (два обновления подряд).
+//   6) PWA — кэш приложения отвечает номеру версии, две загрузки подряд; 7) у сливы и малины зелёный лист.
 // Запуск: node dev/tests/logo-mark-0700.js
 // Нужен локальный сервер: python3 -m http.server 8000 (из корня репозитория).
 
@@ -16,7 +16,7 @@ const puppeteer = require('puppeteer');
 const sparticuz = require('@sparticuz/chromium').default;
 
 const URL = process.env.STRUCHORD_URL || 'http://127.0.0.1:8000/STRUCHORD.html';
-const OUT_DIR = path.join(__dirname, '..', 'bench', 'results', 'logo-0.700');
+const OUT_DIR = path.join(__dirname, '..', 'bench', 'results', 'logo-0.701');
 const wait = (ms) => new Promise((r) => setTimeout(r, ms));
 
 const results = [];
@@ -144,14 +144,51 @@ const scheme = async (page, id) => {
     await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; applyScheme(''); });
     await wait(350);
 
+    // ── 7. Лист сливы и малины: на светлой теме зелёный, на тёмной прозрачный ──
+    const leaf = (schemeId) => page.evaluate((id) => {
+      applyScheme(id);
+      const svg = document.querySelector('.home-brand-mark svg.struchord-mark');
+      const cs = getComputedStyle(svg);
+      const leafUse = svg.querySelector('.mark-' + id);
+      return {
+        shown: leafUse ? getComputedStyle(leafUse).display !== 'none' : false,
+        leafVar: cs.getPropertyValue('--sm-leaf').trim().toLowerCase(),
+      };
+    }, schemeId);
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; });
+    await wait(250);
+    const plumLeafLight = await leaf('plum');
+    const raspLeafLight = await leaf('raspberry');
+    check('Слива: лист зелёный на светлой теме', [plumLeafLight.shown, plumLeafLight.leafVar], [true, '#5d7a3e']);
+    check('Малина: лист зелёный на светлой теме', [raspLeafLight.shown, raspLeafLight.leafVar], [true, '#5d7a3e']);
+    await page.evaluate(() => { applyScheme('plum'); });
+    await wait(300);
+    await page.screenshot({ path: path.join(OUT_DIR, '11-plum-leaf-light.png') });
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'dark'; });
+    await wait(300);
+    const plumLeafDark = await page.evaluate(() => {
+      const svg = document.querySelector('.home-brand-mark svg.struchord-mark');
+      return getComputedStyle(svg).getPropertyValue('--sm-leaf').trim().toLowerCase();
+    });
+    check('Слива: на тёмной теме лист не закрашен (виден фон, как у стручка)', plumLeafDark, 'transparent');
+    await page.screenshot({ path: path.join(OUT_DIR, '12-plum-leaf-dark.png') });
+    await page.evaluate(() => { document.documentElement.dataset.theme = 'light'; applyScheme(''); });
+    await wait(300);
+
     // ── 6. PWA: свежий кэш приложения ────────────────────────────────────
+    // Версию не зашиваем: патч поднимает её сам. Проверяем правило R7 —
+    // кэш приложения должен отвечать номеру версии на странице.
     const cache = await page.evaluate(async () => {
       const res = await fetch('sw.js', { cache: 'no-store' });
       const text = await res.text();
       const m = text.match(/CACHE_NAME\s*=\s*'([^']+)'/);
-      return { status: res.status, name: m ? m[1] : null };
+      const verEl = document.querySelector('#devPanelTrigger');
+      const ver = verEl ? verEl.textContent : '';
+      return { status: res.status, name: m ? m[1] : null, ver };
     });
-    check('Кэш приложения обновлён под 0.700', cache, { status: 200, name: 'struchord-v700' });
+    const verNum = (String(cache.ver).match(/ver\s+(\d+\.\d+)/) || [])[1] || '';
+    const expectCache = 'struchord-v' + verNum.split('.').pop();
+    check('Кэш приложения отвечает номеру версии на странице', [cache.status, cache.name, expectCache, /^\d+\.\d+$/.test(verNum)], [200, expectCache, expectCache, true]);
     // Два обновления подряд: страница открывается заново, версия та же, знак на месте.
     const fresh = await browser.newPage();
     fresh.on('pageerror', (e) => pageErrors.push(`reload: ${e.message}`));
@@ -164,7 +201,8 @@ const scheme = async (page, id) => {
       ver: (document.querySelector('.app-title span') || {}).textContent || '',
       mark: !!document.querySelector('.home-brand-mark svg.struchord-mark'),
     }));
-    check('После двух обновлений подряд: версия 0.700 и знак на месте', [/ver 0\.700/.test(afterTwo.ver), afterTwo.mark], [true, true]);
+    const verAfter = (String(afterTwo.ver).match(/ver\s+(\d+\.\d+)/) || [])[1] || '';
+    check('После двух обновлений подряд: версия та же и знак на месте', [verAfter, verAfter === verNum, afterTwo.mark], [verNum, true, true]);
     await fresh.close();
 
     // ── 5. Телефон ───────────────────────────────────────────────────────
@@ -201,7 +239,7 @@ const scheme = async (page, id) => {
     check('На страницах не было ошибок JavaScript', pageErrors, []);
 
     const passed = results.filter((r) => r.ok).length;
-    fs.writeFileSync(path.join(OUT_DIR, 'checks.json'), JSON.stringify({ version: '0.700', results, passed, total: results.length }, null, 2));
+    fs.writeFileSync(path.join(OUT_DIR, 'checks.json'), JSON.stringify({ version: '0.700–0.701', results, passed, total: results.length }, null, 2));
     console.log(`\n${passed}/${results.length} PASS`);
     if (passed !== results.length) process.exitCode = 1;
   } finally {
