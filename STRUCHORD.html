@@ -5241,10 +5241,46 @@ body.is-resizing .tab-insert > .chord-ticks-step {
   border-color: var(--color-accent);
   transition: transform 120ms ease, border-color 120ms ease;
 }
-.tab-insert.is-tab-drag-source {
-  opacity: 0.34;
-  border-style: dashed;
-  border-color: var(--color-accent);
+/* 0.696: взятая карточка НЕ остаётся на месте полупрозрачной — она
+   СВОРАЧИВАЕТСЯ, и соседи закрывают её место. Иначе кажется, что таскаешь
+   копию, а оригинал стоит на месте (замечание владельца). Высоту и поля
+   считает JS (нужен замер перед схлопыванием), здесь — только переход,
+   обрезка и отключение мышиных событий у уезжающего элемента. */
+.square--tab.is-tab-drag-taken {
+  overflow: hidden;
+  opacity: 0;
+  pointer-events: none;
+  transition: height 170ms cubic-bezier(0.22, 1, 0.36, 1),
+              margin 170ms cubic-bezier(0.22, 1, 0.36, 1),
+              opacity 110ms ease;
+}
+/* Ячейку нельзя «схлопнуть по высоте»: сетка ряда всё равно держала бы её
+   дорожку, и оставшиеся аккорды переносились бы на вторую строку. Поэтому
+   убранная ячейка просто исчезает из раскладки, а ряд пересчитывается
+   (см. tabDragTakeSource). */
+.chord-wrapper--tab.is-tab-drag-taken { display: none; }
+/* Когда таб-ячейка уехала из ряда, ряд не должен оставаться высоким «на
+   шесть струн»: оставшиеся аккорды возвращаются к обычной высоте, а сетка
+   пересчитывается (число дорожек уменьшено — см. tabDragTakeSource). */
+.square.is-tab-cell-source-taken .square-inner { grid-auto-rows: auto; }
+.square.is-tab-cell-source-taken .chord-wrapper { min-height: 4.5rem; }
+/* Ряд-приёмник: рамка показывает, что бросок будет ВНУТРЬ ряда. */
+.square.is-tab-cell-drop-target > .square-inner {
+  box-shadow: inset 0 0 0 2px rgba(var(--color-accent-rgb), 0.55), var(--shadow-card);
+}
+/* 0.696: тонкая вертикальная линия между ячейками — «таб встанет сюда
+   узкой ячейкой». Позицию и высоту ставит JS по координатам ряда. */
+#tabCellGap {
+  position: fixed;
+  z-index: 1100;
+  display: none;
+  width: 3px;
+  transform: translateX(-50%);
+  border-radius: 3px;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 1px rgba(var(--color-accent-rgb), 0.35),
+              0 0 12px rgba(var(--color-accent-rgb), 0.45);
+  pointer-events: none;
 }
 body.is-tab-dragging {
   cursor: grabbing;
@@ -5252,6 +5288,15 @@ body.is-tab-dragging {
   -webkit-user-select: none;
 }
 body.is-tab-dragging .tab-insert { cursor: grabbing; }
+/* Ряд «+ квадрат / Таб / копировать» выезжает при наведении и меняет высоту
+   секции на 0.5rem-строку (~57 px). Пока тащим, он не выезжает нигде:
+   иначе цель под курсором переезжает при каждом переходе между секциями. */
+body.is-tab-dragging .square-actions-row {
+  max-height: 0 !important;
+  margin-top: 0 !important;
+  transition: none !important;
+  pointer-events: none;
+}
 .section-card.is-tab-drop-target {
   outline: 2px solid rgba(var(--color-accent-rgb), 0.45);
   outline-offset: 2px;
@@ -15290,7 +15335,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.695</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.696</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -37888,20 +37933,29 @@ function moveTabSquare(sid, sqid, dir) {
   }, { quiet: true, history: 'atomic' });
   if (!rerenderSectionSquaresDom(s)) requestRender();
 }
-// B-12.12 (0.695): перенос таб-вставки перетаскиванием.
-// Владелец подтвердил: тянем пока только таб, бросать можно в любую секцию,
-// жест начинается с удержания ~0.5 с и видимого отклика, короткое нажатие
-// по-прежнему открывает редактор, кнопки ‹ › у карточки убраны.
+// B-12.12 (0.695/0.696): перенос таб-вставки перетаскиванием.
+// Владелец подтвердил: тянуть можно пока только таб, бросать — в любую секцию;
+// жест начинается с удержания ~0.5 с и видимого отклика; короткое нажатие
+// по-прежнему открывает редактор; кнопки ‹ › у карточки убраны.
 //
-// Устройство то же, что у перетаскивания секций (B-65): pointer-события, а не
-// нативный HTML5 DnD — нужен свой вид ярлыка, своя задержка «взятия» и своё
-// пустое место под бросок. Модель меняется ТОЛЬКО при отпускании: пока тащим,
-// в DOM живёт один служебный .tab-drop-gap, а сама карточка остаётся на месте
-// полупрозрачной («взята»). Поэтому любой посторонний перерендер ничего не
-// ломает — при следующем движении зазор просто встанет заново.
+// 0.696 по замечанию владельца: «не вставить между ячейками, и пусть когда
+// вставка взята, она исчезает, а то кажется, что она всё ещё на месте».
+//   • взятая карточка СНИМАЕТСЯ со своего места (место закрывается, как при
+//     перетаскивании секций), поэтому не выглядит «двумя копиями»;
+//   • внутри ряда аккордов (Am | F | C | G) между ячейками встаёт тонкая
+//     вертикальная линия-указатель, а бросок делает таб УЗКОЙ ЯЧЕЙКОЙ ряда —
+//     тем самым мини-табом, который уже умеет редактор;
+//   • у самого края ряда (верх/низ) и вне рядов по-прежнему предлагается
+//     пустое место во всю ширину — таб встаёт отдельной строкой;
+//   • таб из ячейки можно вытащить обратно в строку — им же и обратно.
+//
+// Модель меняется ТОЛЬКО при отпускании: пока тащим, в DOM живут служебное
+// пустое место (строка) или линия (ячейка). Поэтому посторонний перерендер
+// ничего не ломает — при следующем движении метка встанет заново.
 const TAB_DRAG_HOLD_MS = 500;      // сколько держать до «взятия»
 const TAB_DRAG_PRESS_MS = 110;     // лёгкий отклик на само нажатие
 const TAB_DRAG_CANCEL_PX = 10;     // до «взятия» движение отменяет жест
+const TAB_DRAG_EDGE_PX = 20;       // у самого края ряда — вставка строкой
 const TAB_DRAG_FLY_MS = 240;
 const TAB_DRAG_EASE = 'cubic-bezier(.22,1,.36,1)';
 let tabSquareDrag = null;
@@ -37919,60 +37973,158 @@ function tabDragChipEl() {
   return chip;
 }
 
-function fillTabDragChip(chip, sq, parentTs) {
-  const beats = getTabInsertBeats(sq, parentTs);
-  const bars = formatSquareBars(beats / getGridUnitsPerBar(parentTs));
-  const count = (sq.notes || []).filter((n) => !n.pause).length;
+function tabCellGapEl() {
+  let line = document.getElementById('tabCellGap');
+  if (!line) {
+    line = document.createElement('div');
+    line.id = 'tabCellGap';
+    line.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(line);
+  }
+  return line;
+}
+
+// «1 такт» / «2 доли» — подпись для ярлыка.
+function tabDragLengthLabel(beats, ts) {
+  const bar = getGridUnitsPerBar(ts);
+  if (beats >= bar - 1e-6) {
+    const bars = formatSquareBars(beats / bar);
+    return bars + ' ' + sectionRangeCountWord(bars);
+  }
+  const b = formatSquareBars(beats);
+  const word = b === 1 ? 'доля' : (b >= 2 && b <= 4 ? 'доли' : 'долей');
+  return b + ' ' + word;
+}
+
+function fillTabDragChip(chip, info) {
+  const count = (info.notes || []).filter((n) => !n.pause).length;
   const noteWord = count % 10 === 1 && count % 100 !== 11 ? 'нота'
     : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? 'ноты' : 'нот';
   chip.innerHTML =
     '<span class="tab-drag-chip-head"><strong>TAB</strong>' +
-    '<span class="tab-drag-chip-count">' + count + ' ' + noteWord + ' · ' + bars + ' ' + sectionRangeCountWord(bars) + '</span></span>' +
+    '<span class="tab-drag-chip-count">' + count + ' ' + noteWord + ' · ' + tabDragLengthLabel(info.beats, info.ts) + '</span></span>' +
     '<span class="tab-drag-chip-bars">отпустите над нужным местом</span>';
 }
 
-// Переставить таб-вставку в другую позицию или в другую секцию.
-// index считается по массиву БЕЗ перемещаемого квадрата — так одинаково
-// работают и перенос внутри секции, и перенос в чужую.
-function moveTabSquareTo(fromSid, sqid, toSid, index) {
-  const from = sections.find((s) => s.id === fromSid);
-  const to = sections.find((s) => s.id === toSid);
-  if (!from || !to) return false;
-  const src = from.squares.find((q) => q && q.id === sqid);
-  if (!src || src.type !== 'tab') return false;
-  const fromTs = from.timeSig || globalTimeSig;
-  const toTs = to.timeSig || globalTimeSig;
-  let movedSq = src;
-  if (fromTs !== toTs) {
-    // Другой размер — ритм сохраняем пересчётом, как при смене размера
-    // секции. Не помещается — не переносим и честно объясняем.
-    const conv = tabInsertConvertMeter(src, fromTs, toTs);
+// Снять таб-ячейку из ряда: её время возвращается соседу, ряд не «худеет»
+// зря. Тот же приём, что в редакторе таб-вставки при переносе из ячейки.
+function tabDetachInlineCell(sec, sq, ei) {
+  if (!sec || !sq || !Array.isArray(sq.events)) return;
+  const ev = sq.events[ei];
+  if (!ev) return;
+  const oldSpan = Number(ev.span) || 1;
+  if (sq.events.length <= 1) {
+    sq.events[0] = { chord: '', span: oldSpan, timeSig: null };
+    return;
+  }
+  const giveIdx = ei > 0 ? ei - 1 : 1;
+  const give = sq.events[giveIdx];
+  if (give) give.span = Math.round(((Number(give.span) || 0) + oldSpan) * 1e6) / 1e6;
+  sq.events.splice(ei, 1);
+}
+
+// Перенос: строка ↔ строка, строка → ячейка, ячейка → строка,
+// ячейка → ячейка. Один шаг истории на любой случай.
+function tabMoveCommit(st, drop) {
+  const srcSec = sections.find((s) => s.id === st.secId);
+  if (!srcSec || !drop) return false;
+  const dstSec = drop.secId === st.secId ? srcSec : sections.find((s) => s.id === drop.secId);
+  if (!dstSec) return false;
+  const srcTs = srcSec.timeSig || globalTimeSig;
+  const dstTs = dstSec.timeSig || globalTimeSig;
+  let beats = 0;
+  let notes = [];
+  if (st.kind === 'row') {
+    const sq = srcSec.squares.find((q) => q && q.id === st.sqId && q.type === 'tab');
+    if (!sq) return false;
+    beats = Number(sq.beats) || getGridUnitsPerBar(srcTs);
+    notes = JSON.parse(JSON.stringify(sq.notes || []));
+  } else {
+    const sq = srcSec.squares.find((q) => q && q.id === st.sqId);
+    const ev = sq && Array.isArray(sq.events) ? sq.events[st.ei] : null;
+    if (!isInlineTabEvent(ev)) return false;
+    beats = Math.max(1 / 16, Number(ev.span) || 1);
+    notes = JSON.parse(JSON.stringify(ev.tabNotes || []));
+  }
+  if (srcTs !== dstTs) {
+    const conv = tabInsertConvertMeter({ beats, notes }, srcTs, dstTs);
     if (!conv) {
       showToast('Нельзя перенести: таб не помещается в размер этой секции');
       return false;
     }
-    movedSq = { ...src, beats: conv.beats, notes: conv.notes };
+    beats = conv.beats;
+    notes = conv.notes;
   }
-  if (from !== to && to.squares.length >= CONFIG.MAX_SQUARES_PER_SECTION) {
-    showToast('В этой секции уже максимум квадратов');
-    return false;
+  const barUnits = getGridUnitsPerBar(dstTs);
+  const rowBeats = Math.max(barUnits, Math.ceil(beats / barUnits - 1e-6) * barUnits);
+  const cellBeats = Math.max(1 / 16, Math.round(beats * 1e6) / 1e6);
+  const takeSource = () => {
+    if (st.kind === 'row') srcSec.squares = srcSec.squares.filter((q) => q && q.id !== st.sqId);
+    else tabDetachInlineCell(srcSec, srcSec.squares.find((q) => q && q.id === st.sqId), st.ei);
+  };
+  if (drop.kind === 'cell') {
+    const destSq = dstSec.squares.find((q) => q && q.id === drop.sqId && q.type !== 'tab');
+    if (!destSq) return false;
+    if (st.kind === 'cell' && drop.secId === st.secId && drop.sqId === st.sqId) {
+      // Перестановка внутри того же ряда — это перенос самой ячейки, а не
+      // «убрать и вставить»: длина ряда и длины соседей не меняются.
+      songStore.dispatch('square/tab-move', () => {
+        if (!isInlineTabEvent(destSq.events[st.ei])) return;
+        const [ev] = destSq.events.splice(st.ei, 1);
+        const at = Math.max(0, Math.min(drop.ei, destSq.events.length));
+        destSq.events.splice(at, 0, ev);
+        st.landedId = destSq.id;
+      }, { quiet: true, history: 'atomic' });
+      showToast('Таб-ячейка переставлена');
+    } else {
+      songStore.dispatch('square/tab-move', () => {
+        takeSource();
+        tabCommitInlineInsertion(destSq, 'before', drop.ei, cellBeats,
+          tabInsertCleanNotes(notes, cellBeats, dstTs), dstTs);
+        st.landedId = destSq.id;
+      }, { quiet: true, history: 'atomic' });
+      showToast('Таб вставлен в ряд ячейкой');
+    }
+  } else {
+    if (dstSec !== srcSec && dstSec.squares.length >= CONFIG.MAX_SQUARES_PER_SECTION) {
+      showToast('В этой секции уже максимум квадратов');
+      return false;
+    }
+    songStore.dispatch('square/tab-move', () => {
+      const kept = st.kind === 'row' ? srcSec.squares.find((q) => q && q.id === st.sqId) : null;
+      takeSource();
+      let target = kept;
+      if (target) {
+        // Строка → строка: тот же квадрат (id, повтор) меняет только место.
+        target.beats = rowBeats;
+        target.notes = tabInsertCleanNotes(notes, rowBeats, dstTs);
+      } else {
+        target = {
+          id: nextId++,
+          type: 'tab',
+          repeat: 1,
+          beats: rowBeats,
+          notes: tabInsertCleanNotes(notes, rowBeats, dstTs),
+          events: [],
+          customBeats: null,
+        };
+      }
+      const at = Math.max(0, Math.min(drop.index, dstSec.squares.length));
+      dstSec.squares.splice(at, 0, target);
+      st.landedId = target.id;
+    }, { quiet: true, history: 'atomic' });
+    showToast('Таб-вставка перемещена');
   }
-  songStore.dispatch('square/tab-move', () => {
-    const at = from.squares.indexOf(src);
-    if (at >= 0) from.squares.splice(at, 1);
-    const arr = to.squares;
-    arr.splice(Math.max(0, Math.min(index, arr.length)), 0, movedSq);
-  }, { quiet: true, history: 'atomic' });
-  const okFrom = rerenderSectionSquaresDom(from);
-  const okTo = from === to ? true : rerenderSectionSquaresDom(to);
-  if (!okFrom || !okTo) requestRender();
+  const okSrc = rerenderSectionSquaresDom(srcSec);
+  const okDst = dstSec === srcSec ? true : rerenderSectionSquaresDom(dstSec);
+  if (!okSrc || !okDst) requestRender();
   if (typeof renderSongMap === 'function') renderSongMap();
-  showToast('Таб-вставка перемещена');
   return true;
 }
 
 function tabDragLayout(st) {
-  if (!st.rectsDirty && st.lists) return st.lists;
+  // Кэш не используем: раскладка меняется не только прокруткой (ряд кнопок
+  // прячется, соседи смыкаются), и устаревшие координаты уводили цель.
   st.lists = [...document.querySelectorAll('.section-card')].map((card) => {
     const list = card.querySelector('.squares-list');
     return {
@@ -37987,39 +38139,89 @@ function tabDragLayout(st) {
   return st.lists;
 }
 
+// Куда именно попадёт таб, если бросить между ячейками этого ряда.
+// Возвращает индекс события, ПЕРЕД которым нужно вставить.
+function tabInlineInsertIndex(rowEl, x) {
+  if (!rowEl || rowEl.classList.contains('square--tab')) return null;
+  const inner = rowEl.querySelector('.square-inner');
+  if (!inner) return null;
+  const wraps = [...inner.querySelectorAll(':scope > .chord-wrapper')]
+    .filter((el) => el.getClientRects().length > 0);
+  if (!wraps.length) return null;
+  for (const el of wraps) {
+    const r = el.getBoundingClientRect();
+    if (x < r.left + r.width / 2) {
+      const ei = Number.parseInt(el.dataset.ei, 10);
+      return { inner, rowEl, x: r.left, ei: Number.isFinite(ei) ? ei : 0 };
+    }
+  }
+  const last = wraps[wraps.length - 1];
+  const r = last.getBoundingClientRect();
+  const ei = Number.parseInt(last.dataset.ei, 10);
+  return { inner, rowEl, x: r.right, ei: (Number.isFinite(ei) ? ei + 1 : wraps.length) };
+}
+
 // Куда встанет карточка при текущем положении курсора.
+// Геометрию считаем так, будто открытого пустого места нет: оно двигает
+// соседей, и без этой поправки цель «прыгала» сама под курсором (замер:
+// ряд уезжал вниз на 178 px и бросок падал в начало секции).
 function tabDragTargetAt(st, x, y) {
   const lists = tabDragLayout(st);
+  // Открытое пустое место живёт в потоке и раздвигает всё, что ниже него:
+  // и соседей в своей секции, и секции под ней. Поэтому цель считаем по
+  // раскладке, где зазора нет: всё, что ниже его верхней кромки, мысленно
+  // поднимаем на его высоту. Иначе цель уезжала от курсора ровно на высоту
+  // зазора (а для нижних секций — на целую карточку), и метка мигала между
+  // двумя местами (замер: 602 → 781 → 602).
+  const gapEl = st.gap && st.gap.parentElement ? st.gap : null;
+  const gapRect = gapEl ? gapEl.getBoundingClientRect() : null;
+  const gapH = gapRect ? gapRect.height : 0;
+  // Курсор над самим зазором — это «между двумя местами»: считаем его ровно
+  // на верхней кромке зазора. Иначе вычитание высоты уводило его в соседнюю
+  // секцию, и метка перескакивала туда-обратно (замер: 602 ↔ 781).
+  const yy = !gapH || y < gapRect.top ? y
+    : (y <= gapRect.top + gapH ? gapRect.top : y - gapH);
   let best = null;
   for (const L of lists) {
-    const inside = x >= L.cr.left - 24 && x <= L.cr.right + 24 && y >= L.cr.top - 20 && y <= L.cr.bottom + 20;
+    const inside = x >= L.cr.left - 24 && x <= L.cr.right + 24 && yy >= L.cr.top - 20 && yy <= L.cr.bottom + 20;
     const dx = Math.max(L.lr.left - x, 0, x - L.lr.right);
-    const dy = Math.max(L.lr.top - y, 0, y - L.lr.bottom);
+    const dy = Math.max(L.lr.top - yy, 0, yy - L.lr.bottom);
     const dist = Math.hypot(dx, dy);
     if (!inside && dist > 90) continue;
     if (!best || dist < best.dist) best = Object.assign({}, L, { dist });
   }
   if (!best) return null;
-  // Пустое место, уже вставленное в список, сдвигает соседей вниз. Если
-  // мерить по живым координатам, цель начинает прыгать сама с собой
-  // (то «перед первым», то «перед вторым») — та же беда, что была у
-  // перетаскивания секций. Поэтому считаем геометрию БЕЗ зазора.
-  const gapH = st.gap && st.gap.parentElement === best.list ? st.gap.getBoundingClientRect().height : 0;
-  const squares = [...best.list.querySelectorAll(':scope > .square')];
-  let beforeEl = null;
-  for (const el of squares) {
-    const r = el.getBoundingClientRect();
-    const afterGap = gapH > 0 && (st.gap.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
-    const top = r.top - (afterGap ? gapH : 0);
-    if (y < top + r.height / 2) { beforeEl = el; break; }
+  const rows = [];
+  for (const el of best.list.querySelectorAll(':scope > .square')) {
+    if (el.getClientRects().length === 0) continue;
+    rows.push({ el, r: el.getBoundingClientRect() });
   }
-  return Object.assign({}, best, { beforeEl });
+  // 1) Внутрь ряда, между ячейками: у самого края ряда — не считаем, там
+  //    честнее предложить вставку строкой.
+  for (const row of rows) {
+    if (row.el.classList.contains('square--tab')) continue;
+    if (yy < row.r.top + TAB_DRAG_EDGE_PX || yy > row.r.bottom - TAB_DRAG_EDGE_PX) continue;
+    if (x < row.r.left - 12 || x > row.r.right + 12) continue;
+    const inline = tabInlineInsertIndex(row.el, x);
+    if (inline) return Object.assign({}, best, { mode: 'cell', inline });
+  }
+  // 2) Строкой — пустое место во всю ширину.
+  let beforeEl = null;
+  for (const row of rows) {
+    if (yy < row.r.top + row.r.height / 2) { beforeEl = row.el; break; }
+  }
+  return Object.assign({}, best, { mode: 'row', beforeEl });
 }
 
-// Точное место броска берём по уже открытому пустому месту: что человек
-// видит, то и получит. Пересчёт по координатам здесь не нужен и опасен —
-// зазор сам сдвигает квадраты.
-function tabDropFromGap(st) {
+// Точное место броска берём по уже показанной метке: что человек видит,
+// то и получит.
+function tabDropTarget(st) {
+  if (st.cellTarget) {
+    const t = st.cellTarget;
+    let ei = t.ei;
+    if (st.kind === 'cell' && st.secId === t.secId && st.sqId === t.sqId && st.ei < ei) ei -= 1;
+    return { kind: 'cell', secId: t.secId, sqId: t.sqId, ei };
+  }
   if (!st.gap || !st.gap.parentElement) return null;
   const list = st.gap.parentElement;
   const card = list.closest('.section-card');
@@ -38035,23 +38237,57 @@ function tabDropFromGap(st) {
   }
   const sec = sections.find((s) => s.id === secId);
   if (!sec) return null;
-  const without = sec.squares.map((q) => q && q.id).filter((id) => id !== st.sqId);
+  // Строку-источник считаем «уже снятой»; у ячейки-источника квадрат-хозяин
+  // остаётся на месте, поэтому его id не выкидываем.
+  const without = sec.squares.map((q) => q && q.id)
+    .filter((id) => st.kind !== 'row' || id !== st.sqId);
   let index = 0;
   for (const id of beforeIds) {
     if (without.indexOf(id) >= 0) index++;
   }
-  return { secId, index };
+  return { kind: 'row', secId, index };
+}
+
+function tabDragClearCellLine(st) {
+  if (st.cellGap) { st.cellGap.style.display = 'none'; }
+  if (st.cellRow && st.cellRow !== st.gapRow) st.cellRow.classList.remove('is-tab-cell-drop-target');
+  st.cellRow = null;
+  st.cellTarget = null;
+}
+
+function tabDragClearRowGap(st) {
+  if (st.gap) { st.gap.remove(); st.gap = null; }
+  if (st.gapRow) { st.gapRow.classList.remove('is-tab-cell-drop-target'); st.gapRow = null; }
+}
+
+function tabDragPlaceCellLine(st, target) {
+  tabDragClearRowGap(st);
+  const line = st.cellGap || (st.cellGap = tabCellGapEl());
+  if (st.cellRow && st.cellRow !== target.inline.rowEl) st.cellRow.classList.remove('is-tab-cell-drop-target');
+  st.cellRow = target.inline.rowEl;
+  st.cellRow.classList.add('is-tab-cell-drop-target');
+  st.cellTarget = {
+    secId: target.secId,
+    sqId: parseInt(target.inline.rowEl.dataset.square, 10),
+    ei: target.inline.ei,
+  };
+  const innerRect = target.inline.inner.getBoundingClientRect();
+  line.style.display = 'block';
+  line.style.left = Math.round(target.inline.x) + 'px';
+  line.style.top = Math.round(innerRect.top) + 'px';
+  line.style.height = Math.round(innerRect.height) + 'px';
 }
 
 function tabDragPlaceGap(st, target) {
   if (!target) {
-    if (st.gap) { st.gap.remove(); st.gap = null; }
-    if (st.gapSec) { st.gapSec.classList.remove('is-tab-drop-target'); st.gapSec = null; }
+    tabDragClearRowGap(st);
+    tabDragClearCellLine(st);
     return;
   }
-  if (st.gapSec && st.gapSec !== target.card) st.gapSec.classList.remove('is-tab-drop-target');
+  tabDragClearCellLine(st);
+  if (st.gapRow && st.gapRow !== target.card) st.gapRow.classList.remove('is-tab-drop-target');
   target.card.classList.add('is-tab-drop-target');
-  st.gapSec = target.card;
+  st.gapRow = target.card;
   if (!st.gap) {
     st.gap = document.createElement('div');
     st.gap.className = 'tab-drop-gap';
@@ -38075,6 +38311,115 @@ function tabDragPlaceGap(st, target) {
   }
 }
 
+function updateTabDragTarget(st) {
+  const target = tabDragTargetAt(st, st.lastX, st.lastY);
+  st.target = target;
+  if (target && target.mode === 'cell') {
+    if (st.gapRow && st.gapRow !== target.card) {
+      st.gapRow.classList.remove('is-tab-drop-target');
+      st.gapRow = null;
+    }
+    target.card.classList.add('is-tab-drop-target');
+    tabDragPlaceCellLine(st, target);
+  } else {
+    tabDragPlaceGap(st, target);
+  }
+  st.chip.classList.toggle('is-outside', !target);
+}
+
+// Взятая карточка снимается со своего места: иначе кажется, что тащишь
+// копию, а оригинал остался стоять.
+//   • строка — схлопывается по высоте (соседи поднимаются);
+//   • ячейка — исчезает, а число дорожек ряда уменьшается на её ширину,
+//     поэтому оставшиеся аккорды растягиваются на всё место.
+// Если рендер пересобрал список, находим новую копию того же элемента.
+function tabDragTakeSource(st) {
+  const src = tabDragSourceEl(st);
+  if (!src) return;
+  const docH0 = st.docH0 != null ? st.docH0 : document.documentElement.scrollHeight;
+  if (st.kind === 'row') {
+    if (!src.dataset.tabDragH) {
+      src.dataset.tabDragH = String(src.getBoundingClientRect().height);
+      src.style.height = src.dataset.tabDragH + 'px';
+      void src.offsetHeight;
+      // Распорку ставим ДО схлопывания: высота страницы не успевает
+      // уменьшиться, и прокрутка не подтягивается.
+      tabDragReservePage(st, Number(src.dataset.tabDragH) || 0);
+    }
+    src.classList.add('is-tab-drag-taken');
+    src.style.height = '0px';
+    src.style.marginTop = '0px';
+    src.style.marginBottom = '0px';
+    return;
+  }
+  const rowEl = src.closest('.square');
+  const inner = src.closest('.square-inner');
+  if (inner && !st.cellTakenInner) {
+    st.cellTakenInner = inner;
+    st.cellTakenTpl = inner.style.gridTemplateColumns;
+    const span = Math.max(1, Number((/(?:span\s+)(\d+)/.exec(src.style.gridColumn || '') || [])[1]) || 1);
+    const m = /^repeat\((\d+),/.exec(st.cellTakenTpl || '');
+    if (m) {
+      const total = Number(m[1]);
+      inner.style.gridTemplateColumns = st.cellTakenTpl.replace(/^repeat\(\d+,/, 'repeat(' + Math.max(1, total - span) + ',');
+    }
+  }
+  if (rowEl) rowEl.classList.add('is-tab-cell-source-taken');
+  src.classList.add('is-tab-drag-taken');
+  tabDragReservePage(st, docH0 - document.documentElement.scrollHeight);
+  return;
+}
+
+// Свёрнутая карточка делает страницу короче, и если она была прокручена
+// до низа, браузер подтягивает прокрутку — всё содержимое прыгает вниз под
+// курсором (замер: 76 px). Держим высоту страницы прежней служебной
+// распоркой на время жеста.
+function tabDragReservePage(st, px) {
+  if (!st || st.pageSpacer != null || !(px > 0.5)) return;
+  const sp = document.createElement('div');
+  sp.className = 'tab-drag-page-spacer';
+  sp.setAttribute('aria-hidden', 'true');
+  sp.style.cssText = 'height:' + Math.round(px) + 'px;pointer-events:none;';
+  document.body.appendChild(sp);
+  st.pageSpacer = sp;
+}
+
+function tabDragUnlockPageHeight(st) {
+  if (st.pageSpacer && st.pageSpacer.parentElement) st.pageSpacer.remove();
+  st.pageSpacer = null;
+}
+
+function tabDragSourceEl(st) {
+  if (st.srcEl && st.srcEl.isConnected) return st.srcEl;
+  const sel = st.kind === 'row'
+    ? '.square--tab[data-square="' + st.sqId + '"]'
+    : '.chord-wrapper--tab[data-square="' + st.sqId + '"][data-ei="' + st.ei + '"]';
+  st.srcEl = document.querySelector(sel);
+  return st.srcEl;
+}
+
+// Вернуть исходное место, если бросок отменён (Esc, промах, pointercancel).
+function tabDragRestoreSource(st) {
+  tabDragUnlockPageHeight(st);
+  if (st.cellTakenInner) {
+    if (st.cellTakenInner.isConnected && st.cellTakenTpl != null) {
+      st.cellTakenInner.style.gridTemplateColumns = st.cellTakenTpl;
+    }
+    st.cellTakenInner = null;
+  }
+  const els = [st.srcEl, st.card].filter(Boolean);
+  for (const el of els) {
+    el.classList.remove('is-tab-drag-taken');
+    el.style.height = '';
+    el.style.minHeight = '';
+    el.style.marginTop = '';
+    el.style.marginBottom = '';
+    delete el.dataset.tabDragH;
+    const rowEl = el.closest('.square');
+    if (rowEl) rowEl.classList.remove('is-tab-cell-source-taken');
+  }
+}
+
 function tabDragFollow() {
   const st = tabSquareDrag;
   if (!st || st.phase !== 'active') { tabDragRaf = 0; return; }
@@ -38085,10 +38430,8 @@ function tabDragFollow() {
   }
   // Ярлык не уезжает за край окна: на телефоне он иначе обрезается.
   const vw = window.innerWidth, vh = window.innerHeight;
-  const left = Math.max(6, Math.min(st.curX, vw - st.chipW - 6));
-  const top = Math.max(6, Math.min(st.curY, vh - st.chipH - 6));
-  st.chip.style.left = left + 'px';
-  st.chip.style.top = top + 'px';
+  st.chip.style.left = Math.max(6, Math.min(st.curX, vw - st.chipW - 6)) + 'px';
+  st.chip.style.top = Math.max(6, Math.min(st.curY, vh - st.chipH - 6)) + 'px';
   tabDragRaf = requestAnimationFrame(tabDragFollow);
 }
 
@@ -38111,24 +38454,28 @@ function tabDragAutoScroll(st) {
   st.autoRaf = requestAnimationFrame(step);
 }
 
-function updateTabDragTarget(st) {
-  const target = tabDragTargetAt(st, st.lastX, st.lastY);
-  st.target = target;
-  tabDragPlaceGap(st, target);
-  st.chip.classList.toggle('is-outside', !target);
-}
-
 function beginTabSquareDrag(pending) {
   if (tabSquareDrag !== pending || pending.phase !== 'pending') return;
   clearTimeout(pending.pressTimer); pending.pressTimer = 0;
   clearTimeout(pending.holdTimer); pending.holdTimer = 0;
   const sec = sections.find((s) => s.id === pending.secId);
-  const sq = sec && sec.squares.find((q) => q && q.id === pending.sqId);
-  if (!sec || !sq) { tabSquareDrag = null; pending.card.classList.remove('is-tab-pressed'); return; }
-  const parentTs = sec.timeSig || globalTimeSig;
+  if (!sec) { tabSquareDrag = null; pending.card.classList.remove('is-tab-pressed'); return; }
+  let beats = 0, notes = [];
+  if (pending.kind === 'row') {
+    const sq = sec.squares.find((q) => q && q.id === pending.sqId && q.type === 'tab');
+    if (!sq) { tabSquareDrag = null; pending.card.classList.remove('is-tab-pressed'); return; }
+    beats = getTabInsertBeats(sq, sec.timeSig || globalTimeSig);
+    notes = sq.notes || [];
+  } else {
+    const sq = sec.squares.find((q) => q && q.id === pending.sqId);
+    const ev = sq && Array.isArray(sq.events) ? sq.events[pending.ei] : null;
+    if (!isInlineTabEvent(ev)) { tabSquareDrag = null; pending.card.classList.remove('is-tab-pressed'); return; }
+    beats = Math.max(1 / 16, Number(ev.span) || 1);
+    notes = ev.tabNotes || [];
+  }
   const rect = pending.card.getBoundingClientRect();
   const chip = tabDragChipEl();
-  fillTabDragChip(chip, sq, parentTs);
+  fillTabDragChip(chip, { beats, notes, ts: sec.timeSig || globalTimeSig });
   chip.style.display = 'flex';
   chip.style.transition = 'none';
   chip.style.opacity = '0';
@@ -38136,17 +38483,21 @@ function beginTabSquareDrag(pending) {
   const chipH = chip.offsetHeight || 74;
   const st = {
     phase: 'active',
-    secId: pending.secId, sqId: pending.sqId, sec, sq, parentTs,
-    card: pending.card, pointerId: pending.pointerId, touch: pending.touch,
+    kind: pending.kind,
+    secId: pending.secId, sqId: pending.sqId, sec,
+    ei: pending.kind === 'cell' ? pending.ei : null,
+    card: pending.card, srcEl: pending.card,
+    pointerId: pending.pointerId, touch: pending.touch,
     chip, chipW, chipH,
     dx: Math.max(16, Math.min(pending.startX - rect.left, chipW - 16)),
     dy: Math.max(16, Math.min(pending.startY - rect.top, chipH - 16)),
     curX: pending.startX, curY: pending.startY,
     tgtX: pending.startX, tgtY: pending.startY,
-    cardH: rect.height,
+    cardH: rect.height || 64,
     lastX: pending.startX, lastY: pending.startY,
-    gap: null, gapSec: null, target: null,
+    gap: null, gapRow: null, cellGap: null, cellRow: null, cellTarget: null, target: null,
     rectsDirty: true, lists: null, autoScroll: 0, autoRaf: 0,
+    pageSpacer: null, docH0: null, landedId: null,
   };
   st.curX = st.tgtX = pending.startX - st.dx;
   st.curY = st.tgtY = pending.startY - st.dy;
@@ -38157,11 +38508,18 @@ function beginTabSquareDrag(pending) {
   chip.style.transition = 'opacity 150ms ease';
   chip.style.opacity = '1';
   pending.card.classList.remove('is-tab-pressed');
-  pending.card.classList.add('is-tab-drag-source');
+  // Высоту страницы запоминаем до любых перестроек жеста (свернуть карточку
+  // и убрать ряд кнопок — обе делают страницу короче).
+  st.docH0 = document.documentElement.scrollHeight;
   document.body.classList.add('is-tab-dragging');
   tabSquareDrag = st;
+  tabDragSourceEl(st);
+  // Место источника закрываем сразу: тащим саму вставку, а не её копию.
+  tabDragTakeSource(st);
   if (!tabDragRaf) tabDragRaf = requestAnimationFrame(tabDragFollow);
-  updateTabDragTarget(st);
+  st.rectsDirty = true;
+  // Цель пока не ищем: иначе пустое место открылось бы прямо на старом месте
+  // карточки, и казалось бы, что она никуда не делась.
   tabDragSuppressClickUntil = Date.now() + 400;
 }
 
@@ -38169,16 +38527,44 @@ function clearTabDragVisuals(st) {
   if (tabDragRaf) { cancelAnimationFrame(tabDragRaf); tabDragRaf = 0; }
   if (st.autoRaf) { cancelAnimationFrame(st.autoRaf); st.autoRaf = 0; }
   st.autoScroll = 0;
-  if (st.gap) { st.gap.remove(); st.gap = null; }
-  if (st.gapSec) { st.gapSec.classList.remove('is-tab-drop-target'); st.gapSec = null; }
+  tabDragClearRowGap(st);
+  tabDragClearCellLine(st);
+  if (st.cellGap) st.cellGap.style.display = 'none';
+  tabDragRestoreSource(st);
+  if (st.srcEl) st.srcEl.classList.remove('is-tab-pressed', 'is-tab-drag-source');
   st.card.classList.remove('is-tab-pressed', 'is-tab-drag-source');
+  if (st.gapRow) { st.gapRow.classList.remove('is-tab-drop-target'); st.gapRow = null; }
+  if (st.cellRow) { st.cellRow.classList.remove('is-tab-cell-drop-target'); st.cellRow = null; }
   document.body.classList.remove('is-tab-dragging');
+}
+
+// Бросок строки на её же место: порядок квадратов не меняется.
+function tabDropSameRow(src, drop) {
+  if (src.kind !== 'row' || drop.secId !== src.secId) return false;
+  const sec = sections.find((s) => s.id === drop.secId);
+  if (!sec) return false;
+  const ids = sec.squares.map((q) => q && q.id);
+  const without = ids.filter((id) => id !== src.sqId);
+  const nextIds = without.slice();
+  nextIds.splice(Math.max(0, Math.min(drop.index, without.length)), 0, src.sqId);
+  return nextIds.join(',') === ids.join(',');
 }
 
 function endTabSquareDrag(commit) {
   const st = tabSquareDrag;
   if (!st || st.phase !== 'active') { tabSquareDrag = null; return; }
-  const drop = commit ? tabDropFromGap(st) : null;
+  const drop = commit ? tabDropTarget(st) : null;
+  const landed = st.landedId;
+  const src = { kind: st.kind, secId: st.secId, sqId: st.sqId, ei: st.ei };
+  // Бросок на то же место — ни правки, ни новой отмены.
+  const noop = !drop
+    || (drop.kind === 'cell' && src.kind === 'cell' && drop.secId === src.secId
+        && drop.sqId === src.sqId && drop.ei === src.ei)
+    || (drop.kind === 'row' && tabDropSameRow(src, drop));
+  // Сначала переносим (рендер пересоберёт секции), потом убираем служебную
+  // графику: иначе снятая карточка успевает мигнуть на своём месте.
+  const moved = (!noop && tabMoveCommit(st, drop)) ? true : false;
+  const id = st.landedId || landed;
   clearTabDragVisuals(st);
   tabSquareDrag = null;
   tabDragSuppressClickUntil = Date.now() + 400;
@@ -38186,20 +38572,11 @@ function endTabSquareDrag(commit) {
   st.chip.style.opacity = '0';
   const hideChip = () => { if (!tabSquareDrag) st.chip.style.display = 'none'; };
   setTimeout(hideChip, TAB_DRAG_FLY_MS + 20);
-  if (!drop) return;
-  const sec = sections.find((s) => s.id === drop.secId);
-  if (!sec) return;
-  const ids = sec.squares.map((q) => q && q.id);
-  const without = ids.filter((id) => id !== st.sqId);
-  const index = Math.max(0, Math.min(drop.index, without.length));
-  const nextIds = without.slice();
-  nextIds.splice(index, 0, st.sqId);
-  const same = sec.id === st.secId && nextIds.join(',') === ids.join(',');
-  if (same) return;   // бросили на то же место — ни правки, ни истории
-  if (!moveTabSquareTo(st.secId, st.sqId, sec.id, index)) return;
-  const card = document.querySelector('.square--tab[data-square="' + st.sqId + '"]');
-  if (card && card.animate) {
-    card.animate(
+  if (!moved) return;
+  const card = id ? document.querySelector('.square--tab[data-square="' + id + '"]') : null;
+  const target = card || document.querySelector('.tab-insert--cell.playback-active');
+  if (target && target.animate) {
+    target.animate(
       [{ opacity: 0, transform: 'translateY(-6px)' }, { opacity: 1, transform: 'translateY(0)' }],
       { duration: 220, easing: TAB_DRAG_EASE }
     );
@@ -38224,6 +38601,7 @@ function onTabSquareDragMove(e) {
   st.tgtX = e.clientX - st.dx;
   st.tgtY = e.clientY - st.dy;
   if (!tabDragRaf) tabDragRaf = requestAnimationFrame(tabDragFollow);
+  tabDragTakeSource(st);
   updateTabDragTarget(st);
   tabDragAutoScroll(st);
 }
@@ -38262,15 +38640,20 @@ function attachTabSquareDragEvents() {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     const cont = document.getElementById('sectionsContainer');
     if (!cont || !cont.contains(e.target)) return;
-    const card = e.target.closest('.square--tab');
-    if (!card || !cont.contains(card)) return;
     // Кнопки, счётчики и ручки — не повод тащить.
-    if (e.target.closest('button, .tab-btn, .del-square-btn, .square-resize-handle, .resize-handle, .repeat-badge, .square-beats-badge, .chord-btn, .tab-insert--cell')) return;
+    if (e.target.closest('button, .tab-btn, .del-square-btn, .square-resize-handle, .resize-handle, .repeat-badge, .square-beats-badge, .chord-btn')) return;
+    const rowCard = e.target.closest('.square--tab');
+    const cellCard = rowCard ? null : e.target.closest('.chord-wrapper--tab[data-ei]');
+    const card = rowCard || cellCard;
+    if (!card || !cont.contains(card)) return;
     const secId = parseInt(card.dataset.sec, 10);
     const sqId = parseInt(card.dataset.square, 10);
     if (!Number.isFinite(secId) || !Number.isFinite(sqId)) return;
     const pending = {
-      phase: 'pending', card, secId, sqId,
+      phase: 'pending',
+      kind: rowCard ? 'row' : 'cell',
+      ei: rowCard ? null : (Number.parseInt(card.dataset.ei, 10) || 0),
+      card, secId, sqId,
       pointerId: e.pointerId, touch: e.pointerType === 'touch',
       startX: e.clientX, startY: e.clientY,
       pressTimer: 0, holdTimer: 0,
@@ -38299,7 +38682,7 @@ function attachTabSquareDragEvents() {
   // После жеста клик по карточке не должен открывать редактор.
   document.addEventListener('click', (e) => {
     if (Date.now() > tabDragSuppressClickUntil) return;
-    if (e.target.closest('.square--tab')) { e.stopPropagation(); e.preventDefault(); }
+    if (e.target.closest('.square--tab, .chord-wrapper--tab')) { e.stopPropagation(); e.preventDefault(); }
   }, true);
 }
 

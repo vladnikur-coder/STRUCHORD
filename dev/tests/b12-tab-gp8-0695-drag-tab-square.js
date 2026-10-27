@@ -134,6 +134,32 @@ async function dragTo(page, point) {
   await wait(220);
 }
 
+// Прицеливание в чужую секцию. Идём в два шага: сначала в низ нужной
+// секции (там метка встаёт в конец и ничего выше неё не сдвигает), потом
+// вверх — на нужный ряд. Так точка под курсором не «уезжает» от открытого
+// пустого места, и проверяется именно то место, куда мы целились.
+async function aimRow(page, secIndex, rowIndex, dy = 6) {
+  const read = () => page.evaluate(({ secIndex, rowIndex, dy }) => {
+    const card = document.querySelectorAll('.section-card')[secIndex];
+    const el = card.querySelectorAll('.squares-list > .square')[rowIndex];
+    const r = el.getBoundingClientRect();
+    const cardRect = card.getBoundingClientRect();
+    return {
+      x: r.x + r.width / 2,
+      y: r.top + dy,
+      bottomX: cardRect.x + cardRect.width / 2,
+      bottomY: Math.min(window.innerHeight - 30, cardRect.bottom - 6),
+    };
+  }, { secIndex, rowIndex, dy });
+  let point = await read();
+  await page.mouse.move(point.bottomX, point.bottomY, { steps: 6 });
+  await wait(260);
+  point = await read();
+  await page.mouse.move(point.x, point.y, { steps: 4 });
+  await wait(260);
+  return point;
+}
+
 (async () => {
   const browser = await puppeteer.launch({
     executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
@@ -173,14 +199,30 @@ async function dragTo(page, point) {
 
     // ── 3. Удержание «берёт» карточку, но само по себе ничего не меняет ─────
     const histBeforeHold = await historyLen(page);
+    const beforeHold = await page.evaluate(() => {
+      const sq = document.querySelector('.square--tab');
+      return {
+        sqH: sq ? Math.round(sq.getBoundingClientRect().height) : -1,
+        listH: Math.round(document.querySelector('.squares-list').getBoundingClientRect().height),
+      };
+    });
     await hold(page, g0.tab, 700);
-    const lifted = await page.evaluate(() => ({
-      source: !!document.querySelector('.square--tab.is-tab-drag-source'),
-      chip: (getComputedStyle(document.getElementById('tabDragChip') || document.body).display),
-      chipText: (document.getElementById('tabDragChip')?.textContent || '').trim(),
-      bodyClass: document.body.classList.contains('is-tab-dragging'),
-    }));
-    check('Удержание «берёт» карточку: источник гаснет, ярлык виден', [lifted.source, lifted.chip, lifted.bodyClass], [true, 'flex', true]);
+    const lifted = await page.evaluate(() => {
+      const sq = document.querySelector('.square--tab');
+      return {
+        // 0.696: источник не «гаснет» на месте, а СВОРАЧИВАЕТСЯ — места в
+        // раскладке не занимает, соседи смыкаются.
+        source: !!document.querySelector('.square--tab.is-tab-drag-taken'),
+        sourceH: sq ? Math.round(sq.getBoundingClientRect().height) : -1,
+        listH: Math.round(document.querySelector('.squares-list').getBoundingClientRect().height),
+        chip: (getComputedStyle(document.getElementById('tabDragChip') || document.body).display),
+        chipText: (document.getElementById('tabDragChip')?.textContent || '').trim(),
+        bodyClass: document.body.classList.contains('is-tab-dragging'),
+      };
+    });
+    check('Удержание «берёт» карточку: источник сворачивается, ярлык виден', [lifted.source, lifted.sourceH, lifted.chip, lifted.bodyClass], [true, 0, 'flex', true]);
+    check('Место источника закрылось: секция стала ниже ровно на его высоту',
+      Math.abs((beforeHold.listH - lifted.listH) - beforeHold.sqH) <= 8, true);
     check('Ярлык подписан: TAB, число нот и тактов', /TAB.*4 ноты.*1 такт/.test(lifted.chipText), true);
     await page.mouse.up();
     await wait(500);
@@ -236,22 +278,26 @@ async function dragTo(page, point) {
     await wait(500);
     const afterEsc = await page.evaluate(() => ({
       gap: document.querySelectorAll('.tab-drop-gap').length,
-      source: document.querySelectorAll('.square--tab.is-tab-drag-source').length,
+      source: document.querySelectorAll('.is-tab-drag-taken').length,
+      sourceH: Math.round(document.querySelector('.square--tab').getBoundingClientRect().height),
       dragging: document.body.classList.contains('is-tab-dragging'),
       chip: getComputedStyle(document.getElementById('tabDragChip') || document.body).opacity,
     }));
     await page.mouse.up();
     await wait(400);
     check('Esc снимает жест: пустое место и подсветка убраны', [afterEsc.gap, afterEsc.source, afterEsc.dragging], [0, 0, false]);
+    check('Esc возвращает карточку на место (свёрнутая — снова видна)', afterEsc.sourceH > 40, true);
     check('Esc не меняет порядок', await order(page), 'Am F C G T');
 
     // ── 8. Перенос в другую секцию ─────────────────────────────────────────
     await setup(page, { second: true });
     const g4 = await geom(page);
-    const secondSec = g4.secs[1];
-    const dropSecond = { x: secondSec.squares[1].x, y: secondSec.squares[1].top + 6 };
     await hold(page, g4.tab, 700);
-    await dragTo(page, dropSecond);
+    // 0.696: взятая карточка сворачивается, и секция ниже поднимается на её
+    // высоту. Поэтому точку броска берём уже ПОСЛЕ «взятия» — ту, которую
+    // человек видит сейчас, а не ту, что была до жеста.
+    const dropSecond = await aimRow(page, 1, 1);
+    await wait(220);
     const crossGap = await page.evaluate(() => ({
       target: parseInt(document.querySelector('.section-card.is-tab-drop-target')?.dataset.id || '0', 10),
       secs: [...document.querySelectorAll('.section-card')].map((c) => c.querySelectorAll('.tab-drop-gap').length),
@@ -269,9 +315,9 @@ async function dragTo(page, point) {
     // ── 9. Другой размер секции: длина пересчитывается ─────────────────────
     await setup(page, { second: true, secondTs: '3/4' });
     const g5 = await geom(page);
-    const second3_4 = g5.secs[1];
     await hold(page, g5.tab, 700);
-    await dragTo(page, { x: second3_4.squares[2].x, y: second3_4.squares[2].top + 6 });
+    const drop3_4 = await aimRow(page, 1, 2);
+    await wait(220);
     await page.mouse.up();
     await wait(800);
     const meterMoved = await page.evaluate(() => {
@@ -299,7 +345,7 @@ async function dragTo(page, point) {
     const touchDrop = { x: clampX(gt.secs[0].squares[0].x), y: gt.secs[0].squares[0].top + 6 };
     await touchPage.touchscreen.touchStart(clampX(gt.tab.x), gt.tab.y);
     await wait(700);
-    const touchLifted = await touchPage.evaluate(() => !!document.querySelector('.square--tab.is-tab-drag-source'));
+    const touchLifted = await touchPage.evaluate(() => !!document.querySelector('.square--tab.is-tab-drag-taken'));
     for (let i = 1; i <= 10; i++) {
       await touchPage.touchscreen.touchMove(
         clampX(gt.tab.x) + (touchDrop.x - clampX(gt.tab.x)) * (i / 10),
