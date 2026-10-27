@@ -118,7 +118,13 @@ const note = (start, dur, fret = 3, string = 0, flags = {}) => ({ start, dur, st
       check(`${width}: Применить записало новую длину и две ноты`, await page.evaluate(() => { const sq = sections[0].squares.find(q => q.type === 'tab'); return sq.beats === 8 && sq.notes.length === 2 && sq.notes[1].start === 4; }));
       await page.evaluate(() => { const sq = sections[0].squares.find(q => q.type === 'tab'); openTabInsertEditor(sections[0].id, sq.id); }); await wait(250);
       await page.evaluate(() => tabAtSetCursor(7, 0)); await key('ArrowRight'); await position('повторная правка расширяет только черновик', 8, 12);
-      await button('[data-tab-cancel]'); await page.waitForSelector('.tab-insert-editor', { hidden: true });
+      await button('[data-tab-cancel]');
+      // 0.691: у черновика есть несохранённые правки — приложение спрашивает
+      // подтверждение, прежде чем выбросить их.
+      const discard = await page.$('[data-tab-confirm-leave]');
+      if (discard && (await page.evaluate((el) => !el.closest('[data-tab-confirm-discard]').hidden, discard)))
+        await discard.click();
+      await page.waitForSelector('.tab-insert-editor', { hidden: true });
       check(`${width}: Отмена не сохраняет новое расширение`, await page.evaluate(() => sections[0].squares.find(q => q.type === 'tab').beats === 8));
       await page.close();
     }

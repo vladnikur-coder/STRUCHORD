@@ -91,6 +91,26 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     };
 
     // Что нарисовано и каким цветом
+    // 0.691: серая пауза появляется при наведении на крайнюю настоящую долю перед пустотой.
+    const hoverEdge = async (barIndex = 0) => {
+      const point = await page.evaluate((bi) => {
+        const tails = tabAtState?.tails;
+        const tail = tails && tails.get(bi);
+        const start = tail ? [...tail.keys][0] : null;
+        if (start == null) return null;
+        const bb = tabAtBeatBoundsAt(tabAtApi, start);
+        if (!bb || !bb.visualBounds) return null;
+        const host = document.querySelector('.tab-at-host');
+        const r = host.getBoundingClientRect();
+        // правая часть самой доли (ноты), чтобы попасть именно в неё
+        return { x: r.x + bb.visualBounds.x + Math.min(bb.visualBounds.w * 0.5, 14), y: r.y + bb.visualBounds.y + bb.visualBounds.h / 2 };
+      }, barIndex);
+      if (!point) return null;
+      await page.mouse.move(point.x, point.y);
+      await wait(350);
+      return point;
+    };
+
     const readUi = () =>
       page.evaluate(() => {
         const e = tabInsertEditorState;
@@ -157,7 +177,13 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       [ui.placeholderFill, ui.placeholderFill !== ui.realRestFill],
       ['rgb(142, 142, 158)', true],
     );
-    check('Светлая тема: заполнитель виден под курсором', ui.placeholderVisible, 1);
+    // 0.691: заполнитель виден только при наведении мыши.
+    check('Светлая тема: без наведения заполнитель скрыт', ui.placeholderVisible, 0);
+    await hoverEdge(0);
+    ui = await readUi();
+    check('Светлая тема: при наведении заполнитель виден', ui.placeholderVisible, 1);
+    await page.mouse.move(5, 5);
+    await wait(200);
     await page.screenshot({ path: path.join(OUT_DIR, '01-rests-light.png') });
 
     // === 2. Тёмная тема ===
@@ -194,7 +220,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     });
     await wait(350);
     ui = await readUi();
-    check('Крайняя доля перед пустотой показывает серую паузу', ui.placeholderVisible, 1);
+    check('Курсор на крайней доле сам серую паузу не рисует', ui.placeholderVisible, 0);
 
     // «Заполнить паузами» доводит такт и разрешает «Применить»
     await page.evaluate(() => {

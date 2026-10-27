@@ -105,6 +105,26 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
       await wait(220);
     };
 
+    // 0.691: серая пауза появляется при наведении на крайнюю настоящую долю перед пустотой.
+    const hoverEdge = async (barIndex = 0) => {
+      const point = await page.evaluate((bi) => {
+        const tails = tabAtState?.tails;
+        const tail = tails && tails.get(bi);
+        const start = tail ? [...tail.keys][0] : null;
+        if (start == null) return null;
+        const bb = tabAtBeatBoundsAt(tabAtApi, start);
+        if (!bb || !bb.visualBounds) return null;
+        const host = document.querySelector('.tab-at-host');
+        const r = host.getBoundingClientRect();
+        // правая часть самой доли (ноты), чтобы попасть именно в неё
+        return { x: r.x + bb.visualBounds.x + Math.min(bb.visualBounds.w * 0.5, 14), y: r.y + bb.visualBounds.y + bb.visualBounds.h / 2 };
+      }, barIndex);
+      if (!point) return null;
+      await page.mouse.move(point.x, point.y);
+      await wait(350);
+      return point;
+    };
+
     const readUi = () =>
       page.evaluate(() => {
         const e = tabInsertEditorState;
@@ -157,18 +177,22 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     check(
       'Свежий пустой такт: пауза не нарисована, красного нет, «Применить» доступна',
       [ui.usedPerBar, ui.placeholderVisible, ui.invalidCount, ui.applyDisabled],
-      [[0], 1, 0, false],
+      [[0], 0, 0, false],
     );
     await page.screenshot({ path: path.join(OUT_DIR, '01-fresh-bar-light.png') });
 
-    // Курсор уходит в пустоту — пауза скрывается
-    await page.evaluate(() => {
-      tabGpSetTime(tabInsertEditorState, 1, 0);
-      tabAtHostEl?.focus({ preventScroll: true });
+    // 0.691: в полностью пустом такте крайней доли нет — наведение мыши ничего не рисует
+    const emptySpot = await page.evaluate(() => {
+      const n = document.querySelector('.tab-gp-placeholder');
+      const r = n.getBoundingClientRect();
+      return { x: r.x + Math.max(6, r.width / 2), y: r.y + r.height / 2 };
     });
+    await page.mouse.move(emptySpot.x, emptySpot.y);
     await wait(350);
     ui = await readUi();
-    check('В пустом такте пауза видна только под курсором', ui.placeholderVisible, 1);
+    check('В полностью пустом такте наведение мыши паузу не рисует', ui.placeholderVisible, 0);
+    await page.mouse.move(5, 5);
+    await wait(200);
 
     // === 2. Такт, из которого удалили все доли ===
     await setFixture(notes4, 0, 'light', 4);
@@ -198,7 +222,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     });
     await wait(350);
     ui = await readUi();
-    check('Курсор в пустом такте: серая пауза видна, красного нет', [ui.placeholderVisible, ui.invalidCount], [1, 0]);
+    check('Курсор в пустом такте: красного нет, пауза сама не рисуется', [ui.placeholderVisible, ui.invalidCount], [0, 0]);
     await page.screenshot({ path: path.join(OUT_DIR, '03-second-bar-empty-light.png') });
 
     // === 4. Недозаполненный такт остаётся как в 0.688 ===
@@ -207,7 +231,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     check(
       'Недозаполненный такт по-прежнему объясняет себя и ждёт «Заполнить паузами»',
       [ui.usedPerBar, ui.errorText.includes('3 из 4 — не заполнен'), ui.padButton, ui.applyDisabled],
-      [[3], true, 'Заполнить паузами', true],
+      // 0.691: недописанный такт по-прежнему всё объясняет, но сохранять не мешает.
+      [[3], true, 'Заполнить паузами', false],
     );
     await page.evaluate(() => {
       tabGpSetTime(tabInsertEditorState, 3, 0);
@@ -222,7 +247,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     // === 5. Тёмная тема ===
     await setFixture(notes4, 4, 'dark', 8);
     ui = await readUi();
-    check('Тёмная тема: пустой такт без красного, его пауза под курсором видна', [ui.usedPerBar, ui.invalidCount, ui.placeholderVisible], [[4, 0], 0, 1]);
+    check('Тёмная тема: пустой такт без красного и без лишней паузы', [ui.usedPerBar, ui.invalidCount, ui.placeholderVisible], [[4, 0], 0, 0]);
     await page.screenshot({ path: path.join(OUT_DIR, '04-empty-bar-dark.png') });
 
     // === 6. Сохранение не выбрасывает пустой такт ===

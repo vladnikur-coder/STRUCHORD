@@ -5565,7 +5565,6 @@ body.is-resizing .tab-insert > .chord-ticks-step {
    Серая пауза-заполнитель появляется, когда курсор стоит на крайней доле
    перед пустотой (или в самой пустоте) либо на неё наведена мышь. */
 .tab-at-host .tab-gp-placeholder { opacity: 0; }
-.tab-at-host .tab-gp-placeholder.is-active,
 .tab-at-host .tab-gp-placeholder.is-hover { opacity: 1; }
 .tab-at-host .tab-gp-placeholder text { fill: var(--color-text-tertiary) !important; }
 .tab-gp-out-fret {
@@ -15201,7 +15200,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.690</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.691</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22862,6 +22861,64 @@ function tabGpUsedUnits(groups) {
 function tabGpFillers(units, denom) {
   return tabGpRests(units, denom).map((g) => ({ ...g, filler: true }));
 }
+// 0.690: хвост такта из автоматических пауз — не содержимое, а пустое место.
+// После каждой правки приводим такт в порядок: убираем такой хвост и, если такт
+// стал короче размера, добиваем его скрытым заполнителем. Тогда смена длительности
+// ноты не оставляет «лишнюю» паузу и такт не становится переполненным.
+function tabGpRebalance(e) {
+  if (!Array.isArray(e?.gpBars)) return;
+  const meter = getGridUnitsPerBar(tabGpMeter(e));
+  e.gpBars.forEach((groups, b) => {
+    if (!Array.isArray(groups) || !groups.length) return;
+    // Такт из одной целой паузы (пустой такт) живёт по своему правилу.
+    if (groups.length === 1 && groups[0].wholeBar) return;
+    // Хвост из автоматических пауз — не содержимое, а пустое место:
+    // он больше не хранится в такте. Паузы, которые поставил человек
+    // (клавиша R, удаление ноты, «Заполнить паузами»), остаются.
+    let end = groups.length;
+    while (end > 0) {
+      const g = groups[end - 1];
+      if (!g?.notes?.length && !g.pad && !g.keep && g.filler) {
+        end--;
+        continue;
+      }
+      break;
+    }
+    groups.length = end;
+    if (!end) {
+      e.gpBars[b] = [tabGpBlank(e)];
+      return;
+    }
+    const bar = e.gpBars[b];
+    if (e.gpCursor?.bar === b) e.gpCursor.index = Math.max(0, Math.min(e.gpCursor.index, bar.length - 1));
+  });
+}
+// 0.691: если нота стала длиннее, служебные паузы в конце такта подрезаются,
+// чтобы такт не выглядел переполненным из-за собственных «заглушек».
+function tabGpFitTail(e) {
+  const bar = e?.gpBars?.[e.gpCursor?.bar];
+  if (!Array.isArray(bar) || !bar.length) return;
+  const meter = getGridUnitsPerBar(tabGpMeter(e)),
+    denom = parseTimeSig(tabGpMeter(e)).denominator;
+  let total = bar.reduce((sum, g) => sum + tabGpLength(g), 0);
+  while (bar.length && total > meter + TAB_AT_EPS) {
+    const last = bar[bar.length - 1];
+    if (last?.notes?.length || (!last?.implicit && !last?.filler && !last?.pad)) break;
+    const len = tabGpLength(last),
+      excess = total - meter;
+    if (len <= excess + TAB_AT_EPS) {
+      bar.pop();
+      total -= len;
+      continue;
+    }
+    const keep = len - excess,
+      pieces = tabGpRests(keep, denom);
+    bar.pop();
+    bar.push(...pieces.map((g) => ({ ...g, ...(last.pad ? { pad: true } : {}) })));
+    break;
+  }
+  if (e.gpCursor.index > bar.length - 1) e.gpCursor.index = Math.max(0, bar.length - 1);
+}
 function tabGpBlank(e) {
   return { dur: getGridUnitsPerBar(tabGpMeter(e)), notes: [], ghost: true, wholeBar: true };
 }
@@ -23024,8 +23081,16 @@ function tabGpEntries(e) {
 function tabGpMaterialize(e) {
   const g = tabGpGroup(e),
     offset = e.gpCursor.offset || 0;
-  if (!g || offset < TAB_AT_EPS) return;
-  const denom = parseTimeSig(tabGpMeter(e)).denominator,
+  if (offset < TAB_AT_EPS) return;
+  const denom = parseTimeSig(tabGpMeter(e)).denominator;
+  // 0.691: курсор стоит в ещё свободной части такта. Перед вставкой
+  // заполняем промежуток невидимыми паузами, чтобы нота встала ровно туда.
+  if (!g) {
+    const filler = tabGpRests(offset, denom).map((rest) => ({ ...rest, filler: true }));
+    e.gpBars[e.gpCursor.bar].splice(e.gpCursor.index, 0, ...filler);
+    e.gpCursor = { bar: e.gpCursor.bar, index: e.gpCursor.index + filler.length };
+    return;
+  }
     prefix = tabGpRests(offset, denom),
     tail = tabGpRests(tabGpLength(g) - offset, denom);
   e.gpBars[e.gpCursor.bar].splice(e.gpCursor.index, 1, ...prefix, ...tail);
@@ -23103,8 +23168,12 @@ function tabGpSetPoint(e, point, string = tabAtCursor.string, extend = false) {
     last =
       used < getGridUnitsPerBar(tabGpMeter(e)) - TAB_AT_EPS ? groups.length : Math.max(0, groups.length - 1),
     index = Math.max(0, Math.min(last, point.index));
-  const offset =
-    groups[index]?.implicit || groups[index]?.wholeBar
+  // 0.691: индекс за последней долей — это ещё не занятое место такта.
+  // Смещение от начала этого места сохраняем, иначе курсор «прилипал» бы
+  // к последней ноте и нельзя было поставить ноту точно в нужную точку.
+  const offset = !groups[index]
+    ? Math.max(0, Number(point.offset) || 0)
+    : groups[index].implicit || groups[index].wholeBar
       ? Math.max(0, Math.min(tabGpLength(groups[index]) - TAB_AT_EPS, point.offset || 0))
       : 0;
   e.gpCursor = { bar, index, ...(offset > TAB_AT_EPS ? { offset } : {}) };
@@ -23126,7 +23195,7 @@ function tabGpSetPoint(e, point, string = tabAtCursor.string, extend = false) {
   const bits = tabGpLayout(e).bars[bar].bits,
     bit = bits.find((b) => b.gpIndex === index) || bits[bits.length - 1];
   tabAtCursor = {
-    start: Math.round((bit.start + offset) * 1e9) / 1e9,
+    start: Math.round((Number.isFinite(point.start) ? point.start : bit.start + offset) * 1e9) / 1e9,
     string: nextStr,
   };
   tabAtLastDigit = null;
@@ -23144,6 +23213,16 @@ function tabGpSetTime(e, start, string, extend = false) {
   const layout = tabGpLayout(e);
   let bar = layout.bars.findIndex((b) => start < b.end - TAB_AT_EPS);
   if (bar < 0) bar = layout.bars.length - 1;
+  const lb = layout.bars[bar],
+    groups = e.gpBars[bar] || [],
+    contentEnd = lb.start + groups.reduce((sum, g) => sum + tabGpLength(g), 0);
+  // 0.691: такт больше не хранит паузы в свободном хвосте. Если щёлкнуть
+  // в этом месте, курсор встаёт туда точно, а невидимые паузы появятся
+  // только когда пользователь действительно что-то вставит.
+  if (start > contentEnd + TAB_AT_EPS) {
+    tabGpSetPoint(e, { bar, index: groups.length, offset: start - contentEnd, start }, string, extend);
+    return;
+  }
   let bitIdx = 0;
   layout.bars[bar].bits.forEach((b, i) => {
     if (b.start <= start + TAB_AT_EPS) bitIdx = i;
@@ -23213,6 +23292,9 @@ function tabGpEdit(e, fn, merge = false) {
       restore();
       return false;
     }
+    tabGpRebalance(e);
+    // 0.691: после правки подсказка-пауза ждёт нового движения мыши.
+    tabAtHoverStart = null;
   } catch (err) {
     restore();
     showToast(err.message);
@@ -23313,7 +23395,7 @@ function tabGpFixBars(e, mode) {
           while (end > 0 && bar[end - 1]?.filler) end--;
           bar.length = end;
           bar.forEach((g) => delete g.autoAdded);
-          bar.push(...tabGpRests(meter - used, denom));
+          bar.push(...tabGpRests(meter - used, denom).map((g) => ({ ...g, pad: true })));
         }
         if (e.gpCursor.bar === b) {
           e.gpCursor.index = Math.min(e.gpCursor.index, Math.max(0, e.gpBars[b].length - 1));
@@ -23416,11 +23498,15 @@ function tabGpValidate(e) {
       status.textContent = text;
     }
   }
+  // 0.691: недописанный такт больше не держит сохранение — как в Guitar Pro,
+  // он просто помечен «не заполнен», а паузы можно добрать кнопкой.
+  // Сохранение блокируют только перебор и настоящие ошибки.
+  const blocking = errors.some((b) => b.used > meter + 1e-8) || !!e.gpError || !!modelError;
   if (apply) {
-    apply.disabled = !!errors.length || !!e.gpError || !!modelError;
+    apply.disabled = blocking;
     apply.setAttribute('aria-disabled', String(apply.disabled));
   }
-  return !errors.length && !e.gpError && !modelError;
+  return !blocking;
 }
 function tabGpResize(e, count) {
   if (!Number.isInteger(count) || count < 1 || count > 4) return false;
@@ -23500,15 +23586,20 @@ function tabGpPut(e, digit) {
       if (!g.notes.length) {
         const requested = { ...tabGpNotation(), notes: [] },
           old = tabGpLength(g),
-          len = tabGpLength(requested);
+          len = tabGpLength(requested),
+          // 0.691: в пустом такте остаток после первой ноты — свободное место,
+          // а не паузы. В уже заполненном такте паузы остаются настоящими.
+          emptyBar = !!g.wholeBar;
         // Пауза заменяется на месте; оставшееся время не исчезает.
         bar[e.gpCursor.index] = g = requested;
-        if (old > len + TAB_AT_EPS)
+        if (old > len + TAB_AT_EPS) {
+          const rest = tabGpRests(old - len, parseTimeSig(tabGpMeter(e)).denominator);
           bar.splice(
             e.gpCursor.index + 1,
             0,
-            ...tabGpRests(old - len, parseTimeSig(tabGpMeter(e)).denominator),
+            ...(emptyBar ? rest.map((r) => ({ ...r, filler: true })) : rest),
           );
+        }
       }
       const existing = g.notes.find((n) => n.string === string);
       if (existing) existing.fret = fret;
@@ -23798,7 +23889,9 @@ function tabGpRhythm(e, kind, value) {
         else delete p.beat[kind];
         delete p.beat.wholeBar;
         delete p.beat.implicit;
+        delete p.beat.pad;
       }
+    tabGpFitTail(e);
   });
 }
 function tabGpRest(e) {
@@ -23885,7 +23978,11 @@ function tabGpInsert(e, barMode = false) {
           e.gpCursor.index,
           1,
           blank,
-          ...(remain > TAB_AT_EPS ? tabGpRests(remain, parseTimeSig(tabGpMeter(e)).denominator) : []),
+          // 0.691: остаток такта после новой ноты — свободное место, а не
+          // паузы, которые надо рисовать.
+          ...(remain > TAB_AT_EPS
+            ? tabGpRests(remain, parseTimeSig(tabGpMeter(e)).denominator).map((r) => ({ ...r, filler: true }))
+            : []),
         );
       } else {
         const index = g ? e.gpCursor.index + 1 : e.gpCursor.index;
@@ -23983,7 +24080,9 @@ function tabGpPaste(e) {
         e.gpBars[b].splice(
           index,
           1,
-          ...(remain > TAB_AT_EPS ? tabGpRests(remain, parseTimeSig(tabGpMeter(e)).denominator) : []),
+          ...(remain > TAB_AT_EPS
+            ? tabGpRests(remain, parseTimeSig(tabGpMeter(e)).denominator).map((r) => ({ ...r, filler: true }))
+            : []),
         );
       }
     }
@@ -24405,15 +24504,15 @@ function tabGpDecorate(e) {
         const tailStart = lastReal ? lastReal.start : phInfo ? phInfo.start : null;
         // Серая пауза показывается, только если курсор стоит на этой последней доле
         // или уже в пустом хвосте. В остальное время там просто белое место.
-        const tailActive =
-          !!phInfo &&
-          e.gpCursor?.bar === bi &&
-          (lastReal == null || e.gpCursor.index >= lastReal.gpIndex);
+        // 0.691: серая пауза появляется только при наведении мыши на крайнюю долю
+        // перед пустым местом — сам по себе курсор её больше не рисует.
+        const tailActive = false;
         if (phInfo) {
-          const keys = new Set(
-            beatInfos.filter((i) => i.placeholder).map((i) => Math.round(i.start * 1e9) / 1e9),
-          );
-          if (tailStart != null) keys.add(Math.round(tailStart * 1e9) / 1e9);
+          // 0.691: серая пауза — подсказка «здесь ещё есть место». Показываем её,
+          // только когда навели мышь на крайнюю настоящую долю перед пустотой;
+          // в полностью пустом такте такой доли нет, поэтому там просто пусто.
+          const keys = new Set();
+          if (lastReal) keys.add(Math.round(lastReal.start * 1e9) / 1e9);
           tailMap.set(bi, { keys, nodes: [] });
         }
         for (const bb of bar.beats || []) {
@@ -25106,7 +25205,36 @@ function tabAtRender(editor) {
       });
       let drag=null;
       const pointerHit=event=>{const r=host.getBoundingClientRect();return tabAtHitTest(event.clientX-r.left+host.scrollLeft,event.clientY-r.top+host.scrollTop);};
+      // 0.691: на узком экране стан бывает выше своей рамки и накрывает панель
+      // кнопок. Щелчок мышью по видимой кнопке должен нажимать кнопку, а не
+      // ставить курсор в ноты; касания по стану не трогаем.
+      const paletteButtonAt = (event) => {
+        const palette = editor.overlay?.querySelector('.tab-tools.tab-palette');
+        if (!palette || host.dataset.lastPointer === 'touch') return null;
+        const pr = palette.getBoundingClientRect();
+        if (
+          event.clientX < pr.left ||
+          event.clientX > pr.right ||
+          event.clientY < pr.top ||
+          event.clientY > pr.bottom
+        )
+          return null;
+        host.style.pointerEvents = 'none';
+        const under = document.elementFromPoint(event.clientX, event.clientY);
+        host.style.pointerEvents = '';
+        const btn = under && under.closest ? under.closest('button') : null;
+        return btn && palette.contains(btn) ? btn : null;
+      };
       host.addEventListener('pointerdown',event=>{
+        host.dataset.lastPointer = event.pointerType || 'mouse';
+        const palBtn = paletteButtonAt(event);
+        if (palBtn) {
+          event.preventDefault();
+          palBtn.click();
+          editor.gpIgnoreClick = true;
+          host.focus();
+          return;
+        }
         if(!editor.gpBars||event.pointerType==='touch'||event.button!==0)return;
         const hit=pointerHit(event);if(!hit)return;
         if(!event.shiftKey&&!editor.gpSelecting)tabGpSetTime(editor,hit.start,hit.string);
@@ -25131,8 +25259,14 @@ function tabAtRender(editor) {
         const rect = host.getBoundingClientRect();
         const x = event.clientX - rect.left + host.scrollLeft;
         const y = event.clientY - rect.top + host.scrollTop;
-        const hit = tabAtHitTest(x, y);
         if(editor.gpIgnoreClick){editor.gpIgnoreClick=false;return;}
+        const palBtn = paletteButtonAt(event);
+        if (palBtn) {
+          palBtn.click();
+          host.focus();
+          return;
+        }
+        const hit = tabAtHitTest(x, y);
         if (hit) {if(editor.gpBars)tabGpSetTime(editor,hit.start,hit.string,event.shiftKey||!!editor.gpSelecting);else tabAtSetCursor(hit.start, hit.string);}
         host.focus();
       });

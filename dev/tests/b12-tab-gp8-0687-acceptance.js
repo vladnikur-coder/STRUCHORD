@@ -174,7 +174,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     check(
       'После удаления паузы такт ждёт нот: подсказка «3 из 4 — не заполнен» и кнопка «Заполнить паузами»',
       [ui.errorHidden, ui.errorText.includes('3 из 4 — не заполнен'), ui.padButton, ui.applyDisabled],
-      [false, true, 'Заполнить паузами', true],
+      // 0.691: подсказка остаётся, но сохранение не блокируется.
+      [false, true, 'Заполнить паузами', false],
     );
     check('Такт остаётся на месте: удаляется пауза, а не такт', [ui.barsCount, ui.groupsPerBar], [1, [3]]);
     await page.screenshot({ path: path.join(OUT_DIR, '01-rest-deleted-pad-button-light.png') });
@@ -228,7 +229,8 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await key('Backspace');
     await key('Backspace');
     ui = await readUi();
-    check('Перед заполнением такт неполный и «Применить» ждёт', [ui.applyDisabled, ui.groupsPerBar], [true, [3]]);
+    // 0.691: неполный такт можно сохранить и без добивки паузами.
+    check('Перед заполнением такт неполный, но «Применить» доступна', [ui.applyDisabled, ui.groupsPerBar], [false, [3]]);
     await page.click('[data-tab-gp-fix="pad"]');
     await wait(180);
     ui = await readUi();
@@ -247,10 +249,11 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     ui = await readUi();
     // 0.688: свободный хвост не рисуется паузой, поэтому такт из трёх нот
     // честно считается неполным — «Применить» ждёт «Заполнить паузами».
+    // 0.691: неполный такт больше не блокирует «Применить».
     check(
       'Такт из трёх нот с пустым хвостом считается неполным и объясняет это словами (0.688)',
       [ui.groupsPerBar, ui.applyDisabled, ui.errorText.includes('3 из 4 — не заполнен')],
-      [[4], true, true],
+      [[4], false, true],
     );
     await key('Delete');
     ui = await readUi();
@@ -368,7 +371,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
           [7, 1, 1, 0],
           [9, 2, 1, 0],
         ],
-        true,
+        false,
       ],
     );
     await key('KeyZ', { ctrl: true });
@@ -393,7 +396,7 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
           [9, 2, 1, 0],
         ],
         1,
-        true,
+        false,
       ],
     );
 

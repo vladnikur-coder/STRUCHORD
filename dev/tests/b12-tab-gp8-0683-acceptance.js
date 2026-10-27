@@ -292,7 +292,8 @@ function check(name, actual, expected) {
       hidden: false,
       hasUnderfillText: true,
       padBtnLabel: 'Заполнить паузами',
-      applyDisabled: true,
+      // 0.691: недописанный такт не мешает сохранению — «Применить» доступна.
+      applyDisabled: false,
     });
     await page.screenshot({ path: path.join(OUT_DIR, '04-underfill-pad-button-light.png') });
 
@@ -411,10 +412,9 @@ function check(name, actual, expected) {
       cursorStart: 0,
       cursorString: 0,
       notes: [['note', 0, 7, 1]],
-      barBeats: [
-        ['note', 1],
-        ['rest', 3],
-      ],
+      // 0.690: автоматическая пауза-хвост больше не рисуется и не хранится в такте,
+      // поэтому после ноты в такте остаётся только сама нота (пустое место — «заполнитель»).
+      barBeats: [['note', 1]],
     });
     await page.screenshot({ path: path.join(OUT_DIR, '06-empty-click-starts-at-beat1.png') });
 

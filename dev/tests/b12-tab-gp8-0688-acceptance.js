@@ -120,6 +120,26 @@ const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
         };
       });
 
+    // 0.691: серая пауза появляется при наведении на крайнюю настоящую долю перед пустотой.
+    const hoverEdge = async (barIndex = 0) => {
+      const point = await page.evaluate((bi) => {
+        const tails = tabAtState?.tails;
+        const tail = tails && tails.get(bi);
+        const start = tail ? [...tail.keys][0] : null;
+        if (start == null) return null;
+        const bb = tabAtBeatBoundsAt(tabAtApi, start);
+        if (!bb || !bb.visualBounds) return null;
+        const host = document.querySelector('.tab-at-host');
+        const r = host.getBoundingClientRect();
+        // правая часть самой доли (ноты), чтобы попасть именно в неё
+        return { x: r.x + bb.visualBounds.x + Math.min(bb.visualBounds.w * 0.5, 14), y: r.y + bb.visualBounds.y + bb.visualBounds.h / 2 };
+      }, barIndex);
+      if (!point) return null;
+      await page.mouse.move(point.x, point.y);
+      await wait(350);
+      return point;
+    };
+
     const moveMouse = async (x, y) => {
       await page.mouse.move(x, y);
       await wait(250);
@@ -162,7 +182,8 @@ const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
     );
     await page.screenshot({ path: path.join(OUT_DIR, '01-tail-empty-light.png') });
 
-    // === 2. Курсор на крайней доле перед пустотой — серая пауза ===
+    // === 2. Наведение мыши на крайнюю долю перед пустотой — серая пауза ===
+    // 0.691: сам курсор паузу больше не рисует, только наведение мыши.
     await page.evaluate(() => {
       const e = tabInsertEditorState;
       tabGpSetTime(e, 1, 0);
@@ -171,16 +192,24 @@ const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
     await wait(300);
     ui = await readUi();
     check(
-      'Курсор на крайней доле: серая пауза в хвосте появляется',
-      [ui.cursorPoint.bar, ui.placeholderVisible, ui.placeholderFill],
-      [0, 1, 'rgb(142, 142, 158)'],
+      'Курсор на крайней доле без наведения: серой паузы нет',
+      [ui.cursorPoint.bar, ui.placeholderVisible],
+      [0, 0],
+    );
+    await hoverEdge(0);
+    ui = await readUi();
+    check(
+      'Наведение мыши на крайнюю долю: серая пауза в хвосте появляется',
+      [ui.placeholderVisible, ui.placeholderFill],
+      [1, 'rgb(142, 142, 158)'],
     );
     await page.screenshot({ path: path.join(OUT_DIR, '02-grey-rest-light.png') });
+    await page.mouse.move(5, 5);
+    await wait(200);
 
     // === 3. Наведение мыши на хвост — тоже серая пауза ===
     await setFixture(twoBars, 0, 0);
-    const spot = await tailSpot();
-    await moveMouse(spot.x, spot.y);
+    await hoverEdge(0);
     ui = await readUi();
     check('Наведение мыши на пустой хвост показывает серую паузу', ui.placeholderVisible, 1);
     await page.screenshot({ path: path.join(OUT_DIR, '03-hover-light.png') });
@@ -240,9 +269,9 @@ const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
     await setFixture([], 0, 0, 4);
     ui = await readUi();
     check(
-      'Пустой такт: пауза скрыта (появится под курсором), такт не подсвечен, «Применить» доступна',
+      'Пустой такт: пауза скрыта (появится при наведении), такт не подсвечен, «Применить» доступна',
       [ui.placeholderCount, ui.placeholderVisible, ui.invalidCount, ui.applyDisabled],
-      [1, 1, 0, false],
+      [1, 0, 0, false],
     );
 
     // === 8. Тёмная тема: заливка есть и видна ===
@@ -255,8 +284,9 @@ const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
     );
     await page.screenshot({ path: path.join(OUT_DIR, '05-red-fill-dark.png') });
     await setFixture(twoBars, 1, 0, 8, 'dark');
+    await hoverEdge(0);
     ui = await readUi();
-    check('Тёмная тема: серая пауза в хвосте видна', ui.placeholderVisible, 1);
+    check('Тёмная тема: серая пауза в хвосте видна при наведении', ui.placeholderVisible, 1);
     await page.screenshot({ path: path.join(OUT_DIR, '06-grey-rest-dark.png') });
 
     // === 9. Ошибок JavaScript нет ===
