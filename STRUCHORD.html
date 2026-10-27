@@ -5227,6 +5227,96 @@ body.is-resizing .tab-insert > .chord-ticks-step {
 .tl-cell.tl-cell--tab { height: auto; min-height: 9.5rem; padding: 0; align-items: stretch; }
 .tl-cell--tab .tab-insert { border-radius: 0; padding-bottom: 0.5rem; }
 
+/* ===== 0.695: перетаскивание таб-вставки (B-12.12) =====
+   Жест — «зажать и потянуть», как у секций в «Структуре». До удержания
+   карточка только чуть проседает (видно, что нажатие принято), после
+   удержания «берётся»: ярлык едет за курсором, а в секции открывается
+   пустое место под бросок. Своего рисования здесь нет — только отклик. */
+.tab-insert:not(.tab-insert--cell) {
+  user-select: none;
+  -webkit-user-select: none;
+}
+.tab-insert.is-tab-pressed {
+  transform: scale(0.988);
+  border-color: var(--color-accent);
+  transition: transform 120ms ease, border-color 120ms ease;
+}
+.tab-insert.is-tab-drag-source {
+  opacity: 0.34;
+  border-style: dashed;
+  border-color: var(--color-accent);
+}
+body.is-tab-dragging {
+  cursor: grabbing;
+  user-select: none;
+  -webkit-user-select: none;
+}
+body.is-tab-dragging .tab-insert { cursor: grabbing; }
+.section-card.is-tab-drop-target {
+  outline: 2px solid rgba(var(--color-accent-rgb), 0.45);
+  outline-offset: 2px;
+  border-radius: 0.75rem;
+}
+/* Пустое место под бросок: растёт по высоте, поэтому соседи раздвигаются
+   плавно, без скачка. */
+.tab-drop-gap {
+  border: 2px dashed rgba(var(--color-accent-rgb), 0.55);
+  border-radius: 0.5rem;
+  background: rgba(var(--color-accent-rgb), 0.07);
+  height: 0;
+  opacity: 0;
+  transition: height 170ms cubic-bezier(0.22, 1, 0.36, 1), opacity 140ms ease;
+  box-sizing: border-box;
+  margin: 0.125rem 0.375rem 0.125rem 0;
+}
+.tab-drop-gap.is-open { opacity: 1; }
+/* Ярлык — «взятая» карточка, которая едет за курсором. */
+#tabDragChip {
+  position: fixed;
+  left: 0;
+  top: 0;
+  z-index: 1200;
+  display: none;
+  flex-direction: column;
+  gap: 0.1875rem;
+  min-width: 10rem;
+  max-width: 18rem;
+  padding: 0.4375rem 0.625rem 0.5625rem;
+  box-sizing: border-box;
+  border: 0.0625rem solid var(--color-accent);
+  border-radius: 0.5rem;
+  background: var(--color-background-secondary);
+  color: var(--color-text-primary);
+  box-shadow: var(--shadow-drag);
+  pointer-events: none;
+  will-change: left, top;
+  transform: scale(1.02);
+}
+#tabDragChip .tab-drag-chip-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+#tabDragChip strong {
+  font-size: 0.6875rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--color-accent);
+}
+#tabDragChip .tab-drag-chip-count {
+  font-size: 0.6875rem;
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+#tabDragChip .tab-drag-chip-bars {
+  font-size: 0.625rem;
+  letter-spacing: 0.04em;
+  color: var(--color-text-tertiary);
+  text-transform: uppercase;
+}
+#tabDragChip.is-outside { opacity: 0.55; }
+
 /* ===== Окно редактора таб-вставки (эталон палитры Guitar Pro 8) ===== */
 .tab-insert-editor .strum-modal-content {
   width: min(71rem, 96vw);
@@ -15200,7 +15290,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.694</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.695</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -37780,11 +37870,9 @@ function cloneTabSquare(sid, sqid) {
 // поэтому стрелки означают «раньше/позже»; на краях секции кнопка
 // недоступна, а не просто ничего не делает.
 function tabSquareControlsHtml(sec, sq, index) {
-  const idx = Number.isInteger(index) ? index : sec.squares.findIndex(item => item.id === sq.id);
-  const total = sec.squares.length;
-  return `<button class="tab-btn" onclick="event.stopPropagation();moveTabSquare(${sec.id},${sq.id},-1)" title="Поставить таб раньше" aria-label="Поставить таб раньше"${idx <= 0 ? ' disabled' : ''}><i class="ti ti-chevron-left"></i></button>
-  <button class="tab-btn" onclick="event.stopPropagation();moveTabSquare(${sec.id},${sq.id},1)" title="Поставить таб позже" aria-label="Поставить таб позже"${idx >= total - 1 ? ' disabled' : ''}><i class="ti ti-chevron-right"></i></button>
-  <button class="tab-btn" onclick="event.stopPropagation();cloneTabSquare(${sec.id},${sq.id})" title="Копировать таб-вставку" aria-label="Копировать таб-вставку"><i class="ti ti-clipboard-copy"></i></button>`;
+  // 0.695: стрелки ‹ › убраны — таб переставляют перетаскиванием (и это
+  // работает между секциями). Копия осталась.
+  return `<button class="tab-btn" onclick="event.stopPropagation();cloneTabSquare(${sec.id},${sq.id})" title="Копировать таб-вставку" aria-label="Копировать таб-вставку"><i class="ti ti-clipboard-copy"></i></button>`;
 }
 // Переместить таб-квадрат вверх/вниз внутри секции.
 function moveTabSquare(sid, sqid, dir) {
@@ -37800,6 +37888,421 @@ function moveTabSquare(sid, sqid, dir) {
   }, { quiet: true, history: 'atomic' });
   if (!rerenderSectionSquaresDom(s)) requestRender();
 }
+// B-12.12 (0.695): перенос таб-вставки перетаскиванием.
+// Владелец подтвердил: тянем пока только таб, бросать можно в любую секцию,
+// жест начинается с удержания ~0.5 с и видимого отклика, короткое нажатие
+// по-прежнему открывает редактор, кнопки ‹ › у карточки убраны.
+//
+// Устройство то же, что у перетаскивания секций (B-65): pointer-события, а не
+// нативный HTML5 DnD — нужен свой вид ярлыка, своя задержка «взятия» и своё
+// пустое место под бросок. Модель меняется ТОЛЬКО при отпускании: пока тащим,
+// в DOM живёт один служебный .tab-drop-gap, а сама карточка остаётся на месте
+// полупрозрачной («взята»). Поэтому любой посторонний перерендер ничего не
+// ломает — при следующем движении зазор просто встанет заново.
+const TAB_DRAG_HOLD_MS = 500;      // сколько держать до «взятия»
+const TAB_DRAG_PRESS_MS = 110;     // лёгкий отклик на само нажатие
+const TAB_DRAG_CANCEL_PX = 10;     // до «взятия» движение отменяет жест
+const TAB_DRAG_FLY_MS = 240;
+const TAB_DRAG_EASE = 'cubic-bezier(.22,1,.36,1)';
+let tabSquareDrag = null;
+let tabDragRaf = 0;
+let tabDragSuppressClickUntil = 0;
+
+function tabDragChipEl() {
+  let chip = document.getElementById('tabDragChip');
+  if (!chip) {
+    chip = document.createElement('div');
+    chip.id = 'tabDragChip';
+    chip.setAttribute('aria-hidden', 'true');
+    document.body.appendChild(chip);
+  }
+  return chip;
+}
+
+function fillTabDragChip(chip, sq, parentTs) {
+  const beats = getTabInsertBeats(sq, parentTs);
+  const bars = formatSquareBars(beats / getGridUnitsPerBar(parentTs));
+  const count = (sq.notes || []).filter((n) => !n.pause).length;
+  const noteWord = count % 10 === 1 && count % 100 !== 11 ? 'нота'
+    : count % 10 >= 2 && count % 10 <= 4 && (count % 100 < 12 || count % 100 > 14) ? 'ноты' : 'нот';
+  chip.innerHTML =
+    '<span class="tab-drag-chip-head"><strong>TAB</strong>' +
+    '<span class="tab-drag-chip-count">' + count + ' ' + noteWord + ' · ' + bars + ' ' + sectionRangeCountWord(bars) + '</span></span>' +
+    '<span class="tab-drag-chip-bars">отпустите над нужным местом</span>';
+}
+
+// Переставить таб-вставку в другую позицию или в другую секцию.
+// index считается по массиву БЕЗ перемещаемого квадрата — так одинаково
+// работают и перенос внутри секции, и перенос в чужую.
+function moveTabSquareTo(fromSid, sqid, toSid, index) {
+  const from = sections.find((s) => s.id === fromSid);
+  const to = sections.find((s) => s.id === toSid);
+  if (!from || !to) return false;
+  const src = from.squares.find((q) => q && q.id === sqid);
+  if (!src || src.type !== 'tab') return false;
+  const fromTs = from.timeSig || globalTimeSig;
+  const toTs = to.timeSig || globalTimeSig;
+  let movedSq = src;
+  if (fromTs !== toTs) {
+    // Другой размер — ритм сохраняем пересчётом, как при смене размера
+    // секции. Не помещается — не переносим и честно объясняем.
+    const conv = tabInsertConvertMeter(src, fromTs, toTs);
+    if (!conv) {
+      showToast('Нельзя перенести: таб не помещается в размер этой секции');
+      return false;
+    }
+    movedSq = { ...src, beats: conv.beats, notes: conv.notes };
+  }
+  if (from !== to && to.squares.length >= CONFIG.MAX_SQUARES_PER_SECTION) {
+    showToast('В этой секции уже максимум квадратов');
+    return false;
+  }
+  songStore.dispatch('square/tab-move', () => {
+    const at = from.squares.indexOf(src);
+    if (at >= 0) from.squares.splice(at, 1);
+    const arr = to.squares;
+    arr.splice(Math.max(0, Math.min(index, arr.length)), 0, movedSq);
+  }, { quiet: true, history: 'atomic' });
+  const okFrom = rerenderSectionSquaresDom(from);
+  const okTo = from === to ? true : rerenderSectionSquaresDom(to);
+  if (!okFrom || !okTo) requestRender();
+  if (typeof renderSongMap === 'function') renderSongMap();
+  showToast('Таб-вставка перемещена');
+  return true;
+}
+
+function tabDragLayout(st) {
+  if (!st.rectsDirty && st.lists) return st.lists;
+  st.lists = [...document.querySelectorAll('.section-card')].map((card) => {
+    const list = card.querySelector('.squares-list');
+    return {
+      card,
+      list,
+      cr: card.getBoundingClientRect(),
+      lr: list ? list.getBoundingClientRect() : null,
+      secId: parseInt(card.dataset.id, 10),
+    };
+  }).filter((x) => x.list && x.lr && x.lr.height > 0);
+  st.rectsDirty = false;
+  return st.lists;
+}
+
+// Куда встанет карточка при текущем положении курсора.
+function tabDragTargetAt(st, x, y) {
+  const lists = tabDragLayout(st);
+  let best = null;
+  for (const L of lists) {
+    const inside = x >= L.cr.left - 24 && x <= L.cr.right + 24 && y >= L.cr.top - 20 && y <= L.cr.bottom + 20;
+    const dx = Math.max(L.lr.left - x, 0, x - L.lr.right);
+    const dy = Math.max(L.lr.top - y, 0, y - L.lr.bottom);
+    const dist = Math.hypot(dx, dy);
+    if (!inside && dist > 90) continue;
+    if (!best || dist < best.dist) best = Object.assign({}, L, { dist });
+  }
+  if (!best) return null;
+  // Пустое место, уже вставленное в список, сдвигает соседей вниз. Если
+  // мерить по живым координатам, цель начинает прыгать сама с собой
+  // (то «перед первым», то «перед вторым») — та же беда, что была у
+  // перетаскивания секций. Поэтому считаем геометрию БЕЗ зазора.
+  const gapH = st.gap && st.gap.parentElement === best.list ? st.gap.getBoundingClientRect().height : 0;
+  const squares = [...best.list.querySelectorAll(':scope > .square')];
+  let beforeEl = null;
+  for (const el of squares) {
+    const r = el.getBoundingClientRect();
+    const afterGap = gapH > 0 && (st.gap.compareDocumentPosition(el) & Node.DOCUMENT_POSITION_FOLLOWING);
+    const top = r.top - (afterGap ? gapH : 0);
+    if (y < top + r.height / 2) { beforeEl = el; break; }
+  }
+  return Object.assign({}, best, { beforeEl });
+}
+
+// Точное место броска берём по уже открытому пустому месту: что человек
+// видит, то и получит. Пересчёт по координатам здесь не нужен и опасен —
+// зазор сам сдвигает квадраты.
+function tabDropFromGap(st) {
+  if (!st.gap || !st.gap.parentElement) return null;
+  const list = st.gap.parentElement;
+  const card = list.closest('.section-card');
+  if (!card) return null;
+  const secId = parseInt(card.dataset.id, 10);
+  if (!Number.isFinite(secId)) return null;
+  // Идём по ДЕТЯМ списка: зазор сам не .square, и выборка только квадратов
+  // «не замечала» его — место броска уезжало в конец.
+  const beforeIds = [];
+  for (const el of list.children) {
+    if (el === st.gap) break;
+    if (el.classList && el.classList.contains('square')) beforeIds.push(parseInt(el.dataset.square, 10));
+  }
+  const sec = sections.find((s) => s.id === secId);
+  if (!sec) return null;
+  const without = sec.squares.map((q) => q && q.id).filter((id) => id !== st.sqId);
+  let index = 0;
+  for (const id of beforeIds) {
+    if (without.indexOf(id) >= 0) index++;
+  }
+  return { secId, index };
+}
+
+function tabDragPlaceGap(st, target) {
+  if (!target) {
+    if (st.gap) { st.gap.remove(); st.gap = null; }
+    if (st.gapSec) { st.gapSec.classList.remove('is-tab-drop-target'); st.gapSec = null; }
+    return;
+  }
+  if (st.gapSec && st.gapSec !== target.card) st.gapSec.classList.remove('is-tab-drop-target');
+  target.card.classList.add('is-tab-drop-target');
+  st.gapSec = target.card;
+  if (!st.gap) {
+    st.gap = document.createElement('div');
+    st.gap.className = 'tab-drop-gap';
+    st.gap.style.height = '0px';
+  }
+  const sameSpot = st.gap.parentElement === target.list &&
+    (st.gap.nextElementSibling || null) === (target.beforeEl || null);
+  if (!sameSpot) {
+    if (target.beforeEl) target.list.insertBefore(st.gap, target.beforeEl);
+    else target.list.appendChild(st.gap);
+  }
+  const h = Math.round(st.cardH) + 'px';
+  if (st.gap.style.height !== h) {
+    requestAnimationFrame(() => {
+      if (tabSquareDrag !== st || !st.gap) return;
+      st.gap.style.height = h;
+      st.gap.classList.add('is-open');
+    });
+  } else {
+    st.gap.classList.add('is-open');
+  }
+}
+
+function tabDragFollow() {
+  const st = tabSquareDrag;
+  if (!st || st.phase !== 'active') { tabDragRaf = 0; return; }
+  st.curX += (st.tgtX - st.curX) * 0.28;
+  st.curY += (st.tgtY - st.curY) * 0.28;
+  if (Math.abs(st.tgtX - st.curX) + Math.abs(st.tgtY - st.curY) < 0.5) {
+    st.curX = st.tgtX; st.curY = st.tgtY;
+  }
+  // Ярлык не уезжает за край окна: на телефоне он иначе обрезается.
+  const vw = window.innerWidth, vh = window.innerHeight;
+  const left = Math.max(6, Math.min(st.curX, vw - st.chipW - 6));
+  const top = Math.max(6, Math.min(st.curY, vh - st.chipH - 6));
+  st.chip.style.left = left + 'px';
+  st.chip.style.top = top + 'px';
+  tabDragRaf = requestAnimationFrame(tabDragFollow);
+}
+
+function tabDragAutoScroll(st) {
+  const EDGE = 56, MAX = 16;
+  const vh = window.innerHeight;
+  let v = 0;
+  if (st.lastY < EDGE) v = -Math.ceil(MAX * (1 - Math.max(0, st.lastY) / EDGE));
+  else if (st.lastY > vh - EDGE) v = Math.ceil(MAX * (1 - (vh - st.lastY) / EDGE));
+  st.autoScroll = v;
+  if (!v || st.autoRaf) return;
+  const step = () => {
+    const s = tabSquareDrag;
+    if (!s || s.phase !== 'active' || !s.autoScroll) { if (s) s.autoRaf = 0; return; }
+    window.scrollBy(0, s.autoScroll);
+    s.rectsDirty = true;
+    updateTabDragTarget(s);
+    s.autoRaf = requestAnimationFrame(step);
+  };
+  st.autoRaf = requestAnimationFrame(step);
+}
+
+function updateTabDragTarget(st) {
+  const target = tabDragTargetAt(st, st.lastX, st.lastY);
+  st.target = target;
+  tabDragPlaceGap(st, target);
+  st.chip.classList.toggle('is-outside', !target);
+}
+
+function beginTabSquareDrag(pending) {
+  if (tabSquareDrag !== pending || pending.phase !== 'pending') return;
+  clearTimeout(pending.pressTimer); pending.pressTimer = 0;
+  clearTimeout(pending.holdTimer); pending.holdTimer = 0;
+  const sec = sections.find((s) => s.id === pending.secId);
+  const sq = sec && sec.squares.find((q) => q && q.id === pending.sqId);
+  if (!sec || !sq) { tabSquareDrag = null; pending.card.classList.remove('is-tab-pressed'); return; }
+  const parentTs = sec.timeSig || globalTimeSig;
+  const rect = pending.card.getBoundingClientRect();
+  const chip = tabDragChipEl();
+  fillTabDragChip(chip, sq, parentTs);
+  chip.style.display = 'flex';
+  chip.style.transition = 'none';
+  chip.style.opacity = '0';
+  const chipW = chip.offsetWidth || 200;
+  const chipH = chip.offsetHeight || 74;
+  const st = {
+    phase: 'active',
+    secId: pending.secId, sqId: pending.sqId, sec, sq, parentTs,
+    card: pending.card, pointerId: pending.pointerId, touch: pending.touch,
+    chip, chipW, chipH,
+    dx: Math.max(16, Math.min(pending.startX - rect.left, chipW - 16)),
+    dy: Math.max(16, Math.min(pending.startY - rect.top, chipH - 16)),
+    curX: pending.startX, curY: pending.startY,
+    tgtX: pending.startX, tgtY: pending.startY,
+    cardH: rect.height,
+    lastX: pending.startX, lastY: pending.startY,
+    gap: null, gapSec: null, target: null,
+    rectsDirty: true, lists: null, autoScroll: 0, autoRaf: 0,
+  };
+  st.curX = st.tgtX = pending.startX - st.dx;
+  st.curY = st.tgtY = pending.startY - st.dy;
+  chip.style.left = st.curX + 'px';
+  chip.style.top = st.curY + 'px';
+  chip.classList.remove('is-outside');
+  void chip.offsetWidth;
+  chip.style.transition = 'opacity 150ms ease';
+  chip.style.opacity = '1';
+  pending.card.classList.remove('is-tab-pressed');
+  pending.card.classList.add('is-tab-drag-source');
+  document.body.classList.add('is-tab-dragging');
+  tabSquareDrag = st;
+  if (!tabDragRaf) tabDragRaf = requestAnimationFrame(tabDragFollow);
+  updateTabDragTarget(st);
+  tabDragSuppressClickUntil = Date.now() + 400;
+}
+
+function clearTabDragVisuals(st) {
+  if (tabDragRaf) { cancelAnimationFrame(tabDragRaf); tabDragRaf = 0; }
+  if (st.autoRaf) { cancelAnimationFrame(st.autoRaf); st.autoRaf = 0; }
+  st.autoScroll = 0;
+  if (st.gap) { st.gap.remove(); st.gap = null; }
+  if (st.gapSec) { st.gapSec.classList.remove('is-tab-drop-target'); st.gapSec = null; }
+  st.card.classList.remove('is-tab-pressed', 'is-tab-drag-source');
+  document.body.classList.remove('is-tab-dragging');
+}
+
+function endTabSquareDrag(commit) {
+  const st = tabSquareDrag;
+  if (!st || st.phase !== 'active') { tabSquareDrag = null; return; }
+  const drop = commit ? tabDropFromGap(st) : null;
+  clearTabDragVisuals(st);
+  tabSquareDrag = null;
+  tabDragSuppressClickUntil = Date.now() + 400;
+  st.chip.style.transition = 'opacity ' + TAB_DRAG_FLY_MS + 'ms ' + TAB_DRAG_EASE;
+  st.chip.style.opacity = '0';
+  const hideChip = () => { if (!tabSquareDrag) st.chip.style.display = 'none'; };
+  setTimeout(hideChip, TAB_DRAG_FLY_MS + 20);
+  if (!drop) return;
+  const sec = sections.find((s) => s.id === drop.secId);
+  if (!sec) return;
+  const ids = sec.squares.map((q) => q && q.id);
+  const without = ids.filter((id) => id !== st.sqId);
+  const index = Math.max(0, Math.min(drop.index, without.length));
+  const nextIds = without.slice();
+  nextIds.splice(index, 0, st.sqId);
+  const same = sec.id === st.secId && nextIds.join(',') === ids.join(',');
+  if (same) return;   // бросили на то же место — ни правки, ни истории
+  if (!moveTabSquareTo(st.secId, st.sqId, sec.id, index)) return;
+  const card = document.querySelector('.square--tab[data-square="' + st.sqId + '"]');
+  if (card && card.animate) {
+    card.animate(
+      [{ opacity: 0, transform: 'translateY(-6px)' }, { opacity: 1, transform: 'translateY(0)' }],
+      { duration: 220, easing: TAB_DRAG_EASE }
+    );
+  }
+}
+
+function onTabSquareDragMove(e) {
+  const st = tabSquareDrag;
+  if (!st || e.pointerId !== st.pointerId) return;
+  if (st.phase === 'pending') {
+    const dist = Math.hypot(e.clientX - st.startX, e.clientY - st.startY);
+    if (dist > TAB_DRAG_CANCEL_PX) {
+      // До «взятия» движение — это не жест: обычное нажатие/прокрутка.
+      clearTimeout(st.pressTimer); clearTimeout(st.holdTimer);
+      st.card.classList.remove('is-tab-pressed');
+      tabSquareDrag = null;
+    }
+    return;
+  }
+  if (e.cancelable) e.preventDefault();
+  st.lastX = e.clientX; st.lastY = e.clientY;
+  st.tgtX = e.clientX - st.dx;
+  st.tgtY = e.clientY - st.dy;
+  if (!tabDragRaf) tabDragRaf = requestAnimationFrame(tabDragFollow);
+  updateTabDragTarget(st);
+  tabDragAutoScroll(st);
+}
+
+function onTabSquareDragUp(e) {
+  const st = tabSquareDrag;
+  if (!st || (e && e.pointerId !== st.pointerId)) return;
+  if (st.phase === 'pending') {
+    clearTimeout(st.pressTimer); clearTimeout(st.holdTimer);
+    st.card.classList.remove('is-tab-pressed');
+    tabSquareDrag = null;      // обычное нажатие — дальше работает клик
+    return;
+  }
+  endTabSquareDrag(true);
+}
+
+function onTabSquareDragCancelEvt(e) {
+  const st = tabSquareDrag;
+  if (!st || (e && e.pointerId !== st.pointerId)) return;
+  if (st.phase === 'pending') {
+    clearTimeout(st.pressTimer); clearTimeout(st.holdTimer);
+    st.card.classList.remove('is-tab-pressed');
+    tabSquareDrag = null;
+    return;
+  }
+  endTabSquareDrag(false);
+}
+
+// Жест навешивается один раз на всю страницу: карточки перерисовываются
+// целиком, и слушатель на каждой из них терялся бы после каждого рендера.
+function attachTabSquareDragEvents() {
+  if (window.__tabSquareDragReady) return;
+  window.__tabSquareDragReady = true;
+  document.addEventListener('pointerdown', (e) => {
+    if (tabSquareDrag) return;
+    if (e.pointerType === 'mouse' && e.button !== 0) return;
+    const cont = document.getElementById('sectionsContainer');
+    if (!cont || !cont.contains(e.target)) return;
+    const card = e.target.closest('.square--tab');
+    if (!card || !cont.contains(card)) return;
+    // Кнопки, счётчики и ручки — не повод тащить.
+    if (e.target.closest('button, .tab-btn, .del-square-btn, .square-resize-handle, .resize-handle, .repeat-badge, .square-beats-badge, .chord-btn, .tab-insert--cell')) return;
+    const secId = parseInt(card.dataset.sec, 10);
+    const sqId = parseInt(card.dataset.square, 10);
+    if (!Number.isFinite(secId) || !Number.isFinite(sqId)) return;
+    const pending = {
+      phase: 'pending', card, secId, sqId,
+      pointerId: e.pointerId, touch: e.pointerType === 'touch',
+      startX: e.clientX, startY: e.clientY,
+      pressTimer: 0, holdTimer: 0,
+    };
+    pending.pressTimer = setTimeout(() => {
+      pending.pressTimer = 0;
+      if (tabSquareDrag === pending) card.classList.add('is-tab-pressed');
+    }, TAB_DRAG_PRESS_MS);
+    pending.holdTimer = setTimeout(() => beginTabSquareDrag(pending), TAB_DRAG_HOLD_MS);
+    tabSquareDrag = pending;
+  }, true);
+  document.addEventListener('pointermove', onTabSquareDragMove, { passive: false });
+  document.addEventListener('pointerup', onTabSquareDragUp);
+  document.addEventListener('pointercancel', onTabSquareDragCancelEvt);
+  // Телефон: пока карточка не «взята», палец спокойно прокручивает секцию.
+  // После «взятия» прокрутку гасим — иначе браузер забирает жест себе и
+  // присылает pointercancel вместо движения.
+  document.addEventListener('touchmove', (e) => {
+    if (tabSquareDrag && tabSquareDrag.phase === 'active' && e.cancelable) e.preventDefault();
+  }, { passive: false });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && tabSquareDrag && tabSquareDrag.phase === 'active') endTabSquareDrag(false);
+  });
+  window.addEventListener('scroll', () => { if (tabSquareDrag && tabSquareDrag.phase === 'active') tabSquareDrag.rectsDirty = true; }, { passive: true });
+  window.addEventListener('resize', () => { if (tabSquareDrag && tabSquareDrag.phase === 'active') tabSquareDrag.rectsDirty = true; }, { passive: true });
+  // После жеста клик по карточке не должен открывать редактор.
+  document.addEventListener('click', (e) => {
+    if (Date.now() > tabDragSuppressClickUntil) return;
+    if (e.target.closest('.square--tab')) { e.stopPropagation(); e.preventDefault(); }
+  }, true);
+}
+
 function removeSquare(sid, sqid) {
   const s = sections.find((s) => s.id === sid);
   if (!s) return;
@@ -55464,6 +55967,8 @@ function fillSectionDragChip(chip, sec) {
 }
 
 function attachDragEvents() {
+  // 0.695: жест перетаскивания таб-вставки — один слушатель на страницу.
+  attachTabSquareDragEvents();
   const cont = DOM.sectionsContainer;
   document.querySelectorAll('.section-card').forEach((card) => {
     if (card._dragController) card._dragController.abort();
