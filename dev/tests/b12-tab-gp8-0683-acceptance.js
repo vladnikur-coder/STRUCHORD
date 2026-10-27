@@ -166,7 +166,9 @@ function check(name, actual, expected) {
     );
 
     // =========================================================================
-    // 2. СТРЕЛКА → И АВТОУБОРКА ПУСТЫХ ХВОСТОВЫХ ТАКТОВ + СИНХРОННАЯ «ДЛИНА» (#2)
+    // 2. СТРЕЛКА → ДОБАВЛЯЕТ НАСТОЯЩИЙ ТАКТ + СИНХРОННАЯ «ДЛИНА» (#2)
+    // 0.694: контракт изменён по решению владельца — как в Guitar Pro 8,
+    // такт от стрелки настоящий, ← его не удаляет, «Применить» сохраняет.
     // =========================================================================
     await openFreshTab(true);
     // Вводим 4 ноты (0, 3, 0, 2) и дважды жмём →
@@ -178,8 +180,8 @@ function check(name, actual, expected) {
     await page.keyboard.press('Digit0');
     await page.keyboard.press('ArrowRight');
     await page.keyboard.press('Digit2');
-    await page.keyboard.press('ArrowRight'); // создаёт временный такт 2
-    await page.keyboard.press('ArrowRight'); // создаёт временный такт 3
+    await page.keyboard.press('ArrowRight'); // добавляет такт 2
+    await page.keyboard.press('ArrowRight'); // добавляет такт 3
     await wait(160);
 
     const lenSync = await page.evaluate(() => ({
@@ -187,22 +189,22 @@ function check(name, actual, expected) {
       selectVal: document.querySelector('[data-tab-beats]').value,
       pillText: document.querySelector('[data-tab-beats]').closest('.tab-select-wrap').querySelector('.tab-select-pill-text').textContent.trim(),
     }));
-    check('#2: При добавлении временных тактов стрелкой → поле «Длина» сразу показывает «3 такта»', lenSync, {
+    check('#2: Стрелка → добавляет такты, поле «Длина» сразу показывает «3 такта»', lenSync, {
       bars: 3,
       selectVal: '12',
       pillText: '3 такта',
     });
 
-    // Возврат ← убирает пустой 3-й такт сам
+    // Возврат ← такты больше не удаляет (как в Guitar Pro 8)
     await page.keyboard.press('ArrowLeft');
     await wait(140);
     check(
-      '#2: Шаг ← назад из пустого временного такта сам убирает его и обновляет «Длина» до «2 такта»',
+      '#2: Шаг ← назад такты не удаляет — остаются «3 такта»',
       await page.evaluate(() => [
         tabInsertEditorState.gpBars.length,
         document.querySelector('[data-tab-beats]').closest('.tab-select-wrap').querySelector('.tab-select-pill-text').textContent.trim(),
       ]),
-      [2, '2 такта'],
+      [3, '3 такта'],
     );
 
     // Снова шагнём → в пустой 3-й такт и сразу нажмём «Применить»
@@ -216,16 +218,14 @@ function check(name, actual, expected) {
       return {
         beats: tabSq.beats,
         notesCount: tabSq.notes.filter((n) => !n.pause).length,
-        badge,
       };
     });
-    check('#2: При нажатии «Применить» пустые временные такты от → убираются — в песне «4 ноты · 1 такт» без тишины', savedSongAfterAutoTrim, {
-      beats: 4,
+    check('#2: «Применить» сохраняет такты, добавленные стрелкой → (3 такта, 4 ноты)', savedSongAfterAutoTrim, {
+      beats: 12,
       notesCount: 4,
-      badge: '4 ноты · 1 такт',
     });
 
-    // А если такт добавили намеренно клавишей Insert — он сохраняется!
+    // Клавиша Insert по-прежнему добавляет настоящий такт
     await page.evaluate(() => {
       const tabSq = sections[0].squares.find((q) => q.type === 'tab');
       openTabInsertEditor(sections[0].id, tabSq.id);
@@ -239,9 +239,9 @@ function check(name, actual, expected) {
     await page.click('[data-tab-apply]');
     await wait(180);
     check(
-      '#2: Явно добавленный клавишей Insert такт не удаляется при «Применить»',
+      '#2: Клавиша Insert добавляет настоящий такт — он сохраняется при «Применить»',
       await page.evaluate(() => sections[0].squares.find((q) => q.type === 'tab').beats),
-      8,
+      16,
     );
 
     // =========================================================================

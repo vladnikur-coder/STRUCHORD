@@ -162,10 +162,11 @@ async function main() {
   w.tabInsertSetBeats(1, 101, 0.25);
   check('часть такта не принимается обработчиком длины', state()[0].squares[0].beats === 8);
   w.tabInsertSetBeats(1, 101, 20);
-  check('более четырёх тактов не принимаются', state()[0].squares[0].beats === 8);
+  // 0.694: предела в 4 такта больше нет — длину задаёт пользователь, как в Guitar Pro 8.
+  check('длина больше четырёх тактов принимается', state()[0].squares[0].beats === 20);
   w.eval('sections[0].squares[0].notes.push({ start: 7, string: 0, fret: 0, dur: 1 });');
   w.tabInsertSetBeats(1, 101, 4);
-  check('уменьшение не отрезает существующие ноты', state()[0].squares[0].beats === 8 && state()[0].squares[0].notes.some(n => n.start === 7));
+  check('уменьшение не отрезает существующие ноты', state()[0].squares[0].beats === 20 && state()[0].squares[0].notes.some(n => n.start === 7));
   await load(fixture); w.resetHistory();
   w.removeSquare(1, 101);
   check('удаление убирает четыре доли', w.eval('partSectionUnits(sections[0])') === 16);
@@ -208,7 +209,8 @@ async function main() {
   const full = clone(fixture); full.sections[0].squares[0].beats = 16;
   full.sections[0].squares[0].notes = [{start: 15, string: 0, fret: 0, dur: 1}];
   await load(full); w.tabInsertAddNote(1,101);
-  check('на пределе четырёх тактов ноты не выходят за границу', state()[0].squares[0].beats === 16 && state()[0].squares[0].notes.length === 1);
+  // 0.694: нота после четвёртого такта не отвергается — таб просто становится длиннее.
+  check('нота после четвёртого такта принимается и добавляет такт', state()[0].squares[0].beats === 20 && state()[0].squares[0].notes.length === 2 && state()[0].squares[0].notes.some(n => n.start === 15));
   const sixEight = clone(fixture); sixEight.globalTimeSig = '6/8'; sixEight.sections[0].squares[0].beats = 6;
   sixEight.sections[0].squares[0].notes = [{ start: 0, string: 0, fret: 0, dur: 2 }];
   await load(sixEight);
@@ -250,11 +252,14 @@ async function main() {
   const migrated = await save(); await load(migrated);
   check('после смены размера файл открывается со всеми четырьмя нотами', loadAccepted && state()[0].squares[0].beats === 12 && state()[0].squares[0].notes.length === 4 && state()[0].squares[0].events.length === 0);
   await load(full); w.resetHistory();
-  const beforeMeterRejection = JSON.stringify(state());
+  const beforeMeterChange = JSON.stringify(state());
   w.eval('DOM.globalTimeSig.value = "3/4";'); w.onGlobalTimeSigChange(); await wait(50);
-  check('если нужно больше 4 тактов, глобальная смена размера отвергается без изменений', w.eval('globalTimeSig') === '4/4' && w.eval('DOM.globalTimeSig.value') === '4/4' && JSON.stringify(state()) === beforeMeterRejection && w.historyDebugState().length === 1);
+  // 0.694: смена размера больше не упирается в 4 такта: 16 долей 4/4 = 6 тактов 3/4.
+  check('глобальная смена размера принимается, таб встаёт в целые такты', w.eval('globalTimeSig') === '3/4' && state()[0].squares[0].beats === 18 && state()[0].squares[0].notes.length === 1 && state()[0].squares[0].notes[0].start === 15);
+  w.undoEdit(); await wait(60);
+  check('отмена возвращает прежний размер и длину без потерь', w.eval('globalTimeSig') === '4/4' && JSON.stringify(state()) === beforeMeterChange);
   w.setSectionTimeSig(1, '3/4'); await wait(50);
-  check('переполнение при смене размера секции не обрезает ноты и не меняет песню', JSON.stringify(state()) === beforeMeterRejection && w.historyDebugState().length === 1);
+  check('смена размера секции тоже растягивает таб и не обрезает ноты', state()[0].timeSig === '3/4' && state()[0].squares[0].beats === 18 && state()[0].squares[0].notes.length === 1);
   const onlyTab = clone(fixture); onlyTab.sections[0].squares.pop();
   await load(onlyTab); w.toggleTimelineMode(true); await wait(50);
   check('песня из одного таба не считается пустой', w.document.getElementById('tlEmpty').hidden && tabNotesIn(w.document, '#timelineTrack') === 4);

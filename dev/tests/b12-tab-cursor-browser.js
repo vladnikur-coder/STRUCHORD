@@ -41,8 +41,9 @@ function check(name,ok,detail){checks.push({name,ok:!!ok,detail});console.log((o
    await shot('empty');
    const starts=[];for(let i=0;i<3;i++){await press('ArrowRight');starts.push((await state()).cursor.start)}
    check(`${width}: пустые стрелки переходят по тактам, а не длительностям`,starts.join()==='4,8,12',starts);
-   await press('ArrowRight');st=await state();check(`${width}: за концом такта → добавляет следующий`,st.cursor.start===12&&st.beats===16,st);
-   for(let i=0;i<3;i++){await page.keyboard.down('Control');await page.keyboard.press('KeyZ');await page.keyboard.up('Control');await wait(180);}
+   // 0.694: предела в 4 такта нет — четвёртая стрелка тоже добавляет такт.
+   await press('ArrowRight');st=await state();check(`${width}: за концом четвёртого такта → добавляет следующий`,st.cursor.start===16&&st.beats===20,st);
+   for(let i=0;i<4;i++){await page.keyboard.down('Control');await page.keyboard.press('KeyZ');await page.keyboard.up('Control');await wait(180);}
    for(let i=0;i<4;i++)await press('ArrowLeft');check(`${width}: влево до 0 и не дальше`,(await state()).cursor.start===0);
    const clicks=[];for(let string=0;string<6;string++){
     await clickAt(g.x0+(g.xEnd-g.x0)/2,g.lines[5-string].y);st=await state();clicks.push(st.cursor);

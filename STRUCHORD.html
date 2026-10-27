@@ -15200,7 +15200,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <i class="ti ti-guitar-pick" style="font-size: 1.375rem; color: var(--color-accent)"></i>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.693</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.694</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -21284,7 +21284,9 @@ function buildInnerCounts(spanBeats, offsetBeats, subdivide, cellCols, beatsPerB
 
 // Базовая dur — единицы размера секции ДО точки/триоли (не четверти
 // независимо от размера). 1/64 = denominator/64; меньшее не подменяем.
-const TAB_INSERT_MAX_BARS = 4;
+// 0.694: предела по числу тактов нет — как в Guitar Pro 8, такт добавляется
+// стрелкой → сколько нужно. От мусора защищает лимит позиций/нот ниже.
+const TAB_INSERT_MAX_BARS = Infinity;
 const TAB_INSERT_MAX_NOTES = 4096;
 function tabInsertNoteDuration(note) {
   return note.dur * (note.dots === 1 ? 1.5 : 1) * (note.triplet === true ? 2 / 3 : 1);
@@ -22862,7 +22864,7 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
     const beatWord = bFmt === 1 ? 'доля' : (bFmt >= 2 && bFmt <= 4 ? 'доли' : 'долей');
     lenLabel = `${bFmt} ${beatWord}`;
   } else {
-    lenLabel = `${bars} ${bars === 1 ? 'такт' : 'такта'}`;
+    lenLabel = `${bars} ${sectionRangeCountWord(bars)}`;
   }
   const durationText = `${count} ${noteWord} · ${lenLabel}`;
   // 0.692: таб в клетке рисует alphaTab — тот же движок, что и в редакторе.
@@ -22948,7 +22950,7 @@ function tabInsertEditNotes(secId, sqId, label, mutate) {
     // При одном переполнении добавляем ровно один такт, не произвольный хвост.
     const extended = next.beats + getGridUnitsPerBar(ts);
     if (!tabInsertValidBeats(extended, ts) || end > extended + 1e-8) {
-      showToast('Ноты не помещаются: максимум 4 такта, за один раз добавляется один такт'); return false;
+      showToast('Ноты не помещаются: за один раз добавляется один такт'); return false;
     }
     next.beats = extended;
   }
@@ -23546,7 +23548,7 @@ function tabGpEdit(e, fn, merge = false) {
   }
   if (
     e.gpBars.length < 1 ||
-    e.gpBars.length > 4 ||
+    e.gpBars.length > TAB_INSERT_MAX_BARS ||
     e.gpBars.flat().length > TAB_INSERT_MAX_NOTES ||
     e.gpBars.flat(2).reduce((n, g) => n + (g.notes?.length || 0), 0) > TAB_INSERT_MAX_NOTES
   ) {
@@ -23555,7 +23557,7 @@ function tabGpEdit(e, fn, merge = false) {
     e.gpCursor = old.cursor;
     e.gpSelection = savedSelection;
     tabAtCursor = { ...tabAtCursor, string: old.string };
-    showToast('Операция целиком отменена: максимум 4 такта / 4096 позиций/нот');
+    showToast('Операция целиком отменена: слишком много позиций или нот (предел 4096)');
     return false;
   }
   tabTechGuard(e, beforeEdges);
@@ -23594,33 +23596,10 @@ function tabGpUndo(e, redo = false) {
   tabGpDecorate(e);
   return true;
 }
-function tabGpIsAutoBlankBar(bar) {
-  return Array.isArray(bar) && bar.length === 1 && !bar[0]?.notes?.length && !!bar[0]?.wholeBar && !!bar[0]?.autoAdded;
-}
+// 0.694: понятия «временный такт» больше нет — любой такт настоящий.
+// Снимок для сравнения «есть ли изменения» берётся как есть.
 function tabGpComparableJson(bars) {
-  if (!Array.isArray(bars)) return '';
-  const trimmed = bars.slice();
-  while (trimmed.length > 1 && tabGpIsAutoBlankBar(trimmed[trimmed.length - 1])) trimmed.pop();
-  return JSON.stringify(trimmed.map((bar) => bar.map((g) => {
-    const copy = { ...g };
-    delete copy.autoAdded;
-    return copy;
-  })));
-}
-function tabGpTrimAutoBars(e, minBars = 1) {
-  if (!e?.gpBars) return false;
-  const floor = Math.max(1, minBars);
-  let changed = false;
-  while (e.gpBars.length > floor && tabGpIsAutoBlankBar(e.gpBars[e.gpBars.length - 1])) {
-    e.gpBars.pop();
-    changed = true;
-  }
-  if (changed) {
-    e.gpCursor.bar = Math.min(e.gpCursor.bar, e.gpBars.length - 1);
-    e.gpCursor.index = Math.min(e.gpCursor.index, Math.max(0, e.gpBars[e.gpCursor.bar].length - 1));
-    tabGpSync(e);
-  }
-  return changed;
+  return Array.isArray(bars) ? JSON.stringify(bars) : '';
 }
 function tabGpFixBars(e, mode) {
   if (!e?.gpBars) return false;
@@ -23753,7 +23732,7 @@ function tabGpValidate(e) {
   return !blocking;
 }
 function tabGpResize(e, count) {
-  if (!Number.isInteger(count) || count < 1 || count > 4) return false;
+  if (!Number.isInteger(count) || count < 1 || count > TAB_INSERT_MAX_BARS) return false;
   if (count < e.gpBars.length && e.gpBars.slice(count).some((bar) => bar.some((g) => g.notes.length))) {
     showToast('Нельзя отрезать такты с нотами');
     return false;
@@ -23775,28 +23754,14 @@ function tabGpMove(e, dir, extend = false) {
     return;
   }
   if (next) {
-    if (!extend && dir < 0 && next.bar < e.gpCursor.bar && e.gpBars.length > next.bar + 1 && tabGpIsAutoBlankBar(e.gpBars[e.gpBars.length - 1])) {
-      while (e.gpBars.length > Math.max(1, next.bar + 1) && tabGpIsAutoBlankBar(e.gpBars[e.gpBars.length - 1])) {
-        e.gpBars.pop();
-        if (e.history?.length) {
-          try {
-            const top = JSON.parse(e.history[e.history.length - 1]);
-            if (Array.isArray(top.bars) && top.bars.length === e.gpBars.length) e.history.pop();
-          } catch (_) {}
-        }
-      }
-      e.forward = [];
-      e.gpCursor = { bar: next.bar, index: next.index };
-      e.gpSelection = null;
-      tabGpSync(e);
-      return;
-    }
+    // 0.694: возврат стрелкой ← такты не удаляет — как в Guitar Pro 8.
+    // Такт убирается кнопкой «Удалить такт», «Длина» или отменой (Ctrl+Z).
     tabGpSetPoint(e, next, tabAtCursor.string, extend);
-  } else if (dir > 0 && !extend && !e.subBarBeats && e.gpBars.length < 4) {
+  } else if (dir > 0 && !extend && !e.subBarBeats && e.gpBars.length < TAB_INSERT_MAX_BARS) {
+    // 0.694: стрелка → добавляет настоящий такт (раньше — «временный»,
+    // который молча исчезал при сохранении). Как и кнопка «+ Такт».
     tabGpEdit(e, () => {
-      const blank = tabGpBlank(e);
-      blank.autoAdded = true;
-      e.gpBars.push([blank]);
+      e.gpBars.push([tabGpBlank(e)]);
       e.gpCursor = { bar: e.gpBars.length - 1, index: 0 };
     });
   } else tabAtLastDigit = null;
@@ -24204,10 +24169,7 @@ function tabGpInsert(e, barMode = false) {
         showToast('Для нескольких тактов выберите целые такты в поле «Длина»');
         return false;
       }
-      if (e.gpBars.length === 4) {
-        showToast('Максимум 4 такта');
-        return false;
-      }
+      if (e.gpBars.length >= TAB_INSERT_MAX_BARS) return false;
       e.gpBars.forEach((bar) => bar.forEach((x) => delete x.autoAdded));
       e.gpBars.splice(e.gpCursor.bar, 0, [tabGpBlank(e)]);
       e.gpCursor = { bar: e.gpCursor.bar, index: 0 };
@@ -24330,8 +24292,8 @@ function tabGpPaste(e) {
         );
       }
     }
-    if (e.gpBars.length + segments.length - 1 > 4) {
-      showToast('Вставка целиком отменена: максимум 4 такта');
+    if (e.gpBars.length + segments.length - 1 > TAB_INSERT_MAX_BARS) {
+      showToast('Вставка целиком отменена: слишком много позиций');
       return false;
     }
     const prefix = e.gpBars[b].slice(0, index),
@@ -25868,10 +25830,14 @@ function tabFormatBeatsCountLabel(beats) {
 function tabBuildBeatsOptionsHtml(sec, ts, editor) {
   const unitsPerBar = getGridUnitsPerBar(ts);
   const selected = Number(editor.draft.beats) || unitsPerBar;
-  const barOpts = [1, 2, 3, 4].map(b => {
+  // 0.694: предела в 4 такта больше нет, поэтому список «Длина» умеет
+  // показывать и длинные вставки: до 8 тактов всегда, дальше — по факту.
+  const barsNow = Math.max(1, Math.round(selected / unitsPerBar));
+  const barsMax = Math.max(8, barsNow);
+  const barOpts = Array.from({ length: barsMax }, (_, i) => i + 1).map(b => {
     const val = b * unitsPerBar;
     const sel = Math.abs(val - selected) < 1e-9 ? ' selected' : '';
-    const word = b === 1 ? 'такт' : 'такта';
+    const word = sectionRangeCountWord(b);
     return `<option value="${val}"${sel}>${b} ${word}</option>`;
   }).join('');
   const hasChordSquares = sec.squares.some(q => q && q.type !== 'tab');
@@ -26278,9 +26244,11 @@ function tabEditorResizeBeats(editor, rawValue) {
   const want = Number(rawValue);
   if (!Number.isFinite(want) || want <= 0) return false;
   const isSubBar = want < unitsPerBar - 1e-6 && Number.isInteger(Math.round(want * 1e6) / 1e6);
-  const isWholeBars = Number.isInteger(Math.round((want / unitsPerBar) * 1e6) / 1e6) && want >= unitsPerBar - 1e-6 && want <= 4 * unitsPerBar + 1e-6;
+  // 0.694: целых тактов может быть сколько угодно — предела в четыре нет.
+  const barsWanted = Math.round((want / unitsPerBar) * 1e6) / 1e6;
+  const isWholeBars = Number.isInteger(barsWanted) && want >= unitsPerBar - 1e-6 && want <= TAB_INSERT_MAX_BARS * unitsPerBar + 1e-6;
   if (!isSubBar && !isWholeBars) {
-    showToast('Длина таб-вставки — от 1 доли до 4 тактов');
+    showToast('Длина таб-вставки — от 1 доли, целыми тактами');
     return false;
   }
   if (!editor.gpBars) {
@@ -26581,7 +26549,8 @@ function openTabInsertEditor(secId, sqId, options) {
     const strBtn = event.target.closest('[data-tab-string-step]');
     if (strBtn) { tabAtMoveString(Number(strBtn.dataset.tabStringStep)); tabAtHostEl?.focus({ preventScroll: true }); return; }
     if (event.target.closest('[data-tab-apply]')) {
-      if (editor.gpBars) tabGpTrimAutoBars(editor, 1);
+      // 0.694: такт, добавленный стрелкой →, — настоящий: при сохранении
+      // он больше не выбрасывается (раньше это были «временные» такты).
       if ((editor.gpBars || editor.gpError) && !tabGpValidate(editor)) {
         const errMsg =
           editor.overlay.querySelector('[data-tab-gp-error-msg]')?.textContent ||
