@@ -15431,7 +15431,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.698</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.699</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -38205,13 +38205,11 @@ function tabMoveCommit(st, drop) {
           tabInsertCleanNotes(notes, cellBeats, dstTs), dstTs);
         st.landedId = destSq.id;
       }, { quiet: true, history: 'atomic' });
-      showToast('Таб вставлен в ряд ячейкой');
+      // 0.699: подпись говорит, что получилось на самом деле. Из ячейки таб
+      // становится ячейкой ряда, а не «вставляется» заново.
+      showToast('Таб-вставка стала ячейкой ряда');
     }
   } else {
-    if (dstSec !== srcSec && dstSec.squares.length >= CONFIG.MAX_SQUARES_PER_SECTION) {
-      showToast('В этой секции уже максимум квадратов');
-      return false;
-    }
     songStore.dispatch('square/tab-move', () => {
       const kept = st.kind === 'row' ? srcSec.squares.find((q) => q && q.id === st.sqId) : null;
       takeSource();
@@ -38426,6 +38424,113 @@ function tabDragPlaceCellLine(st, target) {
   line.style.height = Math.round(innerRect.height) + 'px';
 }
 
+// 0.699: высота открытого места должна совпадать с тем, что получится
+// после броска. У строки таба своя высота (шапка карточки и стан крупнее,
+// чем у ячейки), поэтому для ячейки «место» меряем по пробному образцу той
+// же разметки: он собирается вне экрана и тут же убирается. Раньше место
+// было высотой ячейки, и в момент отпускания всё, что ниже, прыгало вниз
+// (замер: 155 → 174, скачок 19 px). Образец кэшируется по ширине ряда.
+// Ширина будущей строки: таб занимает не весь ряд, а долю по музыкальному
+// времени (как при обычном рендере). От неё зависит, переносится ли подпись
+// «1 нота · 1 такт» на вторую строку, а значит и высота карточки.
+function tabDragRowBeatsForProbe(st, sec) {
+  const srcSec = sections.find((s) => s.id === st.secId);
+  if (!srcSec || !sec) return null;
+  let beats = 1;
+  if (st.kind === 'cell') {
+    const sq = srcSec.squares.find((q) => q && q.id === st.sqId);
+    const ev = sq && Array.isArray(sq.events) ? sq.events[st.ei] : null;
+    beats = Math.max(1 / 16, Number(ev && ev.span) || 1);
+  } else {
+    return null;
+  }
+  const srcTs = srcSec.timeSig || globalTimeSig;
+  const dstTs = sec.timeSig || globalTimeSig;
+  if (srcTs !== dstTs && typeof tabInsertConvertMeter === 'function') {
+    const conv = tabInsertConvertMeter({ beats, notes: [] }, srcTs, dstTs);
+    if (conv) beats = conv.beats;
+  }
+  const barUnits = getGridUnitsPerBar(dstTs);
+  return Math.max(barUnits, Math.ceil(beats / barUnits - 1e-6) * barUnits);
+}
+
+function tabDragGapHeight(st, list) {
+  const base = Math.round(st.cardH) || 64;
+  if (!st || st.kind !== 'cell' || !list) return base;
+  const listW = Math.round(list.getBoundingClientRect().width);
+  if (!(listW > 0)) return base;
+  const card = list.closest ? list.closest('.section-card') : null;
+  const secId = card ? parseInt(card.dataset.id, 10) : NaN;
+  const sec = Number.isFinite(secId) ? sections.find((s) => s.id === secId) : null;
+  let pct = 100;
+  if (sec) {
+    const rowBeats = tabDragRowBeatsForProbe(st, sec);
+    if (rowBeats != null) {
+      const ts = sec.timeSig || globalTimeSig;
+      const fakeSq = { type: 'tab', beats: rowBeats, events: [], customBeats: null };
+      const maxBeats = typeof getSectionMaxVisualBeats === 'function' ? getSectionMaxVisualBeats(sec) : 0;
+      if (maxBeats > 0) pct = getSquareDisplayWidthPercent(fakeSq, ts, maxBeats);
+      // Новая строка может оказаться длиннее всех: тогда она займёт весь ряд.
+      if (!(pct > 0)) pct = 100;
+      pct = Math.max(10, Math.min(100, pct));
+    }
+  }
+  const key = listW + ':' + Math.round(pct * 10) / 10;
+  if (st.rowProbe && st.rowProbe.key === key) return st.rowProbe.h;
+  const tsForProbe = sec ? (sec.timeSig || globalTimeSig) : globalTimeSig;
+  // Образец собираем ТОЙ ЖЕ функцией разметки, что рисует настоящую строку:
+  // у ячейки стан внутри карточки ниже (замер: 102 против 110 px), и клон
+  // ячейки давал высоту на 4 px меньше настоящей.
+  let probeHtml = '';
+  if (sec && typeof renderTabInsertHtml === 'function') {
+    try {
+      probeHtml = renderTabInsertHtml(sec, {
+        id: '__tabDragGapProbe',
+        type: 'tab',
+        repeat: 1,
+        beats: (tabDragRowBeatsForProbe(st, sec) || getGridUnitsPerBar(tsForProbe)),
+        notes: Array.isArray(st.notes) ? st.notes : [],
+        events: [],
+        customBeats: null,
+      }, tsForProbe);
+    } catch (e) {
+      probeHtml = '';
+    }
+  }
+  const cellInsert = st.card ? st.card.querySelector('.tab-insert--cell') : null;
+  if (!probeHtml && !cellInsert) return base;
+  const probe = document.createElement('div');
+  probe.className = 'square square--tab';
+  probe.setAttribute('aria-hidden', 'true');
+  probe.style.cssText = 'position:absolute;left:-10000px;top:0;visibility:hidden;pointer-events:none;width:' + listW + 'px;';
+  const inner = document.createElement('div');
+  inner.className = 'square-inner';
+  inner.style.cssText = 'grid-template-columns:repeat(1,minmax(0,1fr));width:' + pct + '%;';
+  if (probeHtml) {
+    inner.innerHTML = probeHtml;
+    // Образцу не нужны ни клики, ни заказ картинки стана: высоту задаёт CSS.
+    inner.querySelectorAll('[onclick]').forEach((el) => el.removeAttribute('onclick'));
+    inner.querySelectorAll('[data-tab-thumb]').forEach((el) => {
+      el.removeAttribute('data-tab-thumb');
+      el.removeAttribute('data-tab-out-fret');
+    });
+  } else {
+    const copy = cellInsert.cloneNode(true);
+    copy.classList.remove('tab-insert--cell', 'is-tab-pressed', 'is-tab-drag-taken', 'playback-active');
+    copy.querySelectorAll('[data-tab-thumb]').forEach((el) => {
+      el.removeAttribute('data-tab-thumb');
+      el.removeAttribute('data-tab-out-fret');
+    });
+    inner.appendChild(copy);
+  }
+  probe.appendChild(inner);
+  document.body.appendChild(probe);
+  const h = Math.round(probe.getBoundingClientRect().height);
+  probe.remove();
+  st.rowProbe = { key, h: h > 0 ? h : base };
+  return st.rowProbe.h;
+}
+
 function tabDragPlaceGap(st, target) {
   if (!target) {
     tabDragClearRowGap(st);
@@ -38448,7 +38553,7 @@ function tabDragPlaceGap(st, target) {
     if (target.beforeEl) target.list.insertBefore(st.gap, target.beforeEl);
     else target.list.appendChild(st.gap);
   }
-  const h = Math.round(st.cardH) + 'px';
+  const h = tabDragGapHeight(st, target.list) + 'px';
   if (st.gap.style.height !== h) {
     requestAnimationFrame(() => {
       if (tabSquareDrag !== st || !st.gap) return;
@@ -38759,6 +38864,15 @@ function onTabSquareDragMove(e) {
     }
     return;
   }
+  // 0.699: кнопку отпустили вне страницы (ушли за пределы окна, в другую
+  // программу) — pointerup к нам не придёт, а движение придёт уже с
+  // отпущенной кнопкой. Такой перенос отменяем: иначе ярлык «зависает» и
+  // следующий обычный клик бросает таб в случайное место (замер: клик по
+  // первому ряду вставил таб ячейкой, хотя человек ничего не тащил).
+  if (!st.touch && e.pointerType !== 'touch' && e.buttons === 0) {
+    endTabSquareDrag(false);
+    return;
+  }
   if (e.cancelable) e.preventDefault();
   st.lastX = e.clientX; st.lastY = e.clientY;
   st.tgtX = e.clientX - st.dx;
@@ -38849,6 +38963,25 @@ function attachTabSquareDragEvents() {
   }, { passive: false });
   document.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' && tabSquareDrag && tabSquareDrag.phase === 'active') endTabSquareDrag(false);
+  });
+  // 0.699: окно потеряло фокус (переключились в другую программу, свернули
+  // вкладку, позвонили) — кнопка отпущена где-то вне страницы, pointerup
+  // может не прийти вовсе. Жест отменяем, чтобы перенос не «переезжал» на
+  // следующий клик: контракт 0.695 п.6 — отпустили не там, ничего не меняем.
+  const cancelTabDragOnFocusLoss = () => {
+    const st = tabSquareDrag;
+    if (!st) return;
+    if (st.phase === 'pending') {
+      clearTimeout(st.pressTimer); clearTimeout(st.holdTimer);
+      if (st.card) st.card.classList.remove('is-tab-pressed');
+      tabSquareDrag = null;
+      return;
+    }
+    if (st.phase === 'active') endTabSquareDrag(false);
+  };
+  window.addEventListener('blur', cancelTabDragOnFocusLoss);
+  document.addEventListener('visibilitychange', () => {
+    if (document.hidden) cancelTabDragOnFocusLoss();
   });
   window.addEventListener('scroll', () => { if (tabSquareDrag && tabSquareDrag.phase === 'active') tabSquareDrag.rectsDirty = true; }, { passive: true });
   window.addEventListener('resize', () => { if (tabSquareDrag && tabSquareDrag.phase === 'active') tabSquareDrag.rectsDirty = true; }, { passive: true });
@@ -76204,6 +76337,13 @@ toggleTimeAndBeats();
   const SONG_LIMITS = {
     MAX_SECTIONS: 100,
     MAX_SQUARES_PER_SECTION: CONFIG.MAX_SQUARES_PER_SECTION,
+    // 0.699: перенос таб-вставки не ограничен пределом «+ квадрат» (решение
+    // владельца «сними ограничение»). Ячейку можно вынести из ряда отдельной
+    // строкой, и квадратов в секции станет больше 16 — своя же песня после
+    // такого переноса обязана открыться, поэтому загрузка принимает больше,
+    // чем разрешено добавить вручную. Потолок остался только как защита от
+    // раздутого файла; на «+ квадрат» и импорт он не влияет.
+    MAX_SQUARES_PER_SECTION_ON_LOAD: 256,
     MAX_EVENTS_PER_SQUARE: 128,
     MAX_SPAN: 256,
     MAX_PATTERN_STEPS: 1024,
@@ -76401,7 +76541,7 @@ toggleTimeAndBeats();
     // проверяются против той же валюты, в которой записана длительность.
     const sectionTsById = new Map();
     for (const rawSec of rawSong.sections) {
-      if (!rawSec || typeof rawSec !== 'object' || !Array.isArray(rawSec.squares) || rawSec.squares.length > SONG_LIMITS.MAX_SQUARES_PER_SECTION) return null;
+      if (!rawSec || typeof rawSec !== 'object' || !Array.isArray(rawSec.squares) || rawSec.squares.length > SONG_LIMITS.MAX_SQUARES_PER_SECTION_ON_LOAD) return null;
       const type = ALLOWED_SECTION_TYPES.has(rawSec.type) ? rawSec.type : 'Custom';
       const sec = {
         id: idFor(rawSec.id),
