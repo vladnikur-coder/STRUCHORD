@@ -439,6 +439,11 @@ const flatten = (score) =>
           });
         }
         await click('[data-tab-apply]');
+        // 0.692: мини-таб рисует alphaTab и делает это не мгновенно — ждём готовый
+        // кадр по метке [data-thumb-done], иначе проверка ловит пустой контейнер.
+        await page
+          .waitForFunction(() => !!document.querySelector('[data-tab-thumb][data-thumb-done] svg'), { timeout: 15000 })
+          .catch(() => {});
         const exported = await page.evaluate(async () => {
           const song = await exportStruchordFile(),
             a = gpExportBytesGP5(),
@@ -450,11 +455,13 @@ const flatten = (score) =>
             gpx: Array.from(b.bytes),
             midi: Array.from(m.bytes),
             reports: [a.report, b.report, m.report],
-            mini: document.querySelector('[data-tab-tech-mark]') !== null,
+            // 0.692: мини-таб в клетке рисует alphaTab (свой слой значков убран),
+            // поэтому проверяем саму картинку движка, а не прежний атрибут.
+            mini: (() => { const svg = document.querySelector('.tab-thumb svg'); return !!svg && svg.querySelectorAll('*').length > 20; })(),
           };
         });
         check('saved effects count', exported.song.sections[0].squares[0].notes.length, scoreNotes.length);
-        check('miniature has technique notation', exported.mini);
+        check('miniature is drawn by alphaTab (0.692)', exported.mini);
         for (const [format, bytes] of [
           ['GP5', exported.gp5],
           ['GPX', exported.gpx],
