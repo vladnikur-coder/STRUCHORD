@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-// 0.678: соседние позиции, пустые места, расширение 1–4 такта и история.
+// 0.678: соседние позиции, пустые места, расширение тактов и история.
+// 0.694: предела в 4 такта нет, ← такты не удаляет — правим ожидания под Guitar Pro 8.
 const fs = require('fs'), path = require('path'), assert = require('assert/strict'), crypto = require('crypto');
 const chromium = require('@sparticuz/chromium').default, puppeteer = require('puppeteer-core');
 const root = path.resolve(__dirname, '../..'), output = process.env.B12_NAV_RESULTS ? path.resolve(process.env.B12_NAV_RESULTS) : null;
@@ -77,8 +78,11 @@ const note = (start, dur, fret = 3, string = 0, flags = {}) => ({ start, dur, st
       await fixture([note(1, .25), note(3, .5, 7)], 0, 4, '4/4', 1); await key('ArrowRight'); await position('длинный шаг в пустоте не пропускает короткую ноту', 1);
       for (const [dValue, flags, step] of [[4, {}, 1], [64, {}, .0625], [4, { dots: 1 }, 1.5], [8, { triplet: true }, 1 / 3]]) {
         await fixture([], 0, 4, '4/4', dValue, flags); await key('ArrowRight'); await position(`пустой такт 1/${dValue}: сразу следующий такт`, 4, 8);
-        await key('ArrowLeft'); s = await position('пустой такт: обратно к 0', 0);
-        check(`${width}: пустые стрелки не записывают ноты/паузы`, s.notes.length === 0 && s.history === 1, s);
+        // 0.694: стрелка ← такты не удаляет (как в Guitar Pro 8) — курсор
+        // возвращается в первый такт, добавленный такт остаётся до отмены.
+        await key('ArrowLeft'); s = await position('пустой такт: ← возвращает курсор, такт остаётся', 0, 8);
+        check(`${width}: пустые стрелки не записывают ноты/паузы, а добавленный такт убирает только отмена`, s.notes.length === 0 && s.beats === 8 && s.history === 1, s);
+        await undo(); s = await position('отмена убирает такт, добавленный стрелкой', 0, 4);
       }
       await fixture([note(3, 1), note(4, .5, 7)], 3, 8); await key('ArrowRight'); s = await position('переход в уже существующий второй такт', 4, 8);
       check(`${width}: переход между тактами без расширения не создаёт Undo`, s.history === 0, s);
@@ -103,14 +107,17 @@ const note = (start, dur, fret = 3, string = 0, flags = {}) => ({ start, dur, st
       check(`${width}: Undo ноты оставил исходную ноту`, s.notes.length === 1 && s.notes[0].start === 3, s);
       await undo(); await position('следующий Undo отменил только расширение', 3, 4);
       await fixture([note(3, 1)], 3);
+      // 0.694: кнопка «вперёд» на конце такта добавляет такт так же, как стрелка.
+      await button('[data-tab-time-step="1"]');
+      s = await position('кнопка «вперёд» на конце добавляет такт', 4, 8);
+      check(`${width}: кнопка добавила такт и одно действие истории`, s.history === 1 && s.notes.length === 1, s);
+      await fixture([note(3, 1)], 3);
       for (let i = 0; i < 12; i++) await key('ArrowRight');
-      s = await position('достигнут четвёртый такт, больше не создано', 12, 16);
-      check(`${width}: три расширения — три действия истории`, s.history === 3 && s.notes.length === 1, s);
-      for (let i = 0; i < 3; i++) await button('[data-tab-time-step="1"]');
-      await position('на пределе 4 тактов → останавливается', 12, 16);
-      s = await state(); check(`${width}: отказ от пятого такта не создаёт историю`, s.history === 3, s);
-      for (const [beats, start] of [[12, 8], [8, 4], [4, 3]]) { await undo(); await position('Undo каждого расширения', start, beats); }
-      for (const [beats, start] of [[8, 4], [12, 8], [16, 12]]) { await undo(true); await position('Redo каждого расширения', start, beats); }
+      // 0.694: предела в 4 такта нет — каждая стрелка в конце добавляет такт.
+      s = await position('двенадцать стрелок добавили двенадцать тактов', 48, 52);
+      check(`${width}: двенадцать расширений — двенадцать действий истории`, s.history === 12 && s.notes.length === 1, s);
+      for (const [beats, start] of [[48, 44], [44, 40], [40, 36]]) { await undo(); await position('Undo каждого расширения', start, beats); }
+      for (const [beats, start] of [[44, 40], [48, 44], [52, 48]]) { await undo(true); await position('Redo каждого расширения', start, beats); }
       await fixture([note(3, 1)], 3); await key('Digit1'); await key('ArrowRight'); await key('Digit2'); s = await state();
       check(`${width}: переход разрывает склейку двузначного лада`, s.notes.some(n => n.start === 3 && n.fret === 1) && s.notes.some(n => n.start === 4 && n.fret === 2), s);
       check(`${width}: до применения исходная вставка не расширена`, await page.evaluate(() => tabInsertTarget(tabInsertEditorState.secId, tabInsertEditorState.sqId).sq.beats === 4));
@@ -118,7 +125,13 @@ const note = (start, dur, fret = 3, string = 0, flags = {}) => ({ start, dur, st
       check(`${width}: Применить записало новую длину и две ноты`, await page.evaluate(() => { const sq = sections[0].squares.find(q => q.type === 'tab'); return sq.beats === 8 && sq.notes.length === 2 && sq.notes[1].start === 4; }));
       await page.evaluate(() => { const sq = sections[0].squares.find(q => q.type === 'tab'); openTabInsertEditor(sections[0].id, sq.id); }); await wait(250);
       await page.evaluate(() => tabAtSetCursor(7, 0)); await key('ArrowRight'); await position('повторная правка расширяет только черновик', 8, 12);
-      await button('[data-tab-cancel]'); await page.waitForSelector('.tab-insert-editor', { hidden: true });
+      await button('[data-tab-cancel]');
+      // 0.691: у черновика есть несохранённые правки — приложение спрашивает
+      // подтверждение, прежде чем выбросить их.
+      const discard = await page.$('[data-tab-confirm-leave]');
+      if (discard && (await page.evaluate((el) => !el.closest('[data-tab-confirm-discard]').hidden, discard)))
+        await discard.click();
+      await page.waitForSelector('.tab-insert-editor', { hidden: true });
       check(`${width}: Отмена не сохраняет новое расширение`, await page.evaluate(() => sections[0].squares.find(q => q.type === 'tab').beats === 8));
       await page.close();
     }

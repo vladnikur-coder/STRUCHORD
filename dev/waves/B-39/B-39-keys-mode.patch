@@ -1,0 +1,3605 @@
+# ============================================================================
+#  B-39 «Режим „Клавиши“» — ЕДИНЫЙ ПАТЧ к STRUCHORD.html
+#  ЧАСТЬ 7 из 7 · ВОЛНА ЗАКРЫТА · STAGE 0, 1, 2, 3, 4, 5, 6
+# ----------------------------------------------------------------------------
+#  ВАЖНО: версия приложения постоянно уходит вперёд. Номера строк ниже
+#  относятся к СПРАВОЧНОМУ снимку 0.691 (sha256 76545bb3...). Для своей
+#  актуальной сборки используй вместо git apply:
+#      python3 B-39-tests/apply_patch.py STRUCHORD.html
+#  Он ищет уникальные текстовые якоря и не зависит от того, на сколько
+#  тысяч строк ушёл файл вперёд.
+#
+#  ПОСЛЕ применения патча ОБЯЗАТЕЛЬНО (R7 + R6):
+#      python3 B-39-tests/bump_release.py STRUCHORD.html sw.js ROADMAP.md
+#  Скрипт читает ТЕКУЩУЮ видимую версию и поднимает её на единицу,
+#  синхронно бампает CACHE_NAME в sw.js и печатает строку реестра.
+#  Номера версии НЕ зашиты в этот патч — рабочая версия неизвестна.
+# ----------------------------------------------------------------------------
+#  STAGE 0 · B-102: честная формула аккорда (window.StruChordFormula).
+#  STAGE 1 · модель дорожек: window.StruChordTracks, миграция, Store,
+#      .struchord, размеры клавиатуры 25/37/49/61/76/88, пустая песня,
+#      рисунки аккомпанимента на ячейку и на секцию.
+#  STAGE 2 · микшер: кнопка в транспорте, строки, «+», «⋯», M/S,
+#      активная дорожка, перетаскивание, призрачный аккорд.
+#  STAGE 3 · звук пианино: window.StruChordAudio, свой голос на каждую
+#      клавишную дорожку, синтез (6 парциалов + молоточек), простой режим,
+#      планировщик шагов аккомпанимента.
+#  STAGE 4 · клавишные аппликатуры: window.StruChordKeys, подмена грифа на
+#      компактную клавиатуру в 4 местах, варианты позиций с приоритетом
+#      тонов, отдельная панель всей клавиатуры, размер, тембр, пальцы.
+#  STAGE 5 · типы аккомпанимента: window.StruChordAccomp, 6 пресетов,
+#      токены-роли вместо нот, наследование «ячейка -> секция -> пресет»,
+#      ресайз по сетке квадрата, общий свинг, подсветка шагов, панель
+#      «Аккомпанемент» вместо «Бой/перебор» на клавишной дорожке.
+#  STAGE 6 · экспорт: window.StruChordExport, все дорожки отдельно в
+#      GPX (настоящий нотный стан GPIF с <Octave>/<Tone>, GM 0), GP5
+#      (виртуальный широкий строй, абсолютные высоты, GM 0) и MIDI
+#      (SMF format 1, трек на дорожку, program 0 у клавиш).
+#      .struchord уже писался моделью STAGE 1.
+# ----------------------------------------------------------------------------
+#  Проверено: 618 тестов (73+70+67+64+77+154+113), git apply --check,
+#      apply_patch.py на файлах со сдвигом +2300 строк, node --check,
+#      независимые GPIF/GP5/MIDI-писатели приложения.
+# ============================================================================
+diff --git a/STRUCHORD.html b/STRUCHORD.html
+--- a/STRUCHORD.html
++++ b/STRUCHORD.html
+@@ -19865,10 +19865,527 @@
+ // Ступень 3 (0.255) перевела в команды все 18 сеттеров модели:
+ // section/rename|remove|key|timesig|bpm|repeat,
+ // square/add|remove|clone|repeat|beats|resize-spans|resize-reslice,
+ // cell/add|remove|span|timesig|chord — все тихие (DOM-sync B-25
+ // остаётся на потоках), история — через подписчика Store.
++// >>> B-39 STAGE1 BEGIN (TRACKS) <<<
++// ==========================================================================
++// B-39 · ЭТАП 1 (STAGE 1) — МОДЕЛЬ ДОРОЖЕК, МИГРАЦИЯ, STORE, .struchord
++// --------------------------------------------------------------------------
++// Что здесь. Лёгкий слой дорожек поверх СУЩЕСТВУЮЩЕЙ сетки песни.
++// Секции/квадраты/ячейки не дублируются: дорожка хранит только РАЗЛИЧИЯ
++// (свои аккорды, варианты позиций, рисунки аккомпанимента, настройки
++// микшера). Главная дорожка — первая в массиве; её аккорды продолжают жить
++// в привычном ev.chord, поэтому весь старый код (круг, гармония, лента,
++// подбор аппликатур, звук гитары) работает без изменений.
++//
++// Почему так. В 0.691 модель песни — это глобальные переменные (sections,
++// globalKey, ...), а не объект song. Переписывать их на объект нельзя:
++// 125+ мест чтения. Поэтому состояние дорожек живёт в этом модуле, а в
++// файл песни пишется тремя необязательными полями (tracks, activeTrackId,
++// keyboardSize). Пока состояние «одна гитарная дорожка по умолчанию»,
++// exportForSave() возвращает {} — старая песня сохраняется БАЙТ-В-БАЙТ
++// как раньше (обязательное условие миграции из плана).
++//
++// Правила: битые значения ОТБРАСЫВАЮТСЯ, а не зажимаются (README, урок 4).
++// Все мутации идут через songStore.dispatch -> история + рендер бесплатны.
++// ==========================================================================
++(function (HOST) {
++  'use strict';
++
++  var B39_INSTRUMENTS = Object.freeze(['guitar', 'keys']);
++  var B39_KEYBOARD_SIZES = Object.freeze([25, 37, 49, 61, 76, 88]);
++  var B39_KEY_RANGES = Object.freeze({
++    25: { low: 48, high: 72, first: 'C3', last: 'C5' },
++    37: { low: 36, high: 72, first: 'C2', last: 'C5' },
++    49: { low: 36, high: 84, first: 'C2', last: 'C6' },
++    61: { low: 36, high: 96, first: 'C2', last: 'C7' },
++    76: { low: 28, high: 103, first: 'E1', last: 'G7' },
++    88: { low: 21, high: 108, first: 'A0', last: 'C8' }
++  });
++  var B39_DEFAULT_KEYBOARD = 61;
++  var B39_LIMITS = Object.freeze({
++    MAX_TRACKS: 16,
++    MAX_CELL_ENTRIES: 4096,
++    MAX_NAME: 60,
++    MAX_CHORD: 200,
++    MAX_PATTERN_CHARS: 4096
++  });
++
++  function b39IsObj(x) { return !!x && typeof x === 'object' && !Array.isArray(x); }
++  function b39Clone(x) { try { return JSON.parse(JSON.stringify(x)); } catch (e) { return null; } }
++  function b39MakeTrack(id, instrument, name) {
++    return {
++      id: id, instrument: instrument, name: name,
++      volume: 100, mute: false, solo: false,
++      chords: {}, voicings: {}, patterns: {},
++      keyboardSize: null
++    };
++  }
++  function b39DefaultName(inst, n) {
++    var base = inst === 'keys' ? 'Клавиши' : 'Гитара';
++    return n > 1 ? base + ' ' + n : base;
++  }
++  function b39DefaultState() {
++    return {
++      tracks: [b39MakeTrack(1, 'guitar', 'Гитара')],
++      activeTrackId: 1,
++      keyboardSize: B39_DEFAULT_KEYBOARD,
++      nextTrackId: 2
++    };
++  }
++  var state = b39DefaultState();
++
++  // ---------- Сетка ячеек ----------
++  // Ключ структурный: не зависит от аккорда и от номера прохода повтора.
++  function cellKey(sec, sq, ei) { return String(sec.id) + ':' + String(sq.id) + ':' + String(ei); }
++
++  // Глобальные sections появляются позже по файлу; в тестах их можно
++  // подсунуть через window.__b39Sections.
++  function runtimeSections() {
++    try { if (Array.isArray(sections)) return sections; } catch (e) { /* TDZ / нет глобала */ }
++    return Array.isArray(HOST.__b39Sections) ? HOST.__b39Sections : [];
++  }
++  function eachCell(secs, cb) {
++    var list = Array.isArray(secs) ? secs : runtimeSections();
++    for (var a = 0; a < list.length; a++) {
++      var sec = list[a]; if (!sec || !Array.isArray(sec.squares)) continue;
++      for (var b = 0; b < sec.squares.length; b++) {
++        var sq = sec.squares[b]; if (!sq || !Array.isArray(sq.events)) continue;
++        for (var i = 0; i < sq.events.length; i++) {
++          cb(sec, sq, sq.events[i], i, cellKey(sec, sq, i));
++        }
++      }
++    }
++  }
++  function validKeysFrom(song) {
++    var out = new Set();
++    eachCell(song && Array.isArray(song.sections) ? song.sections : null,
++      function (sec, sq, ev, ei, key) { out.add(key); });
++    return out;
++  }
++  function findEvent(key, secs) {
++    var found = null;
++    eachCell(secs, function (sec, sq, ev, ei, k) { if (k === key) found = { sec: sec, sq: sq, ev: ev, ei: ei, key: k }; });
++    return found;
++  }
++
++  // ---------- Санитайзинг ----------
++  // Написание аккорда в дорожке обязано совпадать с написанием в ячейках:
++  // те же normalizeAccidentals / normalizeChordCase / читаемое имя (R12).
++  function normalizeChordValue(value, song) {
++    if (typeof value !== 'string') return null;
++    var v = value.trim().slice(0, B39_LIMITS.MAX_CHORD);
++    if (!v) return null;
++    try { if (typeof normalizeAccidentals === 'function') v = normalizeAccidentals(v); } catch (e) {}
++    try { if (typeof normalizeChordCase === 'function') v = normalizeChordCase(v); } catch (e) {}
++    if (!/^[A-G][#b]?/.test(v)) return null;
++    var key = (song && song.globalKey) || 'C';
++    try {
++      if (typeof chordNameForReadablePreference === 'function' && typeof getKeyStyle === 'function') {
++        v = chordNameForReadablePreference(v, getKeyStyle(key), key);
++      }
++    } catch (e) {}
++    return v;
++  }
++  function sanitizeMap(raw, validKeys, validator, allowChordKeys, allowSectionKeys) {
++    var out = {};
++    if (!b39IsObj(raw)) return out;
++    var keys = Object.keys(raw), n = 0;
++    for (var i = 0; i < keys.length && n < B39_LIMITS.MAX_CELL_ENTRIES; i++) {
++      var k = keys[i];
++      var cellKey = /^\d+:\d+:\d+$/.test(k);
++      var chordKey = !!allowChordKeys && /^v:.{1,80}$/.test(k);
++      // STAGE 5: 's:<id секции>' — рисунок аккомпанимента по умолчанию
++      // для всей секции. Приоритет при чтении: ячейка -> секция -> пресет.
++      var sectionKey = !!allowSectionKeys && /^s:\d{1,9}$/.test(k);
++      if (!cellKey && !chordKey && !sectionKey) continue; // битый ключ — целиком
++      if (cellKey && validKeys && !validKeys.has(k)) continue; // осиротевший — целиком
++      var v = validator(raw[k]);
++      if (v === null || v === undefined) continue;
++      out[k] = v; n++;
++    }
++    return out;
++  }
++  function patternValue(raw) {
++    if (!b39IsObj(raw)) return null;
++    var text;
++    try { text = JSON.stringify(raw); } catch (e) { return null; }
++    if (typeof text !== 'string' || text.length > B39_LIMITS.MAX_PATTERN_CHARS) return null;
++    return b39Clone(raw);
++  }
++  function sanitizeTracks(rawTracks, validKeys, song) {
++    // Поля нет вообще -> старый файл: одна гитарная дорожка (миграция).
++    // Явный пустой массив -> НОВАЯ песня без дорожек (решение владельца):
++    // пустая сетка и кнопка «+ Добавить дорожку».
++    if (!Array.isArray(rawTracks)) return [b39MakeTrack(1, 'guitar', 'Гитара')];
++    if (!rawTracks.length) return [];
++    var out = [], used = new Set();
++    rawTracks.slice(0, B39_LIMITS.MAX_TRACKS).forEach(function (raw, idx) {
++      if (!b39IsObj(raw)) return;
++      var id = Number(raw.id);
++      if (!Number.isInteger(id) || id < 1 || used.has(id)) id = idx + 1;
++      while (used.has(id)) id++;
++      used.add(id);
++      var inst = B39_INSTRUMENTS.indexOf(raw.instrument) >= 0 ? raw.instrument : 'guitar';
++      var vol = Number(raw.volume);
++      var name = typeof raw.name === 'string' && raw.name.trim()
++        ? raw.name.trim().slice(0, B39_LIMITS.MAX_NAME)
++        : b39DefaultName(inst, out.length + 1);
++      var sizeNum = Number(raw.keyboardSize);
++      var size = raw.keyboardSize === null || raw.keyboardSize === undefined || !B39_KEYBOARD_SIZES.includes(sizeNum)
++        ? null : sizeNum;
++      out.push({
++        id: id, instrument: inst, name: name,
++        volume: Number.isFinite(vol) ? Math.max(0, Math.min(100, Math.round(vol))) : 100,
++        mute: raw.mute === true, solo: raw.solo === true,
++        chords: sanitizeMap(raw.chords, validKeys, function (v) { return normalizeChordValue(v, song); }),
++        voicings: sanitizeMap(raw.voicings, validKeys, function (v) {
++          var n = Number(v); return Number.isInteger(n) && n >= 0 && n <= 99 ? n : null;
++        }, true),
++        patterns: sanitizeMap(raw.patterns, validKeys, patternValue, false, true),
++        keyboardSize: size
++      });
++    });
++    return out;
++  }
++
++  // ---------- attach: вызывается из sanitizeSongData ----------
++  // Старый файл (без tracks) -> одна гитарная дорожка, поля НЕ пишутся в
++  // файл при сохранении (exportForSave вернёт {}).
++  // Внутренняя подготовка: только новые поля.
++  function prepare(song, rawSong) {
++    if (!b39IsObj(song)) song = {};
++    var raw = b39IsObj(rawSong) ? rawSong : song;
++    var validKeys = validKeysFrom(song);
++    var tracks = sanitizeTracks(raw.tracks, validKeys, song);
++    var active = Number(raw.activeTrackId);
++    if (!tracks.length) active = 0;
++    else if (!tracks.some(function (t) { return t.id === active; })) active = tracks[0].id;
++    var ks = Number(raw.keyboardSize);
++    var keyboardSize = B39_KEYBOARD_SIZES.includes(ks) ? ks : B39_DEFAULT_KEYBOARD;
++    return {
++      tracks: b39Clone(tracks),
++      activeTrackId: active,
++      keyboardSize: keyboardSize,
++      nextTrackId: Math.max.apply(null, tracks.map(function (t) { return t.id; }).concat([0])) + 1
++    };
++  }
++  // Точка вставки в sanitizeSongData: ВОЗВРАЩАЕТ ВСЮ песню целиком.
++  // Старый файл (без tracks) -> одна гитарная дорожка, поля НЕ пишутся в
++  // файл при сохранении (exportForSave вернёт {}).
++  function attach(song, rawSong) {
++    var p = prepare(song, rawSong);
++    var out = Object.assign({}, b39IsObj(song) ? song : {});
++    out.tracks = p.tracks;
++    out.activeTrackId = p.activeTrackId;
++    out.keyboardSize = p.keyboardSize;
++    return out;
++  }
++
++  // ---------- load / export ----------
++  function adopt(song) {
++    var p = prepare(song || {}, song || {});
++    state = {
++      tracks: p.tracks,
++      activeTrackId: p.activeTrackId,
++      keyboardSize: p.keyboardSize,
++      nextTrackId: p.nextTrackId
++    };
++    repairMain();
++    return snapshot();
++  }
++  function isDefaultState() {
++    if (!state.tracks.length) return false;              // новая песня без дорожек
++    if (state.tracks.length !== 1 || state.activeTrackId !== state.tracks[0].id) return false;
++    if (state.keyboardSize !== B39_DEFAULT_KEYBOARD) return false;
++    var t = state.tracks[0];
++    if (t.instrument !== 'guitar' || t.name !== 'Гитара' || t.volume !== 100 ||
++        t.mute || t.solo || t.keyboardSize !== null) return false;
++    return !Object.keys(t.chords).length && !Object.keys(t.voicings).length && !Object.keys(t.patterns).length;
++  }
++  function exportForSave() {
++    // Пустое состояние пишем ЯВНО: иначе при загрузке оно превратилось бы
++    // в «старый файл» и молча обзавелось бы гитарной дорожкой.
++    if (!state.tracks.length) return { tracks: [], activeTrackId: 0, keyboardSize: state.keyboardSize };
++    return isDefaultState() ? {} : {
++      tracks: b39Clone(state.tracks),
++      activeTrackId: state.activeTrackId,
++      keyboardSize: state.keyboardSize
++    };
++  }
++  function snapshot() {
++    return {
++      tracks: b39Clone(state.tracks),
++      activeTrackId: state.activeTrackId,
++      keyboardSize: state.keyboardSize,
++      mainTrackId: state.tracks.length ? state.tracks[0].id : null,
++      isEmpty: state.tracks.length === 0,
++      isDefault: isDefaultState()
++    };
++  }
++
++  // ---------- Зеркала (главная дорожка <-> ev.chord) ----------
++  // Главная дорожка НЕ хранит аккорды в своей карте: они живут в ev.chord.
++  // Если после перестановки главной стала другая дорожка, её явные аккорды
++  // переезжают в ev.chord, а прежняя главная получает их копию в свою карту.
++  function repairMain() {
++    if (!state.tracks.length) return;
++    var main = state.tracks[0];
++    var keys = Object.keys(main.chords);
++    if (!keys.length) return;                      // нечего переносить
++    keys.forEach(function (k) {
++      var f = findEvent(k, null);
++      if (f) f.ev.chord = main.chords[k] || '';
++    });
++    main.chords = {};
++  }
++  function normaliseState() {
++    if (!state.tracks.length) { state.activeTrackId = 0; return; }
++    if (!state.tracks.some(function (t) { return t.id === state.activeTrackId; })) {
++      state.activeTrackId = state.tracks[0].id;
++    }
++    if (!B39_KEYBOARD_SIZES.includes(state.keyboardSize)) state.keyboardSize = B39_DEFAULT_KEYBOARD;
++    if (!Number.isInteger(state.nextTrackId)) state.nextTrackId = 2;
++  }
++  function afterMutation() { normaliseState(); }
++
++  function dispatch(label, mutator) {
++    var run = function () { var r = mutator(); afterMutation(); return r; };
++    var store = HOST.songStore;
++    if (store && typeof store.dispatch === 'function') return store.dispatch(label, run);
++    return run();                                  // тесты без Store
++  }
++
++  // ---------- Чтение ----------
++  function findTrack(id) {
++    for (var i = 0; i < state.tracks.length; i++) if (state.tracks[i].id === id) return state.tracks[i];
++    return null;
++  }
++  function mainTrack() { return state.tracks[0] || null; }
++  function isMain(id) { return !!mainTrack() && mainTrack().id === id; }
++  function trackChord(id, key, ev) {
++    var t = findTrack(id);
++    if (!t) return null;
++    if (isMain(id)) {
++      var e = ev || (findEvent(key, null) || {}).ev;
++      return e && e.chord ? e.chord : null;
++    }
++    return t.chords[key] || null;                  // пусто = призрачный аккорд, без звука
++  }
++  function ghostChord(key) {
++    // Подсказка глазами: аккорд главной дорожки. НЕ звучит и НЕ анализируется.
++    var m = mainTrack();
++    return m ? trackChord(m.id, key) : null;
++  }
++  function keyRange(trackId) {
++    var t = trackId === undefined || trackId === null ? findTrack(state.activeTrackId) : findTrack(trackId);
++    var size = (t && t.keyboardSize) || state.keyboardSize;
++    if (!B39_KEY_RANGES[size]) size = B39_DEFAULT_KEYBOARD;
++    var r = B39_KEY_RANGES[size];
++    return { size: size, low: r.low, high: r.high, first: r.first, last: r.last };
++  }
++
++  // ---------- Мутации (все через Store) ----------
++  function setActive(id) {
++    if (!findTrack(id)) return false;
++    return dispatch('b39/track-active', function () { state.activeTrackId = id; return true; });
++  }
++  function setInstrument(id, inst) {
++    var t = findTrack(id);
++    if (!t || B39_INSTRUMENTS.indexOf(inst) < 0) return false;
++    return dispatch('b39/track-instrument', function () {
++      t.instrument = inst;
++      // Имя меняем только если оно было дефолтным: свой текст не трогаем.
++      if (/^(Гитара|Клавиши)( \d+)?$/.test(t.name)) t.name = b39DefaultName(inst, state.tracks.indexOf(t) + 1);
++      return true;
++    });
++  }
++  function setTrackField(id, field, value, label) {
++    var t = findTrack(id);
++    if (!t) return false;
++    return dispatch(label, function () { t[field] = value; return true; });
++  }
++  function setVolume(id, v) {
++    var n = Number(v);
++    if (!Number.isFinite(n)) return false;
++    return setTrackField(id, 'volume', Math.max(0, Math.min(100, Math.round(n))), 'b39/track-volume');
++  }
++  function setMute(id, on) { return setTrackField(id, 'mute', on === true, 'b39/track-mute'); }
++  function setSolo(id, on) { return setTrackField(id, 'solo', on === true, 'b39/track-solo'); }
++  function setKeyboardSize(size) {
++    var n = Number(size);
++    if (!B39_KEYBOARD_SIZES.includes(n)) return false;
++    return dispatch('b39/keyboard-size', function () { state.keyboardSize = n; return true; });
++  }
++  function setTrackKeyboardSize(id, size) {
++    var n = Number(size);
++    if (size !== null && !B39_KEYBOARD_SIZES.includes(n)) return false;
++    return setTrackField(id, 'keyboardSize', size === null ? null : n, 'b39/track-keyboard-size');
++  }
++  function setTrackChord(id, key, chord) {
++    var t = findTrack(id);
++    if (!t || !/^\d+:\d+:\d+$/.test(String(key))) return false;
++    var cleaned = chord === null || chord === '' ? null : normalizeChordValue(String(chord), { globalKey: currentKey() });
++    return dispatch('b39/track-chord', function () {
++      if (isMain(id)) {
++        var f = findEvent(key, null);
++        if (!f) return false;
++        f.ev.chord = cleaned || '';                // главная = существующее поле ячейки
++      } else if (cleaned) {
++        t.chords[key] = cleaned;                   // явный аккорд дорожки
++      } else {
++        delete t.chords[key];                       // пусто -> призрачная подсказка
++      }
++      return true;
++    });
++  }
++  function setVoicing(id, key, index) {
++    var t = findTrack(id), n = Number(index);
++    if (!t || !Number.isInteger(n) || n < 0 || n > 99) return false;
++    return dispatch('b39/track-voicing', function () { t.voicings[key] = n; return true; });
++  }
++  function setPattern(id, key, pattern) {
++    var t = findTrack(id), v = patternValue(pattern);
++    if (!t || !v) return false;
++    // Ключ либо ячейка '1:2:0', либо секция 's:1' (STAGE 5).
++    if (!/^(\d+:\d+:\d+|s:\d{1,9})$/.test(String(key))) return false;
++    return dispatch('b39/track-pattern', function () { t.patterns[key] = v; return true; });
++  }
++  function patternFor(id, key) {
++    var t = findTrack(id);
++    if (!t || !t.patterns) return null;
++    var v = t.patterns[String(key)];
++    return v ? b39Clone(v) : null;
++  }
++  function clearPattern(id, key) {
++    var t = findTrack(id);
++    if (!t || !t.patterns || !(String(key) in t.patterns)) return false;
++    return dispatch('b39/track-pattern-clear', function () { delete t.patterns[String(key)]; return true; });
++  }
++  function currentKey() {
++    try { return (typeof globalKey !== 'undefined' && globalKey) || 'C'; } catch (e) { return 'C'; }
++  }
++
++  function addTrack(instrument, copyFromActive) {
++    var inst = B39_INSTRUMENTS.indexOf(instrument) >= 0 ? instrument : 'keys';
++    var src = copyFromActive === false ? mainTrack() : (findTrack(state.activeTrackId) || mainTrack());
++    var copied = [];
++    if (src) {
++      eachCell(null, function (sec, sq, ev, ei, key) {
++        var c = trackChord(src.id, key, ev);
++        if (c) copied.push([key, c]);
++      });
++    }
++    var id = state.nextTrackId;
++    dispatch('b39/track-add', function () {
++      state.nextTrackId++;
++      var count = state.tracks.filter(function (t) { return t.instrument === inst; }).length;
++      var t = b39MakeTrack(id, inst, b39DefaultName(inst, count + 1));
++      copied.forEach(function (pair) { t.chords[pair[0]] = pair[1]; });
++      state.tracks.push(t);
++      state.activeTrackId = id;
++      return true;
++    });
++    return id;
++  }
++  function removeTrack(id) {
++    if (state.tracks.length <= 1) return false;
++    var idx = -1;
++    for (var i = 0; i < state.tracks.length; i++) if (state.tracks[i].id === id) idx = i;
++    if (idx < 0) return false;
++    // Главную не удаляем: сначала надо сделать главной другую дорожку
++    // перетаскиванием — иначе сетка песни потеряет свои аккорды.
++    if (idx === 0) return false;
++    return dispatch('b39/track-remove', function () {
++      state.tracks.splice(idx, 1);
++      if (state.activeTrackId === id) state.activeTrackId = state.tracks[0].id;
++      return true;
++    });
++  }
++  function reorderTracks(from, to) {
++    var n = state.tracks.length;
++    if (n < 2) return false;
++    if (!Number.isInteger(from) || !Number.isInteger(to) || from < 0 || to < 0 || from >= n || to >= n || from === to) return false;
++    var oldMainId = state.tracks[0].id;
++    // Снимок аккордов прежней главной ДО перестановки: они живут в ev.chord.
++    var oldMainChords = [];
++    eachCell(null, function (sec, sq, ev, ei, key) { if (ev.chord) oldMainChords.push([key, ev.chord]); });
++    var arr = state.tracks.slice();
++    var moved = arr.splice(from, 1)[0];
++    arr.splice(to, 0, moved);
++    var newMain = arr[0];
++    var becomesMain = newMain.id !== oldMainId;
++    return dispatch('b39/track-reorder', function () {
++      state.tracks = arr;
++      if (!becomesMain) return true;
++      // 1. Прежняя главная уходит в неглавые — забирает свои аккорды с собой.
++      var oldMain = null;
++      for (var i = 0; i < arr.length; i++) if (arr[i].id === oldMainId) oldMain = arr[i];
++      if (oldMain) {
++        oldMain.chords = {};
++        oldMainChords.forEach(function (pair) { oldMain.chords[pair[0]] = pair[1]; });
++      }
++      // 2. Новая главная: её явные аккорды становятся аккордами песни.
++      var newChords = Object.assign({}, newMain.chords);
++      eachCell(null, function (sec, sq, ev, ei, key) { ev.chord = newChords[key] || ''; });
++      newMain.chords = {};
++      return true;
++    });
++  }
++
++  // Вариант позиции, выбранный для аккорда дорожки (ключ 'v:<имя>').
++  function voicingForChord(id, chord) {
++    var t = findTrack(id);
++    if (!t || typeof chord !== 'string' || !chord) return null;
++    var v = t.voicings['v:' + chord];
++    return Number.isInteger(v) ? v : null;
++  }
++  function setVoicingForChord(id, chord, index) {
++    var t = findTrack(id), n = Number(index);
++    if (!t || typeof chord !== 'string' || !chord || !Number.isInteger(n) || n < 0 || n > 99) return false;
++    return dispatch('b39/track-voicing-chord', function () {
++      t.voicings['v:' + chord] = n;
++      return true;
++    });
++  }
++
++  // Новая песня: явное пустое состояние (вызывается из clearAll).
++  function resetToEmpty() {
++    return dispatch('b39/tracks-reset-empty', function () {
++      state.tracks = [];
++      state.activeTrackId = 0;
++      return true;
++    });
++  }
++
++  var api = Object.freeze({
++    // точки вставки в существующий код
++    attach: attach, load: adopt, exportForSave: exportForSave,
++    // чтение
++    state: snapshot, mainTrack: function () { return mainTrack() ? b39Clone(mainTrack()) : null; },
++    track: function (id) { var t = findTrack(id); return t ? b39Clone(t) : null; },
++    trackChord: trackChord, ghostChord: ghostChord, isDefault: isDefaultState,
++    keyRange: keyRange, sizes: function () { return B39_KEYBOARD_SIZES.slice(); },
++    ranges: function () { return b39Clone(B39_KEY_RANGES); },
++    cellKey: cellKey, eachCell: function (cb) { eachCell(null, cb); },
++    // мутации
++    setActive: setActive, setInstrument: setInstrument, setVolume: setVolume,
++    setMute: setMute, setSolo: setSolo,
++    setKeyboardSize: setKeyboardSize, setTrackKeyboardSize: setTrackKeyboardSize,
++    setTrackChord: setTrackChord, setVoicing: setVoicing, setPattern: setPattern,
++    patternFor: patternFor, clearPattern: clearPattern,
++    voicingForChord: voicingForChord, setVoicingForChord: setVoicingForChord,
++    addTrack: addTrack, removeTrack: removeTrack, reorderTracks: reorderTracks,
++    resetToEmpty: resetToEmpty,
++    // константы для UI следующих этапов
++    INSTRUMENTS: B39_INSTRUMENTS, DEFAULT_KEYBOARD: B39_DEFAULT_KEYBOARD, LIMITS: B39_LIMITS
++  });
++
++  HOST.StruChordTracks = api;
++})(typeof window !== 'undefined' ? window : globalThis);
++// <<< B-39 STAGE1 END (TRACKS) <<<
+ const songStore = (function () {
+   const LOG_LIMIT = 100;
+   const log = [];
+   const subscribers = new Set();
+   let dispatchDepth = 0;
+@@ -19954,10 +20471,505 @@
+   });
+ 
+   return { dispatch, subscribe, log: getLog };
+ })();
+ window.songStore = songStore;
++// >>> B-39 STAGE2 BEGIN (MIXER UI) <<<
++// ==========================================================================
++// B-39 · ЭТАП 2 (STAGE 2) — МИКШЕР ДОРОЖЕК
++// --------------------------------------------------------------------------
++// Кнопка в панели воспроизведения открывает панель со строками дорожек.
++// В строке: ручка перетаскивания, имя и инструмент, громкость, M, S, «⋯».
++// Клик по строке делает дорожку активной. «+» спрашивает инструмент и
++// создаёт копию активной дорожки. «⋯» меняет инструмент.
++//
++// ВСЁ создаётся динамически: ни одного изменения в HTML-разметке и CSS
++// приложения. Свои стили — в отдельном <style> с префиксом b39-, цвета
++// берутся из семантических переменных темы (светлая/тёмная, 15 палитр).
++//
++// 60 fps: при перетаскивании двигается ТОЛЬКО transform одной строки;
++// прямоугольники строк измеряются один раз на pointerdown; коммит модели —
++// один раз на pointerup. Полный render() на pointermove не вызывается.
++// ==========================================================================
++(function (HOST) {
++  'use strict';
++
++  var CSS = `
++.b39-wrap { position: relative; display: inline-flex; align-items: center; }
++.b39-btn { display: inline-flex; align-items: center; gap: .35rem;
++  padding: 0 .55rem; height: 2.25rem; border-radius: .6rem; cursor: pointer;
++  background: var(--color-surface, #fff); color: var(--color-text-primary, #1b1b1b);
++  border: 1px solid var(--color-border-medium, #c9cdd4); font: inherit; }
++.b39-btn:hover { border-color: var(--color-accent, #2f855a); }
++.b39-btn[aria-expanded="true"] { border-color: var(--color-accent, #2f855a); }
++.b39-btn-icon { width: 1rem; height: 1rem; display: inline-block; }
++.b39-btn-label { font-size: .75rem; max-width: 6.5rem; overflow: hidden;
++  text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary, #666); }
++.b39-panel { position: fixed; width: 20rem; max-width: calc(100vw - 1rem);
++  max-height: 70vh; overflow: auto; z-index: 9999;
++  background: var(--color-surface, #fff); color: var(--color-text-primary, #1b1b1b);
++  border: 1px solid var(--color-border-medium, #c9cdd4); border-radius: .875rem;
++  box-shadow: 0 .75rem 2rem rgba(0,0,0,.22); padding: .75rem; }
++.b39-panel[hidden], .b39-chooser[hidden], .b39-menu[hidden], .b39-empty[hidden] { display: none; }
++.b39-head { display: flex; align-items: center; gap: .5rem; margin-bottom: .5rem; }
++.b39-head strong { font-size: .9rem; }
++.b39-head .b39-hint { font-size: .68rem; color: var(--color-text-tertiary, #888); }
++.b39-close { margin-left: auto; border: 0; background: transparent; cursor: pointer;
++  font-size: 1.1rem; line-height: 1; color: inherit; padding: .2rem .4rem; }
++.b39-row { display: flex; align-items: center; gap: .4rem; padding: .4rem;
++  border-radius: .6rem; border: 1px solid transparent; margin-bottom: .3rem;
++  background: var(--color-background-secondary, rgba(127,127,127,.07));
++  touch-action: none; }
++.b39-row.is-active { border-color: var(--color-accent, #2f855a); }
++.b39-row.is-dragging { opacity: .9; z-index: 2; position: relative;
++  box-shadow: 0 .4rem 1rem rgba(0,0,0,.25); }
++.b39-row.is-drop-target { border-top: 2px solid var(--color-accent, #2f855a); }
++.b39-handle { cursor: grab; user-select: none; color: var(--color-text-tertiary, #999);
++  padding: 0 .15rem; font-size: 1rem; }
++.b39-select { display: flex; align-items: center; gap: .35rem; flex: 1 1 auto;
++  min-width: 0; border: 0; background: transparent; color: inherit; cursor: pointer;
++  text-align: left; padding: .15rem; font: inherit; }
++.b39-dot { width: .55rem; height: .55rem; border-radius: 50%; flex: 0 0 auto;
++  background: transparent; border: 1px solid var(--color-text-tertiary, #999); }
++.b39-row.is-active .b39-dot { background: var(--color-accent, #2f855a); border-color: transparent; }
++.b39-name { font-size: .8rem; font-weight: 600; overflow: hidden;
++  text-overflow: ellipsis; white-space: nowrap; }
++.b39-badge { font-size: .62rem; padding: .05rem .35rem; border-radius: .4rem;
++  background: var(--color-background-secondary, rgba(127,127,127,.14));
++  color: var(--color-text-secondary, #666); flex: 0 0 auto; }
++.b39-vol { width: 4.5rem; flex: 0 0 auto; }
++.b39-ms { display: inline-flex; gap: .15rem; flex: 0 0 auto; }
++.b39-ms button, .b39-dots { width: 1.5rem; height: 1.5rem; border-radius: .4rem;
++  border: 1px solid var(--color-border-medium, #c9cdd4); background: transparent;
++  color: inherit; cursor: pointer; font-size: .68rem; font-weight: 700; padding: 0; }
++.b39-ms button[aria-pressed="true"] { background: var(--color-accent, #2f855a);
++  color: var(--color-on-accent, #fff); border-color: transparent; }
++.b39-add { width: 100%; margin-top: .35rem; padding: .5rem; border-radius: .6rem;
++  border: 1px dashed var(--color-border-medium, #c9cdd4); background: transparent;
++  color: inherit; cursor: pointer; font: inherit; font-size: .8rem; }
++.b39-add:hover { border-color: var(--color-accent, #2f855a); }
++.b39-chooser, .b39-menu { margin-top: .4rem; padding: .5rem; border-radius: .6rem;
++  border: 1px solid var(--color-border-medium, #c9cdd4);
++  background: var(--color-background-secondary, rgba(127,127,127,.07)); }
++.b39-chooser-title { font-size: .72rem; margin-bottom: .4rem;
++  color: var(--color-text-secondary, #666); }
++.b39-choices { display: flex; gap: .4rem; flex-wrap: wrap; }
++.b39-choice { padding: .4rem .7rem; border-radius: .5rem; cursor: pointer;
++  border: 1px solid var(--color-border-medium, #c9cdd4);
++  background: var(--color-surface, #fff); color: inherit; font: inherit; font-size: .78rem; }
++.b39-choice:hover, .b39-choice[aria-pressed="true"] { border-color: var(--color-accent, #2f855a); }
++.b39-empty { text-align: center; padding: 1rem .5rem; }
++.b39-empty p { font-size: .78rem; color: var(--color-text-secondary, #666); margin: 0 0 .7rem; }
++.b39-foot { margin-top: .5rem; font-size: .66rem; line-height: 1.4;
++  color: var(--color-text-tertiary, #999); }
++.chord-display.b39-ghost { opacity: .42; }
++`;
++
++  var ICON = '<svg class="b39-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
++    'stroke-width="2" stroke-linecap="round" aria-hidden="true">' +
++    '<line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2" fill="currentColor"/>' +
++    '<line x1="4" y1="12" x2="20" y2="12"/><circle cx="15" cy="12" r="2" fill="currentColor"/>' +
++    '<line x1="4" y1="17" x2="20" y2="17"/><circle cx="10" cy="17" r="2" fill="currentColor"/>' +
++    '</svg>';
++
++  var doc = HOST.document;
++  var T = function () { return HOST.StruChordTracks || null; };
++  var btn = null, panel = null, rowsEl = null, addBtn = null, chooser = null, menu = null;
++  var menuTrackId = null, chooserPending = null, booted = false;
++
++  function el(tag, cls, text) {
++    var n = doc.createElement(tag);
++    if (cls) n.className = cls;
++    if (text !== undefined && text !== null) n.textContent = text;
++    return n;
++  }
++  function injectCss() {
++    if (!doc || doc.getElementById('b39MixerCss')) return;
++    var st = el('style');
++    st.id = 'b39MixerCss';
++    st.textContent = CSS;
++    (doc.head || doc.body).appendChild(st);
++  }
++
++  function buildDom() {
++    if (!doc || !doc.body || btn) return;
++    var wrap = el('span', 'b39-wrap');
++    btn = el('button', 'transport-btn b39-btn');
++    btn.type = 'button';
++    btn.id = 'b39MixerBtn';
++    btn.setAttribute('aria-label', 'Микшер дорожек');
++    btn.setAttribute('aria-expanded', 'false');
++    btn.setAttribute('title', 'Микшер дорожек');
++    btn.innerHTML = ICON + '<span class="b39-btn-label" id="b39BtnLabel">Дорожки</span>';
++    panel = el('div', 'b39-panel');
++    panel.id = 'b39MixerPanel';
++    panel.setAttribute('role', 'dialog');
++    panel.setAttribute('aria-label', 'Микшер дорожек');
++    panel.hidden = true;
++
++    var head = el('div', 'b39-head');
++    head.appendChild(el('strong', '', 'Микшер'));
++    head.appendChild(el('span', 'b39-hint', 'громкость · M · S'));
++    var close = el('button', 'b39-close', '×');
++    close.type = 'button';
++    close.setAttribute('aria-label', 'Закрыть микшер');
++    close.addEventListener('click', closePanel);
++    head.appendChild(close);
++
++    var empty = el('div', 'b39-empty');
++    empty.id = 'b39MixerEmpty';
++    empty.appendChild(el('p', '', 'Дорожек пока нет. Добавьте первую — песня зазвучит.'));
++    var emptyAdd = el('button', 'b39-add', '+ Добавить дорожку');
++    emptyAdd.type = 'button';
++    emptyAdd.addEventListener('click', function () { openChooser(null); });
++    empty.appendChild(emptyAdd);
++
++    rowsEl = el('div', 'b39-rows');
++    rowsEl.id = 'b39MixerRows';
++
++    addBtn = el('button', 'b39-add', '+ Добавить дорожку');
++    addBtn.type = 'button';
++    addBtn.id = 'b39MixerAdd';
++    addBtn.addEventListener('click', function () { openChooser(null); });
++
++    chooser = el('div', 'b39-chooser');
++    chooser.id = 'b39MixerChooser';
++    chooser.hidden = true;
++    chooser.appendChild(el('div', 'b39-chooser-title', 'Инструмент новой дорожки'));
++    var choices = el('div', 'b39-choices');
++    [['guitar', '🎸 Гитара'], ['keys', '🎹 Клавиши']].forEach(function (pair) {
++      var b = el('button', 'b39-choice', pair[1]);
++      b.type = 'button';
++      b.addEventListener('click', function () { chooseInstrument(pair[0]); });
++      choices.appendChild(b);
++    });
++    chooser.appendChild(choices);
++
++    menu = el('div', 'b39-menu');
++    menu.id = 'b39MixerMenu';
++    menu.hidden = true;
++    menu.appendChild(el('div', 'b39-chooser-title', 'Инструмент дорожки'));
++    var menuChoices = el('div', 'b39-choices');
++    [['guitar', '🎸 Гитара'], ['keys', '🎹 Клавиши']].forEach(function (pair) {
++      var b = el('button', 'b39-choice', pair[1]);
++      b.type = 'button';
++      b.addEventListener('click', function () {
++        var t = T();
++        if (t && menuTrackId !== null) t.setInstrument(menuTrackId, pair[0]);
++        menu.hidden = true; menuTrackId = null; render();
++      });
++      menuChoices.appendChild(b);
++    });
++    menu.appendChild(menuChoices);
++
++    var foot = el('div', 'b39-foot',
++      'Главная — верхняя строка. Перетащите строку, чтобы сменить главную. ' +
++      'Пока звучит один голос (главная дорожка); отдельные голоса появятся в следующей части.');
++
++    panel.appendChild(head);
++    panel.appendChild(empty);
++    panel.appendChild(rowsEl);
++    panel.appendChild(addBtn);
++    panel.appendChild(chooser);
++    panel.appendChild(menu);
++    panel.appendChild(foot);
++    wrap.appendChild(btn);
++    doc.body.appendChild(panel);
++
++    var anchor = doc.getElementById('transportDockHint');
++    var bar = doc.querySelector ? doc.querySelector('.transport-bar') : null;
++    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor);
++    else if (bar) bar.appendChild(wrap);
++    else doc.body.appendChild(wrap);
++
++    btn.addEventListener('click', togglePanel);
++    doc.addEventListener('keydown', function (e) {
++      if (e.key === 'Escape' && panel && !panel.hidden) closePanel();
++    });
++    HOST.addEventListener && HOST.addEventListener('resize', function () {
++      if (panel && !panel.hidden) positionPanel();
++    });
++  }
++
++  function positionPanel() {
++    if (!panel || !btn || !btn.getBoundingClientRect) return;
++    var r = btn.getBoundingClientRect();
++    var w = 320;
++    var left = r.right - w;
++    var maxLeft = (HOST.innerWidth || 1024) - w - 8;
++    if (left > maxLeft) left = maxLeft;
++    if (left < 8) left = 8;
++    panel.style.left = left + 'px';
++    panel.style.top = (r.bottom + 8) + 'px';
++  }
++  function openPanel() { if (!panel) return; positionPanel(); panel.hidden = false; btn.setAttribute('aria-expanded', 'true'); render(); }
++  function closePanel() { if (!panel) return; panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); if (chooser) chooser.hidden = true; if (menu) menu.hidden = true; }
++  function togglePanel() { if (!panel) return; panel.hidden ? openPanel() : closePanel(); }
++
++  function openChooser(id) {
++    chooserPending = id;
++    menu.hidden = true;
++    chooser.hidden = false;
++    render();
++  }
++  function chooseInstrument(inst) {
++    var t = T();
++    if (!t) return;
++    // Новая песня: дефолтная «пустая гитара» заменяется выбранной дорожкой,
++    // чтобы не появилось две строки там, где пользователь просил одну.
++    var st = t.state();
++    // Сбрасываем в пустую песню ТОЛЬКО когда интерфейс действительно
++    // показывал заглушку: дефолтная гитара + в сетке нет ни одного аккорда.
++    // Иначе «+» обязан добавить вторую строку, а не стирать существующую песню.
++    if (!st.isEmpty && st.isDefault && !hasAnyChord()) t.resetToEmpty();
++    t.addTrack(inst);                       // копия АКТИВНОЙ дорожки
++    chooser.hidden = true;
++    chooserPending = null;
++    render();
++  }
++
++  function hasAnyChord() {
++    var t = T(), found = false;
++    if (!t || typeof t.eachCell !== 'function') return false;
++    try { t.eachCell(function (sec, sq, ev) { if (ev && ev.chord) found = true; }); } catch (e) {}
++    return found;
++  }
++
++  function render() {
++    var t = T();
++    if (!t || !rowsEl) return;
++    var st = t.state();
++    var showEmpty = st.isEmpty || (st.isDefault && !hasAnyChord());
++    var emptyEl = doc.getElementById('b39MixerEmpty');
++    if (emptyEl) emptyEl.hidden = !showEmpty;
++    rowsEl.hidden = showEmpty;
++    addBtn.hidden = showEmpty;
++    var label = doc.getElementById('b39BtnLabel');
++    if (label) {
++      var active = null;
++      for (var i = 0; i < st.tracks.length; i++) if (st.tracks[i].id === st.activeTrackId) active = st.tracks[i];
++      label.textContent = active ? active.name : 'Дорожки';
++    }
++    while (rowsEl.firstChild) rowsEl.removeChild(rowsEl.firstChild);
++    if (showEmpty) return;
++
++    st.tracks.forEach(function (track, index) { rowsEl.appendChild(buildRow(track, index, st)); });
++  }
++
++  function buildRow(track, index, st) {
++    var row = el('div', 'b39-row' + (track.id === st.activeTrackId ? ' is-active' : ''));
++    row.setAttribute('data-id', String(track.id));
++    row.setAttribute('tabindex', '0');
++    row.setAttribute('role', 'button');
++    row.setAttribute('aria-label', 'Дорожка ' + track.name + (track.id === st.mainTrackId ? ', главная' : ''));
++
++    var handle = el('span', 'b39-handle', '≡');
++    handle.setAttribute('aria-hidden', 'true');
++    handle.setAttribute('title', 'Перетащить');
++    handle.addEventListener('pointerdown', function (e) { startDrag(e, row, index); });
++
++    var select = el('button', 'b39-select');
++    select.type = 'button';
++    select.appendChild(el('span', 'b39-dot'));
++    select.appendChild(el('span', 'b39-name', (track.id === st.mainTrackId ? '★ ' : '') + track.name));
++    select.appendChild(el('span', 'b39-badge', track.instrument === 'keys' ? 'Клавиши' : 'Гитара'));
++    select.addEventListener('click', function () { var t = T(); if (t) t.setActive(track.id); });
++
++    var vol = el('input', 'b39-vol');
++    vol.type = 'range'; vol.min = '0'; vol.max = '100'; vol.step = '1';
++    vol.value = String(track.volume);
++    vol.setAttribute('aria-label', 'Громкость ' + track.name);
++    vol.addEventListener('change', function () { var t = T(); if (t) t.setVolume(track.id, vol.value); });
++
++    var ms = el('div', 'b39-ms');
++    var m = el('button', '', 'M');
++    m.type = 'button'; m.setAttribute('aria-label', 'Мьют ' + track.name);
++    m.setAttribute('aria-pressed', track.mute ? 'true' : 'false');
++    m.addEventListener('click', function () {
++      var t = T(); if (!t) return;
++      var cur = t.track(track.id);
++      t.setMute(track.id, !(cur && cur.mute));
++    });
++    var s = el('button', '', 'S');
++    s.type = 'button'; s.setAttribute('aria-label', 'Соло ' + track.name);
++    s.setAttribute('aria-pressed', track.solo ? 'true' : 'false');
++    s.addEventListener('click', function () {
++      var t = T(); if (!t) return;
++      var cur = t.track(track.id);
++      t.setSolo(track.id, !(cur && cur.solo));
++    });
++    ms.appendChild(m); ms.appendChild(s);
++
++    var dots = el('button', 'b39-dots', '⋯');
++    dots.type = 'button'; dots.setAttribute('aria-label', 'Параметры ' + track.name);
++    dots.addEventListener('click', function (e) {
++      e.stopPropagation();
++      menuTrackId = track.id;
++      chooser.hidden = true;
++      menu.hidden = false;
++      render();
++    });
++
++    row.appendChild(handle);
++    row.appendChild(select);
++    row.appendChild(vol);
++    row.appendChild(ms);
++    row.appendChild(dots);
++    row.addEventListener('keydown', function (e) {
++      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); var t = T(); if (t) t.setActive(track.id); }
++    });
++    return row;
++  }
++
++  // ---------- Перетаскивание (60 fps) ----------
++  var drag = null;
++  function startDrag(e, row, index) {
++    if (e.button !== undefined && e.button !== 0) return;
++    var t = T();
++    if (!t || t.state().tracks.length < 2) return;
++    var rows = Array.prototype.slice.call(rowsEl.querySelectorAll('.b39-row'));
++    var rects = rows.map(function (r) { return r.getBoundingClientRect ? r.getBoundingClientRect() : { top: 0, height: 0 }; });
++    drag = { el: row, from: index, to: index, y0: e.clientY, moved: false, rows: rows, rects: rects };
++    if (row.setPointerCapture && e.pointerId !== undefined) {
++      try { row.setPointerCapture(e.pointerId); } catch (err) {}
++    }
++    doc.addEventListener('pointermove', onDragMove);
++    doc.addEventListener('pointerup', onDragEnd);
++    doc.addEventListener('pointercancel', onDragEnd);
++    if (e.preventDefault) e.preventDefault();
++  }
++  function onDragMove(e) {
++    if (!drag) return;
++    var dy = e.clientY - drag.y0;
++    if (!drag.moved && Math.abs(dy) < 4) return;             // гистерезис
++    drag.moved = true;
++    drag.el.classList.add('is-dragging');
++    drag.el.style.transform = 'translate3d(0,' + dy + 'px,0)';
++    var to = 0;
++    for (var i = 0; i < drag.rects.length; i++) {
++      var r = drag.rects[i];
++      if (e.clientY > r.top + r.height / 2) to = i;
++    }
++    if (to !== drag.to) {
++      drag.rows.forEach(function (n) { n.classList.remove('is-drop-target'); });
++      if (drag.rows[to]) drag.rows[to].classList.add('is-drop-target');
++      drag.to = to;
++    }
++  }
++  function onDragEnd() {
++    if (!drag) return;
++    var d = drag; drag = null;
++    doc.removeEventListener('pointermove', onDragMove);
++    doc.removeEventListener('pointerup', onDragEnd);
++    doc.removeEventListener('pointercancel', onDragEnd);
++    d.el.style.transform = '';
++    d.el.classList.remove('is-dragging');
++    d.rows.forEach(function (n) { n.classList.remove('is-drop-target'); });
++    if (d.moved && d.to !== d.from) {
++      var t = T();
++      if (t) t.reorderTracks(d.from, d.to);
++    }
++    render();
++  }
++
++  // ---------- Хуки в чужой код ----------
++  function displayChord(sec, sq, ev, ei) {
++    var t = T();
++    if (!t) return (ev && ev.chord) || '';
++    var st = t.state();
++    if (st.mainTrackId === null) return (ev && ev.chord) || '';
++    var key = t.cellKey(sec, sq, ei);
++    var own = t.trackChord(st.activeTrackId, key, ev);
++    if (own) return own;
++    if (st.activeTrackId === st.mainTrackId) return (ev && ev.chord) || '';
++    return t.ghostChord(key) || '';
++  }
++  function ghostClass(sec, sq, ei) {
++    var t = T();
++    if (!t) return '';
++    var st = t.state();
++    if (st.mainTrackId === null || st.activeTrackId === st.mainTrackId) return '';
++    return t.trackChord(st.activeTrackId, t.cellKey(sec, sq, ei)) ? '' : ' b39-ghost';
++  }
++  // Круг/ввод пишут аккорд ТОЛЬКО в активную дорожку. Главная не меняется.
++  function redirectChordWrite(ev, newChord, posCtx) {
++    var t = T();
++    if (!t || !posCtx) return false;
++    var st = t.state();
++    if (st.mainTrackId === null || st.activeTrackId === st.mainTrackId) return false;
++    var secId = posCtx.secId !== undefined ? posCtx.secId : posCtx.sectionId;
++    var sqId = posCtx.sqId !== undefined ? posCtx.sqId : posCtx.squareId;
++    var ei = posCtx.ei !== undefined ? posCtx.ei : posCtx.eventIndex;
++    if (secId === undefined || sqId === undefined || ei === undefined) return false;
++    var key = String(secId) + ':' + String(sqId) + ':' + String(ei);
++    var chord = typeof newChord === 'string' ? newChord : '';
++    if (String(t.trackChord(st.activeTrackId, key, ev) || '') === String(chord || '')) return true;
++    t.setTrackChord(st.activeTrackId, key, chord);
++    try { if (typeof HOST.learnWheelExtension === 'function') HOST.learnWheelExtension(chord); } catch (e) {}
++    try { if (typeof HOST.requestRender === 'function') HOST.requestRender(); } catch (e) {}
++    return true;
++  }
++  // Мьют/соло реально влияют на звук уже сейчас (звучит один голос — главной).
++  function mainAudible() {
++    var t = T();
++    if (!t) return true;
++    var st = t.state();
++    if (st.mainTrackId === null) return true;
++    var main = null, anySolo = false;
++    st.tracks.forEach(function (x) { if (x.id === st.mainTrackId) main = x; if (x.solo) anySolo = true; });
++    if (!main) return true;
++    if (main.mute) return false;
++    if (anySolo && !main.solo) return false;
++    return true;
++  }
++
++  // Новая песня: сбрасываем дорожки в пустое состояние.
++  function wrapClearAll() {
++    if (typeof HOST.clearAll !== 'function' || HOST.clearAll.__b39Wrapped) return;
++    var original = HOST.clearAll;
++    var wrapped = function () {
++      var r = original.apply(this, arguments);
++      try { var t = T(); if (t) t.resetToEmpty(); } catch (e) {}
++      return r;
++    };
++    wrapped.__b39Wrapped = true;
++    HOST.clearAll = wrapped;
++  }
++
++  function boot() {
++    if (booted) return;
++    if (!doc || !doc.body) return;
++    booted = true;
++    injectCss();
++    buildDom();
++    var store = HOST.songStore;
++    if (store && typeof store.subscribe === 'function') {
++      try { store.subscribe(function () { render(); }); } catch (e) {}
++    }
++    render();
++  }
++
++  var api = Object.freeze({
++    boot: boot, open: openPanel, close: closePanel, toggle: togglePanel, render: render,
++    displayChord: displayChord, ghostClass: ghostClass,
++    redirectChordWrite: redirectChordWrite, mainAudible: mainAudible,
++    button: function () { return btn; }, panel: function () { return panel; },
++    rows: function () { return rowsEl; }, chooser: function () { return chooser; },
++    menu: function () { return menu; }, css: function () { return CSS; }
++  });
++  HOST.StruChordMixer = api;
++
++  // clearAll определяется позже по файлу — оборачиваем после полной загрузки.
++  if (typeof HOST.setTimeout === 'function') HOST.setTimeout(wrapClearAll, 0);
++  if (doc && doc.readyState === 'loading' && doc.addEventListener) {
++    doc.addEventListener('DOMContentLoaded', boot);
++  } else {
++    boot();
++  }
++})(typeof window !== 'undefined' ? window : globalThis);
++// <<< B-39 STAGE2 END (MIXER UI) <<<
++
+ 
+ // ========== МОДЕЛЬ РАЗМЕРА (TIME SIGNATURE) ==========
+ // timeSig по-прежнему хранится и передаётся как строка "N/D" — это нужно
+ // для обратной совместимости UI (селекты, бейджи), схемы экспорта/импорта
+ // и старых сохранённых песен. Но ЛЮБОЙ расчёт, использующий числитель и/или
+@@ -29979,10 +30991,551 @@
+   if (fng) item.fingers = fng;
+   list.push(item);
+   return list;
+ }
+ 
++// >>> B-39 STAGE4 BEGIN (KEYS VOICING UI) <<<
++// ==========================================================================
++// B-39 · ЭТАП 4 (STAGE 4) — КЛАВИШНЫЕ АППЛИКАТУРЫ И ПАНЕЛЬ КЛАВИАТУРЫ
++// --------------------------------------------------------------------------
++// Что здесь:
++//  1. renderFingeringSVG() оборачивается: когда активна клавишная дорожка,
++//     вместо гитарного грифа рисуется компактная клавиатура (1–2 октавы)
++//     с подсвеченными нотами, корнем и пальцами правой руки.
++//  2. generateKeysVoicings() — варианты позиций (обращения/регистр) из
++//     КАНОНИЧЕСКОЙ формулы: бас отдельной низкой нотой, минимальное движение
++//     от предыдущего аккорда, при нехватке места приоритет тонов.
++//  3. Отдельная закреплённая панель под панелью воспроизведения: ВСЯ
++//     клавиатура выбранного размера (25/37/49/61/76/88), размер и тембр,
++//     листание вариантов «‹ 2/5 ›», подсказка баса и пальцев.
++//
++// Правило R12: формула не урезается. Если выбранная клавиатура слишком мала
++// и рука физически не берёт все тона, отбрасываются ПЕРВЫМИ квинта и
++// ундецима, затем расширения; корень, терция и септима остаются всегда.
++// Это ИНСТРУМЕНТНАЯ КОНВЕНЦИЯ, её надо занести в README.md (см. заметки).
++//
++// Никакой правки чужой разметки: свои стили и DOM создаются динамически.
++// ==========================================================================
++(function (HOST) {
++  'use strict';
++
++  var CSS = `
++.b39-keys-btn { display: inline-flex; align-items: center; gap: .3rem;
++  padding: 0 .5rem; height: 2.25rem; border-radius: .6rem; cursor: pointer;
++  background: var(--color-surface, #fff); color: var(--color-text-primary, #1b1b1b);
++  border: 1px solid var(--color-border-medium, #c9cdd4); font: inherit; font-size: .75rem; }
++.b39-keys-btn[aria-pressed="true"] { border-color: var(--color-accent, #2f855a); }
++.b39-keys-panel { position: fixed; z-index: 9998; max-width: calc(100vw - 1rem);
++  background: var(--color-surface, #fff); color: var(--color-text-primary, #1b1b1b);
++  border: 1px solid var(--color-border-medium, #c9cdd4); border-radius: .875rem;
++  box-shadow: 0 .75rem 2rem rgba(0,0,0,.22); padding: .6rem .7rem; }
++.b39-keys-panel[hidden] { display: none; }
++.b39-keys-head { display: flex; align-items: center; gap: .45rem; flex-wrap: wrap;
++  margin-bottom: .45rem; }
++.b39-keys-title { font-size: .82rem; font-weight: 700; margin-right: .3rem; }
++.b39-keys-panel select { font: inherit; font-size: .72rem; padding: .15rem .3rem;
++  border-radius: .4rem; border: 1px solid var(--color-border-medium, #c9cdd4);
++  background: var(--color-surface, #fff); color: inherit; }
++.b39-keys-nav { display: inline-flex; align-items: center; gap: .25rem; }
++.b39-keys-nav button { width: 1.4rem; height: 1.4rem; border-radius: .4rem;
++  border: 1px solid var(--color-border-medium, #c9cdd4); background: transparent;
++  color: inherit; cursor: pointer; padding: 0; font-size: .75rem; }
++.b39-keys-count { font-size: .72rem; min-width: 2.6rem; text-align: center;
++  color: var(--color-text-secondary, #666); }
++.b39-keys-body { overflow-x: auto; overflow-y: hidden; }
++.b39-keys-foot { margin-top: .35rem; font-size: .68rem; line-height: 1.4;
++  color: var(--color-text-tertiary, #999); }
++.fingering-svg-container svg.b39-keys-svg { max-width: 100%; height: auto; }
++`;
++
++  var WHITE_PC = [0, 2, 4, 5, 7, 9, 11];
++  var VARIANT_COUNT = 5;
++  var FINGERS = ['1', '2', '3', '4', '5'];
++  var doc = HOST.document;
++  var btn = null, panel = null, body = null, countEl = null, foot = null, titleEl = null;
++  var sizeSel = null, timbreSel = null;
++  var booted = false, wrapped = false;
++  var lastChord = null, lastTrackId = null, lastCellKey = null;
++  var variantState = new Map();       // 'trackId|chord' -> индекс (runtime-кэш)
++
++  function tracks() { return HOST.StruChordTracks || null; }
++  function formula() { return HOST.StruChordFormula || null; }
++  function audio() { return HOST.StruChordAudio || null; }
++  function mixer() { return HOST.StruChordMixer || null; }
++  function esc(v) {
++    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
++      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
++  }
++  function mod12(n) { return ((n % 12) + 12) % 12; }
++  function firstMidiWithPc(low, pc) { return low + mod12(pc - mod12(low)); }
++  function el(tag, cls, text) {
++    var n = doc.createElement(tag);
++    if (cls) n.className = cls;
++    if (text !== undefined && text !== null) n.textContent = text;
++    return n;
++  }
++
++  // ---------- Приоритет тонов (R12) ----------
++  // Меньше ранг -> важнее. Квинта и ундецима уходят первыми.
++  function toneRank(degree) {
++    var d = String(degree || '');
++    if (d === '1') return 0;
++    if (d === '3' || d === 'b3') return 1;
++    if (d === '7' || d === 'b7') return 2;
++    if (d === '13' || d === 'b13' || d === '9' || d === 'b9' || d === '#9' || d === '6' || d === 'b6') return 3;
++    if (d === '5' || d === 'b5' || d === '#5') return 4;
++    if (d === '11' || d === '#11') return 5;
++    return 6;
++  }
++
++  /** Сколько тонов реально помещается в правой руке. */
++  function handLimit(size) { return size <= 25 ? 5 : size <= 49 ? 6 : 8; }
++
++  /**
++   * Варианты позиций. Возвращает массив массивов MIDI-нот.
++   * Все варианты держат корень, терцию и септиму (приоритет тонов).
++   */
++  function generateKeysVoicings(chordName, key, range, prev, opts) {
++    var F = formula();
++    if (!F || typeof F.chordFormula !== 'function') return [];
++    var f = F.chordFormula(chordName, key);
++    if (!f || !f.tones || !f.tones.length) return [];
++    var o = opts || {};
++    var low = range.low, high = range.high;
++    if (low > high) return [];
++    var limit = o.maxTones || handLimit(range.size || 61);
++
++    // Приоритет: сначала важные тона, потом второстепенные.
++    var tones = f.tones.slice().sort(function (a, b) {
++      return toneRank(a.degree) - toneRank(b.degree) || a.semitones - b.semitones;
++    }).slice(0, limit).sort(function (a, b) { return a.semitones - b.semitones; });
++
++    var rhLow = Math.max(low + 12, 48);
++    var rhHigh = Math.min(high, 84);
++    if (rhHigh < rhLow) rhHigh = Math.min(high, rhLow + 12);
++
++    var bassPc = f.bass ? f.bass.pitchClass : f.rootPc;
++    var bass = firstMidiWithPc(low, bassPc);
++    if (bass > high) bass = high - mod12(high - bassPc);
++
++    function fit(midis) {
++      return midis.map(function (m) {
++        while (m < rhLow) m += 12;
++        while (m > rhHigh && m - 12 >= rhLow) m -= 12;
++        return m;
++      }).filter(function (m) { return m >= low && m <= high; });
++    }
++    function baseVoicing() {
++      return fit(tones.map(function (t) { return firstMidiWithPc(rhLow, mod12(f.rootPc + t.semitones)); }));
++    }
++    var b0 = baseVoicing();
++    var variants = [];
++    function push(list) {
++      var uniq = [];
++      list.forEach(function (m) { if (uniq.indexOf(m) < 0) uniq.push(m); });
++      uniq.sort(function (a, b) { return a - b; });
++      var withBass = uniq.slice();
++      if (bass >= low && bass <= high && withBass.indexOf(bass) < 0) withBass.unshift(bass);
++      withBass = withBass.filter(function (m) { return m >= low && m <= high; }).slice(0, 9);
++      if (!withBass.length) return;
++      var sig = withBass.join(',');
++      if (variants.some(function (v) { return v.signature === sig; })) return;
++      variants.push({ signature: sig, notes: withBass });
++    }
++
++    // 0 — основная позиция; 1 — на октаву выше; 2 — первое обращение;
++    // 3 — на октаву ниже; 4 — ближайшая к предыдущему аккорду.
++    push(b0);
++    push(fit(b0.map(function (m) { return m + 12 <= rhHigh ? m + 12 : m; })));
++    if (b0.length > 1) push(fit(b0.slice(1).concat([b0[0] + 12])));
++    push(fit(b0.map(function (m) { return m - 12 >= rhLow ? m - 12 : m; })));
++    if (prev && prev.length) {
++      var centre = prev.reduce(function (a, b) { return a + b; }, 0) / prev.length;
++      push(fit(tones.map(function (t) {
++        var pc = mod12(f.rootPc + t.semitones);
++        var first = firstMidiWithPc(rhLow, pc), best = first, bestD = Math.abs(first - centre);
++        for (var m = first + 12; m <= rhHigh; m += 12) {
++          if (Math.abs(m - centre) < bestD) { best = m; bestD = Math.abs(m - centre); }
++        }
++        return best;
++      })));
++    }
++    if (!variants.length) push(b0);
++    return variants.map(function (v) { return v.notes; });
++  }
++
++  /** Индекс выбранного варианта: из модели дорожки или runtime-кэш. */
++  function variantIndex(trackId, chord, cellKey) {
++    var T = tracks();
++    var fromModel = null;
++    if (T && typeof T.voicingForChord === 'function') {
++      fromModel = T.voicingForChord(trackId, chord);
++      if (fromModel === null && cellKey && typeof T.track === 'function') {
++        var t = T.track(trackId);
++        if (t && t.voicings && Number.isInteger(t.voicings[cellKey])) fromModel = t.voicings[cellKey];
++      }
++    }
++    if (Number.isInteger(fromModel)) return fromModel;
++    var k = trackId + '|' + chord;
++    return variantState.has(k) ? variantState.get(k) : 0;
++  }
++  function setVariantIndex(trackId, chord, cellKey, index, total) {
++    var next = ((index % total) + total) % total;
++    variantState.set(trackId + '|' + chord, next);
++    var T = tracks();
++    if (T && typeof T.setVoicingForChord === 'function') T.setVoicingForChord(trackId, chord, next);
++    else if (T && cellKey && typeof T.setVoicing === 'function') T.setVoicing(trackId, cellKey, next);
++    return next;
++  }
++
++  // ---------- Рендер клавиатуры в SVG ----------
++  function keyLayout(low, high, whiteW, whiteH) {
++    var keys = [], whites = 0;
++    for (var m = low; m <= high; m++) {
++      var pc = mod12(m), white = WHITE_PC.indexOf(pc) >= 0;
++      var x = whites * whiteW;
++      if (white) { keys.push({ midi: m, white: true, x: x }); whites++; }
++      else keys.push({ midi: m, white: false, x: x });
++    }
++    return { keys: keys, whites: whites };
++  }
++  function noteLabel(midi, keyStyle) {
++    var pc = mod12(midi);
++    var sharp = ['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'][pc];
++    var flat = { 'C#':'Db','D#':'Eb','F#':'Gb','G#':'Ab','A#':'Bb', B:'Cb' };
++    var name = keyStyle === 'flat' ? (flat[sharp] || sharp) : sharp;
++    return name + (Math.floor(midi / 12) - 1);
++  }
++
++  /**
++   * Рисует клавиатуру. low/high — границы MIDI, notes — подсвеченные ноты.
++   * opts: { width, whiteW, whiteH, showFingers, rootPc, bassMidi, labelSpace }
++   */
++  function keyboardSVG(low, high, notes, opts) {
++    var o = opts || {};
++    var whiteW = o.whiteW || 16, whiteH = o.whiteH || 68;
++    var blackW = Math.round(whiteW * 0.62), blackH = Math.round(whiteH * 0.62);
++    var layout = keyLayout(low, high, whiteW, whiteH);
++    var width = Math.max(1, layout.whites * whiteW);
++    var labelSpace = o.labelSpace === undefined ? 22 : o.labelSpace;
++    var height = whiteH + labelSpace;
++    var accent = 'var(--color-accent, #2f855a)';
++    var stroke = 'var(--color-border-medium, #c9cdd4)';
++    var text = 'var(--color-text-primary, #1b1b1b)';
++    var set = {}; (notes || []).forEach(function (n) { set[n] = true; });
++    var parts = [];
++    parts.push('<svg class="b39-keys-svg" xmlns="http://www.w3.org/2000/svg" ' +
++      'viewBox="0 0 ' + width + ' ' + height + '" ' +
++      (o.width ? 'width="' + o.width + '" ' : '') +
++      'role="img" aria-label="Клавиши аккорда">');
++    // белые
++    layout.keys.forEach(function (k) {
++      if (!k.white) return;
++      var fill = set[k.midi] ? accent : 'var(--color-surface, #fff)';
++      parts.push('<rect x="' + k.x + '" y="0" width="' + whiteW + '" height="' + whiteH +
++        '" rx="2" fill="' + fill + '" stroke="' + stroke + '" stroke-width="1"/>');
++    });
++    // чёрные
++    layout.keys.forEach(function (k) {
++      if (k.white) return;
++      var x = k.x - blackW / 2;
++      var fill = set[k.midi] ? accent : 'var(--color-text-primary, #1b1b1b)';
++      parts.push('<rect x="' + x + '" y="0" width="' + blackW + '" height="' + blackH +
++        '" rx="2" fill="' + fill + '" stroke="' + stroke + '" stroke-width="0.8"/>');
++    });
++    // подписи октав (только у ноты C)
++    layout.keys.forEach(function (k) {
++      if (k.white && mod12(k.midi) === 0) {
++        parts.push('<text x="' + (k.x + 2) + '" y="' + (whiteH + 13) +
++          '" font-size="9" fill="' + text + '">C' + (Math.floor(k.midi / 12) - 1) + '</text>');
++      }
++    });
++    // корень — кружок, пальцы — цифры
++    var rhNotes = (notes || []).filter(function (n) { return n >= low; });
++    rhNotes.forEach(function (m, i) {
++      var k = null;
++      for (var j = 0; j < layout.keys.length; j++) if (layout.keys[j].midi === m) { k = layout.keys[j]; break; }
++      if (!k) return;
++      var cx = k.white ? k.x + whiteW / 2 : k.x;
++      if (o.rootPc !== undefined && mod12(m) === o.rootPc) {
++        parts.push('<circle cx="' + cx + '" cy="' + (whiteH - 10) + '" r="3.2" fill="#fff" opacity="0.9"/>');
++      }
++      if (o.showFingers) {
++        var f = FINGERS[i % FINGERS.length];
++        parts.push('<text x="' + cx + '" y="' + (whiteH - 3) + '" font-size="9" font-weight="700" ' +
++          'text-anchor="middle" fill="' + text + '">' + f + '</text>');
++      }
++    });
++    parts.push('</svg>');
++    return { svg: parts.join(''), width: width, height: height, whites: layout.whites };
++  }
++
++  function showFingersEnabled() {
++    try { var n = doc && doc.getElementById('showFingers'); return !!(n && n.checked); }
++    catch (e) { return false; }
++  }
++  function currentKey() {
++    try { return (typeof globalKey !== 'undefined' && globalKey) || 'C'; } catch (e) { return 'C'; }
++  }
++  function activeTrack() {
++    var T = tracks(); if (!T) return null;
++    var st = T.state(), out = null;
++    st.tracks.forEach(function (t) { if (t.id === st.activeTrackId) out = t; });
++    return { state: st, track: out };
++  }
++
++  /**
++   * Компактная клавиатура для тултипа / закреплённой карточки / панели «Сейчас».
++   * Показывает 1–2 октавы вокруг правой руки; бас вне окна — подписью.
++   */
++  function renderKeysVoicingSVG(chordName, trackId, opts) {
++    var T = tracks(), F = formula();
++    if (!T || !F || !chordName) return '';
++    var o = opts || {};
++    var range = T.keyRange(trackId);
++    var variants = generateKeysVoicings(chordName, currentKey(), range, o.prev || null, {});
++    if (!variants.length) return '';
++    var idx = variantIndex(trackId, chordName, o.cellKey) % variants.length;
++    var notes = variants[idx];
++    var f = F.chordFormula(chordName, currentKey());
++    var bass = notes.length ? notes[0] : null;
++    var rh = notes.filter(function (n) { return n !== bass; });
++    var lo = rh.length ? Math.min.apply(null, rh) : (bass || 60);
++    var hi = rh.length ? Math.max.apply(null, rh) : lo;
++    var start = Math.floor(lo / 12) * 12;
++    var end = Math.max(start + 24, Math.ceil((hi + 1) / 12) * 12);
++    if (end - start > 36) end = start + 36;
++    var drawn = notes.filter(function (n) { return n >= start && n <= end; });
++    var res = keyboardSVG(start, end, drawn, {
++      whiteW: o.whiteW || 16, whiteH: o.whiteH || 66,
++      showFingers: showFingersEnabled(), rootPc: f ? f.rootPc : undefined,
++      labelSpace: 28
++    });
++    var extra = '';
++    if (bass !== null && bass < start) extra = 'Бас: ' + esc(noteLabel(bass, f ? f.keyStyle : 'sharp'));
++    var title = res.svg.replace('</svg>',
++      '<text x="2" y="' + (res.height - 2) + '" font-size="9" fill="var(--color-text-tertiary,#999)">' +
++      esc(extra || ('Окно ' + Math.round((end - start) / 12) + ' из ' + range.size + ' клавиш')) + '</text></svg>');
++    return title;
++  }
++
++  /** Обёртка над renderFingeringSVG: гитара -> клавиши по активной дорожке. */
++  function wrapFingeringRenderer() {
++    if (wrapped || typeof HOST.renderFingeringSVG !== 'function') return;
++    var original = HOST.renderFingeringSVG;
++    HOST.renderFingeringSVG = function (fingers, bottomPad, opts) {
++      var o = opts || {};
++      var active = activeTrack();
++      if (active && active.track && active.track.instrument === 'keys' && o.chord) {
++        var svg = renderKeysVoicingSVG(o.chord, active.track.id, { cellKey: o.cellKey });
++        if (svg) return svg;
++      }
++      return original.apply(this, arguments);
++    };
++    wrapped = true;
++  }
++
++  // ---------- Закреплённая панель клавиатуры ----------
++  function injectCss() {
++    if (!doc || doc.getElementById('b39KeysCss')) return;
++    var st = el('style'); st.id = 'b39KeysCss'; st.textContent = CSS;
++    (doc.head || doc.body).appendChild(st);
++  }
++  function buildDom() {
++    if (!doc || !doc.body || btn) return;
++    btn = el('button', 'transport-btn b39-keys-btn', '🎹 Клавиатура');
++    btn.type = 'button'; btn.id = 'b39KeysBtn';
++    btn.setAttribute('aria-pressed', 'false');
++    btn.setAttribute('title', 'Показать клавиатуру выбранного размера');
++    btn.addEventListener('click', togglePanel);
++
++    panel = el('div', 'b39-keys-panel');
++    panel.id = 'b39KeysPanel'; panel.hidden = true;
++    panel.setAttribute('role', 'dialog');
++    panel.setAttribute('aria-label', 'Клавиатура дорожки');
++
++    var head = el('div', 'b39-keys-head');
++    titleEl = el('span', 'b39-keys-title', 'Клавиши');
++    sizeSel = el('select'); sizeSel.setAttribute('aria-label', 'Размер клавиатуры');
++    [25, 37, 49, 61, 76, 88].forEach(function (n) {
++      var op = el('option', '', n + ' клавиш'); op.value = String(n); sizeSel.appendChild(op);
++    });
++    sizeSel.addEventListener('change', function () {
++      var T = tracks(); if (T) T.setKeyboardSize(Number(sizeSel.value));
++      renderPanel();
++    });
++    timbreSel = el('select'); timbreSel.setAttribute('aria-label', 'Тембр');
++    [['piano', 'Рояль'], ['simple', 'Простой тон'], ['epiano', 'Электропиано'], ['organ', 'Орган']]
++      .forEach(function (pair) {
++        var op = el('option', '', pair[1]); op.value = pair[0]; timbreSel.appendChild(op);
++      });
++    timbreSel.addEventListener('change', function () {
++      var A = audio(); if (!A) return;
++      A.setMode(timbreSel.value === 'simple' ? 'simple' : 'piano');
++      A.setPartials(timbreSel.value === 'organ' ? 8 : timbreSel.value === 'epiano' ? 4 : 6);
++    });
++    var nav = el('div', 'b39-keys-nav');
++    var prev = el('button', '', '‹'); prev.type = 'button'; prev.setAttribute('aria-label', 'Предыдущая позиция');
++    prev.addEventListener('click', function () { stepVariant(-1); });
++    countEl = el('span', 'b39-keys-count', '1/1');
++    var next = el('button', '', '›'); next.type = 'button'; next.setAttribute('aria-label', 'Следующая позиция');
++    next.addEventListener('click', function () { stepVariant(1); });
++    nav.appendChild(prev); nav.appendChild(countEl); nav.appendChild(next);
++
++    var close = el('button', '', '×'); close.type = 'button';
++    close.setAttribute('aria-label', 'Закрыть'); close.style.cssText =
++      'width:1.4rem;height:1.4rem;border-radius:.4rem;border:1px solid var(--color-border-medium,#c9cdd4);background:transparent;color:inherit;cursor:pointer';
++    close.addEventListener('click', closePanel);
++
++    head.appendChild(titleEl); head.appendChild(sizeSel); head.appendChild(timbreSel);
++    head.appendChild(nav); head.appendChild(close);
++    body = el('div', 'b39-keys-body');
++    foot = el('div', 'b39-keys-foot', '');
++    panel.appendChild(head); panel.appendChild(body); panel.appendChild(foot);
++    doc.body.appendChild(panel);
++
++    var mixerBtn = doc.getElementById('b39MixerBtn');
++    var anchor = doc.getElementById('transportDockHint');
++    if (mixerBtn && mixerBtn.parentNode) mixerBtn.parentNode.insertBefore(btn, mixerBtn.nextSibling);
++    else if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(btn, anchor);
++    else doc.body.appendChild(btn);
++    doc.addEventListener('keydown', function (e) {
++      if (e.key === 'Escape' && panel && !panel.hidden) closePanel();
++    });
++  }
++  function positionPanel() {
++    if (!panel || !btn || !btn.getBoundingClientRect) return;
++    var r = btn.getBoundingClientRect();
++    var w = Math.min(760, (HOST.innerWidth || 1024) - 16);
++    panel.style.width = w + 'px';
++    panel.style.left = Math.max(8, Math.min((HOST.innerWidth || 1024) - w - 8, r.left)) + 'px';
++    panel.style.top = (r.bottom + 8) + 'px';
++  }
++  function openPanel() { if (!panel) return; positionPanel(); panel.hidden = false; btn.setAttribute('aria-pressed', 'true'); renderPanel(); }
++  function closePanel() { if (!panel) return; panel.hidden = true; btn.setAttribute('aria-pressed', 'false'); }
++  function togglePanel() { if (!panel) return; panel.hidden ? openPanel() : closePanel(); }
++
++  function stepVariant(delta) {
++    var T = tracks(); if (!T || !lastChord) return;
++    var active = activeTrack(); if (!active || !active.track) return;
++    var range = T.keyRange(active.track.id);
++    var variants = generateKeysVoicings(lastChord, currentKey(), range, null, {});
++    if (!variants.length) return;
++    var cur = variantIndex(active.track.id, lastChord, lastCellKey) % variants.length;
++    setVariantIndex(active.track.id, lastChord, lastCellKey, cur + delta, variants.length);
++    renderPanel();
++    var M = mixer(); if (M && typeof M.render === 'function') { /* панель микшера не перерисовываем */ }
++  }
++
++  function renderPanel() {
++    if (!panel || panel.hidden) return;
++    var T = tracks(), F = formula();
++    var active = activeTrack();
++    if (!active || !active.track || active.track.instrument !== 'keys') {
++      titleEl.textContent = 'Клавиши';
++      body.innerHTML = '<div class="b39-keys-foot">Активная дорожка — гитара. Выберите клавишную строку в микшере.</div>';
++      countEl.textContent = '—'; foot.textContent = '';
++      return;
++    }
++    var range = T.keyRange(active.track.id);
++    if (sizeSel && Number(sizeSel.value) !== range.size) sizeSel.value = String(range.size);
++    var chord = lastChord || (F ? null : null);
++    if (!chord) {
++      // Берём первый непустой аккорд активной дорожки из сетки.
++      try {
++        T.eachCell(function (sec, sq, ev, ei, key) {
++          if (chord) return;
++          var c = T.trackChord(active.track.id, key, ev);
++          if (c) { chord = c; lastCellKey = key; }
++        });
++      } catch (e) {}
++    }
++    if (!chord) {
++      body.innerHTML = '<div class="b39-keys-foot">В песне пока нет аккордов.</div>';
++      countEl.textContent = '—'; foot.textContent = '';
++      return;
++    }
++    lastChord = chord; lastTrackId = active.track.id;
++    var variants = generateKeysVoicings(chord, currentKey(), range, null, {});
++    var idx = variantIndex(active.track.id, chord, lastCellKey) % Math.max(1, variants.length);
++    var notes = variants.length ? variants[idx] : [];
++    var f = F.chordFormula(chord, currentKey());
++    var whiteW = range.size >= 88 ? 12 : range.size >= 61 ? 15 : 20;
++    var res = keyboardSVG(range.low, range.high, notes, {
++      whiteW: whiteW, whiteH: 78, showFingers: showFingersEnabled(),
++      rootPc: f ? f.rootPc : undefined, labelSpace: 20
++    });
++    titleEl.textContent = chord;
++    body.innerHTML = res.svg;
++    countEl.textContent = (idx + 1) + '/' + Math.max(1, variants.length);
++    var bass = notes.length ? notes[0] : null;
++    foot.textContent = 'Размер ' + range.size + ' клавиш (' + range.first + '–' + range.last + ')' +
++      (bass !== null ? ' · бас ' + noteLabel(bass, f ? f.keyStyle : 'sharp') : '') +
++      (showFingersEnabled() ? ' · пальцы 1–5 — подсказка' : '');
++  }
++
++  function onAudioEvent(info) {
++    var T = tracks(), active = activeTrack();
++    if (T && active && active.track && info && info.ev) {
++      var chord = T.trackChord(active.track.id, info.cell, info.ev);
++      if (chord) lastChord = chord;
++      lastCellKey = info.cell || lastCellKey;
++      lastTrackId = active.track.id;
++    }
++    renderPanel();
++  }
++
++  function wrapAudioNotifier() {
++    var A = audio();
++    if (A && typeof A.setEventNotifier === 'function') A.setEventNotifier(onAudioEvent);
++  }
++
++  function setVoicingProvider() {
++    var A = audio(), T = tracks();
++    if (!A || typeof A.setVoicingProvider !== 'function' || !T) return;
++    A.setVoicingProvider(function (chordName, key, range, prev, trackId) {
++      var variants = generateKeysVoicings(chordName, key, range, prev, {});
++      if (!variants.length) return null;
++      var idx = variantIndex(trackId, chordName, null) % variants.length;
++      return variants[idx];
++    });
++  }
++
++  function boot() {
++    if (booted) return;
++    if (!doc || !doc.body) return;
++    booted = true;
++    injectCss();
++    buildDom();
++    wrapFingeringRenderer();
++    wrapAudioNotifier();
++    setVoicingProvider();
++    var store = HOST.songStore;
++    if (store && typeof store.subscribe === 'function') {
++      try { store.subscribe(function () { renderPanel(); }); } catch (e) {}
++    }
++    renderPanel();
++  }
++
++  var api = Object.freeze({
++    boot: boot, installRenderer: wrapFingeringRenderer,
++    open: openPanel, close: closePanel, toggle: togglePanel, render: renderPanel,
++    generateKeysVoicings: generateKeysVoicings, toneRank: toneRank, handLimit: handLimit,
++    keyboardSVG: keyboardSVG, renderKeysVoicingSVG: renderKeysVoicingSVG,
++    variantIndex: variantIndex, setVariantIndex: setVariantIndex, stepVariant: stepVariant,
++    button: function () { return btn; }, panel: function () { return panel; },
++    last: function () { return { chord: lastChord, cellKey: lastCellKey, trackId: lastTrackId }; }
++  });
++  HOST.StruChordKeys = api;
++
++  // renderFingeringSVG и StruChordAudio определены позже по файлу —
++  // оборачиваем после полной загрузки скрипта.
++  if (typeof HOST.setTimeout === 'function') HOST.setTimeout(boot, 0);
++  if (doc && doc.readyState === 'loading' && doc.addEventListener) doc.addEventListener('DOMContentLoaded', boot);
++  else boot();
++})(typeof window !== 'undefined' ? window : globalThis);
++// <<< B-39 STAGE4 END (KEYS VOICING UI) <<<
+ function renderFingeringSVG(fingers, bottomPad, opts) {
+   const padTop = 25;
+   const stringSpacing = 18,
+     fretSpacing = 25,
+     strings = 6,
+@@ -30505,10 +32058,13 @@
+ // keepShape — для «переименования без смены звучания» (энгармоническая
+ // коррекция G#→Ab): форма звучит тем же аккордом и остаётся в силе
+ // (её перенос делает migrateFingeringChordName).
+ function setEventChord(ev, newChord, posCtx, keepShape) {
+   if (!ev) return false;
++  // B-39 STAGE2: круг/ручной ввод пишут аккорд в АКТИВНУЮ дорожку. Если
++  // активна неглавая, главная (ev.chord) остаётся нетронутой.
++  if (window.StruChordMixer && window.StruChordMixer.redirectChordWrite(ev, newChord, posCtx)) return true;
+   const readableChord = typeof newChord === 'string' ? normalizeReadableChordName(newChord) : newChord;
+   if (String(ev.chord || '').trim() === String(readableChord || '').trim()) return false;
+   // «Виды», шаги 2–3: у ячейки есть записанные ноты. Целиком выразимые
+   // аккордом — запись снимается молча (ноты пересчитаются из нового
+   // аккорда). Невыразимые (мелодия, приёмы, второй голос) — спрашиваем
+@@ -31027,11 +32583,14 @@
+           : null;
+     const fingersForShape =
+       shownFingers !== undefined
+         ? shownFingers
+         : fingersForEventShape(eventForTooltip, shape);
+-    const svg = renderFingeringSVG(shape, 30, { barreOff: barreOffForShape, customFingers: fingersForShape }) || '';
++    // B-39 STAGE4: для клавишной дорожки рендеру нужно имя аккорда.
++    const b39CellKey = wrapper && wrapper.dataset
++      ? wrapper.dataset.sec + ':' + wrapper.dataset.square + ':' + wrapper.dataset.ei : undefined;
++    const svg = renderFingeringSVG(shape, 30, { barreOff: barreOffForShape, customFingers: fingersForShape, chord: chordName, cellKey: b39CellKey }) || '';
+ 
+     // Счётчик — единый с панелью «Сейчас»: «2/5», у своих «1/1(польз.)»,
+     // у авто-подстановок «1/164(авто)» — см. fingeringCounterText.
+     let counterText = '';
+     if (hasMultiple) {
+@@ -31598,11 +33157,11 @@
+     updatePinnedShift();
+     return;
+   }
+   swapFingeringContent(content, name + '|' + formKey + (pinnedBarreOff ? '|bo' + pinnedBarreOff.join('.') : ''),
+     `<span class="fingering-chord-name">${renderFingeringChordNameHtml(name)}</span>` +
+-    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08, barreOff: pinnedBarreOff, customFingers: pinnedFingers }) || ''}</div>`);
++    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08, barreOff: pinnedBarreOff, customFingers: pinnedFingers, chord: name }) || ''}</div>`);
+   updatePinnedShift();
+ }
+ 
+ // Превью СЛЕДУЮЩЕГО аккорда — справа от закреплённого.
+ //
+@@ -31640,11 +33199,11 @@
+   const nextBarreOff = barreOffForEventShape(nextEvent, form);
+   const nextFingers = fingersForEventShape(nextEvent, form);
+   swapFingeringContent(host.querySelector('.fingering-content'),
+     pos.chord + '|' + formKey + (nextBarreOff ? '|bo' + nextBarreOff.join('.') : ''),
+     `<span class="fingering-chord-name">${renderFingeringChordNameHtml(pos.chord)}</span>` +
+-    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08, barreOff: nextBarreOff, customFingers: nextFingers }) || ''}</div>`);
++    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08, barreOff: nextBarreOff, customFingers: nextFingers, chord: pos.chord }) || ''}</div>`);
+   host.style.display = 'block';
+   updatePinnedShift();
+   ensurePinnedNextTimer();
+ }
+ 
+@@ -35113,10 +36672,226 @@
+   else if (root === 'Ab') root = 'G#';
+   else if (root === 'Bb') root = 'A#';
+   else if (root === 'Cb') root = 'B';
+   return root + octave;
+ }
++// >>> B-39 STAGE0 BEGIN (B-102) <<<
++// ==========================================================================
++// B-102 · ЭТАП 0 (B-39, stage 0) — КАНОНИЧЕСКАЯ ФОРМУЛА АККОРДА
++// --------------------------------------------------------------------------
++// Зачем. Функция getChordNotes() ниже — ГИТАРНАЯ реализация аккорда. Она
++// обязана звучать ровно как в 0.691, включая принятые упрощения: C11 без
++// терции, C13 без 11-й ступени, b13 вместо квинты. Для фортепиано (B-39)
++// такие пропуски недопустимы (правило R12: «Упрощение набора нот, допустимое
++// на гитаре, не переносится в режим фортепиано»).
++//
++// Что сделано. Рядом добавлена честная формула chordFormula(): полный набор
++// тонов аккорда без пропусков, с интервалами, классами высоты и басом для
++// слэш-аккордов. СТАРЫЙ КОД НЕ ИЗМЕНЁН ВООБЩЕ — ни одной строки в
++// getChordNotes, поэтому корпус тестов b101/b262 и золотая таблица
++// аппликатур проходят с прежними ожиданиями.
++//
++// Правило для следующих этапов: звук клавиш, клавишные аппликатуры,
++// голосоведение, типы аккомпанимента и экспорт нотного стана берут ноты
++// ТОЛЬКО из chordFormula(). Гитарный путь продолжает пользоваться
++// getChordNotes(). Два домена больше не перемешиваются.
++// ==========================================================================
++
++// Интервал в полутонах -> теоретическая ступень. 6 и 8 намеренно названы
++// b5 и #5 (в аккордах так пишут чаще, чем #4/b6); замена написания — задача
++// спеллера тональности, а не формулы.
++const FORMULA_SEMITONE_DEGREE = Object.freeze({
++  0: '1', 1: 'b2', 2: '2', 3: 'b3', 4: '3', 5: '4', 6: 'b5', 7: '5',
++  8: '#5', 9: '6', 10: 'b7', 11: '7', 13: 'b9', 14: '9', 15: '#9',
++  17: '11', 18: '#11', 20: 'b13', 21: '13'
++});
++const FORMULA_ROOT_ALIAS = Object.freeze({ 'E#': 'F', 'B#': 'C', Fb: 'E', Cb: 'B' });
++
++function formulaRootPc(root) {
++  // Тот же порядок, что в getChordNotes: бемольный корень -> диезный,
++  // затем энгармонические E#/B#/Fb/Cb, затем поиск в хроматической гамме.
++  const sharp = FLAT_TO_SHARP[root] || FORMULA_ROOT_ALIAS[root] || root;
++  return CHROMATIC.indexOf(sharp);
++}
++
++function formulaKeyStyle(k) {
++  // getKeyStyle объявлена ниже по файлу, но function declaration всплывает.
++  if (typeof getKeyStyle === 'function') return getKeyStyle(k);
++  return typeof k === 'string' && /b/i.test(k) ? 'flat' : 'sharp';
++}
++
++function formulaNoteName(pc, keyStyle, octave) {
++  let note = CHROMATIC[((pc % 12) + 12) % 12];
++  if (keyStyle === 'flat') note = SHARP_TO_FLAT[note] || note;
++  // Cb4 = B3: та же поправка научной нотации, что в getChordNotes (B-101).
++  const oct = octave + (note === 'Cb' ? 1 : 0);
++  return note + oct;
++}
++
++function parseChordFormula(name) {
++  if (name === null || name === undefined) return null;
++  let raw = String(name).trim();
++  if (!raw) return null;
++  // Те же помощники, что и в основном разборе: Δ/°/(9)/+ -> обычные суффиксы,
++  // типографские ♭/♯ и джазовый минус -> ASCII, регистр -> канон.
++  raw = String(expandChordName(raw));
++  raw = String(normalizeChordCase(normalizeAccidentals(raw)));
++  const parts = raw.split('/');
++  let main = parts[0].trim();
++  let bassRaw = parts.length > 1 ? parts.slice(1).join('/').trim() : '';
++  // «6/9» — НЕ слэш-бас, а секста + нона (в getChordNotes это тоже особый
++  // случай). normalizeChordCase уже разделил строку по «/», поэтому без этой
++  // склейки «9» уезжало в бас и формула теряла нону.
++  if (/6$/.test(main) && /^9/.test(bassRaw)) { main += '9'; bassRaw = ''; }
++  const rm = main.match(/^([A-G][#b]?)/);
++  if (!rm) return null;
++  const root = rm[1];
++  const rootPc = formulaRootPc(root);
++  if (rootPc < 0) return null;                 // незнакомый корень — честный null
++  const suffix = main.slice(root.length).toLowerCase();
++  const bm = bassRaw.match(/^([A-G][#b]?)/);
++  const bass = bm ? bm[1] : null;
++  const bassPc = bass ? formulaRootPc(bass) : -1;
++  return {
++    raw, main, root, rootPc, suffix,
++    bass, bassPc: bassPc < 0 ? null : bassPc
++  };
++}
++
++/**
++ * Каноническая формула аккорда. Возвращает null для нераспознанного имени —
++ * никогда не подставляет «похожий» аккорд (R12).
++ *
++ * @param {string} name  например 'C13', 'Cm7b5', 'C/E', 'C7(#11)', 'Cadd9'
++ * @param {string} [key] тональность для спеллинга ('F' -> бемоли)
++ * @returns {{name,root,rootPc,quality,intervals,degrees,pitchClasses,tones,bass,keyStyle}|null}
++ */
++function chordFormula(name, key) {
++  const p = parseChordFormula(name);
++  if (!p) return null;
++  const s = p.suffix;
++  const keyStyle = formulaKeyStyle(key);
++
++  const isHalfDim = /m7b5|ø/.test(s);
++  const isDim = /dim|°/.test(s) && !isHalfDim;
++  const isAug = /aug|\+/.test(s);
++  const isSus = /sus/.test(s);
++  const isPower = /^5($|[^a-z0-9])/.test(s);
++  const isMin = /^m(?!aj)/.test(s) && !isHalfDim;
++  const isMaj7 = /maj/.test(s);
++
++  // 1. База: полное трезвучие / септаккорд. Здесь НИЧЕГО не выкидывается.
++  let ints;
++  if (isPower) ints = [0, 7];
++  else if (isHalfDim) ints = [0, 3, 6, 10];
++  else if (isDim) ints = [0, 3, 6];
++  else if (isAug) ints = [0, 4, 8];
++  else if (isSus) ints = /sus2/.test(s) ? [0, 2, 7] : [0, 5, 7];
++  else if (isMin) ints = [0, 3, 7];
++  else ints = [0, 4, 7];
++
++  // 2. Цифровой стек. add-хвосты и альтерации в скобках не должны читаться
++  //    как номер расширения — то же правило, что отработано в B-101.
++  let ext = s.replace(/add\d+/g, '');
++  ext = ext.replace(/\((?:[#b]?\d+)(?:,[#b]?\d+)*\)/g, '');
++  const has69 = /(^|\D)6\/?9(\D|$)/.test(ext);
++  if (has69) ext = ext.replace(/6\/?9/, '');
++  const nums = ext.match(/\d+/g);
++  const n = nums ? parseInt(nums[0], 10) : 0;
++
++  if (has69) { ints.push(9); ints.push(14); }       // секста + нона
++  if (n >= 7) {
++    // 11-я для 13-го НЕ опускается: каноническая формула полная.
++    // Решение, что реально возьмёт рука, принимает голосоведение (этап 4).
++    let seventh = 10;                               // малая септима
++    if (isMaj7) seventh = 11;                      // большая септима
++    else if (isDim) seventh = 9;                   // уменьшённая септима
++    ints.push(seventh);
++  }
++  if (n >= 9) ints.push(14);
++  if (n >= 11) ints.push(17);
++  if (n >= 13) ints.push(21);
++  if (n === 6) ints.push(9);
++
++  // 3. Альтерации. b13 НЕ удаляет квинту — это гитарная конвенция, здесь она
++  //    не применяется. Обе ноты остаются в формуле.
++  if (!isPower) {
++    if (/b5|-5/.test(s)) ints = ints.map((i) => (i === 7 ? 6 : i));
++    if (/#5|\+5/.test(s)) ints = ints.map((i) => (i === 7 ? 8 : i));
++  }
++  if (/b6/.test(s)) { ints = ints.filter((i) => i !== 9); ints.push(8); }
++  if (/b9/.test(s)) ints.push(13);
++  if (/#9/.test(s)) ints.push(15);
++  if (/#11/.test(s)) ints.push(18);
++  if (/b13/.test(s)) ints.push(20);
++  if (/alt/.test(s)) ints.push(13, 15, 18, 20);
++  if (/add9|add2/.test(s)) ints.push(14);
++  if (/add11|add4/.test(s)) ints.push(17);
++
++  ints = [...new Set(ints)].sort((a, b) => a - b);
++
++  const rootOctave = p.root === 'Cb' ? 3 : 4;
++  const tones = ints.map((semi) => {
++    const pc = (p.rootPc + semi) % 12;
++    const spelled = CHROMATIC[pc];
++    let note = keyStyle === 'flat' ? (SHARP_TO_FLAT[spelled] || spelled) : spelled;
++    const oct = rootOctave + Math.floor((p.rootPc + semi) / 12) + (note === 'Cb' ? 1 : 0);
++    return {
++      degree: FORMULA_SEMITONE_DEGREE[semi] || String(semi),
++      semitones: semi,
++      pitchClass: pc,
++      note,
++      noteWithOctave: note + oct
++    };
++  });
++
++  let bass = null;
++  if (p.bass && p.bassPc !== null) {
++    bass = {
++      name: p.bass,
++      pitchClass: p.bassPc,
++      interval: (p.bassPc - p.rootPc + 12) % 12,
++      // отдельная низкая нота — этап 4 опустит её на октаву ниже аккорда
++      noteWithOctave: formulaNoteName(p.bassPc, keyStyle, 3)
++    };
++  }
++
++  const quality = isPower ? 'power' : isHalfDim ? 'm7b5' : isDim ? 'dim'
++    : isAug ? 'aug' : isSus ? (/sus2/.test(s) ? 'sus2' : 'sus4')
++    : isMin ? 'min' : 'maj';
++
++  return {
++    name: p.raw,
++    root: p.root,
++    rootPc: p.rootPc,
++    quality,
++    intervals: ints.slice(),
++    degrees: tones.map((t) => t.degree),
++    pitchClasses: tones.map((t) => t.pitchClass),
++    tones,
++    bass,
++    keyStyle
++  };
++}
++
++/** Ноты канонической формулы в научной нотации (C4, Eb5, ...). */
++function chordFormulaNotes(name, key) {
++  const f = chordFormula(name, key);
++  return f ? f.tones.map((t) => t.noteWithOctave) : [];
++}
++
++// Небольшой неймспейс для тестов и следующих этапов. Префикс StruChord —
++// чтобы не пересечься с существующими глобалами.
++if (typeof window !== 'undefined') {
++  window.StruChordFormula = Object.freeze({
++    chordFormula,
++    chordFormulaNotes,
++    parseChordFormula,
++    FORMULA_SEMITONE_DEGREE
++  });
++}
++// <<< B-39 STAGE0 END (B-102) <<<
+ function getChordNotes(cn, ks) {
+   // 0.597: Δ — то же, что maj7 (как в expandChordName); без этого суффикс
+   // уходит в toLowerCase как «δ», и септима теряется (CΔ давал C E G).
+   cn = String(cn).replace(/Δ(\d)/g, 'maj$1').replace(/Δ/g, 'maj7');
+   cn = normalizeChordCase(normalizeAccidentals(cn));
+@@ -40903,10 +42678,14 @@
+   // B-38 (0.154): старт/длительность текущей ячейки — питание кругляшка
+   // «до смены аккорда» в превью закреплённого ряда (та же семантика,
+   // что у tl-next-timer ленты).
+   playbackState.cellStart = evStart;
+   playbackState.cellDur = dur;
++  // B-39 STAGE3: свои голоса клавишных дорожек планируются здесь же,
++  // до гитарного боя — время начала то же, рассинхрона нет.
++  if (window.StruChordAudio) window.StruChordAudio.scheduleEvent(
++    ctx, next.section, next.square, next.event, next.eventIndex, evStart, dur, bpm, ts);
+ 
+   // Якорь фазы такта: время начала ТЕКУЩЕГО квадрата = время начала
+   // текущего события минус время всех событий этого квадрата, что уже
+   // отыграли до него. Пересчитывается заново на КАЖДОМ событии — поэтому
+   // не важно, менялась секция, менялся BPM секции, был ли квадрат
+@@ -43144,11 +44923,16 @@
+     { id: 'clean', label: 'Чистый', gain: 0.96, bright: 0.03, ring: 1.1, wet: 0.6, drive: 0.2, cab: 3600 },
+     { id: 'drive', label: 'Перегруз', gain: 0.9, bright: 0.07, ring: 1.35, wet: 0.4, drive: 0.7, cab: 2400 },
+     { id: 'ambient', label: 'Эмбиент', gain: 0.85, bright: -0.08, ring: 1.8, wet: 2.6, drive: 0.1, cab: 3000 },
+   ],
+   drums: [{ id: 'acoustic', label: 'Синтетические GM-удары', gain: 1, bright: 0, ring: 1, wet: 0, drive: 0, cab: 0 }],
+-  keys: [{ id: 'acoustic', label: 'Простой клавишный тон', gain: 1, bright: 0, ring: 1, wet: 0, drive: 0, cab: 0 }],
++  keys: [
++    { id: 'acoustic', label: 'Простой клавишный тон', gain: 1, bright: 0, ring: 1, wet: 0, drive: 0, cab: 0 },
++    { id: 'piano', label: 'Рояль (синтез)', gain: 1, bright: 0.08, ring: 1.3, wet: 0.25, drive: 0, cab: 0 },
++    { id: 'epiano', label: 'Электропиано', gain: 0.95, bright: 0.14, ring: 1.1, wet: 0.35, drive: 0.05, cab: 6200 },
++    { id: 'organ', label: 'Орган', gain: 0.9, bright: 0.02, ring: 2.2, wet: 0.2, drive: 0, cab: 0 },
++  ],
+   vocal: [{ id: 'acoustic', label: 'Простой вокальный тон', gain: 1, bright: 0, ring: 1, wet: 0, drive: 0, cab: 0 }],
+   other: [{ id: 'acoustic', label: 'Простой синусоидальный тон', gain: 1, bright: 0, ring: 1, wet: 0, drive: 0, cab: 0 }],
+ };
+ // Звучание АККОМПАНЕМЕНТА (канал «Песня»): гитарный голос. Точки — в тех же
+ // единицах сетки секции, что start/dur нот, поэтому переключение попадает
+@@ -43349,11 +45133,17 @@
+   return part || null;
+ }
+ 
+ function soundChannelInstrument(id) {
+   const owner = soundChannelOwner(id);
+-  return owner && owner !== songSoundState ? partInstrumentId(owner) : 'guitar';
++  if (owner && owner !== songSoundState) return partInstrumentId(owner);
++  // B-39 STAGE3: канал «Песня» звучит инструментом главной дорожки.
++  if (window.StruChordTracks) {
++    const b39Main = window.StruChordTracks.mainTrack();
++    if (b39Main && b39Main.instrument === 'keys') return 'keys';
++  }
++  return 'guitar';
+ }
+ 
+ function soundChannelValue(id) {
+   const owner = soundChannelOwner(id);
+   if (!owner) return SOUND_DEFAULT;
+@@ -43994,10 +45784,13 @@
+ // выбранная аппликатура — звучат ровно те струны/лады, что показаны на
+ // грифе (в т.ч. заглушённые струны молчат, открытые звучат ярче и
+ // дольше). Если аппликатуры нет (нераспознанное имя аккорда) — плавно
+ // откатывается на теоретические тона аккорда.
+ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
++  // B-39 STAGE2: M/S дорожек реально влияют на звук. Пока звучит один
++  // голос (главная дорожка); отдельные голоса появятся в части 4.
++  if (window.StruChordMixer && !window.StruChordMixer.mainAudible()) return;
+   ensureGuitarBus(ctx);
+   let notes;
+   if (shape) {
+     notes = shapeToPluckNotes(shape);
+   } else {
+@@ -44028,10 +45821,373 @@
+       brightness,
+     });
+   });
+ }
+ 
++// >>> B-39 STAGE3 BEGIN (KEYS AUDIO) <<<
++// ==========================================================================
++// B-39 · ЭТАП 3 (STAGE 3) — ЗВУК ПИАНИНО И ГОЛОСА ДОРОЖЕК
++// --------------------------------------------------------------------------
++// До сих пор звучал ОДИН голос — гитарный канал «Песня». Теперь у каждой
++// клавишной дорожки свой голос, своя громкость, свой мьют/соло. Главная
++// гитарная дорожка продолжает звучать прежним strumChord(): старый звук
++// не тронут ни одной строкой.
++//
++// Ноты для клавиш берутся ТОЛЬКО из chordFormula() (часть 1), а не из
++// getChordNotes(): правило R12 запрещает переносить гитарные пропуски нот
++// в фортепиано. C13 звучит всеми семью тонами.
++//
++// Два режима (решение владельца «сначала простой тон, потом синтез»):
++//   'simple' — один triangle-осциллятор (запасной путь, как в Партиях);
++//   'piano'  — 6 парциалов с негармоничностью + короткий шумовой молоток,
++//              экспоненциальное затухание, общий хвост при педали.
++// Сэмплов нет, сетевых запросов нет, размер файла не растёт.
++//
++// Шина: существующий mixerChannelForVoice() -> канал 'b39:keys:<id>' ->
++// тот же мастер с EQ и панорамой. Громкость дорожки ставится в input.gain.
++// Все источники регистрируются и глушатся из stopAllAudio().
++// ==========================================================================
++(function (HOST) {
++  'use strict';
++
++  var MODE = 'piano';              // 'simple' | 'piano'
++  var PEDAL = false;
++  var MAX_VOICES = 320;             // 8 нот × (6 парциалов + молоток) × ~5 аккордов
++  var PARTIALS = 6;
++  var HEADROOM = 0.16;            // суммарная громкость ноты до шины канала
++
++  var ctxRef = null;
++  var voices = new Set();         // живые источники Web Audio
++  var channels = new Map();       // trackId -> канал микшера
++  var prevByTrack = new Map();    // голосоведение: предыдущие MIDI-ноты
++  var hammer = null;              // общий буфер шума молоточка
++  var voicingProvider = null;     // STAGE 4 подменяет голосоведение
++  var eventNotifier = null;       // STAGE 4 следит за текущим аккордом
++  var patternPlanner = null;      // STAGE 5 раскладывает аккорд по шагам
++  var stats = { notes: 0, events: 0, skippedGhost: 0, skippedMuted: 0, capped: 0 };
++
++  function tracks() { return HOST.StruChordTracks || null; }
++  function formula() { return HOST.StruChordFormula || null; }
++
++  function ensureCtx(ctx) {
++    if (ctxRef === ctx) return;
++    // Контекст пересоздан (audioPreflightForGesture): старые узлы уже мертвы.
++    voices.clear(); channels.clear(); hammer = null; ctxRef = ctx;
++  }
++
++  // ---------- Шина дорожки ----------
++  function channelFor(ctx, trackId, gain) {
++    var ch = channels.get(trackId);
++    if (ch && ch.__ctx === ctx) {
++      try { ch.input.gain.value = gain; } catch (e) {}
++      return ch;
++    }
++    var made = null;
++    try {
++      if (typeof HOST.mixerChannelForVoice === 'function') {
++        made = HOST.mixerChannelForVoice(ctx, 'b39:keys:' + trackId);
++      } else if (typeof HOST.ensureMixerChannel === 'function') {
++        made = HOST.ensureMixerChannel(ctx, 'b39:keys:' + trackId);
++      }
++    } catch (e) { made = null; }
++    if (!made || !made.input) return null;
++    try { made.input.gain.value = gain; } catch (e) {}
++    made.__ctx = ctx;
++    channels.set(trackId, made);
++    return made;
++  }
++  function voiceTarget(ch) {
++    // dry (0.9) -> input -> EQ -> панорама -> мастер. Рекомендуемый путь:
++    // он не добавляет гитарную деку конволюции, но сохраняет общий микшер.
++    return ch.dry || ch.input;
++  }
++
++  // M/S + громкость. Solo на любой дорожке глушит остальные.
++  function effectiveGain(state, track) {
++    if (!track || track.mute) return 0;
++    var anySolo = false;
++    for (var i = 0; i < state.tracks.length; i++) if (state.tracks[i].solo) anySolo = true;
++    if (anySolo && !track.solo) return 0;
++    var v = Number(track.volume);
++    if (!Number.isFinite(v)) v = 100;
++    return Math.max(0, Math.min(100, v)) / 100;
++  }
++
++  // ---------- Голосоведение (базовая версия; часть 5 добавит варианты) ----------
++  function firstMidiWithPc(low, pc) {
++    var m = low + (((pc - (low % 12)) % 12) + 12) % 12;
++    return m;
++  }
++  function closestMidiWithPc(lo, hi, pc, prev) {
++    var first = firstMidiWithPc(lo, pc);
++    var candidates = [];
++    for (var m = first; m <= hi; m += 12) candidates.push(m);
++    if (!candidates.length) return null;
++    if (!prev || !prev.length) return candidates[0];
++    // Минимальное движение: держимся ближе к предыдущему голосу той же ноты.
++    var centre = prev.reduce(function (a, b) { return a + b; }, 0) / prev.length;
++    var best = candidates[0], bestD = Math.abs(best - centre);
++    for (var i = 1; i < candidates.length; i++) {
++      var d = Math.abs(candidates[i] - centre);
++      if (d < bestD) { best = candidates[i]; bestD = d; }
++    }
++    return best;
++  }
++  /**
++   * Строит MIDI-ноты аккорда в диапазоне выбранной клавиатуры.
++   * Бас — отдельная низкая нота (корень или нота слэш-баса).
++   * Правая рука — тона канонической формулы, корень удваивается.
++   */
++  function voicingFor(chordName, key, range, prev) {
++    var F = formula();
++    if (!F || typeof F.chordFormula !== 'function') return [];
++    var f = F.chordFormula(chordName, key);
++    if (!f || !f.tones || !f.tones.length) return [];
++    var low = range.low, high = range.high;
++    if (low > high) return [];
++
++    var bassPc = f.bass ? f.bass.pitchClass : f.rootPc;
++    var bass = firstMidiWithPc(low, bassPc);
++    if (bass > high) bass = high - ((high - bassPc) % 12);
++
++    var rhLow = Math.max(low + 12, 48);
++    var rhHigh = Math.min(high, 84);
++    if (rhHigh < rhLow) rhHigh = Math.min(high, rhLow + 12);
++
++    var notes = [];
++    f.pitchClasses.forEach(function (pc) {
++      var m = closestMidiWithPc(rhLow, rhHigh, pc, prev);
++      if (m !== null && m >= low && m <= high && notes.indexOf(m) < 0) notes.push(m);
++    });
++    // Удвоение корня октавой выше — делает аккорд плотнее.
++    var rootMidi = firstMidiWithPc(rhLow, f.rootPc);
++    if (rootMidi + 12 <= rhHigh && rootMidi >= rhLow && notes.indexOf(rootMidi + 12) < 0 && notes.length < 7) {
++      notes.push(rootMidi + 12);
++    }
++    notes.sort(function (a, b) { return a - b; });
++    if (bass !== null && bass >= low && bass <= high && notes.indexOf(bass) < 0) notes.unshift(bass);
++    // 7 тонов канонической формулы + отдельный бас = 8 нот. Ничего не
++    // выбрасываем: R12 запрещает переносить гитарные пропуски в пианино.
++    return notes.filter(function (m) { return m >= low && m <= high; }).slice(0, 8);
++  }
++
++  // ---------- Синтез ----------
++  function frequencyOf(midi) { return 440 * Math.pow(2, (Number(midi) - 69) / 12); }
++
++  function hammerBuffer(ctx) {
++    if (hammer) return hammer;
++    try {
++      var len = Math.max(1, Math.floor(ctx.sampleRate * 0.03));
++      hammer = ctx.createBuffer(1, len, ctx.sampleRate);
++      var data = hammer.getChannelData(0);
++      for (var i = 0; i < len; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / len);
++    } catch (e) { hammer = null; }
++    return hammer;
++  }
++
++  function register(source) {
++    voices.add(source);
++    try {
++      source.onended = function () { voices.delete(source); };
++    } catch (e) {}
++  }
++  function hasRoom() {
++    if (voices.size < MAX_VOICES) return true;
++    stats.capped++;
++    return false;
++  }
++
++  function playSimple(ctx, target, midi, start, dur, level) {
++    if (!hasRoom()) return;
++    var osc = ctx.createOscillator();
++    osc.type = 'triangle';
++    osc.frequency.value = frequencyOf(midi);
++    var g = ctx.createGain();
++    var end = start + Math.max(0.16, dur * 0.9);
++    g.gain.setValueAtTime(0.0001, start);
++    g.gain.exponentialRampToValueAtTime(Math.max(0.0002, level), start + 0.012);
++    g.gain.exponentialRampToValueAtTime(0.0001, end);
++    osc.connect(g); g.connect(target);
++    osc.start(start); osc.stop(end + 0.02);
++    register(osc);
++    stats.notes++;
++  }
++
++  function playPiano(ctx, target, midi, start, dur, level) {
++    if (!hasRoom()) return;
++    var f0 = frequencyOf(midi);
++    var decay = Math.max(0.38, Math.min(2.6, dur * 1.5)) * (PEDAL ? 1.85 : 1);
++    var bus = ctx.createGain();
++    bus.gain.value = 1;
++    bus.connect(target);
++    var B = 0.00035;                    // негармоничность (растяжка струн)
++    for (var n = 1; n <= PARTIALS; n++) {
++      if (!hasRoom()) break;
++      var osc = ctx.createOscillator();
++      osc.type = 'sine';
++      osc.frequency.value = f0 * n * Math.sqrt(1 + B * n * n);
++      var g = ctx.createGain();
++      var amp = level / Math.pow(n, 1.45);
++      var tau = Math.max(0.08, decay / Math.pow(n, 0.55));
++      g.gain.setValueAtTime(0.0001, start);
++      g.gain.exponentialRampToValueAtTime(Math.max(0.0002, amp), start + 0.004);
++      g.gain.exponentialRampToValueAtTime(0.0001, start + tau);
++      osc.connect(g); g.connect(bus);
++      osc.start(start); osc.stop(start + tau + 0.02);
++      register(osc);
++    }
++    // Молоточек: короткий шумовой импульс, отфильтрованный по высоте ноты.
++    var nb = hammerBuffer(ctx);
++    if (nb && hasRoom() && typeof ctx.createBufferSource === 'function') {
++      try {
++        var src = ctx.createBufferSource(); src.buffer = nb;
++        var bp = ctx.createBiquadFilter ? ctx.createBiquadFilter() : null;
++        var ng = ctx.createGain();
++        if (bp) { bp.type = 'bandpass'; bp.frequency.value = Math.min(6000, f0 * 4); bp.Q.value = 0.7; src.connect(bp); bp.connect(ng); }
++        else src.connect(ng);
++        ng.gain.setValueAtTime(Math.max(0.0002, level * 0.14), start);
++        ng.gain.exponentialRampToValueAtTime(0.0001, start + 0.022);
++        ng.connect(bus);
++        src.start(start); src.stop(start + 0.03);
++        register(src);
++      } catch (e) {}
++    }
++    stats.notes++;
++  }
++
++  function playNote(ctx, channel, midi, start, dur, level) {
++    var target = voiceTarget(channel);
++    if (!target) return;
++    if (MODE === 'simple') playSimple(ctx, target, midi, start, dur, level);
++    else playPiano(ctx, target, midi, start, dur, level);
++  }
++
++  // ---------- Планирование ----------
++  /**
++   * Вызывается из scheduleNextEvent на КАЖДУЮ ячейку. Для каждой клавишной
++   * дорожки берёт её собственный аккорд (пусто = призрак, звука нет) и
++   * ставит ноты в Web Audio. Главная гитарная звучит прежним кодом.
++   */
++  function scheduleEvent(ctx, sec, sq, ev, ei, evStart, dur, bpm, ts) {
++    var T = tracks();
++    if (!T || !ctx || !sec || !sq || !ev) return;
++    ensureCtx(ctx);
++    var state = T.state();
++    if (state.mainTrackId === null) return;
++    stats.events++;
++    var seconds = Math.max(0.18, Math.min(2.2, Number(dur) || 0.4));
++    var key = sec.key || currentKey();
++    var cell = T.cellKey(sec, sq, ei);
++    state.tracks.forEach(function (track) {
++      if (track.instrument !== 'keys') return;
++      var chord = T.trackChord(track.id, cell, ev);
++      if (!chord) { stats.skippedGhost++; return; }   // призрак не звучит
++      var gain = effectiveGain(state, track);
++      if (gain <= 0) { stats.skippedMuted++; return; }
++      var channel = channelFor(ctx, track.id, gain);
++      if (!channel) return;
++      var range = T.keyRange(track.id);
++      var prev = prevByTrack.get(track.id) || null;
++      var notes = voicingProvider
++        ? (voicingProvider(chord, key, range, prev, track.id) || voicingFor(chord, key, range, prev))
++        : voicingFor(chord, key, range, prev);
++      prevByTrack.set(track.id, notes);
++      var level = HEADROOM / Math.sqrt(Math.max(1, notes.length));
++      // B-39 STAGE5: рисунок аккомпанимента возвращает шаги со своими
++      // нотами, смещением и длительностью. Нет планировщика или он вернул
++      // пусто -> прежнее поведение (весь аккорд сразу).
++      var steps = null;
++      if (patternPlanner) {
++        try {
++          steps = patternPlanner({
++            ctx: ctx, evStart: evStart, dur: dur, bpm: bpm, ts: ts,
++            sec: sec, sq: sq, ev: ev, ei: ei, cell: cell,
++            chord: chord, key: key, range: range, notes: notes,
++            trackId: track.id, span: (ev && ev.span) || 1
++          });
++        } catch (e) { steps = null; }
++      }
++      if (steps && steps.length) {
++        steps.forEach(function (st) {
++          var at = Math.max(0, Number(st.at) || 0);
++          var len = Math.max(0.02, Number(st.dur) || seconds);
++          (Array.isArray(st.notes) ? st.notes : []).forEach(function (midi) {
++            playNote(ctx, channel, midi, evStart + at, len, level);
++          });
++        });
++      } else {
++        notes.forEach(function (midi) { playNote(ctx, channel, midi, evStart, seconds, level); });
++      }
++    });
++    if (eventNotifier) {
++      try {
++        eventNotifier({ sec: sec, sq: sq, ev: ev, ei: ei, cell: cell, key: key, state: state });
++      } catch (e) {}
++    }
++  }
++
++  /** Мгновенное прослушивание (двойной клик / круг). */
++  function preview(chordName, ctx, now, wrapper) {
++    var T = tracks();
++    if (!T || !ctx || !chordName) return;
++    ensureCtx(ctx);
++    var state = T.state();
++    if (state.mainTrackId === null) return;
++    var ds = wrapper && wrapper.dataset ? wrapper.dataset : null;
++    var cell = ds ? (ds.sec + ':' + ds.square + ':' + ds.ei) : null;
++    state.tracks.forEach(function (track) {
++      if (track.instrument !== 'keys') return;
++      var chord = (cell && T.trackChord(track.id, cell)) || chordName;
++      if (!chord) return;
++      var gain = effectiveGain(state, track);
++      if (gain <= 0) return;
++      var channel = channelFor(ctx, track.id, gain);
++      if (!channel) return;
++      var notes = voicingFor(chord, currentKey(), T.keyRange(track.id), null);
++      var level = HEADROOM / Math.sqrt(Math.max(1, notes.length));
++      notes.forEach(function (midi) { playNote(ctx, channel, midi, now, 0.55, level); });
++    });
++  }
++
++  function currentKey() {
++    try { return (typeof globalKey !== 'undefined' && globalKey) || 'C'; } catch (e) { return 'C'; }
++  }
++
++  function stopAll() {
++    voices.forEach(function (src) { try { src.stop(); } catch (e) {} });
++    voices.clear();
++    prevByTrack.clear();
++    // B-39 STAGE5: снимаем подсветку шагов, если она была запланирована.
++    var Acc = HOST.StruChordAccomp;
++    if (Acc && typeof Acc.clearHighlights === 'function') {
++      try { Acc.clearHighlights(); } catch (e) {}
++    }
++  }
++  function reset() {
++    stopAll(); channels.clear(); ctxRef = null; hammer = null;
++    stats = { notes: 0, events: 0, skippedGhost: 0, skippedMuted: 0, capped: 0 };
++  }
++
++  function setVoicingProvider(fn) { voicingProvider = typeof fn === 'function' ? fn : null; return !!voicingProvider; }
++  function setEventNotifier(fn) { eventNotifier = typeof fn === 'function' ? fn : null; return !!eventNotifier; }
++  function setPatternPlanner(fn) { patternPlanner = typeof fn === 'function' ? fn : null; return !!patternPlanner; }
++
++  var api = Object.freeze({
++    scheduleEvent: scheduleEvent, preview: preview, stopAll: stopAll, reset: reset,
++    setVoicingProvider: setVoicingProvider, setEventNotifier: setEventNotifier,
++    setPatternPlanner: setPatternPlanner,
++    voicingFor: voicingFor, effectiveGain: effectiveGain, frequencyOf: frequencyOf,
++    setMode: function (m) { if (m === 'simple' || m === 'piano') MODE = m; return MODE; },
++    getMode: function () { return MODE; },
++    setPedal: function (on) { PEDAL = !!on; return PEDAL; },
++    setPartials: function (n) { var v = Number(n); if (v >= 1 && v <= 12) PARTIALS = Math.round(v); return PARTIALS; },
++    setHeadroom: function (v) { var n = Number(v); if (n > 0 && n <= 1) HEADROOM = n; return HEADROOM; },
++    stats: function () { return Object.assign({}, stats, { liveVoices: voices.size, channels: channels.size }); }
++  });
++  HOST.StruChordAudio = api;
++})(typeof window !== 'undefined' ? window : globalThis);
++// <<< B-39 STAGE3 END (KEYS AUDIO) <<<
+ function playChord(c, wrapper) {
+   if (!c?.trim()) return;
+   const ctx = getAudioContext();
+   if (!ctx) {
+     showToast('🔇 Аудио недоступно');
+@@ -44053,10 +46209,12 @@
+         const posKey = buildFingeringPositionKey(c, key, secId, squareId, eventIndex);
+         shape = resolveFingeringShape(c, key, posKey);
+       }
+     }
+     if (!shape) shape = resolveFingeringShape(c, key, null);
++    // B-39 STAGE3: к гитарному превью добавляем клавишные голоса.
++    if (window.StruChordAudio) window.StruChordAudio.preview(c, ctx, now, wrapper);
+     strumChord(ctx, shape, c, key, now, STRUM_RING_SECONDS, 0.42);
+   } catch (e) {
+     console.warn(e);
+   }
+ }
+@@ -44168,10 +46326,12 @@
+ }
+ function setMetronomeMuted(m) {
+   metronomeMuted = m;
+ }
+ function stopAllAudio() {
++  // B-39 STAGE3: у клавишных голосов свои источники Web Audio.
++  if (window.StruChordAudio) window.StruChordAudio.stopAll();
+   for (const o of activeOscillators)
+     try {
+       o.stop();
+     } catch (e) {}
+   activeOscillators.clear();
+@@ -45818,10 +47978,719 @@
+     playbackState.strumHighlightTimers.push(offId);
+   }, delayMs);
+   playbackState.strumHighlightTimers.push(onId);
+ }
+ 
++// >>> B-39 STAGE5 BEGIN (KEYS ACCOMPANIMENT) <<<
++// ==========================================================================
++// B-39 · ЭТАП 5 (STAGE 5) — ТИПЫ АККОМПАНИМЕНТА ДЛЯ КЛАВИШНЫХ ДОРОЖЕК
++// --------------------------------------------------------------------------
++// Что здесь:
++//  1. Шесть пресетов: целый аккорд, арпеджио вверх, бас+аккорд, вальс,
++//     Альберти-бас, октавный бас. Шаги хранятся ТОКЕНАМИ-РОЛЯМИ, а не
++//     нотами: один и тот же рисунок сам следует за гармонией и за сменой
++//     позиции (варианта) аккорда.
++//  2. plan() — планировщик шагов. Уважает subdivision 1/2/3/4, свинг по
++//     АБСОЛЮТНОЙ сетке квадрата, фазу ячейки при ресайзе и наследование
++//     «ячейка -> секция -> пресет». Возвращает шаги с готовыми MIDI-нотами,
++//     смещением и длительностью — ровно их и играет звуковой слой STAGE 3.
++//  3. Панель «Аккомпанемент»: 6 кнопок, размер клавиатуры дорожки,
++//     дробность, свинг, «Рисунок на такт» с подсветкой шагов, применение
++//     к ячейке или к секции.
++//  4. Перехват кнопки «Бой/перебор»: на активной клавишной дорожке она
++//     называется «Аккомпанемент» и открывает ЭТУ панель. Гитара не тронута.
++//
++// Правило R12: в этом блоке нет гитарных аппликатур, струн и боёв. Ноты
++// берутся только из канонической формулы (STAGE 0) и голосоведения
++// (STAGE 4). Пятая и одиннадцатая ступени здесь НЕ выкидываются.
++//
++// Никакой правки чужой разметки: свои стили и DOM создаются динамически.
++// ==========================================================================
++(function (HOST) {
++  'use strict';
++
++  var doc = HOST.document;
++
++  // ---------- Пресеты ----------
++  var PRESETS = [
++    { id: 'keys-block',        label: 'Целый аккорд', subdivision: 1, hint: 'аккорд на каждую долю' },
++    { id: 'keys-arp-up',       label: 'Арпеджио ↑',   subdivision: 2, hint: 'тона аккорда снизу вверх' },
++    { id: 'keys-bass-chord',   label: 'Бас + аккорд', subdivision: 1, hint: 'бас на 1 и 3, аккорд на 2 и 4' },
++    { id: 'keys-waltz',        label: 'Вальс',        subdivision: 1, hint: 'бас — аккорд — аккорд' },
++    { id: 'keys-alberti',      label: 'Альберти-бас', subdivision: 2, hint: 'корень — квинта — терция — квинта' },
++    { id: 'keys-octave-bass',  label: 'Октавный бас', subdivision: 1, hint: 'корень через октаву + аккорд' }
++  ];
++  var DEFAULT_TYPE = 'keys-block';
++  var SUBDIVISIONS = [1, 2, 3, 4];
++  var MAX_STEPS = 64;
++
++  // Токены шагов. H — весь аккорд; B — бас; O — корень через октаву;
++  // A — следующий тон арпеджио вверх; t* — тон по интервалу.
++  var TOKENS = ['H', 'B', 'O', 'A', 't1', 't3', 't5', 't7', 't9', 't11', 't13'];
++  // Семейства полутонов в порядке предпочтения. sus2/sus4 не теряют ноту:
++  // для t3 есть запасные 2 и 5 полутона, для t13 — секста.
++  var FAMILY = {
++    t1: [0], t3: [4, 3, 2, 5], t5: [7, 6, 8, 5],
++    t7: [10, 11, 9], t9: [14, 13, 15, 2],
++    t11: [17, 18, 5], t13: [21, 20, 9]
++  };
++
++  var CSS = [
++    '.b39-acc-btn { display:inline-flex; align-items:center; gap:.3rem; padding:0 .5rem;',
++    '  height:2.25rem; border-radius:.6rem; cursor:pointer; font:inherit; font-size:.75rem;',
++    '  background:var(--color-surface,#fff); color:var(--color-text-primary,#1b1b1b);',
++    '  border:1px solid var(--color-border-medium,#c9cdd4); }',
++    '.b39-acc-btn[aria-pressed="true"] { border-color:var(--color-accent,#2f855a); }',
++    '.b39-acc-panel { position:fixed; z-index:9999; right:.6rem; top:5.6rem;',
++    '  width:min(24rem,calc(100vw - 1.2rem)); max-height:calc(100vh - 7rem); overflow:auto;',
++    '  background:var(--color-surface,#fff); color:var(--color-text-primary,#1b1b1b);',
++    '  border:1px solid var(--color-border-medium,#c9cdd4); border-radius:.875rem;',
++    '  box-shadow:0 .75rem 2rem rgba(0,0,0,.22); padding:.65rem .75rem; font-size:.75rem; }',
++    '.b39-acc-panel[hidden] { display:none; }',
++    '.b39-acc-head { display:flex; align-items:center; gap:.4rem; margin-bottom:.5rem; }',
++    '.b39-acc-title { font-size:.85rem; font-weight:700; flex:1; }',
++    '.b39-acc-close { border:0; background:transparent; color:inherit; cursor:pointer; font-size:1rem; }',
++    '.b39-acc-label { font-size:.68rem; color:var(--color-text-secondary,#666);',
++    '  margin:.45rem 0 .25rem; text-transform:uppercase; letter-spacing:.04em; }',
++    '.b39-acc-grid { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:.3rem; }',
++    '.b39-acc-preset { text-align:left; padding:.35rem .45rem; border-radius:.5rem; cursor:pointer;',
++    '  font:inherit; font-size:.72rem; line-height:1.25; color:inherit;',
++    '  background:transparent; border:1px solid var(--color-border-medium,#c9cdd4); }',
++    '.b39-acc-preset[aria-pressed="true"] { border-color:var(--color-accent,#2f855a);',
++    '  background:var(--color-accent-soft,rgba(47,133,90,.12)); }',
++    '.b39-acc-preset small { display:block; opacity:.7; font-size:.65rem; }',
++    '.b39-acc-row { display:flex; align-items:center; flex-wrap:wrap; gap:.4rem; margin-top:.45rem; }',
++    '.b39-acc-row select, .b39-acc-row button { font:inherit; font-size:.7rem; padding:.2rem .35rem;',
++    '  border-radius:.4rem; border:1px solid var(--color-border-medium,#c9cdd4);',
++    '  background:var(--color-surface,#fff); color:inherit; cursor:pointer; }',
++    '.b39-acc-row button[aria-pressed="true"] { border-color:var(--color-accent,#2f855a); }',
++    '.b39-acc-steps { display:flex; flex-wrap:wrap; gap:.15rem; margin-top:.3rem; }',
++    '.b39-acc-step { width:1.35rem; height:1.35rem; display:grid; place-items:center;',
++    '  border-radius:.3rem; border:1px solid var(--color-border-medium,#c9cdd4);',
++    '  font-size:.65rem; transition:transform .05s linear, background-color .05s linear; }',
++    '.b39-acc-step.is-on { background:var(--color-accent,#2f855a); color:#fff;',
++    '  transform:translateY(-2px); }',
++    '.b39-acc-foot { margin-top:.5rem; font-size:.65rem; line-height:1.45;',
++    '  color:var(--color-text-tertiary,#999); }'
++  ].join('\n');
++
++  // ---------- Состояние ----------
++  var booted = false, wrapped = false, observer = null;
++  var btn = null, panel = null, gridEl = null, stepsEl = null, footEl = null;
++  var sizeSel = null, subSel = null, swingBox = null, scopeCell = null, scopeSec = null;
++  var draft = { type: DEFAULT_TYPE, subdivision: 1, swing: null };
++  var current = { secId: null, sqId: null, ei: null, cellKey: null, scope: 'section', ts: '4/4' };
++  var sharedRhythm = null;       // подглядываем subdivision/swing у ритма секции
++  var timers = [];
++  var stepObserver = null;
++  var presetButtons = [];
++
++  function tracks() { return HOST.StruChordTracks || null; }
++  function keys() { return HOST.StruChordKeys || null; }
++  function audio() { return HOST.StruChordAudio || null; }
++  function formula() { return HOST.StruChordFormula || null; }
++
++  function mod12(n) { return ((n % 12) + 12) % 12; }
++  function isMidi(n) { return Number.isFinite(Number(n)) && Number(n) >= 0 && Number(n) <= 127; }
++  function asc(a, b) { return a - b; }
++  function esc(v) {
++    return String(v == null ? '' : v).replace(/&/g, '&amp;').replace(/</g, '&lt;')
++      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
++  }
++  function el(tag, cls, text) {
++    if (!doc || !doc.createElement) return null;
++    var n = doc.createElement(tag);
++    if (cls) n.className = cls;
++    if (text !== undefined && text !== null) n.textContent = text;
++    return n;
++  }
++
++  // ---------- Пресеты и рисунок шагов ----------
++  function preset(id) {
++    for (var i = 0; i < PRESETS.length; i++) if (PRESETS[i].id === id) return PRESETS[i];
++    return null;
++  }
++  function list() {
++    return PRESETS.map(function (p) {
++      return { id: p.id, label: p.label, subdivision: p.subdivision, hint: p.hint };
++    });
++  }
++  /** Битые значения ОТБРАСЫВАЮТСЯ (правило README), а не зажимаются. */
++  function normalize(raw) {
++    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
++    if (!preset(raw.type)) return null;
++    var sub = Number(raw.subdivision);
++    if (SUBDIVISIONS.indexOf(sub) < 0) return null;
++    var swing = raw.swing === true ? true : (raw.swing === false ? false : null);
++    return { type: raw.type, subdivision: sub, swing: swing };
++  }
++  function numerator(ts) {
++    var m = /(\d+)\s*\/\s*(\d+)/.exec(String(ts || '4/4'));
++    if (!m) return 4;
++    return Math.min(32, Math.max(1, Number(m[1]) || 4));
++  }
++
++  /**
++   * Рисунок на такт. Длина кратна beats * subdivision; при ресайзе ячейки
++   * планировщик берёт из него ОКНО, а не начинает заново.
++   */
++  function buildSteps(type, sub, beats) {
++    var n = Math.max(1, Math.round((Number(beats) || 4) * sub));
++    n = Math.min(n, MAX_STEPS);
++    var out = [], alberti = [['H', 't1'], 't5', 't3', 't5'], i, beat;
++    for (i = 0; i < n; i++) {
++      beat = Math.floor(i / sub);
++      if (type === 'keys-arp-up') out.push('A');
++      else if (type === 'keys-alberti') out.push((sub >= 2 || i % sub === 0) ? alberti[i % alberti.length] : null);
++      else if (i % sub !== 0) out.push(null);
++      else if (type === 'keys-block') out.push('H');
++      else if (type === 'keys-bass-chord') out.push(beat % 2 === 0 ? 'B' : 'H');
++      else if (type === 'keys-waltz') out.push(beat % 3 === 0 ? 'B' : 'H');
++      else if (type === 'keys-octave-bass') out.push(beat % 2 === 0 ? 'O' : 'H');
++      else out.push('H');
++    }
++    return out;
++  }
++
++  /** Наследование: ячейка -> секция -> дефолтный пресет. */
++  function resolve(trackId, cellKey, sec) {
++    var secId = sec && typeof sec === 'object' ? sec.id : sec;
++    var T = tracks();
++    var map = {};
++    if (T && typeof T.track === 'function') {
++      var t = T.track(trackId);
++      if (t && t.patterns) map = t.patterns;
++    }
++    var v = null, source = 'default';
++    if (cellKey) { v = normalize(map[String(cellKey)]); if (v) source = 'cell'; }
++    if (!v && secId !== null && secId !== undefined) {
++      v = normalize(map['s:' + secId]);
++      if (v) source = 'section';
++    }
++    if (!v) {
++      var p = preset(DEFAULT_TYPE);
++      return { type: DEFAULT_TYPE, subdivision: p.subdivision, swing: null, source: 'default' };
++    }
++    return { type: v.type, subdivision: v.subdivision, swing: v.swing, source: source };
++  }
++
++  // ---------- Сетка, свинг, фаза ----------
++  function swingOffset(node, sub, swing) {
++    // Тот же закон, что у свинга приложения (B-56/B-63): пары восьмых
++    // считаются от НАЧАЛА КВАДРАТА, вторая нота уезжает на 2/3.
++    if (typeof swingStepOffsetUnits === 'function') {
++      try { return swingStepOffsetUnits(node, sub, swing); } catch (e) {}
++    }
++    if (!swing || !(sub === 2 || sub === 4)) return node / sub;
++    var pairIdx = Math.floor(node / 2);
++    var inPair = ((node % 2) + 2) % 2;
++    var pairsPerBeat = sub / 2;
++    return pairIdx / pairsPerBeat + (inPair === 0 ? 0 : (1 / pairsPerBeat) * (2 / 3));
++  }
++  function squareOffset(sq, ei, ts) {
++    if (typeof getSquareEventOffsetUnits === 'function') {
++      try { return Number(getSquareEventOffsetUnits(sq, ei, ts)) || 0; } catch (e) {}
++    }
++    var sum = 0;
++    if (sq && Array.isArray(sq.events)) {
++      var lim = Math.min(Number(ei) || 0, sq.events.length);
++      for (var i = 0; i < lim; i++) sum += Number(sq.events[i] && sq.events[i].span) || 1;
++    }
++    return sum;
++  }
++
++  // ---------- Токены -> MIDI-ноты ----------
++  function tonePitchClass(f, token) {
++    if (!f || !Array.isArray(f.tones)) return null;
++    var fam = FAMILY[token];
++    if (!fam) return null;
++    for (var j = 0; j < fam.length; j++) {
++      for (var k = 0; k < f.tones.length; k++) {
++        if (f.tones[k].semitones === fam[j]) return mod12(f.tones[k].pitchClass);
++      }
++    }
++    return null;
++  }
++  function pickMidi(notes, pc, low, high) {
++    for (var i = 0; i < notes.length; i++) if (mod12(notes[i]) === pc) return notes[i];
++    if (!Number.isFinite(low) || !Number.isFinite(high)) return null;
++    var m = low + mod12(pc - mod12(low));
++    return m <= high ? m : null;
++  }
++  function tokenContext(o, notes) {
++    var F = formula();
++    var f = null;
++    if (F && typeof F.chordFormula === 'function') {
++      try { f = F.chordFormula(o.chord, o.key); } catch (e) { f = null; }
++    }
++    var range = o.range || {};
++    var low = Number(range.low), high = Number(range.high);
++    var bass = notes.length ? notes[0] : null;
++    var rh = notes.length > 1 ? notes.slice(1) : notes.slice();
++    return {
++      notes: notes, rh: rh, bass: bass, formula: f,
++      low: low, high: high,
++      inRange: function (m) {
++        return (!Number.isFinite(low) || m >= low) && (!Number.isFinite(high) || m <= high);
++      }
++    };
++  }
++  function tokenNotes(token, C, nextArp) {
++    if (token === null || token === undefined || token === '' || token === '_') return [];
++    var list = Array.isArray(token) ? token : [token];
++    var out = [];
++    list.forEach(function (t) {
++      var midis = [];
++      if (t === 'H') midis = C.notes.slice();
++      else if (t === 'B') midis = C.bass === null ? [] : [C.bass];
++      else if (t === 'O') {
++        midis = C.bass === null ? [] : [C.bass, C.bass + 12].filter(C.inRange);
++      } else if (t === 'A') {
++        midis = C.rh.length ? [C.rh[nextArp() % C.rh.length]] : [];
++      } else if (FAMILY[t]) {
++        var pc = tonePitchClass(C.formula, t);
++        var m = pc === null ? null : pickMidi(C.notes, pc, C.low, C.high);
++        midis = m === null ? [] : [m];
++      }
++      midis.forEach(function (m) { if (out.indexOf(m) < 0) out.push(m); });
++    });
++    return out;
++  }
++
++  /**
++   * Главный планировщик. Возвращает массив шагов:
++   * { index, stepIndex, token, at, dur, notes, subdivision, swing, type, source }
++   * at/dur — секунды ОТ начала ячейки; звук и подсветка берут их из одного
++   * и того же массива, поэтому совпадают всегда.
++   */
++  function plan(o) {
++    o = o || {};
++    var cfg = resolve(o.trackId, o.cell, o.sec);
++    var sub = cfg.subdivision;
++    var swingOn = !o.noSwing && (cfg.swing === true ||
++      (cfg.swing === null && sharedRhythm && sharedRhythm.swing === true)) &&
++      (sub === 2 || sub === 4);
++    var notes = (Array.isArray(o.notes) ? o.notes : [])
++      .map(Number).filter(isMidi).slice().sort(asc);
++    var ev = o.ev || {};
++    var span = Math.max(0.25, Number(o.span) || Number(ev.span) || 1);
++    var dur = Math.max(0.05, Number(o.dur) || 0.5);
++    var unit = dur / span;
++    var beats = cfg.source === 'cell' ? span : numerator(o.ts || current.ts);
++    var base = buildSteps(cfg.type, sub, beats);
++    var own = cfg.source === 'cell';
++    var offset = own ? 0 : squareOffset(o.sq, o.ei, o.ts);
++    var phase = own ? 0 : Math.max(0, Math.ceil((offset - 1e-9) * sub) / sub - offset);
++    var baseNode = Math.round((offset + phase) * sub);
++    var startStep = own ? 0 : ((baseNode % base.length) + base.length) % base.length;
++    var count = Math.min(MAX_STEPS, Math.max(1, Math.round(span * sub)));
++    var C = tokenContext(o, notes);
++    var arp = 0, out = [];
++    for (var i = 0; i < count; i++) {
++      var at = (swingOffset(baseNode + i, sub, swingOn) - offset) * unit;
++      var next = (swingOffset(baseNode + i + 1, sub, swingOn) - offset) * unit;
++      if (at < 0) at = 0;
++      if (at >= dur - 0.005) break;             // шаг за правой границей ячейки
++      var len = Math.max(0.02, next - at);
++      if (at + len > dur) len = dur - at;
++      var token = base[(startStep + i) % base.length];
++      out.push({
++        index: out.length,
++        stepIndex: (startStep + i) % base.length,
++        token: token,
++        at: at,
++        dur: len,
++        notes: tokenNotes(token, C, function () { return arp++; }),
++        subdivision: sub, swing: !!swingOn, type: cfg.type, source: cfg.source
++      });
++    }
++    if (o.ctx && typeof o.evStart === 'number') scheduleHighlights(o, out);
++    if (stepObserver) {
++      try { stepObserver({ cell: o.cell, trackId: o.trackId, cfg: cfg, steps: out }); } catch (e) {}
++    }
++    return out;
++  }
++
++  // ---------- Подсветка шагов ----------
++  function scheduleHighlights(o, steps) {
++    // DOM может появиться позже (boot на DOMContentLoaded), а звук уже идёт:
++    // таймеры ставим всегда, highlightStep сам проверит наличие чипов.
++    if (typeof HOST.setTimeout !== 'function') return;
++    var now = o.ctx && Number.isFinite(o.ctx.currentTime) ? o.ctx.currentTime : 0;
++    steps.forEach(function (st) {
++      var delay = Math.max(0, (o.evStart + st.at - now) * 1000);
++      var id = HOST.setTimeout(function () { highlightStep(st.index); }, delay);
++      if (id !== undefined && id !== null) timers.push(id);
++    });
++  }
++  function highlightStep(index) {
++    if (!stepsEl || !stepsEl.children) return;
++    for (var i = 0; i < stepsEl.children.length; i++) {
++      stepsEl.children[i].classList.toggle('is-on', Number(stepsEl.children[i].dataset.step) === index);
++    }
++  }
++  function clearHighlights() {
++    if (typeof HOST.clearTimeout === 'function') {
++      timers.forEach(function (id) { try { HOST.clearTimeout(id); } catch (e) {} });
++    }
++    timers = [];
++    if (stepsEl && stepsEl.children) {
++      for (var i = 0; i < stepsEl.children.length; i++) stepsEl.children[i].classList.remove('is-on');
++    }
++  }
++  function setStepObserver(fn) { stepObserver = typeof fn === 'function' ? fn : null; return !!stepObserver; }
++
++  /** Хук из schedulePatternForEvent: общий ритм секции (сетка и свинг). */
++  function adoptRhythm(pattern, ts, bpm, sec, square, eventIndex, evStart, dur) {
++    if (!pattern || typeof pattern !== 'object') return;
++    var sub = Number(pattern.subdivision);
++    sharedRhythm = {
++      subdivision: SUBDIVISIONS.indexOf(sub) >= 0 ? sub : 1,
++      swing: !!(pattern.swing && typeof patternHasSwing === 'function'
++        ? patternHasSwing(pattern) : pattern.swing),
++      ts: String(ts || '4/4'),
++      secId: sec && sec.id !== undefined ? sec.id : null
++    };
++  }
++  function rhythm() { return sharedRhythm ? Object.assign({}, sharedRhythm) : null; }
++
++  // ---------- UI ----------
++  function activeIsKeys() {
++    var T = tracks();
++    if (!T || typeof T.state !== 'function' || typeof T.track !== 'function') return false;
++    var st = null;
++    try { st = T.state(); } catch (e) { return false; }
++    var t = T.track(st.activeTrackId);
++    return !!(t && t.instrument === 'keys');
++  }
++  function injectCss() {
++    if (!doc || !doc.createElement || (!doc.head && !doc.body)) return;
++    if (doc.querySelector && doc.querySelector('[data-b39-acc-css]')) return;
++    var st = doc.createElement('style');
++    st.setAttribute('data-b39-acc-css', '1');
++    st.textContent = CSS;
++    (doc.head || doc.body).appendChild(st);
++  }
++  function buildDom() {
++    if (!doc || !doc.body || btn) return;
++    btn = el('button', 'transport-btn b39-acc-btn', '🎼 Аккомпанемент');
++    if (!btn) return;
++    btn.type = 'button'; btn.id = 'b39AccBtn';
++    btn.setAttribute('aria-pressed', 'false');
++    btn.setAttribute('title', 'Типы аккомпанимента клавишной дорожки');
++    btn.addEventListener('click', togglePanel);
++
++    panel = el('div', 'b39-acc-panel');
++    panel.id = 'b39AccPanel'; panel.hidden = true;
++    panel.setAttribute('role', 'dialog');
++    panel.setAttribute('aria-label', 'Аккомпанемент');
++
++    var head = el('div', 'b39-acc-head');
++    head.appendChild(el('span', 'b39-acc-title', 'Аккомпанемент'));
++    var close = el('button', 'b39-acc-close', '×');
++    close.type = 'button'; close.setAttribute('aria-label', 'Закрыть');
++    close.addEventListener('click', closePanel);
++    head.appendChild(close);
++    panel.appendChild(head);
++
++    panel.appendChild(el('div', 'b39-acc-label', 'Тип рисунка'));
++    gridEl = el('div', 'b39-acc-grid');
++    PRESETS.forEach(function (p) {
++      var b = el('button', 'b39-acc-preset');
++      b.type = 'button';
++      b.setAttribute('data-preset', p.id);
++      b.setAttribute('aria-pressed', 'false');
++      b.appendChild(el('span', '', p.label));
++      b.appendChild(el('small', '', p.hint));
++      b.addEventListener('click', function () {
++        draft.type = p.id;
++        draft.subdivision = p.subdivision;
++        apply(); renderPanel();
++      });
++      presetButtons.push(b);
++      gridEl.appendChild(b);
++    });
++    panel.appendChild(gridEl);
++
++    panel.appendChild(el('div', 'b39-acc-label', 'Клавиатура'));
++    var sizeRow = el('div', 'b39-acc-row');
++    sizeSel = el('select');
++    sizeSel.setAttribute('aria-label', 'Размер клавиатуры дорожки');
++    sizeSel.addEventListener('change', function () {
++      var T = tracks(); if (!T) return;
++      var st = T.state();
++      var v = sizeSel.value;
++      T.setTrackKeyboardSize(st.activeTrackId, v === '' ? null : Number(v));
++      var K = keys(); if (K && typeof K.render === 'function') K.render();
++      renderPanel();
++    });
++    sizeRow.appendChild(sizeSel);
++    panel.appendChild(sizeRow);
++
++    panel.appendChild(el('div', 'b39-acc-label', 'Рисунок на такт'));
++    var gridRow = el('div', 'b39-acc-row');
++    subSel = el('select');
++    subSel.setAttribute('aria-label', 'Дробность шагов');
++    [1, 2, 3, 4].forEach(function (n) {
++      var op = el('option', '', n === 1 ? '♩ четверти' : n === 2 ? '♪ восьмые' : n === 3 ? '♫ триоли' : '♬ шестнадцатые');
++      op.value = String(n); subSel.appendChild(op);
++    });
++    subSel.addEventListener('change', function () {
++      draft.subdivision = Number(subSel.value);
++      apply(); renderPanel();
++    });
++    gridRow.appendChild(subSel);
++    swingBox = el('input');
++    swingBox.type = 'checkbox'; swingBox.id = 'b39AccSwing';
++    swingBox.setAttribute('aria-label', 'Свинг');
++    swingBox.addEventListener('change', function () {
++      draft.swing = swingBox.checked;
++      apply(); renderPanel();
++    });
++    var swingLabel = el('label', '');
++    swingLabel.appendChild(swingBox);
++    swingLabel.appendChild(doc.createTextNode(' свинг'));
++    gridRow.appendChild(swingLabel);
++    panel.appendChild(gridRow);
++
++    stepsEl = el('div', 'b39-acc-steps');
++    stepsEl.id = 'b39AccSteps';
++    panel.appendChild(stepsEl);
++
++    panel.appendChild(el('div', 'b39-acc-label', 'Применить к'));
++    var scopeRow = el('div', 'b39-acc-row');
++    scopeCell = el('button', '', 'ячейке'); scopeCell.type = 'button';
++    scopeCell.setAttribute('data-scope', 'cell');
++    scopeSec = el('button', '', 'секции'); scopeSec.type = 'button';
++    scopeSec.setAttribute('data-scope', 'section');
++    [scopeCell, scopeSec].forEach(function (b) {
++      b.addEventListener('click', function () {
++        current.scope = b.getAttribute('data-scope');
++        apply(); renderPanel();
++      });
++    });
++    var reset = el('button', '', 'сбросить');
++    reset.type = 'button'; reset.setAttribute('aria-label', 'Сбросить свои рисунки');
++    reset.addEventListener('click', clearScopes);
++    scopeRow.appendChild(scopeCell); scopeRow.appendChild(scopeSec); scopeRow.appendChild(reset);
++    panel.appendChild(scopeRow);
++
++    footEl = el('div', 'b39-acc-foot', '');
++    panel.appendChild(footEl);
++
++    var wrap = el('span', 'b39-acc-wrap');
++    wrap.appendChild(btn);
++    var anchor = doc.getElementById('transportDockHint');
++    var bar = doc.querySelector && doc.querySelector('.transport-bar');
++    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(wrap, anchor);
++    else if (bar) bar.appendChild(wrap);
++    else doc.body.appendChild(wrap);
++    doc.body.appendChild(panel);
++  }
++
++  function glyph(token) {
++    if (token === null || token === undefined || token === '_') return '·';
++    if (Array.isArray(token)) return '▮♪';
++    if (token === 'H') return '▮';
++    if (token === 'B') return '●';
++    if (token === 'O') return '◎';
++    if (token === 'A') return '↑';
++    return '♪';
++  }
++  function renderSteps() {
++    if (!stepsEl) return;
++    var ts = (sharedRhythm && sharedRhythm.ts) || current.ts || '4/4';
++    var arr = buildSteps(draft.type, draft.subdivision, numerator(ts));
++    stepsEl.textContent = '';
++    arr.forEach(function (token, i) {
++      var c = el('span', 'b39-acc-step', glyph(token));
++      c.dataset.step = String(i);
++      c.title = 'Шаг ' + (i + 1) + (token ? ' · ' + (Array.isArray(token) ? token.join('+') : token) : ' · пауза');
++      stepsEl.appendChild(c);
++    });
++  }
++  function renderSizeOptions() {
++    if (!sizeSel) return;
++    var T = tracks();
++    var songSize = 61, trackSize = null;
++    if (T) {
++      try {
++        var st = T.state();
++        songSize = st.keyboardSize || 61;
++        var t = T.track(st.activeTrackId);
++        trackSize = t && t.keyboardSize !== undefined ? t.keyboardSize : null;
++      } catch (e) {}
++    }
++    sizeSel.textContent = '';
++    var def = el('option', '', 'как в песне (' + songSize + ')');
++    def.value = ''; sizeSel.appendChild(def);
++    [25, 37, 49, 61, 76, 88].forEach(function (n) {
++      var op = el('option', '', n + ' клавиш'); op.value = String(n); sizeSel.appendChild(op);
++    });
++    sizeSel.value = trackSize === null || trackSize === undefined ? '' : String(trackSize);
++  }
++  function resolveForScope() {
++    var T = tracks();
++    if (!T || typeof T.state !== 'function') return null;
++    var st = T.state();
++    // Показываем настройку ИМЕННО выбранной области: редактируем секцию —
++    // личный рисунок ячейки не должен подменять её пресет в панели.
++    return resolve(st.activeTrackId, current.scope === 'cell' ? current.cellKey : null, current.secId);
++  }
++  function renderPanel() {
++    if (!panel) return;
++    var cfg = resolveForScope();
++    if (cfg) draft = { type: cfg.type, subdivision: cfg.subdivision, swing: cfg.swing };
++    var inheritedSwing = draft.swing === null && sharedRhythm && sharedRhythm.swing === true;
++    presetButtons.forEach(function (b) {
++      b.setAttribute('aria-pressed', String(b.getAttribute('data-preset') === draft.type));
++    });
++    if (subSel) subSel.value = String(draft.subdivision);
++    if (swingBox) {
++      swingBox.checked = draft.swing === true || !!inheritedSwing;
++      swingBox.disabled = !(draft.subdivision === 2 || draft.subdivision === 4);
++      swingBox.title = swingBox.disabled ? 'Свинг доступен при дробности 2 или 4' : 'Свинг';
++    }
++    if (scopeCell) scopeCell.setAttribute('aria-pressed', String(current.scope === 'cell'));
++    if (scopeSec) scopeSec.setAttribute('aria-pressed', String(current.scope === 'section'));
++    renderSizeOptions(); renderSteps();
++    if (footEl) {
++      footEl.textContent = activeIsKeys()
++        ? 'Активная дорожка — Клавиши. Рисунок играет её же позицией аккорда; гитарный бой звучит отдельно.'
++        : 'Активная дорожка — Гитара. Выберите клавишную дорожку в микшере, чтобы задать ей аккомпанемент.';
++    }
++  }
++  function openPanel() {
++    guessScope();
++    if (panel) { panel.hidden = false; if (btn) btn.setAttribute('aria-pressed', 'true'); }
++    renderPanel();
++  }
++  function closePanel() {
++    if (panel) { panel.hidden = true; if (btn) btn.setAttribute('aria-pressed', 'false'); }
++  }
++  function togglePanel() { if (panel && !panel.hidden) closePanel(); else openPanel(); }
++
++  function guessScope() {
++    if (current.secId !== null && current.secId !== undefined) return;
++    var secs = [];
++    try { if (typeof sections !== 'undefined' && Array.isArray(sections)) secs = sections; } catch (e) {}
++    if (!secs.length && Array.isArray(HOST.__b39Sections)) secs = HOST.__b39Sections;
++    if (!secs.length) return;
++    var s0 = secs[0], q0 = s0 && Array.isArray(s0.squares) ? s0.squares[0] : null;
++    if (!s0 || !q0) return;
++    current.secId = s0.id;
++    current.sqId = q0.id;
++    current.ei = 0;
++    current.cellKey = s0.id + ':' + q0.id + ':0';
++    current.scope = 'section';
++  }
++  function setEditorScope(scope, secId, sqId, ei) {
++    current.secId = secId;
++    current.sqId = sqId;
++    current.ei = ei;
++    current.cellKey = (scope === 'event' && sqId !== undefined && sqId !== null &&
++      ei !== undefined && ei !== null) ? secId + ':' + sqId + ':' + ei : null;
++    current.scope = scope === 'event' ? 'cell' : 'section';
++  }
++  function apply() {
++    var T = tracks();
++    if (!T || typeof T.setPattern !== 'function' || !activeIsKeys()) return false;
++    var st = T.state();
++    var key = current.scope === 'cell' && current.cellKey
++      ? current.cellKey
++      : (current.secId !== null && current.secId !== undefined ? 's:' + current.secId : null);
++    if (!key) return false;
++    var payload = { type: draft.type, subdivision: draft.subdivision };
++    // null = «как в ритме секции». Явно не пишем, пока пользователь сам
++    // не тронул галочку свинга — наследование тогда сохраняется.
++    if (draft.swing !== null) payload.swing = draft.swing;
++    return T.setPattern(st.activeTrackId, key, payload);
++  }
++  function clearScopes() {
++    var T = tracks();
++    if (!T || typeof T.clearPattern !== 'function') return;
++    var st = T.state();
++    if (current.cellKey) T.clearPattern(st.activeTrackId, current.cellKey);
++    if (current.secId !== null && current.secId !== undefined) T.clearPattern(st.activeTrackId, 's:' + current.secId);
++    renderPanel();
++  }
++
++  /** Кнопка «Бой/перебор» на клавишной дорожке ведёт сюда. */
++  function wrapEditor() {
++    if (wrapped || typeof HOST.openStrumPatternEditor !== 'function') return;
++    var orig = HOST.openStrumPatternEditor;
++    HOST.openStrumPatternEditor = function (scope, sectionId, squareId, eventIndex) {
++      if (activeIsKeys()) {
++        setEditorScope(scope, sectionId, squareId, eventIndex);
++        openPanel();
++        return undefined;
++      }
++      return orig.apply(this, arguments);
++    };
++    wrapped = true;
++  }
++  /** Свойство видимых кнопок: гитара — «Бой/перебор», клавиши — «Аккомпанемент». */
++  function relabel() {
++    if (!doc || !doc.querySelectorAll) return;
++    var on = activeIsKeys();
++    var nodes = doc.querySelectorAll('.chord-btn-strum, .strum-badge-wrap, [title*="Бой/перебор"], [data-b39-acc-label]');
++    Array.prototype.forEach.call(nodes, function (n) {
++      if (!n.dataset) return;
++      if (n.dataset.b39AccOrigTitle === undefined) n.dataset.b39AccOrigTitle = n.getAttribute('title') || '';
++      if (n.dataset.b39AccOrigText === undefined) n.dataset.b39AccOrigText = n.textContent || '';
++      var want = on ? 'Аккомпанемент клавишной дорожки — нажмите, чтобы изменить'
++        : n.dataset.b39AccOrigTitle;
++      if ((n.getAttribute('title') || '') !== want) n.setAttribute('title', want);
++      if (n.dataset.b39AccLabel !== '1') n.dataset.b39AccLabel = '1';
++      if (n.classList && n.classList.contains('chord-btn-strum')) {
++        var text = on ? 'аккомп.' : n.dataset.b39AccOrigText;
++        if (n.textContent !== text) n.textContent = text;
++      }
++    });
++  }
++  function watchDom() {
++    if (observer || !doc || !doc.body || typeof HOST.MutationObserver !== 'function') return;
++    try {
++      observer = new HOST.MutationObserver(function () { relabel(); });
++      observer.observe(doc.body, { childList: true, subtree: true });
++    } catch (e) { observer = null; }
++  }
++
++  function boot() {
++    if (booted) return;
++    if (!doc || !doc.body) return;
++    booted = true;
++    injectCss(); buildDom(); wrapEditor(); watchDom();
++    var A = audio();
++    if (A && typeof A.setPatternPlanner === 'function') A.setPatternPlanner(plan);
++    var store = HOST.songStore;
++    if (store && typeof store.subscribe === 'function') {
++      try { store.subscribe(function () { relabel(); renderPanel(); }); } catch (e) {}
++    }
++    relabel(); renderPanel();
++  }
++
++  var api = Object.freeze({
++    boot: boot, plan: plan, resolve: resolve, buildSteps: buildSteps,
++    normalize: normalize, preset: preset, list: list, tokens: function () { return TOKENS.slice(); },
++    adoptRhythm: adoptRhythm, rhythm: rhythm,
++    open: openPanel, close: closePanel, toggle: togglePanel, render: renderPanel,
++    setEditorScope: setEditorScope, apply: apply, clearScopes: clearScopes,
++    relabel: relabel, activeIsKeys: activeIsKeys,
++    highlightStep: highlightStep, clearHighlights: clearHighlights, setStepObserver: setStepObserver,
++    button: function () { return btn; }, panel: function () { return panel; },
++    stepsElement: function () { return stepsEl; },
++    draft: function () { return Object.assign({}, draft); },
++    scope: function () { return Object.assign({}, current); }
++  });
++  HOST.StruChordAccomp = api;
++
++  if (typeof HOST.setTimeout === 'function') HOST.setTimeout(boot, 0);
++  if (doc && doc.readyState === 'loading' && doc.addEventListener) doc.addEventListener('DOMContentLoaded', boot);
++  else boot();
++})(typeof window !== 'undefined' ? window : globalThis);
++// <<< B-39 STAGE5 END (KEYS ACCOMPANIMENT) <<<
+ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, square, eventIndex, span, exact, sec) {
+   const ctx = getAudioContext();
+   if (!ctx) return;
+   try {
+     const { shape, key } = resolveShapeForScheduledChord(chord, posCtx);
+@@ -45867,10 +48736,13 @@
+     // равномерными: вторая нота пары уезжает на 2/3 доли. Без свинга обе
+     // формулы вырождаются в прежние i * stepSeconds и stepSeconds.
+     const unitSeconds = getGridUnitDurationSeconds(bpm, ts);
+     const stepSeconds = unitSeconds / sub;
+     const swingOn = patternHasSwing(pattern);
++    // B-39 STAGE5: клавишные дорожки видят ту же сетку и тот же свинг.
++    if (window.StruChordAccomp) window.StruChordAccomp.adoptRhythm(
++      pattern, ts, bpm, sec, square, eventIndex, evStart, dur);
+     // B-63: свинг считается по АБСОЛЮТНОЙ сетке квадрата. Узел первого
+     // удара ячейки = (её смещение + фаза) * sub; дальше идут подряд.
+     // Из абсолютного смещения вычитаем смещение самой ячейки — на выходе
+     // время ОТНОСИТЕЛЬНО её начала, как и ждёт планировщик.
+     const cellStartBeats = (typeof square !== 'undefined' && square
+@@ -57386,11 +60258,15 @@
+   // (проверено замером). Поэтому строку не двигаем вовсе — подменяем
+   // только svg рядом с ней.
+   const bar = fingEl.querySelector('.tl-fing-controls');
+   const oldSvg = fingEl.querySelector('svg');
+   if (oldSvg) oldSvg.remove();
+-  const svgHtml = shape ? renderFingeringSVG(shape, undefined, { barreOff, customFingers: fingers }) || '' : '';
++  // B-39 STAGE4: панель «Сейчас» в ленте тоже показывает клавиатуру.
++  const b39CellKey = posCtx
++    ? posCtx.secId + ':' + (posCtx.sqId !== undefined ? posCtx.sqId : posCtx.squareId) + ':' + (posCtx.ei !== undefined ? posCtx.ei : posCtx.eventIndex)
++    : undefined;
++  const svgHtml = shape ? renderFingeringSVG(shape, undefined, { barreOff, customFingers: fingers, chord: chord, cellKey: b39CellKey }) || '' : '';
+   if (svgHtml) {
+     // Гриф должен лежать ПЕРЕД строкой кнопок: она абсолютный слой в
+     // запасе под сеткой, но порядок в разметке определяет, что окажется
+     // сверху при равном z-index.
+     fingEl.insertAdjacentHTML('afterbegin', svgHtml);
+@@ -69028,12 +71904,12 @@
+ 
+         eventsHtml += `<div class="chord-wrapper" style="grid-column:span ${effectiveSpan};" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}">
+           ${soundMark ? `<span class="sound-mark" title="Переключение звучания аккомпанемента">♪ ${escapeHtml(soundMark)}</span>` : ''}
+           <div class="event-strum-preview" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}"></div>
+           <div class="chord-content">
+-            <input class="chord-input" readonly data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" value="${escapeHtml(ev.chord || '')}" placeholder="—">
+-            <div class="chord-display" aria-hidden="true">${accompSignatureFits(sec, sq, ev, ei) ? renderChordDisplayHtml(ev.chord) : accompNotesPlateHtml()}</div>
++            <input class="chord-input" readonly data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" value="${escapeHtml(window.StruChordMixer ? window.StruChordMixer.displayChord(sec, sq, ev, ei) : (ev.chord || ''))}" placeholder="—">
++            <div class="chord-display${window.StruChordMixer ? window.StruChordMixer.ghostClass(sec, sq, ei) : ''}" aria-hidden="true">${accompSignatureFits(sec, sq, ev, ei) ? renderChordDisplayHtml(window.StruChordMixer ? window.StruChordMixer.displayChord(sec, sq, ev, ei) : ev.chord) : accompNotesPlateHtml()}</div>
+           </div>
+           ${/* Счёт СНАРУЖИ .chord-content: у того overflow: hidden, и
+                 подпись «1» на левом крае ячейки обрезалась по вертикали
+                 (замер: вылезает на 3px, видна половина цифры).
+                 Ячейка .chord-wrapper обрезки не делает. */''}
+@@ -70271,12 +73147,12 @@
+     const soundMark = songSoundMarkForEvent(sec, sq, ei);
+     eventsHtml += `<div class="chord-wrapper" style="grid-column:span ${effectiveSpan};" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}">
+       ${soundMark ? `<span class="sound-mark" title="Переключение звучания аккомпанемента">♪ ${escapeHtml(soundMark)}</span>` : ''}
+       <div class="event-strum-preview" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}"></div>
+       <div class="chord-content">
+-        <input class="chord-input" readonly data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" value="${escapeHtml(ev.chord || '')}" placeholder="—">
+-        <div class="chord-display" aria-hidden="true">${accompSignatureFits(sec, sq, ev, ei) ? renderChordDisplayHtml(ev.chord) : accompNotesPlateHtml()}</div>
++        <input class="chord-input" readonly data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" value="${escapeHtml(window.StruChordMixer ? window.StruChordMixer.displayChord(sec, sq, ev, ei) : (ev.chord || ''))}" placeholder="—">
++        <div class="chord-display${window.StruChordMixer ? window.StruChordMixer.ghostClass(sec, sq, ei) : ''}" aria-hidden="true">${accompSignatureFits(sec, sq, ev, ei) ? renderChordDisplayHtml(window.StruChordMixer ? window.StruChordMixer.displayChord(sec, sq, ev, ei) : ev.chord) : accompNotesPlateHtml()}</div>
+       </div>
+       <div class="chord-ticks" aria-hidden="true" style="${buildInnerTicks(beats, epochOwnOffset, '--color-tick-line', 1, effectiveSpan, { ownOffset: epochOwnOffset, unitScale: epochUnitScale })}"></div>
+       <div class="chord-ticks-step" aria-hidden="true" style="${buildInnerTicks(beats, epochOwnOffset, '--color-tick-substep', subdiv, effectiveSpan, { ownOffset: epochOwnOffset, unitScale: epochUnitScale })}"></div>
+       <div class="chord-counts" aria-hidden="true">${buildInnerCounts(beats, epochOwnOffset, subdiv, effectiveSpan, epochBeatsPerBar, { ownOffset: epochOwnOffset, unitScale: epochUnitScale })}</div>
+       ${(ei < sq.events.length - 1) ? '<div class="resize-handle"></div>' : ''}
+@@ -73412,10 +76288,13 @@
+         for (const sq of sec.squares || []) ensureSquareRhythmRefs(sec, sq);
+       }
+     }
+     return {
+       schemaVersion: SONG_SCHEMA_VERSION,
++      // B-39 STAGE1: пока состояние дефолтное (одна гитара), spread пустой —
++      // файл старой песни сохраняется байт-в-байт как раньше.
++      ...(window.StruChordTracks ? window.StruChordTracks.exportForSave() : {}),
+       metadata: currentSongMetadata(),
+       ...(currentSongSeal ? { documentSeal: currentSongSeal } : {}),
+       bpm: parseInt(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM,
+       globalKey,
+       keyMode,
+@@ -75561,11 +78440,16 @@
+       // Лимит нужен для единообразия с остальными текстовыми полями:
+       // сейчас дата идёт только через new Date(), но если её когда-нибудь
+       // выведут сырым текстом, строка на мегабайт не должна пролезть.
+       date: asSafeText(rawSong.date, SONG_LIMITS.MAX_DATE),
+     };
+-    return normalizeReadableSongChordNames(sanitizedSong);
++    const b39ReadySong = normalizeReadableSongChordNames(sanitizedSong);
++    // B-39 STAGE1: дорожки — необязательные поля файла песни. Старый файл
++    // без tracks получает одну гитарную дорожку, но в сейв она не пишется.
++    return window.StruChordTracks
++      ? window.StruChordTracks.attach(b39ReadySong, rawSong)
++      : b39ReadySong;
+   }
+ 
+   // ---------- B-87: ЯВНАЯ МИГРАЦИЯ СТАРОГО name ----------
+   function requestLegacyMetadata(song, proceed) {
+     const suggested = splitLegacySongName(song && song.name);
+@@ -75700,10 +78584,13 @@
+           }
+           return ev;
+         }),
+       })),
+     }));
++    // B-39 STAGE1: состояние дорожек загружаем ПОСЛЕ того, как sections
++    // уже пересобраны — иначе repairMain() правил бы ячейки прошлой песни.
++    if (window.StruChordTracks) window.StruChordTracks.load(song);
+     // B-12.1 «Партии»: независимые табулатурные слои. Ноты копируем
+     // поштучно — загруженная песня и запись библиотеки не должны делить
+     // одни и те же объекты нот.
+     songParts = (Array.isArray(song.parts) ? song.parts : []).map((part) => ({
+       ...part,
+@@ -75957,10 +78844,326 @@
+   let gpExportLastBytes = null;
+   let gpExportLastGp5Bytes = null;
+   const GP5_MAX_TRACKS = 64;
+   const GP5_MAX_STRINGS = 7;
+ 
++// >>> B-39 STAGE6 BEGIN (TRACK EXPORT) <<<
++// ==========================================================================
++// B-39 · ЭТАП 6 (STAGE 6) — ЭКСПОРТ ВСЕХ ДОРОЖЕК
++// --------------------------------------------------------------------------
++// Что здесь:
++//  1. Одна синтетическая «партия» на каждую дорожку B-39. Ноты берутся из
++//     КАНОНИЧЕСКОЙ формулы (STAGE 0), позиции (STAGE 4) и рисунка
++//     аккомпанимента (STAGE 5) — то есть из того же самого, что звучит
++//     в приложении. Призрачные ячейки, M/S и громкость уважаются.
++//  2. GPX/GPIF: дорожка с instrument 'keys' и pitchRolls. Встроенный
++//     GPIF-писатель видит не-таб-партию и пишет НАСТОЯЩИЙ НОТНЫЙ СТАН:
++//     <Octave>/<Tone> с абсолютными высотами, GM-программа 0 (фортепиано).
++//  3. GP5: бинарный писатель заточен под струны, поэтому для него та же
++//     дорожка подаётся таб-нотами на ВИРТУАЛЬНОМ широком строе из семи
++//     октав (C2…C8). Высота каждой ноты восстанавливается ровно
++//     (строй + лад = MIDI), сдвиг октавы для баса не применяется.
++//     GM-программа 0, вид нотации 'staff'.
++//  4. MIDI: SMF format 1, свой трек на дорожку, program 0 для клавиш и
++//     25 для гитары; скорость (velocity) из громкости дорожки.
++//  5. .struchord уже пишется моделью STAGE 1: tracks, chords, voicings,
++//     patterns, keyboardSize, activeTrackId. Здесь он только проверяется.
++//
++// R12: в этом блоке НЕТ гитарных аппликатур, струн, ладов и getChordNotes.
++// Абсолютные высоты берутся из формулы; гитарный путь приложения не тронут.
++//
++// R7/R6: версия, sw.js и реестр релизов НЕ зашиты в этот блок — рабочая
++// версия неизвестна, а sw.js лежит отдельным файлом. Их поднимает
++// B-39-tests/bump_release.py после применения патча.
++// ==========================================================================
++(function (HOST) {
++  'use strict';
++
++  // Семь октав: минимум 36 (C2) — писатель GP5 не включает басовый сдвиг
++  // нотной позиции (tuningOctaveShift срабатывает только ниже 35).
++  var WIDE_MIDI = [36, 48, 60, 72, 84, 96, 108];
++  var WIDE_NAMES = ['C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
++  var GM_PROGRAM = { keys: 0, guitar: 25 };
++  var MAX_NOTES = 20000;
++
++  var stats = { parts: 0, notes: 0, skippedGhost: 0, skippedRecorded: 0,
++    skippedMuted: 0, octaveShifts: 0, outOfRange: 0, snapped: 0,
++    swingWrittenAsStraight: 0 };
++
++  function tracks() { return HOST.StruChordTracks || null; }
++  function keys() { return HOST.StruChordKeys || null; }
++  function accomp() { return HOST.StruChordAccomp || null; }
++  function formula() { return HOST.StruChordFormula || null; }
++  function mod12(n) { return ((n % 12) + 12) % 12; }
++  function asc(a, b) { return a - b; }
++  function round4(n) { return Math.round(Number(n) * 10000) / 10000; }
++  // GP5/GPIF кодируют только нотные длительности: округляем до 1/4 доли
++  // (шестнадцатая), иначе триоли и кач превратились бы в потерю ноты.
++  function snap4(n) { return Math.round(Number(n) * 4) / 4; }
++  function clamp(n, lo, hi) { return Math.max(lo, Math.min(hi, Number(n) || 0)); }
++
++  /** Активен ли вообще слой дорожек: старая песня экспортируется как раньше. */
++  function hasTracks() {
++    var T = tracks();
++    if (!T || typeof T.state !== 'function') return false;
++    var st = null;
++    try { st = T.state(); } catch (e) { return false; }
++    if (!st || !Array.isArray(st.tracks) || !st.tracks.length) return false;
++    if (typeof T.isDefault === 'function') {
++      try { if (T.isDefault()) return false; } catch (e) {}
++    }
++    return true;
++  }
++  function mainIsKeys() {
++    var T = tracks();
++    if (!T || typeof T.mainTrack !== 'function') return false;
++    try { var m = T.mainTrack(); return !!(m && m.instrument === 'keys'); } catch (e) { return false; }
++  }
++
++  // ---------- Позиция ячейки внутри секции (в долях сетки) ----------
++  function squareBeats(sq, ts) {
++    if (typeof getSquareBeats === 'function') {
++      try { var n = getSquareBeats(sq, ts); if (Number.isFinite(n)) return n; } catch (e) {}
++    }
++    var sum = 0;
++    ((sq && sq.events) || []).forEach(function (ev) { sum += Number(ev && ev.span) || 1; });
++    return sum * Math.max(1, Number(sq && sq.repeat) || 1);
++  }
++  function windowUnits(sec, sq, ei, ts) {
++    if (typeof partEventWindowUnits === 'function') {
++      try {
++        var w = partEventWindowUnits(sec, sq, ei);
++        if (w && Number.isFinite(w.start) && Number.isFinite(w.span)) {
++          return { start: w.start, span: w.span };
++        }
++      } catch (e) {}
++    }
++    var list = (sec && sec.squares) || [], start = 0;
++    for (var s = 0; s < list.length; s++) {
++      if (list[s] === sq) break;
++      start += squareBeats(list[s], ts);
++    }
++    var evs = (sq && sq.events) || [];
++    for (var i = 0; i < ei && i < evs.length; i++) start += Number(evs[i] && evs[i].span) || 1;
++    var span = Number(evs[ei] && evs[ei].span) || 1;
++    return { start: start, span: span };
++  }
++
++  // ---------- Абсолютные высоты аккорда ----------
++  /**
++   * Клавишная дорожка — та же позиция, что звучит (вариант из панели).
++   * Остальные дорожки — честная формула в среднем регистре + отдельный бас.
++   * Никаких гитарных струн и пропусков нот (R12).
++   */
++  function voicingFor(track, chord, key) {
++    var K = keys(), T = tracks(), F = formula();
++    if (track.instrument === 'keys' && K && T &&
++        typeof K.generateKeysVoicings === 'function' && typeof T.keyRange === 'function') {
++      try {
++        var list = K.generateKeysVoicings(chord, key, T.keyRange(track.id), null, {});
++        if (list && list.length) {
++          var idx = 0;
++          try { idx = Number(K.variantIndex(track.id, chord, null)) || 0; } catch (e) {}
++          return list[((idx % list.length) + list.length) % list.length].slice();
++        }
++      } catch (e) {}
++    }
++    if (!F || typeof F.chordFormula !== 'function') return [];
++    var f = null;
++    try { f = F.chordFormula(chord, key); } catch (e) { return []; }
++    if (!f || !f.tones || !f.tones.length) return [];
++    var out = [], lo = 48, hi = 72;
++    f.pitchClasses.forEach(function (pc) {
++      var m = lo + mod12(pc - mod12(lo));
++      if (m <= hi && out.indexOf(m) < 0) out.push(m);
++    });
++    var bassPc = f.bass ? f.bass.pitchClass : f.rootPc;
++    out.unshift(36 + mod12(bassPc - mod12(36)));
++    return out.sort(asc).slice(0, 9);
++  }
++
++  /** Шаги рисунка. dur = span => at/dur уже в долях сетки, не в секундах. */
++  function stepsFor(track, cell, sec, sq, ev, ei, chord, key, range, notes, span, ts) {
++    var A = accomp();
++    if (A && typeof A.plan === 'function') {
++      try {
++        var steps = A.plan({
++          trackId: track.id, cell: cell, sec: sec, sq: sq, ev: ev, ei: ei,
++          ts: ts, dur: span, span: span, chord: chord, key: key,
++          range: range, notes: notes,
++          // Исполнительский свинг в файл не кодируется: GP/MIDI получают
++          // письменный ритм (как gpExportPrepareSong в самом приложении).
++          noSwing: true
++        });
++        if (steps && steps.length) return steps;
++      } catch (e) {}
++    }
++    return [{ at: 0, dur: span, notes: notes }];
++  }
++
++  // ---------- Виртуальный строй GP5 ----------
++  /**
++   * Возвращает 0-based номер струны (от низкой) и лад, такие что
++   * WIDE_MIDI[string] + fret = звучащая MIDI-высота.
++   * Ноты ниже C2 поднимаем на октаву и честно считаем это потерей.
++   */
++  function gp5Position(pitch) {
++    var p = Math.round(Number(pitch));
++    if (!Number.isFinite(p) || p < 0 || p > 127) { stats.outOfRange++; return null; }
++    var shifts = 0;
++    while (p < WIDE_MIDI[0] && shifts < 4) { p += 12; shifts++; }
++    while (p > WIDE_MIDI[WIDE_MIDI.length - 1] + 24 && shifts < 4) { p -= 12; shifts++; }
++    stats.octaveShifts += shifts;
++    for (var i = 0; i < WIDE_MIDI.length; i++) {
++      var fret = p - WIDE_MIDI[i];
++      if (fret >= 0 && fret <= 24) return { string: i, fret: fret, pitch: p, shifts: shifts };
++    }
++    stats.outOfRange++;
++    return null;
++  }
++
++  function velocityOf(track) {
++    return Math.max(1, Math.min(127, Math.round(90 * clamp(track.volume, 0, 100) / 100)));
++  }
++
++  // ---------- Сборка синтетических партий ----------
++  function buildParts(songData, opts) {
++    if (!hasTracks()) return [];
++    var T = tracks(), gp5 = !!(opts && opts.gp5);
++    var grid = !!(opts && (opts.grid || opts.gp5));
++    var st;
++    try { st = T.state(); } catch (e) { return []; }
++    var anySolo = st.tracks.some(function (t) { return t.solo === true; });
++    var secs = (songData && Array.isArray(songData.sections)) ? songData.sections : [];
++    var globalKey = (songData && songData.globalKey) || 'C';
++    var globalTs = (songData && songData.globalTimeSig) || '4/4';
++    var out = [];
++    stats.notes = 0; stats.octaveShifts = 0; stats.skippedGhost = 0;
++    stats.skippedRecorded = 0; stats.skippedMuted = 0; stats.outOfRange = 0;
++
++    st.tracks.forEach(function (track) {
++      if (track.mute === true || (anySolo && track.solo !== true)) { stats.skippedMuted++; return; }
++      var isKeys = track.instrument === 'keys';
++      var range;
++      if (isKeys && typeof T.keyRange === 'function') {
++        try { range = T.keyRange(track.id); } catch (e) { range = { low: 36, high: 84, size: 61 }; }
++      } else range = { low: 36, high: 84, size: 61 };
++
++      var pitchRolls = {}, rolls = {};
++      secs.forEach(function (sec) {
++        if (!sec || !Array.isArray(sec.squares)) return;
++        var ts = sec.timeSig || globalTs;
++        var secKey = sec.key || globalKey;
++        var list = [], tabList = [];
++        sec.squares.forEach(function (sq) {
++          var evs = (sq && sq.events) || [];
++          for (var ei = 0; ei < evs.length; ei++) {
++            var ev = evs[ei] || {};
++            // Записанные вручную ноты ячейки («Виды», шаг 2) живут в своём
++            // домене: не подменяем их аккордом и не дублируем.
++            if (Array.isArray(ev.notes) && ev.notes.length) { stats.skippedRecorded++; continue; }
++            var cell = String(sec.id) + ':' + String(sq.id) + ':' + String(ei);
++            var chord = null;
++            try { chord = T.trackChord(track.id, cell, ev); } catch (e) {}
++            if (!chord) { stats.skippedGhost++; continue; }
++            var win = windowUnits(sec, sq, ei, ts);
++            var span = Math.max(0.25, Number(win.span) || Number(ev.span) || 1);
++            var notes = voicingFor(track, chord, secKey);
++            if (!notes.length) continue;
++            var steps = stepsFor(track, cell, sec, sq, ev, ei, chord, secKey, range, notes, span, ts);
++            steps.forEach(function (step) {
++              var at = win.start + (Number(step.at) || 0);
++              var dur = Math.max(0.05, Number(step.dur) || span);
++              if (grid) {
++                var sa = snap4(at), sd = Math.max(0.25, snap4(dur));
++                if (sa !== at || sd !== dur) stats.snapped++;
++                at = sa; dur = sd;
++              }
++              (step.notes || []).forEach(function (midi) {
++                if (stats.notes >= MAX_NOTES) return;
++                var p = Math.round(Number(midi));
++                if (!Number.isFinite(p) || p < 0 || p > 127) { stats.outOfRange++; return; }
++                var n = { start: round4(at), dur: round4(dur), pitch: p, velocity: velocityOf(track) };
++                list.push(n); stats.notes++;
++                if (gp5) {
++                  var pos = gp5Position(p);
++                  if (pos) tabList.push({ start: n.start, dur: n.dur,
++                    string: pos.string, fret: pos.fret, velocity: n.velocity, voice: 1 });
++                }
++              });
++            });
++          }
++        });
++        if (list.length) pitchRolls[String(sec.id)] = list;
++        if (gp5 && tabList.length) rolls[String(sec.id)] = tabList;
++      });
++
++      var base = {
++        id: 'b39-' + track.id,
++        name: String(track.name || ('Дорожка ' + track.id)),
++        viewMode: 'staff',
++        capo: 0,
++        gmProgram: isKeys ? GM_PROGRAM.keys : GM_PROGRAM.guitar,
++        mix: { volume: clamp(track.volume, 0, 100), pan: 0 },
++        b39TrackId: track.id,
++        b39Instrument: track.instrument
++      };
++      if (gp5) {
++        // GP5-писатель умеет только струны: даём ему виртуальный строй
++        // из семи октав и явно рассчитанные струна/лад.
++        out.push(Object.assign({}, base, {
++          instrument: 'guitar', strings: WIDE_NAMES.slice(),
++          rolls: rolls, pitchRolls: {}
++        }));
++      } else {
++        out.push(Object.assign({}, base, {
++          instrument: isKeys ? 'keys' : 'other',
++          pitchRolls: pitchRolls, rolls: {}
++        }));
++      }
++    });
++    stats.parts = out.length;
++    return out;
++  }
++
++  /** Не мутирует songData: всегда возвращает поверхностную копию. */
++  function withTracks(songData, opts) {
++    if (!songData || !hasTracks()) return songData;
++    var parts = buildParts(songData, opts);
++    if (!parts.length) return songData;
++    var report = opts && opts.report;
++    if (report) {
++      try {
++        if (typeof gpExportGain === 'function') gpExportGain(report, 'Дорожки B-39 вынесены отдельно', parts.length);
++        if (opts.gp5 && stats.octaveShifts && typeof gpExportLoss === 'function') {
++          gpExportLoss(report, 'GP5: ноты ниже C2 подняты на октаву (виртуальный строй)', stats.octaveShifts);
++        }
++        if (stats.outOfRange && typeof gpExportLoss === 'function') {
++          gpExportLoss(report, 'Высота вне MIDI-диапазона не экспортирована', stats.outOfRange);
++        }
++        if (stats.snapped && typeof gpExportLoss === 'function') {
++          gpExportLoss(report, 'Исполнительский свинг и триоли записаны письменным ритмом (до 1/4 доли)', stats.snapped);
++        }
++      } catch (e) {}
++    }
++    // Свои дорожки ставим ПЕРВЫМИ: у GP/MIDI есть лимит дорожек, и чужие
++    // данные не должны вытеснить новые.
++    return Object.assign({}, songData, { parts: parts.concat(songData.parts || []) });
++  }
++
++  var api = Object.freeze({
++    hasTracks: hasTracks, mainIsKeys: mainIsKeys,
++    buildParts: buildParts, withTracks: withTracks,
++    voicingFor: voicingFor, stepsFor: stepsFor,
++    windowUnits: windowUnits, gp5Position: gp5Position,
++    WIDE_MIDI: WIDE_MIDI.slice(), WIDE_NAMES: WIDE_NAMES.slice(),
++    GM_PROGRAM: Object.assign({}, GM_PROGRAM),
++    stats: function () { return Object.assign({}, stats); }
++  });
++  HOST.StruChordExport = api;
++})(typeof window !== 'undefined' ? window : globalThis);
++// <<< B-39 STAGE6 END (TRACK EXPORT) <<<
+   function gpExportEnsureWriter() {
+     if (window.StruchordGpifWriter && typeof window.StruchordGpifWriter.writeGPIF === 'function') {
+       return window.StruchordGpifWriter;
+     }
+     const source = document.getElementById('gpifWriterRuntime');
+@@ -76073,11 +79276,12 @@
+     for (const sec of sections) {
+       const notes = accompSectionRoll(sec);
+       if (notes.length) rolls[sec.id] = notes;
+     }
+     let parts = (songData.parts || []).slice();
+-    if (Object.keys(rolls).length) {
++    // B-39 STAGE6: главная дорожка уже экспортирована отдельной партией.
++    if (Object.keys(rolls).length && !(window.StruChordExport && window.StruChordExport.hasTracks())) {
+       parts.push({ name: 'Песня (аккорды)', instrument: 'guitar', viewMode: 'tab',
+         strings: gpExportSongTuning(songData), capo: songData.capo || 0,
+         gmProgram: gpExportSongProgram(songData.sound), mix: songData.mix || null, rolls });
+       gpExportGain(report, 'Аккомпанемент из аккордов/записанных нот без дублирования TAB', Object.values(rolls).reduce((sum,n) => sum + n.length, 0));
+     }
+@@ -76738,10 +79942,12 @@
+       stats: null,
+       fileName: '',
+       bytes: 0,
+       container: '',
+     };
++    // B-39 STAGE6: все дорожки B-39 выносятся отдельными партиями.
++    if (window.StruChordExport) songData = window.StruChordExport.withTracks(songData, { grid: true, report: report });
+     const writer = gpExportEnsureWriter();
+     const model = gpExportSplitModel(gpExportBuildModel(gpExportPrepareSong(songData, report), report));
+     if (!model.bars.length) throw new Error('В песне нет тактов — экспортировать нечего.');
+     if (!model.parts.length) throw new Error('В песне пока нет аккордов или нот — сначала добавьте хотя бы один аккорд или таб.');
+     const result = gpExportContainerFiles(model, writer, report);
+@@ -76762,10 +79968,12 @@
+       stats: null,
+       fileName: '',
+       bytes: 0,
+       version: '5.10',
+     };
++    // B-39 STAGE6: для GP5 — свои струна/лад на широком строе, GM 0.
++    if (window.StruChordExport) songData = window.StruChordExport.withTracks(songData, { gp5: true, grid: true, report: report });
+     const writer = gpExportEnsureGp5Writer();
+     const model = gpExportSplitModel(gpExportBuildModelGP5(gpExportPrepareSong(songData, report), report), true);
+     if (!model.bars.length) throw new Error('В песне нет тактов — экспортировать нечего.');
+     if (!model.parts.length) throw new Error('В песне пока нет аккордов или нот — сначала добавьте хотя бы один аккорд или таб.');
+     const written = writer.writeGP5(model, {});
+@@ -76826,11 +80034,12 @@
+     const audible = mix => !masterMute && !(mix && mix.mute);
+     const makeTrack = (name, instrument, mix, program, tuning, capo, source) => {
+       const track = { name, instrument, mix: mix || {}, program, tuning, capo: Number(capo) || 0, source, notes: [], programs: [] };
+       tracks.push(track); return track;
+     };
+-    const songTrack = !solo && audible(songData.mix)
++    // B-39 STAGE6: канал «Песня» не дублирует главную дорожку B-39.
++    const songTrack = !solo && audible(songData.mix) && !(window.StruChordExport && window.StruChordExport.hasTracks())
+       ? makeTrack('Песня', 'guitar', songData.mix, gpExportSongProgram(songData.sound), gpExportSongTuning(songData), songData.capo) : null;
+     const partTracks = sourceParts.filter(p => audible(p.mix) && (!solo || p.mix && p.mix.solo)).map(p => {
+       const inst = partInstrumentId(p);
+       return makeTrack(p.name || 'Дорожка', inst, p.mix,
+         Number.isInteger(p.gmProgram) ? p.gmProgram : inst === 'bass' ? 32 : inst === 'guitar' ? gpExportSongProgram(p.sound) : 0,
+@@ -76978,11 +80187,14 @@
+     for (const c of chunks) { bytes.set(c, offset); offset += c.length; }
+     return { bytes, stats: { tracks: model.tracks.length, conductorTracks: 1, notes: noteCount, ticks: model.end, ppq: model.ppq } };
+   }
+ 
+   function midiExportRun() {
+-    const data = serializeCurrentSong({ includeGpAssetData: false });
++    // B-39 STAGE6: MIDI получает все дорожки абсолютными высотами.
++    const data = window.StruChordExport
++      ? window.StruChordExport.withTracks(serializeCurrentSong({ includeGpAssetData: false }))
++      : serializeCurrentSong({ includeGpAssetData: false });
+     const report = { format: 'MIDI (.mid), SMF format 1', transferred: [], losses: [], fileName: gpExportFileBase(data) + '.mid' };
+     const model = midiExportBuild(data, report), result = midiExportWrite(model, report);
+     report.stats = result.stats; report.bytes = result.bytes.length;
+     gpExportGain(report, 'Звучащие ноты', result.stats.notes);
+     gpExportGain(report, 'Темп, размер и секции в conductor track', model.conductor.length);
