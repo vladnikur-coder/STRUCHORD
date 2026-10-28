@@ -15484,7 +15484,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.705</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.706</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -44342,34 +44342,47 @@ function scheduleNextEvent(ctx) {
     // B-12.5.3: какое звучание аккомпанемента звучит на этой позиции —
     // точки автоматизации тембра перекрывают исходное звучание канала.
     songSoundNow = songSoundAtEvent(next.section, next.square, next.eventIndex);
-    if (Array.isArray(next.event.notes) && next.event.notes.length) {
-      // «Виды», шаг 2: ячейка с записанными нотами звучит ими (канал
-      // «Песня»), бой этой ячейки планировщик пропускает целиком.
-      scheduleAccompNotes(next.event.notes, evStart, bpm, ts, next.event.chord, effectiveKey);
-    } else if (strumPattern) {
-      timelinePassHint = tlPass;
-      schedulePatternForEvent(
-        next.event.chord,
-        evStart,
-        dur,
-        posCtx,
-        strumPattern,
-        bpm,
-        ts,
-        next.square,
-        next.eventIndex,
-        next.event.span || 1,
-        !!ownEventPattern,
-        next.section
-      );
-    } else {
-      playChordScheduled(next.event.chord, evStart, dur, posCtx);
-    }
+    // Главная дорожка хранит аккорд в ev.chord; клавиши уже запланированы выше.
+    const trackState = window.StruChordTracks ? window.StruChordTracks.state() : null;
+    const mainTrack = trackState && trackState.tracks.find(t => t.id === trackState.mainTrackId);
+    const mainGain = !trackState ? 1 : (mainTrack && mainTrack.instrument === 'guitar' ? b39TrackGain(trackState, mainTrack) : 0);
+    if (mainGain > 0) b39WithGuitarGain(mainGain, () => {
+      if (Array.isArray(next.event.notes) && next.event.notes.length) {
+        scheduleAccompNotes(next.event.notes, evStart, bpm, ts, next.event.chord, effectiveKey);
+      } else if (strumPattern) {
+        timelinePassHint = tlPass;
+        schedulePatternForEvent(next.event.chord, evStart, dur, posCtx, strumPattern, bpm, ts,
+          next.square, next.eventIndex, next.event.span || 1, !!ownEventPattern, next.section);
+      } else {
+        playChordScheduled(next.event.chord, evStart, dur, posCtx);
+      }
+    });
     globalKey = oldKey;
   } else {
     // Пауза (в ячейке нет аккорда) — возвращаем секцию/ячейку к
     // обычному статичному виду.
     clearAllLiveStrumIndicators();
+  }
+
+  // Другие гитары могут иметь собственный аккорд даже при пустой главной.
+  if (window.StruChordTracks) {
+    const T = window.StruChordTracks, state = T.state();
+    const cell = T.cellKey(next.section, next.square, next.eventIndex);
+    const key = next.section.key || globalKey;
+    const pos = { secId: next.section.id, squareId: next.square.id, eventIndex: next.eventIndex, key };
+    const roll = songRhythmRolls ? rhythmRollWindowFor(next.section.id, next.square, next.eventIndex, songRhythmRolls) : null;
+    const own = roll || next.event.strumPattern || null;
+    const pattern = own || getEffectiveStrumPattern(null, next.square, next.section);
+    state.tracks.forEach(track => {
+      if (track.id === state.mainTrackId || track.instrument !== 'guitar') return;
+      const chord = T.trackChord(track.id, cell, next.event), gain = b39TrackGain(state, track);
+      if (!chord || gain <= 0) return;
+      b39WithGuitarGain(gain, () => {
+        if (pattern) schedulePatternForEvent(chord, evStart, dur, pos, pattern, bpm, ts,
+          next.square, next.eventIndex, next.event.span || 1, !!own, next.section);
+        else playChordScheduled(chord, evStart, dur, pos);
+      });
+    });
   }
 
   // B-12.1: партии звучат вместе с песней тем же гитарным тембром. Ноты
@@ -47093,6 +47106,17 @@ function partRateCurve(startTime, stopAt, decayEnd, opts) {
 // огибающая громкости (щипок + экспоненциальное затухание) -> панорама
 // (низкие струны чуть левее, высокие чуть правее, как на реальном
 // грифе) -> сухая шина + шина деки (конволюция).
+// Синхронный масштаб одного планируемого гитарного голоса дорожки.
+let b39GuitarGain = 1;
+function b39TrackGain(state, track) {
+  if (!track || track.mute || (state.tracks.some(t => t.solo) && !track.solo)) return 0;
+  return Math.max(0, Math.min(100, Number.isFinite(Number(track.volume)) ? Number(track.volume) : 100)) / 100;
+}
+function b39WithGuitarGain(gain, work) {
+  const previous = b39GuitarGain;
+  b39GuitarGain = gain;
+  try { return work(); } finally { b39GuitarGain = previous; }
+}
 function pluckString(ctx, opts) {
   const { freq, startTime, pan } = opts;
   if (!freq) return;
@@ -47103,7 +47127,7 @@ function pluckString(ctx, opts) {
   // («приближаем своим тембром», RSE не делаем).
   const soundInstrument = opts.instrument === 'bass' ? 'bass' : 'guitar';
   const preset = soundPresetById(opts.sound || songSoundNow, soundInstrument);
-  const gain = (Number(opts.gain) || 0) * preset.gain;
+  const gain = (Number(opts.gain) || 0) * preset.gain * b39GuitarGain;
   const duration = Math.min(6, (Number(opts.duration) || 0) * preset.ring);
   const brightness = Math.max(0.05, Math.min(1, (Number(opts.brightness) || 0) + preset.bright));
 
@@ -47341,7 +47365,6 @@ function shapeToPluckNotes(shape) {
 function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
   // B-39 STAGE2: M/S дорожек реально влияют на звук. Пока звучит один
   // голос (главная дорожка); отдельные голоса появятся в части 4.
-  if (window.StruChordMixer && !window.StruChordMixer.mainAudible()) return;
   ensureGuitarBus(ctx);
   let notes;
   if (shape) {
@@ -47679,7 +47702,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
   }
 
   /** Мгновенное прослушивание (двойной клик / круг). */
-  function preview(chordName, ctx, now, wrapper) {
+  function preview(chordName, ctx, now, wrapper, key) {
     var T = tracks();
     if (!T || !ctx || !chordName) return;
     ensureCtx(ctx);
@@ -47688,14 +47711,17 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
     var ds = wrapper && wrapper.dataset ? wrapper.dataset : null;
     var cell = ds ? (ds.sec + ':' + ds.square + ':' + ds.ei) : null;
     state.tracks.forEach(function (track) {
-      if (track.instrument !== 'keys') return;
-      var chord = (cell && T.trackChord(track.id, cell)) || chordName;
+      if (track.instrument !== 'keys' || track.id !== state.activeTrackId) return;
+      var chord = chordName;
       if (!chord) return;
       var gain = effectiveGain(state, track);
       if (gain <= 0) return;
       var channel = channelFor(ctx, track.id, gain);
       if (!channel) return;
-      var notes = voicingFor(chord, currentKey(), T.keyRange(track.id), null);
+      var range = T.keyRange(track.id), effectiveKey = key || currentKey();
+      var notes = voicingProvider
+        ? (voicingProvider(chord, effectiveKey, range, null, track.id) || voicingFor(chord, effectiveKey, range, null))
+        : voicingFor(chord, effectiveKey, range, null);
       var level = HEADROOM / Math.sqrt(Math.max(1, notes.length));
       notes.forEach(function (midi) { playNote(ctx, channel, midi, now, 0.55, level); });
     });
@@ -47739,7 +47765,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
   HOST.StruChordAudio = api;
 })(typeof window !== 'undefined' ? window : globalThis);
 // <<< B-39 STAGE3 END (KEYS AUDIO) <<<
-function playChord(c, wrapper) {
+function playChord(c, wrapper, pendingPreview) {
   if (!c?.trim()) return;
   const ctx = getAudioContext();
   if (!ctx) {
@@ -47752,6 +47778,15 @@ function playChord(c, wrapper) {
     const now = ctx.currentTime;
     let key = getEffectiveKeyForCurrentPosition();
     let shape = null;
+    const T = window.StruChordTracks;
+    const state = T ? T.state() : null;
+    const active = state && state.tracks.find(t => t.id === state.activeTrackId);
+    if (active && wrapper && !pendingPreview) {
+      const cell = wrapper.dataset.sec + ':' + wrapper.dataset.square + ':' + wrapper.dataset.ei;
+      c = T.trackChord(active.id, cell);
+      if (!c) return; // призрачный аккорд не звучит
+    }
+    if (active && b39TrackGain(state, active) <= 0) return;
     if (wrapper) {
       const secId = +wrapper.dataset.sec;
       const squareId = +wrapper.dataset.square;
@@ -47763,10 +47798,13 @@ function playChord(c, wrapper) {
         shape = resolveFingeringShape(c, key, posKey);
       }
     }
-    if (!shape) shape = resolveFingeringShape(c, key, null);
-    // B-39 STAGE3: к гитарному превью добавляем клавишные голоса.
-    if (window.StruChordAudio) window.StruChordAudio.preview(c, ctx, now, wrapper);
-    strumChord(ctx, shape, c, key, now, STRUM_RING_SECONDS, 0.42);
+    if (active && active.instrument === 'keys') {
+      if (window.StruChordAudio) window.StruChordAudio.preview(c, ctx, now, wrapper, key);
+    } else {
+      if (!shape) shape = resolveFingeringShape(c, key, null);
+      b39WithGuitarGain(active ? b39TrackGain(state, active) : 1,
+        () => strumChord(ctx, shape, c, key, now, STRUM_RING_SECONDS, 0.42));
+    }
   } catch (e) {
     console.warn(e);
   }
@@ -47825,23 +47863,10 @@ function playChordScheduled(c, st, dur, posCtx) {
 // трёх способов: колесо, ручной ввод, своя аппликатура) — использует ту же
 // логику подбора аппликатуры под позицию, что и обычное воспроизведение.
 function previewChordNow(chordName, wrapper) {
-  if (!chordName) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  resumeAudioContext(); // покрывает и 'suspended', и Safari-'interrupted'
-  const secId = wrapper ? +wrapper.dataset.sec : null;
-  const sec = secId != null ? sections.find((s) => s.id === secId) : null;
-  const key = sec && sec.key ? sec.key : activeSectionKey || globalKey;
-  const posCtx = { key };
-  if (wrapper) {
-    posCtx.secId = +wrapper.dataset.sec;
-    posCtx.squareId = +wrapper.dataset.square;
-    posCtx.eventIndex = +wrapper.dataset.ei;
-  }
-  try {
-    playChordScheduled(chordName, ctx.currentTime + 0.02, STRUM_RING_SECONDS, posCtx);
-  } catch (e) {}
+  // При вводе аккорд может ещё не лежать в модели; слушаем переданное имя.
+  playChord(chordName, wrapper, true);
 }
+
 function initMetronomeGain() {
   const ctx = getAudioContext();
   if (!ctx) return;
@@ -49415,6 +49440,8 @@ function strumChordDirectional(ctx, shape, chordName, key, startTime, duration, 
 // струны во время удара), а не приглушённая нота. Короткий отфильтрованный
 // шумовой всплеск звучит гораздо ближе к реальному звуку, чем питчед-щипок.
 function playMuteChunk(ctx, startTime, gain) {
+  gain *= b39GuitarGain;
+  if (gain <= 0) return;
   ensureGuitarBus(ctx);
   const duration = 0.09;
   const length = Math.max(1, Math.floor(ctx.sampleRate * duration));
