@@ -1,0 +1,51 @@
+/* B-39: единый редактор клавишного аккомпанемента и наследование. */
+const assert = require('assert');
+const puppeteer = require('puppeteer');
+(async()=>{
+ const browser=await puppeteer.launch({executablePath:process.env.PUPPETEER_EXECUTABLE_PATH||'/tmp/chromium',args:['--no-sandbox']});
+ try {
+  const page=await browser.newPage(), errors=[]; page.on('pageerror',e=>errors.push(e.message));
+  await page.setViewport({width:390,height:844});
+  await page.goto(process.env.STRUCHORD_URL||'http://127.0.0.1:8000/STRUCHORD.html',{waitUntil:'load'});
+  await page.evaluate(()=>localStorage.setItem('struchord-default-instrument','keys')); await page.reload({waitUntil:'load'});
+  await page.evaluate(()=>{startNewSongFromHome();addSection('A');sections[0].squares[0].events[0].chord='C';requestRender();});
+  await page.waitForSelector('.chord-btn-strum'); await new Promise(r=>setTimeout(r,150));
+  assert.equal(await page.$('#b39AccBtn'),null,'нет отдельной кнопки транспорта');
+  assert(await page.$eval('.chord-btn-strum',e=>getComputedStyle(e).display!=='none' && e.textContent.includes('аккомп')),'замена кнопки ячейки');
+  assert(await page.$('.b39-section-accomp'), 'кнопка секции доступна');
+  await page.click('.b39-section-accomp');
+  assert(await page.$eval('#b39AccPanel', e=>!e.hidden), 'кнопка секции открывает редактор');
+  await page.select('[aria-label="Размер клавиатуры дорожки"]', '49');
+  await page.click('#b39AccCancel');
+  assert.equal(await page.evaluate(()=>StruChordTracks.track(1).keyboardSize), null, 'отмена не меняет размер дорожки');
+  const open=(scope,ei=0)=>page.evaluate((scope,ei)=>openStrumPatternEditor(scope,sections[0].id,sections[0].squares[0].id,ei),scope,ei);
+  const patterns=()=>page.evaluate(()=>StruChordTracks.state().tracks[0].patterns);
+  await open('section');
+  assert(await page.$eval('#b39AccPanel',e=>!e.hidden));
+  assert.match(await page.$eval('.b39-acc-scope',e=>e.textContent),/секции/);
+  await page.click('[data-preset="keys-arp-up"]');
+  assert.deepStrictEqual(await patterns(),{},'черновик не меняет песню');
+  const before=await page.evaluate(()=>StruChordAudio.stats().notes);
+  await page.click('#b39AccPreview');
+  assert((await page.evaluate(()=>StruChordAudio.stats().notes))>before,'прослушивание запускает клавишные ноты');
+  await page.click('#b39AccCancel'); assert.deepStrictEqual(await patterns(),{},'отмена не меняет песню');
+  await open('section'); await page.click('[data-preset="keys-waltz"]'); await page.select('[aria-label="Размер клавиатуры дорожки"]', '49'); await page.click('#b39AccSave');
+  assert.equal(await page.evaluate(()=>StruChordTracks.track(1).keyboardSize), 49, 'размер дорожки сохраняется');
+  let p=await patterns(), sectionKey=Object.keys(p)[0]; assert(sectionKey.startsWith('s:')); assert.equal(p[sectionKey].type,'keys-waltz');
+  await open('event'); assert(await page.$eval('[data-preset="keys-waltz"]',e=>e.getAttribute('aria-pressed')==='true'),'ячейка наследует секцию');
+  await page.click('[data-preset="keys-arp-up"]'); await page.click('#b39AccSteps button'); await page.click('#b39AccSave');
+  p=await patterns(); const cellKey=Object.keys(p).find(k=>!k.startsWith('s:')); assert(p[cellKey]); assert(Array.isArray(p[cellKey].steps));
+  const actual=await page.evaluate(key=>{let s=sections[0],q=s.squares[0],e=q.events[0],T=StruChordTracks,A=StruChordAccomp; return A.plan({trackId:T.state().activeTrackId,cell:key,sec:s,sq:q,ei:0,ev:e,span:e.span,dur:2,ts:'4/4',chord:'C',key:'C',range:T.keyRange(),notes:[48,60,64,67]}).map(x=>x.token);},cellKey);
+  assert.equal(actual[0],p[cellKey].steps[0],'сохранённый шаг звучит в планировщике');
+  const restored = await page.evaluate(() => { const T=StruChordTracks; const raw={sections:JSON.parse(JSON.stringify(sections)), ...T.exportForSave()}; return T.attach(raw,raw).tracks[0].patterns; });
+  assert.deepStrictEqual(restored,p,'сохранение и загрузка сохраняют пользовательские шаги');
+  await open('event'); await page.click('#b39AccReset'); await page.click('#b39AccCancel'); assert((await patterns())[cellKey], 'отмена сброса');
+  await open('event'); await page.click('#b39AccReset'); await page.click('#b39AccSave'); p=await patterns(); assert(!p[cellKey]&&p[sectionKey], 'сброс ячейки сохраняет секцию');
+  await open('section'); await page.click('#b39AccReset'); await page.click('#b39AccSave'); assert.deepStrictEqual(await patterns(),{},'сброс секции');
+  await open('section'); await page.keyboard.press('Escape'); assert(await page.$eval('#b39AccPanel',e=>e.hidden),'Esc отменяет');
+  assert(await page.evaluate(()=>document.documentElement.scrollWidth<=innerWidth),'телефон без горизонтальной прокрутки');
+  await page.evaluate(()=>{StruChordTracks.setInstrument(1,'guitar');}); await new Promise(r=>setTimeout(r,100));
+  await open('section'); assert(await page.$('.strum-modal-content--pattern:not(#b39AccPanel)'),'гитарный редактор остался');
+  assert.deepStrictEqual(errors,[]); console.log('B-39: редактор аккомпанемента — браузерные проверки пройдены');
+ } finally {await browser.close();}
+})().catch(e=>{console.error(e);process.exit(1)});

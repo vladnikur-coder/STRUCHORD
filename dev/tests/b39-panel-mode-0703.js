@@ -1,10 +1,10 @@
 #!/usr/bin/env node
-// 0.703 · B-39 «Чистота режима»: одно окно за раз и режим по активной дорожке.
+// B-39 «Чистота режима»: ожидания обновлены для редактора аккомпанемента 0.708.
 //
 // Проверяем ровно то, что владелец назвал проблемой:
 //   1) на гитарной дорожке нет кнопок «Клавиатура» и «Аккомпанемент»;
 //   2) в песне без дорожек — гитарный набор, как до волны;
-//   3) на клавишной дорожке нет гитарного боя, а «Таб» остаётся;
+//   3) на клавишной дорожке кнопка ритма открывает аккомпанемент, а «Таб» остаётся;
 //   4) окна волны не открываются друг поверх друга;
 //   5) при уходе на гитару клавишные окна закрываются сами;
 //   6) полоса воспроизведения не переполняется на 1440, 1024 и 390 px.
@@ -34,6 +34,7 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
   const page = await browser.newPage();
   page.on('pageerror', e => errors.push(String(e.message)));
   await page.setViewport({ width: 1440, height: 900 });
+  await page.evaluateOnNewDocument(() => localStorage.setItem('struchord-default-instrument', 'guitar'));
   await page.goto(URL, { waitUntil: 'load' });
   await wait(1200);
   await page.evaluate(() => startNewSongFromHome());
@@ -60,7 +61,7 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
 
   // ── 1. Песня без дорожек
   const s1 = await state();
-  check('Без дорожек: режим гитарный', [s1.mode, s1.keysBtn, s1.accBtn, s1.strum > 0], [false, false, false, true]);
+  check('Без дорожек: режим гитарный', [s1.mode, s1.keysBtn, s1.accBtn, s1.strum > 0], [false, false, null, true]);
   await page.screenshot({ path: path.join(OUT, '01-guitar-no-tracks.png') });
 
   // ── 2. Клавишная дорожка
@@ -71,8 +72,8 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
   await page.evaluate(() => { const el = Array.from(document.querySelectorAll('.b39-choice')).find(x => /клавиш|пиани/i.test(x.textContent)); if (el) el.click(); });
   await wait(800);
   const s2 = await state();
-  check('Клавишная: режим включился, кнопки видны', [s2.mode, s2.keysBtn, s2.accBtn], [true, true, true]);
-  check('Клавишная: гитарного боя нет, «Таб» остался', [s2.strum, s2.tab], [0, 1]);
+  check('Клавишная: режим включился, кнопки видны', [s2.mode, s2.keysBtn, s2.accBtn], [true, true, null]);
+  check('Клавишная: кнопки аккомпанемента и «Таб» видны', [s2.strum > 0, s2.tab], [true, 1]);
   await page.evaluate(() => { const c = document.querySelector('.b39-close'); if (c) c.click(); });
   await wait(300);
   await page.screenshot({ path: path.join(OUT, '02-keys-track.png') });
@@ -81,7 +82,7 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
   await page.evaluate(() => document.querySelector('#b39KeysBtn').click());
   await wait(500);
   const a = await state();
-  await page.evaluate(() => document.querySelector('#b39AccBtn').click());
+  await page.evaluate(() => openStrumPatternEditor('section', sections[0].id));
   await wait(500);
   const b = await state();
   await page.evaluate(() => document.querySelector('.b39-btn').click());
@@ -98,7 +99,7 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
   await wait(800);
   const d = await state();
   check('Гитара: режим снят, бой вернулся, клавишные кнопки ушли',
-        [d.mode, d.keysBtn, d.accBtn, d.strum > 0], [false, false, false, true]);
+        [d.mode, d.keysBtn, d.accBtn, d.strum > 0], [false, false, null, true]);
   await page.evaluate(() => { const el = document.querySelector('.b39-close'); if (el) el.click(); });
   await wait(300);
   await page.screenshot({ path: path.join(OUT, '04-back-to-guitar.png') });
@@ -107,6 +108,7 @@ const wait = (ms) => new Promise(r => setTimeout(r, ms));
   for (const [w, tag] of [[1440, '1440'], [1024, '1024'], [390, '390']]) {
     const p2 = await browser.newPage();
     await p2.setViewport({ width: w, height: 900 });
+    await p2.evaluateOnNewDocument(() => localStorage.setItem('struchord-default-instrument', 'guitar'));
     await p2.goto(URL, { waitUntil: 'load' });
     await wait(1100);
     await p2.evaluate(() => startNewSongFromHome());
