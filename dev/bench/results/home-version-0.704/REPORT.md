@@ -33,6 +33,7 @@
 | `dev/tools/release-check.js` | **6 / 6 ok** (версия, `file://`, 0 ошибок JS, 390/834/1440) |
 | `dev/tools/check-html-syntax.js` | 9 скриптов, 6 инертных блоков, 0 ошибок |
 | `dev/tools/check-versions.js` | 0.704 в HTML, `sw.js`, README, ROADMAP |
+| Полный корпус `bash dev/run-tests.sh` | **181 ok / 0 FAIL** — впервые по этой ветке без красных наборов |
 
 Что именно проверяет новый набор:
 
