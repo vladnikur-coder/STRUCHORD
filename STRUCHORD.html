@@ -14951,6 +14951,11 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
   display: flex;
   align-items: center;
   justify-content: space-between;
+  /* 0.704: на очень узком экране (320 px при крупном масштабе интерфейса) шапка
+     не помещается в строку — пусть кнопки переезжают на вторую строку, а не
+     вылезают за экран. На 390 px и шире перенос не включается. */
+  flex-wrap: wrap;
+  row-gap: 0.5rem;
   gap: 0.625rem;
   margin-bottom: 1.8rem;
   padding: 0 0 0.9rem;
@@ -14976,7 +14981,19 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
   font-weight: 590;
   letter-spacing: -0.01875rem;
 }
-.home-header-controls { display: inline-flex; align-items: center; gap: 0.5rem; }
+.home-header-controls { display: inline-flex; align-items: center; gap: 0.5rem; margin-left: auto; }
+/* 0.704: номер версии виден и на главной — до открытия песни. Текст подставляет
+   syncHomeVersion() из шапки редактора, поэтому номер по-прежнему живёт в одном месте. */
+.home-brand-text { display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.05; }
+.home-brand-version {
+  /* Вторичный, а не третичный: третичный на светлом даёт 3.2:1 — ниже нормы AA. */
+  color: var(--color-text-secondary);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
+  margin-top: 0.15rem;
+  white-space: nowrap;
+}
 .home-settings-btn,
 .home-theme-toggle-btn {
   display: inline-flex;
@@ -15382,7 +15399,10 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         <header class="home-header">
           <div class="home-brand" aria-label="STRUCHORD">
             <span class="home-brand-mark" aria-hidden="true"><svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg></span>
-            <span class="home-brand-name">STRUCHORD</span>
+            <span class="home-brand-text">
+              <span class="home-brand-name">STRUCHORD</span>
+              <span class="home-brand-version" id="homeVersion" aria-label="Версия приложения"></span>
+            </span>
           </div>
           <div class="home-header-controls" aria-label="Настройки приложения">
             <button class="home-settings-btn" id="homeSettingsBtn" type="button" onclick="openHomeSettings()" aria-label="Настройки приложения">
@@ -15450,7 +15470,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.703</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.704</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -78210,6 +78230,20 @@ toggleTimeAndBeats();
     return { overlay, modal, content, error, actions, close, activate };
   }
 
+  // 0.704: версия на главном экране. Номер не дублируется в разметке — берём
+  // готовый текст из шапки редактора (там он один на весь файл и его сверяет
+  // dev/tools/check-versions.js). Если шапки почему-то нет, показываем прочерк,
+  // но не выдумываем номер.
+  function syncHomeVersion() {
+    const target = document.getElementById('homeVersion');
+    if (!target) return;
+    const source = document.querySelector('.app-title span');
+    const text = source ? source.textContent.replace(/^·\s*/, '').trim() : '';
+    target.textContent = text || 'ver —';
+    if (text) target.setAttribute('title', 'Версия приложения: ' + text.replace(/^ver\s*/, ''));
+    else target.removeAttribute('title');
+  }
+
   function setHomeView(isHome, focusHome = true) {
     const home = document.getElementById('homeScreen');
     const editor = document.querySelector('.container');
@@ -79076,6 +79110,7 @@ toggleTimeAndBeats();
     const isHome = document.documentElement.classList.contains('is-home-screen');
     setHomeLandingView('hub', false);
     setHomeView(isHome, false);
+    syncHomeVersion();
     const search = document.getElementById('homeSongSearch');
     const list = document.getElementById('homeSongList');
     if (search) search.addEventListener('input', renderHomeLibrary);
