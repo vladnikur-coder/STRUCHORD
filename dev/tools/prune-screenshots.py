@@ -26,6 +26,8 @@ import sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RESULTS = 'dev/bench/results'
+# Сокращения, которыми отчёты ссылаются на группу кадров.
+RANGE = re.compile(r'\.\.\.png|\*\.png|…\*|\d[-\w]*/\d')
 
 
 def md_files():
@@ -52,6 +54,7 @@ def main():
             global_text += '\n' + text
 
     shots = sorted(glob.glob(os.path.join(RESULTS, '**', '*.png'), recursive=True))
+    risky = set()
     keep, drop = [], []
     for path in shots:
         folder = os.path.relpath(os.path.dirname(path), ROOT).replace(os.sep, '/')
@@ -60,6 +63,12 @@ def main():
         # «01-guitar-no-tracks» в таблице, не добавляя «.png».
         base = name[:-4] if name.endswith('.png') else name
         context = local_text.get(folder, '') + global_text
+        # Отчёт может ссылаться на кадры диапазоном: «A…G*.png», «05-bar-1440/1024/390».
+        # Разбирать такие сокращения ненадёжно — такую папку не трогаем вовсе.
+        if RANGE.search(local_text.get(folder, '')):
+            risky.add(folder)
+            keep.append(path)
+            continue
         if name in context or base in context:
             keep.append(path)
         else:
@@ -75,6 +84,8 @@ def main():
         by_folder.setdefault(os.path.dirname(path), []).append(os.path.basename(path))
     for folder in sorted(by_folder):
         print('  %-46s %2d шт' % (os.path.relpath(folder, ROOT), len(by_folder[folder])))
+    for folder in sorted(risky):
+        print('  пропущено (в отчёте диапазон кадров): %s' % os.path.relpath(folder, ROOT))
 
     if not apply:
         print('\nэто только показ. Чтобы удалить: --apply')

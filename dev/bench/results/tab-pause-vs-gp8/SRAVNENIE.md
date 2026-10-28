@@ -3,7 +3,7 @@
 Дата: 2026-10-26. Сравнивается визуальное поведение стана, а не звук и не сохранение.
 Источники по Guitar Pro 8 — официальная документация (guitar-pro.com/docs/gp8: «Bar Management»,
 «Fundamentals of Musical Notation», «Keyboard Shortcuts», «Score Errors Preferences»), справочник
-клавиш GP8 и руководство GP7/GP8. Кадры STRUCHORD — `A…G*.png` в этой папке, сводный лист —
+клавиш GP8 и руководство GP7/GP8. Кадры STRUCHORD в этой папке: `A-rest-in-middle-light.png`, `B-rest-at-end-light.png`, `C-rest-deleted-underfill-light.png`, `D-empty-bar-light.png`, `E1-mixed-selection-light.png`, `E2-mixed-selection-after-first-press-light.png`, `F-rest-deleted-underfill-dark.png`, `G-leading-auto-rests-light.png`; сводный лист —
 `SRAVNENIE-pauzy-i-udalenie.png`.
 
 ## Короткий вывод
