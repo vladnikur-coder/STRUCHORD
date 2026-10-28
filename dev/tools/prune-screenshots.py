@@ -39,24 +39,28 @@ def main():
     apply = '--apply' in sys.argv
     os.chdir(ROOT)
 
-    # (папка, имя файла) -> держится ли отчётом этой папки
-    local_refs = {}
-    global_refs = set()
+    # Текст отчётов: имена снимков ищутся подстрокой, потому что в таблицах
+    # часто пишут «01-guitar-no-tracks» без «.png».
+    local_text = {}
+    global_text = ''
     for md in md_files():
         text = open(md, encoding='utf-8').read()
-        names = set(re.findall(r'([\w\-.0-9]+\.png)', text))
         folder = os.path.relpath(os.path.dirname(md), ROOT).replace(os.sep, '/')
         if folder.startswith(RESULTS + '/'):
-            local_refs.setdefault(folder, set()).update(names)
+            local_text[folder] = local_text.get(folder, '') + '\n' + text
         else:
-            global_refs.update(names)
+            global_text += '\n' + text
 
     shots = sorted(glob.glob(os.path.join(RESULTS, '**', '*.png'), recursive=True))
     keep, drop = [], []
     for path in shots:
         folder = os.path.relpath(os.path.dirname(path), ROOT).replace(os.sep, '/')
         name = os.path.basename(path)
-        if name in local_refs.get(folder, set()) or name in global_refs:
+        # Имя без расширения тоже считается ссылкой: в отчётах часто пишут
+        # «01-guitar-no-tracks» в таблице, не добавляя «.png».
+        base = name[:-4] if name.endswith('.png') else name
+        context = local_text.get(folder, '') + global_text
+        if name in context or base in context:
             keep.append(path)
         else:
             drop.append(path)
