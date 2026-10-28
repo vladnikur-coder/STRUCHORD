@@ -27,7 +27,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 RESULTS = 'dev/bench/results'
 # Сокращения, которыми отчёты ссылаются на группу кадров.
-RANGE = re.compile(r'\.\.\.png|\*\.png|…\*|\d[-\w]*/\d')
+# Внимание: счётчики вида «1/3», «360/3», «4/4» — это НЕ диапазон кадров.
+# Диапазоном считается только запись, привязанная к имени кадра:
+# «*.png», «A…G*.png», «05-bar-1440/1024/390» (в куске имени есть буква или дефис с числом).
+RANGE = re.compile(r'\.\.\.png|\*\.png|…\*|[A-Za-z][\w.-]*\d/\d|[\w.-]+-\d+/\d')
 
 
 def md_files():
