@@ -40,7 +40,7 @@ const puppeteer = require('puppeteer');
   let p=await patterns(), sectionKey=Object.keys(p)[0]; assert(sectionKey.startsWith('s:')); assert.equal(p[sectionKey].type,'keys-waltz');
   assert.equal(await page.$('.b39-section-accomp'), null, 'собственный рисунок не создаёт лишнюю кнопку');
   await open('event'); assert(await page.$eval('[data-preset="keys-waltz"]',e=>e.getAttribute('aria-pressed')==='true'),'ячейка наследует секцию');
-  await page.click('[data-preset="keys-arp-up"]'); await page.click('#b39AccSteps button'); await page.click('#b39AccSave');
+  await page.click('[data-preset="keys-arp-up"]'); await page.click('#b39AccSteps button'); await page.click('#b39AccStepChoice [data-token="A"]'); await page.click('#b39AccStepChoice [data-token="B"]'); await page.click('#b39AccSave');
   p=await patterns(); const cellKey=Object.keys(p).find(k=>!k.startsWith('s:')); assert(p[cellKey]); assert(Array.isArray(p[cellKey].steps));
   const actual=await page.evaluate(key=>{let s=sections[0],q=s.squares[0],e=q.events[0],T=StruChordTracks,A=StruChordAccomp; return A.plan({trackId:T.state().activeTrackId,cell:key,sec:s,sq:q,ei:0,ev:e,span:e.span,dur:2,ts:'4/4',chord:'C',key:'C',range:T.keyRange(),notes:[48,60,64,67]}).map(x=>x.token);},cellKey);
   assert.equal(actual[0],p[cellKey].steps[0],'сохранённый шаг звучит в планировщике');
