@@ -54,7 +54,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.waitForSelector('#devPanelTrigger', { timeout: 30000 });
 
     const ver = await page.$eval('#devPanelTrigger', (el) => el.textContent.trim());
-    check('Версия в шапке не ниже 0.686', /ver 0\.68[6-9]|ver 0\.69\d/.test(ver), true);
+    check('Версия в шапке не ниже 0.686',
+      (() => { const mm = String(ver).match(/ver\s+0\.(\d+)/); return !!mm && Number(mm[1]) >= 686; })(),
+      true);
 
     await page.evaluate(() => {
       document.documentElement.dataset.theme = 'light';

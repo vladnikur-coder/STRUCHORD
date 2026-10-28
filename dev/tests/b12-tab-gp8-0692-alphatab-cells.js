@@ -49,7 +49,9 @@ const wait = (ms) => new Promise((r) => setTimeout(r, ms));
     await page.waitForSelector('#devPanelTrigger', { timeout: 30000 });
 
     const ver = await page.$eval('#devPanelTrigger', (el) => el.textContent.trim());
-    check('Версия в шапке не ниже 0.692', /ver 0\.69[2-9]/.test(ver), true);
+    check('Версия в шапке не ниже 0.692',
+      (() => { const mm = String(ver).match(/ver\s+0\.(\d+)/); return !!mm && Number(mm[1]) >= 692; })(),
+      true);
 
     // Песня: аккордовая клетка с мини-табом + отдельная клетка таба
     await page.evaluate(() => {

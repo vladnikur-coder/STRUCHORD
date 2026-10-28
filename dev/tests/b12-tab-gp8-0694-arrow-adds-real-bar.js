@@ -126,7 +126,9 @@ const pressCtrlZ = (page) =>
     await page.waitForSelector('#devPanelTrigger', { timeout: 30000 });
 
     const ver = await page.$eval('#devPanelTrigger', (el) => el.textContent.trim());
-    check('Версия в шапке не ниже 0.694', /ver 0\.69[4-9]/.test(ver), true);
+    check('Версия в шапке не ниже 0.694',
+      (() => { const mm = String(ver).match(/ver\s+0\.(\d+)/); return !!mm && Number(mm[1]) >= 694; })(),
+      true);
 
     // ── 1. Стрелка → добавляет такт, «Длина» это видит ──────────────────────
     await openFresh(page);

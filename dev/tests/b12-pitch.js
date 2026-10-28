@@ -127,9 +127,14 @@ w.addEventListener('load', () => {
     check('исходные имя, GM program и MIDI channel сохранены',
       part.sourceName === 'Imported Synth' && part.gmProgram === 89 && part.midiChannel === 3,
       JSON.stringify({ sourceName: part.sourceName, gmProgram: part.gmProgram, midiChannel: part.midiChannel }));
+    // 0.702 (B-39): клавишам добавлены синтезированные пресеты — рояль, электропиано,
+    // орган. Остальные роли по-прежнему живут одним встроенным звуком без RSE-семплов.
     check('роли имеют отдельные временные списки звуков без RSE-семплов',
-      ['drums', 'keys', 'vocal', 'other'].every((role) =>
+      ['drums', 'vocal', 'other'].every((role) =>
         w.eval(`soundListFor('${role}').length === 1 && soundListFor('${role}')[0].id === 'acoustic'`)));
+    check('у клавиш четыре своих синтезированных звука, первый — простой тон',
+      w.eval("soundListFor('keys').length === 4 && soundListFor('keys').map(s => s.id).join(',')") ===
+        'acoustic,piano,epiano,organ');
     check('таб-roll и pitchRoll хранятся независимо',
       part.rolls['1'].length === 1 && part.rolls['1'][0].fret === 3 && pitchNotes.length === 4);
     check('C4=60 и частота MIDI строится от абсолютной высоты',

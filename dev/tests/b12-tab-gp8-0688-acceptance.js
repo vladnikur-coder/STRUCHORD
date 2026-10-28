@@ -55,7 +55,9 @@ const TRANSPARENT = /^(rgba\(0, 0, 0, 0\)|transparent)$/;
     await page.waitForSelector('#devPanelTrigger', { timeout: 30000 });
 
     const ver = await page.$eval('#devPanelTrigger', (el) => el.textContent.trim());
-    check('Версия в шапке не ниже 0.688', /ver 0\.68[8-9]|ver 0\.69\d/.test(ver), true);
+    check('Версия в шапке не ниже 0.688',
+      (() => { const mm = String(ver).match(/ver\s+0\.(\d+)/); return !!mm && Number(mm[1]) >= 688; })(),
+      true);
 
     await page.evaluate(() => {
       document.documentElement.dataset.theme = 'light';
