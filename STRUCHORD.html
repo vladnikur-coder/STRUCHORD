@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.711</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.712</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -49680,10 +49680,10 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   var PRESETS = [
     { id: 'keys-block',        label: 'Целый аккорд', subdivision: 1, hint: 'аккорд на каждую долю' },
     { id: 'keys-arp-up',       label: 'Арпеджио ↑',   subdivision: 2, hint: 'тона аккорда снизу вверх' },
-    { id: 'keys-bass-chord',   label: 'Бас + аккорд', subdivision: 1, hint: 'бас на 1 и 3, аккорд на 2 и 4' },
-    { id: 'keys-waltz',        label: 'Вальс',        subdivision: 1, hint: 'бас — аккорд — аккорд' },
+    { id: 'keys-bass-chord',   label: 'Бас + аккорд', subdivision: 1, hint: 'бас и аккорд через долю' },
+    { id: 'keys-waltz',        label: 'Вальс',        subdivision: 1, hint: 'бас — аккорд — аккорд; обычно для размера 3/4' },
     { id: 'keys-alberti',      label: 'Альберти-бас', subdivision: 2, hint: 'корень — квинта — терция — квинта' },
-    { id: 'keys-octave-bass',  label: 'Октавный бас', subdivision: 1, hint: 'корень через октаву + аккорд' }
+    { id: 'keys-octave-bass',  label: 'Октавный бас', subdivision: 1, hint: 'бас через октаву и аккорд по очереди' }
   ];
   var DEFAULT_TYPE = 'keys-block';
   var SUBDIVISIONS = [1, 2, 3, 4];
@@ -49808,7 +49808,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   function buildSteps(type, sub, beats) {
     var n = Math.max(1, Math.round((Number(beats) || 4) * sub));
     n = Math.min(n, MAX_STEPS);
-    var out = [], alberti = [['H', 't1'], 't5', 't3', 't5'], i, beat;
+    var out = [], alberti = ['t1', 't5', 't3', 't5'], i, beat;
     for (i = 0; i < n; i++) {
       beat = Math.floor(i / sub);
       if (type === 'keys-arp-up') out.push('A');
@@ -49958,7 +49958,17 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     var startStep = own ? 0 : ((baseNode % base.length) + base.length) % base.length;
     var count = Math.min(MAX_STEPS, Math.max(1, Math.round(span * sub)));
     var C = tokenContext(o, notes);
-    var arp = 0, out = [];
+    // Номер звука арпеджио принадлежит всему рисунку секции, а не отдельной
+    // ячейке. Считаем только шаги A (в том числе в сочетаниях) до её начала.
+    // Свой рисунок ячейки начинается с нуля, как и раньше. Массив base
+    // ограничен 64 элементами; циклы считаем арифметически, без длинного цикла.
+    function arpCount(token) {
+      return (Array.isArray(token) ? token : [token]).filter(function (v) { return v === 'A'; }).length;
+    }
+    var perCycle = base.reduce(function (sum, token) { return sum + arpCount(token); }, 0);
+    var arp = own ? 0 : Math.floor(baseNode / base.length) * perCycle;
+    if (!own) for (var j = 0; j < startStep; j++) arp += arpCount(base[j]);
+    var out = [];
     for (var i = 0; i < count; i++) {
       var at = (swingOffset(baseNode + i, sub, swingOn) - offset) * unit;
       var next = (swingOffset(baseNode + i + 1, sub, swingOn) - offset) * unit;
@@ -50065,7 +50075,6 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       button.type = 'button'; button.setAttribute('data-preset', p.id); button.title = p.hint;
       button.appendChild(el('span', 'pattern-preset-name', p.label));
       var preview = el('span', 'strum-preview'); preview.setAttribute('aria-hidden', 'true');
-      buildSteps(p.id, p.subdivision, numerator(current.ts)).slice(0,8).forEach(function (token) { preview.appendChild(el('span', 'strum-step', glyph(token))); });
       button.appendChild(preview);
       button.addEventListener('click', function () {
         draft.type = p.id; draft.subdivision = p.subdivision; delete draft.steps; draftLength = scopeUnits(); draftInherited = false; selectedStep = null; resetPending = false; renderPanel();
@@ -50258,7 +50267,17 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       if (!state || state.activeTrackId !== editingTrackId) { closePanel(); return; }
     }
     var inheritedSwing = draft.swing === null && sharedRhythm && sharedRhythm.swing === true;
-    presetButtons.forEach(function (b) { var selected = b.getAttribute('data-preset') === draft.type && !draft.steps; b.setAttribute('aria-pressed', String(selected)); b.classList.toggle('active', selected); });
+    presetButtons.forEach(function (b) {
+      var id = b.getAttribute('data-preset'), p = preset(id), selected = id === draft.type && !draft.steps;
+      b.setAttribute('aria-pressed', String(selected)); b.classList.toggle('active', selected);
+      var preview = b.querySelector('.strum-preview');
+      if (preview && p) {
+        preview.textContent = '';
+        buildSteps(p.id, p.subdivision, scopeUnits()).slice(0, 8).forEach(function (token) {
+          preview.appendChild(el('span', 'strum-step', token === null ? '·' : stepGlyph(token)));
+        });
+      }
+    });
     subButtons.forEach(function (b) { var n=Number(b.dataset.sub); b.classList.toggle('active', n===draft.subdivision); b.setAttribute('aria-pressed',String(n===draft.subdivision)); b.hidden = n===3 && typeof timeSigAllowsTriplets === 'function' && !timeSigAllowsTriplets(current.ts); });
     if (swingBtn) { var allowed = draft.subdivision === 2 || draft.subdivision === 4; var enabled = draft.swing === true || !!inheritedSwing; swingBtn.hidden = !allowed; swingBtn.classList.toggle('active', allowed && enabled); swingBtn.setAttribute('aria-pressed', String(allowed && enabled)); }
     if (scopeLabel) scopeLabel.textContent = current.scope === 'cell' ? 'только для этой ячейки' : 'по умолчанию для всей секции';
