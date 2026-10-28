@@ -15450,7 +15450,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.702</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.703</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20723,6 +20723,30 @@ const songStore = (function () {
   return { dispatch, subscribe, log: getLog };
 })();
 window.songStore = songStore;
+// B-39 · ПАНЕЛИ ВОЛНЫ — ОДНА ЗА РАЗ
+// --------------------------------------------------------------------------
+// Микшер, клавиатура и аккомпанемент — отдельные окна, каждое создаётся своим
+// блоком волны. Без общего правила они открывались друг поверх друга и
+// перекрывали содержимое. Здесь единый узел: любое окно при открытии просит
+// закрыть остальные. Модули знают только своё имя и свою функцию закрытия.
+(function (HOST) {
+  'use strict';
+  if (HOST.__b39PanelHub) return;
+  var closers = {};
+  var current = null;
+  HOST.__b39PanelHub = {
+    register: function (name, closeFn) { closers[name] = closeFn; },
+    opened: function (name) {
+      current = name;
+      for (var k in closers) {
+        if (k === name) continue;
+        try { closers[k](); } catch (e) { /* чужое окно не должно ломать открытие */ }
+      }
+    },
+    closed: function (name) { if (current === name) current = null; },
+    current: function () { return current; }
+  };
+})(window);
 // >>> B-39 STAGE2 BEGIN (MIXER UI) <<<
 // ==========================================================================
 // B-39 · ЭТАП 2 (STAGE 2) — МИКШЕР ДОРОЖЕК
@@ -20743,16 +20767,17 @@ window.songStore = songStore;
 (function (HOST) {
   'use strict';
 
+  var HUB = HOST.__b39PanelHub || null;
   var CSS = `
 .b39-wrap { position: relative; display: inline-flex; align-items: center; }
-.b39-btn { display: inline-flex; align-items: center; gap: .35rem;
-  padding: 0 .55rem; height: 2.25rem; border-radius: .6rem; cursor: pointer;
+.b39-btn { display: inline-flex; align-items: center; gap: .25rem;
+  padding: 0 .45rem; height: 2.25rem; border-radius: .6rem; cursor: pointer; flex: 0 0 auto;
   background: var(--color-surface, #fff); color: var(--color-text-primary, #1b1b1b);
   border: 1px solid var(--color-border-medium, #c9cdd4); font: inherit; }
 .b39-btn:hover { border-color: var(--color-accent, #2f855a); }
 .b39-btn[aria-expanded="true"] { border-color: var(--color-accent, #2f855a); }
-.b39-btn-icon { width: 1rem; height: 1rem; display: inline-block; }
-.b39-btn-label { font-size: .75rem; max-width: 6.5rem; overflow: hidden;
+.b39-btn-icon { width: .95rem; height: .95rem; display: inline-block; flex: 0 0 auto; }
+.b39-btn-label { font-size: .75rem; max-width: 6.5rem; overflow: hidden; white-space: nowrap;
   text-overflow: ellipsis; white-space: nowrap; color: var(--color-text-secondary, #666); }
 .b39-panel { position: fixed; width: 20rem; max-width: calc(100vw - 1rem);
   max-height: 70vh; overflow: auto; z-index: 9999;
@@ -20850,7 +20875,9 @@ window.songStore = songStore;
     btn.setAttribute('aria-expanded', 'false');
     btn.setAttribute('title', 'Микшер дорожек');
     btn.innerHTML = ICON + '<span class="b39-btn-label" id="b39BtnLabel">Дорожки</span>';
+    btn.setAttribute('title', 'Дорожки песни: инструменты, громкость, M/S');
     panel = el('div', 'b39-panel');
+    if (HUB) HUB.register('mixer', closePanel);
     panel.id = 'b39MixerPanel';
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-label', 'Микшер дорожек');
@@ -20951,8 +20978,17 @@ window.songStore = songStore;
     panel.style.left = left + 'px';
     panel.style.top = (r.bottom + 8) + 'px';
   }
-  function openPanel() { if (!panel) return; positionPanel(); panel.hidden = false; btn.setAttribute('aria-expanded', 'true'); render(); }
-  function closePanel() { if (!panel) return; panel.hidden = true; btn.setAttribute('aria-expanded', 'false'); if (chooser) chooser.hidden = true; if (menu) menu.hidden = true; }
+  function openPanel() {
+    if (!panel) return;
+    if (HUB) HUB.opened('mixer');
+    positionPanel(); panel.hidden = false; btn.setAttribute('aria-expanded', 'true'); render();
+  }
+  function closePanel() {
+    if (!panel) return;
+    panel.hidden = true; btn.setAttribute('aria-expanded', 'false');
+    if (chooser) chooser.hidden = true; if (menu) menu.hidden = true;
+    if (HUB) HUB.closed('mixer');
+  }
   function togglePanel() { if (!panel) return; panel.hidden ? openPanel() : closePanel(); }
 
   function openChooser(id) {
@@ -31493,18 +31529,39 @@ function upsertUserFingering(list, shape, barreOff, fingers) {
 (function (HOST) {
   'use strict';
 
+  var HUB = HOST.__b39PanelHub || null;
   var CSS = `
 .b39-keys-btn { display: inline-flex; align-items: center; gap: .3rem;
   padding: 0 .5rem; height: 2.25rem; border-radius: .6rem; cursor: pointer;
   background: var(--color-surface, #fff); color: var(--color-text-primary, #1b1b1b);
   border: 1px solid var(--color-border-medium, #c9cdd4); font: inherit; font-size: .75rem; }
 .b39-keys-btn[aria-pressed="true"] { border-color: var(--color-accent, #2f855a); }
+/* Режим дорожки (решение владельца 0.702): на гитарной дорожке клавишных кнопок
+   нет вовсе, на клавишной нет гитарного боя и гитарной аппликатуры.
+   Песня без дорожек — гитарный набор, как было до волны. */
+html:not(.b39-keys-mode) #b39KeysBtn,
+html:not(.b39-keys-mode) #b39AccBtn { display: none !important; }
+html.b39-keys-mode .chord-btn-strum,
+html.b39-keys-mode .strum-badge-wrap { display: none !important; }
+html.b39-keys-mode .fingering-content svg:not(.b39-keys-svg),
+html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !important; }
 /* Кнопка живёт в круглой полосе воспроизведения (.transport-btn, 2.25rem).
    С длинной подписью текст вылезал за круг и наезжал на соседей.
    На широком экране — пилюля с подписью внутри, на телефоне — только иконка. */
 @media (min-width: 481px) {
-  .transport-btn.b39-keys-btn, .transport-btn.b39-acc-btn {
+  .transport-btn.b39-keys-btn, .transport-btn.b39-acc-btn,
+  .b39-btn {
     width: auto; min-width: 2.25rem; white-space: nowrap; }
+  /* Иконка в полосе уже несёт смысл — эмодзи убраны из подписей. */
+  .transport-btn.b39-keys-btn::before, .transport-btn.b39-acc-btn::before { content: none; }
+  .transport-btn.b39-keys-btn .b39-btn-label,
+  .transport-btn.b39-acc-btn .b39-btn-label { font-size: .75rem; white-space: nowrap; }
+  /* Полоса воспроизведения на 1440 px не вмещает три подписи сразу —
+     на средних экранах у клавишных кнопок остаётся иконка с подсказкой. */
+  @media (max-width: 1599px) {
+    .transport-btn.b39-keys-btn .b39-btn-label,
+    .transport-btn.b39-acc-btn .b39-btn-label { display: none; }
+  }
 }
 /* На телефоне полоса плеера держится в один ряд: лишние кнопки уходят
    под «Ещё», как #btnLoop, #btnCountIn, #btnTapTempo, #btnModeToggle и #btnPartsToggle. */
@@ -31836,13 +31893,16 @@ function upsertUserFingering(list, shape, barreOff, fingers) {
   }
   function buildDom() {
     if (!doc || !doc.body || btn) return;
-    btn = el('button', 'transport-btn b39-keys-btn', '🎹 Клавиатура');
+    btn = el('button', 'transport-btn b39-keys-btn');
+    btn.innerHTML = '<svg class="b39-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M6 9h.01M10 9h.01M14 9h.01M18 9h.01M6 13h.01M18 13h.01M6 17h12"/></svg>' + '<span class="b39-btn-label">Клавиатура</span>';
     btn.type = 'button'; btn.id = 'b39KeysBtn';
+    btn.setAttribute('aria-label', 'Клавиатура клавишной дорожки');
     btn.setAttribute('aria-pressed', 'false');
     btn.setAttribute('title', 'Показать клавиатуру выбранного размера');
     btn.addEventListener('click', togglePanel);
 
     panel = el('div', 'b39-keys-panel');
+    if (HUB) HUB.register('keys', closePanel);
     panel.id = 'b39KeysPanel'; panel.hidden = true;
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-label', 'Клавиатура дорожки');
@@ -31904,8 +31964,16 @@ function upsertUserFingering(list, shape, barreOff, fingers) {
     panel.style.left = Math.max(8, Math.min((HOST.innerWidth || 1024) - w - 8, r.left)) + 'px';
     panel.style.top = (r.bottom + 8) + 'px';
   }
-  function openPanel() { if (!panel) return; positionPanel(); panel.hidden = false; btn.setAttribute('aria-pressed', 'true'); renderPanel(); }
-  function closePanel() { if (!panel) return; panel.hidden = true; btn.setAttribute('aria-pressed', 'false'); }
+  function openPanel() {
+    if (!panel) return;
+    if (HUB) HUB.opened('keys');
+    positionPanel(); panel.hidden = false; btn.setAttribute('aria-pressed', 'true'); renderPanel();
+  }
+  function closePanel() {
+    if (!panel) return;
+    panel.hidden = true; btn.setAttribute('aria-pressed', 'false');
+    if (HUB) HUB.closed('keys');
+  }
   function togglePanel() { if (!panel) return; panel.hidden ? openPanel() : closePanel(); }
 
   function stepVariant(delta) {
@@ -49464,6 +49532,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   'use strict';
 
   var doc = HOST.document;
+  var HUB = HOST.__b39PanelHub || null;
 
   // ---------- Пресеты ----------
   var PRESETS = [
@@ -49827,14 +49896,17 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   }
   function buildDom() {
     if (!doc || !doc.body || btn) return;
-    btn = el('button', 'transport-btn b39-acc-btn', '🎼 Аккомпанемент');
+    btn = el('button', 'transport-btn b39-acc-btn');
     if (!btn) return;
+    btn.innerHTML = '<svg class="b39-btn-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 18V5l10-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="16" cy="16" r="3"/></svg>' + '<span class="b39-btn-label">Аккомпанемент</span>';
     btn.type = 'button'; btn.id = 'b39AccBtn';
+    btn.setAttribute('aria-label', 'Аккомпанемент клавишной дорожки');
     btn.setAttribute('aria-pressed', 'false');
     btn.setAttribute('title', 'Типы аккомпанимента клавишной дорожки');
     btn.addEventListener('click', togglePanel);
 
     panel = el('div', 'b39-acc-panel');
+    if (HUB) HUB.register('acc', closePanel);
     panel.id = 'b39AccPanel'; panel.hidden = true;
     panel.setAttribute('role', 'dialog');
     panel.setAttribute('aria-label', 'Аккомпанемент');
@@ -50016,11 +50088,13 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   }
   function openPanel() {
     guessScope();
+    if (HUB) HUB.opened('acc');
     if (panel) { panel.hidden = false; if (btn) btn.setAttribute('aria-pressed', 'true'); }
     renderPanel();
   }
   function closePanel() {
     if (panel) { panel.hidden = true; if (btn) btn.setAttribute('aria-pressed', 'false'); }
+    if (HUB) HUB.closed('acc');
   }
   function togglePanel() { if (panel && !panel.hidden) closePanel(); else openPanel(); }
 
@@ -50087,6 +50161,22 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   function relabel() {
     if (!doc || !doc.querySelectorAll) return;
     var on = activeIsKeys();
+    var root = doc.documentElement;
+    if (root && root.classList) {
+      if (on) root.classList.add('b39-keys-mode');
+      else root.classList.remove('b39-keys-mode');
+    }
+    // Кнопок клавишных окон на гитаре нет — значит и открытые окна закрываем.
+    if (!on) {
+      try {
+        var K = HOST.StruChordKeys;
+        if (K && typeof K.panel === 'function' && typeof K.close === 'function') {
+          var kp = K.panel();
+          if (kp && !kp.hidden) K.close();
+        }
+      } catch (e) { /* чужой модуль не должен ломать режим */ }
+      try { if (panel && !panel.hidden) closePanel(); } catch (e) { /* то же */ }
+    }
     var nodes = doc.querySelectorAll('.chord-btn-strum, .strum-badge-wrap, [title*="Бой/перебор"], [data-b39-acc-label]');
     Array.prototype.forEach.call(nodes, function (n) {
       if (!n.dataset) return;

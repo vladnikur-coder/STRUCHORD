@@ -25,7 +25,7 @@ const needles = [
   ['неймспейс StruChordAccomp', 'HOST.StruChordAccomp = api;'],
   ['хук adoptRhythm', 'window.StruChordAccomp.adoptRhythm('],
   ['шесть пресетов', "id: 'keys-octave-bass'"],
-  ['кнопка Аккомпанемент', "'🎼 Аккомпанемент'"],
+  ['кнопка Аккомпанемент', "'Аккомпанемент'"],
   ['перехват редактора боя', 'HOST.openStrumPatternEditor = function'],
   ['модель: s: ключи', 'var sectionKey = !!allowSectionKeys && /^s:\\d{1,9}$/.test(k);'],
   ['модель: patternFor', 'function patternFor(id, key)'],
