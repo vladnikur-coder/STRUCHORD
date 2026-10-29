@@ -9,7 +9,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   const song=await p.evaluate(()=>JSON.stringify(StruChordTracks.exportForSave()));
   const snap=()=>p.evaluate(()=>{let bar=document.querySelector('.transport-bar'),s=getComputedStyle(bar),r=bar.getBoundingClientRect(),controls=['#btnPlay','#btnLoop','#btnCountIn','#b39KeysBtn'].map(id=>{let e=document.querySelector(id),r=e.getBoundingClientRect();return [id,r.width,r.height]});return {height:r.height,width:r.width,paddingTop:s.paddingTop,paddingBottom:s.paddingBottom,gap:s.gap,controls};});
   const orig=await snap();await p.click('#b39KeysBtn');await wait(150);assert.deepStrictEqual(await snap(),orig,`${width}/${scale}: открытие не меняет плеер`);
-  let key=await p.$eval('#b39KeysPanel svg rect',e=>e.getBoundingClientRect().height);assert(key>=48*scale/100-.5,'клавиши остаются высокими');
+  let key=await p.$eval('#b39KeysPanel svg rect',e=>e.getBoundingClientRect().height);assert(key>=72*scale/100-.5,'клавиши остаются высокими');
   await p.click('#b39KeysSettingsToggle');await wait(80);assert.deepStrictEqual(await snap(),orig,'настройки не меняют плеер');
   await p.click('#b39KeysSettingsToggle');await p.click('.b39-keys-close');await wait(100);assert.deepStrictEqual(await snap(),orig,'закрытие сохраняет плеер');
   assert.equal(await p.evaluate(()=>JSON.stringify(StruChordTracks.exportForSave())),song,'открытие и закрытие не меняют данные песни');assert.deepStrictEqual(errors,[]);await p.close();
