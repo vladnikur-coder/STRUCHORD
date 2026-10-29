@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.737</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.738</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31747,6 +31747,12 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
 .b39-keys-resize--left, .b39-keys-resize--right { top:1rem; bottom:1rem; width:.8rem; cursor:ew-resize; }
 .b39-keys-resize--left { left:-.4rem; } .b39-keys-resize--right { right:-.4rem; }
 .b39-keys-resize--bottom { left:1rem; right:1rem; bottom:-.45rem; height:.9rem; cursor:ns-resize; }
+.b39-keys-resize--bottom-left, .b39-keys-resize--bottom-right { bottom:-.4rem; width:1.25rem; height:1.25rem; z-index:3; }
+.b39-keys-resize--bottom-left { left:-.4rem; cursor:nesw-resize; }
+.b39-keys-resize--bottom-right { right:-.4rem; cursor:nwse-resize; }
+.b39-keys-resize--bottom-left::after, .b39-keys-resize--bottom-right::after { width:.7rem; height:.15rem; top:.55rem; left:.3rem; }
+.b39-keys-resize--bottom-left::after { transform:rotate(-45deg); }
+.b39-keys-resize--bottom-right::after { transform:rotate(45deg); }
 .b39-keys-resize::after { content:''; position:absolute; background:var(--color-text-secondary, #666); opacity:.48; border-radius:1rem; }
 .b39-keys-resize--left::after, .b39-keys-resize--right::after { width:.15rem; height:1.7rem; left:calc(50% - .075rem); top:calc(50% - .85rem); }
 .b39-keys-resize--bottom::after { height:.15rem; width:2rem; top:calc(50% - .075rem); left:calc(50% - 1rem); }
@@ -32398,21 +32404,24 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
       handle.addEventListener('pointerup', finish); handle.addEventListener('pointercancel', finish);
       handle.addEventListener('lostpointercapture', finish);
       handle.addEventListener('keydown', function(e) {
-        var horizontal = axis !== 'bottom', delta = 0;
-        if (horizontal && e.key === 'ArrowRight') delta = 1;
-        else if (horizontal && e.key === 'ArrowLeft') delta = -1;
-        else if (!horizontal && e.key === 'ArrowDown') delta = 1;
-        else if (!horizontal && e.key === 'ArrowUp') delta = -1;
-        if (!delta || resizeDrag) return;
+        var horizontal = axis !== 'bottom', vertical = axis === 'bottom' || axis.indexOf('bottom-') === 0;
+        var dx = 0, dy = 0;
+        if (horizontal && e.key === 'ArrowRight') dx = 1;
+        else if (horizontal && e.key === 'ArrowLeft') dx = -1;
+        else if (vertical && e.key === 'ArrowDown') dy = 1;
+        else if (vertical && e.key === 'ArrowUp') dy = -1;
+        if ((!dx && !dy) || resizeDrag) return;
         var state = beginResize(axis); if (!state) return;
         e.preventDefault(); e.stopPropagation(); resizeDrag = state;
-        moveResize(state, horizontal ? delta * state.rem / 2 : 0, horizontal ? 0 : delta * state.rem / 2);
+        moveResize(state, dx * state.rem / 2, dy * state.rem / 2);
         finishResize();
       });
     }
     makeHandle('left', 'Изменить ширину клавиатуры слева', 'Потяните за край или используйте стрелки влево и вправо');
     makeHandle('right', 'Изменить ширину клавиатуры справа', 'Потяните за край или используйте стрелки влево и вправо');
     makeHandle('bottom', 'Изменить высоту клавиатуры', 'Потяните за край или используйте стрелки вверх и вниз');
+    makeHandle('bottom-left', 'Изменить размер клавиатуры за левый нижний угол', 'Потяните за угол или используйте стрелки');
+    makeHandle('bottom-right', 'Изменить размер клавиатуры за правый нижний угол', 'Потяните за угол или используйте стрелки');
   }
   function beginResize(axis) {
     var svg = body && body.querySelector('svg'); if (!svg || !panel || panel.hidden) return null;
@@ -32428,15 +32437,19 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
   }
   function moveResize(state, dx, dy) {
     var clamp = function(v, min, max) { return Math.max(min, Math.min(max, v)); };
-    if (state.axis === 'bottom') {
+    var vertical = state.axis === 'bottom' || state.axis.indexOf('bottom-') === 0;
+    var horizontal = state.axis !== 'bottom';
+    if (dx !== 0) state.movedX = true; if (dy !== 0) state.movedY = true;
+    if (vertical && state.movedY) {
       var h = Math.round(clamp(state.startKeyHeight + dy * 16 / state.rem, 48, 260) * 10) / 10;
       state.newKeyHeight = h; state.changed = state.changed || h !== state.startKeyHeight;
       // SVG масштабируется только во время жеста; после него текст и окружности
       // снова рисуются без искажений в новой геометрии клавиш.
       state.svg.setAttribute('preserveAspectRatio', 'none');
       state.svg.style.height = ((h + 16) / 16) + 'rem';
-    } else {
-      var edge = state.axis === 'right' ? dx : -dx;
+    }
+    if (horizontal && state.movedX) {
+      var edge = state.axis === 'right' || state.axis === 'bottom-right' ? dx : -dx;
       var targetWidth = clamp(state.startWidth + edge * 2, state.minWidth, state.maxWidth);
       var w = Math.round(clamp(state.startKeyWidth * (1 + (targetWidth - state.startWidth) / state.svgWidth), 14, 90) * 10) / 10;
       targetWidth = clamp(state.startWidth + (w / state.startKeyWidth - 1) * state.svgWidth, state.minWidth, state.maxWidth);
@@ -32444,7 +32457,7 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
       panel.classList.add('is-user-sized');
       panel.style.setProperty('--b39-resize-width', (targetWidth / state.rem) + 'rem');
       state.svg.setAttribute('preserveAspectRatio', 'none');
-      state.svg.style.height = (state.svgHeight / state.rem) + 'rem';
+      if (!vertical || !state.movedY) state.svg.style.height = (state.svgHeight / state.rem) + 'rem';
       state.svg.style.width = (state.svgWidth * w / state.startKeyWidth / state.rem) + 'rem';
     }
   }
@@ -32452,8 +32465,8 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     var state = resizeDrag; if (!state) return;
     resizeDrag = null;
     if (state.changed) {
-      if (state.axis === 'bottom') { resizedWhiteHeight = state.newKeyHeight; keyboardWhiteHeight = state.newKeyHeight; }
-      else resizedWhiteWidth = state.newKeyWidth;
+      if ((state.axis === 'bottom' || state.axis.indexOf('bottom-') === 0) && state.movedY) { resizedWhiteHeight = state.newKeyHeight; keyboardWhiteHeight = state.newKeyHeight; }
+      if (state.axis !== 'bottom' && state.movedX) resizedWhiteWidth = state.newKeyWidth;
     }
     renderPanel();
   }
