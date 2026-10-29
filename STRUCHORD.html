@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.715</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.716</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -47684,10 +47684,10 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
     stats.notes++;
   }
 
-  function playPiano(ctx, target, midi, start, dur, level) {
+  function playPiano(ctx, target, midi, start, dur, level, expression) {
     if (!hasRoom()) return;
     var f0 = frequencyOf(midi);
-    var decay = Math.max(0.38, Math.min(2.6, dur * 1.5)) * (PEDAL ? 1.85 : 1);
+    var decay = Math.max(Number.isFinite(expression) ? 0.16 : 0.38, Math.min(2.6, dur * 1.5)) * (PEDAL ? 1.85 : 1);
     var bus = ctx.createGain();
     bus.gain.value = 1;
     bus.connect(target);
@@ -47698,7 +47698,8 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
       osc.type = 'sine';
       osc.frequency.value = f0 * n * Math.sqrt(1 + B * n * n);
       var g = ctx.createGain();
-      var amp = level / Math.pow(n, 1.45);
+      var brightness = Number.isFinite(expression) ? Math.max(0.65,Math.min(1,expression)) : 1;
+      var amp = level / Math.pow(n, 1.45 + (1-brightness)*0.7);
       var tau = Math.max(0.08, decay / Math.pow(n, 0.55));
       g.gain.setValueAtTime(0.0001, start);
       g.gain.exponentialRampToValueAtTime(Math.max(0.0002, amp), start + 0.004);
@@ -47726,11 +47727,11 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
     stats.notes++;
   }
 
-  function playNote(ctx, channel, midi, start, dur, level) {
+  function playNote(ctx, channel, midi, start, dur, level, expression) {
     var target = voiceTarget(channel);
     if (!target) return;
     if (MODE === 'simple') playSimple(ctx, target, midi, start, dur, level);
-    else playPiano(ctx, target, midi, start, dur, level);
+    else playPiano(ctx, target, midi, start, dur, level, expression);
   }
 
   // ---------- Планирование ----------
@@ -47783,7 +47784,8 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
           var at = Math.max(0, Number(st.at) || 0);
           var len = Math.max(0.02, Number(st.dur) || seconds);
           (Array.isArray(st.notes) ? st.notes : []).forEach(function (midi) {
-            playNote(ctx, channel, midi, evStart + at, len, level);
+            var dynamics=Number.isFinite(st.gain) ? st.gain : null;
+            playNote(ctx, channel, midi, evStart + at, len, level * (dynamics===null ? 1 : dynamics), dynamics);
           });
         });
       } else {
@@ -47845,7 +47847,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
       pattern:cfg, patternSource:opt.scope, noHighlight:true });
     var before = new Set(voices), start = ctx.currentTime + .05;
     var level = HEADROOM / Math.sqrt(Math.max(1, notes.length));
-    steps.forEach(function (step) { step.notes.forEach(function (midi) { playNote(ctx, channel, midi, start + step.at, step.dur, level); }); });
+    steps.forEach(function (step) { step.notes.forEach(function (midi) { var d=Number.isFinite(step.gain)?step.gain:null;playNote(ctx, channel, midi, start + step.at, step.dur, level*(d===null?1:d), d); }); });
     var added = Array.from(voices).filter(function (v) { return !before.has(v); });
     return function () { added.forEach(function (v) { try { v.stop(); } catch (e) {} voices.delete(v); }); };
   }
@@ -49834,6 +49836,23 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
         presetSwing:style[0]==='blues' || style[0]==='jazz'});
     });
   });
+  // Отдельные ID: прежние сохранённые рисунки не меняют звучание.
+  STYLES.forEach(function(style) {
+    var rows=FAMILY_MOTIFS[style[0]] || [], neighbors=[1,2,3,2,0];
+    rows.forEach(function(motif,i) {
+      var next=rows[neighbors[i]], second=motif.slice(0,4).concat(next.slice(4,8));
+      // В 3/4 и 6/8 позиции 3 и 7 не входят в адаптацию, поэтому
+      // обеспечиваем различие и в значимых позициях второго такта.
+      if ([0,1,2,4,5,6].every(function(k){return JSON.stringify(motif[k])===JSON.stringify(second[k]);})) {
+        var k=[5,6,4,2,1,0].find(function(j){return JSON.stringify(motif[j])!==JSON.stringify(next[j]);});
+        if (k!==undefined) second[k]=next[k];
+      }
+      PRESETS.push({id:'perform-'+style[0]+'-'+i,label:'Исполнение · '+FAMILY_ROLES[i],
+        genre:style[0],genreLabel:style[1],subdivision:2,motif:motif,secondMotif:second,
+        phrase:true,hint:style[1]+' · двухтактовая фраза с акцентами',
+        presetSwing:style[0]==='blues'||style[0]==='jazz'});
+    });
+  });
   var DEFAULT_TYPE = 'keys-block';
   var SUBDIVISIONS = [1, 2, 3, 4];
   var MAX_STEPS = 64;
@@ -49971,11 +49990,16 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     if (chosen && chosen.motif) {
       // Для трёхдольных размеров берём шестишаговую версию: две группы по
       // три восьмых; не используем четырёхдольный хвост как отдельный такт.
-      var motif = chosen.motif;
+      var motif = chosen.motif, secondMotif = chosen.secondMotif;
       if (Number(beats) === 3 || Number(beats) === 6 || Number(beats) === 9 || Number(beats) === 12) {
         motif = [motif[0],motif[1],motif[2],motif[4],motif[5],motif[6]];
+        if (secondMotif) secondMotif = [secondMotif[0],secondMotif[1],secondMotif[2],secondMotif[4],secondMotif[5],secondMotif[6]];
       }
-      for (i = 0; i < n; i++) out.push(motif[Math.floor(i * 2 / sub) % motif.length]);
+      var count = chosen.phrase && n * 2 <= MAX_STEPS ? n * 2 : n;
+      for (i = 0; i < count; i++) {
+        var bar = i >= n && secondMotif ? secondMotif : motif;
+        out.push(bar[Math.floor((i % n) * 2 / sub) % bar.length]);
+      }
       return out;
     }
     for (i = 0; i < n; i++) {
@@ -50037,6 +50061,16 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       for (var i = 0; i < lim; i++) sum += Number(sq.events[i] && sq.events[i].span) || 1;
     }
     return sum;
+  }
+
+  function precedingSquares(sec, sq, ts) {
+    if (!sec || !sq || !Array.isArray(sec.squares)) return 0;
+    var total=0;
+    for(var i=0;i<sec.squares.length;i++) {
+      var item=sec.squares[i]; if(item===sq || item.id===sq.id) break;
+      try { total += Math.max(0,Number(getSquareBeats(item,ts))||0) * Math.max(1,Number(item.repeat)||1); } catch(e) {}
+    }
+    return total;
   }
 
   // ---------- Токены -> MIDI-ноты ----------
@@ -50121,7 +50155,8 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     var beats = cfg.source === 'cell' ? span : numerator(o.ts || current.ts);
     var base = cfg.steps && cfg.steps.length ? cfg.steps : buildSteps(cfg.type, sub, beats);
     var own = cfg.source === 'cell';
-    var offset = own ? 0 : squareOffset(o.sq, o.ei, o.ts);
+    var express = !!(preset(cfg.type) && preset(cfg.type).phrase);
+    var offset = own ? 0 : squareOffset(o.sq, o.ei, o.ts) + (express ? precedingSquares(o.sec,o.sq,o.ts) : 0);
     var phase = own ? 0 : Math.max(0, Math.ceil((offset - 1e-9) * sub) / sub - offset);
     var baseNode = Math.round((offset + phase) * sub);
     var startStep = own ? 0 : ((baseNode % base.length) + base.length) % base.length;
@@ -50146,12 +50181,26 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       var len = Math.max(0.02, next - at);
       if (at + len > dur) len = dur - at;
       var token = base[(startStep + i) % base.length];
+      var dynamic=1;
+      if (express && token !== null) {
+        var step=(startStep+i)%base.length, strong=step % (sub*2) === 0;
+        dynamic=strong ? 1 : step % sub === 0 ? 0.82 : 0.68;
+        // Ноты в паузах могут звучать до следующей атаки; короткий фанк
+        // и панк оставляем более отрывистыми. Не пересекаем границу аккорда.
+        if (/^perform-(funk|punk)-/.test(cfg.type)) len=Math.max(0.02,len*0.58);
+        else {
+          var gap=1;
+          while(gap<base.length && base[(step+gap)%base.length]===null) gap++;
+          if(gap>1) len=Math.min(dur-at,Math.max(len,(swingOffset(baseNode+i+gap,sub,swingOn)-offset)*unit-at)*0.9);
+        }
+      }
       out.push({
         index: out.length,
         stepIndex: (startStep + i) % base.length,
         token: token,
         at: at,
         dur: len,
+        ...(express ? {gain:dynamic} : {}),
         notes: tokenNotes(token, C, function () { return arp++; }),
         subdivision: sub, swing: !!swingOn, type: cfg.type, source: cfg.source
       });
@@ -50252,7 +50301,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       var preview = el('span', 'strum-preview'); preview.setAttribute('aria-hidden', 'true');
       button.appendChild(preview);
       button.addEventListener('click', function () {
-        draft.type = p.id; draft.subdivision = p.subdivision; if (p.motif) draft.swing = p.presetSwing; delete draft.steps; draftLength = scopeUnits(); draftInherited = false; selectedStep = null; resetPending = false; renderPanel();
+        draft.type = p.id; draft.subdivision = p.subdivision; if (p.motif) draft.swing = p.presetSwing; delete draft.steps; draftLength = p.phrase && current.scope==='section' && scopeUnits()*2*draft.subdivision<=MAX_STEPS ? scopeUnits()*2 : scopeUnits(); draftInherited = false; selectedStep = null; resetPending = false; renderPanel();
       });
       presetButtons.push(button); gridEl.appendChild(button);
     });
@@ -50325,10 +50374,11 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   function draftSteps() {
     var beats = scopeUnits();
     var count = Math.min(MAX_STEPS, Math.max(1, Math.round(draftLength * draft.subdivision)));
-    var base = draft.steps || buildSteps(draft.type, draft.subdivision, draftInherited ? numerator(current.ts) : draftLength);
+    var selectedPreset=preset(draft.type);
+    var base = draft.steps || buildSteps(draft.type, draft.subdivision, draftInherited || (selectedPreset && selectedPreset.phrase) ? numerator(current.ts) : draftLength);
     var offset = 0;
     if (draftInherited) {
-      try { var sec2 = sections.find(function (s) { return s.id === current.secId; }); var sq2 = sec2 && sec2.squares.find(function (q) { return q.id === current.sqId; }); offset = Math.round(squareOffset(sq2, current.ei, current.ts) * draft.subdivision); } catch (e) {}
+      try { var sec2 = sections.find(function (s) { return s.id === current.secId; }); var sq2 = sec2 && sec2.squares.find(function (q) { return q.id === current.sqId; }); offset = Math.round((squareOffset(sq2, current.ei, current.ts) + (selectedPreset && selectedPreset.phrase ? precedingSquares(sec2,sq2,current.ts) : 0)) * draft.subdivision); } catch (e) {}
     }
     return Array.from({length:count}, function (_, i) { var v = base[(offset + i) % base.length]; return Array.isArray(v) ? v.slice() : v; });
   }
@@ -50431,7 +50481,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   function loadDraft(cfg) {
     draft = { type: cfg.type, subdivision: cfg.subdivision, swing: cfg.swing };
     draftInherited = current.scope === 'cell' && cfg.source !== 'cell';
-    draftLength = !draftInherited && cfg.steps ? cfg.steps.length / cfg.subdivision : scopeUnits();
+    draftLength = !draftInherited && cfg.steps ? cfg.steps.length / cfg.subdivision : (preset(cfg.type) && preset(cfg.type).phrase && current.scope==='section' && scopeUnits()*2*cfg.subdivision<=MAX_STEPS ? scopeUnits()*2 : scopeUnits());
     selectedStep = null;
     if (cfg.steps) draft.steps = cfg.steps.map(function (v) { return Array.isArray(v) ? v.slice() : v; });
     if (presetGenre) { var p = preset(cfg.type); presetGenre.value = p && p.genre || ''; }
@@ -50662,17 +50712,17 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   function pickIndex(type){var n=({Intro:0,Verse:1,PreChorus:2,Chorus:3,Bridge:2,Solo:1,Outro:4,Custom:1})[type];return n===undefined ? 1 : n;}
   function genreName(id){var g=A().styles().find(function(x){return x.id===id;});return g?g.label:'';}
   function makePattern(sec,first,second){
-    var acc=A(), idx=pickIndex(sec.type), id='family-'+first+'-'+idx, p=acc.preset(id);
+    var acc=A(), idx=pickIndex(sec.type), id='perform-'+first+'-'+idx, p=acc.preset(id);
     if (!p) return null;
     var ts=tsOf(sec), beats=Math.max(1,Math.min(32,parseInt(ts,10)||4));
-    var base=acc.buildSteps(id,2,beats), accent=second && acc.preset('family-'+second+'-'+idx);
+    var base=acc.buildSteps(id,2,beats), accent=second && acc.preset('perform-'+second+'-'+idx);
     if (accent) {
       var other=acc.buildSteps(accent.id,2,beats), compound=/^(6|9|12)\/8$/.test(ts), original=base.slice();
       // Если выбранные варианты полностью совпали, выбираем соседний вариант
       // дополнительного жанра, не подменяя жанр и не вводя случайность.
       if (other.every(function(v,i){return JSON.stringify(v)===JSON.stringify(original[i]);})) {
         for (var k=1;k<=4;k++) {
-          var alternate=acc.preset('family-'+second+'-'+((idx+k)%5));
+          var alternate=acc.preset('perform-'+second+'-'+((idx+k)%5));
           if (!alternate) continue;
           var candidate=acc.buildSteps(alternate.id,2,beats);
           if (candidate.some(function(v,i){return JSON.stringify(v)!==JSON.stringify(original[i]);})) {accent=alternate;other=candidate;break;}
@@ -50681,7 +50731,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       // Основной жанр занимает большую часть такта; последний бит (в 6/8 —
       // последняя тройка) берём из дополнительного жанра.
       var lastGroup=Math.ceil(beats/(compound ? 3 : 1))-1;
-      base=base.map(function(v,i){var group=compound ? Math.floor(i/6) : Math.floor(i/2);return group===lastGroup ? other[i] : v;});
+      base=base.map(function(v,i){var pos=i%(beats*2), group=compound ? Math.floor(pos/6) : Math.floor(pos/2);return group===lastGroup ? other[i] : v;});
       // Если на последней группе краска совпала, заменяем один отличный шаг.
       if (base.every(function(v,i){return JSON.stringify(v)===JSON.stringify(original[i]);})) {
         var diff=other.findIndex(function(v,i){return JSON.stringify(v)!==JSON.stringify(original[i]);});
@@ -81240,7 +81290,7 @@ toggleTimeAndBeats();
                 if (stats.notes >= MAX_NOTES) return;
                 var p = Math.round(Number(midi));
                 if (!Number.isFinite(p) || p < 0 || p > 127) { stats.outOfRange++; return; }
-                var n = { start: round4(at), dur: round4(dur), pitch: p, velocity: velocityOf(track) };
+                var n = { start: round4(at), dur: round4(dur), pitch: p, velocity: Math.max(1,Math.min(127,Math.round(velocityOf(track)*(Number.isFinite(step.gain)?step.gain:1)))) };
                 list.push(n); stats.notes++;
                 if (gp5) {
                   var pos = gp5Position(p);
