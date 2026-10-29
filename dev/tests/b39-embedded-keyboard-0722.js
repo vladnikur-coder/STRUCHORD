@@ -46,14 +46,16 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
    await page.setViewport({width,height:900});
    for(const size of [25,61,88]) {
     await page.select('#b39KeysTrackSize',String(size));
+    await page.click('#b39KeysSettingsToggle');
     const m=await page.evaluate(()=>{const p=document.querySelector('#b39KeysPanel'),body=p.querySelector('.b39-keys-body'),svg=body.querySelector('svg'),r=svg.getBoundingClientRect(), key=svg.querySelector('rect'),bar=document.querySelector('.transport-bar'),section=document.querySelector('#sectionsContainer');return {page:document.documentElement.scrollWidth,view:innerWidth,panel:p.getBoundingClientRect().toJSON(),bar:bar.getBoundingClientRect().bottom,section:section.getBoundingClientRect().top,body:body.clientWidth,scroll:body.scrollWidth,key:key.getBoundingClientRect().width,svg:r.width};});
     assert(m.page<=m.view+1,`страница ${width}/${size} без бокового переполнения (${m.page})`);
     assert(m.panel.width<=m.view,`панель в потоке ${width}/${size}`);
     assert(m.key>=18,`клавиши читаемого размера ${width}/${size}: ${m.key}`);
     if(width<=390 && size>=61)assert(m.scroll>m.body,`длинную клавиатуру можно прокрутить ${width}/${size}`);
+    await page.click('#b39KeysSettingsToggle');
    }
   }
-  await page.setViewport({width:390,height:900}); await page.select('#b39KeysTrackSize','88');
+  await page.setViewport({width:390,height:900}); await page.select('#b39KeysTrackSize','88'); await page.click('#b39KeysSettingsToggle');
   const scroll=await page.evaluate(()=>{const b=document.querySelector('.b39-keys-body');b.scrollLeft=0;const left=b.scrollLeft; b.scrollLeft=b.scrollWidth;const right=b.scrollLeft;StruChordKeys.render();return {left,right,after:b.scrollLeft,max:b.scrollWidth-b.clientWidth};});
   assert.equal(scroll.left,0);assert(scroll.right>0);assert.equal(scroll.after,scroll.right,'перерисовка не сбрасывает ручную прокрутку');
   // Размер по-прежнему сохраняется для всей дорожки и отменяется историей.
