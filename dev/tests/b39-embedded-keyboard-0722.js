@@ -18,7 +18,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   let layout=await page.evaluate(()=>{const p=document.querySelector('#b39KeysPanel'),bar=document.querySelector('.transport-bar'),s=document.querySelector('#sectionsContainer');return {next:bar.nextElementSibling===p,position:getComputedStyle(p).position,bar:bar.getBoundingClientRect().bottom,panel:p.getBoundingClientRect().toJSON(),section:s.getBoundingClientRect().top,title:p.querySelector('.b39-keys-title').textContent,context:p.querySelector('.b39-keys-context').textContent};});
   assert(layout.next && layout.position==='static' && layout.panel.top>=layout.bar && layout.section>=layout.panel.bottom,'панель находится под транспортом и перед песней');
   assert.match(layout.title,/C/);assert.match(layout.context,/Клавиши.*Куплет.*ячейка 1/);
-  assert(await page.$('[aria-label="Размер клавиатуры песни"]'));assert(await page.$('[aria-label="Размер клавиатуры дорожки"]'));
+  assert.equal(await page.$('[aria-label="Размер клавиатуры песни"]'), null);assert(await page.$('[aria-label="Размер клавиатуры дорожки"]'));
   // Настоящее нажатие по ячейке (включая двойное) изменяет контекст, не чужие дорожки.
   await page.click('.chord-wrapper[data-ei="1"]',{clickCount:2,delay:60}); await wait(100);
   let pos=await page.evaluate(()=>StruChordKeys.last()); assert.equal(pos.chord,'G');assert(pos.cellKey.endsWith(':1'));
@@ -38,7 +38,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   // Настройки всей дорожки остаются независимы от секций и других дорожек.
   await page.select('#b39KeysTrackSize','49'); assert.equal((await page.evaluate(()=>StruChordTracks.track(1))).keyboardSize,49);
   assert.equal((await page.evaluate(id=>StruChordTracks.track(id),other)).keyboardSize,null);
-  await page.select('#b39KeysTrackSize','');
+  await page.evaluate(()=>StruChordTracks.setTrackKeyboardSize(1,null));
   // Режимы размера, вкл. 88: ширина страницы не растёт, ноты не сплющиваются.
   for(const width of [320,390,768,1440]) {
    await page.setViewport({width,height:900});
