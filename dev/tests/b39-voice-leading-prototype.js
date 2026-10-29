@@ -1,0 +1,10 @@
+'use strict';
+const assert = require('assert');
+const { motionCost, rankCandidates } = require('../prototypes/voice-leading');
+assert.equal(motionCost([60, 64, 67], [60, 65, 69]), 3);
+assert.equal(motionCost([60, 64, 67], [60, 64]), 12);
+assert.equal(motionCost([], [60, 64, 67]), 36);
+assert.equal(motionCost([67, 60, 64, 60], [60, 64, 67]), 0);
+assert.deepStrictEqual(rankCandidates([60,64,67], [[72,76,79], [60,65,69], [60,65,69]]).map(x=>x.index), [1,2,0]);
+assert.throws(() => motionCost(Array.from({length:9},(_,i)=>60+i), []), RangeError);
+console.log('Прототип голосоведения: OK');
