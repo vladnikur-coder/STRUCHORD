@@ -15,7 +15,8 @@ const puppeteer = require('puppeteer');
   const step=i=>page.click(`#b39AccSteps [data-step="${i}"]`);
   const snapshot=()=>page.evaluate(()=>StruChordTracks.state().tracks[0].patterns);
   await open();
-  // Сначала создаём короткий повторяющийся рисунок и выбираем сочетание.
+  // Явно выбираем прежний повторяющийся пресет перед сокращением.
+  await page.click('#b39AccPanel [data-preset="keys-block"]');
   page.once('dialog',d=>d.accept()); await page.click('#b39AccLength [data-length="2"]');
   await step(0); await choose('H'); await choose('B'); await choose('t3');
   assert.equal(await page.$eval('#b39AccStepChoice [data-token="B"]',e=>e.getAttribute('aria-pressed')),'true');

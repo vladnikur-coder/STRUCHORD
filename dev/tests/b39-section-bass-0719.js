@@ -11,7 +11,7 @@ const assert=require('assert'), puppeteer=require('puppeteer');
  const run=(role, token)=>{T.setBassRole(1,s.id,role);return A.plan({trackId:1,sec:s,sq,ev,ei:0,chord:'C/E',key:'C',range,notes,span:1,dur:1,ts:'4/4',pattern:{type:'keys-block',subdivision:1,steps:[token]},patternSource:'cell',noHighlight:true})[0].notes;};
  return {legacy:run('legacy','H'),off:run('nobass','H'),bass:run('nobass','B'),oct:run('nobass','O'),mix:run('nobass',['B','H']),auto:run('auto','H'),on:run('bass','H')};},ids);
  assert.deepStrictEqual(r.legacy,[40,60,64,67]);assert.deepStrictEqual(r.off,[60,64,67]);assert.deepStrictEqual(r.bass,[]);assert.deepStrictEqual(r.oct,[]);assert.deepStrictEqual(r.mix,r.off);assert.deepStrictEqual(r.auto,r.off);assert.deepStrictEqual(r.on,r.legacy);
- await page.evaluate(id=>{StruChordTracks.setBassRole(1,id,'legacy');openStrumPatternEditor('section',id);},intro);
+ await page.evaluate(id=>{StruChordTracks.setBassRole(1,id,'legacy');StruChordKeys.open();if(document.getElementById('b39KeysSettings').hidden)document.getElementById('b39KeysSettingsToggle').click();},intro);
  await page.click('#b39AutoOpen');assert.match(await page.$eval('#b39AutoPlan',e=>e.textContent),/Бас: авто \(без баса\)/);
  await page.select(`[data-bass-sec="${intro}"]`,'auto');await page.select(`[data-bass-sec="${chorus}"]`,'bass');await page.click('#b39AutoApply');
  let state=await page.evaluate(()=>StruChordTracks.state());assert.equal(state.tracks[0].bassRoles[intro],'auto');assert.equal(state.tracks[0].bassRoles[chorus],'bass');
