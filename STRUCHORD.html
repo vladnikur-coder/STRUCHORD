@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.746</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.747</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32524,7 +32524,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     openPanel();
     var r = panel.getBoundingClientRect();
     var bar = btn.closest('.transport-bar'), bottom = bar ? bar.getBoundingClientRect().bottom : 0;
-    if (r.top < bottom || r.top > (HOST.innerHeight || 600) * 0.8) panel.scrollIntoView({block:'start'});
+    if (r.top < bottom || r.bottom > (HOST.innerHeight || 600)) panel.scrollIntoView({block:'start'});
   }
 
   function stepVariant(delta) {
@@ -32572,20 +32572,16 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     }
     lastChord = chord || null; lastTrackId = active.track.id;
     contextEl.textContent = panelContext(active.track, cell); contextEl.title = contextEl.textContent; settingsContext.textContent = contextEl.textContent;
-    panel.classList.toggle('has-keyboard', !!chord);
-    if (!chord) {
-      titleEl.textContent = 'Клавиатура';
-      body.innerHTML = '<div class="b39-keys-foot">' + (cell ? 'В этой ячейке нет аккорда активной дорожки.' : 'На активной дорожке пока нет аккордов.') + '</div>';
-      countEl.textContent = '—'; foot.textContent = ''; bassEl.textContent = ''; lastVisibleContext = null;
-      return;
-    }
-    var variants = generateKeysVoicings(chord, panelKey(), range, null, {});
+    // Диапазон дорожки виден всегда, даже без секций или в пустой ячейке.
+    // Без аккорда отображаем те же клавиши, но без подсветки и баса.
+    panel.classList.add('has-keyboard');
+    var variants = chord ? generateKeysVoicings(chord, panelKey(), range, null, {}) : [];
     var idx = variantIndex(active.track.id, chord, lastCellKey) % Math.max(1, variants.length);
-    var selected=linkedSelection(active.track.id,lastCellKey);
+    var selected=chord ? linkedSelection(active.track.id,lastCellKey) : null;
     var notes = selected && selected.chord===chord ? selected.notes.slice() : (variants.length ? variants[idx] : []);
     var acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(lastCellKey);
     if(acc && sec)notes=acc.stripBass(active.track.id,sec,notes);
-    var f = F.chordFormula(chord, panelKey());
+    var f = chord ? F.chordFormula(chord, panelKey()) : null;
     var whiteW = resizedWhiteWidth === null ? 28 : resizedWhiteWidth;
     var fingersVisible = showFingersEnabled();
     if (fingersVisible !== keyboardFingers) { keyboardFingers = fingersVisible; syncStickyOffset(); }
@@ -32600,10 +32596,10 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       panel.style.setProperty('--b39-resize-width', 'max(14rem, calc(' + (res.width / 16) + 'rem + 1.425rem))');
     }
     renderedRange = rangeKey;
-    titleEl.textContent = chord;
+    titleEl.textContent = chord || 'Клавиатура';
     var oldScroll = body.scrollLeft;
     body.innerHTML = res.svg;
-    var svg = body.querySelector('svg'); if (svg) svg.style.width = (res.width / 16) + 'rem';
+    var svg = body.querySelector('svg'); if (svg) { svg.style.width = (res.width / 16) + 'rem'; if (!chord) svg.setAttribute('aria-label', 'Клавиатура без выбранного аккорда'); }
     var visibleContext = active.track.id + '|' + lastCellKey;
     if (lastVisibleContext !== visibleContext && body.scrollWidth > body.clientWidth) {
       var hand = notes.length > 1 ? notes.slice(1) : notes;
@@ -32614,10 +32610,10 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     }
     else if (lastVisibleContext === visibleContext) body.scrollLeft = oldScroll;
     lastVisibleContext = visibleContext;
-    countEl.textContent = selected && selected.chord===chord ? (selected.limited ? 'Обычная' : selected.manual ? 'Ручная' : 'Авто') : (idx + 1) + '/' + Math.max(1, variants.length);
+    countEl.textContent = !chord ? '—' : selected && selected.chord===chord ? (selected.limited ? 'Обычная' : selected.manual ? 'Ручная' : 'Авто') : (idx + 1) + '/' + Math.max(1, variants.length);
     var bass = (!sec || !acc || acc.bassPolicy(active.track.id,sec).include) && notes.length ? notes[0] : null;
     var footParts = [];
-    if (showFingersEnabled()) footParts.push('цифры условны, это не аппликатура');
+    if (chord && showFingersEnabled()) footParts.push('цифры условны, это не аппликатура');
     bassEl.textContent = bass !== null ? '· бас ' + noteLabel(bass, f ? f.keyStyle : 'sharp') : '';
     settingsContext.textContent = contextEl.textContent + (bassEl.textContent ? ' ' + bassEl.textContent : '');
     if (body.scrollWidth > body.clientWidth) footParts.push('↔ прокрутка клавиш');
