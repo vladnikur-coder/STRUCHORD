@@ -16,10 +16,11 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   await page.click('#b39KeysBtn');
   assert.equal(await page.evaluate(()=>JSON.stringify(StruChordTracks.exportForSave())),before,'открытие не меняет данные песни');
   let layout=await page.evaluate(()=>{const p=document.querySelector('#b39KeysPanel'),bar=document.querySelector('.transport-bar'),s=document.querySelector('#sectionsContainer');return {next:bar.nextElementSibling===p,position:getComputedStyle(p).position,bar:bar.getBoundingClientRect().bottom,panel:p.getBoundingClientRect().toJSON(),section:s.getBoundingClientRect().top,title:p.querySelector('.b39-keys-title').textContent,context:p.querySelector('.b39-keys-context').textContent};});
-  assert(layout.next && layout.position==='static' && layout.panel.top>=layout.bar && layout.section>=layout.panel.bottom,'панель находится под транспортом и перед песней');
+  assert(layout.next && layout.position==='sticky' && layout.panel.top>=layout.bar && layout.section>=layout.panel.bottom,'панель находится под транспортом и перед песней');
   assert.match(layout.title,/C/);assert.match(layout.context,/Клавиши.*Куплет.*ячейка 1/);
   assert.equal(await page.$('[aria-label="Размер клавиатуры песни"]'), null);assert(await page.$('[aria-label="Размер клавиатуры дорожки"]'));
   // Настоящее нажатие по ячейке (включая двойное) изменяет контекст, не чужие дорожки.
+  await page.evaluate(()=>document.querySelector('.chord-wrapper[data-ei="1"]').scrollIntoView({block:'end'}));
   await page.click('.chord-wrapper[data-ei="1"]',{clickCount:2,delay:60}); await wait(100);
   let pos=await page.evaluate(()=>StruChordKeys.last()); assert.equal(pos.chord,'G');assert(pos.cellKey.endsWith(':1'));
   const other=await page.evaluate(()=>{let T=StruChordTracks,s=sections[0],q=s.squares[0],id=T.addTrack('keys');T.setTrackChord(id,T.cellKey(s,q,1),'Am');return id;});
@@ -46,7 +47,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
     await page.select('#b39KeysTrackSize',String(size));
     const m=await page.evaluate(()=>{const p=document.querySelector('#b39KeysPanel'),body=p.querySelector('.b39-keys-body'),svg=body.querySelector('svg'),r=svg.getBoundingClientRect(), key=svg.querySelector('rect'),bar=document.querySelector('.transport-bar'),section=document.querySelector('#sectionsContainer');return {page:document.documentElement.scrollWidth,view:innerWidth,panel:p.getBoundingClientRect().toJSON(),bar:bar.getBoundingClientRect().bottom,section:section.getBoundingClientRect().top,body:body.clientWidth,scroll:body.scrollWidth,key:key.getBoundingClientRect().width,svg:r.width};});
     assert(m.page<=m.view+1,`страница ${width}/${size} без бокового переполнения (${m.page})`);
-    assert(m.panel.width<=m.view && m.section>=m.panel.bottom,`панель в потоке ${width}/${size}`);
+    assert(m.panel.width<=m.view,`панель в потоке ${width}/${size}`);
     assert(m.key>=18,`клавиши читаемого размера ${width}/${size}: ${m.key}`);
     if(width<=390 && size>=61)assert(m.scroll>m.body,`длинную клавиатуру можно прокрутить ${width}/${size}`);
    }

@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.723</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.724</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31731,6 +31731,9 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
   .transport-btn.b39-btn { justify-content: center; }
 }
 .b39-keys-panel { box-sizing: border-box; min-width: 0; width: 100%; margin: 0 0 1.25rem;
+  position: sticky; top: calc(.9rem + var(--b39-keys-stack, 0px)); z-index: 59;
+  max-height: max(3rem, min(60vh, calc(100vh - var(--b39-keys-stack, 0px) - 4rem)));
+  overflow-y: auto; overscroll-behavior-y: contain;
   background: var(--color-surface, #fff); color: var(--color-text-primary, #1b1b1b);
   border: .0625rem solid var(--color-border-medium, #c9cdd4); border-radius: .875rem;
   box-shadow: var(--shadow-card); padding: .85rem; scroll-margin-top: 8rem; }
@@ -31755,7 +31758,7 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
 .b39-keys-body svg.b39-keys-svg { display: block; width: 100%; height: auto; max-width: none; }
 .b39-keys-link { display:block; margin: .4rem 0; font-size:.8rem; }
 .b39-keys-reset { margin: .25rem 0 .5rem; min-height: 2.5rem; padding:.4rem .7rem; border:.0625rem solid var(--color-border-medium); border-radius:.5rem; background:var(--color-surface); color:inherit; font:inherit; font-size:.8rem; cursor:pointer; }
-.b39-keys-foot { margin-top: .45rem; font-size: .75rem; line-height: 1.4;
+.b39-keys-foot { margin: .45rem 0 .65rem; font-size: .75rem; line-height: 1.4;
   color: var(--color-text-secondary, #666); }
 @media (max-width: 640px) {
   .b39-keys-controls { grid-template-columns: repeat(2, minmax(0, 1fr)); }
@@ -32224,10 +32227,22 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     linkedToggle.addEventListener('change',function(){var T=tracks(),a=activeTrack();if(T && a)T.setLinkedVoicings(a.track.id,linkedToggle.checked);renderPanel();});
     autoChoiceBtn=el('button','b39-keys-reset','Сбросить выбор позиции');autoChoiceBtn.type='button';autoChoiceBtn.id='b39LinkedReset';autoChoiceBtn.title='Вернуть авто для этого аккорда и текущей ячейки';
     autoChoiceBtn.addEventListener('click',function(){var T=tracks(),a=activeTrack();if(!T || !a || !lastChord)return;if(!HOST.confirm('Сбросить ручную позицию этого аккорда на всей дорожке и в текущей ячейке?'))return;variantState.delete(a.track.id+'|'+lastChord);T.clearVoicingChoice(a.track.id,lastChord,lastCellKey);renderPanel();});
-    panel.appendChild(head);panel.appendChild(controls);panel.appendChild(linkRow);panel.appendChild(autoChoiceBtn);panel.appendChild(body);panel.appendChild(foot);
+    panel.appendChild(head);panel.appendChild(body);panel.appendChild(foot);panel.appendChild(controls);panel.appendChild(linkRow);panel.appendChild(autoChoiceBtn);
     var transport = doc.querySelector('.transport-bar');
     if (transport && transport.parentNode) transport.parentNode.insertBefore(panel, transport.nextSibling);
     else doc.body.appendChild(panel);
+    // Меняются высота транспорта, размер экрана и закреплённая аппликатура.
+    // ResizeObserver не вызывается на pointermove и срабатывает только при изменении размеров.
+    if (transport && typeof HOST.ResizeObserver === 'function') {
+      var stackObserver = new HOST.ResizeObserver(syncStickyOffset);
+      stackObserver.observe(transport);
+      var pinnedRow = doc.getElementById('pinnedRow'); if (pinnedRow) stackObserver.observe(pinnedRow);
+    }
+    if (doc.body && typeof HOST.MutationObserver === 'function') {
+      new HOST.MutationObserver(syncStickyOffset).observe(doc.body, {attributes:true, attributeFilter:['class']});
+    }
+    HOST.addEventListener('resize', syncStickyOffset);
+    syncStickyOffset();
 
     var mixerBtn = doc.getElementById('b39MixerBtn');
     var anchor = doc.getElementById('transportDockHint');
@@ -32238,10 +32253,22 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
       if (e.key === 'Escape' && panel && !panel.hidden) closePanel();
     });
   }
+  function syncStickyOffset() {
+    if (!panel) return;
+    var bar = doc.querySelector('.transport-bar'), row = doc.getElementById('pinnedRow');
+    if (!bar) return;
+    var stack = bar.offsetHeight;
+    if (row && doc.body.classList.contains('has-pinned-fingering') &&
+        !doc.body.classList.contains('is-timeline') && row.style.display !== 'none') {
+      stack += row.offsetHeight + (parseFloat(HOST.getComputedStyle(doc.documentElement).fontSize) || 16) * 0.625;
+    }
+    var value = stack + 'px';
+    if (panel.style.getPropertyValue('--b39-keys-stack') !== value) panel.style.setProperty('--b39-keys-stack', value);
+  }
   function openPanel() {
     if (!panel) return;
     if (HUB) HUB.opened('keys');
-    panel.hidden = false; btn.setAttribute('aria-pressed', 'true'); renderPanel();
+    panel.hidden = false; btn.setAttribute('aria-pressed', 'true'); renderPanel(); syncStickyOffset();
     if (typeof HOST.updatePinnedShift === 'function') HOST.updatePinnedShift();
   }
   function closePanel() {
