@@ -18,11 +18,10 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   assert(second.bottom<=height-20,`остаётся видимая часть песни ${width}x${height}`);
   assert(second.kbTop>=second.top && second.kbTop<second.bottom-30,`клавиши видны ${width}x${height}`);
   assert(second.pageWidth<=second.viewWidth+1,`страница не прокручивается горизонтально ${width}x${height}`);
-  // Настройки раскрываются и доступны внутренней прокруткой.
+  // Настройки раскрываются целиком без внутренней прокрутки.
   await page.click('#b39KeysSettingsToggle');
-  await page.evaluate(()=>{const panel=document.querySelector('#b39KeysPanel');panel.scrollTop=panel.scrollHeight;});
   const ctrl=await page.$eval('#b39KeysTrackSize',e=>{const p=document.querySelector('#b39KeysPanel'),r=e.getBoundingClientRect(),pr=p.getBoundingClientRect();return {top:r.top,bottom:r.bottom,ptop:pr.top,pbottom:pr.bottom}});
-  assert(ctrl.bottom<=ctrl.pbottom+1 && ctrl.top>=ctrl.ptop-1,`управление доступно в панели ${width}x${height}`);
+  assert(ctrl.bottom<=ctrl.pbottom+1 && ctrl.top>=ctrl.ptop-1,`управление видно в панели ${width}x${height}`);
   await page.select('#b39KeysTrackSize','49'); assert.equal((await page.evaluate(()=>StruChordTracks.track(1))).keyboardSize,49);
   // Высота плеера на мобильном меняется после «Ещё», отступ панели должен обновиться.
   if(width<=640){await page.evaluate(()=>document.querySelector('#btnTransportMore').click());await wait(250);const expanded=await measure();assert(expanded.top>=expanded.barBottom-1,`развёрнутый плеер не перекрывает панель ${width}`);}
