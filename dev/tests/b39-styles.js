@@ -9,7 +9,7 @@ const assert=require('assert'), puppeteer=require('puppeteer');
  await page.evaluate(()=>openStrumPatternEditor('section',sections[0].id));
  assert.equal(await page.$eval('#b39AccGenre',e=>e.value),'');
  await page.select('#b39AccGenre','blues');
- let visible=await page.$$eval('#b39AccPanel .b39-acc-preset',es=>es.filter(e=>!e.hidden).map(e=>e.dataset.preset));assert.deepStrictEqual(visible,['style-blues-0','style-blues-1','style-blues-2']);
+ let visible=await page.$$eval('#b39AccPanel .b39-acc-preset',es=>es.filter(e=>!e.hidden).map(e=>e.dataset.preset));assert.deepStrictEqual(visible,['style-blues-0','style-blues-1','style-blues-2','family-blues-0','family-blues-1','family-blues-2','family-blues-3','family-blues-4']);
  await page.click('[data-preset="style-blues-0"]');assert.equal(await page.$eval('#b39AccSwing',e=>e.getAttribute('aria-pressed')),'true');
  await page.click('#b39AccSave');const saved=await page.evaluate(()=>Object.values(StruChordTracks.state().tracks[0].patterns)[0]);assert.equal(saved.type,'style-blues-0');assert.equal(saved.swing,true);
  const restored=await page.evaluate(()=>{const T=StruChordTracks,raw={sections:JSON.parse(JSON.stringify(sections)),...T.exportForSave()};return T.attach(raw,raw).tracks[0].patterns;});assert.equal(Object.values(restored)[0].type,'style-blues-0');
