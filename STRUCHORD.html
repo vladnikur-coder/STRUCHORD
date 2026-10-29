@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.750</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.751</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20345,6 +20345,9 @@ let activeSectionKey = null;
         mute: raw.mute === true, solo: raw.solo === true,
         chords: sanitizeMap(raw.chords, validKeys, function (v) { return normalizeChordValue(v, song); }),
         voicings: sanitizeMap(raw.voicings, validKeys, function (v) {
+          if (b39IsObj(v) && typeof v.chord === 'string' && /^[A-G][#b]?/.test(v.chord) && Array.isArray(v.notes) && v.notes.length >= 1 && v.notes.length <= 88 && v.notes.every(function(n){return Number.isInteger(n) && n >= 0 && n <= 127;})) {
+            return {chord:v.chord.slice(0,B39_LIMITS.MAX_CHORD), notes:Array.from(new Set(v.notes)).sort(function(a,b){return a-b;})};
+          }
           var n = Number(v); return Number.isInteger(n) && n >= 0 && n <= 99 ? n : null;
         }, true),
         patterns: sanitizeMap(raw.patterns, validKeys, patternValue, false, true),
@@ -20553,6 +20556,7 @@ let activeSectionKey = null;
     if (!t || !/^\d+:\d+:\d+$/.test(String(key))) return false;
     var cleaned = chord === null || chord === '' ? null : normalizeChordValue(String(chord), { globalKey: currentKey() });
     return dispatch('b39/track-chord', function () {
+      if (t.voicings[key] && typeof t.voicings[key] === 'object' && !sameChord(t.voicings[key].chord,cleaned)) delete t.voicings[key];
       if (isMain(id)) {
         var f = findEvent(key, null);
         if (!f) return false;
@@ -20563,6 +20567,34 @@ let activeSectionKey = null;
         delete t.chords[key];                       // пусто -> призрачная подсказка
       }
       return true;
+    });
+  }
+  function sameChord(a, b) {
+    function canonical(x) { return String(x || '').replace(/[♯]/g,'#').replace(/[♭]/g,'b').replace(/(^|\/)([A-G][#b]?)/g,function(_,sep,n){return sep + ((typeof FLAT_TO_SHARP !== 'undefined' && FLAT_TO_SHARP[n]) || n);}); }
+    return canonical(a) === canonical(b);
+  }
+  function exactNotes(id, key, chord) {
+    var t=findTrack(id), v=t && t.voicings && t.voicings[key];
+    return t && t.instrument==='keys' && v && Array.isArray(v.notes) && sameChord(v.chord,chord) ? v.notes.slice() : null;
+  }
+  function setExactNotes(id, key, chord, notes) {
+    var t=findTrack(id), f=findEvent(key,null);
+    if (!t || t.instrument!=='keys' || !f || !sameChord(trackChord(id,key,f.ev),chord) || !Array.isArray(notes) || !notes.length || notes.length>88 || !notes.every(function(n){return Number.isInteger(n) && n>=0 && n<=127;})) return false;
+    return dispatch('b39/exact-notes',function(){t.voicings[key]={chord:chord,notes:Array.from(new Set(notes)).sort(function(a,b){return a-b;})};return true;});
+  }
+  function clearExactNotes(id,key) {
+    var t=findTrack(id),v=t && t.voicings && t.voicings[key];
+    if(!v || !Array.isArray(v.notes))return false;
+    return dispatch('b39/clear-exact-notes',function(){delete t.voicings[key];return true;});
+  }
+  function moveMainExactNotes(st, sectionId) {
+    var t=mainTrack(); if(!t || t.instrument!=='keys' || !st)return;
+    Object.keys(t.voicings).forEach(function(k){
+      if(!/^\d+:\d+:\d+$/.test(k) || (sectionId!=null && String(k).split(':')[0]!==String(sectionId)))return;
+      var v=t.voicings[k], f=findEvent(k,null);
+      if(!v || !Array.isArray(v.notes) || !f || !sameChord(transposeChord(v.chord,st),f.ev.chord))return;
+      var moved=v.notes.map(function(n){return n+st;});
+      if(moved.every(function(n){return n>=0 && n<=127;})){v.notes=moved;v.chord=f.ev.chord;}
     });
   }
   function setVoicing(id, key, index) {
@@ -20748,6 +20780,7 @@ let activeSectionKey = null;
     setMute: setMute, setSolo: setSolo,
     setKeyboardSize: setKeyboardSize, setTrackKeyboardSize: setTrackKeyboardSize,
     setTrackChord: setTrackChord, setVoicing: setVoicing, setPattern: setPattern,
+    exactNotes:exactNotes, setExactNotes:setExactNotes, clearExactNotes:clearExactNotes, moveMainExactNotes:moveMainExactNotes,
     patternFor: patternFor, clearPattern: clearPattern, setAutoAccomp: setAutoAccomp,
     bassRole:bassRole, setBassRole:setBassRole, cloneBassRoles:cloneBassRoles, removeBassRoles:removeBassRoles,
     setLinkedVoicings:setLinkedVoicings, clearVoicingChoice:clearVoicingChoice,
@@ -31762,6 +31795,15 @@ html.b39-keys-mode .tl-fing-controls { display: none !important; }
 .b39-keys-resize::after { content:''; position:absolute; background:var(--color-text-secondary, #666); opacity:.48; border-radius:1rem; }
 .b39-keys-resize--left::after, .b39-keys-resize--right::after { width:.15rem; height:1.7rem; left:calc(50% - .075rem); top:calc(50% - .85rem); }
 .b39-keys-resize--bottom::after { height:.15rem; width:2rem; top:calc(50% - .075rem); left:calc(50% - 1rem); }
+.b39-note-input { contain:inline-size; display:flex; flex-wrap:wrap; align-items:center; gap:.3rem; margin:.3rem 0; font-size:.8rem; }
+.b39-note-input[hidden] { display:none; }
+.b39-note-input select, .b39-note-input input, .b39-note-input button, .b39-input-start { font:inherit; color:inherit; background:var(--color-surface); border:.0625rem solid var(--color-border-medium); border-radius:.45rem; padding:.3rem .45rem; }
+.b39-note-input input { width:8rem; min-width:6rem; }
+.b39-note-input select { width:auto; flex:1 1 8rem; }
+.b39-note-input button, .b39-input-start { cursor:pointer; }
+.b39-note-input .b39-note-apply { background:var(--color-accent); color:white; }
+.b39-note-info { color:var(--color-text-secondary); flex:1 1 100%; }
+.b39-keys-panel.is-note-input .b39-keys-nav { display:none; }
 .b39-keys-head { display:flex; align-items:center; gap:.3rem; flex-wrap:wrap; margin-bottom:.1rem; }
 .b39-keys-identity { display:flex; align-items:baseline; gap:.45rem; flex:1 1 6rem; min-width:0; }
 .b39-keys-title { font-size: 1rem; font-weight: 700; flex:0 0 auto; }
@@ -31837,6 +31879,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   var hoverBaseKey = null, hoverActive = false, hoverTimer = null;
   var variantState = new Map();       // 'trackId|chord' -> индекс (runtime-кэш)
   var linkedCache = new Map(), linkedToggle = null, autoChoiceBtn = null;
+  var selectedCellKey = null, noteDraft = null, noteBar = null, noteName = null, noteCandidates = null, noteInfo = null, noteStart = null;
 
   function tracks() { return HOST.StruChordTracks || null; }
   function formula() { return HOST.StruChordFormula || null; }
@@ -32008,7 +32051,9 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     while(cache.next<cache.events.length && cache.next<2048 && !cache.entries[cell]){
       var e=cache.events[cache.next++], chord=T.trackChord(trackId,e.cell,e.ev);
       if(!chord){cache.entries[e.cell]={empty:true};continue;}
-      var key=sec.key || currentKey(), manual=t.voicings['v:'+chord];
+      var key=sec.key || currentKey(), exact=T.exactNotes(trackId,e.cell,chord);
+      if(exact){cache.prev=exact.slice();cache.entries[e.cell]={chord:chord,notes:exact.slice(),manual:true,exact:true};continue;}
+      var manual=t.voicings['v:'+chord];
       if(!Number.isInteger(manual))manual=t.voicings[e.cell];
       var variants=generateKeysVoicings(chord,key,cache.range,cache.prev,{}), notes=null;
       if(Number.isInteger(manual) && variants.length)notes=variants[manual%variants.length];
@@ -32020,6 +32065,8 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     // схема, звук и экспорт должны совпадать даже в длинной секции.
     if(!cache.entries[cell] && cache.indexes[cell]>=2048){
       var far=cache.events[cache.indexes[cell]], name=T.trackChord(trackId,cell,far.ev);
+      var exactFar=T.exactNotes(trackId,cell,name);
+      if(exactFar) return {chord:name,notes:exactFar,manual:true,exact:true};
       var vi=t.voicings['v:'+name];if(!Number.isInteger(vi))vi=t.voicings[cell];
       var fallback=generateKeysVoicings(name,sec.key||currentKey(),cache.range,null,{});
       if(fallback.length)cache.entries[cell]={chord:name,notes:fallback[(Number.isInteger(vi)?vi:0)%fallback.length].slice(),manual:Number.isInteger(vi),index:vi,count:fallback.length,limited:true};
@@ -32049,6 +32096,61 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     if (T && typeof T.setVoicingForChord === 'function') T.setVoicingForChord(trackId, chord, next);
     else if (T && cellKey && typeof T.setVoicing === 'function') T.setVoicing(trackId, cellKey, next);
     return next;
+  }
+
+  // Явный ввод отдельно от обычного прослушивания; до подтверждения модель не трогаем.
+  function recognizeInput(notes) {
+    if(notes.length<2 || typeof buildChordName!=='function') return [];
+    var pcs=Array.from(new Set(notes.map(mod12))), bass=mod12(Math.min.apply(null,notes));
+    var names=['C','C#','D','D#','E','F','F#','G','G#','A','A#','B'], out=[];
+    pcs.slice().sort(function(a,b){return (a===bass?-1:b===bass?1:a-b);}).forEach(function(root){
+      var ints=pcs.map(function(pc){return mod12(pc-root);}).sort(function(a,b){return a-b;});
+      var name=buildChordName(names[root],ints);if(!name || name==='?')return;
+      if(root!==bass)name+='/'+names[bass];
+      if(typeof normalizeChordSpelling==='function') name=normalizeChordSpelling(name,panelKey());
+      if(out.indexOf(name)<0)out.push(name);
+    });
+    return out;
+  }
+  function refreshNoteBar() {
+    if(!noteBar)return; noteBar.hidden=!noteDraft;
+    if(noteStart)noteStart.hidden=!!noteDraft;
+    if(!noteDraft)return;
+    var candidates=recognizeInput(noteDraft.notes);
+    noteCandidates.innerHTML='';
+    if(!candidates.length){var none=el('option','','Не распознано');none.value='';noteCandidates.appendChild(none);}
+    candidates.forEach(function(name){var opt=el('option','',name);opt.value=name;noteCandidates.appendChild(opt);});
+    noteCandidates.disabled=!candidates.length;
+    noteName.value=candidates[0]||'';
+    noteInfo.textContent=noteDraft.notes.length ? noteDraft.notes.map(function(n){return noteLabel(n,'sharp');}).join(' · ') : 'Нажмите клавиши: повторное нажатие снимает ноту';
+  }
+  function cancelNoteInput() { noteDraft=null; if(noteBar)noteBar.hidden=true; if(noteStart)noteStart.hidden=false; if(panel)panel.classList.remove('is-note-input'); }
+  function beginNoteInput(key) {
+    var T=tracks(), active=activeTrack(), cell=panelCell(key);
+    if(!T || !active || !active.track || active.track.instrument!=='keys' || !cell) {if(HOST.showToast)HOST.showToast('Сначала выберите ячейку');return false;}
+    if(typeof playbackState!=='undefined' && playbackState.isPlaying) {if(HOST.showToast)HOST.showToast('Остановите воспроизведение');return false;}
+    if(Array.isArray(cell.ev.notes) && cell.ev.notes.length && T.state().mainTrackId===active.track.id) {if(HOST.showToast)HOST.showToast('В ячейке есть записанные ноты; сначала разберите их отдельно');return false;}
+    selectedCellKey=key; lastCellKey=key; hoverActive=false; hoverBaseKey=null;
+    noteDraft={track:active.track.id,cell:key,event:cell.ev,chord:T.trackChord(active.track.id,key,cell.ev),notes:[]};
+    openPanel();panel.classList.add('is-note-input');refreshNoteBar();renderPanel();
+    if(panel.getBoundingClientRect().bottom>(HOST.innerHeight||600))panel.scrollIntoView({block:'start'});
+    return true;
+  }
+  function applyNoteInput() {
+    var d=noteDraft,T=tracks(),active=activeTrack(),cell=d && panelCell(d.cell), name=noteName && noteName.value.trim();
+    if(!d || !cell || cell.ev!==d.event || !active || active.track.id!==d.track || T.trackChord(d.track,d.cell,cell.ev)!==d.chord) {cancelNoteInput();renderPanel();if(HOST.showToast)HOST.showToast('Ячейка изменилась, ввод отменён');return;}
+    if(!d.notes.length || !name || !/^[A-G][#b♯♭]?/.test(name)) {if(HOST.showToast)HOST.showToast('Выберите ноты и введите название аккорда');return;}
+    var chosen=d.notes.slice(), ok=false;
+    cancelNoteInput();
+    HOST.songStore.dispatch('b39/note-input',function(){
+      var before=T.trackChord(d.track,d.cell,cell.ev);
+      if(before!==name) setEventChord(cell.ev,name,{secId:cell.sec.id,sqId:cell.sq.id,ei:cell.ei});
+      var actual=T.trackChord(d.track,d.cell,cell.ev);
+      // Ворота могли отклонить замену записанных нот. Не закреплять новую форму поверх старого аккорда.
+      if(actual && (before===name || actual!==before)) ok=T.setExactNotes(d.track,d.cell,actual,chosen);
+    },{history:'atomic'});
+    lastCellKey=d.cell;renderPanel();
+    if(HOST.showToast)HOST.showToast(ok?'Аккорд и выбранные ноты добавлены':'Аккорд не изменён');
   }
 
   // ---------- Рендер клавиатуры в SVG ----------
@@ -32200,10 +32302,11 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var o = opts || {};
     var range = T.keyRange(trackId);
     var variants = generateKeysVoicings(chordName, currentKey(), range, o.prev || null, {});
-    if (!variants.length) return '';
-    var idx = variantIndex(trackId, chordName, o.cellKey) % variants.length;
+    var exact=T.exactNotes(trackId,o.cellKey,chordName);
+    if (!variants.length && !exact) return '';
+    var idx = variantIndex(trackId, chordName, o.cellKey) % Math.max(1,variants.length);
     var linked=linkedSelection(trackId,o.cellKey);
-    var notes = linked && linked.chord===chordName ? linked.notes.slice() : variants[idx], acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(o.cellKey);
+    var notes = exact || (linked && linked.chord===chordName ? linked.notes.slice() : variants[idx]), acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(o.cellKey);
     if(acc && sec)notes=acc.stripBass(trackId,sec,notes);
     var f = F.chordFormula(chordName, currentKey());
     var bass = (!sec || !acc || acc.bassPolicy(trackId,sec).include) && notes.length ? notes[0] : null;
@@ -32298,19 +32401,35 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     settingsToggle.id = 'b39KeysSettingsToggle'; settingsToggle.setAttribute('aria-label', 'Настройки клавиатуры');
     settingsToggle.setAttribute('title', 'Настройки клавиатуры'); settingsToggle.setAttribute('aria-expanded', 'false');
     settingsToggle.setAttribute('aria-controls', 'b39KeysSettings');
-    head.appendChild(identity); head.appendChild(nav); head.appendChild(settingsToggle); head.appendChild(close);
+    noteStart=el('button','b39-input-start','♫');noteStart.type='button';noteStart.id='b39NoteStart';noteStart.title='Ввести по клавишам';noteStart.setAttribute('aria-label','Ввести по клавишам');
+    noteStart.addEventListener('click',function(){beginNoteInput(selectedCellKey);});
+    head.appendChild(identity); head.appendChild(nav); head.appendChild(noteStart); head.appendChild(settingsToggle); head.appendChild(close);
     var controls = el('div', 'b39-keys-controls');
     function field(label, control) {
       var item = el('label', 'tools-label b39-keys-field'); item.appendChild(doc.createTextNode(label)); item.appendChild(control); controls.appendChild(item);
     }
     field('Размер клавиатуры', trackSizeSel); field('Общий тембр клавиш', timbreSel);
     nav.setAttribute('aria-label', 'Расположение аккорда');
+    noteBar=el('div','b39-note-input');noteBar.id='b39NoteInput';noteBar.hidden=true;
+    noteInfo=el('span','b39-note-info');noteInfo.setAttribute('aria-live','polite');
+    noteCandidates=el('select');noteCandidates.id='b39NoteCandidates';noteCandidates.setAttribute('aria-label','Варианты названия');
+    noteName=el('input');noteName.id='b39NoteName';noteName.placeholder='Название аккорда';noteName.setAttribute('aria-label','Название аккорда');
+    noteCandidates.addEventListener('change',function(){noteName.value=noteCandidates.value;});
+    var clearNotes=el('button','','Очистить');clearNotes.type='button';clearNotes.addEventListener('click',function(){if(noteDraft){noteDraft.notes=[];refreshNoteBar();renderPanel();}});
+    var cancelNotes=el('button','','Отмена');cancelNotes.type='button';cancelNotes.id='b39NoteCancel';cancelNotes.addEventListener('click',function(){cancelNoteInput();renderPanel();});
+    var applyNotes=el('button','b39-note-apply','Добавить');applyNotes.type='button';applyNotes.id='b39NoteApply';applyNotes.addEventListener('click',applyNoteInput);
+    [noteInfo,noteCandidates,noteName,clearNotes,cancelNotes,applyNotes].forEach(function(n){noteBar.appendChild(n);});
     body = el('div', 'b39-keys-body'); body.setAttribute('role', 'region'); body.setAttribute('aria-label', 'Клавиатура, прокрутка по горизонтали'); body.tabIndex = 0;
     // Один делегированный обработчик: компактные превью и аккорды не меняем.
     function playPanelKey(target) {
       var key = target && target.closest && target.closest('rect[data-midi]');
       var A = audio(), active = activeTrack();
       if (!key || !body.contains(key) || !A || !active || !active.track || active.track.instrument !== 'keys') return;
+      var midi=Number(key.getAttribute('data-midi'));
+      if(noteDraft && noteDraft.track===active.track.id) {
+        var at=noteDraft.notes.indexOf(midi); if(at<0)noteDraft.notes.push(midi);else noteDraft.notes.splice(at,1);
+        noteDraft.notes.sort(function(a,b){return a-b;});refreshNoteBar();renderPanel();
+      }
       var ctx = typeof HOST.audioPreflightForGesture === 'function' ? HOST.audioPreflightForGesture() : HOST.getAudioContext();
       if (!ctx) return;
       if (typeof HOST.resumeAudioContext === 'function') HOST.resumeAudioContext();
@@ -32325,7 +32444,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     });
     body.addEventListener('keydown', function(e) {
       if (!e.target.matches('rect[data-midi]')) return;
-      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); if (!e.repeat) playPanelKey(e.target); }
+      if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); if (!e.repeat) { var midi=e.target.getAttribute('data-midi'); playPanelKey(e.target); var again=body.querySelector('rect[data-midi="'+midi+'"]'); if(again)again.focus(); } }
       else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
         var next = body.querySelector('rect[data-midi="' + (Number(e.target.getAttribute('data-midi')) + (e.key === 'ArrowRight' ? 1 : -1)) + '"]');
         e.preventDefault(); e.stopPropagation(); if (next) next.focus();
@@ -32350,7 +32469,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       panel.classList.toggle('is-settings-open', !settings.hidden);
       settingsToggle.setAttribute('aria-expanded', String(!settings.hidden));
     });
-    panel.appendChild(head);panel.appendChild(body);panel.appendChild(settings);
+    panel.appendChild(head);panel.appendChild(noteBar);panel.appendChild(body);panel.appendChild(settings);
     installResizeHandles();
     var transport = doc.querySelector('.transport-bar');
     if (transport && transport.parentNode) transport.parentNode.insertBefore(panel, transport.nextSibling);
@@ -32410,7 +32529,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   // Одно обновление при входе в новую ячейку; на pointermove ничего не рисуем.
   function installCellHover() {
     doc.addEventListener('pointerover', function (e) {
-      if (!panel || panel.hidden || (e.pointerType && e.pointerType !== 'mouse' && e.pointerType !== 'pen')) return;
+      if (!panel || panel.hidden || noteDraft || (e.pointerType && e.pointerType !== 'mouse' && e.pointerType !== 'pen')) return;
       if (panel.contains(e.target)) { if (hoverTimer) { HOST.clearTimeout(hoverTimer); hoverTimer = null; } return; }
       if (e.buttons || (typeof playbackState !== 'undefined' && playbackState.isPlaying) ||
           (typeof isDragging !== 'undefined' && isDragging) || doc.body.classList.contains('is-resizing')) return;
@@ -32546,7 +32665,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   }
   function closePanel() {
     if (!panel) return;
-    restoreHover(); panel.hidden = true; btn.setAttribute('aria-pressed', 'false');
+    cancelNoteInput(); restoreHover(); panel.hidden = true; btn.setAttribute('aria-pressed', 'false');
     if (typeof HOST.updatePinnedShift === 'function') HOST.updatePinnedShift();
     if (HUB) HUB.closed('keys');
   }
@@ -32560,11 +32679,16 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   }
 
   function stepVariant(delta) {
-    var T = tracks(); if (!T || !lastChord) return;
+    var T = tracks(); if (!T || !lastChord || noteDraft) return;
     var active = activeTrack(); if (!active || !active.track) return;
     var range = T.keyRange(active.track.id);
     var variants = generateKeysVoicings(lastChord, panelKey(), range, null, {});
     if (!variants.length) return;
+    if(T.exactNotes(active.track.id,lastCellKey,lastChord)) {
+      if(!HOST.confirm('Снять вручную введённые ноты этой ячейки и вернуться к обычному расположению?'))return;
+      T.clearExactNotes(active.track.id,lastCellKey);
+      renderPanel();return;
+    }
     var selection=linkedSelection(active.track.id,lastCellKey);
     var cur = selection && selection.chord===lastChord && !selection.manual ? (delta>0 ? -1 : 0) : variantIndex(active.track.id, lastChord, lastCellKey) % variants.length;
     setVariantIndex(active.track.id, lastChord, lastCellKey, cur + delta, variants.length);
@@ -32576,6 +32700,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     if (!panel || panel.hidden || resizeDrag) return;
     var T = tracks(), F = formula();
     var active = activeTrack();
+    if(noteDraft && (!active || !active.track || active.track.id!==noteDraft.track || !panelCell(noteDraft.cell) || panelCell(noteDraft.cell).ev!==noteDraft.event || T.trackChord(noteDraft.track,noteDraft.cell,noteDraft.event)!==noteDraft.chord)) cancelNoteInput();
     if (!active || !active.track || active.track.instrument !== 'keys') {
       panel.classList.remove('has-keyboard'); titleEl.textContent = 'Клавиатура'; contextEl.textContent = ''; bassEl.textContent = ''; lastChord = null; lastTrackId = null;
       body.innerHTML = '<div class="b39-keys-foot">Активная дорожка — гитара. Выберите клавишную строку в микшере.</div>';
@@ -32610,16 +32735,18 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var variants = chord ? generateKeysVoicings(chord, panelKey(), range, null, {}) : [];
     var idx = variantIndex(active.track.id, chord, lastCellKey) % Math.max(1, variants.length);
     var selected=chord ? linkedSelection(active.track.id,lastCellKey) : null;
-    var notes = selected && selected.chord===chord ? selected.notes.slice() : (variants.length ? variants[idx] : []);
+    var exact=chord ? T.exactNotes(active.track.id,lastCellKey,chord) : null;
+    var notes = exact || (selected && selected.chord===chord ? selected.notes.slice() : (variants.length ? variants[idx] : []));
     var acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(lastCellKey);
     if(acc && sec)notes=acc.stripBass(active.track.id,sec,notes);
+    if(noteDraft) notes=noteDraft.notes.slice();
     var f = chord ? F.chordFormula(chord, panelKey()) : null;
     var whiteW = resizedWhiteWidth === null ? 28 : resizedWhiteWidth;
     var fingersVisible = showFingersEnabled();
     if (fingersVisible !== keyboardFingers) { keyboardFingers = fingersVisible; syncStickyOffset(); }
     var res = keyboardSVG(range.low, range.high, notes, {
-      whiteW: whiteW, whiteH: keyboardWhiteHeight, showFingers: fingersVisible,
-      rootPc: f ? f.rootPc : undefined, labelSpace: 16, labelFont: 11, fingerFont: 11, showFingerWarning: false, interactive: true
+      whiteW: whiteW, whiteH: keyboardWhiteHeight, showFingers: noteDraft ? false : fingersVisible,
+      rootPc: !noteDraft && f ? f.rootPc : undefined, labelSpace: 16, labelFont: 11, fingerFont: 11, showFingerWarning: false, interactive: true
     });
     // При смене диапазона подгоняем рамку, но не изменяем масштаб клавиш.
     // Для длинной клавиатуры рамка ограничена окном, остальное прокручивается.
@@ -32628,7 +32755,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       panel.style.setProperty('--b39-resize-width', 'max(14rem, calc(' + (res.width / 16) + 'rem + 1.425rem))');
     }
     renderedRange = rangeKey;
-    titleEl.textContent = chord || 'Клавиатура';
+    titleEl.textContent = noteDraft ? 'Ввод аккорда' : chord || 'Клавиатура';
     var oldScroll = body.scrollLeft;
     body.innerHTML = res.svg;
     var svg = body.querySelector('svg'); if (svg) { svg.style.width = (res.width / 16) + 'rem'; if (!chord) svg.setAttribute('aria-label', 'Клавиатура без выбранного аккорда'); }
@@ -32642,8 +32769,8 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     }
     else if (lastVisibleContext === visibleContext) body.scrollLeft = oldScroll;
     lastVisibleContext = visibleContext;
-    countEl.textContent = !chord ? '—' : selected && selected.chord===chord ? (selected.limited ? 'Обычная' : selected.manual ? 'Ручная' : 'Авто') : (idx + 1) + '/' + Math.max(1, variants.length);
-    var bass = (!sec || !acc || acc.bassPolicy(active.track.id,sec).include) && notes.length ? notes[0] : null;
+    countEl.textContent = noteDraft ? 'Ввод' : exact ? 'Своя' : !chord ? '—' : selected && selected.chord===chord ? (selected.limited ? 'Обычная' : selected.manual ? 'Ручная' : 'Авто') : (idx + 1) + '/' + Math.max(1, variants.length);
+    var bass = noteDraft ? (notes.length ? notes[0] : null) : ((!sec || !acc || acc.bassPolicy(active.track.id,sec).include) && notes.length ? notes[0] : null);
     var footParts = [];
     if (chord && showFingersEnabled()) footParts.push('цифры условны, это не аппликатура');
     bassEl.textContent = bass !== null ? '· бас ' + noteLabel(bass, f ? f.keyStyle : 'sharp') : '';
@@ -32657,6 +32784,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     hoverActive = false; hoverBaseKey = null;
     var T = tracks(), active = activeTrack();
     if (T && active && active.track && info && info.cell && panelCell(info.cell)) {
+      if(noteDraft && info.cell!==noteDraft.cell)cancelNoteInput();
       lastCellKey = info.cell;
     }
     renderPanel();
@@ -32671,6 +32799,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var A = audio(), T = tracks();
     if (!A || typeof A.setVoicingProvider !== 'function' || !T) return;
     A.setVoicingProvider(function (chordName, key, range, prev, trackId, cell) {
+      var exact=T.exactNotes(trackId,cell,chordName);if(exact)return exact;
       var linked=linkedSelection(trackId,cell);if(linked && linked.chord===chordName)return linked.notes.slice();
       var variants = generateKeysVoicings(chordName, key, range, prev, {});
       if (!variants.length) return null;
@@ -32690,14 +32819,15 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     setVoicingProvider();
     var store = HOST.songStore;
     if (store && typeof store.subscribe === 'function') {
-      try { store.subscribe(function (command) { if (command && command.label === 'song/clear') { hoverActive = false; hoverBaseKey = null; if (hoverTimer) HOST.clearTimeout(hoverTimer); hoverTimer = null; lastCellKey = null; lastChord = null; lastTrackId = null; lastVisibleContext = null; } clearLinkedCache(); renderPanel(); }); } catch (e) {}
+      try { store.subscribe(function (command) { if (command && ['song/clear','song/load','b39/tracks-reset-new','b39/tracks-reset-empty','b39/track-active'].indexOf(command.label)>=0) { selectedCellKey=null; cancelNoteInput(); hoverActive = false; hoverBaseKey = null; if (hoverTimer) HOST.clearTimeout(hoverTimer); hoverTimer = null; lastCellKey = null; lastChord = null; lastTrackId = null; lastVisibleContext = null; } clearLinkedCache(); renderPanel(); }); } catch (e) {}
     }
     renderPanel();
   }
 
   var api = Object.freeze({
     boot: boot, installRenderer: wrapFingeringRenderer,
-    open: openPanel, close: closePanel, toggle: togglePanel, render: renderPanel, focusCell: function (key) { onAudioEvent({cell:key}); },
+    open: openPanel, close: closePanel, toggle: togglePanel, render: renderPanel, beginNoteInput:beginNoteInput,
+    focusCell: function (key) { selectedCellKey=key; onAudioEvent({cell:key}); },
     generateKeysVoicings: generateKeysVoicings, toneRank: toneRank, handLimit: handLimit,
     keyboardSVG: keyboardSVG, renderKeysVoicingSVG: renderKeysVoicingSVG,
     variantIndex: variantIndex, setVariantIndex: setVariantIndex, stepVariant: stepVariant,
@@ -33288,6 +33418,10 @@ function setEventChord(ev, newChord, posCtx, keepShape) {
       if (posCtx) dropPreferredFingeringsAt(posCtx.secId, posCtx.sqId, posCtx.ei);
     }
     ev.chord = readableChord;
+    if (posCtx && window.StruChordTracks) {
+      const T=window.StruChordTracks, st=T.state();
+      T.clearExactNotes(st.activeTrackId, posCtx.secId + ':' + (posCtx.sqId !== undefined ? posCtx.sqId : posCtx.squareId) + ':' + (posCtx.ei !== undefined ? posCtx.ei : posCtx.eventIndex));
+    }
   }, { quiet: true });
   // Ворота едины для всех путей появления имени — ручной ввод, колесо,
   // «Переименовать?» в редакторе, добавление по аппликатуре — поэтому
@@ -40068,6 +40202,7 @@ function transposeAllGlobal(st) {
   }
   globalKey = nk;
   applyEnharmonicCorrectionToAll();
+  if(window.StruChordTracks) window.StruChordTracks.moveMainExactNotes(st);
   });
   requestRender();
   if (DOM.chordWheelModal.classList.contains('open') && activeChordInput) {
@@ -40403,6 +40538,7 @@ function setSectionModulation(sectionId, shift) {
     // 0.263: написание всех аккордов секции — под стиль НОВОЙ тональности
     // (внутри команды, чтобы undo откатил всё атомарно).
     applyEnharmonicCorrectionToSection(sec);
+    if(window.StruChordTracks) window.StruChordTracks.moveMainExactNotes(delta,sec.id);
   }, { quiet: true });
   if (activeChordInput && +activeChordInput.dataset.sec === sectionId) activeSectionKey = sec.key || null;
   const harmonyModesChanged = enableWheelHarmonyModesOnTransition(
@@ -59655,6 +59791,7 @@ function onKeyChange() {
         }
         globalKey = newGlobalKey;
         applyEnharmonicCorrectionToAll();
+        if(window.StruChordTracks) window.StruChordTracks.moveMainExactNotes(semitones);
         });
         requestRender();
         showToast(
@@ -60390,11 +60527,11 @@ function hideManualInputFingeringHint() {
 // на редактор аппликатуры не должно сохранять то, что успели напечатать.
 function showManualInputFingeringHint(inp, onActivate) {
   hideManualInputFingeringHint();
-  if (window.StruChordAccomp && window.StruChordAccomp.activeIsKeys()) return;
+  const isKeys = !!(window.StruChordAccomp && window.StruChordAccomp.activeIsKeys());
   const btn = document.createElement('button');
   btn.type = 'button';
   btn.className = 'manual-input-fingering-btn';
-  btn.textContent = 'По аппликатуре';
+  btn.textContent = isKeys ? 'Ввести по клавишам' : 'По аппликатуре';
   const reposition = () => {
     const rect = inp.getBoundingClientRect();
     btn.style.left = `${rect.left + rect.width / 2}px`;
@@ -60450,7 +60587,13 @@ function activateManualInput(inp) {
   inp2.addEventListener('keydown', onKey);
   showManualInputFingeringHint(inp2, () => {
     cleanup();
-    openFingeringEditorForNewChord();
+    if (window.StruChordAccomp && window.StruChordAccomp.activeIsKeys()) {
+      const key=inp2.dataset.sec+':'+inp2.dataset.square+':'+inp2.dataset.ei;
+      const cell=sections.find(s=>s.id===+inp2.dataset.sec)?.squares.find(q=>q.id===+inp2.dataset.square)?.events[+inp2.dataset.ei];
+      inp2.value=cell && window.StruChordTracks ? (window.StruChordTracks.trackChord(window.StruChordTracks.state().activeTrackId,key,cell)||'') : '';
+      inp2.setAttribute('readonly','readonly');
+      if(window.StruChordKeys)window.StruChordKeys.beginNoteInput(key);
+    } else openFingeringEditorForNewChord();
   });
 }
 function toggleManualInputMode() {
@@ -81807,6 +81950,9 @@ toggleTimeAndBeats();
    */
   function voicingFor(track, chord, key, cell) {
     var K = keys(), T = tracks(), F = formula();
+    if(track.instrument==='keys' && T && cell && typeof T.exactNotes==='function') {
+      var exact=T.exactNotes(track.id,cell,chord); if(exact)return exact;
+    }
     if(track.instrument==='keys' && K && track.linkedVoicings && cell) {
       var linked=K.linkedSelection(track.id,cell);if(linked && linked.chord===chord)return linked.notes.slice();
     }
@@ -81914,10 +82060,10 @@ toggleTimeAndBeats();
             var ev = evs[ei] || {};
             // Записанные вручную ноты ячейки («Виды», шаг 2) живут в своём
             // домене: не подменяем их аккордом и не дублируем.
-            if (Array.isArray(ev.notes) && ev.notes.length) { stats.skippedRecorded++; continue; }
             var cell = String(sec.id) + ':' + String(sq.id) + ':' + String(ei);
             var chord = null;
             try { chord = T.trackChord(track.id, cell, ev); } catch (e) {}
+            if (Array.isArray(ev.notes) && ev.notes.length && !(isKeys && T.exactNotes(track.id,cell,chord))) { stats.skippedRecorded++; continue; }
             if (!chord) { stats.skippedGhost++; continue; }
             var win = windowUnits(sec, sq, ei, ts);
             var span = Math.max(0.25, Number(win.span) || Number(ev.span) || 1);
