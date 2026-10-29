@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.719</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.720</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20349,6 +20349,7 @@ let activeSectionKey = null;
         }, true),
         patterns: sanitizeMap(raw.patterns, validKeys, patternValue, false, true),
         ...(Object.keys(cleanBassRoles(raw.bassRoles, song.sections)).length ? {bassRoles:cleanBassRoles(raw.bassRoles, song.sections)} : {}),
+        ...(raw.linkedVoicings===true ? {linkedVoicings:true} : {}),
         keyboardSize: size
       });
     });
@@ -20412,6 +20413,7 @@ let activeSectionKey = null;
       nextTrackId: p.nextTrackId
     };
     repairMain();
+    if(HOST.StruChordKeys && HOST.StruChordKeys.clearLinkedCache) HOST.StruChordKeys.clearLinkedCache();
     return snapshot();
   }
   function isDefaultState() {
@@ -20422,7 +20424,7 @@ let activeSectionKey = null;
     var t = state.tracks[0];
     if (t.instrument !== 'guitar' || t.name !== 'Гитара' || t.volume !== 100 ||
         t.mute || t.solo || t.keyboardSize !== null) return false;
-    return !Object.keys(t.chords).length && !Object.keys(t.voicings).length && !Object.keys(t.patterns).length && !Object.keys(t.bassRoles || {}).length;
+    return !Object.keys(t.chords).length && !Object.keys(t.voicings).length && !Object.keys(t.patterns).length && !Object.keys(t.bassRoles || {}).length && !t.linkedVoicings;
   }
   function exportForSave() {
     // Пустое состояние пишем ЯВНО: иначе при загрузке оно превратилось бы
@@ -20591,6 +20593,15 @@ let activeSectionKey = null;
     if (!t || !t.patterns || !(String(key) in t.patterns)) return false;
     return dispatch('b39/track-pattern-clear', function () { delete t.patterns[String(key)]; return true; });
   }
+  function setLinkedVoicings(id,on) {
+    var t=findTrack(id); if(!t || t.instrument!=='keys' || typeof on!=='boolean')return false;
+    if(!!t.linkedVoicings===on)return true;
+    return dispatch('b39/linked-voicings',function(){if(on)t.linkedVoicings=true;else delete t.linkedVoicings;return true;});
+  }
+  function clearVoicingChoice(id,chord,cell) {
+    var t=findTrack(id);if(!t || !chord)return false;
+    return dispatch('b39/voicing-auto',function(){delete t.voicings['v:'+chord];if(cell)delete t.voicings[cell];return true;});
+  }
   function bassRole(id,secId) {
     var t=findTrack(id); return t && t.bassRoles && t.bassRoles[String(secId)] || 'legacy';
   }
@@ -20739,6 +20750,7 @@ let activeSectionKey = null;
     setTrackChord: setTrackChord, setVoicing: setVoicing, setPattern: setPattern,
     patternFor: patternFor, clearPattern: clearPattern, setAutoAccomp: setAutoAccomp,
     bassRole:bassRole, setBassRole:setBassRole, cloneBassRoles:cloneBassRoles, removeBassRoles:removeBassRoles,
+    setLinkedVoicings:setLinkedVoicings, clearVoicingChoice:clearVoicingChoice,
     voicingForChord: voicingForChord, setVoicingForChord: setVoicingForChord,
     addTrack: addTrack, removeTrack: removeTrack, reorderTracks: reorderTracks,
     resetToEmpty: resetToEmpty, resetForNewSong: resetForNewSong,
@@ -31734,6 +31746,8 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
 .b39-keys-count { font-size: .72rem; min-width: 2.6rem; text-align: center;
   color: var(--color-text-secondary, #666); }
 .b39-keys-body { overflow-x: auto; overflow-y: hidden; }
+.b39-keys-link { display:block; margin-top:.35rem; font-size:.72rem; }
+.b39-keys-reset { margin-top:.35rem; padding:.25rem .5rem; border:.0625rem solid var(--color-border-medium); border-radius:.4rem; background:var(--color-surface); color:inherit; font:inherit; font-size:.72rem; cursor:pointer; }
 .b39-keys-foot { margin-top: .35rem; font-size: .68rem; line-height: 1.4;
   color: var(--color-text-tertiary, #999); }
 .fingering-svg-container svg.b39-keys-svg { max-width: 100%; height: auto; }
@@ -31748,6 +31762,7 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
   var booted = false, wrapped = false;
   var lastChord = null, lastTrackId = null, lastCellKey = null;
   var variantState = new Map();       // 'trackId|chord' -> индекс (runtime-кэш)
+  var linkedCache = new Map(), linkedToggle = null, autoChoiceBtn = null;
 
   function tracks() { return HOST.StruChordTracks || null; }
   function formula() { return HOST.StruChordFormula || null; }
@@ -31853,6 +31868,89 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     }
     if (!variants.length) push(b0);
     return variants.map(function (v) { return v.notes; });
+  }
+
+  // Обращения одного и того же набора звуков, без изменения гармонии.
+  // Отдельный бас оставляем вне сравнения голосов правой руки.
+  function inversionCandidates(chord,key,range) {
+    var basic=generateKeysVoicings(chord,key,range,null,{});
+    if(!basic.length)return [];
+    var bass=basic[0][0], pcs=[];
+    basic[0].slice(1).forEach(function(n){var pc=mod12(n);if(pcs.indexOf(pc)<0)pcs.push(pc);});
+    if(!pcs.length)return basic;
+    var lo=Math.max(range.low+12,48), hi=Math.min(range.high,84), out=[], seen={};
+    // В плотных расширенных аккордах сохраняем прежнее расположение, не
+    // предполагая, какие ступени допустимо убрать.
+    if(pcs.length>5 || hi<lo)return basic;
+    for(var start=lo;start<=hi;start++) {
+      var first=pcs.indexOf(mod12(start));if(first<0)continue;
+      var rh=[start], last=start;
+      for(var k=1;k<pcs.length;k++){
+        var pc=pcs[(first+k)%pcs.length], next=last+1+mod12(pc-mod12(last+1));
+        rh.push(next);last=next;
+      }
+      if(last>hi || last-start>16)continue;
+      var notes=[bass].concat(rh), signature=notes.join(',');
+      if(!seen[signature]){seen[signature]=true;out.push(notes);}
+    }
+    return out.length ? out : basic;
+  }
+  function motionCost(prev,next) {
+    var a=prev.slice(1), b=next.slice(1), m=a.length,n=b.length, dp=[];
+    for(var i=0;i<=m;i++){dp[i]=[];for(var j=0;j<=n;j++)dp[i][j]=Infinity;}
+    dp[0][0]=0;
+    for(var x=0;x<=m;x++)for(var y=0;y<=n;y++){
+      if(x<m)dp[x+1][y]=Math.min(dp[x+1][y],dp[x][y]+12);
+      if(y<n)dp[x][y+1]=Math.min(dp[x][y+1],dp[x][y]+12);
+      if(x<m && y<n)dp[x+1][y+1]=Math.min(dp[x+1][y+1],dp[x][y]+Math.abs(a[x]-b[y]));
+    }
+    return dp[m][n];
+  }
+  function chooseLinked(candidates,prev,range) {
+    if(!candidates.length)return null;
+    var target=Math.max(range.low+12,Math.min(range.high-6,64)), best=null, score=Infinity;
+    candidates.forEach(function(v){
+      var hand=v.slice(1), center=hand.reduce(function(a,b){return a+b;},0)/Math.max(1,hand.length);
+      var cost=(prev && prev.length ? motionCost(prev,v) : 0) + Math.abs(center-target)*0.01;
+      if(cost<score){score=cost;best=v;}
+    });return best;
+  }
+  function clearLinkedCache(){linkedCache.clear();}
+  // Линейно обходим соседние ячейки внутри секции, с ограничением.
+  // Кэш сбрасывается при любой команде песни и при загрузке/undo.
+  function linkedSelection(trackId,cell) {
+    var T=tracks(), t=T && T.track(trackId);
+    if(!t || !t.linkedVoicings || !cell)return null;
+    var secId=String(cell).split(':')[0], sec;
+    try { sec=sections.find(function(s){return String(s.id)===secId;}); } catch(e) {return null;}
+    if(!sec)return null;
+    var cacheKey=String(trackId)+':'+secId, cache=linkedCache.get(cacheKey);
+    if(!cache){
+      cache={entries:{}, events:[], indexes:{}, next:0, prev:null, range:T.keyRange(trackId)};
+      (sec.squares||[]).forEach(function(sq){(sq.events||[]).forEach(function(ev,ei){var k=T.cellKey(sec,sq,ei);cache.indexes[k]=cache.events.length;cache.events.push({sq:sq,ev:ev,ei:ei,cell:k});});});
+      linkedCache.set(cacheKey,cache);
+    }
+    // Очень длинная секция после 2048 ячеек использует прежний алгоритм.
+    while(cache.next<cache.events.length && cache.next<2048 && !cache.entries[cell]){
+      var e=cache.events[cache.next++], chord=T.trackChord(trackId,e.cell,e.ev);
+      if(!chord){cache.entries[e.cell]={empty:true};continue;}
+      var key=sec.key || currentKey(), manual=t.voicings['v:'+chord];
+      if(!Number.isInteger(manual))manual=t.voicings[e.cell];
+      var variants=generateKeysVoicings(chord,key,cache.range,cache.prev,{}), notes=null;
+      if(Number.isInteger(manual) && variants.length)notes=variants[manual%variants.length];
+      else notes=chooseLinked(inversionCandidates(chord,key,cache.range),cache.prev,cache.range);
+      if(notes && notes.length){cache.prev=notes.slice();cache.entries[e.cell]={chord:chord,notes:notes.slice(),manual:Number.isInteger(manual),index:Number.isInteger(manual)?manual%variants.length:null,count:variants.length};}
+      else cache.entries[e.cell]={empty:true};
+    }
+    // За пределом лимита выбираем независимо от истории воспроизведения:
+    // схема, звук и экспорт должны совпадать даже в длинной секции.
+    if(!cache.entries[cell] && cache.indexes[cell]>=2048){
+      var far=cache.events[cache.indexes[cell]], name=T.trackChord(trackId,cell,far.ev);
+      var vi=t.voicings['v:'+name];if(!Number.isInteger(vi))vi=t.voicings[cell];
+      var fallback=generateKeysVoicings(name,sec.key||currentKey(),cache.range,null,{});
+      if(fallback.length)cache.entries[cell]={chord:name,notes:fallback[(Number.isInteger(vi)?vi:0)%fallback.length].slice(),manual:Number.isInteger(vi),index:vi,count:fallback.length,limited:true};
+    }
+    var result=cache.entries[cell];return result && !result.empty ? result : null;
   }
 
   /** Индекс выбранного варианта: из модели дорожки или runtime-кэш. */
@@ -31990,7 +32088,8 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     var variants = generateKeysVoicings(chordName, currentKey(), range, o.prev || null, {});
     if (!variants.length) return '';
     var idx = variantIndex(trackId, chordName, o.cellKey) % variants.length;
-    var notes = variants[idx], acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(o.cellKey);
+    var linked=linkedSelection(trackId,o.cellKey);
+    var notes = linked && linked.chord===chordName ? linked.notes.slice() : variants[idx], acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(o.cellKey);
     if(acc && sec)notes=acc.stripBass(trackId,sec,notes);
     var f = F.chordFormula(chordName, currentKey());
     var bass = (!sec || !acc || acc.bassPolicy(trackId,sec).include) && notes.length ? notes[0] : null;
@@ -32094,7 +32193,12 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     head.appendChild(nav); head.appendChild(close);
     body = el('div', 'b39-keys-body');
     foot = el('div', 'b39-keys-foot', '');
-    panel.appendChild(head); panel.appendChild(body); panel.appendChild(foot);
+    var linkRow=el('label','b39-keys-link');linkedToggle=el('input');linkedToggle.type='checkbox';linkedToggle.id='b39LinkedVoicings';
+    linkRow.appendChild(linkedToggle);linkRow.appendChild(doc.createTextNode(' Плавные обращения внутри секции (для всей дорожки)'));
+    linkedToggle.addEventListener('change',function(){var T=tracks(),a=activeTrack();if(T && a)T.setLinkedVoicings(a.track.id,linkedToggle.checked);renderPanel();});
+    autoChoiceBtn=el('button','b39-keys-reset','Сбросить выбор позиции');autoChoiceBtn.type='button';autoChoiceBtn.id='b39LinkedReset';autoChoiceBtn.title='Вернуть авто для этого аккорда и текущей ячейки';
+    autoChoiceBtn.addEventListener('click',function(){var T=tracks(),a=activeTrack();if(!T || !a || !lastChord)return;if(!HOST.confirm('Сбросить ручную позицию этого аккорда на всей дорожке и в текущей ячейке?'))return;variantState.delete(a.track.id+'|'+lastChord);T.clearVoicingChoice(a.track.id,lastChord,lastCellKey);renderPanel();});
+    panel.appendChild(head);panel.appendChild(linkRow);panel.appendChild(autoChoiceBtn);panel.appendChild(body);panel.appendChild(foot);
     doc.body.appendChild(panel);
 
     var mixerBtn = doc.getElementById('b39MixerBtn');
@@ -32132,7 +32236,8 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     var range = T.keyRange(active.track.id);
     var variants = generateKeysVoicings(lastChord, currentKey(), range, null, {});
     if (!variants.length) return;
-    var cur = variantIndex(active.track.id, lastChord, lastCellKey) % variants.length;
+    var selection=linkedSelection(active.track.id,lastCellKey);
+    var cur = selection && selection.chord===lastChord && !selection.manual ? (delta>0 ? -1 : 0) : variantIndex(active.track.id, lastChord, lastCellKey) % variants.length;
     setVariantIndex(active.track.id, lastChord, lastCellKey, cur + delta, variants.length);
     renderPanel();
     var M = mixer(); if (M && typeof M.render === 'function') { /* панель микшера не перерисовываем */ }
@@ -32149,6 +32254,8 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
       return;
     }
     var range = T.keyRange(active.track.id);
+    if(linkedToggle)linkedToggle.checked=!!active.track.linkedVoicings;
+    if(autoChoiceBtn)autoChoiceBtn.hidden=!active.track.linkedVoicings;
     if (sizeSel) sizeSel.value = String(T.state().keyboardSize);
     var trackSizeSelect = doc.getElementById('b39KeysTrackSize');
     if (trackSizeSelect) trackSizeSelect.value = active.track.keyboardSize == null ? '' : String(active.track.keyboardSize);
@@ -32171,7 +32278,8 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     lastChord = chord; lastTrackId = active.track.id;
     var variants = generateKeysVoicings(chord, currentKey(), range, null, {});
     var idx = variantIndex(active.track.id, chord, lastCellKey) % Math.max(1, variants.length);
-    var notes = variants.length ? variants[idx] : [];
+    var selected=linkedSelection(active.track.id,lastCellKey);
+    var notes = selected && selected.chord===chord ? selected.notes.slice() : (variants.length ? variants[idx] : []);
     var acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(lastCellKey);
     if(acc && sec)notes=acc.stripBass(active.track.id,sec,notes);
     var f = F.chordFormula(chord, currentKey());
@@ -32182,7 +32290,7 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     });
     titleEl.textContent = chord;
     body.innerHTML = res.svg;
-    countEl.textContent = (idx + 1) + '/' + Math.max(1, variants.length);
+    countEl.textContent = selected && selected.chord===chord ? (selected.limited ? 'Обычная' : selected.manual ? 'Ручная' : 'Авто') : (idx + 1) + '/' + Math.max(1, variants.length);
     var bass = (!sec || !acc || acc.bassPolicy(active.track.id,sec).include) && notes.length ? notes[0] : null;
     foot.textContent = 'Размер ' + range.size + ' клавиш (' + range.first + '–' + range.last + ')' +
       (bass !== null ? ' · бас ' + noteLabel(bass, f ? f.keyStyle : 'sharp') : '') +
@@ -32208,7 +32316,8 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
   function setVoicingProvider() {
     var A = audio(), T = tracks();
     if (!A || typeof A.setVoicingProvider !== 'function' || !T) return;
-    A.setVoicingProvider(function (chordName, key, range, prev, trackId) {
+    A.setVoicingProvider(function (chordName, key, range, prev, trackId, cell) {
+      var linked=linkedSelection(trackId,cell);if(linked && linked.chord===chordName)return linked.notes.slice();
       var variants = generateKeysVoicings(chordName, key, range, prev, {});
       if (!variants.length) return null;
       var idx = variantIndex(trackId, chordName, null) % variants.length;
@@ -32227,7 +32336,7 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     setVoicingProvider();
     var store = HOST.songStore;
     if (store && typeof store.subscribe === 'function') {
-      try { store.subscribe(function () { renderPanel(); }); } catch (e) {}
+      try { store.subscribe(function () { clearLinkedCache(); renderPanel(); }); } catch (e) {}
     }
     renderPanel();
   }
@@ -32238,6 +32347,7 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     generateKeysVoicings: generateKeysVoicings, toneRank: toneRank, handLimit: handLimit,
     keyboardSVG: keyboardSVG, renderKeysVoicingSVG: renderKeysVoicingSVG,
     variantIndex: variantIndex, setVariantIndex: setVariantIndex, stepVariant: stepVariant,
+    linkedSelection:linkedSelection, clearLinkedCache:clearLinkedCache, inversionCandidates:inversionCandidates, motionCost:motionCost,
     button: function () { return btn; }, panel: function () { return panel; },
     last: function () { return { chord: lastChord, cellKey: lastCellKey, trackId: lastTrackId }; }
   });
@@ -35922,6 +36032,7 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     if (renamedDuringEdit && entrySnapshot) {
       const back = entrySnapshot;
       back.ev.chord = back.chord;
+      if (window.StruChordKeys && window.StruChordKeys.clearLinkedCache) window.StruChordKeys.clearLinkedCache();
       if (back.fingering == null) delete back.ev.fingering;
       else back.ev.fingering = back.fingering;
       if (back.fingeringTuning == null) delete back.ev.fingeringTuning;
@@ -47807,7 +47918,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
       var range = T.keyRange(track.id);
       var prev = prevByTrack.get(track.id) || null;
       var notes = voicingProvider
-        ? (voicingProvider(chord, key, range, prev, track.id) || voicingFor(chord, key, range, prev))
+        ? (voicingProvider(chord, key, range, prev, track.id, cell) || voicingFor(chord, key, range, prev))
         : voicingFor(chord, key, range, prev);
       prevByTrack.set(track.id, notes);
       var level = HEADROOM / Math.sqrt(Math.max(1, notes.length));
@@ -47864,7 +47975,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
       if (!channel) return;
       var range = T.keyRange(track.id), effectiveKey = key || currentKey();
       var notes = voicingProvider
-        ? (voicingProvider(chord, effectiveKey, range, null, track.id) || voicingFor(chord, effectiveKey, range, null))
+        ? (voicingProvider(chord, effectiveKey, range, null, track.id, cell) || voicingFor(chord, effectiveKey, range, null))
         : voicingFor(chord, effectiveKey, range, null);
       var acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(cell);
       if(acc && sec)notes=acc.stripBass(track.id,sec,notes);
@@ -47887,7 +47998,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
     var desired = opt.keyboardSize === null ? state.keyboardSize : opt.keyboardSize;
     if (ranges[desired]) range = Object.assign({size:desired}, ranges[desired]);
     var effectiveKey = key || currentKey();
-    var notes = voicingProvider ? (voicingProvider(chord, effectiveKey, range, null, trackId) || voicingFor(chord, effectiveKey, range, null)) : voicingFor(chord, effectiveKey, range, null);
+    var notes = voicingProvider ? (voicingProvider(chord, effectiveKey, range, null, trackId, opt.cell) || voicingFor(chord, effectiveKey, range, null)) : voicingFor(chord, effectiveKey, range, null);
     var span = Math.max(.25, Number(opt.span) || 4), bpm = Math.max(20, Number(opt.bpm) || 120);
     var unit = typeof getGridUnitDurationSeconds === 'function' ? getGridUnitDurationSeconds(bpm, opt.ts || '4/4') : 60 / bpm;
     var steps = Acc.plan({ trackId:trackId, chord:chord, key:effectiveKey, range:range, notes:notes,
@@ -50596,7 +50707,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     var state = T.state(), cell = sec && sq ? T.cellKey(sec, sq, current.ei || 0) : null;
     var chord = cell && T.trackChord(state.activeTrackId, cell, ev);
     if (!chord && sec) {
-      (sec.squares || []).some(function (q) { return (q.events || []).some(function (e, i) { chord = T.trackChord(state.activeTrackId, T.cellKey(sec,q,i),e); return !!chord; }); });
+      (sec.squares || []).some(function (q) { return (q.events || []).some(function (e, i) { var candidate=T.cellKey(sec,q,i); chord = T.trackChord(state.activeTrackId, candidate,e); if(chord)cell=candidate; return !!chord; }); });
     }
     if (!chord) { if (typeof HOST.showToast === 'function') HOST.showToast('Добавьте аккорд для прослушивания'); return; }
     var ctx = HOST.getAudioContext(); if (!ctx) return;
@@ -50606,7 +50717,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     var span = Math.max(scopeUnits(), draftLength);
     var config = Object.assign({}, draft);
     if (draftInherited) config.steps = draftSteps();
-    previewStop = A.previewPattern(chord, ctx, state.activeTrackId, key, config, {scope:current.scope, span:span, bpm:bpm, ts:current.ts, keyboardSize:T.track(state.activeTrackId).keyboardSize,sec:sec,bassMode:current.scope==='section'?draftBassMode:undefined});
+    previewStop = A.previewPattern(chord, ctx, state.activeTrackId, key, config, {scope:current.scope, span:span, bpm:bpm, ts:current.ts, keyboardSize:T.track(state.activeTrackId).keyboardSize,sec:sec,cell:cell,bassMode:current.scope==='section'?draftBassMode:undefined});
     if (previewStop) { var unit = typeof getGridUnitDurationSeconds === 'function' ? getGridUnitDurationSeconds(bpm, current.ts) : 60 / bpm; previewTimer = setTimeout(function () { previewStop = null; previewTimer = null; }, Math.ceil((span * unit + .2) * 1000)); }
   }
   function resetDraft() {
@@ -50862,6 +50973,8 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     box.appendChild(element('strong','','Автоаккомпанемент на песню'));
     box.appendChild(element('div','b39-auto-note','Проверьте рисунки и подсказки баса. Без баса басовые шаги станут паузами. Ручные рисунки защищены; настройки ячеек сохраняются.'));
     var f=select('Основной жанр','b39AutoPrimary',false),s=select('Дополнительный жанр','b39AutoSecondary',true);primary=f.sel;secondary=s.sel;box.appendChild(f.row);box.appendChild(s.row);
+    var linkRow=element('label','b39-auto-select'), link=element('input');link.type='checkbox';link.id='b39AutoLinked';link.checked=track.linkedVoicings===true;
+    linkRow.appendChild(link);linkRow.appendChild(element('span','','Плавные обращения для всей дорожки (ручные позиции сохраняются)'));box.appendChild(linkRow);
     var cfg=auto();if(cfg){primary.value=cfg.primary;secondary.value=cfg.secondary||'';}
     primary.addEventListener('change',renderPlan);secondary.addEventListener('change',renderPlan);
     planBox=element('div','b39-auto-list');planBox.id='b39AutoPlan';box.appendChild(planBox);
@@ -50883,7 +50996,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       if(selected.some(function(sec){return bassChoices[String(sec.id)]==='auto';}))next.autoBass=true;
       HOST.songStore.dispatch('b39/auto-apply',function(){
         selected.forEach(function(sec){var pattern=makePattern(sec,next.primary,next.secondary);if(pattern){T().setPattern(dialogTrack,'s:'+sec.id,pattern);T().setBassRole(dialogTrack,sec.id,bassChoices[String(sec.id)]);next.managed[String(sec.id)]=true;}});
-        T().setAutoAccomp(next);
+        T().setAutoAccomp(next);T().setLinkedVoicings(dialogTrack,link.checked);
       },{history:'atomic'});
       close();if(HOST.StruChordAccomp)HOST.StruChordAccomp.close();if(HOST.showToast)HOST.showToast('Автоаккомпанемент обновлён');
     });
@@ -81243,8 +81356,11 @@ toggleTimeAndBeats();
    * Остальные дорожки — честная формула в среднем регистре + отдельный бас.
    * Никаких гитарных струн и пропусков нот (R12).
    */
-  function voicingFor(track, chord, key) {
+  function voicingFor(track, chord, key, cell) {
     var K = keys(), T = tracks(), F = formula();
+    if(track.instrument==='keys' && K && track.linkedVoicings && cell) {
+      var linked=K.linkedSelection(track.id,cell);if(linked && linked.chord===chord)return linked.notes.slice();
+    }
     if (track.instrument === 'keys' && K && T &&
         typeof K.generateKeysVoicings === 'function' && typeof T.keyRange === 'function') {
       try {
@@ -81356,7 +81472,7 @@ toggleTimeAndBeats();
             if (!chord) { stats.skippedGhost++; continue; }
             var win = windowUnits(sec, sq, ei, ts);
             var span = Math.max(0.25, Number(win.span) || Number(ev.span) || 1);
-            var notes = voicingFor(track, chord, secKey);
+            var notes = voicingFor(track, chord, secKey, cell);
             if (!notes.length) continue;
             var steps = stepsFor(track, cell, sec, sq, ev, ei, chord, secKey, range, notes, span, ts);
             steps.forEach(function (step) {
