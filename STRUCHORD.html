@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.726</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.727</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -31743,6 +31743,7 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
 .b39-keys-identity { display:flex; align-items:baseline; gap:.45rem; flex:1 1 6rem; min-width:0; }
 .b39-keys-title { font-size: 1rem; font-weight: 700; flex:0 0 auto; }
 .b39-keys-context { min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; font-size:.75rem; color:var(--color-text-secondary, #666); }
+.b39-keys-bass { flex:0 0 auto; white-space:nowrap; font-size:.75rem; color:var(--color-text-secondary, #666); }
 .b39-keys-close, .b39-keys-settings-toggle { flex:0 0 auto; min-width:1.7rem; min-height:1.7rem; border-radius:.5rem;
   border:.0625rem solid var(--color-border-medium); background:var(--color-surface); color:inherit; font:inherit; cursor:pointer; }
 .b39-keys-settings-toggle[aria-expanded="true"] { border-color:var(--color-accent); }
@@ -31786,7 +31787,8 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
   var timbreSel = null;
   var keyboardWhiteHeight = 40, keyboardFingers = false;
   var booted = false, wrapped = false;
-  var lastChord = null, lastTrackId = null, lastCellKey = null, lastVisibleContext = null, contextEl = null, settingsContext = null;
+  var lastChord = null, lastTrackId = null, lastCellKey = null, lastVisibleContext = null, contextEl = null, bassEl = null, settingsContext = null;
+  var hoverBaseKey = null, hoverActive = false, hoverTimer = null;
   var variantState = new Map();       // 'trackId|chord' -> индекс (runtime-кэш)
   var linkedCache = new Map(), linkedToggle = null, autoChoiceBtn = null;
 
@@ -32116,10 +32118,11 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
   }
   function panelKey() { var c = panelCell(lastCellKey); return c && c.sec.key || currentKey(); }
   function panelContext(track, c) {
-    if (!c) return track.name;
+    var trackName = track.name === 'Клавиши' ? '' : track.name;
+    if (!c) return trackName;
     var secName = c.sec.type === 'Custom' ? (c.sec.customName || 'Секция') :
       (typeof LABEL_RU !== 'undefined' && LABEL_RU[c.sec.type] || c.sec.type || 'Секция');
-    return track.name + ' · ' + secName + ' · квадрат ' + (c.sec.squares.indexOf(c.sq) + 1) + ', ячейка ' + (c.ei + 1);
+    return (trackName ? trackName + ' · ' : '') + secName + ' · квадрат ' + (c.sec.squares.indexOf(c.sq) + 1) + ', ячейка ' + (c.ei + 1);
   }
 
   /**
@@ -32200,7 +32203,7 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
 
     var head = el('div', 'b39-keys-head');
     titleEl = el('span', 'b39-keys-title', 'Клавиатура');
-    contextEl = el('span', 'b39-keys-context');
+    contextEl = el('span', 'b39-keys-context'); bassEl = el('span', 'b39-keys-bass');
     var trackSizeSel = el('select'); trackSizeSel.id = 'b39KeysTrackSize';
     trackSizeSel.setAttribute('aria-label', 'Размер клавиатуры дорожки');
     [25,37,49,61,76,88].forEach(function (n) { var op = el('option', '', n + ' клавиш'); op.value = String(n); trackSizeSel.appendChild(op); });
@@ -32225,7 +32228,7 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
 
     var close = el('button', 'b39-keys-close', '×'); close.type = 'button';
     close.setAttribute('aria-label', 'Закрыть клавиатуру'); close.addEventListener('click', closePanel);
-    var identity = el('div', 'b39-keys-identity'); identity.appendChild(titleEl); identity.appendChild(contextEl);
+    var identity = el('div', 'b39-keys-identity'); identity.appendChild(titleEl); identity.appendChild(contextEl); identity.appendChild(bassEl);
     var settingsToggle = el('button', 'b39-keys-settings-toggle', '⚙'); settingsToggle.type = 'button';
     settingsToggle.id = 'b39KeysSettingsToggle'; settingsToggle.setAttribute('aria-label', 'Настройки клавиатуры');
     settingsToggle.setAttribute('title', 'Настройки клавиатуры'); settingsToggle.setAttribute('aria-expanded', 'false');
@@ -32265,6 +32268,7 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
       new HOST.MutationObserver(syncStickyOffset).observe(doc.body, {attributes:true, attributeFilter:['class']});
     }
     HOST.addEventListener('resize', syncStickyOffset);
+    installCellHover();
     syncStickyOffset();
 
     var mixerBtn = doc.getElementById('b39MixerBtn');
@@ -32306,6 +32310,45 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
       }
     }
   }
+  // Одно обновление при входе в новую ячейку; на pointermove ничего не рисуем.
+  function installCellHover() {
+    doc.addEventListener('pointerover', function (e) {
+      if (!panel || panel.hidden || (e.pointerType && e.pointerType !== 'mouse' && e.pointerType !== 'pen')) return;
+      if (panel.contains(e.target)) { if (hoverTimer) { HOST.clearTimeout(hoverTimer); hoverTimer = null; } return; }
+      if (e.buttons || (typeof playbackState !== 'undefined' && playbackState.isPlaying) ||
+          (typeof isDragging !== 'undefined' && isDragging) || doc.body.classList.contains('is-resizing')) return;
+      var wrapper = e.target.closest && e.target.closest('.chord-wrapper');
+      if (!wrapper || (e.relatedTarget && wrapper.contains(e.relatedTarget))) return;
+      var active = activeTrack(), T = tracks();
+      if (!active || !active.track || active.track.instrument !== 'keys' || !T) return;
+      var key = wrapper.dataset.sec + ':' + wrapper.dataset.square + ':' + wrapper.dataset.ei;
+      var cell = panelCell(key);
+      if (!cell || !T.trackChord(active.track.id, key, cell.ev)) return;
+      if (hoverTimer) { HOST.clearTimeout(hoverTimer); hoverTimer = null; }
+      if (!hoverActive) { hoverBaseKey = lastCellKey; hoverActive = true; }
+      if (lastCellKey !== key) { lastCellKey = key; renderPanel(); }
+    });
+    doc.addEventListener('pointerdown', function (e) {
+      // До начала перетаскивания вернуть обычный контекст, а не рисовать во время жеста.
+      if (hoverActive && panel && !panel.contains(e.target)) restoreHover();
+    });
+    doc.addEventListener('pointerout', function (e) {
+      if (!hoverActive || !panel || panel.hidden) return;
+      var fromCell = e.target.closest && e.target.closest('.chord-wrapper');
+      var fromPanel = panel.contains(e.target);
+      if (!fromCell && !fromPanel) return;
+      var next = e.relatedTarget;
+      if (next && ((fromCell && fromCell.contains(next)) || panel.contains(next))) return;
+      if (hoverTimer) HOST.clearTimeout(hoverTimer);
+      hoverTimer = HOST.setTimeout(function () { hoverTimer = null; restoreHover(); }, 300);
+    });
+  }
+  function restoreHover() {
+    if (hoverTimer) { HOST.clearTimeout(hoverTimer); hoverTimer = null; }
+    if (!hoverActive) return;
+    hoverActive = false; lastCellKey = hoverBaseKey; hoverBaseKey = null;
+    renderPanel();
+  }
   function openPanel() {
     if (!panel) return;
     if (HUB) HUB.opened('keys');
@@ -32314,7 +32357,7 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
   }
   function closePanel() {
     if (!panel) return;
-    panel.hidden = true; doc.body.classList.remove('b39-keys-open'); btn.setAttribute('aria-pressed', 'false');
+    restoreHover(); panel.hidden = true; doc.body.classList.remove('b39-keys-open'); btn.setAttribute('aria-pressed', 'false');
     if (typeof HOST.updatePinnedShift === 'function') HOST.updatePinnedShift();
     if (HUB) HUB.closed('keys');
   }
@@ -32345,7 +32388,7 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
     var T = tracks(), F = formula();
     var active = activeTrack();
     if (!active || !active.track || active.track.instrument !== 'keys') {
-      titleEl.textContent = 'Клавиатура'; contextEl.textContent = ''; lastChord = null; lastTrackId = null;
+      titleEl.textContent = 'Клавиатура'; contextEl.textContent = ''; bassEl.textContent = ''; lastChord = null; lastTrackId = null;
       body.innerHTML = '<div class="b39-keys-foot">Активная дорожка — гитара. Выберите клавишную строку в микшере.</div>';
       countEl.textContent = '—'; foot.textContent = '';
       return;
@@ -32374,7 +32417,7 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
     if (!chord) {
       titleEl.textContent = 'Клавиатура';
       body.innerHTML = '<div class="b39-keys-foot">' + (cell ? 'В этой ячейке нет аккорда активной дорожки.' : 'На активной дорожке пока нет аккордов.') + '</div>';
-      countEl.textContent = '—'; foot.textContent = ''; lastVisibleContext = null;
+      countEl.textContent = '—'; foot.textContent = ''; bassEl.textContent = ''; lastVisibleContext = null;
       return;
     }
     var variants = generateKeysVoicings(chord, panelKey(), range, null, {});
@@ -32409,12 +32452,15 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
     var bass = (!sec || !acc || acc.bassPolicy(active.track.id,sec).include) && notes.length ? notes[0] : null;
     var footParts = [];
     if (showFingersEnabled()) footParts.push('цифры условны, это не аппликатура');
-    if (bass !== null) footParts.push('бас ' + noteLabel(bass, f ? f.keyStyle : 'sharp'));
+    bassEl.textContent = bass !== null ? '· бас ' + noteLabel(bass, f ? f.keyStyle : 'sharp') : '';
+    settingsContext.textContent = contextEl.textContent + (bassEl.textContent ? ' ' + bassEl.textContent : '');
     if (body.scrollWidth > body.clientWidth) footParts.push('↔ прокрутка клавиш');
     foot.textContent = footParts.join(' · ');
   }
 
   function onAudioEvent(info) {
+    if (hoverTimer) { HOST.clearTimeout(hoverTimer); hoverTimer = null; }
+    hoverActive = false; hoverBaseKey = null;
     var T = tracks(), active = activeTrack();
     if (T && active && active.track && info && info.cell && panelCell(info.cell)) {
       lastCellKey = info.cell;
@@ -32450,7 +32496,7 @@ body.b39-keys-open .transport-bar { padding-top:.2rem; padding-bottom:.2rem; }
     setVoicingProvider();
     var store = HOST.songStore;
     if (store && typeof store.subscribe === 'function') {
-      try { store.subscribe(function (command) { if (command && command.label === 'song/clear') { lastCellKey = null; lastChord = null; lastTrackId = null; lastVisibleContext = null; } clearLinkedCache(); renderPanel(); }); } catch (e) {}
+      try { store.subscribe(function (command) { if (command && command.label === 'song/clear') { hoverActive = false; hoverBaseKey = null; if (hoverTimer) HOST.clearTimeout(hoverTimer); hoverTimer = null; lastCellKey = null; lastChord = null; lastTrackId = null; lastVisibleContext = null; } clearLinkedCache(); renderPanel(); }); } catch (e) {}
     }
     renderPanel();
   }
@@ -33464,6 +33510,13 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
   }
   // --------------------------------------------------
 
+  // Открытая панель клавиш сама показывает наведение; дублирующий тултип не нужен.
+  const keysPanel = document.getElementById('b39KeysPanel');
+  const keysTrack = window.StruChordTracks && window.StruChordTracks.track(window.StruChordTracks.state().activeTrackId);
+  if (!isPreview && !playbackState.isPlaying && !isFingeringPinned() && keysPanel && !keysPanel.hidden && keysTrack && keysTrack.instrument === 'keys') {
+    hideFingeringTooltip(false);
+    return;
+  }
   // Аппликатура закреплена в панели — всплывающий тултип не нужен.
   // Иначе при каждом наведении рядом с закреплённым грифом всплывал бы
   // второй, и получилось бы то же мельтешение, от которого мы уходили

@@ -17,7 +17,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   assert.equal(await page.evaluate(()=>JSON.stringify(StruChordTracks.exportForSave())),before,'открытие не меняет данные песни');
   let layout=await page.evaluate(()=>{const p=document.querySelector('#b39KeysPanel'),bar=document.querySelector('.transport-bar'),s=document.querySelector('#sectionsContainer');return {next:bar.nextElementSibling===p,position:getComputedStyle(p).position,bar:bar.getBoundingClientRect().bottom,panel:p.getBoundingClientRect().toJSON(),section:s.getBoundingClientRect().top,title:p.querySelector('.b39-keys-title').textContent,context:p.querySelector('.b39-keys-context').textContent};});
   assert(layout.next && layout.position==='sticky' && layout.panel.top>=layout.bar && layout.section>=layout.panel.bottom,'панель находится под транспортом и перед песней');
-  assert.match(layout.title,/C/);assert.match(layout.context,/Клавиши.*Куплет.*ячейка 1/);
+  assert.match(layout.title,/C/);assert.match(layout.context,/Куплет.*ячейка 1/);
   assert.equal(await page.$('[aria-label="Размер клавиатуры песни"]'), null);assert(await page.$('[aria-label="Размер клавиатуры дорожки"]'));
   // Настоящее нажатие по ячейке (включая двойное) изменяет контекст, не чужие дорожки.
   await page.evaluate(()=>document.querySelector('.chord-wrapper[data-ei="1"]').scrollIntoView({block:'end'}));
