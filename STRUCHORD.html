@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.712</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.713</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -49685,6 +49685,50 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     { id: 'keys-alberti',      label: 'Альберти-бас', subdivision: 2, hint: 'корень — квинта — терция — квинта' },
     { id: 'keys-octave-bass',  label: 'Октавный бас', subdivision: 1, hint: 'бас через октаву и аккорд по очереди' }
   ];
+  // Ритмы по восемь восьмых в 4/4. Ноты относительны аккорду;
+  // не имитируем ударные, динамику или отсутствующие в аккорде ступени.
+  var STYLES = [
+    ['pop','Поп',[
+      ['Мягкое арпеджио',['B','A','t3','A','t5','A','t3','A']],
+      ['Ровные аккорды',['H',null,'H',null,'H',null,'H',null]],
+      ['Плотный припев',['B','H','H',null,'B','H','H',null]]]],
+    ['rock','Рок',[
+      ['Ровный рок',['B',null,'H','H','B',null,'H','H']],
+      ['Октавная основа',['O',null,'H',null,'O','H','H',null]],
+      ['Тихий куплет',['B',null,null,'A','H',null,'A',null]]]],
+    ['punk','Панк',[
+      ['Частые аккорды',['H','H','H','H','H','H','H','H']],
+      ['Бас и аккорды',['B','H','H','H','B','H','H','H']],
+      ['Акценты с паузами',['H','H',null,'H','H','H',null,'H']]]],
+    ['country','Кантри',[
+      ['Бас — аккорд',['B',null,'H',null,'B',null,'H',null]],
+      ['Подвижный бас',['B',null,'H','A','B',null,'H','A']],
+      ['Перебор',['t1','t5','t3','t5','t1','t5','t3','t5']]]],
+    ['blues','Блюз',[
+      ['Спокойный шаффл',['B',null,'H','H','B',null,'H','H'],true],
+      ['Бас и аккорд',['B','H',null,'H','B','H',null,'H'],true],
+      ['Плотный шаффл',['B','H','H','H','B','H','H','H'],true]]],
+    ['jazz','Джаз',[
+      ['Разреженные аккорды',[null,'H',null,null,'H',null,null,'H']],
+      ['Свинговые акценты',['B',null,'H',null,null,'H',null,'H'],true],
+      ['Бас и аккорды',['B',null,'H',null,'B','H',null,'H']]]],
+    ['soul','Соул',[
+      ['Мягкие аккорды',['H',null,null,null,'H',null,null,null]],
+      ['Перебор',['B',null,'A','t3','t5',null,'A',null]],
+      ['Пульс',['B',null,'H','H',null,'H','H',null]]]],
+    ['funk','Фанк',[
+      ['Синкопы',[null,'H',null,'H',null,null,'H','H']],
+      ['С паузами',['H',null,null,'H',null,'H',null,'H']],
+      ['Бас и акценты',['B',null,'H',null,null,'H','B','H']]]],
+    ['fusion','Фьюжн',[
+      ['Подвижный перебор',['B','t3','t5','A','t1','t5','t3','A']],
+      ['Синкопы',['B',null,'H',null,'H',null,null,'H']],
+      ['Бас с акцентами',['B','H',null,'H',null,'B','H',null]]]]
+  ];
+  STYLES.forEach(function (style) { style[2].forEach(function (entry, index) {
+    PRESETS.push({ id:'style-'+style[0]+'-'+index, label:entry[0], genre:style[0], genreLabel:style[1], subdivision:2,
+      hint:style[1]+' · '+entry[0]+(entry[2] ? ' · Swing' : ''), motif:entry[1].slice(), presetSwing:entry[2]===true });
+  }); });
   var DEFAULT_TYPE = 'keys-block';
   var SUBDIVISIONS = [1, 2, 3, 4];
   var MAX_STEPS = 64;
@@ -49701,6 +49745,8 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   };
 
   var CSS = [
+    '.b39-acc-preset[hidden] { display:none !important; }',
+    '.b39-acc-genre { font:inherit; color:inherit; background:var(--color-surface); border:.0625rem solid var(--color-border-medium); border-radius:.6rem; padding:.3rem .5rem; max-width:100%; }',
     '.b39-acc-btn { display:inline-flex; align-items:center; gap:.3rem; padding:0 .5rem;',
     '  height:2.25rem; border-radius:.6rem; cursor:pointer; font:inherit; font-size:.75rem;',
     '  background:var(--color-surface,#fff); color:var(--color-text-primary,#1b1b1b);',
@@ -49739,7 +49785,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   // ---------- Состояние ----------
   var booted = false, wrapped = false, observer = null;
   var btn = null, panel = null, gridEl = null, stepsEl = null, footEl = null;
-  var subButtons = [], swingBtn = null, scopeCell = null, scopeSec = null, lengthRow = null, stepChoice = null, selectedStep = null, draftLength = 4;
+  var subButtons = [], swingBtn = null, scopeCell = null, scopeSec = null, lengthRow = null, stepChoice = null, selectedStep = null, draftLength = 4, presetGenre = null;
   var draft = { type: DEFAULT_TYPE, subdivision: 1, swing: null };
   var current = { secId: null, sqId: null, ei: null, cellKey: null, scope: 'section', ts: '4/4' };
   var sharedRhythm = null;       // подглядываем subdivision/swing у ритма секции
@@ -49809,6 +49855,17 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     var n = Math.max(1, Math.round((Number(beats) || 4) * sub));
     n = Math.min(n, MAX_STEPS);
     var out = [], alberti = ['t1', 't5', 't3', 't5'], i, beat;
+    var chosen = preset(type);
+    if (chosen && chosen.motif) {
+      // Для трёхдольных размеров берём шестишаговую версию: две группы по
+      // три восьмых; не используем четырёхдольный хвост как отдельный такт.
+      var motif = chosen.motif;
+      if (Number(beats) === 3 || Number(beats) === 6 || Number(beats) === 9 || Number(beats) === 12) {
+        motif = [motif[0],motif[1],motif[2],motif[4],motif[5],motif[6]];
+      }
+      for (i = 0; i < n; i++) out.push(motif[Math.floor(i * 2 / sub) % motif.length]);
+      return out;
+    }
     for (i = 0; i < n; i++) {
       beat = Math.floor(i / sub);
       if (type === 'keys-arp-up') out.push('A');
@@ -50069,6 +50126,10 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     scopeLabel = el('span', 'b39-acc-scope'); top.appendChild(title); top.appendChild(scopeLabel); panel.appendChild(top);
     var presets = el('div', 'pattern-presets');
     presets.appendChild(el('div', 'pattern-presets-head', 'Пресеты'));
+    presetGenre = el('select','b39-acc-genre'); presetGenre.id='b39AccGenre'; presetGenre.setAttribute('aria-label','Жанр пресетов');
+    var common=el('option','','Общие'); common.value=''; presetGenre.appendChild(common);
+    STYLES.forEach(function(style){var option=el('option','',style[1]);option.value=style[0];presetGenre.appendChild(option);});
+    presetGenre.addEventListener('change',renderPanel); presets.appendChild(presetGenre);
     gridEl = el('div', 'pattern-preset-chips b39-acc-grid');
     PRESETS.forEach(function (p) {
       var button = el('button', 'pattern-preset-chip b39-acc-preset');
@@ -50077,7 +50138,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       var preview = el('span', 'strum-preview'); preview.setAttribute('aria-hidden', 'true');
       button.appendChild(preview);
       button.addEventListener('click', function () {
-        draft.type = p.id; draft.subdivision = p.subdivision; delete draft.steps; draftLength = scopeUnits(); draftInherited = false; selectedStep = null; resetPending = false; renderPanel();
+        draft.type = p.id; draft.subdivision = p.subdivision; if (p.motif) draft.swing = p.presetSwing; delete draft.steps; draftLength = scopeUnits(); draftInherited = false; selectedStep = null; resetPending = false; renderPanel();
       });
       presetButtons.push(button); gridEl.appendChild(button);
     });
@@ -50259,6 +50320,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     draftLength = !draftInherited && cfg.steps ? cfg.steps.length / cfg.subdivision : scopeUnits();
     selectedStep = null;
     if (cfg.steps) draft.steps = cfg.steps.map(function (v) { return Array.isArray(v) ? v.slice() : v; });
+    if (presetGenre) { var p = preset(cfg.type); presetGenre.value = p && p.genre || ''; }
   }
   function renderPanel() {
     if (!panel) return;
@@ -50270,6 +50332,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     presetButtons.forEach(function (b) {
       var id = b.getAttribute('data-preset'), p = preset(id), selected = id === draft.type && !draft.steps;
       b.setAttribute('aria-pressed', String(selected)); b.classList.toggle('active', selected);
+      b.hidden = !!p && (p.genre || '') !== (presetGenre ? presetGenre.value : '');
       var preview = b.querySelector('.strum-preview');
       if (preview && p) {
         preview.textContent = '';
@@ -50453,7 +50516,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
 
   var api = Object.freeze({
     boot: boot, plan: plan, resolve: resolve, buildSteps: buildSteps,
-    normalize: normalize, preset: preset, list: list, tokens: function () { return TOKENS.slice(); },
+    normalize: normalize, preset: preset, list: list, styles: function () { return STYLES.map(function (s) { return {id:s[0],label:s[1]}; }); }, tokens: function () { return TOKENS.slice(); },
     adoptRhythm: adoptRhythm, rhythm: rhythm,
     open: openPanel, close: closePanel, toggle: togglePanel, render: renderPanel,
     setEditorScope: setEditorScope, apply: apply, clearScopes: clearScopes,
