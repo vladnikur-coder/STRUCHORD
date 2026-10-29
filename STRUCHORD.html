@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.718</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.719</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20309,6 +20309,15 @@ let activeSectionKey = null;
     if (typeof text !== 'string' || text.length > B39_LIMITS.MAX_PATTERN_CHARS) return null;
     return b39Clone(raw);
   }
+  // Роль баса — отдельная карта, не часть заменяемого рисунка.
+  function cleanBassRoles(raw, secs) {
+    var out={}, ids=new Set((Array.isArray(secs)?secs:[]).map(function(s){return String(s.id);}));
+    if (!b39IsObj(raw)) return out;
+    Object.keys(raw).slice(0,B39_LIMITS.MAX_CELL_ENTRIES).forEach(function(k){
+      if (ids.has(k) && ['auto','bass','nobass'].indexOf(raw[k])>=0) out[k]=raw[k];
+    });
+    return out;
+  }
   function sanitizeTracks(rawTracks, validKeys, song) {
     // Поля нет вообще -> старый файл: одна гитарная дорожка (миграция).
     // Явный пустой массив -> НОВАЯ песня без дорожек (решение владельца):
@@ -20339,6 +20348,7 @@ let activeSectionKey = null;
           var n = Number(v); return Number.isInteger(n) && n >= 0 && n <= 99 ? n : null;
         }, true),
         patterns: sanitizeMap(raw.patterns, validKeys, patternValue, false, true),
+        ...(Object.keys(cleanBassRoles(raw.bassRoles, song.sections)).length ? {bassRoles:cleanBassRoles(raw.bassRoles, song.sections)} : {}),
         keyboardSize: size
       });
     });
@@ -20355,7 +20365,7 @@ let activeSectionKey = null;
     if (!tracks.some(function(t){return t.id===trackId && t.instrument==='keys';})) return null;
     var ids = new Set((Array.isArray(secs)?secs:[]).map(function(s){return String(s.id);}));
     var managed = {}; if (b39IsObj(raw.managed)) Object.keys(raw.managed).slice(0,B39_LIMITS.MAX_CELL_ENTRIES).forEach(function(k){if (ids.has(k) && raw.managed[k]===true) managed[k]=true;});
-    return {primary:raw.primary,secondary:secondary,trackId:trackId,managed:managed};
+    return {primary:raw.primary,secondary:secondary,trackId:trackId,managed:managed,...(raw.autoBass===true?{autoBass:true}:{})};
   }
   // Старый файл (без tracks) -> одна гитарная дорожка, поля НЕ пишутся в
   // файл при сохранении (exportForSave вернёт {}).
@@ -20412,7 +20422,7 @@ let activeSectionKey = null;
     var t = state.tracks[0];
     if (t.instrument !== 'guitar' || t.name !== 'Гитара' || t.volume !== 100 ||
         t.mute || t.solo || t.keyboardSize !== null) return false;
-    return !Object.keys(t.chords).length && !Object.keys(t.voicings).length && !Object.keys(t.patterns).length;
+    return !Object.keys(t.chords).length && !Object.keys(t.voicings).length && !Object.keys(t.patterns).length && !Object.keys(t.bassRoles || {}).length;
   }
   function exportForSave() {
     // Пустое состояние пишем ЯВНО: иначе при загрузке оно превратилось бы
@@ -20581,6 +20591,27 @@ let activeSectionKey = null;
     if (!t || !t.patterns || !(String(key) in t.patterns)) return false;
     return dispatch('b39/track-pattern-clear', function () { delete t.patterns[String(key)]; return true; });
   }
+  function bassRole(id,secId) {
+    var t=findTrack(id); return t && t.bassRoles && t.bassRoles[String(secId)] || 'legacy';
+  }
+  function setBassRole(id,secId,mode) {
+    var t=findTrack(id), key=String(secId);
+    if(!t || t.instrument!=='keys' || !runtimeSections().some(function(s){return String(s.id)===key;}) || ['legacy','auto','bass','nobass'].indexOf(mode)<0) return false;
+    if(bassRole(id,secId)===mode) return true;
+    return dispatch('b39/section-bass',function(){
+      if(mode==='legacy'){if(t.bassRoles){delete t.bassRoles[key];if(!Object.keys(t.bassRoles).length)delete t.bassRoles;}}
+      else {if(!t.bassRoles)t.bassRoles={};t.bassRoles[key]=mode;}
+      return true;
+    });
+  }
+  function cloneBassRoles(from,to) {
+    state.tracks.forEach(function(t){if(t.instrument==='keys')setBassRole(t.id,to,bassRole(t.id,from));});
+  }
+  function removeBassRoles(id) {
+    state.tracks.forEach(function(t){if(t.bassRoles && t.bassRoles[String(id)]){
+      delete t.bassRoles[String(id)];if(!Object.keys(t.bassRoles).length)delete t.bassRoles;
+    }});
+  }
   function currentKey() {
     try { return (typeof globalKey !== 'undefined' && globalKey) || 'C'; } catch (e) { return 'C'; }
   }
@@ -20707,6 +20738,7 @@ let activeSectionKey = null;
     setKeyboardSize: setKeyboardSize, setTrackKeyboardSize: setTrackKeyboardSize,
     setTrackChord: setTrackChord, setVoicing: setVoicing, setPattern: setPattern,
     patternFor: patternFor, clearPattern: clearPattern, setAutoAccomp: setAutoAccomp,
+    bassRole:bassRole, setBassRole:setBassRole, cloneBassRoles:cloneBassRoles, removeBassRoles:removeBassRoles,
     voicingForChord: voicingForChord, setVoicingForChord: setVoicingForChord,
     addTrack: addTrack, removeTrack: removeTrack, reorderTracks: reorderTracks,
     resetToEmpty: resetToEmpty, resetForNewSong: resetForNewSong,
@@ -31958,9 +31990,10 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     var variants = generateKeysVoicings(chordName, currentKey(), range, o.prev || null, {});
     if (!variants.length) return '';
     var idx = variantIndex(trackId, chordName, o.cellKey) % variants.length;
-    var notes = variants[idx];
+    var notes = variants[idx], acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(o.cellKey);
+    if(acc && sec)notes=acc.stripBass(trackId,sec,notes);
     var f = F.chordFormula(chordName, currentKey());
-    var bass = notes.length ? notes[0] : null;
+    var bass = (!sec || !acc || acc.bassPolicy(trackId,sec).include) && notes.length ? notes[0] : null;
     var rh = notes.filter(function (n) { return n !== bass; });
     var lo = rh.length ? Math.min.apply(null, rh) : (bass || 60);
     var hi = rh.length ? Math.max.apply(null, rh) : lo;
@@ -32139,6 +32172,8 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     var variants = generateKeysVoicings(chord, currentKey(), range, null, {});
     var idx = variantIndex(active.track.id, chord, lastCellKey) % Math.max(1, variants.length);
     var notes = variants.length ? variants[idx] : [];
+    var acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(lastCellKey);
+    if(acc && sec)notes=acc.stripBass(active.track.id,sec,notes);
     var f = F.chordFormula(chord, currentKey());
     var whiteW = range.size >= 88 ? 12 : range.size >= 61 ? 15 : 20;
     var res = keyboardSVG(range.low, range.high, notes, {
@@ -32148,7 +32183,7 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     titleEl.textContent = chord;
     body.innerHTML = res.svg;
     countEl.textContent = (idx + 1) + '/' + Math.max(1, variants.length);
-    var bass = notes.length ? notes[0] : null;
+    var bass = (!sec || !acc || acc.bassPolicy(active.track.id,sec).include) && notes.length ? notes[0] : null;
     foot.textContent = 'Размер ' + range.size + ' клавиш (' + range.first + '–' + range.last + ')' +
       (bass !== null ? ' · бас ' + noteLabel(bass, f ? f.keyStyle : 'sharp') : '') +
       (showFingersEnabled() ? ' · цифры условны, это не аппликатура' : '');
@@ -39646,6 +39681,7 @@ function removeSection(id) {
   songStore.dispatch('section/remove', () => {
     sections = sections.filter((s) => s.id !== id);
     if (window.StruChordAuto) window.StruChordAuto.removeSection(id);
+    if (window.StruChordTracks) window.StruChordTracks.removeBassRoles(id);
     // B-12.1: рулоны партий живут НА СЕКЦИИ — вместе с ней уходит и её
     // рулон. Иначе в файле оставался бы мусор с ключом несуществующей
     // секции (и «Сброс» был бы единственным способом его вычистить).
@@ -39712,6 +39748,7 @@ function cloneSection(id) {
   songStore.dispatch('section/clone', () => {
   sections.splice(idx + 1, 0, cl);
   if (window.StruChordAuto) window.StruChordAuto.cloneSection(orig, cl);
+  if (window.StruChordTracks) window.StruChordTracks.cloneBassRoles(orig.id, cl.id);
   // Волна-4: ритм клона — КОПИИ рулонов оригинала на новых ключах
   // (структурный клон встроенных рисунков выше почти всегда находит
   // null: кэша у ячеек нет), плюс копия секционного рулона.
@@ -47829,6 +47866,8 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
       var notes = voicingProvider
         ? (voicingProvider(chord, effectiveKey, range, null, track.id) || voicingFor(chord, effectiveKey, range, null))
         : voicingFor(chord, effectiveKey, range, null);
+      var acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(cell);
+      if(acc && sec)notes=acc.stripBass(track.id,sec,notes);
       var level = HEADROOM / Math.sqrt(Math.max(1, notes.length));
       notes.forEach(function (midi) { playNote(ctx, channel, midi, now, 0.55, level); });
     });
@@ -47853,7 +47892,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
     var unit = typeof getGridUnitDurationSeconds === 'function' ? getGridUnitDurationSeconds(bpm, opt.ts || '4/4') : 60 / bpm;
     var steps = Acc.plan({ trackId:trackId, chord:chord, key:effectiveKey, range:range, notes:notes,
       ts:opt.ts || '4/4', span:span, dur:span * unit, ev:{span:span}, sq:{events:[]}, ei:0,
-      pattern:cfg, patternSource:opt.scope, noHighlight:true });
+      pattern:cfg, patternSource:opt.scope, sec:opt.sec, bassMode:opt.bassMode, noHighlight:true });
     var before = new Set(voices), start = ctx.currentTime + .05;
     var level = HEADROOM / Math.sqrt(Math.max(1, notes.length));
     steps.forEach(function (step) { step.notes.forEach(function (midi) { var d=Number.isFinite(step.gain)?step.gain:null;playNote(ctx, channel, midi, start + step.at, step.dur, level*(d===null?1:d), d); }); });
@@ -49925,7 +49964,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   // ---------- Состояние ----------
   var booted = false, wrapped = false, observer = null;
   var btn = null, panel = null, gridEl = null, stepsEl = null, footEl = null;
-  var subButtons = [], swingBtn = null, scopeCell = null, scopeSec = null, lengthRow = null, stepChoice = null, selectedStep = null, draftLength = 4, presetGenre = null, originalDraft = null;
+  var subButtons = [], swingBtn = null, scopeCell = null, scopeSec = null, lengthRow = null, stepChoice = null, selectedStep = null, draftLength = 4, presetGenre = null, originalDraft = null, bassSelect = null, bassRow = null, draftBassMode = 'legacy';
   var draft = { type: DEFAULT_TYPE, subdivision: 1, swing: null };
   var current = { secId: null, sqId: null, ei: null, cellKey: null, scope: 'section', ts: '4/4' };
   var sharedRhythm = null;       // подглядываем subdivision/swing у ритма секции
@@ -50082,6 +50121,22 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     return total;
   }
 
+  function bassPolicy(trackId,sec,override) {
+    var T=tracks(), mode=override===undefined && sec && T ? T.bassRole(trackId,sec.id) : override;
+    if (['auto','bass','nobass'].indexOf(mode)<0) mode='legacy';
+    // Это только подсказка: во вступлении, соло и завершении освобождаем низ.
+    var include=mode!=='nobass' && !(mode==='auto' && sec && ['Intro','Solo','Outro'].indexOf(sec.type)>=0);
+    return {mode:mode,include:include};
+  }
+  function sectionFromCell(key) {
+    var id=String(key||'').split(':')[0];
+    try { return sections.find(function(s){return String(s.id)===id;})||null; } catch(e) {return null;}
+  }
+  function stripBass(trackId,sec,notes,override) {
+    var copy=Array.isArray(notes)?notes.slice():[];
+    return !bassPolicy(trackId,sec,override).include ? copy.slice(1) : copy;
+  }
+
   // ---------- Токены -> MIDI-ноты ----------
   function tonePitchClass(f, token) {
     if (!f || !Array.isArray(f.tones)) return null;
@@ -50108,8 +50163,10 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     }
     var range = o.range || {};
     var low = Number(range.low), high = Number(range.high);
-    var bass = notes.length ? notes[0] : null;
-    var rh = notes.length > 1 ? notes.slice(1) : notes.slice();
+    var omit=!bassPolicy(o.trackId,o.sec,o.bassMode).include;
+    if(omit) { notes=notes.slice(1); if(Number.isFinite(low)) low+=12; }
+    var bass = !omit && notes.length ? notes[0] : null;
+    var rh = omit ? notes.slice() : (notes.length > 1 ? notes.slice(1) : notes.slice());
     return {
       notes: notes, rh: rh, bass: bass, formula: f,
       low: low, high: high,
@@ -50296,6 +50353,11 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     scopeLabel = el('span', 'b39-acc-scope'); top.appendChild(title); top.appendChild(scopeLabel); panel.appendChild(top);
     var autoOpen = el('button','b39-acc-action','Автоаккомпанемент на песню'); autoOpen.id='b39AutoOpen'; autoOpen.type='button';
     autoOpen.addEventListener('click',function(){ if (HOST.StruChordAuto) HOST.StruChordAuto.open(panel); }); panel.appendChild(autoOpen);
+    bassRow=el('label','b39-auto-select','Бас в этой секции');bassRow.id='b39BassRow';
+    bassSelect=el('select','b39-acc-genre');bassSelect.id='b39BassMode';bassSelect.setAttribute('aria-label','Бас в этой секции');
+    [['legacy','Как раньше'],['auto','Авто по типу секции'],['bass','С басом'],['nobass','Без баса']].forEach(function(pair){var op=el('option','',pair[1]);op.value=pair[0];bassSelect.appendChild(op);});
+    bassSelect.addEventListener('change',function(){draftBassMode=bassSelect.value;if(previewStop)previewDraft();});bassRow.appendChild(bassSelect);
+    bassRow.appendChild(el('span','b39-auto-note','Авто — подсказка по типу секции. Без баса басовые шаги станут паузами.'));panel.appendChild(bassRow);
     var presets = el('div', 'pattern-presets');
     presets.appendChild(el('div', 'pattern-presets-head', 'Пресеты'));
     presetGenre = el('select','b39-acc-genre'); presetGenre.id='b39AccGenre'; presetGenre.setAttribute('aria-label','Жанр пресетов');
@@ -50355,6 +50417,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       if (!currentTrack) { closePanel(); return; }
       var commit = function () {
         if (resetPending) clearScopes(); else apply();
+        if(current.scope==='section' && current.secId!=null) T.setBassRole(editingTrackId,current.secId,draftBassMode);
       };
       if (HOST.songStore && typeof HOST.songStore.dispatch === 'function') HOST.songStore.dispatch('b39/accomp-edit', commit);
       else commit();
@@ -50543,7 +50606,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     var span = Math.max(scopeUnits(), draftLength);
     var config = Object.assign({}, draft);
     if (draftInherited) config.steps = draftSteps();
-    previewStop = A.previewPattern(chord, ctx, state.activeTrackId, key, config, {scope:current.scope, span:span, bpm:bpm, ts:current.ts, keyboardSize:T.track(state.activeTrackId).keyboardSize});
+    previewStop = A.previewPattern(chord, ctx, state.activeTrackId, key, config, {scope:current.scope, span:span, bpm:bpm, ts:current.ts, keyboardSize:T.track(state.activeTrackId).keyboardSize,sec:sec,bassMode:current.scope==='section'?draftBassMode:undefined});
     if (previewStop) { var unit = typeof getGridUnitDurationSeconds === 'function' ? getGridUnitDurationSeconds(bpm, current.ts) : 60 / bpm; previewTimer = setTimeout(function () { previewStop = null; previewTimer = null; }, Math.ceil((span * unit + .2) * 1000)); }
   }
   function resetDraft() {
@@ -50556,6 +50619,8 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     var T = tracks(), state = T && T.state();
     editingTrackId = state ? state.activeTrackId : null;
     var cfg = resolveForScope(); if (cfg) loadDraft(cfg); resetPending = false;
+    draftBassMode=state && current.secId!=null ? T.bassRole(state.activeTrackId,current.secId) : 'legacy';
+    if(bassSelect)bassSelect.value=draftBassMode;if(bassRow)bassRow.hidden=current.scope!=='section';
     if (HUB) HUB.opened('acc');
     if (panel) { panel.hidden = false; overlay.hidden = false; }
     renderPanel();
@@ -50692,6 +50757,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
 
   var api = Object.freeze({
     boot: boot, plan: plan, resolve: resolve, buildSteps: buildSteps,
+    bassPolicy:bassPolicy, stripBass:stripBass, sectionFromCell:sectionFromCell,
     normalize: normalize, preset: preset, list: list, styles: function () { return STYLES.map(function (s) { return {id:s[0],label:s[1]}; }); }, tokens: function () { return TOKENS.slice(); },
     adoptRhythm: adoptRhythm, rhythm: rhythm,
     open: openPanel, close: closePanel, toggle: togglePanel, render: renderPanel,
@@ -50756,7 +50822,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     if (manual(sec,cfg) && (!ask || !HOST.confirm('В секции «'+sectionName(sec)+'» рисунок изменён вручную. Заменить его автоматическим?'))) return false;
     var pattern=makePattern(sec,cfg.primary,cfg.secondary); return !!pattern && T().setPattern(cfg.trackId,'s:'+sec.id,pattern);
   }
-  function addSection(sec){var cfg=auto();if(!cfg || !sec)return;var pattern=makePattern(sec,cfg.primary,cfg.secondary);if(!pattern)return;cfg.managed[String(sec.id)]=true;T().setPattern(cfg.trackId,'s:'+sec.id,pattern);T().setAutoAccomp(cfg);}
+  function addSection(sec){var cfg=auto();if(!cfg || !sec)return;var pattern=makePattern(sec,cfg.primary,cfg.secondary);if(!pattern)return;if(cfg.autoBass)T().setBassRole(cfg.trackId,sec.id,'auto');cfg.managed[String(sec.id)]=true;T().setPattern(cfg.trackId,'s:'+sec.id,pattern);T().setAutoAccomp(cfg);}
   function cloneSection(orig,cl){
     var cfg=auto(); if(!cfg || !orig || !cl)return;
     var original=T().patternFor(cfg.trackId,'s:'+orig.id);
@@ -50772,17 +50838,20 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     if(optional){var op=element('option','','Без дополнительного');op.value='';sel.appendChild(op);}
     A().styles().forEach(function(g){var op=element('option','',g.label);op.value=g.id;sel.appendChild(op);});row.appendChild(sel);return {row:row,sel:sel};}
   function renderPlan(){
-    if(!planBox)return;planBox.textContent=''; var first=primary.value, second=secondary.value;
+    if(!planBox)return;var prior={};Array.from(planBox.querySelectorAll('[data-bass-sec]')).forEach(function(n){prior[n.dataset.bassSec]=n.value;});var checks={};Array.from(planBox.querySelectorAll('input[data-sec]')).forEach(function(n){checks[n.dataset.sec]=n.checked;});planBox.textContent=''; var first=primary.value, second=secondary.value;
     if(second===first && second){planBox.appendChild(element('p','', 'Дополнительный жанр должен отличаться от основного.'));return;}
     var track=T().track(dialogTrack);if(!track)return;
     secs().forEach(function(sec){
       var raw=track.patterns['s:'+sec.id], cfg=auto(), isAuto=!!(cfg && cfg.trackId===dialogTrack && cfg.managed[String(sec.id)] && raw && raw.autoGenerated===true);
-      var row=element('label','b39-auto-row'), cb=element('input');cb.type='checkbox';cb.dataset.sec=String(sec.id);cb.checked=!raw || isAuto;
+      var row=element('label','b39-auto-row'), cb=element('input');cb.type='checkbox';cb.dataset.sec=String(sec.id);cb.checked=Object.prototype.hasOwnProperty.call(checks,String(sec.id))?checks[String(sec.id)]:!raw || isAuto;
       var desc=element('span'), picked=makePattern(sec,first,second), pr=picked && A().preset(picked.type);
       var cellCount=Object.keys(track.patterns).filter(function(k){return k.indexOf(sec.id+':')===0;}).length;
       var meter=tsOf(sec), simplified=['4/4','3/4','6/8'].indexOf(meter)<0;
       desc.textContent=sectionName(sec)+' · '+meter+(simplified?' (упрощённая адаптация)':'')+' · '+genreName(first)+' / '+(pr?pr.label:'—')+(second?' + '+genreName(second):'')+(raw&&!isAuto?' · свой рисунок':'')+(cellCount?' · настройки ячеек: '+cellCount:'');
       row.appendChild(cb);row.appendChild(desc);planBox.appendChild(row);
+      var bass=element('select','b39-acc-genre');bass.dataset.bassSec=String(sec.id);bass.setAttribute('aria-label','Бас: '+sectionName(sec));
+      [['legacy','Бас: как раньше'],['auto','Бас: авто ('+(['Intro','Outro','Solo'].indexOf(sec.type)>=0?'без баса':'с басом')+')'],['bass','Бас: оставить'],['nobass','Бас: убрать']].forEach(function(x){var op=element('option','',x[1]);op.value=x[0];bass.appendChild(op);});
+      var saved=T().bassRole(dialogTrack,sec.id);bass.value=prior[String(sec.id)] || (saved!=='legacy'?saved:raw?'legacy':'auto');planBox.appendChild(bass);
     });
     if(!secs().length)planBox.appendChild(element('p','','Добавьте секцию, чтобы создать аккомпанемент.'));
   }
@@ -50791,7 +50860,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     close();var st=T()&&T().state(), track=st&&T().track(st.activeTrackId);if(!track || track.instrument!=='keys')return;
     dialogTrack=track.id;box=element('div','b39-auto-panel');box.id='b39AutoPanel';box.setAttribute('role','group');box.setAttribute('aria-label','Автоаккомпанемент на песню');
     box.appendChild(element('strong','','Автоаккомпанемент на песню'));
-    box.appendChild(element('div','b39-auto-note','Выберите жанры и проверьте план. Позже авто обновит рисунки при смене типа или размера секции; ручные правки защищены. Настройки ячеек сохраняются.'));
+    box.appendChild(element('div','b39-auto-note','Проверьте рисунки и подсказки баса. Без баса басовые шаги станут паузами. Ручные рисунки защищены; настройки ячеек сохраняются.'));
     var f=select('Основной жанр','b39AutoPrimary',false),s=select('Дополнительный жанр','b39AutoSecondary',true);primary=f.sel;secondary=s.sel;box.appendChild(f.row);box.appendChild(s.row);
     var cfg=auto();if(cfg){primary.value=cfg.primary;secondary.value=cfg.secondary||'';}
     primary.addEventListener('change',renderPlan);secondary.addEventListener('change',renderPlan);
@@ -50809,9 +50878,11 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       if(same) secs().forEach(function(sec){var raw=track.patterns['s:'+sec.id];if(checked.indexOf(String(sec.id))<0 && raw && raw.autoGenerated===true)delete managed[String(sec.id)];});
       var conflicts=selected.filter(function(sec){var raw=track.patterns['s:'+sec.id];return raw && !(same && old.managed[String(sec.id)] && raw.autoGenerated===true);});
       if(conflicts.length && !HOST.confirm('Заменить собственные рисунки секций: '+conflicts.length+'? Если отказаться, они сохранятся; остальные выбранные секции обновятся.')) selected=selected.filter(function(sec){return conflicts.indexOf(sec)<0;});
+      var bassChoices={};Array.from(planBox.querySelectorAll('[data-bass-sec]')).forEach(function(n){bassChoices[n.dataset.bassSec]=n.value;});
       var next={primary:primary.value,secondary:secondary.value||null,trackId:dialogTrack,managed:managed};
+      if(selected.some(function(sec){return bassChoices[String(sec.id)]==='auto';}))next.autoBass=true;
       HOST.songStore.dispatch('b39/auto-apply',function(){
-        selected.forEach(function(sec){var pattern=makePattern(sec,next.primary,next.secondary);if(pattern){T().setPattern(dialogTrack,'s:'+sec.id,pattern);next.managed[String(sec.id)]=true;}});
+        selected.forEach(function(sec){var pattern=makePattern(sec,next.primary,next.secondary);if(pattern){T().setPattern(dialogTrack,'s:'+sec.id,pattern);T().setBassRole(dialogTrack,sec.id,bassChoices[String(sec.id)]);next.managed[String(sec.id)]=true;}});
         T().setAutoAccomp(next);
       },{history:'atomic'});
       close();if(HOST.StruChordAccomp)HOST.StruChordAccomp.close();if(HOST.showToast)HOST.showToast('Автоаккомпанемент обновлён');
