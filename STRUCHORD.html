@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.716</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.717</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32032,7 +32032,7 @@ html.b39-keys-mode .fingering-tooltip svg:not(.b39-keys-svg) { display: none !im
     [25,37,49,61,76,88].forEach(function (n) { var op = el('option', '', n + ' клавиш дорожки'); op.value = String(n); trackSizeSel.appendChild(op); });
     trackSizeSel.addEventListener('change', function () { var T = tracks(), st = T && T.state(); if (st) T.setTrackKeyboardSize(st.activeTrackId, trackSizeSel.value === '' ? null : Number(trackSizeSel.value)); renderPanel(); });
     timbreSel = el('select'); timbreSel.setAttribute('aria-label', 'Тембр');
-    [['piano', 'Рояль'], ['simple', 'Простой тон'], ['epiano', 'Электропиано'], ['organ', 'Орган']]
+    [['piano', 'Пианино'], ['simple', 'Простой тон'], ['epiano', 'Электропиано'], ['organ', 'Орган']]
       .forEach(function (pair) {
         var op = el('option', '', pair[1]); op.value = pair[0]; timbreSel.appendChild(op);
       });
@@ -46589,7 +46589,7 @@ const PART_SOUNDS = {
   drums: [{ id: 'acoustic', label: 'Синтетические GM-удары', gain: 1, bright: 0, ring: 1, wet: 0, drive: 0, cab: 0 }],
   keys: [
     { id: 'acoustic', label: 'Простой клавишный тон', gain: 1, bright: 0, ring: 1, wet: 0, drive: 0, cab: 0 },
-    { id: 'piano', label: 'Рояль (синтез)', gain: 1, bright: 0.08, ring: 1.3, wet: 0.25, drive: 0, cab: 0 },
+    { id: 'piano', label: 'Пианино (синтез)', gain: 1, bright: 0.08, ring: 1.3, wet: 0.25, drive: 0, cab: 0 },
     { id: 'epiano', label: 'Электропиано', gain: 0.95, bright: 0.14, ring: 1.1, wet: 0.35, drive: 0.05, cab: 6200 },
     { id: 'organ', label: 'Орган', gain: 0.9, bright: 0.02, ring: 2.2, wet: 0.2, drive: 0, cab: 0 },
   ],
@@ -47687,7 +47687,10 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
   function playPiano(ctx, target, midi, start, dur, level, expression) {
     if (!hasRoom()) return;
     var f0 = frequencyOf(midi);
-    var decay = Math.max(Number.isFinite(expression) ? 0.16 : 0.38, Math.min(2.6, dur * 1.5)) * (PEDAL ? 1.85 : 1);
+    // Нота сначала звучит заданную длительность, затем плавно затухает.
+    // Прежняя огибающая гасила даже длинные ноты сразу после атаки.
+    var held = Math.max(0.025, Math.min(12, Number(dur) || 0.4));
+    var tail = PEDAL ? 0.6 : 0.18;
     var bus = ctx.createGain();
     bus.gain.value = 1;
     bus.connect(target);
@@ -47700,12 +47703,15 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
       var g = ctx.createGain();
       var brightness = Number.isFinite(expression) ? Math.max(0.65,Math.min(1,expression)) : 1;
       var amp = level / Math.pow(n, 1.45 + (1-brightness)*0.7);
-      var tau = Math.max(0.08, decay / Math.pow(n, 0.55));
+      // Высокие призвуки затухают быстрее основного тона.
+      var releaseAt = start + held;
+      var sustain = Math.max(0.0002, amp * Math.exp(-held * Math.pow(n, 0.45) / 2.4));
       g.gain.setValueAtTime(0.0001, start);
       g.gain.exponentialRampToValueAtTime(Math.max(0.0002, amp), start + 0.004);
-      g.gain.exponentialRampToValueAtTime(0.0001, start + tau);
+      g.gain.exponentialRampToValueAtTime(sustain, releaseAt);
+      g.gain.exponentialRampToValueAtTime(0.0001, releaseAt + tail);
       osc.connect(g); g.connect(bus);
-      osc.start(start); osc.stop(start + tau + 0.02);
+      osc.start(start); osc.stop(releaseAt + tail + 0.02);
       register(osc);
     }
     // Молоточек: короткий шумовой импульс, отфильтрованный по высоте ноты.
