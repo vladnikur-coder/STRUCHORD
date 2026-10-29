@@ -29,7 +29,7 @@ const puppeteer = require('puppeteer');
   const patterns=()=>page.evaluate(()=>StruChordTracks.state().tracks[0].patterns);
   await open('section');
   assert(await page.$eval('#b39AccPanel',e=>!e.hidden));
-  assert.match(await page.$eval('.b39-acc-scope',e=>e.textContent),/секции/);
+  assert(await page.$eval('.b39-acc-scope',e=>e.hidden),'подпись секции убрана');
   await page.click('[data-preset="keys-arp-up"]');
   assert.deepStrictEqual(await patterns(),{},'черновик не меняет песню');
   const before=await page.evaluate(()=>StruChordAudio.stats().notes);
