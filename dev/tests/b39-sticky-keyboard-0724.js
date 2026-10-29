@@ -18,7 +18,8 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   assert(second.bottom<=height-20,`остаётся видимая часть песни ${width}x${height}`);
   assert(second.kbTop>=second.top && second.kbTop<second.bottom-30,`клавиши видны ${width}x${height}`);
   assert(second.pageWidth<=second.viewWidth+1,`страница не прокручивается горизонтально ${width}x${height}`);
-  // Элементы, не поместившиеся по высоте, доступны внутренней прокруткой.
+  // Настройки раскрываются и доступны внутренней прокруткой.
+  await page.click('#b39KeysSettingsToggle');
   await page.evaluate(()=>{const panel=document.querySelector('#b39KeysPanel');panel.scrollTop=panel.scrollHeight;});
   const ctrl=await page.$eval('#b39KeysTrackSize',e=>{const p=document.querySelector('#b39KeysPanel'),r=e.getBoundingClientRect(),pr=p.getBoundingClientRect();return {top:r.top,bottom:r.bottom,ptop:pr.top,pbottom:pr.bottom}});
   assert(ctrl.bottom<=ctrl.pbottom+1 && ctrl.top>=ctrl.ptop-1,`управление доступно в панели ${width}x${height}`);

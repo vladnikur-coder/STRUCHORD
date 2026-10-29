@@ -37,6 +37,7 @@ const wait = ms => new Promise(r => setTimeout(r, ms));
   const playback=await page.evaluate(async()=>{const s=sections[0],q=s.squares[0],ctx=getAudioContext();await ctx.resume();StruChordAudio.scheduleEvent(ctx,s,q,q.events[0],0,ctx.currentTime+.1,.3,120,'4/4');return StruChordKeys.last();});
   assert.equal(playback.chord,'C');
   // Настройки всей дорожки остаются независимы от секций и других дорожек.
+  await page.click('#b39KeysSettingsToggle');
   await page.select('#b39KeysTrackSize','49'); assert.equal((await page.evaluate(()=>StruChordTracks.track(1))).keyboardSize,49);
   assert.equal((await page.evaluate(id=>StruChordTracks.track(id),other)).keyboardSize,null);
   await page.evaluate(()=>StruChordTracks.setTrackKeyboardSize(1,null));

@@ -21,6 +21,7 @@ const puppeteer = require('puppeteer');
   assert.equal(await page.$('#b39AccPanel [aria-label="Размер клавиатуры дорожки"]'), null, 'размер убран из аккомпанемента');
   await page.click('#b39AccCancel');
   await page.evaluate(()=>StruChordKeys.open());
+  await page.click('#b39KeysSettingsToggle');
   await page.select('#b39KeysTrackSize', '49');
   assert.equal(await page.evaluate(()=>StruChordTracks.track(1).keyboardSize), 49, 'размер дорожки доступен в панели клавиатуры');
   await page.evaluate(()=>StruChordKeys.close());

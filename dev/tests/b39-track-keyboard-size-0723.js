@@ -14,6 +14,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
  assert.equal(await p.$eval('#b39KeysPanel',e=>e.querySelectorAll('select[aria-label*="Размер клавиатуры"]').length),1,'в панели один выбор размера');
  assert(!await p.$eval('#b39KeysPanel',e=>/Как в песне|Размер песни/.test(e.textContent)));
  assert.deepStrictEqual(await p.$$eval('#b39KeysTrackSize option',es=>es.map(e=>e.value)),['25','37','49','61','76','88']);
+ await p.click('#b39KeysSettingsToggle');
  await p.evaluate(()=>captureHistorySnapshot());await p.select('#b39KeysTrackSize','76');await p.evaluate(()=>captureHistorySnapshot());
  let after=await p.evaluate(id=>({state:StruChordTracks.state(),range:StruChordTracks.keyRange(1),other:StruChordTracks.track(id),sections:sections.map(s=>({id:s.id,chord:s.squares[0].events[0].chord}))}),original.other);
  assert.equal(after.state.tracks[0].keyboardSize,76);assert.equal(after.state.keyboardSize,49);assert.equal(after.other.keyboardSize,88);
