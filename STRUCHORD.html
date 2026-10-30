@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.760</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.763</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20306,7 +20306,14 @@ let activeSectionKey = null;
     if (!b39IsObj(raw)) return null;
     var text;
     try { text = JSON.stringify(raw); } catch (e) { return null; }
-    if (typeof text !== 'string' || text.length > B39_LIMITS.MAX_PATTERN_CHARS) return null;
+    if (typeof text !== 'string') return null;
+    if (raw.type === 'experimental-notes-v1') {
+      if (text.length > 32768 || !Number.isFinite(raw.beats) || raw.beats<=0 || raw.beats>32 ||
+          (raw.status!=='generated' && raw.status!=='manual') || !Array.isArray(raw.notes) || raw.notes.length>1024 ||
+          !raw.notes.every(function(n){return n && Number.isInteger(n.midi) && n.midi>=0 && n.midi<=127 &&
+            Number.isFinite(n.beat) && n.beat>=0 && n.beat<raw.beats && Number.isFinite(n.duration) && n.duration>0 && n.beat+n.duration<=raw.beats+1e-8 &&
+            Number.isInteger(n.velocity) && n.velocity>=1 && n.velocity<=127 && (n.hand==='left' || n.hand==='right');})) return null;
+    } else if (text.length > B39_LIMITS.MAX_PATTERN_CHARS) return null;
     return b39Clone(raw);
   }
   // Роль баса — отдельная карта, не часть заменяемого рисунка.
@@ -20414,7 +20421,7 @@ let activeSectionKey = null;
     if (!tracks.some(function(t){return t.id===trackId && t.instrument==='keys';})) return null;
     var ids = new Set((Array.isArray(secs)?secs:[]).map(function(s){return String(s.id);}));
     var managed = {}; if (b39IsObj(raw.managed)) Object.keys(raw.managed).slice(0,B39_LIMITS.MAX_CELL_ENTRIES).forEach(function(k){if (ids.has(k) && raw.managed[k]===true) managed[k]=true;});
-    return {primary:raw.primary,secondary:secondary,trackId:trackId,managed:managed,...(raw.autoBass===true?{autoBass:true}:{})};
+    return {primary:raw.primary,secondary:secondary,trackId:trackId,managed:managed,...(raw.autoBass===true?{autoBass:true}:{}),...(typeof raw.swing==='boolean'?{swing:raw.swing}:{}),...(raw.engine==='notes-v1'?{engine:'notes-v1'}:{})};
   }
   // Старый файл (без tracks) -> одна гитарная дорожка, поля НЕ пишутся в
   // файл при сохранении (exportForSave вернёт {}).
@@ -20662,7 +20669,9 @@ let activeSectionKey = null;
   function setTrackKeyboardSize(id, size) {
     var n = Number(size);
     if (size !== null && !B39_KEYBOARD_SIZES.includes(n)) return false;
-    return setTrackField(id, 'keyboardSize', size === null ? null : n, 'b39/track-keyboard-size');
+    var track=findTrack(id);if(!track)return false;
+    return dispatch('b39/track-keyboard-size',function(){track.keyboardSize=size===null?null:n;
+      if(HOST.StruChordNoteCandidate)runtimeSections().forEach(function(sec){HOST.StruChordNoteCandidate.refreshManaged(sec,id);});return true;});
   }
   function defaultGuitarShape(chord,cell,ev,legacy,f) {
     f=f||findEvent(cell,null); var sec=f && f.sec, key=sec && sec.key || currentKey();
@@ -20703,6 +20712,11 @@ let activeSectionKey = null;
         if(t.instrument==='guitar' && !t.guitarShapes[key]){var choice=b39WithTrackTuning(id,function(){return defaultGuitarShape(cleaned,key,null,false);});if(choice)t.guitarShapes[key]=choice;}
       } else {
         delete t.chords[key];                       // пусто -> призрачная подсказка
+      }
+      if(state.autoAccomp && state.autoAccomp.engine==='notes-v1' && state.autoAccomp.trackId===id && HOST.StruChordNoteCandidate){
+        var pos=findEvent(key,null);if(pos && state.autoAccomp.managed[String(pos.sec.id)]){
+          HOST.StruChordNoteCandidate.refreshManaged(pos.sec,id);
+        }
       }
       return true;
     });
@@ -32018,6 +32032,11 @@ html.b39-keys-mode .tl-fing-controls { display: none !important; }
 .b39-keys-body { min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
 .b39-keys-body svg.b39-keys-svg { display: block; height: auto; max-width: none; margin-inline: auto; }
 .b39-keys-body svg rect[data-midi] { cursor:pointer; outline:none; }
+/* Во время игры вместо схемы аккорда показаны только реально звучащие ноты. */
+.b39-keys-body.b39-key-live svg rect[data-key-color="white"] { fill:var(--color-surface, #fff) !important; filter:none !important; }
+.b39-keys-body.b39-key-live svg rect[data-key-color="black"] { fill:var(--color-text-primary, #1b1b1b) !important; filter:none !important; }
+.b39-keys-body.b39-key-live svg .b39-key-inset, .b39-keys-body.b39-key-live svg circle, .b39-keys-body.b39-key-live svg .b39-key-finger { opacity:0; }
+.b39-keys-body.b39-key-live svg rect.b39-key-sounding { fill:#f08524 !important; filter:drop-shadow(0 0 .3rem #f08524) !important; }
 .b39-keys-body svg rect[data-midi]:active, .b39-keys-body svg rect[data-midi]:focus-visible { stroke:var(--color-accent-warm); stroke-width:2; }
 .b39-keys-body svg text, .b39-keys-body svg circle { pointer-events:none; }
 /* Тёмно-синий акцент «Дефолта» почти сливался с чёрной клавишей.
@@ -32384,7 +32403,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
         ' V ' + (top + r) + ' Q ' + left + ' ' + top + ' ' + (left + r) + ' ' + top +
         ' Z" stroke-width="' + line + '"/>';
     }
-    function keyAttrs(midi) { return o.interactive ? ' data-midi="' + midi + '" tabindex="' + (midi===low ? '0' : '-1') + '" role="button" aria-label="Нота ' + noteLabel(midi, 'sharp') + '"' : ''; }
+    function keyAttrs(midi) { return o.interactive ? ' data-midi="' + midi + '" data-key-color="' + ([1,3,6,8,10].indexOf(mod12(midi))>=0 ? 'black' : 'white') + '" tabindex="' + (midi===low ? '0' : '-1') + '" role="button" aria-label="Нота ' + noteLabel(midi, 'sharp') + '"' : ''; }
     // белые
     layout.keys.forEach(function (k) {
       if (!k.white) return;
@@ -32425,7 +32444,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       }
       if (o.showFingers) {
         var f = FINGERS[i % FINGERS.length];
-        parts.push('<text x="' + cx + '" y="' + (k.white ? whiteH - 3 : blackH - 3) + '" font-size="' + fingerFont + '" font-weight="700" ' +
+        parts.push('<text class="b39-key-finger" x="' + cx + '" y="' + (k.white ? whiteH - 3 : blackH - 3) + '" font-size="' + fingerFont + '" font-weight="700" ' +
           'text-anchor="middle" fill="var(--color-surface, #fff)">' + f + '</text>');
       }
     });
@@ -32935,6 +32954,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     titleEl.textContent = noteDraft ? 'Ввод аккорда' : chord || 'Клавиатура';
     var oldScroll = body.scrollLeft;
     body.innerHTML = res.svg;
+    if (HOST.StruChordAudio && HOST.StruChordAudio.refreshKeyHighlights) HOST.StruChordAudio.refreshKeyHighlights();
     var svg = body.querySelector('svg'); if (svg) { svg.style.width = (res.width / 16) + 'rem'; if (!chord) svg.setAttribute('aria-label', 'Клавиатура без выбранного аккорда'); }
     var visibleContext = active.track.id + '|' + lastCellKey;
     if (lastVisibleContext !== visibleContext && body.scrollWidth > body.clientWidth) {
@@ -33598,6 +33618,10 @@ function setEventChord(ev, newChord, posCtx, keepShape) {
     if (posCtx && window.StruChordTracks) {
       const T=window.StruChordTracks, st=T.state();
       T.clearExactNotes(st.activeTrackId, posCtx.secId + ':' + (posCtx.sqId !== undefined ? posCtx.sqId : posCtx.squareId) + ':' + (posCtx.ei !== undefined ? posCtx.ei : posCtx.eventIndex));
+      const cfg=st.autoAccomp, sec=sections.find(s=>s.id===posCtx.secId);
+      if(cfg && cfg.engine==='notes-v1' && sec && cfg.managed[String(sec.id)] && cfg.trackId===st.activeTrackId && window.StruChordNoteCandidate) {
+        window.StruChordNoteCandidate.refreshManaged(sec,cfg.trackId);
+      }
     }
   }, { quiet: true });
   // Ворота едины для всех путей появления имени — ручной ввод, колесо,
@@ -40422,6 +40446,7 @@ function transposeAllGlobal(st) {
   let ni = (idx + st + sorted.length) % sorted.length;
   let nk = sorted[ni];
   DOM.rootKey.value = nk;
+  if(window.StruChordNoteCandidate && window.StruChordTracks && !window.StruChordNoteCandidate.canMoveManual(sections,st,window.StruChordTracks.state().mainTrackId)){DOM.rootKey.value=ck;showToast('Транспонирование отменено: ручная нота выйдет за диапазон MIDI');return;}
   songStore.dispatch('song/transpose', () => {
   for (const s of sections)
     for (const sq of s.squares)
@@ -40471,6 +40496,7 @@ function transposeAllGlobal(st) {
   globalKey = nk;
   applyEnharmonicCorrectionToAll();
   if(window.StruChordTracks) window.StruChordTracks.moveMainExactNotes(st);
+  if(window.StruChordNoteCandidate && window.StruChordTracks){window.StruChordNoteCandidate.moveManual(sections,st,window.StruChordTracks.state().mainTrackId);sections.forEach(sec=>window.StruChordNoteCandidate.refreshManaged(sec));}
   });
   requestRender();
   if (DOM.chordWheelModal.classList.contains('open') && activeChordInput) {
@@ -40749,6 +40775,7 @@ function setSectionModulation(sectionId, shift) {
   const prevShift = sec.shift != null ? sec.shift
     : (sec.key ? getRawSemitonesBetween(globalKey, sec.key) : 0);
   const delta = shift - prevShift;
+  if(window.StruChordNoteCandidate && window.StruChordTracks && !window.StruChordNoteCandidate.canMoveManual([sec],delta,window.StruChordTracks.state().mainTrackId)){showToast('Модуляция отменена: ручная нота выйдет за диапазон MIDI');return;}
   let newKey = shift === 0 ? null : getKeyByShift(globalKey, shift);
   if (newKey !== null) {
     if (globalKey.endsWith('m') !== newKey.endsWith('m')) {
@@ -40808,6 +40835,7 @@ function setSectionModulation(sectionId, shift) {
     // (внутри команды, чтобы undo откатил всё атомарно).
     applyEnharmonicCorrectionToSection(sec);
     if(window.StruChordTracks) window.StruChordTracks.moveMainExactNotes(delta,sec.id);
+    if(window.StruChordNoteCandidate && window.StruChordTracks){window.StruChordNoteCandidate.moveManual([sec],delta,window.StruChordTracks.state().mainTrackId);window.StruChordNoteCandidate.refreshManaged(sec);}
   }, { quiet: true });
   if (activeChordInput && +activeChordInput.dataset.sec === sectionId) activeSectionKey = sec.key || null;
   const harmonyModesChanged = enableWheelHarmonyModesOnTransition(
@@ -42305,7 +42333,8 @@ function setSectionBpm(sectionId, bpm) {
   }
   songStore.dispatch('section/bpm', () => {
     sec.bpm = bpm || null;
-  }, { quiet: true });
+    if(window.StruChordNoteCandidate)window.StruChordNoteCandidate.refreshManaged(sec);
+  }, { quiet: true,history:'atomic' });
   // B-25: BPM секции — это только бейдж в шапке секции и таймлайн.
   if (!syncSectionBpmBadge(sec)) requestRender();
   if (bpm) showToast(`BPM секции: ${bpm}`);
@@ -44611,14 +44640,15 @@ function changeChordSpanDirect(sectionId, squareId, eventIndex, newSpan) {
     // РОДИТЕЛЯ, поэтому суммируем parent-эквиваленты, а не сырые span.
     total = events.reduce((sum, e) => sum + getEventSpanInParentUnits(e, parentTs), 0);
     sq.customBeats = total;
-  }, { quiet: true });
+    if(window.StruChordNoteCandidate)window.StruChordNoteCandidate.refreshManaged(sec);
+  }, { quiet: true,history:'atomic' });
 
   // B-20: окно при новых долях могло совпасть с боем секции.
   settleSquareRhythmWithFacade(sec, sq);
   // B-25: это не структурная операция — DOM текущего квадрата можно
   // синхронизировать локально, без полного render() всей песни.
   syncSquareDomNow(sec, sq);
-  showToast(`Размер ячейки изменён на ${newSpan} доли (всего в квадрате: ${total})`);
+  showToast(window.StruChordNoteCandidate && window.StruChordNoteCandidate.manualTimingConflict(sec) ? 'Размер изменён: ручная нотная партия сохранена, но её длительность нужно согласовать' : `Размер ячейки изменён на ${newSpan} доли (всего в квадрате: ${total})`);
 }
 function setEventTimeSig(sectionId, squareId, eventIndex, newTimeSig) {
   const sec = sections.find(s => s.id === sectionId);
@@ -44636,6 +44666,7 @@ function setEventTimeSig(sectionId, squareId, eventIndex, newTimeSig) {
   // ТАКТА, что и раньше (целый такт остаётся целым тактом, половина —
   // половиной), а не ту же длительность в секундах. Округляем и
   // подстраховываемся минимумом в 1 единицу.
+  let noteMeterOk=true;
   songStore.dispatch('cell/timesig', () => {
     if (targetTimeSig !== oldOwnTimeSig) {
       const converted = Math.round(convertSpanBetweenTimeSigs(ev.span, oldOwnTimeSig, targetTimeSig));
@@ -44647,13 +44678,14 @@ function setEventTimeSig(sectionId, squareId, eventIndex, newTimeSig) {
     } else {
       ev.timeSig = newTimeSig;
     }
-  }, { quiet: true });
+    if(window.StruChordNoteCandidate)noteMeterOk=window.StruChordNoteCandidate.refreshManaged(sec);
+  }, { quiet: true,history:'atomic' });
   // B-20: окно в новых единицах размера могло совпасть с боем секции.
   settleSquareRhythmWithFacade(sec, sq);
   // B-25: смена размера события не добавляет/удаляет ячейки, поэтому
   // обновляем только текущий квадрат.
   syncSquareDomNow(sec, sq);
-  showToast(`Размер ячейки: ${ev.timeSig || 'глобальный'}`);
+  showToast(noteMeterOk && window.StruChordNoteCandidate && window.StruChordNoteCandidate.manualTimingConflict(sec) ? 'Размер изменён: ручная нотная партия сохранена, но её длительность нужно согласовать' : noteMeterOk ? `Размер ячейки: ${ev.timeSig || 'глобальный'}` : 'Размер изменён, но авто не поддерживает смешанный размер секции: проверьте клавишную партию');
 }
 function getEventDurationForTimeSig(span, bpm, ts) {
   return span * getGridUnitDurationSeconds(bpm, ts);
@@ -48493,10 +48525,37 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
   function tracks() { return HOST.StruChordTracks || null; }
   function formula() { return HOST.StruChordFormula || null; }
 
+  // Одна очередь для всех нот, привязанная к часам AudioContext, а не к
+  // моменту планирования ячейки. Перекрывающиеся ноты учитываются отдельно.
+  var keyHighlights = [], keyTimer = null;
+  function refreshKeyHighlights() {
+    var T=tracks(), panel=HOST.document && HOST.document.querySelector('#b39KeysPanel');
+    if (!panel || !T) return;
+    var state=T.state(), id=state.activeTrackId, active=T.track(id), now=ctxRef ? ctxRef.currentTime : 0;
+    var sounding=new Set(), live=false, gain=effectiveGain(state,active);
+    keyHighlights.forEach(function(n){if(!n.owner.cancelled && n.trackId===id && n.end>now){live=true;if(gain>0 && n.start<=now)sounding.add(n.midi);}});
+    var body=panel.querySelector('.b39-keys-body');if(body)body.classList.toggle('b39-key-live',live);
+    panel.querySelectorAll('.b39-keys-body rect[data-midi]').forEach(function(k){k.classList.toggle('b39-key-sounding',sounding.has(Number(k.getAttribute('data-midi'))));});
+  }
+  function tickKeyHighlights() {
+    keyTimer=null;
+    if (!ctxRef || ctxRef.state==='closed') { keyHighlights=[]; refreshKeyHighlights(); return; }
+    var now=ctxRef.currentTime;
+    keyHighlights=keyHighlights.filter(function(n){return !n.owner.cancelled && n.end>now;});
+    refreshKeyHighlights();
+    if(keyHighlights.length)keyTimer=HOST.setTimeout(tickKeyHighlights,25);
+  }
+  function scheduleKeyHighlight(ctx, channel, midi, start, dur, owner) {
+    keyHighlights.push({trackId:channel.__trackId,midi:midi,start:start,end:start+dur,owner:owner||{cancelled:false}});
+    if(!keyTimer)tickKeyHighlights();
+  }
+  function clearKeyHighlights() {
+    if(keyTimer)HOST.clearTimeout(keyTimer);keyTimer=null;keyHighlights=[];refreshKeyHighlights();
+  }
   function ensureCtx(ctx) {
     if (ctxRef === ctx) return;
     // Контекст пересоздан (audioPreflightForGesture): старые узлы уже мертвы.
-    voices.clear(); channels.clear(); hammer = null; ctxRef = ctx;
+    clearKeyHighlights(); voices.clear(); channels.clear(); hammer = null; ctxRef = ctx;
   }
 
   // ---------- Шина дорожки ----------
@@ -48516,7 +48575,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
     } catch (e) { made = null; }
     if (!made || !made.input) return null;
     try { made.input.gain.value = gain; } catch (e) {}
-    made.__ctx = ctx;
+    made.__ctx = ctx; made.__trackId = trackId;
     channels.set(trackId, made);
     return made;
   }
@@ -48686,11 +48745,12 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
     stats.notes++;
   }
 
-  function playNote(ctx, channel, midi, start, dur, level, expression) {
+  function playNote(ctx, channel, midi, start, dur, level, expression, highlightOwner) {
     var target = voiceTarget(channel);
     if (!target) return;
     if (MODE === 'simple') playSimple(ctx, target, midi, start, dur, level);
     else playPiano(ctx, target, midi, start, dur, level, expression);
+    scheduleKeyHighlight(ctx, channel, midi, start, dur, highlightOwner);
   }
 
   // ---------- Планирование ----------
@@ -48821,13 +48881,13 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
       ts:opt.ts || '4/4', span:span, dur:span * unit, ev:{span:span}, sq:{events:[]}, ei:0,
       pattern:cfg, patternSource:opt.scope, sec:opt.sec, bassMode:opt.bassMode, noHighlight:true });
     var start = ctx.currentTime + .05, level = HEADROOM / Math.sqrt(Math.max(1, notes.length));
-    var owned = new Set(), index = 0, timer = null, stopped = false;
+    var owned = new Set(), index = 0, timer = null, stopped = false, highlightOwner={cancelled:false};
     // Не создаём все источники двухтактовой фразы сразу: будущие ноты
     // иначе занимают общий лимит раньше, чем начинают звучать.
     var deadline = Date.now() + Math.ceil((span * unit + 1) * 1000);
     function cancel() {
       if (stopped) return;
-      stopped=true; if (timer) clearTimeout(timer); timer=null; previewJobs.delete(cancel);
+      stopped=true; highlightOwner.cancelled=true; if(keyTimer)HOST.clearTimeout(keyTimer);tickKeyHighlights(); if (timer) clearTimeout(timer); timer=null; previewJobs.delete(cancel);
       owned.forEach(function (v) { try { v.stop(); } catch (e) {} voices.delete(v); }); owned.clear();
     }
     function tick() {
@@ -48840,7 +48900,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
           var step=steps[index++], before=new Set(voices);
           step.notes.forEach(function (midi) {
             var d=Number.isFinite(step.gain)?step.gain:null;
-            playNote(ctx,channel,midi,Math.max(ctx.currentTime+.005,start+step.at),step.dur,level*(d===null?1:d),d);
+            playNote(ctx,channel,midi,Math.max(ctx.currentTime+.005,start+step.at),step.dur,level*(d===null?1:d),d,highlightOwner);
           });
           voices.forEach(function (v) { if (!before.has(v)) owned.add(v); });
         }
@@ -48857,6 +48917,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
 
   function stopAll() {
     previewJobs.forEach(function (cancel) { cancel(); }); previewJobs.clear();
+    clearKeyHighlights();
     voices.forEach(function (src) { try { src.stop(); } catch (e) {} });
     voices.clear();
     prevByTrack.clear();
@@ -48878,7 +48939,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
   var api = Object.freeze({
     scheduleEvent: scheduleEvent, preview: preview, previewNote: previewNote, previewPattern: previewPattern, stopAll: stopAll, reset: reset,
     setVoicingProvider: setVoicingProvider, setEventNotifier: setEventNotifier,
-    setPatternPlanner: setPatternPlanner,
+    setPatternPlanner: setPatternPlanner, refreshKeyHighlights: refreshKeyHighlights,
     voicingFor: voicingFor, effectiveGain: effectiveGain, frequencyOf: frequencyOf,
     setMode: function (m) { if (m === 'simple' || m === 'piano') MODE = m; return MODE; },
     getMode: function () { return MODE; },
@@ -50955,7 +51016,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   var booted = false, wrapped = false, observer = null;
   var btn = null, panel = null, gridEl = null, stepsEl = null, footEl = null;
   var subButtons = [], swingBtn = null, scopeCell = null, scopeSec = null, lengthRow = null, stepChoice = null, selectedStep = null, draftLength = 4, presetGenre = null, originalDraft = null, bassSelect = null, bassRow = null, draftBassMode = 'legacy';
-  var draft = { type: DEFAULT_TYPE, subdivision: 1, swing: null };
+  var draft = { type: DEFAULT_TYPE, subdivision: 1, swing: null }, regenSignature = null, regenMeta = null;
   var current = { secId: null, sqId: null, ei: null, cellKey: null, scope: 'section', ts: '4/4' };
   var sharedRhythm = null;       // подглядываем subdivision/swing у ритма секции
   var timers = [];
@@ -51129,6 +51190,17 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     return !bassPolicy(trackId,sec,override).include ? copy.slice(1) : copy;
   }
 
+  // Свинг нового авто наследуется только в его управляемых секциях;
+  // прежние песни без поля swing продолжают наследовать старый ритм.
+  function inheritedAutoSwing(trackId, sec, source) {
+    var T=tracks(), sid=sec && typeof sec==='object' ? sec.id : sec, state=T && T.state(), track=T && T.track(trackId);
+    var raw=track && track.patterns && track.patterns['s:'+sid], cfg=state && state.autoAccomp;
+    if(source==='cell' && raw && raw.autoSwing===true && typeof raw.swing==='boolean') return raw.swing;
+    if(cfg && cfg.trackId===trackId && cfg.managed[String(sid)] && typeof cfg.swing==='boolean') return cfg.swing;
+    if(raw && raw.autoSwing===true && typeof raw.swing==='boolean') return raw.swing;
+    return !!(sharedRhythm && sharedRhythm.swing===true);
+  }
+
   // ---------- Токены -> MIDI-ноты ----------
   function tonePitchClass(f, token) {
     if (!f || !Array.isArray(f.tones)) return null;
@@ -51202,12 +51274,13 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
    */
   function plan(o) {
     o = o || {};
+    var individual=HOST.StruChordNoteCandidate && HOST.StruChordNoteCandidate.plan(o);if(individual)return individual;
     var cfg = o.pattern ? normalize(o.pattern) : null;
     if (cfg) cfg.source = o.patternSource === 'cell' ? 'cell' : 'section';
     else cfg = resolve(o.trackId, o.cell, o.sec);
     var sub = cfg.subdivision;
     var swingOn = !o.noSwing && (cfg.swing === true ||
-      (cfg.swing === null && sharedRhythm && sharedRhythm.swing === true)) &&
+      (cfg.swing === null && inheritedAutoSwing(o.trackId,o.sec,cfg.source))) &&
       (sub === 2 || sub === 4);
     var notes = (Array.isArray(o.notes) ? o.notes : [])
       .map(Number).filter(isMidi).slice().sort(asc);
@@ -51362,11 +51435,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     panel.setAttribute('aria-label', 'Редактор аккомпанемента');
     if (HUB) HUB.register('acc', closePanel);
     scopeLabel = el('span', 'b39-acc-scope'); panel.appendChild(scopeLabel);
-    bassRow=el('label','b39-auto-select','Бас в этой секции');bassRow.id='b39BassRow';
-    bassSelect=el('select','b39-acc-genre');bassSelect.id='b39BassMode';bassSelect.setAttribute('aria-label','Бас в этой секции');
-    [['legacy','Как раньше'],['auto','Авто по типу секции'],['bass','С басом'],['nobass','Без баса']].forEach(function(pair){var op=el('option','',pair[1]);op.value=pair[0];bassSelect.appendChild(op);});
-    bassSelect.addEventListener('change',function(){draftBassMode=bassSelect.value;if(previewStop)previewDraft();});bassRow.appendChild(bassSelect);
-    bassRow.appendChild(el('span','b39-auto-note','Авто — подсказка по типу секции. Без баса басовые шаги станут паузами.'));panel.appendChild(bassRow);
+    // Сохранённая роль баса остаётся в песне; отдельный выбор больше не показываем.
     var presets = el('div', 'pattern-presets');
     presets.appendChild(el('div', 'pattern-presets-head', 'Пресеты'));
     presetGenre = el('select','b39-acc-genre'); presetGenre.id='b39AccGenre'; presetGenre.setAttribute('aria-label','Жанр пресетов');
@@ -51402,16 +51471,31 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       });
       subButtons.push(button); row.appendChild(button);
     });
-    swingBtn = el('button', 'pattern-swing-btn', 'Swing'); swingBtn.type = 'button'; swingBtn.id = 'b39AccSwing';
+    var swingLabel=el('label','tools-label'); swingLabel.id='b39AccSwingLabel'; swingBtn=el('input');swingBtn.type='checkbox';swingBtn.id='b39AccSwing';swingLabel.appendChild(swingBtn);swingLabel.appendChild(el('span','','Swing'));
     swingBtn.title = 'Свинг — качающиеся восьмые. Влияет только на звук';
-    swingBtn.addEventListener('click', function () {
-      var on = draft.swing === true || (draft.swing === null && sharedRhythm && sharedRhythm.swing === true);
+    swingBtn.addEventListener('change', function () {
+      var st=tracks() && tracks().state(); var on = draft.swing === true || (draft.swing === null && st && inheritedAutoSwing(st.activeTrackId,current.secId,current.scope));
       draft.swing = !on; resetPending = false; renderPanel(); if (previewStop) previewDraft();
     });
-    row.appendChild(swingBtn); panel.appendChild(row);
+    row.appendChild(swingLabel); panel.appendChild(row);
     stepsEl = el('div', 'pattern-grid b39-acc-steps'); stepsEl.id = 'b39AccSteps'; panel.appendChild(stepsEl);
     stepChoice = el('div', 'b39-acc-choice'); stepChoice.id = 'b39AccStepChoice'; stepChoice.hidden = true; panel.appendChild(stepChoice);
     footEl = el('div', 'pattern-hint'); panel.appendChild(footEl);
+    var regen=el('button','b39-acc-action','Создать другой рисунок');regen.id='b39AccRegenerate';regen.type='button';regen.hidden=true;
+    regen.addEventListener('click',function(){
+      var T=tracks(), state=T && T.state(), cfg=state && state.autoAccomp, sec;
+      try {sec=sections.find(function(s){return String(s.id)===String(current.secId);});}catch(e){}
+      if(!sec || !cfg || cfg.trackId!==editingTrackId || !cfg.managed[String(sec.id)] || !HOST.StruChordAuto)return;
+      var old=T.patternFor(editingTrackId,'s:'+sec.id), priorDraft;try{priorDraft=JSON.parse(originalDraft);}catch(e){priorDraft={};}
+      var currentDraft=Object.assign({},draft), compareDraft=Object.assign({},priorDraft);delete currentDraft.swing;delete compareDraft.swing;
+      var changed=JSON.stringify(currentDraft)!==JSON.stringify(compareDraft);
+      if((changed || (old && old.autoGenerated!==true)) && !HOST.confirm('Заменить собственный рисунок секции?'))return;
+      var prior=Object.assign({},regenMeta || old || {},{autoSwing:true,swing:draft.swing,steps:draftSteps()}), variation=((Number((regenMeta || old || {}).autoVariation)||0)+1)%4;
+      var generated=HOST.StruChordAuto.makePattern(sec,cfg.primary,cfg.secondary,{previous:prior,variation:variation,forceChange:true});
+      if(!generated)return;
+      var original=originalDraft;loadDraft(Object.assign({source:'section'},generated));originalDraft=original;
+      regenMeta={autoSwing:true,autoVariation:variation,swing:draft.swing};regenSignature=JSON.stringify(draft);resetPending=false;renderPanel();if(previewStop)previewDraft();
+    });panel.appendChild(regen);
     var previewRow = el('div', 'b39-acc-actions');
     var preview = el('button', 'b39-acc-action b39-acc-action--preview'); preview.id = 'b39AccPreview'; preview.type = 'button';
     var previewIcon = el('i', 'ti ti-player-play'); previewIcon.setAttribute('aria-hidden','true'); preview.appendChild(previewIcon); preview.appendChild(doc.createTextNode(' Прослушать'));
@@ -51425,10 +51509,13 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       var T = tracks(), currentTrack = T && T.track(editingTrackId);
       if (!currentTrack) { closePanel(); return; }
       var commit = function () {
+        var transition=HOST.__b39NoteLegacy;
+        if(transition && transition.trackId===editingTrackId && (resetPending || JSON.stringify(draft)!==originalDraft)){
+          var map=currentTrack.patterns||{};Object.keys(map).forEach(function(k){if(map[k] && map[k].type==='experimental-notes-v1' && (transition.cell ? k===transition.cell : k.indexOf(String(transition.sectionId)+':')===0))T.clearPattern(editingTrackId,k);});
+        }
         if (resetPending) clearScopes(); else if (!draftDefault || JSON.stringify(draft) !== originalDraft) apply();
-        if(current.scope==='section' && current.secId!=null) T.setBassRole(editingTrackId,current.secId,draftBassMode);
       };
-      if (HOST.songStore && typeof HOST.songStore.dispatch === 'function') HOST.songStore.dispatch('b39/accomp-edit', commit);
+      if (HOST.songStore && typeof HOST.songStore.dispatch === 'function') HOST.songStore.dispatch('b39/accomp-edit', commit, {history:'atomic'});
       else commit();
       closePanel();
     }); actions.appendChild(save);
@@ -51569,7 +51656,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     if (cfg.steps) draft.steps = cfg.steps.map(function (v) { return Array.isArray(v) ? v.slice() : v; });
     else if (draftDefault) draft.steps = Array.from({length:Math.max(1,Math.round(draftLength * draft.subdivision))},function(_,i){return i===0?'H':null;});
     if (presetGenre) { var p = preset(cfg.type); presetGenre.value = p && p.genre || ''; }
-    originalDraft = JSON.stringify(draft);
+    originalDraft = JSON.stringify(draft); regenSignature=null; regenMeta=null;
   }
   function renderPanel() {
     if (!panel) return;
@@ -51577,7 +51664,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       var T = tracks(), state = T && T.state();
       if (!state || state.activeTrackId !== editingTrackId) { closePanel(); return; }
     }
-    var inheritedSwing = draft.swing === null && sharedRhythm && sharedRhythm.swing === true;
+    var active=tracks() && tracks().state(), inheritedSwing = draft.swing === null && active && inheritedAutoSwing(active.activeTrackId,current.secId,current.scope);
     presetButtons.forEach(function (b) {
       var id = b.getAttribute('data-preset'), p = preset(id), selected = id === draft.type && !draft.steps;
       b.setAttribute('aria-pressed', String(selected)); b.classList.toggle('active', selected);
@@ -51591,9 +51678,11 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       }
     });
     subButtons.forEach(function (b) { var n=Number(b.dataset.sub); b.classList.toggle('active', n===draft.subdivision); b.setAttribute('aria-pressed',String(n===draft.subdivision)); b.hidden = n===3 && typeof timeSigAllowsTriplets === 'function' && !timeSigAllowsTriplets(current.ts); });
-    if (swingBtn) { var allowed = draft.subdivision === 2 || draft.subdivision === 4; var enabled = draft.swing === true || !!inheritedSwing; swingBtn.hidden = !allowed; swingBtn.classList.toggle('active', allowed && enabled); swingBtn.setAttribute('aria-pressed', String(allowed && enabled)); }
+    if (swingBtn) { var allowed = draft.subdivision === 2 || draft.subdivision === 4; var enabled = draft.swing === true || !!inheritedSwing; swingBtn.hidden = !allowed; var label=doc.getElementById('b39AccSwingLabel');if(label)label.hidden=!allowed; swingBtn.checked=!!(allowed && enabled); swingBtn.classList.toggle('active', allowed && enabled); swingBtn.setAttribute('aria-pressed', String(allowed && enabled)); }
     if (scopeLabel) { scopeLabel.hidden = current.scope !== 'cell'; scopeLabel.textContent = current.scope === 'cell' ? 'только для этой ячейки' : ''; }
     var resetButton = doc.getElementById('b39AccReset'); if (resetButton) resetButton.textContent = current.scope === 'cell' ? 'Сбросить к секции' : 'Убрать паттерн';
+    var regen=doc.getElementById('b39AccRegenerate'), autoCfg=active && active.autoAccomp;
+    if(regen) regen.hidden=!(current.scope==='section' && autoCfg && autoCfg.trackId===active.activeTrackId && autoCfg.managed[String(current.secId)]);
     renderLength(); renderSteps(); renderStepChoice();
     if (footEl) {
       var chosen=preset(draft.type), hint=chosen && chosen.lesson ? ' '+chosen.hint : '';
@@ -51643,7 +51732,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     var first = panel && panel.querySelector('button'); if (first) first.focus();
   }
   function closePanel() {
-    stopPreview(); selectedStep = null; if (HOST.StruChordAuto) HOST.StruChordAuto.close();
+    HOST.__b39NoteLegacy=null;stopPreview(); selectedStep = null; if (HOST.StruChordAuto) HOST.StruChordAuto.close();
     if (focusRelease) { focusRelease(); focusRelease = null; }
     if (panel) { panel.hidden = true; overlay.hidden = true; }
     if (HUB) HUB.closed('acc');
@@ -51687,7 +51776,13 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     // не тронул галочку свинга — наследование тогда сохраняется.
     if (draft.swing !== null) payload.swing = draft.swing;
     var old = T.patternFor(st.activeTrackId, key);
-    if (old && old.autoGenerated === true && originalDraft === JSON.stringify(draft)) payload.autoGenerated = true;
+    function withoutSwing(value){try{var o=JSON.parse(value);delete o.swing;return JSON.stringify(o);}catch(e){return '';}}
+    var unchanged=withoutSwing(originalDraft)===withoutSwing(JSON.stringify(draft));
+    var regenerated=regenSignature && withoutSwing(regenSignature)===withoutSwing(JSON.stringify(draft));
+    if ((old && old.autoGenerated===true && unchanged) || regenerated) payload.autoGenerated=true;
+    var meta=regenerated ? regenMeta : old;
+    if(meta && meta.autoSwing===true) {payload.autoSwing=true;if(Number.isInteger(meta.autoVariation))payload.autoVariation=meta.autoVariation;}
+
     return T.setPattern(st.activeTrackId, key, payload);
   }
   function clearScopes() {
@@ -51705,6 +51800,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     var orig = HOST.openStrumPatternEditor;
     HOST.openStrumPatternEditor = function (scope, sectionId, squareId, eventIndex) {
       if (activeIsKeys()) {
+        if(!HOST.__b39NoteLegacy && HOST.StruChordNoteEditor && HOST.StruChordNoteEditor.open(scope,sectionId,squareId,eventIndex))return undefined;
         setEditorScope(scope, sectionId, squareId, eventIndex);
         openPanel();
         return undefined;
@@ -51794,6 +51890,597 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   else boot();
 })(typeof window !== 'undefined' ? window : globalThis);
 // <<< B-39 STAGE5 END (KEYS ACCOMPANIMENT) <<<
+
+(function(){const hand=(function(){let module={exports:{}},require=function(){throw Error("unexpected require")};
+'use strict';
+
+// Research prototype only; it is not used by STRUCHORD. All limits and
+// movement costs are conservative engineering hypotheses, not guarantees of
+// piano fingering or human playability.
+function mod12(n) { return ((n % 12) + 12) % 12; }
+function enumerateHand(pcs, low, high, maxSpan) {
+  const choices = pcs.map(pc => {
+    const a = [];
+    for (let n = low; n <= high; n++) if (mod12(n) === pc) a.push(n);
+    return a;
+  });
+  const seen = new Set(), out = [];
+  function visit(i, notes) {
+    if (i === choices.length) {
+      const sorted = notes.slice().sort((a, b) => a - b);
+      if (new Set(sorted).size !== sorted.length || sorted[sorted.length - 1] - sorted[0] > maxSpan) return;
+      const sig = sorted.join(',');
+      if (!seen.has(sig)) { seen.add(sig); out.push(sorted); }
+      return;
+    }
+    for (const n of choices[i]) visit(i + 1, notes.concat(n));
+  }
+  visit(0, []);
+  return out;
+}
+function movement(a, b) {
+  const d = Array.from({length: a.length + 1}, () => Array(b.length + 1).fill(Infinity));
+  d[0][0] = 0;
+  for (let i = 0; i <= a.length; i++) for (let j = 0; j <= b.length; j++) {
+    if (i < a.length) d[i + 1][j] = Math.min(d[i + 1][j], d[i][j] + 6);
+    if (j < b.length) d[i][j + 1] = Math.min(d[i][j + 1], d[i][j] + 6);
+    if (i < a.length && j < b.length) d[i + 1][j + 1] = Math.min(d[i + 1][j + 1], d[i][j] + Math.abs(a[i] - b[j]));
+  }
+  return d[a.length][b.length];
+}
+function center(notes) { return (notes[0] + notes[notes.length-1]) / 2; }
+function candidates({low, high, bassPc, tones}) {
+  if (!Number.isInteger(low) || !Number.isInteger(high) || low < 0 || high > 127 || low > high ||
+      !Number.isInteger(bassPc) || !Array.isArray(tones) || !tones.length) throw new TypeError('Invalid voicing request');
+  const pcs = [];
+  for (const pc of tones) {
+    if (!Number.isInteger(pc)) throw new TypeError('Invalid chord tone');
+    const p = mod12(pc); if (!pcs.includes(p)) pcs.push(p);
+  }
+  const basses = [];
+  for (let n = low; n <= Math.min(high, 60); n++) if (mod12(n) === mod12(bassPc)) basses.push(n);
+  const out=[];
+  // Preserve the caller's priority order, preferring all of the first four
+  // pitches, but allow fewer when the keyboard or a transition demands it.
+  for (let count=Math.min(4,pcs.length); count>=Math.min(2,pcs.length); count--) {
+    const hands=enumerateHand(pcs.slice(0,count),low,high,12);
+    for (const right of hands) for (const bass of basses) {
+      if (bass >= right[0]) continue;
+      const omitted=pcs.slice(count);
+      const cost=Math.abs(center(right)-Math.min(high,Math.max(low,64)))*0.8 + Math.abs(bass-43)*0.35 + (Math.min(4,pcs.length)-count)*14;
+      out.push({left:[bass],right,omitted,cost});
+    }
+  }
+  out.sort((a,b)=>a.cost-b.cost || a.left[0]-b.left[0] || a.right.join(',').localeCompare(b.right.join(',')));
+  // Keep the search bounded. Not a proof that no valid alternative exists.
+  return out.slice(0,120);
+}
+function transition(a,b,seconds) {
+  const reach=Math.max(2,20*seconds);
+  if (Math.abs(center(a.right)-center(b.right))>reach || Math.abs(a.left[0]-b.left[0])>reach) return Infinity;
+  return movement(a.right,b.right)*2+Math.abs(a.left[0]-b.left[0])*1.5;
+}
+function clean(v) { return {left:v.left.slice(),right:v.right.slice(),omitted:v.omitted.slice()}; }
+function planVoicing(options) {
+  const {previous,seconds}=options||{};
+  if (previous && (!Number.isFinite(seconds) || seconds <= 0)) throw new TypeError('Invalid transition time');
+  let best=null,bestCost=Infinity;
+  for (const v of candidates(options||{})) {
+    const cost=v.cost+(previous?transition(previous,v,seconds):0);
+    if (cost<bestCost) {best=v;bestCost=cost;}
+  }
+  return best?clean(best):null;
+}
+function planSequence({chords,low,high,bpm}) {
+  if (!Array.isArray(chords) || !chords.length || chords.length>256 || !Number.isFinite(bpm) || bpm<=0) throw new TypeError('Invalid sequence');
+  const layers=[];
+  for (let i=0;i<chords.length;i++) {
+    const chord=chords[i];
+    const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones});
+    if (!list.length) return {ok:false,reason:'no-playable-candidate',chordIndex:i};
+    const layer=[];
+    if (!i) for (const v of list) layer.push({v,total:v.cost,previous:-1});
+    else {
+      const before=layers[i-1], sec=chords[i-1].beats*60/bpm;
+      if (!Number.isFinite(sec) || sec<=0) throw new TypeError('Invalid chord duration');
+      for (const v of list) {
+        let best=Infinity, pick=-1;
+        for (let j=0;j<before.length;j++) {
+          const value=before[j].total+transition(before[j].v,v,sec)+v.cost;
+          if (value<best) {best=value;pick=j;}
+        }
+        if (pick>=0) layer.push({v,total:best,previous:pick});
+      }
+    }
+    if (!layer.length) return {ok:false,reason:'no-playable-transition',chordIndex:i};
+    layers.push(layer);
+  }
+  let idx=0;const last=layers[layers.length-1];
+  for(let i=1;i<last.length;i++) if(last[i].total<last[idx].total) idx=i;
+  const result=Array(layers.length);
+  for(let i=layers.length-1;i>=0;i--){const item=layers[i][idx];result[i]=clean(item.v);idx=item.previous;}
+  return {ok:true,voices:result};
+}
+module.exports = {planVoicing,planSequence};
+
+return module.exports;})(),perf=(function(){let module={exports:{}},require=function(){return hand};
+'use strict';
+
+// Research prototype only: it is not connected to STRUCHORD's player or UI.
+// Original procedural rules; no source MIDI phrases are embedded here.
+const {planSequence} = require('./keyboard-hand-voicings');
+const GENRES = Object.freeze({
+  pop:     {chord:0.43, arp:0.23, offbeat:0.18, length:0.70},
+  rock:    {chord:0.57, arp:0.08, offbeat:0.10, length:0.56},
+  punk:    {chord:0.69, arp:0.03, offbeat:0.15, length:0.40},
+  country: {chord:0.38, arp:0.26, offbeat:0.12, length:0.52},
+  blues:   {chord:0.43, arp:0.16, offbeat:0.20, length:0.58},
+  jazz:    {chord:0.30, arp:0.16, offbeat:0.32, length:0.52},
+  soul:    {chord:0.32, arp:0.21, offbeat:0.22, length:0.78},
+  funk:    {chord:0.42, arp:0.08, offbeat:0.37, length:0.32},
+  fusion:   {chord:0.38, arp:0.24, offbeat:0.30, length:0.48}
+});
+const ROLE = Object.freeze({intro:0.72, verse:0.82, prechorus:1.0, chorus:1.16, bridge:0.94, solo:0.72, outro:0.62, custom:0.9});
+const METERS = Object.freeze({'4/4':4, '3/4':3, '6/8':3}); // quarter-note beats per measure
+function rng(seed) {
+  let n = seed >>> 0;
+  return function () { n = (Math.imul(n, 1664525) + 1013904223) >>> 0; return n / 4294967296; };
+}
+function motifRandom(seed, step, beatsPerBar, lane) {
+  const barSteps=Math.round(beatsPerBar*4), bar=Math.floor(step/barSteps), position=step%barSteps;
+  // Repeat the core gesture each bar; the second bar can answer on its last
+  // beat. A reproducible variation makes the result less like white noise.
+  const answer=(bar%2===1 && position>=barSteps-4) ? 1 : 0;
+  let n=(seed ^ Math.imul(position+1,0x9e3779b1) ^ Math.imul(lane+1,0x85ebca6b) ^ Math.imul(answer,0xc2b2ae35))>>>0;
+  n^=n>>>16; n=Math.imul(n,0x7feb352d); n^=n>>>15; n=Math.imul(n,0x846ca68b); n^=n>>>16;
+  return (n>>>0)/4294967296;
+}
+function swingAt(step, enabled) {
+  // Sixteenth-note grid with the second eighth delayed to 2/3 of a beat;
+  // intermediate sixteenths are interpolated. In 6/8 this remains a research
+  // approximation, not a claim about every compound-metre style.
+  const offsets=enabled ? [0,1/3,2/3,5/6] : [0,1/4,1/2,3/4];
+  return Math.floor(step/4)+offsets[step%4];
+}
+function resolveSwing(global, section) {
+  if (typeof global !== 'boolean' || !(section === null || section === undefined || typeof section === 'boolean')) throw new TypeError('Invalid swing');
+  return section == null ? global : section;
+}
+function generatePerformance(options) {
+  const o = options || {};
+  const {chords, low, high, bpm, meter, genre, secondary, role, swing, sectionSwing, seed} = o;
+  if (!Array.isArray(chords) || !chords.length || !Number.isFinite(bpm) || bpm < 30 || bpm > 300 ||
+      !Object.hasOwn(METERS, meter) || !Object.hasOwn(GENRES, genre) ||
+      (secondary && (!Object.hasOwn(GENRES, secondary) || secondary === genre)) ||
+      !Object.hasOwn(ROLE, role) || !Number.isInteger(seed) || typeof swing !== 'boolean') throw new TypeError('Invalid performance request');
+  const useSwing = resolveSwing(swing, sectionSwing), human = rng(seed ^ 0x6d2b79f5), beatsPerBar = METERS[meter];
+  let beat = 0;
+  const notes = [], decisions = [], gestures = [];
+  // Look ahead through the whole phrase rather than greedily choosing each
+  // chord. Bounds are heuristics, not a physical fingering model.
+  for (const chord of chords) {
+    if (!chord || !Number.isFinite(chord.beats) || chord.beats < 0.25 || chord.beats > 32 || chord.beats * 4 !== Math.round(chord.beats * 4)) throw new TypeError('Chord duration must be sixteenth-note aligned');
+  }
+  const planned=planSequence({chords,low,high,bpm});
+  if (!planned.ok) return {ok:false,reason:planned.reason,chordIndex:planned.chordIndex,notes:[],decisions:[]};
+  const voices=planned.voices;
+  for (let index = 0; index < chords.length; index++) {
+    const chord = chords[index];
+    const start = beat, end = beat + chord.beats, voice = voices[index], nextVoice = voices[index+1];
+    function center(v) { return (v[0] + v[v.length-1]) / 2; }
+    function releaseLimit(hand) {
+      if (!nextVoice) return end;
+      const distance = Math.abs(center(voice[hand]) - center(nextVoice[hand]));
+      const gapSeconds = distance ? Math.max(0.06, distance / 20) : 0;
+      return Math.max(start, end - gapSeconds * bpm / 60);
+    }
+    const releases = {left:releaseLimit('left'), right:releaseLimit('right')};
+    if (releases.left <= start || releases.right <= start) return {ok:false,reason:'not-enough-transition-time',chordIndex:index,notes:[],decisions:[]};
+    const notesBefore = notes.length;
+    decisions.push({chordIndex:index, beat:start, left:voice.left.slice(), right:voice.right.slice(), omitted:voice.omitted.slice(), releases});
+    // Positions are computed from the global grid so swing does not restart at
+    // each chord. Sixteenth alignment is required rather than rounded silently.
+    const firstStep = Math.round(start * 4), finalStep = Math.round(end * 4);
+    for (let step = firstStep; step < finalStep; step++) {
+      const at = swingAt(step, useSwing), next = Math.min(end, swingAt(step + 1, useSwing));
+      if (at >= end || next <= at) continue;
+      const local = at % beatsPerBar;
+      const downbeat = Math.abs(local) < 1e-9;
+      const compoundMiddle = meter === '6/8' && step % 12 === 6;
+      const bassBeat = downbeat || compoundMiddle || (meter !== '6/8' && Math.abs(local - Math.floor(beatsPerBar / 2)) < 1e-9);
+      const isSixteenth = step % 2 === 1, isOff = step % 4 !== 0;
+      const profile = secondary && local >= beatsPerBar - 1 ? GENRES[secondary] : GENRES[genre];
+      const strength = ROLE[role], strong = downbeat ? 1 : (bassBeat ? 0.65 : 0.2);
+      const sectionStart = step === firstStep;
+      const choose = lane => motifRandom(seed,step,beatsPerBar,lane);
+      const left = sectionStart || (bassBeat && choose(0) < Math.min(0.95, 0.57 * strength));
+      let rightMode = null;
+      // Sparse sixteenth-note gestures, reduced at very high tempos. This is
+      // deliberately a simple heuristic and is not transcribed from MIDI.
+      const sixteenthScale = bpm > 160 ? 0 : 0.30;
+      const baseline=isSixteenth ? (sixteenthScale ? 0.11 : 0) : isOff ? 0.33 : 0.62;
+      const probability = Math.min(0.9, Math.max(baseline*strength,(isSixteenth ? profile.offbeat*sixteenthScale : isOff ? profile.offbeat*1.4 : profile.chord*1.15)*strength) + strong*0.10);
+      const roll = choose(1), anchor = step % 8 === 0 && !isSixteenth;
+      if (roll < probability || sectionStart || anchor) {
+        rightMode = isSixteenth && !sectionStart ? 'single' : (choose(2)<0.52 && voice.right.length>2 ? 'partial' : 'chord');
+      } else if (choose(3) < profile.arp * 1.2 * strength * (isSixteenth ? sixteenthScale : 1)) rightMode = 'single';
+      const baseDuration = Math.max(0.01, (isSixteenth ? next-at : swingAt(step+2,useSwing)-at)*profile.length);
+      const emit = (hand, pitches, base) => {
+        const gesture = {hand, chordIndex:index, notes:[], hold:human(), release:releases[hand]};
+        for (let k=0; k<pitches.length; k++) {
+          // Subtle variation only; note order and duration remain bounded to
+          // this grid slot. Explicit hand identity survives in the prototype.
+          const offset = Math.min(0.012 * bpm / 60, (next-at) * 0.05) * human();
+          const on = at + offset;
+          // One hand gesture has a shared base duration; a small difference
+          // between notes avoids a mechanically identical note-off. Bass and
+          // weaker beats can be shorter, but no note crosses the next slot.
+          const articulation = (hand==='left' ? 0.82 : 0.90) + human()*0.20;
+          const dur = Math.min(baseDuration*articulation, releases[hand]-on, end-on);
+          if (dur <= 0) continue;
+          const velocity = Math.max(1, Math.min(127, Math.round(base + (strength-1)*12 + strong*11 + (human()-0.5)*20 - k*1.5)));
+          const note={hand, midi:pitches[k], beat:on, duration:dur, velocity, chordIndex:index};
+          notes.push(note); gesture.notes.push(note);
+        }
+        if (gesture.notes.length) gestures.push(gesture);
+      };
+      if (left) emit('left',voice.left,68);
+      if (rightMode === 'chord') emit('right',voice.right,74);
+      else if (rightMode === 'partial') {
+        const startIndex=Math.floor(choose(4)*(voice.right.length-1));
+        emit('right',voice.right.slice(startIndex,startIndex+2),72);
+      } else if (rightMode === 'single') emit('right',[voice.right[Math.floor(choose(4)*voice.right.length)]],66);
+    }
+    const emitted = notes.slice(notesBefore);
+    if (!emitted.some(n => n.hand === 'left') || !emitted.some(n => n.hand === 'right')) return {ok:false,reason:'not-enough-transition-time',chordIndex:index,notes:[],decisions:[]};
+    beat = end;
+  }
+  // Some gestures sustain through an unused grid slot until the next gesture
+  // of the same hand. Never cross a chord boundary, the next attack, or the
+  // movement release limit. This is articulation, not sustain-pedal modelling.
+  for (const hand of ['left','right']) {
+    const gs=gestures.filter(g=>g.hand===hand);
+    for (let i=0;i<gs.length;i++) {
+      const g=gs[i], next=gs[i+1], cutoff=Math.min(g.release,next ? Math.min(...next.notes.map(n=>n.beat)) : g.release);
+      const holdProbability = hand==='left' ? 0.65 : ((genre==='funk' || genre==='punk') ? 0.18 : 0.48);
+      const factor=0.72+g.hold*0.22;
+      for (const n of g.notes) {
+        const available=cutoff-n.beat;
+        n.duration=Math.min(n.duration,available);
+        if (g.hold < holdProbability && available > n.duration) n.duration=Math.max(n.duration,Math.min(1.25,available*factor));
+      }
+    }
+  }
+  notes.sort((a,b) => a.beat-b.beat || a.midi-b.midi);
+  return {ok:true, notes, decisions, beats:beat, swing:useSwing};
+}
+module.exports = {generatePerformance, resolveSwing, GENRES, METERS};
+
+return module.exports;})(),section=(function(){let module={exports:{}},require=function(){return perf};
+'use strict';
+// Experimental bridge shape for application work; no STRUCHORD changes.
+// A caller supplies already-resolved cells, not MIDI phrases. Unknown input
+// fails atomically; explicit manual/rest cells are not changed.
+const {generatePerformance} = require('./keyboard-performance');
+function formulaToChord(formula) {
+  if (!formula || !Number.isInteger(formula.rootPc) || !Array.isArray(formula.tones) || !formula.tones.length ||
+      (formula.bass && !Number.isInteger(formula.bass.pitchClass))) throw new TypeError('Invalid chord formula');
+  function rank(degree) {
+    const d=String(degree||'');
+    if (d==='1') return 0;
+    if (d==='3' || d==='b3' || d==='2' || d==='4') return 1;
+    if (d==='7' || d==='b7') return 2;
+    if (d==='#5' || d==='b5') return 3;
+    if (['6','b6','9','b9','#9','13','b13'].includes(d)) return 4;
+    if (d==='5') return 5;
+    if (d==='11' || d==='#11') return 6;
+    return 7;
+  }
+  const tones=formula.tones.map((t,i)=>{
+    if (!t || !Number.isInteger(t.pitchClass)) throw new TypeError('Invalid chord tone');
+    return {pc:((t.pitchClass%12)+12)%12, rank:rank(t.degree),i};
+  }).sort((a,b)=>a.rank-b.rank || a.i-b.i).map(t=>t.pc);
+  return {bassPc:((formula.bass ? formula.bass.pitchClass : formula.rootPc)%12+12)%12,tones};
+}
+function buildSection(options) {
+  const o=options||{}, cells=o.cells;
+  if (!Array.isArray(cells) || !cells.length || !Number.isInteger(o.seed) || !Number.isInteger(o.low) || !Number.isInteger(o.high) || o.low<0 || o.high>127 || o.low>o.high || !Number.isFinite(o.bpm) || o.bpm<30 || o.bpm>300) throw new TypeError('Invalid section');
+  const keys=new Set(), items=[];
+  for (const cell of cells) {
+    if (!cell || typeof cell.key!=='string' || !cell.key || keys.has(cell.key) ||
+        !Number.isFinite(cell.beats) || cell.beats<.25 || cell.beats>32 || cell.beats*4!==Math.round(cell.beats*4)) throw new TypeError('Invalid cell');
+    keys.add(cell.key);
+    if (cell.manual === true || cell.rest === true) items.push({type:'preserve',cell});
+    else {
+      if (!cell.chord || !Number.isInteger(cell.chord.bassPc) || !Array.isArray(cell.chord.tones) || !cell.chord.tones.length) throw new TypeError('Unresolved chord');
+      items.push({type:'generate',cell});
+    }
+  }
+  const result={}, decisions={}, preserved=[];
+  for (let i=0;i<items.length;) {
+    if (items[i].type==='preserve') {preserved.push(items[i].cell.key);i++;continue;}
+    let j=i;while(j<items.length && items[j].type==='generate')j++;
+    const part=items.slice(i,j);
+    const chords=part.map(({cell})=>({bassPc:cell.chord.bassPc,tones:cell.chord.tones.slice(),beats:cell.beats}));
+    const gen=generatePerformance({chords,low:o.low,high:o.high,bpm:o.bpm,meter:o.meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,seed:(o.seed+i)|0});
+    if(!gen.ok) return {ok:false,reason:gen.reason,cellKey:part[gen.chordIndex].cell.key,events:{},decisions:{},preserved:[]};
+    let start=0;
+    for(let n=0;n<part.length;n++) {
+      const cell=part[n].cell;
+      result[cell.key]=gen.notes.filter(e=>e.chordIndex===n).map(e=>({hand:e.hand,midi:e.midi,beat:e.beat-start,duration:e.duration,velocity:e.velocity}));
+      decisions[cell.key]=gen.decisions[n];
+      start+=cell.beats;
+    }
+    i=j;
+  }
+  return {ok:true,events:result,decisions,preserved};
+}
+module.exports={buildSection,formulaToChord};
+
+return module.exports;})(),bridge=(function(){let module={exports:{}},require=function(){return section};
+'use strict';
+// Experimental bridge for real STRUCHORD section data. It is not connected to
+// the player/UI. Callbacks let tests exercise the same model and formulas.
+const {buildSection,formulaToChord}=require('./keyboard-section-adapter');
+function prepareSection(o) {
+  const {section,track,trackId,tracks,formula,globalKey,globalTimeSig}=o||{};
+  if (!section || !track || !tracks || typeof tracks.cellKey!=='function' || typeof tracks.trackChord!=='function' ||
+      typeof tracks.keyRange!=='function' || typeof formula!=='function' || !Array.isArray(section.squares)) throw new TypeError('Invalid section bridge input');
+  if (track.instrument!=='keys' || track.id!==trackId) return {ok:false,reason:'not-keyboard-track'};
+  const meter=section.timeSig||globalTimeSig||'4/4', m=/^(\d+)\/(\d+)$/.exec(meter);
+  if (!m || !['4/4','3/4','6/8'].includes(meter)) return {ok:false,reason:'unsupported-meter'};
+  const factor=4/Number(m[2]), key=section.key||globalKey||'C', cells=[], loops=[];
+  for (const sq of section.squares) {
+    if(!sq || !Array.isArray(sq.events)) return {ok:false,reason:'invalid-square'};
+    const squareStart=cells.length;
+    for (let i=0;i<sq.events.length;i++) {
+      const ev=sq.events[i], cell=tracks.cellKey(section,sq,i);
+      if(!ev || typeof cell!=='string') return {ok:false,reason:'invalid-cell'};
+      if(ev.timeSig && ev.timeSig!==meter) return {ok:false,reason:'mixed-meter',cellKey:cell};
+      const beats=Number(ev.span)*factor;
+      if(!Number.isFinite(beats)||beats<.25||beats>32||Math.abs(beats*4-Math.round(beats*4))>1e-9) return {ok:false,reason:'unsupported-duration',cellKey:cell};
+      const chord=tracks.trackChord(trackId,cell,ev);
+      if (!chord) {cells.push({key:cell,beats,rest:true});continue;}
+      const v=track.voicings||{}, patterns=track.patterns||{};
+      const exact=typeof tracks.exactNotes==='function' && tracks.exactNotes(trackId,cell,chord);
+      // User's cell pattern and selected/explicit voicings take precedence.
+      const manual=!!patterns[cell] || !!exact || Number.isInteger(v[cell]) || Number.isInteger(v['v:'+chord]);
+      if(manual) {cells.push({key:cell,beats,manual:true});continue;}
+      let f;try {f=formula(chord,key);}catch(e){return {ok:false,reason:'unrecognized-chord',cellKey:cell};}
+      if(!f)return {ok:false,reason:'unrecognized-chord',cellKey:cell};
+      let c;try {c=formulaToChord(f);}catch(e){return {ok:false,reason:'invalid-formula',cellKey:cell};}
+      cells.push({key:cell,beats,chord:c});
+    }
+    if ((Number(sq.repeat)||1)>1 && cells.length>squareStart) loops.push([cells[squareStart],cells[cells.length-1]]);
+  }
+  if (!cells.length) return {ok:false,reason:'empty-section'};
+  if ((Number(section.repeat)||1)>1) loops.push([cells[0],cells[cells.length-1]]);
+  const range=tracks.keyRange(trackId);
+  if(!range) return {ok:false,reason:'invalid-range'};
+  try {
+    const result=buildSection({cells,low:range.low,high:range.high,bpm:o.bpm,meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,seed:o.seed});
+    if (!result.ok) return result;
+    // Each repeated square/section reuses the same cell events. Reserve enough
+    // time for last -> first as well as the ordinary linear successor.
+    // Manual or rest boundaries cannot yet be checked without interpreting
+    // their existing patterns, so explicitly decline rather than guess.
+    for (const [first,last] of loops) {
+      const a=result.decisions[last.key], b=result.decisions[first.key];
+      if (!a || !b) return {ok:false,reason:'unknown-repeat-boundary',cellKey:last.key};
+      const center=x=>(x[0]+x[x.length-1])/2, limits={};
+      for (const hand of ['left','right']) {
+        const dist=Math.abs(center(a[hand])-center(b[hand]));
+        const gap=dist ? Math.max(0.06,dist/20)*o.bpm/60 : 0;
+        limits[hand]=Math.min(last.beats,a.releases[hand]-a.beat,last.beats-gap);
+        if (limits[hand]<=0) return {ok:false,reason:'repeat-transition-too-fast',cellKey:last.key};
+      }
+      const clipped=result.events[last.key].map(n=>({...n,duration:Math.min(n.duration,limits[n.hand]-n.beat)})).filter(n=>n.duration>0);
+      if (!clipped.some(n=>n.hand==='left') || !clipped.some(n=>n.hand==='right')) return {ok:false,reason:'repeat-transition-too-fast',cellKey:last.key};
+      result.events[last.key]=clipped;
+      for (const hand of ['left','right']) a.releases[hand]=Math.min(a.releases[hand],a.beat+limits[hand]);
+    }
+    return result;
+  } catch (e) { return {ok:false,reason:'unsupported-input',detail:e.message}; }
+}
+module.exports={prepareSection};
+
+return module.exports;})(),draft=(function(){let module={exports:{}},require=function(){throw Error("unexpected require")};
+'use strict';
+// Experimental editable per-note representation. Not wired to the app.
+// Times are quarter-note beats local to a cell, including any generated swing.
+// A consumer must not apply swing again. Never silently quantize or clip notes.
+const VERSION=1, MAX_CELLS=2048, MAX_NOTES_PER_CELL=1024, EPS=1e-8;
+const clone=x=>JSON.parse(JSON.stringify(x));
+function validKey(key){return typeof key==='string' && key.length>0 && key.length<=256 && key!=='__proto__' && key!=='constructor' && key!=='prototype';}
+function cellSpec(c){
+ if(!c || !validKey(c.key) || !Number.isFinite(c.beats) || c.beats<=0 || c.beats>32) throw new TypeError('Invalid cell');
+ return {key:c.key,beats:c.beats};
+}
+function note(n,beats){
+ if(!n || !Number.isInteger(n.midi) || n.midi<0 || n.midi>127 || !Number.isFinite(n.beat) || n.beat<0 || n.beat>=beats ||
+    !Number.isFinite(n.duration) || n.duration<=0 || n.beat+n.duration>beats+EPS || !Number.isInteger(n.velocity) || n.velocity<1 || n.velocity>127 || !['left','right'].includes(n.hand)) throw new TypeError('Invalid note');
+ return {midi:n.midi,beat:n.beat,duration:n.duration,velocity:n.velocity,hand:n.hand};
+}
+function notesOf(arr,beats){if(!Array.isArray(arr)||arr.length>MAX_NOTES_PER_CELL)throw new TypeError('Invalid notes');return arr.map(n=>note(n,beats));}
+function validate(raw){
+ if(!raw || raw.version!==VERSION || !Number.isSafeInteger(raw.revision) || raw.revision<0 || !Array.isArray(raw.cells) || raw.cells.length>MAX_CELLS) throw new TypeError('Invalid draft');
+ const seen=new Set();
+ const cells=raw.cells.map(c=>{const base=cellSpec(c);if(seen.has(base.key))throw new TypeError('Duplicate cell');seen.add(base.key);
+   if(!['generated','manual','preserved'].includes(c.status))throw new TypeError('Invalid cell status');
+   if(c.status==='preserved' && c.notes!==null)throw new TypeError('Preserved cell has no editable notes');
+   return {...base,status:c.status,notes:c.status==='preserved'?null:notesOf(c.notes,base.beats)};
+ });
+ return {version:VERSION,revision:raw.revision,cells};
+}
+function create(specs,result){
+ if(!Array.isArray(specs)||!result||result.ok!==true||!result.events||!Array.isArray(result.preserved))throw new TypeError('Invalid generation');
+ const preserved=new Set(result.preserved), keys=new Set(specs.map(c=>c.key));
+ if(preserved.size!==result.preserved.length || [...preserved].some(k=>!keys.has(k)) || Object.keys(result.events).some(k=>!keys.has(k)||preserved.has(k)))throw new TypeError('Invalid generation keys');
+ const cells=specs.map(c=>{const spec=cellSpec(c);if(preserved.has(spec.key))return {...spec,status:'preserved',notes:null};
+   if(!Object.prototype.hasOwnProperty.call(result.events,spec.key))throw new TypeError('Missing generated cell');
+   return {...spec,status:'generated',notes:result.events[spec.key]};});
+ return validate({version:VERSION,revision:0,cells});
+}
+function replaceCell(draft,key,rawNotes,expectedRevision){
+ const next=validate(draft);if(expectedRevision!==next.revision)throw new Error('Stale draft');
+ const c=next.cells.find(c=>c.key===key);if(!c)throw new Error('Unknown cell');
+ if(c.status==='preserved')throw new Error('Preserved cell');
+ c.notes=notesOf(rawNotes,c.beats);c.status='manual';next.revision++;return next;
+}
+// Merge only unedited generated cells, after explicit caller confirmation if
+// manual cells are to be replaced. Preserved cells are never touched.
+function regenerate(draft,result,expectedRevision,replaceManual=false){
+ const next=validate(draft);if(expectedRevision!==next.revision)throw new Error('Stale draft');
+ if(typeof replaceManual!=='boolean'||!result||result.ok!==true||!result.events||!Array.isArray(result.preserved))throw new TypeError('Invalid generation');
+ const byKey=new Map(next.cells.map(c=>[c.key,c])), preserved=new Set(result.preserved);
+ if(preserved.size!==result.preserved.length||[...preserved].some(k=>!byKey.has(k))||Object.keys(result.events).some(k=>!byKey.has(k)||preserved.has(k)))throw new TypeError('Invalid generation keys');
+ // Validate even ignored data so a malformed generator never partially succeeds.
+ const updates=new Map(Object.entries(result.events).map(([k,v])=>[k,notesOf(v,byKey.get(k).beats)]));
+ for(const c of next.cells){
+   if(c.status==='preserved')continue;
+   // A previously generated cell is now manual or empty in the song. The
+   // caller must resolve the conflict instead of retaining a stale part.
+   if(preserved.has(c.key))throw new Error('Cell source changed');
+   if(!updates.has(c.key))throw new TypeError('Missing generated cell');
+   if(c.status==='generated'||replaceManual){c.notes=updates.get(c.key);c.status='generated';}
+ }
+ next.revision++;return next;
+}
+function snapshot(draft){return clone(validate(draft));}
+module.exports={create,replaceCell,regenerate,snapshot,validate};
+
+return module.exports;})(),renderer=(function(){let module={exports:{}},require=function(){return draft};
+'use strict';
+// Shared experimental preview/playback representation. The draft already
+// contains swing in beat positions; the renderer must never swing it again.
+const {validate}=require('./keyboard-note-draft');
+function planCell(draft,key,{duration,span,denominator}){
+ const model=validate(draft), cell=model.cells.find(c=>c.key===key);
+ if(!cell)throw new Error('Unknown cell');
+ if(cell.status==='preserved')return null;
+ if(!Number.isFinite(duration)||duration<=0||!Number.isFinite(span)||span<=0||!Number.isFinite(denominator)||denominator<=0)throw new TypeError('Invalid timing');
+ const factor=4/denominator;
+ if(Math.abs(span*factor-cell.beats)>1e-8)throw new Error('Cell duration changed');
+ const secondsPerQuarter=duration/cell.beats;
+ // Existing consumers treat an empty array as “no planner” and play a
+ // fallback chord; an explicit empty step represents a deliberate rest.
+ if(!cell.notes.length)return [{index:0,stepIndex:0,at:0,dur:duration,notes:[],gain:1,source:'cell',type:'experimental-note'}];
+ // The preview scheduler expects chronological steps. Keep the original
+ // index for stable editing while sorting independent of insertion order.
+ return cell.notes.map((n,i)=>({index:i,stepIndex:i,at:n.beat*secondsPerQuarter,dur:n.duration*secondsPerQuarter,notes:[n.midi],gain:n.velocity/100,source:'cell',type:'experimental-note'})).sort((a,b)=>a.at-b.at || a.index-b.index);
+}
+module.exports={planCell};
+
+return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
+'use strict';
+// Candidate integration: embedded only into an isolated HTML candidate.
+// A section is prepared completely before any track state is touched.
+(function(HOST){
+ const TYPE='experimental-notes-v1';
+ const T=()=>HOST.StruChordTracks;
+ const getSec=id=>sections.find(s=>String(s.id)===String(id));
+ function seedFor(sec,id){const p=T().patternFor(id,'s:'+sec.id);return (Number(sec.id)||1)+(Number(p&&p.autoVariation)||0)*1009;}
+ function specifications(sec,id){const t=T(),out=[];for(const q of sec.squares||[])for(let i=0;i<(q.events||[]).length;i++){
+  const e=q.events[i],ts=e.timeSig||sec.timeSig||globalTimeSig,den=Number(String(ts).split('/')[1]);out.push({key:t.cellKey(sec,q,i),beats:Number(e.span)*4/den,chord:t.trackChord(id,t.cellKey(sec,q,i),e)||'',keyName:sec.key||globalKey||'C'});
+ }return out;}
+ function prepare(sec,cfg,seed,replaceEdited,overrideSwing){
+  const t=T(),track=t.track(cfg.trackId);if(!track||track.instrument!=='keys')return {ok:false,reason:'no-track'};
+  // Own unedited generated cells are candidates for replacement, not manual.
+  const patterns={...track.patterns};Object.keys(patterns).forEach(k=>{const v=patterns[k];if(v && v.type===TYPE && (v.status==='generated' || replaceEdited===true))delete patterns[k];});
+  const shadow={...track,patterns};let g=HOST.__keyModules.bridge.prepareSection({section:sec,track:shadow,trackId:cfg.trackId,tracks:t,formula:HOST.StruChordFormula.chordFormula,globalKey,globalTimeSig,bpm:getEffectiveBpm(sec),genre:cfg.primary,secondary:cfg.secondary,role:String(sec.type||'Verse').toLowerCase(),swing:!!cfg.swing,sectionSwing:typeof overrideSwing==='boolean'?overrideSwing:(()=>{let p=track.patterns['s:'+sec.id];return p && typeof p.swing==='boolean'?p.swing:null})(),seed:seed|0});
+  if(!g.ok)return g;
+  const specs=specifications(sec,cfg.trackId), writes=[],clear=[];
+  for(const spec of specs){const old=track.patterns[spec.key];if(Object.prototype.hasOwnProperty.call(g.events,spec.key)){
+    const rg=t.keyRange(cfg.trackId),includeBass=HOST.StruChordAccomp.bassPolicy(cfg.trackId,sec,cfg.autoBass?'auto':undefined).include;
+    const pat={type:TYPE,beats:spec.beats,status:'generated',notes:includeBass?g.events[spec.key]:g.events[spec.key].filter(n=>n.hand!=='left'),chord:spec.chord,keyName:spec.keyName,bpm:getEffectiveBpm(sec),rangeLow:rg.low,rangeHigh:rg.high};
+    if(JSON.stringify(pat).length>32768)return {ok:false,reason:'too-many-notes'};
+    try{HOST.__keyModules.draft.validate({version:1,revision:0,cells:[{key:spec.key,beats:spec.beats,status:pat.status,notes:pat.notes}]});}catch(e){return {ok:false,reason:'invalid-generated-notes'};}
+    writes.push({key:spec.key,pattern:pat});
+   }else if(old && old.type===TYPE && old.status==='generated' && !spec.chord)clear.push(spec.key);
+  }
+  const newCount=writes.filter(w=>!Object.prototype.hasOwnProperty.call(track.patterns,w.key)).length;
+  if(Object.keys(track.patterns).length+newCount-clear.length>4096)return {ok:false,reason:'too-many-patterns'};
+  return {ok:true,writes,clear,preserved:g.preserved};
+ }
+ function commit(trackId,result){if(!result||!result.ok)throw Error('Unprepared notes');for(const w of result.writes)if(!T().setPattern(trackId,w.key,w.pattern))throw Error('Cannot store notes');for(const k of result.clear)T().clearPattern(trackId,k);}
+ function refresh(sec,cfg,seed){let result=prepare(sec,cfg,seed);if(!result.ok)return result;commit(cfg.trackId,result);return result;}
+ function manualTimingConflict(sec){const track=T().track(T().state().activeTrackId);if(!track||track.instrument!=='keys')return false;return specifications(sec,track.id).some(x=>{const p=track.patterns[x.key];return p && p.type===TYPE && p.status==='manual' && Math.abs(p.beats-x.beats)>1e-8;});}
+ function shouldMove(p,k,trackId){const cfg=T().state().autoAccomp,managed=cfg&&cfg.engine==='notes-v1'&&cfg.trackId===trackId&&cfg.managed[String(k.split(':')[0])];return p&&p.type===TYPE&&(p.status==='manual'||!managed);}
+ function canMoveManual(secs,delta,trackId){const track=T().track(trackId);if(!track)return true;const ids=new Set(secs.map(s=>String(s.id)));return Object.entries(track.patterns||{}).every(([k,p])=>!ids.has(k.split(':')[0])||!shouldMove(p,k,trackId)||p.notes.every(n=>n.midi+delta>=0&&n.midi+delta<=127));}
+ function moveManual(secs,delta,trackId){if(!delta)return;const track=T().track(trackId);if(!track)return;const ids=new Set(secs.map(s=>String(s.id)));for(const [k,p] of Object.entries(track.patterns||{})){if(ids.has(k.split(':')[0])&&shouldMove(p,k,trackId))T().setPattern(trackId,k,{...p,notes:p.notes.map(n=>({...n,midi:n.midi+delta}))});}}
+ function refreshManaged(sec,trackId){const cfg=T().state().autoAccomp;if(!cfg||cfg.engine!=='notes-v1'||!sec||!cfg.managed[String(sec.id)]||(trackId!=null&&cfg.trackId!==trackId))return true;const sectionPattern=T().patternFor(cfg.trackId,'s:'+sec.id);if(sectionPattern && sectionPattern.autoGenerated!==true)return true;const r=refresh(sec,cfg,seedFor(sec,cfg.trackId));if(!r.ok && HOST.showToast)HOST.showToast('Не удалось обновить клавишную партию: проверьте размер, темп и аккорды');return r.ok;}
+ function plan(o){
+  if(!o)return null;let t=T().track(o.trackId),v=o.pattern && o.pattern.type===TYPE?o.pattern:(o.cell && t&&t.patterns[o.cell]);if(!v||v.type!==TYPE)return null;const direct=!!o.pattern;
+  if(!direct && t && ((typeof T().exactNotes==='function' && T().exactNotes(o.trackId,o.cell,o.chord)) || Number.isInteger((t.voicings||{})[o.cell]) || Number.isInteger((t.voicings||{})['v:'+o.chord])))return null;
+  // A changed chord/key must never play stale automatically generated pitches.
+  const cfg=T().state().autoAccomp,managed=!!(cfg && cfg.engine==='notes-v1' && cfg.trackId===o.trackId && o.sec && cfg.managed[String(o.sec.id)]);
+  if(!direct && managed && v.status==='generated' && (v.chord!==o.chord || (o.sec && v.bpm!==getEffectiveBpm(o.sec)) || (o.range && (v.rangeLow!==o.range.low || v.rangeHigh!==o.range.high))))return [{at:0,dur:o.dur,notes:[],gain:1,type:TYPE,source:'cell'}];
+  if(o.gp5Written){
+    const groups=new Map();for(const n of v.notes){const at=Math.min(v.beats-.25,Math.max(0,Math.round(n.beat*4)/4)),k=n.hand+':'+at;if(!groups.has(k))groups.set(k,{at,hand:n.hand,notes:[],dur:Infinity,velocity:0});const g=groups.get(k);g.notes.push(n.midi);g.dur=Math.min(g.dur,Math.max(.25,Math.round(n.duration*4)/4));g.velocity+=n.velocity;}
+    const sorted=[...groups.values()].sort((a,b)=>a.at-b.at||a.hand.localeCompare(b.hand));const unit=o.dur/v.beats;
+    const result=sorted.map((g,i)=>{const next=sorted.slice(i+1).find(x=>x.hand===g.hand),dur=Math.min(g.dur,v.beats-g.at,next?next.at-g.at:Infinity);return {index:i,stepIndex:i,at:g.at*unit,dur:dur*unit,notes:g.notes,gain:g.velocity/g.notes.length/100,source:'cell',type:'experimental-note'};}).filter(g=>g.dur>0);
+    return result.length?result:[{at:0,dur:o.dur,notes:[],gain:1,type:TYPE,source:'cell'}];
+  }
+  const d={version:1,revision:0,cells:[{key:o.cell||'preview',beats:v.beats,status:v.status,notes:v.notes}]};
+  try{return HOST.__keyModules.renderer.planCell(d,o.cell||'preview',{duration:o.dur,span:o.span,denominator:Number(String(o.ts||'4/4').split('/')[1])});}
+  catch(e){return [{at:0,dur:o.dur,notes:[],gain:1,type:TYPE,source:'cell'}];}
+ }
+ HOST.StruChordNoteCandidate={prepare,commit,refresh,refreshManaged,manualTimingConflict,canMoveManual,moveManual,plan,specifications,seedFor,TYPE,getSec};
+})(window);
+
+'use strict';
+// Temporary candidate editor: working copy is committed only on Save.
+(function(HOST){
+ const N=HOST.StruChordNoteCandidate, TYPE=N.TYPE, clone=x=>JSON.parse(JSON.stringify(x));
+ let overlay=null,stop=null,release=null;
+ const node=(tag,cls,text)=>{let e=document.createElement(tag);if(cls)e.className=cls;if(text!==undefined)e.textContent=text;return e;};
+ function close(){if(stop){stop();stop=null;}if(release){release();release=null;}if(overlay){overlay.remove();overlay=null;}}
+ function open(scope,sectionId,squareId,index){
+  const T=HOST.StruChordTracks,state=T.state(),track=T.track(state.activeTrackId),sec=N.getSec(sectionId);if(!track||track.instrument!=='keys'||!sec)return false;
+  const specs=N.specifications(sec,track.id), target=scope==='event'?T.cellKey(sec,(sec.squares||[]).find(q=>q.id===squareId),index):null;
+  const available=specs.filter(x=>{const p=track.patterns[x.key],v=track.voicings||{};return (!target||x.key===target)&&p&&p.type===TYPE&&!(T.exactNotes(track.id,x.key,x.chord) || Number.isInteger(v[x.key]) || Number.isInteger(v['v:'+x.chord]));});if(!available.length)return false;
+  close();let working={};for(const x of available){const p=track.patterns[x.key];working[x.key]=clone(p);}
+  const initial=JSON.stringify(working),signature=JSON.stringify(track.patterns),cfg=state.autoAccomp,originalSection=clone(track.patterns['s:'+sec.id]||{});let sectionPattern=clone(originalSection),seed=(Number(sec.id)||1)+(Number(originalSection.autoVariation)||0)*1009,selected=available[0].key,selectedStep=0,dirty=false,swingNeedsRegen=false,swingTouched=false;
+  if(!document.getElementById('b39PerfNoteStyle')){const css=node('style');css.id='b39PerfNoteStyle';css.textContent='#b39PerfNoteEditor{max-width:min(96vw,58rem)!important;overflow:hidden;gap:.5rem} #b39PerfNoteList{overflow:auto;min-height:5rem;max-height:48vh;flex:1 1 auto} #b39PerfNoteList .b39-acc-actions{justify-content:flex-start;align-items:end;flex-wrap:nowrap;gap:.25rem;padding:.25rem;border-bottom:1px solid var(--color-border-light)} #b39PerfNoteList label{display:flex;flex-direction:column;font-size:.72rem} #b39PerfNoteList input{width:5rem;min-width:0} #b39PerfNoteList select{width:6rem} #b39PerfNoteList input,#b39PerfNoteList select{font:inherit;color:var(--color-text-primary);background:var(--color-surface);border:.0625rem solid var(--color-border-medium);border-radius:.4rem;padding:.3rem} #b39PerfNoteGrid{justify-content:safe center;overflow-x:auto} #b39PerfNoteEditor > .b39-acc-actions{flex-shrink:0}';document.head.appendChild(css);}
+  overlay=node('div','strum-modal-overlay b39-auto-overlay');const box=node('div','strum-modal-content b39-acc-editor');box.id='b39PerfNoteEditor';box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-label','Редактор нот аккомпанемента');
+  box.appendChild(node('div','pattern-presets-head','Аккомпанемент'));const selector=node('select','b39-acc-genre');selector.id='b39PerfNoteCell';selector.setAttribute('aria-label','Ячейка');box.appendChild(selector);
+  const title=node('div','pattern-hint','Выберите шаг, чтобы изменить ноты. Время и длительность показаны приблизительно в четвертях.');box.appendChild(title);
+  const swingLabel=node('label','tools-label'),swing=node('input');swing.type='checkbox';swing.id='b39PerfNoteSwing';swing.checked=typeof sectionPattern.swing==='boolean'?sectionPattern.swing:!!(cfg&&cfg.swing);swingLabel.appendChild(swing);swingLabel.appendChild(node('span','','Swing'));if(scope!=='event' && cfg && cfg.engine==='notes-v1' && cfg.trackId===track.id)box.appendChild(swingLabel);
+  const grid=node('div','pattern-grid b39-acc-steps');grid.id='b39PerfNoteGrid';grid.setAttribute('aria-label','Сетка нот по четвертям');box.appendChild(grid);
+  const list=node('div','b39-note-list');list.id='b39PerfNoteList';box.appendChild(list);
+  const status=node('div','pattern-hint');status.id='b39PerfNoteStatus';box.appendChild(status);
+  function refreshSelector(){let old=selected;selector.textContent='';let entries=specs.filter(x=>working[x.key]&&(!target||x.key===target));for(const x of entries){let op=node('option','',`${x.chord||'Пауза'} · ячейка ${specs.indexOf(x)+1}`);op.value=x.key;selector.appendChild(op);}if(!entries.some(x=>x.key===old))selected=entries.length?entries[0].key:null;if(selected)selector.value=selected;}
+  function field(label,value,step,min,max,onChange){const l=node('label','b39-auto-select',label),inp=node('input');inp.type='number';inp.step=step;inp.min=min;inp.max=max;inp.value=(label==='Начало'||label==='Длительность')?Number(value).toFixed(2):value;inp.setAttribute('aria-label',label);inp.addEventListener('change',()=>{onChange(inp);});l.appendChild(inp);return l;}
+  function render(){refreshSelector();list.textContent='';grid.textContent='';const p=working[selected];if(!p){status.textContent='Нет редактируемых нот в этой ячейке.';return;}const spec=specs.find(x=>x.key===selected);fit.hidden=!spec||Math.abs(p.beats-spec.beats)<1e-8;status.textContent=!fit.hidden?'Длительность ячейки изменилась: партия не будет звучать, пока её не подогнать.':p.notes.length?'Нот в ячейке: '+p.notes.length:'Пауза — нот нет.';
+   const stepCount=Math.min(128,Math.max(1,Math.ceil(p.beats*4))),stepOf=n=>Math.min(stepCount-1,Math.max(0,Math.round(n.beat*4)));selectedStep=Math.min(selectedStep,stepCount-1);for(let step=0;step<stepCount;step++){const ns=p.notes.filter(n=>stepOf(n)===step);const chip=node('button','pattern-step-btn'+(ns.length?' filled':'')+(step===selectedStep?' is-editing':''),ns.length?String(ns.length):'·');chip.type='button';chip.setAttribute('aria-label','Шаг '+(step+1)+', нот: '+ns.length);chip.setAttribute('aria-pressed',String(step===selectedStep));chip.title=chip.getAttribute('aria-label');chip.onclick=()=>{selectedStep=step;render();};grid.appendChild(chip);}
+   p.notes.forEach((n,i)=>{if(stepOf(n)!==selectedStep)return;const row=node('div','b39-acc-actions');row.dataset.note=String(i);const pitchLabel=node('span','',String(i+1)+' · '+(['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'][n.midi%12])+String(Math.floor(n.midi/12)-1));row.appendChild(pitchLabel);
+    const change=(k,parse)=>(inp)=>{let v=parse(inp.value),next={...n,[k]:v};try{const range=T.keyRange(track.id);if(k==='midi' && (v<range.low||v>range.high))throw Error('range');HOST.__keyModules.draft.validate({version:1,revision:0,cells:[{key:selected,beats:p.beats,status:'manual',notes:[next]}]});}catch(e){inp.value=n[k];status.textContent='Недопустимое значение ноты';return;}Object.assign(n,next);if(k==='midi')pitchLabel.textContent=String(i+1)+' · '+(['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'][n.midi%12])+String(Math.floor(n.midi/12)-1);p.status='manual';dirty=true;status.textContent='Изменения ещё не сохранены';if(k==='beat')render();};
+    const range=T.keyRange(track.id),pitchRow=node('label','b39-auto-select','Нота'),pitch=node('select');pitch.setAttribute('aria-label','Нота');for(let v=range.low;v<=range.high;v++){const op=node('option','',(['C','C♯','D','D♯','E','F','F♯','G','G♯','A','A♯','B'][v%12])+String(Math.floor(v/12)-1));op.value=String(v);pitch.appendChild(op);}if(n.midi<range.low||n.midi>range.high){const op=node('option','',pitchLabel.textContent.split(' · ')[1]+' (вне диапазона)');op.value=String(n.midi);pitch.appendChild(op);}pitch.value=String(n.midi);pitch.onchange=()=>change('midi',Number)(pitch);pitchRow.appendChild(pitch);row.appendChild(pitchRow);row.appendChild(field('Начало',n.beat,'0.01','0',String(p.beats),change('beat',Number)));row.appendChild(field('Длительность',n.duration,'0.01','0.01',String(p.beats),change('duration',Number)));row.appendChild(field('Сила',n.velocity,'1','1','127',change('velocity',Number)));
+    const hand=node('select');hand.setAttribute('aria-label','Рука');for(const v of [['left','Левая'],['right','Правая']]){const o=node('option','',v[1]);o.value=v[0];hand.appendChild(o);}hand.value=n.hand;hand.onchange=()=>{n.hand=hand.value;p.status='manual';dirty=true;};row.appendChild(hand);
+    const del=node('button','b39-acc-action','Удалить');del.type='button';del.setAttribute('aria-label','Удалить ноту '+(i+1));del.onclick=()=>{p.notes.splice(i,1);p.status='manual';dirty=true;render();};row.appendChild(del);list.appendChild(row);
+   });
+  }
+  selector.onchange=()=>{selected=selector.value;selectedStep=0;render();};
+  const fit=node('button','b39-acc-action','Подогнать к длительности ячейки');fit.id='b39PerfNoteFit';fit.type='button';fit.onclick=()=>{const p=working[selected],spec=specs.find(x=>x.key===selected);if(!p||!spec||p.beats===spec.beats)return;if(!HOST.confirm('Масштабировать начало и длительность всех нот под новую длину ячейки?'))return;const ratio=spec.beats/p.beats;p.notes=p.notes.map(n=>({...n,beat:n.beat*ratio,duration:n.duration*ratio}));p.beats=spec.beats;p.status='manual';dirty=true;render();};box.appendChild(fit);
+  const buttons=node('div','b39-acc-actions');const presets=node('button','b39-acc-action','Пресеты и шаги');presets.type='button';presets.id='b39PerfNotePresets';presets.onclick=()=>{if(!HOST.confirm('При сохранении пресета нотный рисунок выбранной области будет заменён. Продолжить?'))return;close();HOST.__b39NoteLegacy={trackId:track.id,sectionId:sec.id,cell:target};HOST.openStrumPatternEditor(scope,sectionId,squareId,index);};buttons.appendChild(presets);const add=node('button','b39-acc-action','Добавить ноту');add.type='button';add.id='b39PerfNoteAdd';add.onclick=()=>{let p=working[selected];if(!p)return;const r=T.keyRange(track.id);p.notes.push({midi:Math.max(r.low,Math.min(r.high,60)),beat:Math.min(selectedStep/4,Math.max(0,p.beats-.01)),duration:Math.min(.25,p.beats-Math.min(selectedStep/4,Math.max(0,p.beats-.01))),velocity:80,hand:'right'});p.status='manual';dirty=true;render();};buttons.appendChild(add);
+  const preview=node('button','b39-acc-action','Прослушать ячейку');preview.type='button';preview.id='b39PerfNotePreview';preview.onclick=()=>{if(stop){stop();stop=null;}const p=working[selected],spec=specs.find(x=>x.key===selected);if(!p||!spec||!spec.chord)return;const ctx=getAudioContext();if(HOST.resumeAudioContext)HOST.resumeAudioContext();const ts=sec.timeSig||globalTimeSig||'4/4',den=Number(ts.split('/')[1]),span=p.beats*den/4;stop=HOST.StruChordAudio.previewPattern(spec.chord,ctx,track.id,spec.keyName,p,{scope:'cell',span,bpm:getEffectiveBpm(sec),ts,sec,cell:selected});};buttons.appendChild(preview);
+  if(scope!=='event' && cfg && cfg.trackId===track.id && cfg.managed[String(sec.id)]){
+   const regen=node('button','b39-acc-action','Создать другой рисунок');regen.type='button';regen.id='b39PerfNoteRegenerate';regen.onclick=()=>{const manually=Object.values(working).some(p=>p.status==='manual');let replace=false;if(manually){if(!HOST.confirm('Заменить вручную изменённые ноты этой секции?'))return;replace=true;}
+    seed=(Number(sec.id)||1)+(((Number(sectionPattern.autoVariation)||0)+1)%4)*1009;const proposedCfg={...cfg,swing:swing.checked};let result=N.prepare(sec,proposedCfg,seed,replace,swingTouched?swing.checked:undefined);if(!result.ok){status.textContent='Не удалось создать партию: проверьте аккорды, размер и диапазон.';return;}for(const w of result.writes)working[w.key]=clone(w.pattern);for(const key of result.clear)delete working[key];if(swingTouched){sectionPattern.swing=swing.checked;sectionPattern.autoSwing=true;}sectionPattern.autoVariation=((Number(sectionPattern.autoVariation)||0)+1)%4;dirty=true;swingNeedsRegen=false;render();status.textContent='Новый рисунок ещё не сохранён';};buttons.appendChild(regen);
+  }
+  swing.onchange=()=>{const before=!swing.checked;const nextCfg={...cfg,swing:swing.checked};const result=N.prepare(sec,nextCfg,seed,false,swing.checked);if(!result.ok){swing.checked=before;status.textContent='Не удалось изменить Swing для этой партии.';return;}
+    for(const w of result.writes)if(!working[w.key]||working[w.key].status!=='manual')working[w.key]=clone(w.pattern);
+    for(const key of result.clear)if(working[key]&&working[key].status!=='manual')delete working[key];
+    sectionPattern.swing=swing.checked;sectionPattern.autoSwing=true;swingTouched=true;dirty=true;swingNeedsRegen=false;render();status.textContent='Свинг изменён в черновике; ручные ноты сохранены.';};
+  const cancel=node('button','b39-acc-action','Отмена');cancel.type='button';cancel.id='b39PerfNoteCancel';cancel.onclick=close;buttons.appendChild(cancel);
+  const save=node('button','b39-acc-action b39-acc-save','Сохранить');save.type='button';save.id='b39PerfNoteSave';save.onclick=()=>{const live=T.track(track.id);if(!live||T.state().activeTrackId!==track.id||JSON.stringify(live.patterns)!==signature){status.textContent='Песня изменилась. Откройте редактор заново.';return;}
+   if(swingNeedsRegen){status.textContent='Для применения Swing сначала создайте другой рисунок.';return;}
+   for(const [key,p] of Object.entries(working)){try{HOST.__keyModules.draft.validate({version:1,revision:0,cells:[{key,beats:p.beats,status:p.status,notes:p.notes}]});if(JSON.stringify(p).length>32768)throw Error();}catch(e){status.textContent='Неверная или слишком длинная партия.';return;}}
+   if(dirty)HOST.songStore.dispatch('b39/note-edit',()=>{for(const [key,p] of Object.entries(working))T.setPattern(track.id,key,p);if(JSON.stringify(sectionPattern)!==JSON.stringify(originalSection))T.setPattern(track.id,'s:'+sec.id,sectionPattern);},{history:'atomic'});close();};buttons.appendChild(save);box.appendChild(buttons);overlay.appendChild(box);document.body.appendChild(overlay);overlay.onclick=e=>{if(e.target===overlay)close();};overlay.onkeydown=e=>{if(e.key==='Escape'){e.stopPropagation();close();}};if(HOST.trapFocus)release=HOST.trapFocus(box,close);render();return true;
+ }
+ HOST.StruChordNoteEditor={open,close};
+})(window);
+
 // B-39: выбор жанров и предварительный план автоаккомпанемента.
 (function(HOST){
   'use strict';
@@ -51804,7 +52491,7 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
   function sectionName(sec){try{return sec.type==='Custom' ? (sec.customName||'Секция') : (LABEL_RU[sec.type]||sec.type||'Секция');}catch(e){return 'Секция';}}
   function pickIndex(type){var n=({Intro:0,Verse:1,PreChorus:2,Chorus:3,Bridge:2,Solo:1,Outro:4,Custom:1})[type];return n===undefined ? 1 : n;}
   function genreName(id){var g=A().styles().find(function(x){return x.id===id;});return g?g.label:'';}
-  function makePattern(sec,first,second){
+  function makePattern(sec,first,second,opts){
     var acc=A(), idx=pickIndex(sec.type), id='perform-'+first+'-'+idx, p=acc.preset(id);
     if (!p) return null;
     var ts=tsOf(sec), beats=Math.max(1,Math.min(32,parseInt(ts,10)||4));
@@ -51831,16 +52518,30 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
         if(diff>=0)base[diff]=other[diff];
       }
     }
-    return {type:id,subdivision:2,swing:!!p.presetSwing,steps:base,autoGenerated:true};
+    if(!opts) return {type:id,subdivision:2,swing:!!p.presetSwing,steps:base,autoGenerated:true};
+    var variation=Math.max(0,Math.min(3,Number(opts.variation)||0));
+    var previous=opts.previous;
+    if(variation && base.length>2) {
+      // Добавочный акцент остаётся редактируемым обычным токеном сетки.
+      var at=base.length-variation; if(at>0 && at<base.length)base[at]=variation===2?'M':'A';
+    }
+    if(opts.forceChange===true && previous && Array.isArray(previous.steps) && JSON.stringify(previous.steps)===JSON.stringify(base) && base.length>1) {
+      var alt=base.length-1;base[alt]=base[alt]==='A'?'M':'A';
+    }
+    var swing=previous && previous.autoSwing===true && typeof previous.swing==='boolean' ? previous.swing : null;
+    return {type:id,subdivision:2,swing:swing,steps:base,autoGenerated:true,autoSwing:true,autoVariation:variation};
   }
   function auto(){var t=T();return t && t.state().autoAccomp;}
   function manual(sec,cfg){var v=T().patternFor(cfg.trackId,'s:'+sec.id);return !v || v.autoGenerated!==true;}
   function refreshSection(sec,ask){
     var cfg=auto(); if(!cfg || !cfg.managed[String(sec.id)]) return false;
     if (manual(sec,cfg) && (!ask || !HOST.confirm('В секции «'+sectionName(sec)+'» рисунок изменён вручную. Заменить его автоматическим?'))) return false;
-    var pattern=makePattern(sec,cfg.primary,cfg.secondary); return !!pattern && T().setPattern(cfg.trackId,'s:'+sec.id,pattern);
+    var prev=T().patternFor(cfg.trackId,'s:'+sec.id), opts=typeof cfg.swing==='boolean'?{previous:prev,variation:prev && prev.autoVariation}:null; var pattern=makePattern(sec,cfg.primary,cfg.secondary,opts); if(!pattern)return false;
+    var part=cfg.engine==='notes-v1' && HOST.StruChordNoteCandidate ? HOST.StruChordNoteCandidate.prepare(sec,cfg,HOST.StruChordNoteCandidate.seedFor(sec,cfg.trackId)) : null;
+    if(part && !part.ok){if(HOST.showToast)HOST.showToast('Не удалось обновить клавишную партию');return false;}
+    if(part)HOST.StruChordNoteCandidate.commit(cfg.trackId,part);return T().setPattern(cfg.trackId,'s:'+sec.id,pattern);
   }
-  function addSection(sec){var cfg=auto();if(!cfg || !sec)return;var pattern=makePattern(sec,cfg.primary,cfg.secondary);if(!pattern)return;if(cfg.autoBass)T().setBassRole(cfg.trackId,sec.id,'auto');cfg.managed[String(sec.id)]=true;T().setPattern(cfg.trackId,'s:'+sec.id,pattern);T().setAutoAccomp(cfg);}
+  function addSection(sec){var cfg=auto();if(!cfg || !sec)return;var pattern=makePattern(sec,cfg.primary,cfg.secondary,typeof cfg.swing==='boolean'?{}:null);if(!pattern)return;if(cfg.autoBass)T().setBassRole(cfg.trackId,sec.id,'auto');cfg.managed[String(sec.id)]=true;T().setPattern(cfg.trackId,'s:'+sec.id,pattern);T().setAutoAccomp(cfg);}
   function cloneSection(orig,cl){
     var cfg=auto(); if(!cfg || !orig || !cl)return;
     var original=T().patternFor(cfg.trackId,'s:'+orig.id);
@@ -51881,39 +52582,44 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
     autoOverlay=element('div','strum-modal-overlay b39-auto-overlay');
     box=element('div','strum-modal-content b39-auto-panel');box.id='b39AutoPanel';box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-labelledby','b39AutoTitle');
     var heading=element('h3','','Автоаккомпанемент на песню');heading.id='b39AutoTitle';heading.style.margin='0';box.appendChild(heading);
-    box.appendChild(element('div','b39-auto-note','Проверьте план. При применении бас выбранных секций станет автоматическим по их типу; ручные рисунки защищены, настройки ячеек сохраняются.'));
+    box.appendChild(element('div','b39-auto-note','Рисунки создаются для секций выбранной дорожки. Перед заменой ручных рисунков будет вопрос; настройки ячеек сохраняются.'));
     var f=select('Основной жанр','b39AutoPrimary',false),s=select('Дополнительный жанр','b39AutoSecondary',true);primary=f.sel;secondary=s.sel;box.appendChild(f.row);box.appendChild(s.row);
     var linkRow=element('label','tools-label b39-auto-select'), link=element('input');link.type='checkbox';link.id='b39AutoLinked';link.checked=track.linkedVoicings===true;
     linkRow.appendChild(link);linkRow.appendChild(element('span','','Плавные обращения для всей дорожки (ручные позиции сохраняются)'));box.appendChild(linkRow);
     var cfg=auto();if(cfg){primary.value=cfg.primary;secondary.value=cfg.secondary||'';}
-    primary.addEventListener('change',renderPlan);secondary.addEventListener('change',renderPlan);
-    planBox=element('div','b39-auto-list');planBox.id='b39AutoPlan';box.appendChild(planBox);
+    var swingRow=element('label','tools-label b39-auto-select'), swing=element('input');swing.type='checkbox';swing.id='b39AutoSwing';swing.checked=!!(cfg && cfg.trackId===dialogTrack && cfg.swing===true);
+    swingRow.appendChild(swing);swingRow.appendChild(element('span','','Swing'));box.appendChild(swingRow);
     var actions=element('div','b39-acc-actions'), cancel=element('button','b39-acc-action','Отмена'), apply=element('button','b39-acc-action b39-acc-save','Применить');
     cancel.type=apply.type='button';cancel.id='b39AutoCancel';apply.id='b39AutoApply';cancel.addEventListener('click',close);
     apply.addEventListener('click',function(){
       if(secondary.value && secondary.value===primary.value){if(HOST.showToast)HOST.showToast('Выберите разные жанры');return;}
       var live=T().state(), track=T().track(dialogTrack); if(!track || track.instrument!=='keys' || live.activeTrackId!==dialogTrack){close();return;}
-      var checked=Array.from(planBox.querySelectorAll('input[data-sec]:checked')).map(function(n){return n.dataset.sec;});
       if(!secs().length){if(HOST.showToast)HOST.showToast('Добавьте секцию');return;}
-      var old=auto(), same=old && old.trackId===dialogTrack, managed=same?Object.assign({},old.managed):{}, selected=secs().filter(function(sec){return checked.indexOf(String(sec.id))>=0;});
-      // Явно снятая галочка отключает авто для прежнего автоматического
-      // рисунка. Ручные исключения продолжаем помнить и спрашивать о них.
-      if(same) secs().forEach(function(sec){var raw=track.patterns['s:'+sec.id];if(checked.indexOf(String(sec.id))<0 && raw && raw.autoGenerated===true)delete managed[String(sec.id)];});
+      var old=auto(), same=old && old.trackId===dialogTrack, managed=same?Object.assign({},old.managed):{}, selected=secs().slice();
       var conflicts=selected.filter(function(sec){var raw=track.patterns['s:'+sec.id];return raw && !(same && old.managed[String(sec.id)] && raw.autoGenerated===true);});
       if(conflicts.length && !HOST.confirm('Заменить собственные рисунки секций: '+conflicts.length+'? Если отказаться, они сохранятся; остальные выбранные секции обновятся.')) selected=selected.filter(function(sec){return conflicts.indexOf(sec)<0;});
-      var next={primary:primary.value,secondary:secondary.value||null,trackId:dialogTrack,managed:managed,autoBass:true};
+      var next={primary:primary.value,secondary:secondary.value||null,trackId:dialogTrack,managed:managed,autoBass:true,swing:swing.checked,engine:'notes-v1'};
+      var prepared=selected.map(function(sec){return {sec:sec,result:HOST.StruChordNoteCandidate.prepare(sec,next,HOST.StruChordNoteCandidate.seedFor(sec,next.trackId))};});
+      if(prepared.some(function(x){return !x.result.ok;})){if(HOST.showToast)HOST.showToast('Не удалось создать партию: проверьте аккорды, размер и диапазон');return;}
+      var keys=new Set(Object.keys(track.patterns));prepared.forEach(function(x){x.result.clear.forEach(function(k){keys.delete(k);});x.result.writes.forEach(function(w){keys.add(w.key);});keys.add('s:'+x.sec.id);});
+      if(keys.size>4096){if(HOST.showToast)HOST.showToast('Слишком много рисунков на дорожке');return;}
       HOST.songStore.dispatch('b39/auto-apply',function(){
-        selected.forEach(function(sec){var pattern=makePattern(sec,next.primary,next.secondary);if(pattern){T().setPattern(dialogTrack,'s:'+sec.id,pattern);T().setBassRole(dialogTrack,sec.id,'auto');next.managed[String(sec.id)]=true;}});
+        prepared.forEach(function(x){HOST.StruChordNoteCandidate.commit(dialogTrack,x.result);});
+        selected.forEach(function(sec){var prior=track.patterns['s:'+sec.id],pattern=makePattern(sec,next.primary,next.secondary,{previous:prior,variation:prior && prior.autoVariation});if(pattern){T().setPattern(dialogTrack,'s:'+sec.id,pattern);T().setBassRole(dialogTrack,sec.id,'auto');next.managed[String(sec.id)]=true;}});
         T().setAutoAccomp(next);T().setLinkedVoicings(dialogTrack,link.checked);
       },{history:'atomic'});
       close();if(HOST.showToast)HOST.showToast('Автоаккомпанемент обновлён');
     });
     actions.appendChild(cancel);actions.appendChild(apply);
-    if(cfg && cfg.trackId===dialogTrack){var off=element('button','b39-acc-action','Отключить авто');off.type='button';off.id='b39AutoOff';off.addEventListener('click',function(){HOST.songStore.dispatch('b39/auto-off',function(){T().setAutoAccomp(null);},{history:'atomic'});close();if(HOST.showToast)HOST.showToast('Авто отключено; рисунки сохранены');});actions.appendChild(off);}
+    if(cfg && cfg.trackId===dialogTrack){var off=element('button','b39-acc-action','Отключить авто');off.type='button';off.id='b39AutoOff';off.addEventListener('click',function(){HOST.songStore.dispatch('b39/auto-off',function(){
+      var current=auto(), live=current && T().track(current.trackId);
+      if(current && live && typeof current.swing==='boolean')secs().forEach(function(sec){var raw=live.patterns['s:'+sec.id];if(raw && raw.autoSwing===true && typeof raw.swing!=='boolean')T().setPattern(current.trackId,'s:'+sec.id,Object.assign({},raw,{swing:current.swing}));});
+      T().setAutoAccomp(null);
+    },{history:'atomic'});close();if(HOST.showToast)HOST.showToast('Авто отключено; рисунки сохранены');});actions.appendChild(off);}
     box.appendChild(actions);autoOverlay.appendChild(box);doc.body.appendChild(autoOverlay);
     autoOverlay.addEventListener('click',function(e){if(e.target===autoOverlay)close();});
     autoOverlay.addEventListener('keydown',function(e){if(e.key==='Escape')e.stopPropagation();});
-    renderPlan();if(typeof HOST.trapFocus==='function')autoOverlay._releaseFocusTrap=HOST.trapFocus(box,close);else primary.focus();
+    if(typeof HOST.trapFocus==='function')autoOverlay._releaseFocusTrap=HOST.trapFocus(box,close);else primary.focus();
   }
   HOST.StruChordAuto=Object.freeze({open:open,close:close,makePattern:makePattern,refreshSection:refreshSection,addSection:addSection,cloneSection:cloneSection,removeSection:removeSection});
 })(window);
@@ -60074,6 +60780,7 @@ function onKeyChange() {
     songStore.dispatch('key/change', () => {
     globalKey = newGlobalKey;
     applyEnharmonicCorrectionToAll();
+    if(window.StruChordNoteCandidate)sections.forEach(sec=>window.StruChordNoteCandidate.refreshManaged(sec));
     });
     enableWheelHarmonyModesOnTransition(
       previousEffectiveKey,
@@ -60091,6 +60798,7 @@ function onKeyChange() {
     songStore.dispatch('key/change', () => {
     globalKey = newGlobalKey;
     applyEnharmonicCorrectionToAll();
+    if(window.StruChordNoteCandidate)sections.forEach(sec=>window.StruChordNoteCandidate.refreshManaged(sec));
     });
     enableWheelHarmonyModesOnTransition(
       previousEffectiveKey,
@@ -60106,6 +60814,7 @@ function onKeyChange() {
     if (action === 'transpose') {
       const semitones = getSemitonesBetween(oldGlobalKey, newGlobalKey);
       if (semitones !== 0) {
+        if(window.StruChordNoteCandidate && window.StruChordTracks && !window.StruChordNoteCandidate.canMoveManual(sections,semitones,window.StruChordTracks.state().mainTrackId)){DOM.rootKey.value=oldGlobalKey;processingKeyChange=false;showToast('Транспонирование отменено: ручная нота выйдет за диапазон MIDI');return;}
         songStore.dispatch('key/transpose', () => {
         for (const s of sections)
           for (const sq of s.squares)
@@ -60122,6 +60831,7 @@ function onKeyChange() {
         globalKey = newGlobalKey;
         applyEnharmonicCorrectionToAll();
         if(window.StruChordTracks) window.StruChordTracks.moveMainExactNotes(semitones);
+        if(window.StruChordNoteCandidate && window.StruChordTracks){window.StruChordNoteCandidate.moveManual(sections,semitones,window.StruChordTracks.state().mainTrackId);sections.forEach(sec=>window.StruChordNoteCandidate.refreshManaged(sec));}
         });
         requestRender();
         showToast(
@@ -60131,6 +60841,7 @@ function onKeyChange() {
         songStore.dispatch('key/change', () => {
         globalKey = newGlobalKey;
         applyEnharmonicCorrectionToAll();
+        if(window.StruChordNoteCandidate)sections.forEach(sec=>window.StruChordNoteCandidate.refreshManaged(sec));
         });
         requestRender();
       }
@@ -78468,6 +79179,8 @@ function applyBpmChange() {
   if (isNaN(v)) v = CONFIG.DEFAULT_BPM;
   v = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, v));
   el.value = v;
+  if(window.StruChordNoteCandidate && window.StruChordTracks && window.StruChordTracks.state().autoAccomp && window.StruChordTracks.state().autoAccomp.engine==='notes-v1')
+    songStore.dispatch('b39/auto-tempo',()=>sections.filter(sec=>!sec.bpm).forEach(sec=>window.StruChordNoteCandidate.refreshManaged(sec)));
   // Масштаб ленты считается от темпа — пересобираем её под новый BPM.
   // В режиме редактирования ничего не происходит: renderTimeline
   // вызывается только когда лента открыта.
@@ -82356,7 +83069,7 @@ toggleTimeAndBeats();
   }
 
   /** Шаги рисунка. dur = span => at/dur уже в долях сетки, не в секундах. */
-  function stepsFor(track, cell, sec, sq, ev, ei, chord, key, range, notes, span, ts) {
+  function stepsFor(track, cell, sec, sq, ev, ei, chord, key, range, notes, span, ts, gp5Written) {
     var A = accomp();
     if (A && typeof A.plan === 'function') {
       try {
@@ -82366,7 +83079,7 @@ toggleTimeAndBeats();
           range: range, notes: notes,
           // Исполнительский свинг в файл не кодируется: GP/MIDI получают
           // письменный ритм (как gpExportPrepareSong в самом приложении).
-          noSwing: true
+          noSwing: true, gp5Written: !!gp5Written
         });
         if (steps && steps.length) return steps;
       } catch (e) {}
@@ -82417,9 +83130,12 @@ toggleTimeAndBeats();
       // Два места на струне — по одному в каждом голосе.
       var occupied=new Array(WIDE_MIDI.length*2).fill(null);
       function assign(item,seen){
-        for(var i=0;i<item.choices.length;i++){
-          var candidate=item.choices[i];
-          for(var voice=0;voice<2;voice++){
+        // В первом проходе пробуем все разные струны, прежде чем
+        // занимать второй голос той же струны. Это оставляет второй голос
+        // свободным для баса, звучащего под аккордом другой длительности.
+        for(var voice=0;voice<2;voice++){
+          for(var i=0;i<item.choices.length;i++){
+            var candidate=item.choices[i];
             var slot=candidate.string*2+voice;
             if(seen[slot])continue;
             seen[slot]=true;
@@ -82552,7 +83268,7 @@ toggleTimeAndBeats();
             var span = Math.max(0.25, Number(win.span) || Number(ev.span) || 1);
             var notes = voicingFor(track, chord, secKey, cell);
             if (!notes.length) continue;
-            var steps = stepsFor(track, cell, sec, sq, ev, ei, chord, secKey, range, notes, span, ts);
+            var steps = stepsFor(track, cell, sec, sq, ev, ei, chord, secKey, range, notes, span, ts, gp5);
             steps.forEach(function (step) {
               var at = win.start + (Number(step.at) || 0);
               var dur = Math.max(0.05, Number(step.dur) || span);
@@ -82780,7 +83496,9 @@ toggleTimeAndBeats();
   // Производные ноты не попадают в songParts/сохранение. TAB здесь исключён:
   // он экспортируется ровно один раз своей дорожкой.
   function gpExportPrepareSong(songData, report) {
-    gpExportLoss(report, 'Исполнительский свинг аккомпанемента не кодируется: записан письменный ритм');
+    gpExportLoss(report, 'Свинг шаговых рисунков не кодируется: записан письменный ритм');
+    if(window.StruChordTracks && window.StruChordTracks.state().tracks.some(t=>Object.values(t.patterns||{}).some(p=>p && p.type==='experimental-notes-v1')))
+      gpExportLoss(report, 'Ноты клавишной партии: время и длительность в Guitar Pro могут быть округлены к нотной сетке');
     const rolls = {};
     for (const sec of sections) {
       const notes = accompSectionRoll(sec);
@@ -83714,7 +84432,9 @@ toggleTimeAndBeats();
     if (!(position > 0)) throw new Error('В песне нет времени — экспортировать нечего.');
     if ((songData.mix?.master?.volume ?? 100) !== 100 || (songData.mix?.master?.pan ?? 0) !== 0) gpExportLoss(report, 'MIDI: мастер-громкость и мастер-панорама не переносятся, настройте их в DAW');
     if (tracks.some(t => (t.mix.volume ?? 100) > 100)) gpExportLoss(report, 'MIDI: громкость выше 100 % записана как 100 %');
-    gpExportLoss(report, 'MIDI не хранит аппликатуры, номера струн, звук синтеза, исполнительский свинг, EQ, реверберацию и оформление');
+    gpExportLoss(report, 'MIDI не хранит аппликатуры, номера струн, звук синтеза, настройки свинга, EQ, реверберацию и оформление');
+    if(window.StruChordTracks && window.StruChordTracks.state().tracks.some(t=>Object.values(t.patterns||{}).some(p=>p && p.type==='experimental-notes-v1')))
+      gpExportLoss(report, 'MIDI: временные сдвиги клавишных нот записаны как время атак');
     if (songData.soundAuto && songData.soundAuto.length) gpExportGain(report, 'Смена гитарного тембра (приближение GM)', songTrack ? songTrack.programs.length : 0);
     if (sourceParts.some(p => p.soundAuto && p.soundAuto.length)) gpExportLoss(report, 'Автоматизация тембра партий в MIDI пока не переносится');
     return { ppq, tracks, conductor, end: Math.round(position * ppq) };
