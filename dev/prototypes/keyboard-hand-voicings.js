@@ -35,7 +35,7 @@ function movement(a, b) {
   return d[a.length][b.length];
 }
 function center(notes) { return (notes[0] + notes[notes.length-1]) / 2; }
-function candidates({low, high, bassPc, tones, shape, strictShape}) {
+function candidates({low, high, bassPc, tones, shape, strictShape, preferDoubling}) {
   if (!Number.isInteger(low) || !Number.isInteger(high) || low < 0 || high > 127 || low > high ||
       !Number.isInteger(bassPc) || !Array.isArray(tones) || !tones.length) throw new TypeError('Invalid voicing request');
   const pcs = [];
@@ -64,7 +64,7 @@ function candidates({low, high, bassPc, tones, shape, strictShape}) {
       const omitted=pcs.slice(count);
       const target=selected.length>1 ? center(selected.slice(1)) : Math.min(high,Math.max(low,64));
       const shapeCost=selected.length>1 ? movement(selected.slice(1),right)*0.35 + Math.abs(selected[0]-bass)*0.15 : 0;
-      const doubleBonus=choice.length>base.length ? 4 : 0;
+      const doubleBonus=choice.length>base.length ? (preferDoubling ? 70 : -12) : 0;
       const cost=Math.abs(center(right)-target)*0.8 + Math.abs(bass-43)*0.35 + (Math.min(4,pcs.length)-count)*14 + shapeCost-doubleBonus;
       out.push({left:[bass],right,omitted,cost});
     }
@@ -89,12 +89,14 @@ function planVoicing(options) {
   }
   return best?clean(best):null;
 }
-function planSequence({chords,low,high,bpm}) {
+function planSequence({chords,low,high,bpm,seed}) {
   if (!Array.isArray(chords) || !chords.length || chords.length>256 || !Number.isFinite(bpm) || bpm<=0) throw new TypeError('Invalid sequence');
   const layers=[];
   for (let i=0;i<chords.length;i++) {
     const chord=chords[i];
-    const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones,shape:chord.shape,strictShape:chord.strictShape});
+    // Stable per-cell variation: doubling is encouraged for some cells, not all.
+    const preferDoubling=Number.isInteger(seed) && ((i + (seed >>> 0)) % 3 === 0);
+    const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones,shape:chord.shape,strictShape:chord.strictShape,preferDoubling});
     if (!list.length) return {ok:false,reason:'no-playable-candidate',chordIndex:i};
     const layer=[];
     if (!i) for (const v of list) layer.push({v,total:v.cost,previous:-1});

@@ -55,7 +55,7 @@ function generatePerformance(options) {
   for (const chord of chords) {
     if (!chord || !Number.isFinite(chord.beats) || chord.beats < 0.25 || chord.beats > 32 || chord.beats * 4 !== Math.round(chord.beats * 4)) throw new TypeError('Chord duration must be sixteenth-note aligned');
   }
-  const planned=planSequence({chords,low,high,bpm});
+  const planned=planSequence({chords,low,high,bpm,seed});
   if (!planned.ok) return {ok:false,reason:planned.reason,chordIndex:planned.chordIndex,notes:[],decisions:[]};
   const voices=planned.voices;
   for (let index = 0; index < chords.length; index++) {
@@ -98,6 +98,7 @@ function generatePerformance(options) {
       if (roll < probability || sectionStart || anchor) {
         rightMode = isSixteenth && !sectionStart ? 'single' : (choose(2)<0.52 && voice.right.length>2 ? 'partial' : 'chord');
       } else if (choose(3) < profile.arp * 1.2 * strength * (isSixteenth ? sixteenthScale : 1)) rightMode = 'single';
+      if (sectionStart && voice.right.length===4) rightMode='chord';
       const baseDuration = Math.max(0.01, (isSixteenth ? next-at : swingAt(step+2,useSwing)-at)*profile.length);
       const emit = (hand, pitches, base) => {
         const gesture = {hand, chordIndex:index, notes:[], hold:human(), release:releases[hand]};
@@ -120,9 +121,9 @@ function generatePerformance(options) {
       };
       if (left) emit('left',voice.left,68);
       if (rightMode === 'chord') {
-        // A doubled triad can use both octaves over time without forcing four
-        // simultaneous notes into every gesture or overloading one hand.
-        const hand=voice.right.length>3 && chord.tones.length===3 ? (choose(5)<.5?voice.right.slice(0,3):voice.right.slice(-3)) : voice.right;
+        // Alternate full and reduced gestures: a doubled triad may sound as
+        // four right-hand notes, but not every attack needs to be full.
+        const hand=!sectionStart && voice.right.length>3 && chord.tones.length===3 && choose(5)<.55 ? (choose(4)<.5?voice.right.slice(0,3):voice.right.slice(-3)) : voice.right;
         emit('right',hand,74);
       }
       else if (rightMode === 'partial') {

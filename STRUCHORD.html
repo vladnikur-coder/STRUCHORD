@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.764</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.765</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -51929,7 +51929,7 @@ function movement(a, b) {
   return d[a.length][b.length];
 }
 function center(notes) { return (notes[0] + notes[notes.length-1]) / 2; }
-function candidates({low, high, bassPc, tones, shape, strictShape}) {
+function candidates({low, high, bassPc, tones, shape, strictShape, preferDoubling}) {
   if (!Number.isInteger(low) || !Number.isInteger(high) || low < 0 || high > 127 || low > high ||
       !Number.isInteger(bassPc) || !Array.isArray(tones) || !tones.length) throw new TypeError('Invalid voicing request');
   const pcs = [];
@@ -51958,7 +51958,7 @@ function candidates({low, high, bassPc, tones, shape, strictShape}) {
       const omitted=pcs.slice(count);
       const target=selected.length>1 ? center(selected.slice(1)) : Math.min(high,Math.max(low,64));
       const shapeCost=selected.length>1 ? movement(selected.slice(1),right)*0.35 + Math.abs(selected[0]-bass)*0.15 : 0;
-      const doubleBonus=choice.length>base.length ? 4 : 0;
+      const doubleBonus=choice.length>base.length ? (preferDoubling ? 70 : -12) : 0;
       const cost=Math.abs(center(right)-target)*0.8 + Math.abs(bass-43)*0.35 + (Math.min(4,pcs.length)-count)*14 + shapeCost-doubleBonus;
       out.push({left:[bass],right,omitted,cost});
     }
@@ -51983,12 +51983,14 @@ function planVoicing(options) {
   }
   return best?clean(best):null;
 }
-function planSequence({chords,low,high,bpm}) {
+function planSequence({chords,low,high,bpm,seed}) {
   if (!Array.isArray(chords) || !chords.length || chords.length>256 || !Number.isFinite(bpm) || bpm<=0) throw new TypeError('Invalid sequence');
   const layers=[];
   for (let i=0;i<chords.length;i++) {
     const chord=chords[i];
-    const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones,shape:chord.shape,strictShape:chord.strictShape});
+    // Stable per-cell variation: doubling is encouraged for some cells, not all.
+    const preferDoubling=Number.isInteger(seed) && ((i + (seed >>> 0)) % 3 === 0);
+    const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones,shape:chord.shape,strictShape:chord.strictShape,preferDoubling});
     if (!list.length) return {ok:false,reason:'no-playable-candidate',chordIndex:i};
     const layer=[];
     if (!i) for (const v of list) layer.push({v,total:v.cost,previous:-1});
@@ -52073,7 +52075,7 @@ function generatePerformance(options) {
   for (const chord of chords) {
     if (!chord || !Number.isFinite(chord.beats) || chord.beats < 0.25 || chord.beats > 32 || chord.beats * 4 !== Math.round(chord.beats * 4)) throw new TypeError('Chord duration must be sixteenth-note aligned');
   }
-  const planned=planSequence({chords,low,high,bpm});
+  const planned=planSequence({chords,low,high,bpm,seed});
   if (!planned.ok) return {ok:false,reason:planned.reason,chordIndex:planned.chordIndex,notes:[],decisions:[]};
   const voices=planned.voices;
   for (let index = 0; index < chords.length; index++) {
@@ -52116,6 +52118,7 @@ function generatePerformance(options) {
       if (roll < probability || sectionStart || anchor) {
         rightMode = isSixteenth && !sectionStart ? 'single' : (choose(2)<0.52 && voice.right.length>2 ? 'partial' : 'chord');
       } else if (choose(3) < profile.arp * 1.2 * strength * (isSixteenth ? sixteenthScale : 1)) rightMode = 'single';
+      if (sectionStart && voice.right.length===4) rightMode='chord';
       const baseDuration = Math.max(0.01, (isSixteenth ? next-at : swingAt(step+2,useSwing)-at)*profile.length);
       const emit = (hand, pitches, base) => {
         const gesture = {hand, chordIndex:index, notes:[], hold:human(), release:releases[hand]};
@@ -52138,9 +52141,9 @@ function generatePerformance(options) {
       };
       if (left) emit('left',voice.left,68);
       if (rightMode === 'chord') {
-        // A doubled triad can use both octaves over time without forcing four
-        // simultaneous notes into every gesture or overloading one hand.
-        const hand=voice.right.length>3 && chord.tones.length===3 ? (choose(5)<.5?voice.right.slice(0,3):voice.right.slice(-3)) : voice.right;
+        // Alternate full and reduced gestures: a doubled triad may sound as
+        // four right-hand notes, but not every attack needs to be full.
+        const hand=!sectionStart && voice.right.length>3 && chord.tones.length===3 && choose(5)<.55 ? (choose(4)<.5?voice.right.slice(0,3):voice.right.slice(-3)) : voice.right;
         emit('right',hand,74);
       }
       else if (rightMode === 'partial') {
