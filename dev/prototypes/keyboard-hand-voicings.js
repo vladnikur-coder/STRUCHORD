@@ -35,7 +35,7 @@ function movement(a, b) {
   return d[a.length][b.length];
 }
 function center(notes) { return (notes[0] + notes[notes.length-1]) / 2; }
-function candidates({low, high, bassPc, tones}) {
+function candidates({low, high, bassPc, tones, shape, strictShape}) {
   if (!Number.isInteger(low) || !Number.isInteger(high) || low < 0 || high > 127 || low > high ||
       !Number.isInteger(bassPc) || !Array.isArray(tones) || !tones.length) throw new TypeError('Invalid voicing request');
   const pcs = [];
@@ -43,17 +43,29 @@ function candidates({low, high, bassPc, tones}) {
     if (!Number.isInteger(pc)) throw new TypeError('Invalid chord tone');
     const p = mod12(pc); if (!pcs.includes(p)) pcs.push(p);
   }
+  const selected=Array.isArray(shape) ? Array.from(new Set(shape)).sort((a,b)=>a-b) : [];
+  if (strictShape) {
+    if (selected.length < 2 || selected.length > 6 || selected.some(n=>!Number.isInteger(n) || n<low || n>high)) return [];
+    const right=selected.slice(1);
+    if (right[right.length-1]-right[0]>12) return [];
+    return [{left:[selected[0]],right,omitted:[],cost:0}];
+  }
   const basses = [];
   for (let n = low; n <= Math.min(high, 60); n++) if (mod12(n) === mod12(bassPc)) basses.push(n);
   const out=[];
   // Preserve the caller's priority order, preferring all of the first four
   // pitches, but allow fewer when the keyboard or a transition demands it.
   for (let count=Math.min(4,pcs.length); count>=Math.min(2,pcs.length); count--) {
-    const hands=enumerateHand(pcs.slice(0,count),low,high,12);
-    for (const right of hands) for (const bass of basses) {
+    const base=pcs.slice(0,count), choices=[base];
+    // A triad can double its root in another octave, within the same hand span.
+    if (count===3 && pcs.length===3) choices.push(base.concat(base[0]));
+    for (const choice of choices) for (const right of enumerateHand(choice,low,high,12)) for (const bass of basses) {
       if (bass >= right[0]) continue;
       const omitted=pcs.slice(count);
-      const cost=Math.abs(center(right)-Math.min(high,Math.max(low,64)))*0.8 + Math.abs(bass-43)*0.35 + (Math.min(4,pcs.length)-count)*14;
+      const target=selected.length>1 ? center(selected.slice(1)) : Math.min(high,Math.max(low,64));
+      const shapeCost=selected.length>1 ? movement(selected.slice(1),right)*0.35 + Math.abs(selected[0]-bass)*0.15 : 0;
+      const doubleBonus=choice.length>base.length ? 4 : 0;
+      const cost=Math.abs(center(right)-target)*0.8 + Math.abs(bass-43)*0.35 + (Math.min(4,pcs.length)-count)*14 + shapeCost-doubleBonus;
       out.push({left:[bass],right,omitted,cost});
     }
   }
@@ -82,7 +94,7 @@ function planSequence({chords,low,high,bpm}) {
   const layers=[];
   for (let i=0;i<chords.length;i++) {
     const chord=chords[i];
-    const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones});
+    const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones,shape:chord.shape,strictShape:chord.strictShape});
     if (!list.length) return {ok:false,reason:'no-playable-candidate',chordIndex:i};
     const layer=[];
     if (!i) for (const v of list) layer.push({v,total:v.cost,previous:-1});

@@ -119,7 +119,12 @@ function generatePerformance(options) {
         if (gesture.notes.length) gestures.push(gesture);
       };
       if (left) emit('left',voice.left,68);
-      if (rightMode === 'chord') emit('right',voice.right,74);
+      if (rightMode === 'chord') {
+        // A doubled triad can use both octaves over time without forcing four
+        // simultaneous notes into every gesture or overloading one hand.
+        const hand=voice.right.length>3 && chord.tones.length===3 ? (choose(5)<.5?voice.right.slice(0,3):voice.right.slice(-3)) : voice.right;
+        emit('right',hand,74);
+      }
       else if (rightMode === 'partial') {
         const startIndex=Math.floor(choose(4)*(voice.right.length-1));
         emit('right',voice.right.slice(startIndex,startIndex+2),72);

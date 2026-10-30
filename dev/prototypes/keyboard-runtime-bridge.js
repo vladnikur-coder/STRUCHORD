@@ -24,12 +24,17 @@ function prepareSection(o) {
       const v=track.voicings||{}, patterns=track.patterns||{};
       const exact=typeof tracks.exactNotes==='function' && tracks.exactNotes(trackId,cell,chord);
       // User's cell pattern and selected/explicit voicings take precedence.
-      const manual=!!patterns[cell] || !!exact || Number.isInteger(v[cell]) || Number.isInteger(v['v:'+chord]);
+      const manual=!!patterns[cell] || (!o.shapeAware && (!!exact || Number.isInteger(v[cell]) || Number.isInteger(v['v:'+chord])));
       if(manual) {cells.push({key:cell,beats,manual:true});continue;}
       let f;try {f=formula(chord,key);}catch(e){return {ok:false,reason:'unrecognized-chord',cellKey:cell};}
       if(!f)return {ok:false,reason:'unrecognized-chord',cellKey:cell};
       let c;try {c=formulaToChord(f);}catch(e){return {ok:false,reason:'invalid-formula',cellKey:cell};}
-      cells.push({key:cell,beats,chord:c});
+      let shape=null;
+      if(o.shapeAware && typeof o.selectedShape==='function') {
+        shape=o.selectedShape(trackId,cell,chord,key);
+        if(!Array.isArray(shape) || shape.length<2)return {ok:false,reason:'invalid-selected-shape',cellKey:cell};
+      }
+      cells.push({key:cell,beats,chord:c,shape,strictShape:o.shapeAware && o.strictShape===true});
     }
     if ((Number(sq.repeat)||1)>1 && cells.length>squareStart) loops.push([cells[squareStart],cells[cells.length-1]]);
   }
