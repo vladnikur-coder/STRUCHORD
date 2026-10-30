@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.753</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.754</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -49345,11 +49345,10 @@ function showPausedFingering(cell) {
   const sec = sections.find((x) => x.id === secId);
   const sq = sec && sec.squares.find((q) => q.id === sqId);
   const ev = sq && sq.events[ei];
-  const T=window.StruChordTracks, state=T && T.state(), active=state && state.tracks.find(t=>t.id===state.activeTrackId);
-  const own=active && active.instrument==='guitar' && active.id!==state.mainTrackId;
-  const chord = own ? (T.trackChord(active.id,secId+':'+sqId+':'+ei,ev)||'') : ev ? (ev.chord || '').trim() : '';
+  const active=timelineActiveTrack();
+  const chord=timelineChord(sec,sq,ev,ei,active);
   fillTimelinePanel('now', chord, {
-    trackId:own ? active.id : undefined,
+    trackId:active && !active.main && active.instrument==='guitar' ? active.id : undefined,
     secId,
     squareId: sqId,
     eventIndex: ei,
@@ -49376,6 +49375,7 @@ function updatePausedFingeringControls(pos) {
   const sq = sec && sec.squares.find((q) => q.id === pos.sqId);
   const ev = sq && sq.events[pos.ei];
   const T=window.StruChordTracks, state=T && T.state(), active=state && state.tracks.find(t=>t.id===state.activeTrackId);
+  if(active && active.instrument==='keys'){if(bar)bar.remove();return;}
   const own=active && active.instrument==='guitar' && active.id!==state.mainTrackId;
   const ownCell=pos.secId+':'+pos.sqId+':'+pos.ei;
   const chord=own ? (T.trackChord(active.id,ownCell,ev)||'') : ev ? (ev.chord || '').trim() : '';
@@ -62787,7 +62787,18 @@ function applyMakeSectionRange(type, customName) {
   return { ok: true };
 }
 
-function buildTimelineCell(sec, sq, ev, ei, parentTs, dist, secPass, sqPass, harmonyByEvent) {
+function timelineActiveTrack() {
+  const T=window.StruChordTracks;
+  if(!T)return null;
+  const st=T.state(), track=st.tracks.find(t=>t.id===st.activeTrackId);
+  return track ? {id:track.id, instrument:track.instrument, main:track.id===st.mainTrackId} : null;
+}
+function timelineChord(sec,sq,ev,ei,track) {
+  const T=window.StruChordTracks;
+  if(!track || !T)return ev ? String(ev.chord||'').trim() : '';
+  return String(T.trackChord(track.id,T.cellKey(sec,sq,ei),ev)||'').trim();
+}
+function buildTimelineCell(sec, sq, ev, ei, parentTs, dist, secPass, sqPass, harmonyByEvent, displayTrack) {
   const cell = document.createElement('div');
   cell.className = 'tl-cell';
   const width = getTimelineCellWidth(ev, parentTs);
@@ -62808,8 +62819,8 @@ function buildTimelineCell(sec, sq, ev, ei, parentTs, dist, secPass, sqPass, har
   if (width < TIMELINE_NARROW_PX) cell.classList.add('is-narrow');
   if (width < TIMELINE_TINY_PX) cell.classList.add('is-tiny');
 
-  const chord = (ev.chord || '').trim();
-  const harmony = harmonyByEvent?.get(`${sq.id}:${ei}`);
+  const chord = timelineChord(sec,sq,ev,ei,displayTrack);
+  const harmony = (!displayTrack || displayTrack.main) ? harmonyByEvent?.get(`${sq.id}:${ei}`) : null;
 
   const name = document.createElement('div');
   name.className = 'tl-cell-name';
@@ -62871,6 +62882,7 @@ function renderTimeline() {
   timelineHitEls.clear();
   track.innerHTML = '';
   const frag = document.createDocumentFragment();
+  const displayTrack=timelineActiveTrack();
 
   // Повторы РАЗВЁРНУТЫ в линию: секция «×2» кладётся на ленту дважды,
   // квадрат «×4» — четырежды. Так указатель всегда едет вперёд и никогда
@@ -62980,7 +62992,8 @@ function renderTimeline() {
                 { offset, cols: ev.isTab ? ev.span : distribution.spans[ei] },
                 secPass,
                 sqPass,
-                harmonyByEvent
+                harmonyByEvent,
+                displayTrack
               )
             );
             offset += getEventVisualSpanInParentUnits(ev, parentTs);
@@ -63005,7 +63018,7 @@ function renderTimeline() {
   syncSectionRangeDom();
   // Пустая песня — показать подсказку с кнопкой «В редактор».  Точка
   // одна: сюда попадают и из toggleTimelineMode, и из перестроений.
-  updateTimelineEmptyState();
+  updateTimelineEmptyState(displayTrack);
 }
 
 // Сквозная дорожка ритма под лентой.
@@ -63310,7 +63323,10 @@ function fillTimelinePanel(kind, chord, posCtx) {
   const b39CellKey = posCtx
     ? posCtx.secId + ':' + (posCtx.sqId !== undefined ? posCtx.sqId : posCtx.squareId) + ':' + (posCtx.ei !== undefined ? posCtx.ei : posCtx.eventIndex)
     : undefined;
-  const svgHtml = shape ? renderFingeringSVG(shape, undefined, { barreOff, customFingers: fingers, chord: chord, cellKey: b39CellKey }) || '' : '';
+  const displayTrack=timelineActiveTrack();
+  const svgHtml = displayTrack && displayTrack.instrument==='keys' && window.StruChordKeys
+    ? window.StruChordKeys.renderKeysVoicingSVG(text,displayTrack.id,{cellKey:b39CellKey}) || ''
+    : shape ? renderFingeringSVG(shape, undefined, { barreOff, customFingers: fingers, chord: text, cellKey: b39CellKey }) || '' : '';
   if (svgHtml) {
     // Гриф должен лежать ПЕРЕД строкой кнопок: она абсолютный слой в
     // запасе под сеткой, но порядок в разметке определяет, что окажется
@@ -64050,11 +64066,12 @@ function positionTimelinePanels() {
 // аккорды, а не секции: квадраты могут быть только с паузами, а секций
 // — не быть вовсе.
 function timelineHasChords() {
-  return sections.some((sec) =>
-    (sec.squares || []).some((sq) =>
-      sq.type === 'tab' || (sq.events || []).some((ev) => isInlineTabEvent(ev) || (ev.chord || '').trim() !== '')
-    )
-  );
+  // Пустая активная дорожка не делает пустой всю песню: остальные звучат.
+  const T=window.StruChordTracks, st=T && T.state();
+  const tracks=st ? st.tracks : [];
+  return sections.some(sec => (sec.squares || []).some(sq => sq.type==='tab' ||
+    (sq.events || []).some((ev,ei) => isInlineTabEvent(ev) || (ev.chord || '').trim() ||
+      tracks.some(t => timelineChord(sec,sq,ev,ei,{id:t.id})))));
 }
 
 // Пустая песня в режиме ленты: вместо мёртвых панелей — подсказка
@@ -64089,7 +64106,9 @@ function updateTimelinePanels(next) {
   if (!timelineMode || !next) return;
   // Секция могла смениться — подсветка в списке идёт следом за игрой.
   updateTimelineSectionNav();
-  fillTimelinePanel('now', next.event.chord, {
+  const displayTrack=timelineActiveTrack();
+  fillTimelinePanel('now', timelineChord(next.section,next.square,next.event,next.eventIndex,displayTrack), {
+    trackId:displayTrack && !displayTrack.main && displayTrack.instrument==='guitar' ? displayTrack.id : undefined,
     secId: next.section.id,
     squareId: next.square.id,
     eventIndex: next.eventIndex,
@@ -64107,7 +64126,7 @@ function updateTimelinePanels(next) {
   // Паузы (ячейки без аккорда) пропускаем: показывать «Дальше: —»
   // бессмысленно, гитаристу нужен следующий аккорд, который брать.
   let guard = 0;
-  while (after && !(after.event.chord || '').trim() && guard++ < 64) {
+  while (after && !timelineChord(after.section,after.square,after.event,after.eventIndex,displayTrack) && guard++ < 64) {
     after = findNextEvent(
       after.sectionIndex,
       after.squareIndex,
@@ -64118,7 +64137,8 @@ function updateTimelinePanels(next) {
     );
   }
   if (after) {
-    fillTimelinePanel('next', after.event.chord, {
+    fillTimelinePanel('next', timelineChord(after.section,after.square,after.event,after.eventIndex,displayTrack), {
+      trackId:displayTrack && !displayTrack.main && displayTrack.instrument==='guitar' ? displayTrack.id : undefined,
       secId: after.section.id,
       squareId: after.square.id,
       eventIndex: after.eventIndex,
@@ -75231,7 +75251,23 @@ function renderDependentLayers() {
   // должна её обновить. Пересобираем только когда режим активен: иначе
   // это лишняя работа на каждом нажатии клавиши в редакторе.
   if (timelineMode) {
+    // При перестроении сохраняем позицию метки и саму движущуюся ячейку:
+    // выбор дорожки не должен сбрасывать место или показывать старую панель.
+    const keyFor = (cell) => cell && cell.dataset ? timelineKey(cell.dataset.sec,cell.dataset.square,cell.dataset.ei,cell.dataset.secPass,cell.dataset.sqPass) : null;
+    const activeKey=keyFor(timelineActiveCell), motionKey=timelineMotion && keyFor(timelineMotion.cell);
     renderTimeline();
+    const restored=activeKey && timelineCellByKey.get(activeKey);
+    if(restored){
+      timelineActiveCell=restored;restored.classList.add('tl-active');
+      if(!playbackState.isPlaying)showPausedFingering(restored);
+      else {
+        const si=sections.findIndex(s=>s.id===+restored.dataset.sec), sec=sections[si];
+        const sqi=sec && sec.squares.findIndex(s=>s.id===+restored.dataset.square), sq=sec && sec.squares[sqi];
+        const ei=+restored.dataset.ei, ev=sq && getSquarePlaybackEvents(sq,sec.timeSig||globalTimeSig)[ei];
+        if(ev)updateTimelinePanels({section:sec,square:sq,event:ev,sectionIndex:si,squareIndex:sqi,eventIndex:ei});
+      }
+    }
+    if(timelineMotion && motionKey && timelineCellByKey.has(motionKey))timelineMotion.cell=timelineCellByKey.get(motionKey);
     syncTimelineSongBar();
   }
   // B-64: панель строится из той же модели — обновляем вместе с
