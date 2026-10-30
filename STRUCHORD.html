@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.754</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.755</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -34334,6 +34334,19 @@ attachTooltipZoomReposition();
 // (секция/квадрат/ячейка). render() пересоздаёт .chord-wrapper, и
 // ссылка на узел протухла бы после любой правки.
 let pinnedFingering = null;   // { secId, squareId, eventIndex, chord, shape }
+let pinnedPlaybackPosition = null;
+let pinnedPlaybackNext = null;
+
+function pinnedTrackContext(pos, active) {
+  const T=window.StruChordTracks, state=active ? active.state : T && T.state();
+  const track=active ? active.track : state && state.tracks.find(t=>t.id===state.activeTrackId);
+  const sec=pos && sections.find(s=>s.id===pos.secId);
+  const sq=sec && sec.squares.find(q=>q.id===pos.squareId);
+  const ev=sq && sq.events && sq.events[pos.eventIndex];
+  const cell=pos && pos.secId+':'+pos.squareId+':'+pos.eventIndex;
+  const chord=track && ev ? (T.trackChord(track.id,cell,ev)||'').trim() : (!track && ev ? (ev.chord||'').trim() : '');
+  return {T,state,track,sec,ev,cell,chord};
+}
 
 function isFingeringPinned() {
   return !!pinnedFingering;
@@ -34421,6 +34434,10 @@ let lastPinnedShiftWritten = null;
 function swapFingeringContent(el, key, html) {
   if (!el) return;
   if (el.dataset.swapKey === key) {
+    if (el.classList.contains('pin-fade-out')) {
+      if (el.dataset.swapTimer) { clearTimeout(+el.dataset.swapTimer); el.dataset.swapTimer=''; }
+      el.classList.remove('pin-fade-out');
+    }
     el.innerHTML = html;
     return;
   }
@@ -34537,7 +34554,7 @@ function hidePinnedRowAnimated(row, onHidden) {
   }, 360);
 }
 
-function renderPinnedFingering(chordName, shape) {
+function renderPinnedFingering(chordName, shape, position) {
   const host = document.getElementById('pinnedFingering');
   const row = document.getElementById('pinnedRow');
   if (!host || !row) return;
@@ -34561,34 +34578,42 @@ function renderPinnedFingering(chordName, shape) {
     row.__dissolveTimer = 0;
   }
   row.classList.remove('is-dissolving');
-  const name = chordName || pinnedFingering.chord;
-  const sec = sections.find((x) => x.id === pinnedFingering.secId);
-  const key = sec && sec.key ? sec.key : globalKey;
-  let form = shape;
-  const pinnedPosKey = buildFingeringPositionKey(
-    name, key, pinnedFingering.secId, pinnedFingering.squareId, pinnedFingering.eventIndex);
-  const pinT=window.StruChordTracks, pinState=pinT && pinT.state(), pinTrack=pinState && pinState.tracks.find(t=>t.id===pinState.activeTrackId);
-  const pinOwn=pinTrack && pinTrack.instrument==='guitar' && pinTrack.id!==pinState.mainTrackId;
-  const pinCell=pinnedFingering.secId+':'+pinnedFingering.squareId+':'+pinnedFingering.eventIndex;
-  const pinChoice=pinOwn && pinT.guitarShape(pinTrack.id,pinCell,name);
-  if (!form) {
-    form = pinOwn ? (pinChoice ? pinChoice.shape : resolveFingeringShape(name,key,null)) : resolveFingeringShape(name, key, pinnedPosKey);
-  }
-  // B-74: разжатое баррэ этой ячейки.
-  const pinnedEvent = findEventByPosKey(pinnedPosKey);
-  const pinnedBarreOff = pinOwn ? (pinChoice && pinChoice.barreOff) : barreOffForEventShape(pinnedEvent, form);
-  const pinnedFingers = pinOwn ? (pinChoice && pinChoice.fingers) : fingersForEventShape(pinnedEvent, form);
+  const pos=position || (playbackState.isPlaying && pinnedPlaybackPosition) || pinnedFingering;
+  const info=pinnedTrackContext(pos);
+  // При восстановлении и переключении дорожек читаем текущую ячейку,
+  // а не прежнее имя, сохранённое в момент закрепления.
+  const name = chordName === undefined ? info.chord : chordName;
   const content = host.querySelector('.fingering-content');
-  const formKey = Array.isArray(form) ? form.join(',') : String(form);
-  if (!form) {
-    swapFingeringContent(content, 'none:' + name,
+  if (!name) {
+    swapFingeringContent(content, 'empty', '<span class="fingering-chord-name">—</span>');
+    updatePinnedShift();
+    return;
+  }
+  const key = info.sec && info.sec.key ? info.sec.key : globalKey;
+  const posKey = buildFingeringPositionKey(name,key,pos.secId,pos.squareId,pos.eventIndex);
+  const own=info.track && info.track.instrument==='guitar' && info.track.id!==info.state.mainTrackId;
+  const choice=own && info.T.guitarShape(info.track.id,info.cell,name);
+  const keys=info.track && info.track.instrument==='keys';
+  const form=keys ? null : (shape || (own ? (choice ? choice.shape : resolveFingeringShape(name,key,null)) : resolveFingeringShape(name,key,posKey,info.ev)));
+  const barreOff=keys ? null : own ? (choice && choice.barreOff) : barreOffForEventShape(info.ev,form);
+  const fingers=keys ? null : own ? (choice && choice.fingers) : fingersForEventShape(info.ev,form);
+  const svg=keys && window.StruChordKeys
+    ? window.StruChordKeys.renderKeysVoicingSVG(name,info.track.id,{cellKey:info.cell}) || ''
+    : form ? renderFingeringSVG(form,24,{scale:1.08,barreOff,customFingers:fingers,chord:name,cellKey:info.cell}) || '' : '';
+  if (!svg) {
+    swapFingeringContent(content, 'none:'+name,
+      '<span class="fingering-chord-name">'+renderFingeringChordNameHtml(name)+'</span>'+
       '<span style="color:var(--color-text-tertiary);font-size:0.75rem">Нет аппликатуры</span>');
     updatePinnedShift();
     return;
   }
-  swapFingeringContent(content, name + '|' + formKey + (pinnedBarreOff ? '|bo' + pinnedBarreOff.join('.') : ''),
-    `<span class="fingering-chord-name">${renderFingeringChordNameHtml(name)}</span>` +
-    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08, barreOff: pinnedBarreOff, customFingers: pinnedFingers, chord: name }) || ''}</div>`);
+  // В ключе учитываем расположение, дорожку и пальцы: одинаковое имя
+  // в другой ячейке не должно оставлять устаревшую форму.
+  const identity=name+'|'+(info.track ? info.track.id : '')+'|'+info.cell+'|'+
+    (Array.isArray(form) ? form.join(',') : String(form))+'|'+JSON.stringify([barreOff,fingers]);
+  swapFingeringContent(content,identity,
+    `<span class="fingering-chord-name">${renderFingeringChordNameHtml(name)}</span>`+
+    `<div class="fingering-svg-container">${svg}</div>`);
   updatePinnedShift();
 }
 
@@ -34601,7 +34626,7 @@ function renderPinnedFingering(chordName, shape) {
 function renderPinnedNext(pos) {
   const host = document.getElementById('pinnedNext');
   if (!host) return;
-  if (!pos || !pos.chord) {
+  if (!pos) {
     host.style.display = 'none';
     resetFingeringSwap(host.querySelector('.fingering-content'));
     if (pinnedTimerRAF) {
@@ -34613,24 +34638,25 @@ function renderPinnedNext(pos) {
     lastPinnedTimerFrac = null;
     return;
   }
-  const sec = sections.find((x) => x.id === pos.secId);
-  const key = sec && sec.key ? sec.key : globalKey;
-  const posKey = buildFingeringPositionKey(
-    pos.chord, key, pos.secId, pos.squareId, pos.eventIndex);
-  const form = resolveFingeringShape(pos.chord, key, posKey);
-  if (!form) {
-    host.style.display = 'none';
-    return;
-  }
-  const formKey = Array.isArray(form) ? form.join(',') : String(form);
-  // B-74: разжатое баррэ ячейки «следующего» аккорда.
-  const nextEvent = findEventByPosKey(posKey);
-  const nextBarreOff = barreOffForEventShape(nextEvent, form);
-  const nextFingers = fingersForEventShape(nextEvent, form);
-  swapFingeringContent(host.querySelector('.fingering-content'),
-    pos.chord + '|' + formKey + (nextBarreOff ? '|bo' + nextBarreOff.join('.') : ''),
-    `<span class="fingering-chord-name">${renderFingeringChordNameHtml(pos.chord)}</span>` +
-    `<div class="fingering-svg-container">${renderFingeringSVG(form, 24, { scale: 1.08, barreOff: nextBarreOff, customFingers: nextFingers, chord: pos.chord }) || ''}</div>`);
+  const info=pinnedTrackContext(pos), chord=info.chord;
+  if (!chord) { renderPinnedNext(null); return; }
+  const key=info.sec && info.sec.key ? info.sec.key : globalKey;
+  const posKey=buildFingeringPositionKey(chord,key,pos.secId,pos.squareId,pos.eventIndex);
+  const own=info.track && info.track.instrument==='guitar' && info.track.id!==info.state.mainTrackId;
+  const choice=own && info.T.guitarShape(info.track.id,info.cell,chord);
+  const keys=info.track && info.track.instrument==='keys';
+  const form=keys ? null : own ? (choice ? choice.shape : resolveFingeringShape(chord,key,null)) : resolveFingeringShape(chord,key,posKey,info.ev);
+  const barreOff=keys ? null : own ? (choice && choice.barreOff) : barreOffForEventShape(info.ev,form);
+  const fingers=keys ? null : own ? (choice && choice.fingers) : fingersForEventShape(info.ev,form);
+  const svg=keys && window.StruChordKeys
+    ? window.StruChordKeys.renderKeysVoicingSVG(chord,info.track.id,{cellKey:info.cell}) || ''
+    : form ? renderFingeringSVG(form,24,{scale:1.08,barreOff,customFingers:fingers,chord,cellKey:info.cell}) || '' : '';
+  if (!svg) { renderPinnedNext(null); return; }
+  const identity=chord+'|'+(info.track ? info.track.id : '')+'|'+info.cell+'|'+
+    (Array.isArray(form) ? form.join(',') : String(form))+'|'+JSON.stringify([barreOff,fingers]);
+  swapFingeringContent(host.querySelector('.fingering-content'),identity,
+    `<span class="fingering-chord-name">${renderFingeringChordNameHtml(chord)}</span>`+
+    `<div class="fingering-svg-container">${svg}</div>`);
   host.style.display = 'block';
   updatePinnedShift();
   ensurePinnedNextTimer();
@@ -34641,8 +34667,10 @@ function renderPinnedNext(pos) {
 // в песне», и на остановленной песне разворачивать нечего.
 function findNextChordAfter(secId, squareId, eventIndex) {
   const flat = [];
+  const active=pinnedTrackContext(null);
   sections.forEach((sec) => sec.squares.forEach((sq) => sq.events.forEach((ev, i) => {
-    flat.push({ secId: sec.id, squareId: sq.id, eventIndex: i, chord: (ev.chord || '').trim() });
+    const pos={secId:sec.id,squareId:sq.id,eventIndex:i};
+    flat.push({...pos,chord:active.track ? (active.T.trackChord(active.track.id,active.T.cellKey(sec,sq,i),ev)||'').trim() : (ev.chord||'').trim()});
   })));
   const at = flat.findIndex((x) =>
     x.secId === secId && x.squareId === squareId && x.eventIndex === eventIndex);
@@ -34737,6 +34765,7 @@ function pinFingeringFromTooltip(opts = {}) {
 
 function unpinFingering() {
   pinnedFingering = null;
+  pinnedPlaybackPosition = null; pinnedPlaybackNext = null;
   pinnedHoverWrapper = null;
   renderPinnedFingering();
 }
@@ -34745,15 +34774,12 @@ function unpinFingering() {
 // который звучит сейчас. Вызывается из планировщика тем же местом, что
 // и подсветка ячейки.
 function syncPinnedFingeringWithPlayback(chordName, secId, squareId, eventIndex, nextPos) {
-  if (!pinnedFingering || !chordName) return;
-  const sec = sections.find((x) => x.id === secId);
-  const key = sec && sec.key ? sec.key : globalKey;
-  const posKey = buildFingeringPositionKey(chordName, key, secId, squareId, eventIndex);
-  renderPinnedFingering(chordName, resolveFingeringShape(chordName, key, posKey));
-  // Что дальше — при игре считает планировщик: он разворачивает повторы
-  // секций и квадратов, а простой обход разметки на них ошибётся.
-  // nextPos приходит оттуда; если его нет (конец песни) — превью гасим.
-  renderPinnedNext(nextPos || null);
+  if (!pinnedFingering) return;
+  pinnedPlaybackPosition={secId,squareId,eventIndex};
+  pinnedPlaybackNext=nextPos || null;
+  renderPinnedFingering(undefined,undefined,pinnedPlaybackPosition);
+  renderPinnedNext(pinnedPlaybackNext);
+
 }
 
 // B-37 (0.153): в ПОКОЕ закреплённая карточка — «просмотрщик»: наведение
@@ -34775,22 +34801,38 @@ function syncPinnedRowToHover(wrapper) {
   const hoverT=window.StruChordTracks;
   const hoverInfo=hoverT && hoverT.activeGuitarInfo(secId+':'+wrapper.dataset.square+':'+wrapper.dataset.ei,chord);
   const hoverOwn=!!hoverInfo, hoverChoice=hoverInfo && hoverInfo.shape;
-  const form=hoverOwn ? (hoverChoice ? hoverChoice.shape : resolveFingeringShape(chord,key,null)) : resolveFingeringShape(chord, key, posKey);
+  const hoverActive=pinnedTrackContext({secId,squareId:+wrapper.dataset.square,eventIndex:+wrapper.dataset.ei});
+  const form=hoverActive.track && hoverActive.track.instrument==='keys' ? null : hoverOwn ? (hoverChoice ? hoverChoice.shape : resolveFingeringShape(chord,key,null)) : resolveFingeringShape(chord, key, posKey);
   // B-42 (0.156): если этот аккорд с этой формой УЖЕ показан — выходим
   // ДО тяжёлой работы: водить мышью по сетке с закрепом не должно
   // перестраивать SVG и раскладку на каждой ячейке (подлагивания).
   const formKey = Array.isArray(form) ? form.join(',') : String(form);
   const content = document.getElementById('pinnedFingering');
   const host = content && content.querySelector('.fingering-content');
-  if (host && host.dataset.swapKey === chord + '|' + formKey) return;
+  const info=pinnedTrackContext({secId,squareId:+wrapper.dataset.square,eventIndex:+wrapper.dataset.ei});
+  const own=info.track && info.track.instrument==='guitar' && info.track.id!==info.state.mainTrackId;
+  const choice=own && info.T.guitarShape(info.track.id,info.cell,chord);
+  const keys=info.track && info.track.instrument==='keys';
+  const bo=keys ? null : own ? (choice && choice.barreOff) : barreOffForEventShape(info.ev,form);
+  const fingers=keys ? null : own ? (choice && choice.fingers) : fingersForEventShape(info.ev,form);
+  const identity=chord+'|'+(info.track ? info.track.id : '')+'|'+info.cell+'|'+formKey+'|'+JSON.stringify([bo,fingers]);
+  if (host && host.dataset.swapKey === identity && !host.classList.contains('pin-fade-out')) return;
   pinnedHoverWrapper = wrapper;
-  renderPinnedFingering(chord, form);
+  renderPinnedFingering(chord, form, {secId,squareId:+wrapper.dataset.square,eventIndex:+wrapper.dataset.ei});
 }
 
 // Остановились — возвращаем ту форму, которую закрепили.
+songStore.subscribe((command) => {
+  if (!command || command.label!=='b39/track-active' || !pinnedFingering) return;
+  pinnedHoverWrapper=null;
+  renderPinnedFingering();
+  if (playbackState.isPlaying) renderPinnedNext(pinnedPlaybackNext);
+});
+
 function restorePinnedFingering() {
   if (!pinnedFingering) return;
-  renderPinnedFingering();
+  pinnedPlaybackPosition=null; pinnedPlaybackNext=null;
+  renderPinnedFingering(undefined,undefined,pinnedFingering);
   // B-36 (0.152): игра кончилась — превью «Дальше» гаснет вместе с ней:
   // без воспроизведения у закреплённого ряда показывается только гриф.
   renderPinnedNext(null);
@@ -45289,17 +45331,14 @@ function scheduleNextEvent(ctx) {
   // сейчас, справа — следующий. Стоит ЗДЕСЬ, а не выше у показа
   // тултипа: «следующий» считает findNextEvent, и до этой строки он
   // ещё не известен.
-  if (isFingeringPinned() && next.event.chord && next.event.chord.trim()) {
-    const nextPos = previewEvent && previewEvent.event.chord && previewEvent.event.chord.trim()
-      ? {
-          secId: previewEvent.section.id,
-          squareId: previewEvent.square.id,
-          eventIndex: previewEvent.eventIndex,
-          chord: previewEvent.event.chord.trim(),
-        }
-      : null;
-    syncPinnedFingeringWithPlayback(
-      next.event.chord.trim(), next.section.id, next.square.id, next.eventIndex, nextPos);
+  if (isFingeringPinned()) {
+    const nextPos = previewEvent ? {
+      secId: previewEvent.section.id, squareId: previewEvent.square.id,
+      eventIndex: previewEvent.eventIndex, chord: pinnedTrackContext({
+        secId:previewEvent.section.id,squareId:previewEvent.square.id,eventIndex:previewEvent.eventIndex
+      }).chord
+    } : null;
+    syncPinnedFingeringWithPlayback('', next.section.id, next.square.id, next.eventIndex, nextPos);
   }
 
   if (previewEvent && previewEvent.event.chord && previewEvent.event.chord.trim() !== '') {
@@ -60755,7 +60794,7 @@ function toggleFingersVisibility() {
     localStorage.setItem('struchord_show_fingers', show ? '1' : '0');
   } catch (e) {}
   if (typeof renderPinnedFingering === 'function') renderPinnedFingering();
-  if (typeof renderPinnedNext === 'function' && typeof lastPinnedNextPos !== 'undefined') renderPinnedNext(lastPinnedNextPos);
+  if (typeof renderPinnedNext === 'function' && playbackState.isPlaying) renderPinnedNext(pinnedPlaybackNext);
   if (typeof showPausedFingering === 'function' && timelineActiveCell) showPausedFingering(timelineActiveCell);
   if (typeof renderTimeline === 'function' && timelineMode) renderTimeline();
   if (window.StruChordKeys && typeof window.StruChordKeys.render === 'function') window.StruChordKeys.render();
