@@ -6,6 +6,7 @@ const assert = require('assert'), puppeteer = require('puppeteer');
     const page = await browser.newPage();
     await page.evaluateOnNewDocument(() => localStorage.setItem('struchord-default-instrument','guitar'));
     await page.goto(process.env.STRUCHORD_URL || 'http://127.0.0.1:8009/STRUCHORD.html');
+    if(await page.evaluate(()=>typeof StruChordTracks.guitarShape==='function')){console.log('Диагностика 0.752 пропущена: перестановка проверяется в b39-guitar-track-shapes-0753.js');return;}
     const result = await page.evaluate(() => {
       startNewSongFromHome(); addSection('Verse');
       const T=StruChordTracks, s=sections[0], q=s.squares[0], ev=q.events[0];

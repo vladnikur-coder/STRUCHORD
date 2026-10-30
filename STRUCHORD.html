@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.752</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.753</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20212,8 +20212,8 @@ let activeSectionKey = null;
     return {
       id: id, instrument: instrument, name: name,
       volume: 100, mute: false, solo: false,
-      chords: {}, voicings: {}, patterns: {},
-      keyboardSize: null
+      chords: {}, voicings: {}, patterns: {}, guitarShapes: {},
+      keyboardSize: null, ...(instrument === 'guitar' ? {guitarShapesVersion:1} : {})
     };
   }
   function b39DefaultName(inst, n) {
@@ -20318,6 +20318,18 @@ let activeSectionKey = null;
     });
     return out;
   }
+  function cleanGuitarShape(v) {
+    if (!b39IsObj(v) || typeof v.chord !== 'string' || !/^[A-G][#b]?/.test(v.chord) || !Array.isArray(v.shape) || v.shape.length !== 6 || !v.shape.every(function(n){return n==='x' || (Number.isInteger(n) && n>=0 && n<=16);})) return null;
+    var result={chord:v.chord.slice(0,B39_LIMITS.MAX_CHORD),shape:v.shape.slice(),tuning:typeof v.tuning==='string'?v.tuning.slice(0,160):''};
+    if(Array.isArray(v.barreOff)) result.barreOff=v.barreOff.filter(function(n){return Number.isInteger(n)&&n>=1&&n<=24;}).slice(0,6);
+    if(Array.isArray(v.fingers) && v.fingers.length===6 && v.fingers.every(function(n){return n===null || n==='x' || /^[0-4]$/.test(String(n));})) result.fingers=v.fingers.slice();
+    return result;
+  }
+  function guitarShapeFromEvent(ev) {
+    if(!ev || !ev.chord || !ev.fingering)return null;
+    var shape=Array.isArray(ev.fingering)?ev.fingering:typeof ev.fingering==='string'?ev.fingering.split(',').map(function(v){return v.trim()==='x'?'x':Number(v);}):null;
+    return cleanGuitarShape({chord:ev.chord,shape:shape,tuning:ev.fingeringTuning||'',barreOff:ev.barreOff,fingers:ev.fingers});
+  }
   function sanitizeTracks(rawTracks, validKeys, song) {
     // Поля нет вообще -> старый файл: одна гитарная дорожка (миграция).
     // Явный пустой массив -> НОВАЯ песня без дорожек (решение владельца):
@@ -20351,9 +20363,10 @@ let activeSectionKey = null;
           var n = Number(v); return Number.isInteger(n) && n >= 0 && n <= 99 ? n : null;
         }, true),
         patterns: sanitizeMap(raw.patterns, validKeys, patternValue, false, true),
+        guitarShapes: sanitizeMap(raw.guitarShapes, validKeys, cleanGuitarShape, false, false),
         ...(Object.keys(cleanBassRoles(raw.bassRoles, song.sections)).length ? {bassRoles:cleanBassRoles(raw.bassRoles, song.sections)} : {}),
         ...(raw.linkedVoicings===true ? {linkedVoicings:true} : {}),
-        keyboardSize: size
+        keyboardSize: size, ...(inst==='guitar' ? {guitarShapesVersion:raw.guitarShapesVersion===1?1:0} : {})
       });
     });
     return out.length ? out : [b39MakeTrack(1, 'guitar', 'Гитара')];
@@ -20427,7 +20440,7 @@ let activeSectionKey = null;
     var t = state.tracks[0];
     if (t.instrument !== 'guitar' || t.name !== 'Гитара' || t.volume !== 100 ||
         t.mute || t.solo || t.keyboardSize !== null) return false;
-    return !Object.keys(t.chords).length && !Object.keys(t.voicings).length && !Object.keys(t.patterns).length && !Object.keys(t.bassRoles || {}).length && !t.linkedVoicings;
+    return !Object.keys(t.chords).length && !Object.keys(t.voicings).length && !Object.keys(t.patterns).length && !Object.keys(t.guitarShapes || {}).length && !Object.keys(t.bassRoles || {}).length && !t.linkedVoicings;
   }
   function exportForSave() {
     // Пустое состояние пишем ЯВНО: иначе при загрузке оно превратилось бы
@@ -20551,18 +20564,42 @@ let activeSectionKey = null;
     if (size !== null && !B39_KEYBOARD_SIZES.includes(n)) return false;
     return setTrackField(id, 'keyboardSize', size === null ? null : n, 'b39/track-keyboard-size');
   }
+  function defaultGuitarShape(chord,cell,ev,legacy,f) {
+    f=f||findEvent(cell,null); var sec=f && f.sec, key=sec && sec.key || currentKey();
+    if(!f || !chord || typeof HOST.resolveFingeringShape!=='function')return null;
+    var pos=legacy && typeof HOST.buildFingeringPositionKey==='function' ? HOST.buildFingeringPositionKey(chord,key,sec.id,f.sq.id,f.ei):null;
+    var target=legacy && ev && sameChord(ev.chord,chord) ? ev : undefined;
+    var shape=HOST.resolveFingeringShape(chord,key,pos,target);
+    var suffix=typeof tuningKeySuffix==='function'?tuningKeySuffix():'';
+    return shape ? cleanGuitarShape({chord:chord,shape:shape,tuning:suffix,barreOff:target && target.barreOff,fingers:target && target.fingers}) : null;
+  }
+  function materializeLegacyGuitars() {
+    state.tracks.forEach(function(t,i){
+      if(t.instrument!=='guitar' || t.guitarShapesVersion===1)return;
+      if(!i){t.guitarShapesVersion=1;return;}
+      eachCell(null,function(sec,sq,ev,ei,cell){
+        var chord=t.chords[cell];if(!chord)return;
+        var v=t.guitarShapes[cell];
+        if(v && Array.isArray(v.shape))return;
+        var shape=defaultGuitarShape(chord,cell,ev,true,{sec:sec,sq:sq,ei:ei});if(shape)t.guitarShapes[cell]=shape;
+      });
+      t.guitarShapesVersion=1;
+    });
+  }
   function setTrackChord(id, key, chord) {
     var t = findTrack(id);
     if (!t || !/^\d+:\d+:\d+$/.test(String(key))) return false;
     var cleaned = chord === null || chord === '' ? null : normalizeChordValue(String(chord), { globalKey: currentKey() });
     return dispatch('b39/track-chord', function () {
       if (t.voicings[key] && typeof t.voicings[key] === 'object' && !sameChord(t.voicings[key].chord,cleaned)) delete t.voicings[key];
+      if (t.guitarShapes[key] && !sameChord(t.guitarShapes[key].chord,cleaned)) delete t.guitarShapes[key];
       if (isMain(id)) {
         var f = findEvent(key, null);
         if (!f) return false;
         f.ev.chord = cleaned || '';                // главная = существующее поле ячейки
       } else if (cleaned) {
         t.chords[key] = cleaned;                   // явный аккорд дорожки
+        if(t.instrument==='guitar' && !t.guitarShapes[key]){var choice=defaultGuitarShape(cleaned,key,null,false);if(choice)t.guitarShapes[key]=choice;}
       } else {
         delete t.chords[key];                       // пусто -> призрачная подсказка
       }
@@ -20596,6 +20633,21 @@ let activeSectionKey = null;
       var moved=v.notes.map(function(n){return n+st;});
       if(moved.every(function(n){return n>=0 && n<=127;})){v.notes=moved;v.chord=f.ev.chord;}
     });
+  }
+  function guitarShape(id, key, chord) {
+    var t=findTrack(id), v=t && t.guitarShapes[key];
+    if(!t || t.instrument!=='guitar' || !v || !Array.isArray(v.shape) || !sameChord(v.chord,chord)) return null;
+    if((v.tuning||'') !== (typeof tuningKeySuffix==='function'?tuningKeySuffix():''))return null;
+    return b39Clone(v);
+  }
+  function activeGuitarInfo(cell,chord) {
+    var t=findTrack(state.activeTrackId), secondary=!!(t && t.instrument==='guitar' && !isMain(t.id));
+    return secondary ? {id:t.id,shape:guitarShape(t.id,cell,chord)} : null;
+  }
+  function setGuitarShape(id,key,chord,shape,barreOff,fingers) {
+    var t=findTrack(id), val=cleanGuitarShape({chord:chord,shape:shape,tuning:typeof tuningKeySuffix==='function'?tuningKeySuffix():'',barreOff:barreOff,fingers:fingers});
+    if(!t || t.instrument!=='guitar' || !/^\d+:\d+:\d+$/.test(String(key)) || !val || !sameChord(trackChord(id,key),chord))return false;
+    return dispatch('b39/guitar-shape',function(){t.guitarShapes[key]=val;return true;});
   }
   function setVoicing(id, key, index) {
     var t = findTrack(id), n = Number(index);
@@ -20662,11 +20714,15 @@ let activeSectionKey = null;
   function addTrack(instrument, copyFromActive) {
     var inst = B39_INSTRUMENTS.indexOf(instrument) >= 0 ? instrument : 'keys';
     var src = copyFromActive === false ? mainTrack() : (findTrack(state.activeTrackId) || mainTrack());
-    var copied = [];
+    var copied = [], copiedShapes = [];
     if (src) {
       eachCell(null, function (sec, sq, ev, ei, key) {
         var c = trackChord(src.id, key, ev);
         if (c) copied.push([key, c]);
+        if (inst==='guitar' && c) {
+          var shape=src.instrument==='guitar' ? (isMain(src.id)?(guitarShapeFromEvent(ev)||defaultGuitarShape(c,key,ev,true,{sec:sec,sq:sq,ei:ei})):(guitarShape(src.id,key,c)||defaultGuitarShape(c,key,null,false,{sec:sec,sq:sq,ei:ei}))) : defaultGuitarShape(c,key,null,false,{sec:sec,sq:sq,ei:ei});
+          if(shape)copiedShapes.push([key,shape]);
+        }
       });
     }
     var id = state.nextTrackId;
@@ -20675,6 +20731,7 @@ let activeSectionKey = null;
       var count = state.tracks.filter(function (t) { return t.instrument === inst; }).length;
       var t = b39MakeTrack(id, inst, b39DefaultName(inst, count + 1));
       copied.forEach(function (pair) { t.chords[pair[0]] = pair[1]; });
+      copiedShapes.forEach(function(pair){t.guitarShapes[pair[0]]=pair[1];});
       state.tracks.push(t);
       state.activeTrackId = id;
       return true;
@@ -20721,7 +20778,20 @@ let activeSectionKey = null;
       }
       // 2. Новая главная: её явные аккорды становятся аккордами песни.
       var newChords = Object.assign({}, newMain.chords);
-      eachCell(null, function (sec, sq, ev, ei, key) { ev.chord = newChords[key] || ''; });
+      eachCell(null, function (sec, sq, ev, ei, key) {
+        var prior=oldMain && oldMain.instrument==='guitar' ? (guitarShapeFromEvent(ev)||defaultGuitarShape(ev.chord,key,ev,true,{sec:sec,sq:sq,ei:ei})) : null;
+        if(prior)oldMain.guitarShapes[key]=prior;
+        var incoming=newMain.instrument==='guitar' ? cleanGuitarShape(newMain.guitarShapes[key]) : null;
+        ev.chord = newChords[key] || '';
+        delete ev.fingering; delete ev.fingeringTuning; delete ev.barreOff; delete ev.fingers;
+        if(incoming && sameChord(incoming.chord,ev.chord)){
+          ev.fingering=incoming.shape.join(','); if(incoming.tuning)ev.fingeringTuning=incoming.tuning;
+          if(incoming.barreOff && incoming.barreOff.length)ev.barreOff=incoming.barreOff.slice();
+          if(incoming.fingers)ev.fingers=incoming.fingers.slice();
+          delete newMain.guitarShapes[key];
+        }
+        if(typeof HOST.dropPreferredFingeringsAt==='function')HOST.dropPreferredFingeringsAt(sec.id,sq.id,ei);
+      });
       newMain.chords = {};
       return true;
     });
@@ -20780,6 +20850,7 @@ let activeSectionKey = null;
     setMute: setMute, setSolo: setSolo,
     setKeyboardSize: setKeyboardSize, setTrackKeyboardSize: setTrackKeyboardSize,
     setTrackChord: setTrackChord, setVoicing: setVoicing, setPattern: setPattern,
+    guitarShape:guitarShape, activeGuitarInfo:activeGuitarInfo, setGuitarShape:setGuitarShape, materializeLegacyGuitars:materializeLegacyGuitars,
     exactNotes:exactNotes, setExactNotes:setExactNotes, clearExactNotes:clearExactNotes, moveMainExactNotes:moveMainExactNotes,
     patternFor: patternFor, clearPattern: clearPattern, setAutoAccomp: setAutoAccomp,
     bassRole:bassRole, setBassRole:setBassRole, cloneBassRoles:cloneBassRoles, removeBassRoles:removeBassRoles,
@@ -33886,6 +33957,13 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
   // сама — по устаревшему ключу выбор не найдётся.
   const sqForTooltip = sec && (sec.squares || []).find((q) => q.id === squareId);
   const eventForTooltip = sqForTooltip && sqForTooltip.events && sqForTooltip.events[eventIndex];
+  const activeState=window.StruChordTracks && window.StruChordTracks.state();
+  const activeGuitar=activeState && activeState.tracks.find(t=>t.id===activeState.activeTrackId);
+  const ownTooltip=!!(activeGuitar && activeGuitar.instrument==='guitar' && activeGuitar.id!==activeState.mainTrackId);
+  const ownCell=secId+':'+squareId+':'+eventIndex;
+  tooltipEl.dataset.b39OwnGuitar=ownTooltip ? String(activeGuitar.id) : '';
+  const ownChoice=()=>ownTooltip && StruChordTracks.guitarShape(activeGuitar.id,ownCell,chordName);
+  const tooltipShape=()=>{const own=ownChoice();return ownTooltip ? (own ? own.shape : resolveFingeringShape(chordName,key,null)) : resolveFingeringShape(chordName,key,cacheKey,eventForTooltip);};
 
   const result = window.getFingeringVariants(chordName, key);
   const variants = result ? result.shapes : [];
@@ -33909,7 +33987,7 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     const barreOffForShape =
       shownBarreOff !== undefined
         ? shownBarreOff
-        : eventForTooltip &&
+        : ownTooltip ? ((ownChoice() || {}).barreOff || null) : !ownTooltip && eventForTooltip &&
           Array.isArray(eventForTooltip.barreOff) &&
           eventForTooltip.fingering === shape.join(',')
           ? eventForTooltip.barreOff
@@ -33917,7 +33995,7 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     const fingersForShape =
       shownFingers !== undefined
         ? shownFingers
-        : fingersForEventShape(eventForTooltip, shape);
+        : ownTooltip ? ((ownChoice() || {}).fingers || null) : fingersForEventShape(eventForTooltip, shape);
     // B-39 STAGE4: для клавишной дорожки рендеру нужно имя аккорда.
     const b39CellKey = wrapper && wrapper.dataset
       ? wrapper.dataset.sec + ':' + wrapper.dataset.square + ':' + wrapper.dataset.ei : undefined;
@@ -34036,6 +34114,7 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
       const leftBtn = e.target.closest('.tooltip-nav-left');
       const rightBtn = e.target.closest('.tooltip-nav-right');
       const editBtn = e.target.closest('.tooltip-edit-btn');
+      if(activeState && StruChordTracks.state().activeTrackId!==activeState.activeTrackId)return;
 
       if (leftBtn || rightBtn) {
         e.stopPropagation();
@@ -34049,10 +34128,10 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
         // B-75: индекс ищем по КОМПОЗИТНОЙ идентичности (лады+баррэ) —
         // иначе своя разжатая форма и обычная того же хвата неразличимы.
         const currentShape =
-          preferredFingeringByChord.get(cacheKey) ||
-          (resolveFingeringShape(chordName, key, cacheKey, eventForTooltip) || variants[0]).join(',');
+          (!ownTooltip && preferredFingeringByChord.get(cacheKey)) ||
+          (tooltipShape() || variants[0]).join(',');
         const currentBO =
-          eventForTooltip && eventForTooltip.fingering === currentShape
+          ownTooltip ? ((ownChoice() || {}).barreOff || null) : eventForTooltip && eventForTooltip.fingering === currentShape
             ? eventForTooltip.barreOff
             : null;
         const wantId = fingeringIdentity(currentShape, currentBO);
@@ -34068,7 +34147,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
         const newFingers = (fingersList && fingersList[idx]) || null;
         // Выбор варианта = лады + баррэ + пальцы. Пишем на событие, чтобы
         // форма пережила переиндексацию и сохранение.
-        setPreferredFingering(cacheKey, newShape, eventForTooltip || undefined, newBO || [], newFingers);
+        if(ownTooltip) StruChordTracks.setGuitarShape(activeGuitar.id,ownCell,chordName,variants[idx],newBO || [],newFingers);
+        else setPreferredFingering(cacheKey, newShape, eventForTooltip || undefined, newBO || [], newFingers);
         tooltipEl.dataset.currentShape = newShape;
         renderContent(variants[idx], newBO, newFingers);
         if (!isPreview) {
@@ -34087,8 +34167,8 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
         // Тот же источник, что и у стрелок: карандаш обязан открыть
         // именно ту форму, которая нарисована на грифе.
         const currentShape =
-          preferredFingeringByChord.get(cacheKey) ||
-          (resolveFingeringShape(chordName, key, cacheKey, eventForTooltip) || variants[0]).join(',');
+          (!ownTooltip && preferredFingeringByChord.get(cacheKey)) ||
+          (tooltipShape() || variants[0]).join(',');
         const idx = variants.findIndex((v) => v.join(',') === currentShape);
         openFingeringEditor(chordName, idx >= 0 ? idx : 0, wrapper);
       }
@@ -34101,7 +34181,7 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     // cacheKey содержит тональность, а она меняется сама (автоключ), и
     // по устаревшему ключу выбор не находился: тултип показывал
     // variants[0], а при закрытии записывал его поверх правильной формы.
-    const shape = resolveFingeringShape(chordName, key, cacheKey, eventForTooltip) || variants[0];
+    const shape = tooltipShape() || variants[0];
     if (shape) {
       renderContent(shape);
       tooltipEl.dataset.cacheKey = cacheKey;
@@ -34132,7 +34212,7 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
   tooltipEl.classList.remove('visible');
   tooltipEl.style.opacity = '0';
 
-  const shape = resolveFingeringShape(chordName, key, cacheKey, eventForTooltip) || variants[0];
+  const shape = tooltipShape() || variants[0];
 
   if (shape) {
     renderContent(shape);
@@ -34487,13 +34567,17 @@ function renderPinnedFingering(chordName, shape) {
   let form = shape;
   const pinnedPosKey = buildFingeringPositionKey(
     name, key, pinnedFingering.secId, pinnedFingering.squareId, pinnedFingering.eventIndex);
+  const pinT=window.StruChordTracks, pinState=pinT && pinT.state(), pinTrack=pinState && pinState.tracks.find(t=>t.id===pinState.activeTrackId);
+  const pinOwn=pinTrack && pinTrack.instrument==='guitar' && pinTrack.id!==pinState.mainTrackId;
+  const pinCell=pinnedFingering.secId+':'+pinnedFingering.squareId+':'+pinnedFingering.eventIndex;
+  const pinChoice=pinOwn && pinT.guitarShape(pinTrack.id,pinCell,name);
   if (!form) {
-    form = resolveFingeringShape(name, key, pinnedPosKey);
+    form = pinOwn ? (pinChoice ? pinChoice.shape : resolveFingeringShape(name,key,null)) : resolveFingeringShape(name, key, pinnedPosKey);
   }
   // B-74: разжатое баррэ этой ячейки.
   const pinnedEvent = findEventByPosKey(pinnedPosKey);
-  const pinnedBarreOff = barreOffForEventShape(pinnedEvent, form);
-  const pinnedFingers = fingersForEventShape(pinnedEvent, form);
+  const pinnedBarreOff = pinOwn ? (pinChoice && pinChoice.barreOff) : barreOffForEventShape(pinnedEvent, form);
+  const pinnedFingers = pinOwn ? (pinChoice && pinChoice.fingers) : fingersForEventShape(pinnedEvent, form);
   const content = host.querySelector('.fingering-content');
   const formKey = Array.isArray(form) ? form.join(',') : String(form);
   if (!form) {
@@ -34688,7 +34772,10 @@ function syncPinnedRowToHover(wrapper) {
   const sec = sections.find((x) => x.id === secId);
   const key = sec && sec.key ? sec.key : globalKey;
   const posKey = buildFingeringPositionKey(chord, key, secId, +wrapper.dataset.square, +wrapper.dataset.ei);
-  const form = resolveFingeringShape(chord, key, posKey);
+  const hoverT=window.StruChordTracks;
+  const hoverInfo=hoverT && hoverT.activeGuitarInfo(secId+':'+wrapper.dataset.square+':'+wrapper.dataset.ei,chord);
+  const hoverOwn=!!hoverInfo, hoverChoice=hoverInfo && hoverInfo.shape;
+  const form=hoverOwn ? (hoverChoice ? hoverChoice.shape : resolveFingeringShape(chord,key,null)) : resolveFingeringShape(chord, key, posKey);
   // B-42 (0.156): если этот аккорд с этой формой УЖЕ показан — выходим
   // ДО тяжёлой работы: водить мышью по сетке с закрепом не должно
   // перестраивать SVG и раскладку на каждой ячейке (подлагивания).
@@ -35188,7 +35275,7 @@ function attachFingeringEvents() {
         if (currentTooltipWrapper && currentTooltipWrapper.isConnected) {
           const oldCacheKey = tooltip.dataset.cacheKey;
           const oldCurrentShape = tooltip.dataset.currentShape;
-          if (oldCacheKey && oldCurrentShape) {
+          if (oldCacheKey && oldCurrentShape && !tooltip.dataset.b39OwnGuitar) {
             // 0.697: это НЕ правка песни — хват запоминается сам, от
             // наведения. Помечаем время, чтобы планировщик истории не
             // сделал из такой записи отдельный шаг отмены.
@@ -36368,6 +36455,10 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
   // При активных клавишах он не должен менять другую дорожку.
   if (window.StruChordAccomp && window.StruChordAccomp.activeIsKeys()) return;
   const createMode = !!opts.createMode;
+  const gt=window.StruChordTracks, gtState=gt && gt.state();
+  const gtTrack=gtState && gtState.tracks.find(t=>t.id===gtState.activeTrackId);
+  const ownGuitar=!!(wrapper && gtTrack && gtTrack.instrument==='guitar' && gtTrack.id!==gtState.mainTrackId);
+  const ownCell=ownGuitar ? wrapper.dataset.sec+':'+wrapper.dataset.square+':'+wrapper.dataset.ei : null;
   let key = activeSectionKey || globalKey;
   if (wrapper) {
     const wSecId = +wrapper.dataset.sec;
@@ -36402,7 +36493,7 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     const snapSec = sections.find((x) => x.id === +wrapper.dataset.sec);
     const snapSq = snapSec && (snapSec.squares || []).find((x) => x.id === +wrapper.dataset.square);
     const snapEv = snapSq && snapSq.events && snapSq.events[+wrapper.dataset.ei];
-    if (snapEv) {
+    if (snapEv && !ownGuitar) {
       entrySnapshot = {
         ev: snapEv,
         chord: snapEv.chord,
@@ -36435,6 +36526,10 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
       if (parsed && parsed.length === 6 && parsed.every((v) => v === 'x' || Number.isFinite(v))) {
         currentShape = [...parsed];
       }
+    }
+    if(ownGuitar) {
+      const own=gt.guitarShape(gtTrack.id,ownCell,chordName);
+      if(own){currentShape=own.shape.slice();initialBarreOff=own.barreOff||null;initialFingers=own.fingers||null;}
     }
     if (!currentShape) {
       if (variants && variants[variantIndex]) {
@@ -36606,6 +36701,12 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     const sq = sec && sec.squares.find((q) => q.id === sqid);
     const fullChord = expandChordName(lastDetectedChordName);
     const displayChord = normalizeChordCase(fullChord);
+    if(ownGuitar){
+      activeChordName=displayChord; activeCacheKey=buildFingeringChordKey(displayChord,key);
+      const heading=document.getElementById('fingering-editor-heading-chord');if(heading)heading.textContent=displayChord;
+      const all=document.getElementById('save-fingering-all');if(all)all.textContent=`Сохранить для всех ${displayChord}`;
+      handleShapeChange(currentShape);return;
+    }
     // Раньше здесь имя просто переписывалось — БЕЗ сброса
     // ev.fingering. Единственный такой путь среди всех: именно через
     // него форма D5 осталась лежать на ячейке, переименованной в
@@ -36697,7 +36798,7 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
       // исчезла, даже если пользователь продолжает двигать пальцы.
       const detectedDisplay = normalizeChordCase(expandChordName(detectedName));
       const currentInput = wrapper.querySelector('.chord-input');
-      const currentChord = currentInput ? currentInput.value.trim() : chordName;
+      const currentChord = ownGuitar ? activeChordName : (currentInput ? currentInput.value.trim() : chordName);
       needsRename = detectedDisplay !== currentChord;
     }
     applyBtn.style.display = needsRename ? 'inline-block' : 'none';
@@ -36858,6 +36959,15 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
   // (лады + баррэ + пальцы) во ВСЕ вхождения аккорда в песне (перекрывает и
   // вручную закреплённые — на то и «для всех»).
   function commitEditSave(applyToAll) {
+    if(ownGuitar){
+      const name=activeChordName, bo=fretboardObj.getBarreOff(), fingers=fretboardObj.getFingers();
+      songStore.dispatch('b39/guitar-edit',()=>{
+        if(name!==gt.trackChord(gtTrack.id,ownCell))gt.setTrackChord(gtTrack.id,ownCell,name);
+        gt.setGuitarShape(gtTrack.id,ownCell,name,currentShape,bo,fingers);
+        if(applyToAll)gt.eachCell((sec,sq,ev,ei,cell)=>{if(cell!==ownCell && gt.trackChord(gtTrack.id,cell,ev)===name)gt.setGuitarShape(gtTrack.id,cell,name,currentShape,bo,fingers);});
+      },{history:'atomic'});
+      closeFingeringEditor();requestRender();return;
+    }
     // Если ячейку переименовали кнопкой "Переименовать" в этом сеансе
     // редактирования, форма — это НОВАЯ аппликатура для НОВОГО имени
     // аккорда: сохраняем её как отдельный пользовательский вариант под
@@ -36952,6 +37062,13 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     }
     const fullChord = expandChordName(chosenName.trim());
     const displayChord = normalizeChordCase(fullChord);
+    if(ownGuitar){
+      songStore.dispatch('b39/guitar-create',()=>{
+        gt.setTrackChord(gtTrack.id,ownCell,displayChord);
+        gt.setGuitarShape(gtTrack.id,ownCell,displayChord,currentShape,fretboardObj.getBarreOff(),fretboardObj.getFingers());
+      },{history:'atomic'});
+      closeFingeringEditor();closeChordWheel();requestRender();return;
+    }
 
     const sid = +targetInput.dataset.sec,
       sqid = +targetInput.dataset.square,
@@ -37127,7 +37244,10 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
     saveAllBtn.onclick = () => {
       const targetCacheKey = activeCacheKey || cacheKey;
       let pinnedCount = 0;
-      if (wrapper && targetCacheKey) {
+      if(ownGuitar){
+        gt.eachCell((sec,sq,ev,ei,cell)=>{if(cell!==ownCell && gt.trackChord(gtTrack.id,cell,ev)===activeChordName && gt.guitarShape(gtTrack.id,cell,activeChordName))pinnedCount++;});
+      }
+      if (!ownGuitar && wrapper && targetCacheKey) {
         const sepIdx = targetCacheKey.lastIndexOf('|');
         const cChord = targetCacheKey.slice(0, sepIdx);
         const cKey = targetCacheKey.slice(sepIdx + 1).split('@')[0];
@@ -45134,9 +45254,10 @@ function scheduleNextEvent(ctx) {
       const chord = T.trackChord(track.id, cell, next.event), gain = b39TrackGain(state, track);
       if (!chord || gain <= 0) return;
       b39WithGuitarGain(gain, () => {
-        if (pattern) schedulePatternForEvent(chord, evStart, dur, pos, pattern, bpm, ts,
+        const trackPos={...pos,trackId:track.id};
+        if (pattern) schedulePatternForEvent(chord, evStart, dur, trackPos, pattern, bpm, ts,
           next.square, next.eventIndex, next.event.span || 1, !!own, next.section);
-        else playChordScheduled(chord, evStart, dur, pos);
+        else playChordScheduled(chord, evStart, dur, trackPos);
       });
     });
   }
@@ -48601,7 +48722,10 @@ function playChord(c, wrapper, pendingPreview) {
       key = sec && sec.key ? sec.key : globalKey;
       if (!Number.isNaN(secId) && !Number.isNaN(squareId) && !Number.isNaN(eventIndex)) {
         const posKey = buildFingeringPositionKey(c, key, secId, squareId, eventIndex);
-        shape = resolveFingeringShape(c, key, posKey);
+        if(active && active.instrument==='guitar' && active.id!==state.mainTrackId){
+          const own=T.guitarShape(active.id,secId+':'+squareId+':'+eventIndex,c);
+          shape=own ? own.shape : resolveFingeringShape(c,key,null);
+        } else shape = resolveFingeringShape(c, key, posKey);
       }
     }
     if (active && active.instrument === 'keys') {
@@ -48625,9 +48749,13 @@ function resolveShapeForScheduledChord(c, posCtx) {
   let fingers = null;
   if (posCtx) {
     const posKey = buildFingeringPositionKey(c, key, posCtx.secId, posCtx.squareId, posCtx.eventIndex);
-    shape = resolveFingeringShape(c, key, posKey);
+    const T=window.StruChordTracks, state=T && T.state();
+    const secondary=state && posCtx.trackId!=null && posCtx.trackId!==state.mainTrackId;
+    const own=secondary && T.guitarShape(posCtx.trackId,posCtx.secId+':'+posCtx.squareId+':'+posCtx.eventIndex,c);
+    shape=secondary ? (own ? own.shape : resolveFingeringShape(c,key,null)) : resolveFingeringShape(c, key, posKey);
+    if(own){barreOff=own.barreOff||null;fingers=own.fingers||null;}
     // B-74 / B-41: разжатое баррэ и пальцы ячейки — для рисунка на панели ленты.
-    if (shape) {
+    if (shape && !secondary) {
       const ev = findEventByPosKey(posKey);
       barreOff = barreOffForEventShape(ev, shape);
       fingers = fingersForEventShape(ev, shape);
@@ -49217,8 +49345,11 @@ function showPausedFingering(cell) {
   const sec = sections.find((x) => x.id === secId);
   const sq = sec && sec.squares.find((q) => q.id === sqId);
   const ev = sq && sq.events[ei];
-  const chord = ev ? (ev.chord || '').trim() : '';
+  const T=window.StruChordTracks, state=T && T.state(), active=state && state.tracks.find(t=>t.id===state.activeTrackId);
+  const own=active && active.instrument==='guitar' && active.id!==state.mainTrackId;
+  const chord = own ? (T.trackChord(active.id,secId+':'+sqId+':'+ei,ev)||'') : ev ? (ev.chord || '').trim() : '';
   fillTimelinePanel('now', chord, {
+    trackId:own ? active.id : undefined,
     secId,
     squareId: sqId,
     eventIndex: ei,
@@ -49244,7 +49375,10 @@ function updatePausedFingeringControls(pos) {
   const sec = sections.find((x) => x.id === pos.secId);
   const sq = sec && sec.squares.find((q) => q.id === pos.sqId);
   const ev = sq && sq.events[pos.ei];
-  const chord = ev ? (ev.chord || '').trim() : '';
+  const T=window.StruChordTracks, state=T && T.state(), active=state && state.tracks.find(t=>t.id===state.activeTrackId);
+  const own=active && active.instrument==='guitar' && active.id!==state.mainTrackId;
+  const ownCell=pos.secId+':'+pos.sqId+':'+pos.ei;
+  const chord=own ? (T.trackChord(active.id,ownCell,ev)||'') : ev ? (ev.chord || '').trim() : '';
   if (!chord) {
     if (bar) bar.remove();
     return;
@@ -49270,10 +49404,10 @@ function updatePausedFingeringControls(pos) {
   // показана, а не от variants[0]: умолчание — последняя своя или
   // перенесённая семейная форма (см. resolveFingeringShape).
   const current =
-    preferredFingeringByChord.get(posKey) ||
-    ((resolveFingeringShape(chord, key, posKey, ev) || [])).join(',');
+    (!own && preferredFingeringByChord.get(posKey)) ||
+    ((own ? ((T.guitarShape(active.id,ownCell,chord)||{}).shape || resolveFingeringShape(chord,key,null)) : resolveFingeringShape(chord,key,posKey,ev)) || []).join(',');
   // B-75: индекс по КОМПОЗИТНОЙ идентичности (лады+баррэ ячейки).
-  const currentBO = ev && ev.fingering === current ? ev.barreOff : null;
+  const currentBO = own ? ((T.guitarShape(active.id,ownCell,chord)||{}).barreOff||null) : ev && ev.fingering === current ? ev.barreOff : null;
   const wantId = fingeringIdentity(current, currentBO);
   let idx = current
     ? variants.findIndex((v, i) => fingeringIdentity(v, barreOffs[i]) === wantId)
@@ -49355,7 +49489,8 @@ function updatePausedFingeringControls(pos) {
         // за именем аккорда: тот же Am в другом такте берут иначе.
         // B-75 / B-41: выбор = лады + баррэ + пальцы варианта.
         const nextFingers = (result.fingers && result.fingers[next]) || null;
-        setPreferredFingering(posKey, variants[next].join(','), ev || undefined, barreOffs[next] || [], nextFingers);
+        if(own) T.setGuitarShape(active.id,ownCell,chord,variants[next],barreOffs[next]||[],nextFingers);
+        else setPreferredFingering(posKey, variants[next].join(','), ev || undefined, barreOffs[next] || [], nextFingers);
         showPausedFingering(timelineActiveCell);
       };
       return btn;
@@ -81642,6 +81777,8 @@ toggleTimeAndBeats();
         preferredFingeringByChord.set(stamped, shape);
       }
     }
+
+    if(window.StruChordTracks)window.StruChordTracks.materializeLegacyGuitars();
 
     // Пул рулонов (волна-4): сейв нового формата несёт pool/refs —
     // принимаем его; файл без пула поднимаем мигратором с самопроверкой.
