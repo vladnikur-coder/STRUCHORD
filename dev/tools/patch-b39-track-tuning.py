@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""WIP ONLY: apply to a disposable copy of 0.757; not ready for release."""
+"""Apply to a disposable copy of 0.757; apply the resulting diff with patch."""
 from pathlib import Path
 p=Path('STRUCHORD.html'); s=p.read_text()
 def rep(a,b,n=1):
@@ -161,8 +161,83 @@ rep("return dispatch('b39/guitar-shape',function(){t.guitarShapes[key]=val;retur
 rep("if(prior)oldMain.guitarShapes[key]=prior;", "if(prior){oldMain.guitarShapes[key]=prior;rememberShape(oldMain,key,prior);}")
 rep("var incoming=newMain.instrument==='guitar' ? cleanGuitarShape(newMain.guitarShapes[key]) : null;", "var incoming=newMain.instrument==='guitar' ? guitarShape(newMain.id,key,newChords[key]) : null;")
 rep("    return dispatch('b39/track-chord', function () {\n      if (t.voicings[key]", "    return dispatch('b39/track-chord', function () {\n      if (!sameChord(trackChord(id,key),cleaned) && t.guitarShapeHistory) delete t.guitarShapeHistory[key];\n      if (t.voicings[key]")
+# Maintain track cell data by event identity when structural commands shift indexes.
+rep("  // ---------- Мутации (все через Store) ----------", """  var CELL_MAP_FIELDS=['chords','voicings','patterns','guitarShapes','guitarShapeHistory'];
+  function snapshotCellIdentities() {
+    var map=new Map();eachCell(null,function(sec,sq,ev,ei,key){if(ev && typeof ev==='object')map.set(ev,key);});return map;
+  }
+  function reconcileCellIdentities(before,aliases) {
+    if(!(before instanceof Map))return;
+    var moved=new Map();eachCell(null,function(sec,sq,ev,ei,key){var source=aliases && aliases.get(ev) || ev;if(before.has(source)){var old=before.get(source),dest=moved.get(old)||[];dest.push(key);moved.set(old,dest);}});
+    state.tracks.forEach(function(t){CELL_MAP_FIELDS.forEach(function(field){
+      var original=t[field];if(!b39IsObj(original))return;var next={};
+      Object.keys(original).forEach(function(key){
+        if(!/^\\d+:\\d+:\\d+$/.test(key)){next[key]=original[key];return;}
+        if(moved.has(key))moved.get(key).forEach(function(dest){next[dest]=b39Clone(original[key]);});
+      });t[field]=next;
+    });});
+  }
+  function cloneCellMaps(srcSec,srcSq,dstSec,dstSq) {
+    if(!srcSq || !dstSq)return;
+    state.tracks.forEach(function(t){CELL_MAP_FIELDS.forEach(function(field){
+      var data=t[field];if(!b39IsObj(data))return;
+      (srcSq.events||[]).forEach(function(ev,i){var src=String(srcSec)+':'+String(srcSq.id)+':'+i,dst=String(dstSec)+':'+String(dstSq.id)+':'+i;
+        if(Object.prototype.hasOwnProperty.call(data,src))data[dst]=b39Clone(data[src]);
+      });
+    });});
+  }
+  // ---------- Мутации (все через Store) ----------""")
+rep("    cellKey: cellKey, eachCell: function (cb) { eachCell(null, cb); },", "    cellKey: cellKey, eachCell: function (cb) { eachCell(null, cb); }, snapshotCellIdentities:snapshotCellIdentities, reconcileCellIdentities:reconcileCellIdentities, cloneCellMaps:cloneCellMaps,")
+rep("""    const atomicHistory = outermost && opts && opts.history === 'atomic';
+    if (atomicHistory && window.captureHistorySnapshot) window.captureHistorySnapshot();""", """    const atomicHistory = outermost && opts && opts.history === 'atomic';
+    const trackStructural = outermost && /^(cell\/(add|remove)|square\/(tab-move|remove)|section\/(split|remove))$/.test(String(label)) && window.StruChordTracks;
+    const trackCellsBefore = trackStructural ? trackStructural.snapshotCellIdentities() : null;
+    if (atomicHistory && window.captureHistorySnapshot) window.captureHistorySnapshot();""")
+rep("""    // Объект команды передаётся каждому подписчику: рендеру нужно""", """    if (trackStructural) trackStructural.reconcileCellIdentities(trackCellsBefore);
+    // Объект команды передаётся каждому подписчику: рендеру нужно""")
+rep("  if (window.StruChordTracks) window.StruChordTracks.cloneBassRoles(orig.id, cl.id);", "  if (window.StruChordTracks) {window.StruChordTracks.cloneBassRoles(orig.id, cl.id);orig.squares.forEach((sq,i)=>window.StruChordTracks.cloneCellMaps(orig.id,sq,cl.id,cl.squares[i]));}")
+rep("    s.squares.push(ns);\n  }, { quiet: true });", "    s.squares.push(ns);\n    if(window.StruChordTracks)window.StruChordTracks.cloneCellMaps(s.id,ls,s.id,ns);\n  }, { quiet: true });")
+rep("  let events = sq.events;\n  let currentSum", "  const trackCellsBeforeResize=window.StruChordTracks && window.StruChordTracks.snapshotCellIdentities();\n  let events = sq.events;\n  let currentSum")
+rep("  events.forEach((e) => {\n    if (e.span < 1) e.span = 1;\n  });", "  events.forEach((e) => {\n    if (e.span < 1) e.span = 1;\n  });\n  if(window.StruChordTracks)window.StruChordTracks.reconcileCellIdentities(trackCellsBeforeResize);")
+rep("function makeSectionRangeSquares(sec, interval, selectedParentTs) {", "function makeSectionRangeSquares(sec, interval, selectedParentTs, trackAliases) {")
+rep("        const copy = clonePlainData(ev);\n        copy.span = piece.span;", "        const copy = clonePlainData(ev);\n        if(trackAliases)trackAliases.set(copy,ev);\n        copy.span = piece.span;")
+rep("  songStore.dispatch('section/make-range', () => {\n    // Пул", "  songStore.dispatch('section/make-range', () => {\n    const trackCellsBeforeRange=window.StruChordTracks && window.StruChordTracks.snapshotCellIdentities();\n    const trackAliases=new WeakMap();\n    // Пул")
+rep("const pieces = makeSectionRangeSquares(sourceSection, interval, plan.selectedParentTs);", "const pieces = makeSectionRangeSquares(sourceSection, interval, plan.selectedParentTs, trackAliases);")
+rep("    sections = outputSections;\n    songParts.forEach((part) => {", "    sections = outputSections;\n    if(window.StruChordTracks)window.StruChordTracks.reconcileCellIdentities(trackCellsBeforeRange,trackAliases);\n    songParts.forEach((part) => {")
+# Preserve section-level keyboard patterns and bass roles when sections are cloned or split.
+rep("  function cloneCellMaps(srcSec,srcSq,dstSec,dstSq) {", """  function cloneSectionPatterns(from,to) {
+    state.tracks.forEach(function(t){var src='s:'+from,dst='s:'+to;if(t.patterns && Object.prototype.hasOwnProperty.call(t.patterns,src))t.patterns[dst]=b39Clone(t.patterns[src]);});
+  }
+  function sectionMetadataCompatible(ids) {
+    return state.tracks.every(function(t){
+      var first=ids[0],p=JSON.stringify((t.patterns||{})['s:'+first]||null),b=(t.bassRoles||{})[first]||null;
+      return ids.every(function(id){return JSON.stringify((t.patterns||{})['s:'+id]||null)===p && ((t.bassRoles||{})[id]||null)===b;});
+    }) && (!state.autoAccomp || ids.every(function(id){return !!state.autoAccomp.managed[id]===!!state.autoAccomp.managed[ids[0]];}));
+  }
+  function remapSectionMetadata(pieces) {
+    var sources=new Set(pieces.map(function(x){return String(x.sourceId);}));
+    state.tracks.forEach(function(t){
+      var oldP=Object.assign({},t.patterns),oldB=Object.assign({},t.bassRoles||{});
+      sources.forEach(function(id){delete t.patterns['s:'+id];if(t.bassRoles)delete t.bassRoles[id];});
+      pieces.forEach(function(p){var a=String(p.sourceId),b=String(p.destId);if(oldP['s:'+a])t.patterns['s:'+b]=b39Clone(oldP['s:'+a]);
+        if(oldB[a]){t.bassRoles=t.bassRoles||{};t.bassRoles[b]=oldB[a];}});
+    });
+    if(state.autoAccomp){var old=Object.assign({},state.autoAccomp.managed);sources.forEach(function(id){delete state.autoAccomp.managed[id];});
+      pieces.forEach(function(p){if(old[String(p.sourceId)])state.autoAccomp.managed[String(p.destId)]=true;});}
+  }
+  function cloneCellMaps(srcSec,srcSq,dstSec,dstSq) {""")
+rep("snapshotCellIdentities:snapshotCellIdentities, reconcileCellIdentities:reconcileCellIdentities, cloneCellMaps:cloneCellMaps,", "snapshotCellIdentities:snapshotCellIdentities, reconcileCellIdentities:reconcileCellIdentities, cloneCellMaps:cloneCellMaps, cloneSectionPatterns:cloneSectionPatterns, sectionMetadataCompatible:sectionMetadataCompatible, remapSectionMetadata:remapSectionMetadata,")
+rep("  if (window.StruChordAuto) window.StruChordAuto.cloneSection(orig, cl);", "  if (window.StruChordTracks) window.StruChordTracks.cloneSectionPatterns(orig.id,cl.id);\n  if (window.StruChordAuto) window.StruChordAuto.cloneSection(orig, cl);")
+rep("  const selectedParentTs = affected[0].parentTs;", "  if(affected.length>1 && window.StruChordTracks && !window.StruChordTracks.sectionMetadataCompatible(affected.map(x=>String(x.sec.id))))return {error:'В секциях различаются настройки дорожек. Чтобы не потерять рисунок или бас, сначала согласуйте их.'};\n  const selectedParentTs = affected[0].parentTs;")
+rep("    if(window.StruChordTracks)window.StruChordTracks.reconcileCellIdentities(trackCellsBeforeRange,trackAliases);", "    if(window.StruChordTracks){window.StruChordTracks.reconcileCellIdentities(trackCellsBeforeRange,trackAliases);window.StruChordTracks.remapSectionMetadata(pieceMaps);}")
+rep("  function cloneSectionPatterns(from,to) {", """  function purgeSectionPatterns(id) {state.tracks.forEach(function(t){if(t.patterns)delete t.patterns['s:'+id];});}
+  function cloneSectionManaged(from,to) {if(state.autoAccomp && state.autoAccomp.managed[String(from)])state.autoAccomp.managed[String(to)]=true;}
+  function cloneSectionPatterns(from,to) {""")
+rep("cloneSectionPatterns:cloneSectionPatterns, sectionMetadataCompatible", "cloneSectionPatterns:cloneSectionPatterns, purgeSectionPatterns:purgeSectionPatterns, cloneSectionManaged:cloneSectionManaged, sectionMetadataCompatible")
+rep("    if (window.StruChordTracks) window.StruChordTracks.removeBassRoles(id);", "    if (window.StruChordTracks) {window.StruChordTracks.removeBassRoles(id);window.StruChordTracks.purgeSectionPatterns(id);}")
+rep("    sections.splice(sections.indexOf(sec) + 1, 0, created);\n    songParts.forEach((part) => {", "    sections.splice(sections.indexOf(sec) + 1, 0, created);\n    if(window.StruChordTracks){window.StruChordTracks.cloneSectionPatterns(sec.id,created.id);window.StruChordTracks.cloneBassRoles(sec.id,created.id);window.StruChordTracks.cloneSectionManaged(sec.id,created.id);}\n    songParts.forEach((part) => {")
 # Main and additional guitar scheduling executes synchronously under its own context.
-rep('if (mainGain > 0) b39WithGuitarGain(mainGain, () => {', 'if (mainGain > 0) b39WithTrackTuning(mainTrack.id, () => b39WithGuitarGain(mainGain, () => {')
+rep('if (mainGain > 0) b39WithGuitarGain(mainGain, () => {', 'if (mainGain > 0) b39WithTrackTuning(mainTrack ? mainTrack.id : null, () => b39WithGuitarGain(mainGain, () => {')
 rep('''    });
     globalKey = oldKey;
   } else {''', '''    }));

@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.757</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.758</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20212,8 +20212,8 @@ let activeSectionKey = null;
     return {
       id: id, instrument: instrument, name: name,
       volume: 100, mute: false, solo: false,
-      chords: {}, voicings: {}, patterns: {}, guitarShapes: {},
-      keyboardSize: null, ...(instrument === 'guitar' ? {guitarShapesVersion:1} : {})
+      chords: {}, voicings: {}, patterns: {}, guitarShapes: {}, guitarShapeHistory: {},
+      keyboardSize: null, ...(instrument === 'guitar' ? {guitarShapesVersion:1,trackTuning:{id:'e-std',notes:null}} : {})
     };
   }
   function b39DefaultName(inst, n) {
@@ -20330,12 +20330,43 @@ let activeSectionKey = null;
     var shape=Array.isArray(ev.fingering)?ev.fingering:typeof ev.fingering==='string'?ev.fingering.split(',').map(function(v){return v.trim()==='x'?'x':Number(v);}):null;
     return cleanGuitarShape({chord:ev.chord,shape:shape,tuning:ev.fingeringTuning||'',barreOff:ev.barreOff,fingers:ev.fingers});
   }
+  function cleanTrackTuning(value, fallback) {
+    var base=fallback || {id:'e-std',notes:null};
+    if(!b39IsObj(value) || typeof value.id!=='string' || !TUNER_TUNINGS.some(function(x){return x.id===value.id;}))return b39Clone(base);
+    if(value.notes != null && (!Array.isArray(value.notes) || value.notes.length!==6 || !value.notes.every(function(n){return typeof n==='string' && /^[A-G][#b]?-?\d$/.test(n) && noteToFrequency(n);})))return b39Clone(base);
+    return {id:value.id,notes:value.notes ? value.notes.slice() : null};
+  }
+  function legacyTrackTuning(song) {
+    return cleanTrackTuning({id:song && song.tuning,notes:song && song.tuningNotes},{id:'e-std',notes:null});
+  }
+  function cleanShapeHistory(raw) {
+    if(!Array.isArray(raw))return null;
+    var list=raw.slice(-128).map(cleanGuitarShape).filter(Boolean);
+    return list.length?list:null;
+  }
+  function rememberShape(t,key,shape) {
+    if(!t || !shape)return;
+    t.guitarShapeHistory=t.guitarShapeHistory||{};
+    var list=t.guitarShapeHistory[key]||[];
+    list=list.filter(function(v){return !(sameChord(v.chord,shape.chord) && (v.tuning||'')===(shape.tuning||''));});
+    list.push(b39Clone(shape));t.guitarShapeHistory[key]=list.slice(-128);
+  }
+  function recalledShape(t,key,chord,suffix) {
+    return ((t.guitarShapeHistory||{})[key]||[]).find(function(v){return sameChord(v.chord,chord) && (v.tuning||'')===suffix;})||null;
+  }
+  function applyEventShape(ev,shape) {
+    delete ev.fingering;delete ev.fingeringTuning;delete ev.barreOff;delete ev.fingers;
+    if(!shape)return;
+    ev.fingering=shape.shape.join(',');if(shape.tuning)ev.fingeringTuning=shape.tuning;
+    if(shape.barreOff && shape.barreOff.length)ev.barreOff=shape.barreOff.slice();
+    if(shape.fingers)ev.fingers=shape.fingers.slice();
+  }
   function sanitizeTracks(rawTracks, validKeys, song) {
     // Поля нет вообще -> старый файл: одна гитарная дорожка (миграция).
     // Явный пустой массив -> НОВАЯ песня без дорожек (решение владельца):
     // пустая сетка и кнопка «+ Добавить дорожку».
-    if (!Array.isArray(rawTracks)) return [b39MakeTrack(1, 'guitar', 'Гитара')];
-    if (!rawTracks.length) return [b39MakeTrack(1, 'guitar', 'Гитара')];
+    if (!Array.isArray(rawTracks)) {var old=b39MakeTrack(1,'guitar','Гитара');old.trackTuning=legacyTrackTuning(song);return [old];}
+    if (!rawTracks.length) {var old=b39MakeTrack(1,'guitar','Гитара');old.trackTuning=legacyTrackTuning(song);return [old];}
     var out = [], used = new Set();
     rawTracks.slice(0, B39_LIMITS.MAX_TRACKS).forEach(function (raw, idx) {
       if (!b39IsObj(raw)) return;
@@ -20364,9 +20395,10 @@ let activeSectionKey = null;
         }, true),
         patterns: sanitizeMap(raw.patterns, validKeys, patternValue, false, true),
         guitarShapes: sanitizeMap(raw.guitarShapes, validKeys, cleanGuitarShape, false, false),
+        guitarShapeHistory: sanitizeMap(raw.guitarShapeHistory, validKeys, cleanShapeHistory, false, false),
         ...(Object.keys(cleanBassRoles(raw.bassRoles, song.sections)).length ? {bassRoles:cleanBassRoles(raw.bassRoles, song.sections)} : {}),
         ...(raw.linkedVoicings===true ? {linkedVoicings:true} : {}),
-        keyboardSize: size, ...(inst==='guitar' ? {guitarShapesVersion:raw.guitarShapesVersion===1?1:0} : {})
+        keyboardSize: size, ...(inst==='guitar' ? {guitarShapesVersion:raw.guitarShapesVersion===1?1:0,trackTuning:Object.prototype.hasOwnProperty.call(raw,'trackTuning')?cleanTrackTuning(raw.trackTuning):legacyTrackTuning(song)} : {})
       });
     });
     return out.length ? out : [b39MakeTrack(1, 'guitar', 'Гитара')];
@@ -20440,7 +20472,8 @@ let activeSectionKey = null;
     var t = state.tracks[0];
     if (t.instrument !== 'guitar' || t.name !== 'Гитара' || t.volume !== 100 ||
         t.mute || t.solo || t.keyboardSize !== null) return false;
-    return !Object.keys(t.chords).length && !Object.keys(t.voicings).length && !Object.keys(t.patterns).length && !Object.keys(t.guitarShapes || {}).length && !Object.keys(t.bassRoles || {}).length && !t.linkedVoicings;
+    if(JSON.stringify(t.trackTuning)!==JSON.stringify(legacyTrackTuning({tuning:tunerTuningId,tuningNotes:tunerCustomNotes})))return false;
+    return !Object.keys(t.chords).length && !Object.keys(t.voicings).length && !Object.keys(t.patterns).length && !Object.keys(t.guitarShapes || {}).length && !Object.keys(t.guitarShapeHistory || {}).length && !Object.keys(t.bassRoles || {}).length && !t.linkedVoicings;
   }
   function exportForSave() {
     // Пустое состояние пишем ЯВНО: иначе при загрузке оно превратилось бы
@@ -20526,16 +20559,83 @@ let activeSectionKey = null;
     return { size: size, low: r.low, high: r.high, first: r.first, last: r.last };
   }
 
+  var CELL_MAP_FIELDS=['chords','voicings','patterns','guitarShapes','guitarShapeHistory'];
+  function snapshotCellIdentities() {
+    var map=new Map();eachCell(null,function(sec,sq,ev,ei,key){if(ev && typeof ev==='object')map.set(ev,key);});return map;
+  }
+  function reconcileCellIdentities(before,aliases) {
+    if(!(before instanceof Map))return;
+    var moved=new Map();eachCell(null,function(sec,sq,ev,ei,key){var source=aliases && aliases.get(ev) || ev;if(before.has(source)){var old=before.get(source),dest=moved.get(old)||[];dest.push(key);moved.set(old,dest);}});
+    state.tracks.forEach(function(t){CELL_MAP_FIELDS.forEach(function(field){
+      var original=t[field];if(!b39IsObj(original))return;var next={};
+      Object.keys(original).forEach(function(key){
+        if(!/^\d+:\d+:\d+$/.test(key)){next[key]=original[key];return;}
+        if(moved.has(key))moved.get(key).forEach(function(dest){next[dest]=b39Clone(original[key]);});
+      });t[field]=next;
+    });});
+  }
+  function purgeSectionPatterns(id) {state.tracks.forEach(function(t){if(t.patterns)delete t.patterns['s:'+id];});}
+  function cloneSectionManaged(from,to) {if(state.autoAccomp && state.autoAccomp.managed[String(from)])state.autoAccomp.managed[String(to)]=true;}
+  function cloneSectionPatterns(from,to) {
+    state.tracks.forEach(function(t){var src='s:'+from,dst='s:'+to;if(t.patterns && Object.prototype.hasOwnProperty.call(t.patterns,src))t.patterns[dst]=b39Clone(t.patterns[src]);});
+  }
+  function sectionMetadataCompatible(ids) {
+    return state.tracks.every(function(t){
+      var first=ids[0],p=JSON.stringify((t.patterns||{})['s:'+first]||null),b=(t.bassRoles||{})[first]||null;
+      return ids.every(function(id){return JSON.stringify((t.patterns||{})['s:'+id]||null)===p && ((t.bassRoles||{})[id]||null)===b;});
+    }) && (!state.autoAccomp || ids.every(function(id){return !!state.autoAccomp.managed[id]===!!state.autoAccomp.managed[ids[0]];}));
+  }
+  function remapSectionMetadata(pieces) {
+    var sources=new Set(pieces.map(function(x){return String(x.sourceId);}));
+    state.tracks.forEach(function(t){
+      var oldP=Object.assign({},t.patterns),oldB=Object.assign({},t.bassRoles||{});
+      sources.forEach(function(id){delete t.patterns['s:'+id];if(t.bassRoles)delete t.bassRoles[id];});
+      pieces.forEach(function(p){var a=String(p.sourceId),b=String(p.destId);if(oldP['s:'+a])t.patterns['s:'+b]=b39Clone(oldP['s:'+a]);
+        if(oldB[a]){t.bassRoles=t.bassRoles||{};t.bassRoles[b]=oldB[a];}});
+    });
+    if(state.autoAccomp){var old=Object.assign({},state.autoAccomp.managed);sources.forEach(function(id){delete state.autoAccomp.managed[id];});
+      pieces.forEach(function(p){if(old[String(p.sourceId)])state.autoAccomp.managed[String(p.destId)]=true;});}
+  }
+  function cloneCellMaps(srcSec,srcSq,dstSec,dstSq) {
+    if(!srcSq || !dstSq)return;
+    state.tracks.forEach(function(t){CELL_MAP_FIELDS.forEach(function(field){
+      var data=t[field];if(!b39IsObj(data))return;
+      (srcSq.events||[]).forEach(function(ev,i){var src=String(srcSec)+':'+String(srcSq.id)+':'+i,dst=String(dstSec)+':'+String(dstSq.id)+':'+i;
+        if(Object.prototype.hasOwnProperty.call(data,src))data[dst]=b39Clone(data[src]);
+      });
+    });});
+  }
   // ---------- Мутации (все через Store) ----------
   function setActive(id) {
     if (!findTrack(id)) return false;
-    return dispatch('b39/track-active', function () { state.activeTrackId = id; return true; });
+    var result=dispatch('b39/track-active', function () { state.activeTrackId = id; return true; });
+    if(typeof renderTuningPill==='function')renderTuningPill();
+    if(document.querySelector('.tuner-modal') && typeof tunerRenderTuning==='function')tunerRenderTuning();
+    return result;
+  }
+  function tuning(id) {var t=findTrack(id);return t && t.instrument==='guitar' ? b39Clone(t.trackTuning) : null;}
+  function setTuning(id,value) {
+    var t=findTrack(id);if(!t || t.instrument!=='guitar')return false;
+    var cleaned=cleanTrackTuning(value);if(window.captureHistorySnapshot)window.captureHistorySnapshot();
+    var result=dispatch('b39/track-tuning',function(){
+      var changed=JSON.stringify(t.trackTuning)!==JSON.stringify(cleaned);
+      if(changed && isMain(id))eachCell(null,function(sec,sq,ev,ei,key){rememberShape(t,key,guitarShapeFromEvent(ev));});
+      t.trackTuning=cleaned;
+      if(changed && isMain(id)){
+        var suffix=b39WithTrackTuning(id,function(){return tuningKeySuffix();});
+        eachCell(null,function(sec,sq,ev,ei,key){applyEventShape(ev,recalledShape(t,key,ev.chord,suffix));});
+      }
+      return true;
+    });
+    if(window.captureHistorySnapshot)window.captureHistorySnapshot();return result;
   }
   function setInstrument(id, inst) {
     var t = findTrack(id);
     if (!t || B39_INSTRUMENTS.indexOf(inst) < 0) return false;
     return dispatch('b39/track-instrument', function () {
       t.instrument = inst;
+      if(inst==='guitar' && !t.trackTuning)t.trackTuning={id:'e-std',notes:null};
+      if(inst==='keys')delete t.trackTuning;
       if (inst !== 'keys' && state.autoAccomp && state.autoAccomp.trackId === id) state.autoAccomp = null;
       // Имя меняем только если оно было дефолтным: свой текст не трогаем.
       if (/^(Гитара|Клавиши)( \d+)?$/.test(t.name)) t.name = b39DefaultName(inst, state.tracks.indexOf(t) + 1);
@@ -20581,7 +20681,7 @@ let activeSectionKey = null;
         var chord=t.chords[cell];if(!chord)return;
         var v=t.guitarShapes[cell];
         if(v && Array.isArray(v.shape))return;
-        var shape=defaultGuitarShape(chord,cell,ev,true,{sec:sec,sq:sq,ei:ei});if(shape)t.guitarShapes[cell]=shape;
+        var shape=b39WithTrackTuning(t.id,function(){return defaultGuitarShape(chord,cell,ev,true,{sec:sec,sq:sq,ei:ei});});if(shape)t.guitarShapes[cell]=shape;
       });
       t.guitarShapesVersion=1;
     });
@@ -20591,6 +20691,7 @@ let activeSectionKey = null;
     if (!t || !/^\d+:\d+:\d+$/.test(String(key))) return false;
     var cleaned = chord === null || chord === '' ? null : normalizeChordValue(String(chord), { globalKey: currentKey() });
     return dispatch('b39/track-chord', function () {
+      if (!sameChord(trackChord(id,key),cleaned) && t.guitarShapeHistory) delete t.guitarShapeHistory[key];
       if (t.voicings[key] && typeof t.voicings[key] === 'object' && !sameChord(t.voicings[key].chord,cleaned)) delete t.voicings[key];
       if (t.guitarShapes[key] && !sameChord(t.guitarShapes[key].chord,cleaned)) delete t.guitarShapes[key];
       if (isMain(id)) {
@@ -20599,7 +20700,7 @@ let activeSectionKey = null;
         f.ev.chord = cleaned || '';                // главная = существующее поле ячейки
       } else if (cleaned) {
         t.chords[key] = cleaned;                   // явный аккорд дорожки
-        if(t.instrument==='guitar' && !t.guitarShapes[key]){var choice=defaultGuitarShape(cleaned,key,null,false);if(choice)t.guitarShapes[key]=choice;}
+        if(t.instrument==='guitar' && !t.guitarShapes[key]){var choice=b39WithTrackTuning(id,function(){return defaultGuitarShape(cleaned,key,null,false);});if(choice)t.guitarShapes[key]=choice;}
       } else {
         delete t.chords[key];                       // пусто -> призрачная подсказка
       }
@@ -20636,18 +20737,19 @@ let activeSectionKey = null;
   }
   function guitarShape(id, key, chord) {
     var t=findTrack(id), v=t && t.guitarShapes[key];
-    if(!t || t.instrument!=='guitar' || !v || !Array.isArray(v.shape) || !sameChord(v.chord,chord)) return null;
-    if((v.tuning||'') !== (typeof tuningKeySuffix==='function'?tuningKeySuffix():''))return null;
-    return b39Clone(v);
+    if(!t || t.instrument!=='guitar')return null;
+    var suffix=typeof tuningKeySuffix==='function'?b39WithTrackTuning(id,function(){return tuningKeySuffix();}):'';
+    if(!v || !Array.isArray(v.shape) || !sameChord(v.chord,chord) || (v.tuning||'')!==suffix)v=recalledShape(t,key,chord,suffix);
+    return v ? b39Clone(v) : null;
   }
   function activeGuitarInfo(cell,chord) {
     var t=findTrack(state.activeTrackId), secondary=!!(t && t.instrument==='guitar' && !isMain(t.id));
     return secondary ? {id:t.id,shape:guitarShape(t.id,cell,chord)} : null;
   }
   function setGuitarShape(id,key,chord,shape,barreOff,fingers) {
-    var t=findTrack(id), val=cleanGuitarShape({chord:chord,shape:shape,tuning:typeof tuningKeySuffix==='function'?tuningKeySuffix():'',barreOff:barreOff,fingers:fingers});
+    var t=findTrack(id), val=cleanGuitarShape({chord:chord,shape:shape,tuning:typeof tuningKeySuffix==='function'?b39WithTrackTuning(id,function(){return tuningKeySuffix();}):'',barreOff:barreOff,fingers:fingers});
     if(!t || t.instrument!=='guitar' || !/^\d+:\d+:\d+$/.test(String(key)) || !val || !sameChord(trackChord(id,key),chord))return false;
-    return dispatch('b39/guitar-shape',function(){t.guitarShapes[key]=val;return true;});
+    return dispatch('b39/guitar-shape',function(){rememberShape(t,key,t.guitarShapes[key]);t.guitarShapes[key]=val;rememberShape(t,key,val);return true;});
   }
   function setVoicing(id, key, index) {
     var t = findTrack(id), n = Number(index);
@@ -20721,7 +20823,7 @@ let activeSectionKey = null;
         if (c) copied.push([key, c]);
         if (inst==='guitar' && c) {
           var shape=src.instrument==='guitar' ? (isMain(src.id)?(guitarShapeFromEvent(ev)||defaultGuitarShape(c,key,ev,true,{sec:sec,sq:sq,ei:ei})):(guitarShape(src.id,key,c)||defaultGuitarShape(c,key,null,false,{sec:sec,sq:sq,ei:ei}))) : defaultGuitarShape(c,key,null,false,{sec:sec,sq:sq,ei:ei});
-          if(shape)copiedShapes.push([key,shape]);
+          if(shape && (shape.tuning||'')==='')copiedShapes.push([key,shape]);
         }
       });
     }
@@ -20734,6 +20836,8 @@ let activeSectionKey = null;
       copiedShapes.forEach(function(pair){t.guitarShapes[pair[0]]=pair[1];});
       state.tracks.push(t);
       state.activeTrackId = id;
+      if(typeof renderTuningPill==='function')renderTuningPill();
+      if(document.querySelector('.tuner-modal') && typeof tunerRenderTuning==='function')tunerRenderTuning();
       return true;
     });
     return id;
@@ -20750,6 +20854,8 @@ let activeSectionKey = null;
       state.tracks.splice(idx, 1);
       if (state.autoAccomp && state.autoAccomp.trackId === id) state.autoAccomp = null;
       if (state.activeTrackId === id) state.activeTrackId = state.tracks[0].id;
+      if(typeof renderTuningPill==='function')renderTuningPill();
+      if(document.querySelector('.tuner-modal') && typeof tunerRenderTuning==='function')tunerRenderTuning();
       return true;
     });
   }
@@ -20779,9 +20885,9 @@ let activeSectionKey = null;
       // 2. Новая главная: её явные аккорды становятся аккордами песни.
       var newChords = Object.assign({}, newMain.chords);
       eachCell(null, function (sec, sq, ev, ei, key) {
-        var prior=oldMain && oldMain.instrument==='guitar' ? (guitarShapeFromEvent(ev)||defaultGuitarShape(ev.chord,key,ev,true,{sec:sec,sq:sq,ei:ei})) : null;
-        if(prior)oldMain.guitarShapes[key]=prior;
-        var incoming=newMain.instrument==='guitar' ? cleanGuitarShape(newMain.guitarShapes[key]) : null;
+        var prior=oldMain && oldMain.instrument==='guitar' ? b39WithTrackTuning(oldMain.id,function(){return guitarShapeFromEvent(ev)||defaultGuitarShape(ev.chord,key,ev,true,{sec:sec,sq:sq,ei:ei});}) : null;
+        if(prior){oldMain.guitarShapes[key]=prior;rememberShape(oldMain,key,prior);}
+        var incoming=newMain.instrument==='guitar' ? guitarShape(newMain.id,key,newChords[key]) : null;
         ev.chord = newChords[key] || '';
         delete ev.fingering; delete ev.fingeringTuning; delete ev.barreOff; delete ev.fingers;
         if(incoming && sameChord(incoming.chord,ev.chord)){
@@ -20844,9 +20950,9 @@ let activeSectionKey = null;
     trackChord: trackChord, ghostChord: ghostChord, isDefault: isDefaultState,
     keyRange: keyRange, sizes: function () { return B39_KEYBOARD_SIZES.slice(); },
     ranges: function () { return b39Clone(B39_KEY_RANGES); },
-    cellKey: cellKey, eachCell: function (cb) { eachCell(null, cb); },
+    cellKey: cellKey, eachCell: function (cb) { eachCell(null, cb); }, snapshotCellIdentities:snapshotCellIdentities, reconcileCellIdentities:reconcileCellIdentities, cloneCellMaps:cloneCellMaps, cloneSectionPatterns:cloneSectionPatterns, purgeSectionPatterns:purgeSectionPatterns, cloneSectionManaged:cloneSectionManaged, sectionMetadataCompatible:sectionMetadataCompatible, remapSectionMetadata:remapSectionMetadata,
     // мутации
-    setActive: setActive, setInstrument: setInstrument, setVolume: setVolume,
+    setActive: setActive, setInstrument: setInstrument, setVolume: setVolume, tuning:tuning, activeTuning:function(){return tuning(state.activeTrackId);}, setTuning:setTuning,
     setMute: setMute, setSolo: setSolo,
     setKeyboardSize: setKeyboardSize, setTrackKeyboardSize: setTrackKeyboardSize,
     setTrackChord: setTrackChord, setVoicing: setVoicing, setPattern: setPattern,
@@ -20889,6 +20995,8 @@ const songStore = (function () {
     // состояние.
     const outermost = dispatchDepth === 0;
     const atomicHistory = outermost && opts && opts.history === 'atomic';
+    const trackStructural = outermost && /^(cell\/(add|remove)|square\/(tab-move|remove)|section\/(split|remove))$/.test(String(label)) && window.StruChordTracks;
+    const trackCellsBefore = trackStructural ? trackStructural.snapshotCellIdentities() : null;
     if (atomicHistory && window.captureHistorySnapshot) window.captureHistorySnapshot();
     dispatchDepth++;
     let result;
@@ -20897,6 +21005,7 @@ const songStore = (function () {
     } finally {
       dispatchDepth--;
     }
+    if (trackStructural) trackStructural.reconcileCellIdentities(trackCellsBefore);
     // Объект команды передаётся каждому подписчику: рендеру нужно
     // видеть quiet, истории и логу хватает метки.
     const command = { label: String(label), quiet: !!(opts && opts.quiet) };
@@ -23400,7 +23509,7 @@ function tabTechApply(e, kind, value, whole = false, forceSet = false) {
           const opts = tabTechSoundOptions(
             event,
             unit,
-            songStringFreqs(),
+            songLegacyStringFreqs(),
             ctx.currentTime + 0.01 - event.start * unit,
             songSoundAtEvent(target.sec, target.sq, 0),
           );
@@ -23520,7 +23629,7 @@ function tabTechApply(e, kind, value, whole = false, forceSet = false) {
         const opts = tabTechSoundOptions(
           event,
           unit,
-          songStringFreqs(),
+          songLegacyStringFreqs(),
           ctx.currentTime + 0.01 - event.start * unit,
           songSoundAtEvent(target.sec, target.sq, 0),
         );
@@ -27760,7 +27869,7 @@ function tabEditorTogglePlay(editor, fromStart = false) {
   const ctx = getAudioContext();
   const ts = editor.gpBars ? tabGpMeter(editor) : target.sec.timeSig || globalTimeSig,
     unit = getGridUnitDurationSeconds(getEffectiveBpm(target.sec), ts),
-    freqs = songStringFreqs(),
+    freqs = songLegacyStringFreqs(),
     sound = songSoundAtEvent(target.sec, target.sq, 0),
     voices = [];
   if (ctx) {
@@ -40462,7 +40571,7 @@ function removeSection(id) {
   songStore.dispatch('section/remove', () => {
     sections = sections.filter((s) => s.id !== id);
     if (window.StruChordAuto) window.StruChordAuto.removeSection(id);
-    if (window.StruChordTracks) window.StruChordTracks.removeBassRoles(id);
+    if (window.StruChordTracks) {window.StruChordTracks.removeBassRoles(id);window.StruChordTracks.purgeSectionPatterns(id);}
     // B-12.1: рулоны партий живут НА СЕКЦИИ — вместе с ней уходит и её
     // рулон. Иначе в файле оставался бы мусор с ключом несуществующей
     // секции (и «Сброс» был бы единственным способом его вычистить).
@@ -40528,8 +40637,9 @@ function cloneSection(id) {
   // рулоны в пуле.
   songStore.dispatch('section/clone', () => {
   sections.splice(idx + 1, 0, cl);
+  if (window.StruChordTracks) window.StruChordTracks.cloneSectionPatterns(orig.id,cl.id);
   if (window.StruChordAuto) window.StruChordAuto.cloneSection(orig, cl);
-  if (window.StruChordTracks) window.StruChordTracks.cloneBassRoles(orig.id, cl.id);
+  if (window.StruChordTracks) {window.StruChordTracks.cloneBassRoles(orig.id, cl.id);orig.squares.forEach((sq,i)=>window.StruChordTracks.cloneCellMaps(orig.id,sq,cl.id,cl.squares[i]));}
   // Волна-4: ритм клона — КОПИИ рулонов оригинала на новых ключах
   // (структурный клон встроенных рисунков выше почти всегда находит
   // null: кэша у ячеек нет), плюс копия секционного рулона.
@@ -41862,6 +41972,7 @@ function cloneLastSquare(sid) {
   };
   songStore.dispatch('square/clone', () => {
     s.squares.push(ns);
+    if(window.StruChordTracks)window.StruChordTracks.cloneCellMaps(s.id,ls,s.id,ns);
   }, { quiet: true });
   // Волна-4: ссылки и рулоны последнего квадрата — копиями на новый id.
   if (songRhythmRolls) cloneSquareRhythmRolls(songRhythmRolls, sid, ls.id, sid, ns.id);
@@ -42334,6 +42445,7 @@ function setSquareCustomBeats(sid, sqid, beats) {
     }
   }, { quiet: true });
 
+  const trackCellsBeforeResize=window.StruChordTracks && window.StruChordTracks.snapshotCellIdentities();
   let events = sq.events;
   let currentSum = events.reduce((sum, e) => sum + getEventSpanInParentUnits(e, parentTs), 0);
   const targetSum = beats;
@@ -42392,6 +42504,7 @@ function setSquareCustomBeats(sid, sqid, beats) {
   events.forEach((e) => {
     if (e.span < 1) e.span = 1;
   });
+  if(window.StruChordTracks)window.StruChordTracks.reconcileCellIdentities(trackCellsBeforeResize);
   if (keyMode === 'auto') refreshAutoDetectedKey();
   // B-25: изменение длины квадрата меняет только его содержимое/ширину
   // внутри текущей секции; полный render не нужен.
@@ -45264,7 +45377,7 @@ function scheduleNextEvent(ctx) {
     const trackState = window.StruChordTracks ? window.StruChordTracks.state() : null;
     const mainTrack = trackState && trackState.tracks.find(t => t.id === trackState.mainTrackId);
     const mainGain = !trackState ? 1 : (mainTrack && mainTrack.instrument === 'guitar' ? b39TrackGain(trackState, mainTrack) : 0);
-    if (mainGain > 0) b39WithGuitarGain(mainGain, () => {
+    if (mainGain > 0) b39WithTrackTuning(mainTrack ? mainTrack.id : null, () => b39WithGuitarGain(mainGain, () => {
       if (Array.isArray(next.event.notes) && next.event.notes.length) {
         scheduleAccompNotes(next.event.notes, evStart, bpm, ts, next.event.chord, effectiveKey);
       } else if (strumPattern) {
@@ -45274,7 +45387,7 @@ function scheduleNextEvent(ctx) {
       } else {
         playChordScheduled(next.event.chord, evStart, dur, posCtx);
       }
-    });
+    }));
     globalKey = oldKey;
   } else {
     // Пауза (в ячейке нет аккорда) — возвращаем секцию/ячейку к
@@ -45295,12 +45408,12 @@ function scheduleNextEvent(ctx) {
       if (track.id === state.mainTrackId || track.instrument !== 'guitar') return;
       const chord = T.trackChord(track.id, cell, next.event), gain = b39TrackGain(state, track);
       if (!chord || gain <= 0) return;
-      b39WithGuitarGain(gain, () => {
+      b39WithTrackTuning(track.id, () => b39WithGuitarGain(gain, () => {
         const trackPos={...pos,trackId:track.id};
         if (pattern) schedulePatternForEvent(chord, evStart, dur, trackPos, pattern, bpm, ts,
           next.square, next.eventIndex, next.event.span || 1, !!own, next.section);
         else playChordScheduled(chord, evStart, dur, trackPos);
-      });
+      }));
     });
   }
 
@@ -45961,8 +46074,31 @@ const TUNER_TUNINGS = [
 // — не выбирать его заново на каждом уроке.
 let tunerTuningId = 'e-std';
 
+let b39TuningContext = null;
+function b39WithTrackTuning(id, work) {
+  const previous=b39TuningContext;b39TuningContext=id;
+  try{return work();}finally{b39TuningContext=previous;}
+}
+function b39SelectedTuning() {
+  const T=window.StruChordTracks;
+  if(!T || b39TuningContext==='legacy')return null;
+  if(b39TuningContext==='standard')return {id:'e-std',notes:null};
+  return typeof b39TuningContext==='number' ? T.tuning(b39TuningContext) : T.activeTuning();
+}
+function b39GuitarTuningNotes() {
+  const value=b39SelectedTuning();
+  if(!value)return tunerCustomNotes || (TUNER_TUNINGS.find(t=>t.id===tunerTuningId)||TUNER_TUNINGS[0]).notes;
+  return value.notes || (TUNER_TUNINGS.find(t=>t.id===value.id)||TUNER_TUNINGS[0]).notes;
+}
+function b39TunerId() {const value=b39SelectedTuning();return value?value.id:tunerTuningId;}
+function b39ChangeTuning(id,notes) {
+  const T=window.StruChordTracks, st=T && T.state(), t=st && st.tracks.find(x=>x.id===st.activeTrackId);
+  if(t && t.instrument==='guitar')return T.setTuning(t.id,{id,notes});
+  if(t)return false;
+  tunerTuningId=id;tunerCustomNotes=notes;return true;
+}
 function tunerCurrentTuning() {
-  return TUNER_TUNINGS.find((t) => t.id === tunerTuningId) || TUNER_TUNINGS[0];
+  return TUNER_TUNINGS.find((t) => t.id === b39TunerId()) || TUNER_TUNINGS[0];
 }
 
 // ===================== СТРОЙ КАК ПАРАМЕТР ПЕСНИ =====================
@@ -45980,13 +46116,14 @@ function tunerCurrentTuning() {
 // Ноты открытых струн текущего строя, от ШЕСТОЙ к первой, с октавами:
 // ['D2','A2','D3','G3','B3','E4'].
 function songTuningNotes() {
-  return tunerActiveNotes();
+  return tunerCustomNotes || (TUNER_TUNINGS.find(t => t.id === tunerTuningId) || TUNER_TUNINGS[0]).notes;
 }
 
 // То же без октав — в таком виде ноты нужны подбору аппликатур:
 // ['D','A','D','G','B','E'].
+function songLegacyStringFreqs() {return songTuningNotes().map(n=>noteToFrequency(n)*songCapoFactor());}
 function songStringNotes() {
-  return songTuningNotes().map((n) => toSharpNote(n.replace(/-?\d+$/, '')));
+  return b39GuitarTuningNotes().map((n) => toSharpNote(n.replace(/-?\d+$/, '')));
 }
 
 // Частоты открытых струн для синтеза. Считаются из нот строя, а не
@@ -45997,7 +46134,7 @@ function songStringFreqs() {
   // одиночные струны). Аппликатуры при этом НЕ пересчитываются — так решил
   // пользователь: над лентой появляется надпись «каподастр N».
   const capo = songCapoFactor();
-  return songTuningNotes().map((n) => noteToFrequency(n) * capo);
+  return b39GuitarTuningNotes().map((n) => noteToFrequency(n) * capo);
 }
 
 // Стандартный ли сейчас строй.
@@ -46072,7 +46209,7 @@ const STD_TUNING_NOTES = ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
 // стандартном строе, — на этом и держится «минимальная доработка»
 // готовой формы.
 function tuningSemitoneDrops() {
-  const cur = songTuningNotes();
+  const cur = b39GuitarTuningNotes();
   return STD_TUNING_NOTES.map((std, i) => {
     const a = tunerNoteToMidi(std);
     const b = tunerNoteToMidi(cur[i]);
@@ -46087,7 +46224,7 @@ function tuningSemitoneDrops() {
 // ключи расходятся, и формы, собранные для EADGBE, не подставляются
 // туда, где они звучали бы другим аккордом.
 function tuningKeySuffix() {
-  return isStandardTuning() ? '' : '@' + songTuningNotes().join('');
+  return isStandardTuning() ? '' : '@' + b39GuitarTuningNotes().join('');
 }
 
 // Ключ «аккорд в тональности при этом строе» — под ним живут
@@ -46552,10 +46689,7 @@ function toggleTuningPicker(force) {
         `<span>${t.name}</span><span class="tuner-tuning-notes">` +
         `${t.notes.map((n) => n.replace(/-?\d+$/, '')).join(' ')}</span>`;
       item.onclick = () => {
-        tunerTuningId = t.id;
-        // Ручная подстройка стрелками отменяется выбором готового строя
-        // — так же, как в окне тюнера.
-        tunerCustomNotes = null;
+        b39ChangeTuning(t.id,null);
         renderTuningPill();
         // Если окно тюнера открыто, оно должно показать то же самое.
         if (document.querySelector('.tuner-modal')) tunerRenderTuning();
@@ -46613,7 +46747,7 @@ function toggleTuningPicker(force) {
 
   let current = null;
   list.querySelectorAll('.tuner-tuning-item').forEach((el) => {
-    const on = el.dataset.id === tunerTuningId;
+    const on = el.dataset.id === b39TunerId();
     el.classList.toggle('is-current', on);
     if (on) current = el;
   });
@@ -46870,9 +47004,7 @@ window.openTuner = function () {
       `<span>${t.name}</span><span class="tuner-tuning-notes">` +
       `${t.notes.map((n) => n.replace(/\d/, '')).join(' ')}</span>`;
     item.onclick = () => {
-      tunerTuningId = t.id;
-      // Выбрали готовый строй — ручная правка больше не действует.
-      tunerCustomNotes = null;
+      b39ChangeTuning(t.id,null);
       tunerRenderTuning();
       tunerToggleTuningList(false);
       onSongTuningChanged();
@@ -46914,7 +47046,7 @@ function tunerToggleTuningList(force) {
   // заголовки групп, и нумерация детей разошлась бы с массивом строёв.
   let current = null;
   list.querySelectorAll('.tuner-tuning-item').forEach((el) => {
-    const on = el.dataset.id === tunerTuningId;
+    const on = el.dataset.id === b39TunerId();
     el.classList.toggle('is-current', on);
     if (on) current = el;
   });
@@ -46933,7 +47065,7 @@ function tunerToggleTuningList(force) {
 let tunerCustomNotes = null;
 
 function tunerActiveNotes() {
-  return tunerCustomNotes || tunerCurrentTuning().notes;
+  return b39GuitarTuningNotes();
 }
 
 // Как называется то, что настроено сейчас.
@@ -46958,7 +47090,7 @@ function tunerShiftString(index, dir) {
   // и эталон вёл бы к ноте, которую нечем проверить.
   if (freq < TUNER_MIN_HZ || freq > TUNER_MAX_HZ) return;
   notes[index] = tunerMidiToNote(next);
-  tunerCustomNotes = notes;
+  b39ChangeTuning(b39TunerId(),notes);
   tunerRenderTuning();
   // Подкрутили струну — формы и звук должны это учесть. Без
   // уведомления: строй собирают стрелка за стрелкой, и всплывашка на
@@ -48184,7 +48316,7 @@ function pluckString(ctx, opts) {
 function playTabNote(stringIdx, fret) {
   const ctx = audioCtx;
   if (!ctx) return;
-  const freqs = songStringFreqs();
+  const freqs = songLegacyStringFreqs();
   const base = freqs[stringIdx];
   if (!base) return;
   const freq = base * Math.pow(2, fret / 12);
@@ -48198,7 +48330,7 @@ function playTabNotesAt(sq, evStart, bpm, ts, section, inlineEv, eventIdx) {
   if (!ctx || !sq) return;
   const parentTs = section.timeSig || ts || globalTimeSig;
   const secondsPerUnit = getGridUnitDurationSeconds(bpm, parentTs);
-  const freqs = songStringFreqs();
+  const freqs = songLegacyStringFreqs();
   const sound = songSoundAtEvent(section, sq, Number.isInteger(eventIdx) ? eventIdx : 0);
   const isInline = isInlineTabEvent(inlineEv) && sq.type !== 'tab';
   const totalBeats = isInline ? Math.max(1 / 16, Number(inlineEv.span) || 1) : getTabInsertBeats(sq, parentTs);
@@ -62463,6 +62595,7 @@ function buildMakeSectionPlan() {
     return { error: 'В диапазоне различаются тональность, темп, заметка или ритм секций. Чтобы ничего не потерять, сначала согласуйте эти настройки.' };
   }
 
+  if(affected.length>1 && window.StruChordTracks && !window.StruChordTracks.sectionMetadataCompatible(affected.map(x=>String(x.sec.id))))return {error:'В секциях различаются настройки дорожек. Чтобы не потерять рисунок или бас, сначала согласуйте их.'};
   const selectedParentTs = affected[0].parentTs;
   const selectedSquares = affected.reduce((sum, item) =>
     sum + countSectionRangeSquareChunks(item.sec, item.start, item.end, 'selected'), 0);
@@ -62607,7 +62740,7 @@ function openMakeSectionDialog() {
   if (typeSelect.value !== 'Custom') typeSelect.focus();
 }
 
-function makeSectionRangeSquares(sec, interval, selectedParentTs) {
+function makeSectionRangeSquares(sec, interval, selectedParentTs, trackAliases) {
   const out = { prefix: [], selected: [], suffix: [] };
   const sourceParentTs = interval.parentTs;
   let sectionAt = 0;
@@ -62636,6 +62769,7 @@ function makeSectionRangeSquares(sec, interval, selectedParentTs) {
         if (piece.role !== activeRole) flush();
         activeRole = piece.role;
         const copy = clonePlainData(ev);
+        if(trackAliases)trackAliases.set(copy,ev);
         copy.span = piece.span;
         if (piece.role === 'selected' && !copy.timeSig && sourceParentTs !== selectedParentTs) {
           // Сохраняем размер исходной секции на событиях после объединения
@@ -62739,6 +62873,8 @@ function applyMakeSectionRange(type, customName) {
   if (typeof partsScrollPending !== 'undefined') partsScrollPending = true;
   syncSectionRangeDom();
   songStore.dispatch('section/make-range', () => {
+    const trackCellsBeforeRange=window.StruChordTracks && window.StruChordTracks.snapshotCellIdentities();
+    const trackAliases=new WeakMap();
     // Пул — лишь компактное хранение рисунков. Перед разрезанием секций
     // выливаем окна в события штатным механизмом: ни один удар не теряется.
     if (songRhythmRolls) dropRhythmStorage();
@@ -62769,7 +62905,7 @@ function applyMakeSectionRange(type, customName) {
         outputSections.push(sourceSection);
         return;
       }
-      const pieces = makeSectionRangeSquares(sourceSection, interval, plan.selectedParentTs);
+      const pieces = makeSectionRangeSquares(sourceSection, interval, plan.selectedParentTs, trackAliases);
       const hasPrefix = interval.start > SECTION_RANGE_EPSILON;
       const hasSuffix = interval.end < interval.total - SECTION_RANGE_EPSILON;
       const prefixId = hasPrefix ? sourceSection.id : null;
@@ -62814,6 +62950,7 @@ function applyMakeSectionRange(type, customName) {
     });
 
     sections = outputSections;
+    if(window.StruChordTracks){window.StruChordTracks.reconcileCellIdentities(trackCellsBeforeRange,trackAliases);window.StruChordTracks.remapSectionMetadata(pieceMaps);}
     songParts.forEach((part) => {
       remapSectionNoteRolls(part, 'rolls', pieceMaps);
       remapSectionNoteRolls(part, 'pitchRolls', pieceMaps);
@@ -67052,6 +67189,7 @@ function gvSplitSection(barIndex) {
       timeSig: sec.timeSig || null, bpm: sec.bpm || null, repeat: 1, strumPattern: null, squares: moved,
     };
     sections.splice(sections.indexOf(sec) + 1, 0, created);
+    if(window.StruChordTracks){window.StruChordTracks.cloneSectionPatterns(sec.id,created.id);window.StruChordTracks.cloneBassRoles(sec.id,created.id);window.StruChordTracks.cloneSectionManaged(sec.id,created.id);}
     songParts.forEach((part) => {
       [part.rolls, part.pitchRolls].forEach((store) => {
         const roll = store && store[String(sec.id)];
@@ -81789,6 +81927,7 @@ toggleTimeAndBeats();
     // B-39 STAGE1: состояние дорожек загружаем ПОСЛЕ того, как sections
     // уже пересобраны — иначе repairMain() правил бы ячейки прошлой песни.
     if (window.StruChordTracks) window.StruChordTracks.load(song);
+    if (typeof renderTuningPill==='function') renderTuningPill();
     // B-12.1 «Партии»: независимые табулатурные слои. Ноты копируем
     // поштучно — загруженная песня и запись библиотеки не должны делить
     // одни и те же объекты нот.
@@ -82379,7 +82518,7 @@ toggleTimeAndBeats();
             if (!chord) { stats.skippedGhost++; continue; }
             var win = windowUnits(sec, sq, ei, ts);
             if(!isKeys){
-              var guitar=guitarCellRoll(track,st.mainTrackId,sec,sq,ev,ei,chord,win,globalTs,grid);
+              var guitar=b39WithTrackTuning(track.id,function(){return guitarCellRoll(track,st.mainTrackId,sec,sq,ev,ei,chord,win,globalTs,grid);});
               guitar.forEach(function(n){if(stats.notes<MAX_NOTES){tabList.push(n);stats.notes++;}});
               continue;
             }
@@ -82427,7 +82566,7 @@ toggleTimeAndBeats();
         b39Instrument: track.instrument
       };
       if (!isKeys) {
-        out.push(Object.assign({},base,{instrument:'guitar',viewMode:'tab',strings:gpExportSongTuning(songData),
+        out.push(Object.assign({},base,{instrument:'guitar',viewMode:'tab',strings:b39WithTrackTuning(track.id,function(){return b39GuitarTuningNotes().slice();}),
           capo:Number(songData.capo)||0,rolls:rolls,pitchRolls:{}}));
       } else if (gp5) {
         // GP5-писатель умеет только струны: даём ему виртуальный строй
@@ -83382,6 +83521,9 @@ toggleTimeAndBeats();
     // B-39 STAGE6: канал «Песня» не дублирует главную дорожку B-39.
     const songTrack = !solo && audible(songData.mix) && !(window.StruChordExport && window.StruChordExport.hasTracks())
       ? makeTrack('Песня', 'guitar', songData.mix, gpExportSongProgram(songData.sound), gpExportSongTuning(songData), songData.capo) : null;
+    const hasTab=sections.some(sec=>(sec.squares||[]).some(sq=>sq.type==='tab'||(sq.events||[]).some(isInlineTabEvent)));
+    const tabTrack=!songTrack && !solo && audible(songData.mix) && hasTab
+      ? makeTrack('Таб-вставки','guitar',songData.mix,gpExportSongProgram(songData.sound),gpExportSongTuning(songData),songData.capo) : null;
     const partTracks = sourceParts.filter(p => audible(p.mix) && (!solo || p.mix && p.mix.solo)).map(p => {
       const inst = partInstrumentId(p);
       return makeTrack(p.name || 'Дорожка', inst, p.mix,
@@ -83428,10 +83570,12 @@ toggleTimeAndBeats();
         conductor.push({ at, type: 'marker', text: sec.customName || sec.type || 'Секция' }); lastSection = sec;
       }
       const win = partEventWindowUnits(sec, sq, next.eventIndex);
-      if (songTrack) {
+      const isTab=sq.type==='tab' || isInlineTabEvent(ev);
+      const legacyTrack=isTab ? (songTrack || tabTrack) : songTrack;
+      if (legacyTrack) {
         const program = gpExportSongProgram(songSoundAt(sec.id, win.start));
-        if (!songTrack.programs.length || songTrack.programs[songTrack.programs.length - 1].program !== program) songTrack.programs.push({ at, program });
-        if (sq.type === 'tab' || isInlineTabEvent(ev)) {
+        if (!legacyTrack.programs.length || legacyTrack.programs[legacyTrack.programs.length - 1].program !== program) legacyTrack.programs.push({ at, program });
+        if (isTab) {
           const tabSpan = sq.type === 'tab' ? getSquareBeats(sq, ts) : Math.max(1 / 16, Number(ev.span) || 1);
           const notes = tabInsertCleanNotes(sq.type === 'tab' ? sq.notes : ev.tabNotes, tabSpan, ts);
           for (const perfEv of tabTechPerformance(notes, tabSpan)) {
@@ -83441,14 +83585,14 @@ toggleTimeAndBeats();
             let duration = n.letRing ? perfEv.room : perfEv.duration;
             if (n.staccato) duration *= .4; if (n.pm) duration *= .35; if (n.dead) duration = Math.min(duration, .07 / seconds);
             const velocity = Math.round(90 * (n.ghost ? .45 : 1) * (n.accent === 2 ? 1.4 : n.accent === 1 ? 1.2 : 1) * (n.pm ? .7 : 1) * (n.dead ? .5 : 1));
-            add(songTrack, { ...n, velocity, tabEffects: true }, position, unit, n.start, duration);
+            add(legacyTrack, { ...n, velocity, tabEffects: true }, position, unit, n.start, duration);
             if (n.pm || n.letRing) gpExportLoss(report, 'MIDI: palm mute / let ring приближены длительностью, тембр глушения не переносится', 1);
           }
         } else {
           const list = ev.notes && ev.notes.length
             ? accompCleanNotes(ev.notes, ev.span).map(n => ({ ...n, start: win.start + n.start }))
             : accompCellNotes(sec, sq, ev, next.eventIndex);
-          list.forEach(n => add(songTrack, n, position, unit, n.start - win.start));
+          list.forEach(n => add(legacyTrack, n, position, unit, n.start - win.start));
         }
       }
       for (const track of partTracks) {
