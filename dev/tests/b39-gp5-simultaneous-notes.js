@@ -9,8 +9,8 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
  const emit=()=>p.evaluate(()=>{let r=gpExportBytesGP5();return {bytes:r.bytes,losses:r.report.losses}});
  const parsed=async()=>{let r=await emit();return {...r,notes:notes(readScore(r.bytes))}};
  let r=await parsed(), guitar=r.notes.filter(n=>n.track==='Гитара').map(n=>n.pitch).sort((a,b)=>a-b), piano=r.notes.filter(n=>n.track==='Клавиши').map(n=>n.pitch).sort((a,b)=>a-b);
- // Эти гитарные высоты пока формульные: совпадение с гитарной формой — отдельная задача.
- assert.deepStrictEqual(guitar,[36,48,52,55]);assert.deepStrictEqual(piano,[50,62,65,69]);assert(!r.losses.some(x=>/оба голоса такта заняты/.test(x.label)));
+ // Гитара экспортируется на своём строе; клавишное созвучие — отдельно.
+ assert.deepStrictEqual(guitar,[48,52,55,60,64]);assert.deepStrictEqual(piano,[50,62,65,69]);assert(!r.losses.some(x=>/оба голоса такта заняты/.test(x.label)));
  assert(r.notes.every(n=>n.start===0 && n.dur===3840),'одновременные ноты и их длительность сохранены');assert.equal(await p.evaluate(()=>JSON.stringify({sections,tracks:StruChordTracks.exportForSave()})),before,'экспорт не изменяет песню');
  // Слишком плотное созвучие не помещается на двух голосах виртуального строя.
  await p.evaluate(({keys,cell})=>StruChordTracks.setExactNotes(keys,cell,'Dm',[60,61,62,63,64,65,66]),ids);

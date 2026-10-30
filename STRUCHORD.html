@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.756</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.757</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -82054,10 +82054,9 @@ toggleTimeAndBeats();
 // B-39 · ЭТАП 6 (STAGE 6) — ЭКСПОРТ ВСЕХ ДОРОЖЕК
 // --------------------------------------------------------------------------
 // Что здесь:
-//  1. Одна синтетическая «партия» на каждую дорожку B-39. Ноты берутся из
-//     КАНОНИЧЕСКОЙ формулы (STAGE 0), позиции (STAGE 4) и рисунка
-//     аккомпанимента (STAGE 5) — то есть из того же самого, что звучит
-//     в приложении. Призрачные ячейки, M/S и громкость уважаются.
+//  1. Одна синтетическая партия на дорожку B-39. Клавиши используют
+//     собственное расположение и аккомпанемент, гитары — форму, строй
+//     и гитарный ритм. Призрачные ячейки, M/S и громкость уважаются.
 //  2. GPX/GPIF: дорожка с instrument 'keys' и pitchRolls. Встроенный
 //     GPIF-писатель видит не-таб-партию и пишет НАСТОЯЩИЙ НОТНЫЙ СТАН:
 //     <Octave>/<Tone> с абсолютными высотами, GM-программа 0 (фортепиано).
@@ -82071,8 +82070,8 @@ toggleTimeAndBeats();
 //  5. .struchord уже пишется моделью STAGE 1: tracks, chords, voicings,
 //     patterns, keyboardSize, activeTrackId. Здесь он только проверяется.
 //
-// R12: в этом блоке НЕТ гитарных аппликатур, струн, ладов и getChordNotes.
-// Абсолютные высоты берутся из формулы; гитарный путь приложения не тронут.
+// Гитарные струны и лады берутся из формы дорожки; клавиши остаются
+// абсолютными высотами. Звуковой планировщик и данные песни не меняются.
 //
 // R7/R6: версия, sw.js и реестр релизов НЕ зашиты в этот блок — рабочая
 // версия неизвестна, а sw.js лежит отдельным файлом. Их поднимает
@@ -82090,7 +82089,7 @@ toggleTimeAndBeats();
 
   var stats = { parts: 0, notes: 0, skippedGhost: 0, skippedRecorded: 0,
     skippedMuted: 0, octaveShifts: 0, outOfRange: 0, snapped: 0,
-    swingWrittenAsStraight: 0, gp5Unassigned: 0 };
+    swingWrittenAsStraight: 0, gp5Unassigned: 0, guitarMissingShape: 0, guitarEarlySteps: 0, guitarBrush: 0, guitarCells: 0, guitarOwnMeter: 0, guitarDead: 0 };
 
   function tracks() { return HOST.StruChordTracks || null; }
   function keys() { return HOST.StruChordKeys || null; }
@@ -82280,6 +82279,65 @@ toggleTimeAndBeats();
     return Math.max(1, Math.min(127, Math.round(90 * clamp(track.volume, 0, 100) / 100)));
   }
 
+  // Гитара экспортируется струнами и ладами, а не выдуманной позицией
+  // из формулы. Ритм повторяет выбор собственного/секционного рисунка и
+  // фазы в schedulePatternForEvent; как и другие экспорты, без свинга.
+  function guitarCellRoll(track, mainId, sec, sq, ev, ei, chord, win, globalTs, grid) {
+    stats.guitarCells++;
+    if(ev.timeSig && ev.timeSig!==(sec.timeSig||globalTs))stats.guitarOwnMeter++;
+    var span=Math.max(0.0001,Number(ev.span)||1), scale=win.span/span;
+    if (track.id===mainId && Array.isArray(ev.notes) && ev.notes.length) {
+      return accompCleanNotes(ev.notes,span).map(function(n){return Object.assign({},n,{
+        start:round4(win.start+n.start*scale),dur:round4(n.dur*scale),velocity:velocityOf(track)
+      });});
+    }
+    var ctx={secId:sec.id,squareId:sq.id,eventIndex:ei,key:sec.key||globalKey,trackId:track.id};
+    var shape=resolveShapeForScheduledChord(chord,ctx).shape;
+    if(!Array.isArray(shape) || shape.length!==6){stats.guitarMissingShape++;return [];}
+    var roll=typeof songRhythmRolls!=='undefined' && songRhythmRolls ? rhythmRollWindowFor(sec.id,sq,ei,songRhythmRolls) : null;
+    var own=roll || ev.strumPattern || null;
+    var pattern=own || getEffectiveStrumPattern(null,sq,sec);
+    var sub=pattern ? Math.max(1,pattern.subdivision||1) : 1;
+    var valid=pattern && Array.isArray(pattern.steps) && pattern.steps.length;
+    if(valid && !own && (!Number.isInteger(pattern.steps.length/sub) || pattern.steps.length/sub<1))valid=false;
+    var hits=[];
+    function add(line,fret,at,dead,brush) {
+      if(!Number.isInteger(line) || line<0 || line>=shape.length || !Number.isFinite(fret))return;
+      hits.push({start:at,string:line,fret:fret,dead:!!dead,brush:brush||null});
+    }
+    function strum(at,dead,brush) {
+      shape.forEach(function(fret,line){if(fret!=='x' && fret!==null && fret!==undefined && Number.isFinite(Number(fret)))add(line,Number(fret),at,dead,brush);});
+    }
+    if(!valid) {stats.guitarBrush++;strum(0,false,null);}
+    else {
+      var ts=getEffectiveTimeSigForEvent(ev,sec), off=getSquareEventOffsetUnits(sq,ei,ts),
+        first=own ? 0 : Math.round((((off % (pattern.steps.length/sub))+(pattern.steps.length/sub))%(pattern.steps.length/sub))*sub),
+        base=Math.round((off+(Number(pattern.gridPhase)||0))*sub), steps=Math.max(1,Math.round(span*sub));
+      for(var i=0;i<steps;i++){
+        var rel=(base+i)/sub-off, symbol=pattern.steps[(first+i)%pattern.steps.length];
+        if(rel>=span-1e-9)continue;
+        if(rel < -1e-9){stats.guitarEarlySteps++;continue;}
+        var at=Math.max(0,rel)*scale;
+        if(pattern.mode==='pick' || (pattern.mode==='mixed' && (Array.isArray(symbol) || typeof symbol==='number'))) {
+          var strings=resolvePickStepStrings(symbol,shape,chord);
+          strings.forEach(function(num){var line=6-Number(num), fret=shape[line];
+            add(line,fret==='x'||fret===null||fret===undefined ? 0 : Number(fret),at,false,null);});
+        } else if(symbol==='D' || symbol==='U') {stats.guitarBrush++;strum(at,false,symbol==='D'?'down':'up');}
+        else if(symbol==='X') {stats.guitarDead++;strum(at,true,null);}
+      }
+    }
+    var onsets=Array.from(new Set(hits.map(function(h){return round4(h.start);}))).sort(asc);
+    return hits.map(function(h){
+      var next=onsets.find(function(t){return t>h.start+1e-9;});
+      var length=Math.max(.05,(next===undefined?win.span:next)-h.start);
+      if(h.dead)length=Math.min(length,scale/sub);
+      var start=win.start+h.start;
+      if(grid){var a=snap4(start),d=Math.max(.25,snap4(length));if(a!==start||d!==length)stats.snapped++;start=a;length=d;}
+      return {start:round4(start),dur:round4(length),string:h.string,fret:h.fret,velocity:velocityOf(track),
+        ...(h.dead ? {dead:true} : {}),...(h.brush ? {brush:h.brush} : {})};
+    });
+  }
+
   // ---------- Сборка синтетических партий ----------
   function buildParts(songData, opts) {
     if (!hasTracks()) return [];
@@ -82293,7 +82351,7 @@ toggleTimeAndBeats();
     var globalTs = (songData && songData.globalTimeSig) || '4/4';
     var out = [];
     stats.notes = 0; stats.octaveShifts = 0; stats.skippedGhost = 0;
-    stats.skippedRecorded = 0; stats.skippedMuted = 0; stats.outOfRange = 0; stats.gp5Unassigned = 0;
+    stats.skippedRecorded = 0; stats.skippedMuted = 0; stats.outOfRange = 0; stats.gp5Unassigned = 0; stats.guitarMissingShape = 0; stats.guitarEarlySteps = 0; stats.guitarBrush = 0; stats.guitarCells = 0; stats.guitarOwnMeter = 0; stats.guitarDead = 0; stats.snapped = 0;
 
     st.tracks.forEach(function (track) {
       if (track.mute === true || (anySolo && track.solo !== true)) { stats.skippedMuted++; return; }
@@ -82318,9 +82376,13 @@ toggleTimeAndBeats();
             var cell = String(sec.id) + ':' + String(sq.id) + ':' + String(ei);
             var chord = null;
             try { chord = T.trackChord(track.id, cell, ev); } catch (e) {}
-            if (Array.isArray(ev.notes) && ev.notes.length && !(isKeys && T.exactNotes(track.id,cell,chord))) { stats.skippedRecorded++; continue; }
             if (!chord) { stats.skippedGhost++; continue; }
             var win = windowUnits(sec, sq, ei, ts);
+            if(!isKeys){
+              var guitar=guitarCellRoll(track,st.mainTrackId,sec,sq,ev,ei,chord,win,globalTs,grid);
+              guitar.forEach(function(n){if(stats.notes<MAX_NOTES){tabList.push(n);stats.notes++;}});
+              continue;
+            }
             var span = Math.max(0.25, Number(win.span) || Number(ev.span) || 1);
             var notes = voicingFor(track, chord, secKey, cell);
             if (!notes.length) continue;
@@ -82344,14 +82406,14 @@ toggleTimeAndBeats();
           }
         });
         if (list.length) pitchRolls[String(sec.id)] = list;
-        if (gp5 && list.length) {
+        if (gp5 && isKeys && list.length) {
           var positions=gp5Positions(list);
           list.forEach(function(n,i){
             var pos=positions[i];
             if(pos)tabList.push({start:n.start,dur:n.dur,string:pos.string,fret:pos.fret,velocity:n.velocity,voice:1});
           });
         }
-        if (gp5 && tabList.length) rolls[String(sec.id)] = tabList;
+        if (tabList.length) rolls[String(sec.id)] = tabList;
       });
 
       var base = {
@@ -82364,7 +82426,10 @@ toggleTimeAndBeats();
         b39TrackId: track.id,
         b39Instrument: track.instrument
       };
-      if (gp5) {
+      if (!isKeys) {
+        out.push(Object.assign({},base,{instrument:'guitar',viewMode:'tab',strings:gpExportSongTuning(songData),
+          capo:Number(songData.capo)||0,rolls:rolls,pitchRolls:{}}));
+      } else if (gp5) {
         // GP5-писатель умеет только струны: даём ему виртуальный строй
         // из семи октав и явно рассчитанные струна/лад.
         out.push(Object.assign({}, base, {
@@ -82391,6 +82456,24 @@ toggleTimeAndBeats();
     if (report) {
       try {
         if (typeof gpExportGain === 'function') gpExportGain(report, 'Дорожки B-39 вынесены отдельно', parts.length);
+        if (stats.guitarCells && typeof gpExportLoss === 'function') {
+          gpExportLoss(report,'Гитара: длительности нот записаны приблизительно, без естественного затухания струн');
+        }
+        if (stats.guitarOwnMeter && typeof gpExportLoss === 'function') {
+          gpExportLoss(report,'Гитара: собственный размер ячейки перенесён приближённо в размер секции',stats.guitarOwnMeter);
+        }
+        if (stats.guitarBrush && typeof gpExportLoss === 'function') {
+          gpExportLoss(report,'Гитара: направление и разнос струн удара не перенесены; ноты записаны одновременно',stats.guitarBrush);
+        }
+        if (stats.guitarDead && typeof gpExportLoss === 'function') {
+          gpExportLoss(report,'Гитара: шумовой удар X заменён приближёнными заглушёнными нотами',stats.guitarDead);
+        }
+        if (stats.guitarMissingShape && typeof gpExportLoss === 'function') {
+          gpExportLoss(report,'Гитара: нет формы для аккорда, ячейка не экспортирована',stats.guitarMissingShape);
+        }
+        if (stats.guitarEarlySteps && typeof gpExportLoss === 'function') {
+          gpExportLoss(report,'Гитара: удар перед началом ячейки не экспортирован',stats.guitarEarlySteps);
+        }
         if (opts.gp5 && stats.gp5Unassigned && typeof gpExportLoss === 'function') {
           gpExportLoss(report, 'GP5: одновременные ноты не помещаются на виртуальных струнах в двух голосах', stats.gp5Unassigned);
         }
@@ -83450,10 +83533,9 @@ toggleTimeAndBeats();
 
   function midiExportRun() {
     // B-39 STAGE6: MIDI получает все дорожки абсолютными высотами.
-    const data = window.StruChordExport
-      ? window.StruChordExport.withTracks(serializeCurrentSong({ includeGpAssetData: false }))
-      : serializeCurrentSong({ includeGpAssetData: false });
-    const report = { format: 'MIDI (.mid), SMF format 1', transferred: [], losses: [], fileName: gpExportFileBase(data) + '.mid' };
+    const raw = serializeCurrentSong({ includeGpAssetData: false });
+    const report = { format: 'MIDI (.mid), SMF format 1', transferred: [], losses: [], fileName: gpExportFileBase(raw) + '.mid' };
+    const data = window.StruChordExport ? window.StruChordExport.withTracks(raw,{report}) : raw;
     const model = midiExportBuild(data, report), result = midiExportWrite(model, report);
     report.stats = result.stats; report.bytes = result.bytes.length;
     gpExportGain(report, 'Звучащие ноты', result.stats.notes);
