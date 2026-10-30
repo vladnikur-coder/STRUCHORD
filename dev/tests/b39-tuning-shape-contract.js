@@ -1,0 +1,13 @@
+/* Независимые формы при возврате к прежнему строю; опт-ин до готовности. */
+const assert=require('assert'),pp=require('puppeteer');
+if(process.env.B39_TEST_TUNING_CONTRACT!=='1'){console.log('Контракт форм и строя отключён до завершения реализации');process.exit(0)}
+(async()=>{let b=await pp.launch({executablePath:process.env.PUPPETEER_EXECUTABLE_PATH||'/tmp/chromium',args:['--no-sandbox']});try{let p=await b.newPage();p.on('dialog',d=>d.accept());await p.goto(process.env.STRUCHORD_URL||'http://127.0.0.1:8017/STRUCHORD.html');let x=await p.evaluate(()=>{startNewSongFromHome();addSection('Verse');let T=StruChordTracks,s=sections[0],q=s.squares[0],e=q.events[0];e.chord='C';e.fingering='x,3,2,0,1,0';let cell=T.cellKey(s,q,0),id=T.addTrack('guitar');T.setTrackChord(id,cell,'C');T.setGuitarShape(id,cell,'C',['x',3,2,0,1,0],[],null);return{id,cell}});
+ await p.evaluate(({id,cell})=>{let T=StruChordTracks;T.setTuning(id,{id:'drop-d',notes:null});T.setGuitarShape(id,cell,'C',[0,3,2,0,1,0],[],null);T.setTuning(id,{id:'e-std',notes:null})},x);
+ assert.deepStrictEqual(await p.evaluate(({id,cell})=>StruChordTracks.guitarShape(id,cell,'C')?.shape,x),['x',3,2,0,1,0],'возврат восстанавливает форму активной дополнительной гитары');
+ await p.evaluate(({id})=>StruChordTracks.setTuning(id,{id:'drop-d',notes:null}),x);assert.deepStrictEqual(await p.evaluate(({id,cell})=>StruChordTracks.guitarShape(id,cell,'C')?.shape,x),[0,3,2,0,1,0],'сохранена форма второго строя');
+ // Главная форма живёт в событии; после смены и возврата восстанавливается.
+ await p.evaluate(()=>{let T=StruChordTracks;T.setActive(1);T.setTuning(1,{id:'drop-d',notes:null});let e=sections[0].squares[0].events[0];e.fingering='0,3,2,0,1,0';e.fingeringTuning=tuningKeySuffix();T.setTuning(1,{id:'e-std',notes:null})});
+ assert.equal(await p.evaluate(()=>sections[0].squares[0].events[0].fingering),'x,3,2,0,1,0','возвращается форма главной гитары');
+ await p.evaluate(()=>StruChordTracks.setTuning(1,{id:'drop-d',notes:null}));assert.equal(await p.evaluate(()=>sections[0].squares[0].events[0].fingering),'0,3,2,0,1,0');
+ await p.evaluate(async()=>{let file=await exportStruchordFile();localStorage.setItem('struchord_songs',JSON.stringify([file]));loadSong(0)});await p.evaluate(()=>StruChordTracks.setTuning(1,{id:'e-std',notes:null}));assert.equal(await p.evaluate(()=>sections[0].squares[0].events[0].fingering),'x,3,2,0,1,0','обе формы сохранены после загрузки');
+ console.log('Формы отдельных строёв сохраняются и возвращаются — OK');}finally{await b.close()}})().catch(e=>{console.error(e);process.exit(1)});
