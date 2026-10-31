@@ -4,7 +4,7 @@
 
 ## Источники и права
 
-52 файла встроены непосредственно в HTML: 16 пианино Tone.js/Salamander, 15 WAV jRhodes GM, 7 MP3 piano-block organ, 14 MP3 FluidR3 warm pad из educandu. Контрольные суммы, оригинальные пути и закреплённые редакции — в `dev/assets/keyboard/manifest.json`; `dev/tests/b39-sampled-manifest-0769.js` сверяет все встроенные файлы. Оригинальная разметка и уведомление о CC0 для jRhodes GM — `dev/assets/keyboard/jRhodes-GM.sfz`. Источники, условия и тексты MIT находятся в `dev/assets/keyboard/NOTICE.txt`, а также встроены в автономный HTML и доступны по кнопке «Источники звуков» в настройках клавиатуры. Исследование лицензий: `dev/specs/keyboard-timbre-research.md`.
+52 файла встроены непосредственно в HTML: 16 пианино Tone.js/Salamander, 15 WAV jRhodes GM, 7 MP3 piano-block organ, 14 MP3 FluidR3 warm pad из educandu. Контрольные суммы, оригинальные пути и закреплённые редакции — в `dev/assets/keyboard/manifest.json`; `dev/tests/b39-sampled-manifest-0769.js` сверяет все встроенные файлы. Оригинальная разметка и уведомление о CC0 для jRhodes GM — `dev/assets/keyboard/jRhodes-GM.sfz`. Источники, условия и тексты MIT находятся в `dev/assets/keyboard/NOTICE.txt`, а также встроены в автономный HTML; с 0.770 доступны в общих настройках приложения на вкладке «Инструменты». Исследование лицензий: `dev/specs/keyboard-timbre-research.md`.
 
 Для воспроизводимости: `python3 dev/tools/fetch-b39-sample-sources.py` скачивает указанные версии через `gh` в `/tmp/struchord-tone-assets`; патч проверяет SHA-256 по манифесту. Он предназначен для HTML 0.768 и не должен запускаться повторно на уже обновлённом файле.
 
