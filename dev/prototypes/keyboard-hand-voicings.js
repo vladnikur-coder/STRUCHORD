@@ -57,14 +57,18 @@ function candidates({low, high, bassPc, tones, shape, strictShape, preferDoublin
   // pitches, but allow fewer when the keyboard or a transition demands it.
   for (let count=Math.min(4,pcs.length); count>=Math.min(2,pcs.length); count--) {
     const base=pcs.slice(0,count), choices=[base];
-    // A triad can double its root in another octave, within the same hand span.
-    if (count===3 && pcs.length===3) choices.push(base.concat(base[0]));
+    // An octave doubling of the root or fifth can stay close to the chosen
+    // hand position; do not force a particular pitch or jump in register.
+    if (count===3 && pcs.length===3 && preferDoubling) {
+      choices.push(base.concat(base[0]));
+      choices.push(base.concat(base[2]));
+    }
     for (const choice of choices) for (const right of enumerateHand(choice,low,high,12)) for (const bass of basses) {
       if (bass >= right[0]) continue;
       const omitted=pcs.slice(count);
       const target=selected.length>1 ? center(selected.slice(1)) : Math.min(high,Math.max(low,64));
       const shapeCost=selected.length>1 ? movement(selected.slice(1),right)*0.35 + Math.abs(selected[0]-bass)*0.15 : 0;
-      const doubleBonus=choice.length>base.length ? (preferDoubling ? 70 : -12) : 0;
+      const doubleBonus=choice.length>base.length ? 12 : 0;
       const cost=Math.abs(center(right)-target)*0.8 + Math.abs(bass-43)*0.35 + (Math.min(4,pcs.length)-count)*14 + shapeCost-doubleBonus;
       out.push({left:[bass],right,omitted,cost});
     }
@@ -89,13 +93,14 @@ function planVoicing(options) {
   }
   return best?clean(best):null;
 }
-function planSequence({chords,low,high,bpm,seed}) {
+function planSequence({chords,low,high,bpm,role}) {
   if (!Array.isArray(chords) || !chords.length || chords.length>256 || !Number.isFinite(bpm) || bpm<=0) throw new TypeError('Invalid sequence');
   const layers=[];
   for (let i=0;i<chords.length;i++) {
     const chord=chords[i];
-    // Stable per-cell variation: doubling is encouraged for some cells, not all.
-    const preferDoubling=Number.isInteger(seed) && ((i + (seed >>> 0)) % 3 === 0);
+    // Full voicings are a section-level choice, not random isolated inserts.
+    // Leave short and fast changes sparse; the path still prefers smooth motion.
+    const preferDoubling=role==='chorus' && chord.beats>=2 && bpm<=140;
     const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones,shape:chord.shape,strictShape:chord.strictShape,preferDoubling});
     if (!list.length) return {ok:false,reason:'no-playable-candidate',chordIndex:i};
     const layer=[];
