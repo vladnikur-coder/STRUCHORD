@@ -5,7 +5,22 @@
  const TYPE='experimental-notes-v1';
  const T=()=>HOST.StruChordTracks;
  const getSec=id=>sections.find(s=>String(s.id)===String(id));
- function seedFor(sec,id){const p=T().patternFor(id,'s:'+sec.id);return (Number(sec.id)||1)+(Number(p&&p.autoVariation)||0)*1009;}
+ function variationOf(pattern){const n=Number(pattern && (pattern.noteVariation == null ? pattern.autoVariation : pattern.noteVariation));return Number.isInteger(n) && n>=0 && n<1000000?n:0;}
+ function seedFor(sec,id){return (Number(sec.id)||1)+variationOf(T().patternFor(id,'s:'+sec.id))*1009;}
+ function fingerprint(notes){return JSON.stringify((notes||[]).map(n=>[n.hand,n.midi,Math.round(n.beat*4),Math.round(n.duration*4)]).sort((a,b)=>a[2]-b[2]||a[1]-b[1]||a[0].localeCompare(b[0])));}
+ // Try different deterministic seeds until the written rhythm or pitches
+ // change, not merely velocity or a few milliseconds of humanisation.
+ function prepareVariation(sec,cfg,start,reference,replaceEdited,overrideSwing){
+  const track=T().track(cfg.trackId);if(!track)return {ok:false,reason:'no-track'};
+  const base=Number.isInteger(start)&&start>=0?start:0, old=reference||track.patterns;
+  for(let attempt=0;attempt<24;attempt++){
+   const variation=(base+attempt)%1000000, seed=(Number(sec.id)||1)+variation*1009;
+   const result=prepare(sec,cfg,seed,replaceEdited,overrideSwing);if(!result.ok)return result;
+   const comparable=result.writes.filter(w=>old[w.key] && old[w.key].type===TYPE);
+   if(!comparable.length || comparable.some(w=>fingerprint(w.pattern.notes)!==fingerprint(old[w.key].notes)))return {...result,variation};
+  }
+  return {ok:false,reason:'no-distinct-variation'};
+ }
  function specifications(sec,id){const t=T(),out=[];for(const q of sec.squares||[])for(let i=0;i<(q.events||[]).length;i++){
   const e=q.events[i],ts=e.timeSig||sec.timeSig||globalTimeSig,den=Number(String(ts).split('/')[1]);out.push({key:t.cellKey(sec,q,i),beats:Number(e.span)*4/den,chord:t.trackChord(id,t.cellKey(sec,q,i),e)||'',keyName:sec.key||globalKey||'C'});
  }return out;}
@@ -61,5 +76,5 @@
   try{return HOST.__keyModules.renderer.planCell(d,o.cell||'preview',{duration:o.dur,span:o.span,denominator:Number(String(o.ts||'4/4').split('/')[1])});}
   catch(e){return [{at:0,dur:o.dur,notes:[],gain:1,type:TYPE,source:'cell'}];}
  }
- HOST.StruChordNoteCandidate={prepare,commit,refresh,refreshManaged,manualTimingConflict,canMoveManual,moveManual,plan,specifications,seedFor,TYPE,getSec};
+ HOST.StruChordNoteCandidate={prepare,prepareVariation,variationOf,commit,refresh,refreshManaged,manualTimingConflict,canMoveManual,moveManual,plan,specifications,seedFor,TYPE,getSec};
 })(window);

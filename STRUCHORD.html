@@ -15495,7 +15495,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.766</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.767</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -52409,7 +52409,22 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
  const TYPE='experimental-notes-v1';
  const T=()=>HOST.StruChordTracks;
  const getSec=id=>sections.find(s=>String(s.id)===String(id));
- function seedFor(sec,id){const p=T().patternFor(id,'s:'+sec.id);return (Number(sec.id)||1)+(Number(p&&p.autoVariation)||0)*1009;}
+ function variationOf(pattern){const n=Number(pattern && (pattern.noteVariation == null ? pattern.autoVariation : pattern.noteVariation));return Number.isInteger(n) && n>=0 && n<1000000?n:0;}
+ function seedFor(sec,id){return (Number(sec.id)||1)+variationOf(T().patternFor(id,'s:'+sec.id))*1009;}
+ function fingerprint(notes){return JSON.stringify((notes||[]).map(n=>[n.hand,n.midi,Math.round(n.beat*4),Math.round(n.duration*4)]).sort((a,b)=>a[2]-b[2]||a[1]-b[1]||a[0].localeCompare(b[0])));}
+ // Try different deterministic seeds until the written rhythm or pitches
+ // change, not merely velocity or a few milliseconds of humanisation.
+ function prepareVariation(sec,cfg,start,reference,replaceEdited,overrideSwing){
+  const track=T().track(cfg.trackId);if(!track)return {ok:false,reason:'no-track'};
+  const base=Number.isInteger(start)&&start>=0?start:0, old=reference||track.patterns;
+  for(let attempt=0;attempt<24;attempt++){
+   const variation=(base+attempt)%1000000, seed=(Number(sec.id)||1)+variation*1009;
+   const result=prepare(sec,cfg,seed,replaceEdited,overrideSwing);if(!result.ok)return result;
+   const comparable=result.writes.filter(w=>old[w.key] && old[w.key].type===TYPE);
+   if(!comparable.length || comparable.some(w=>fingerprint(w.pattern.notes)!==fingerprint(old[w.key].notes)))return {...result,variation};
+  }
+  return {ok:false,reason:'no-distinct-variation'};
+ }
  function specifications(sec,id){const t=T(),out=[];for(const q of sec.squares||[])for(let i=0;i<(q.events||[]).length;i++){
   const e=q.events[i],ts=e.timeSig||sec.timeSig||globalTimeSig,den=Number(String(ts).split('/')[1]);out.push({key:t.cellKey(sec,q,i),beats:Number(e.span)*4/den,chord:t.trackChord(id,t.cellKey(sec,q,i),e)||'',keyName:sec.key||globalKey||'C'});
  }return out;}
@@ -52465,7 +52480,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
   try{return HOST.__keyModules.renderer.planCell(d,o.cell||'preview',{duration:o.dur,span:o.span,denominator:Number(String(o.ts||'4/4').split('/')[1])});}
   catch(e){return [{at:0,dur:o.dur,notes:[],gain:1,type:TYPE,source:'cell'}];}
  }
- HOST.StruChordNoteCandidate={prepare,commit,refresh,refreshManaged,manualTimingConflict,canMoveManual,moveManual,plan,specifications,seedFor,TYPE,getSec};
+ HOST.StruChordNoteCandidate={prepare,prepareVariation,variationOf,commit,refresh,refreshManaged,manualTimingConflict,canMoveManual,moveManual,plan,specifications,seedFor,TYPE,getSec};
 })(window);
 
 'use strict';
@@ -52480,7 +52495,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
   const specs=N.specifications(sec,track.id), target=scope==='event'?T.cellKey(sec,(sec.squares||[]).find(q=>q.id===squareId),index):null;
   const available=specs.filter(x=>{const p=track.patterns[x.key],v=track.voicings||{};return (!target||x.key===target)&&p&&p.type===TYPE&&!(T.exactNotes(track.id,x.key,x.chord) || Number.isInteger(v[x.key]) || Number.isInteger(v['v:'+x.chord]));});if(!available.length)return false;
   close();let working={};for(const x of available){const p=track.patterns[x.key];working[x.key]=clone(p);}
-  const initial=JSON.stringify(working),signature=JSON.stringify(track.patterns),cfg=state.autoAccomp,originalSection=clone(track.patterns['s:'+sec.id]||{});let sectionPattern=clone(originalSection),seed=(Number(sec.id)||1)+(Number(originalSection.autoVariation)||0)*1009,selected=available[0].key,selectedStep=0,dirty=false,swingNeedsRegen=false,swingTouched=false;
+  const initial=JSON.stringify(working),signature=JSON.stringify(track.patterns),cfg=state.autoAccomp,originalSection=clone(track.patterns['s:'+sec.id]||{});let sectionPattern=clone(originalSection),seed=(Number(sec.id)||1)+N.variationOf(originalSection)*1009,selected=available[0].key,selectedStep=0,dirty=false,swingNeedsRegen=false,swingTouched=false;
   if(!document.getElementById('b39PerfNoteStyle')){const css=node('style');css.id='b39PerfNoteStyle';css.textContent='#b39PerfNoteEditor{max-width:min(96vw,58rem)!important;overflow:hidden;gap:.5rem} #b39PerfNoteList{overflow:auto;min-height:5rem;max-height:48vh;flex:1 1 auto} #b39PerfNoteList .b39-acc-actions{justify-content:flex-start;align-items:end;flex-wrap:nowrap;gap:.25rem;padding:.25rem;border-bottom:1px solid var(--color-border-light)} #b39PerfNoteList label{display:flex;flex-direction:column;font-size:.72rem} #b39PerfNoteList input{width:5rem;min-width:0} #b39PerfNoteList select{width:6rem} #b39PerfNoteList input,#b39PerfNoteList select{font:inherit;color:var(--color-text-primary);background:var(--color-surface);border:.0625rem solid var(--color-border-medium);border-radius:.4rem;padding:.3rem} #b39PerfNoteGrid{justify-content:safe center;overflow-x:auto} #b39PerfNoteEditor > .b39-acc-actions{flex-shrink:0}';document.head.appendChild(css);}
   overlay=node('div','strum-modal-overlay b39-auto-overlay');const box=node('div','strum-modal-content b39-acc-editor');box.id='b39PerfNoteEditor';box.setAttribute('role','dialog');box.setAttribute('aria-modal','true');box.setAttribute('aria-label','Редактор нот аккомпанемента');
   box.appendChild(node('div','pattern-presets-head','Аккомпанемент'));const selector=node('select','b39-acc-genre');selector.id='b39PerfNoteCell';selector.setAttribute('aria-label','Ячейка');box.appendChild(selector);
@@ -52506,7 +52521,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
   const preview=node('button','b39-acc-action','Прослушать ячейку');preview.type='button';preview.id='b39PerfNotePreview';preview.onclick=()=>{if(stop){stop();stop=null;}const p=working[selected],spec=specs.find(x=>x.key===selected);if(!p||!spec||!spec.chord)return;const ctx=getAudioContext();if(HOST.resumeAudioContext)HOST.resumeAudioContext();const ts=sec.timeSig||globalTimeSig||'4/4',den=Number(ts.split('/')[1]),span=p.beats*den/4;stop=HOST.StruChordAudio.previewPattern(spec.chord,ctx,track.id,spec.keyName,p,{scope:'cell',span,bpm:getEffectiveBpm(sec),ts,sec,cell:selected});};buttons.appendChild(preview);
   if(scope!=='event' && cfg && cfg.trackId===track.id && cfg.managed[String(sec.id)]){
    const regen=node('button','b39-acc-action','Создать другой рисунок');regen.type='button';regen.id='b39PerfNoteRegenerate';regen.onclick=()=>{const manually=Object.values(working).some(p=>p.status==='manual');let replace=false;if(manually){if(!HOST.confirm('Заменить вручную изменённые ноты этой секции?'))return;replace=true;}
-    seed=(Number(sec.id)||1)+(((Number(sectionPattern.autoVariation)||0)+1)%4)*1009;const proposedCfg={...cfg,swing:swing.checked};let result=N.prepare(sec,proposedCfg,seed,replace,swingTouched?swing.checked:undefined);if(!result.ok){status.textContent='Не удалось создать партию: проверьте аккорды, размер и диапазон.';return;}for(const w of result.writes)working[w.key]=clone(w.pattern);for(const key of result.clear)delete working[key];if(swingTouched){sectionPattern.swing=swing.checked;sectionPattern.autoSwing=true;}sectionPattern.autoVariation=((Number(sectionPattern.autoVariation)||0)+1)%4;dirty=true;swingNeedsRegen=false;render();status.textContent='Новый рисунок ещё не сохранён';};buttons.appendChild(regen);
+    const proposedCfg={...cfg,swing:swing.checked};let result=N.prepareVariation(sec,proposedCfg,N.variationOf(sectionPattern)+1,working,replace,swingTouched?swing.checked:undefined);if(!result.ok){status.textContent=result.reason==='no-distinct-variation'?'Не удалось создать отличающийся рисунок без изменения настроек.':'Не удалось создать партию: проверьте аккорды, размер и диапазон.';return;}if(!result.writes.length){status.textContent='Нет доступных для генерации нот; ручные рисунки сохранены.';return;}for(const w of result.writes)working[w.key]=clone(w.pattern);for(const key of result.clear)delete working[key];if(swingTouched){sectionPattern.swing=swing.checked;sectionPattern.autoSwing=true;}sectionPattern.noteVariation=result.variation;seed=(Number(sec.id)||1)+result.variation*1009;dirty=true;swingNeedsRegen=false;render();status.textContent='Новый рисунок ещё не сохранён';};buttons.appendChild(regen);
   }
   swing.onchange=()=>{const before=!swing.checked;const nextCfg={...cfg,swing:swing.checked};const result=N.prepare(sec,nextCfg,seed,false,swing.checked);if(!result.ok){swing.checked=before;status.textContent='Не удалось изменить Swing для этой партии.';return;}
     for(const w of result.writes)if(!working[w.key]||working[w.key].status!=='manual')working[w.key]=clone(w.pattern);
@@ -52570,7 +52585,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
       var alt=base.length-1;base[alt]=base[alt]==='A'?'M':'A';
     }
     var swing=previous && previous.autoSwing===true && typeof previous.swing==='boolean' ? previous.swing : null;
-    return {type:id,subdivision:2,swing:swing,steps:base,autoGenerated:true,autoSwing:true,autoVariation:variation};
+    return {type:id,subdivision:2,swing:swing,steps:base,autoGenerated:true,autoSwing:true,autoVariation:variation,...(previous && Number.isInteger(previous.noteVariation)?{noteVariation:previous.noteVariation}:{})};
   }
   function auto(){var t=T();return t && t.state().autoAccomp;}
   function manual(sec,cfg){var v=T().patternFor(cfg.trackId,'s:'+sec.id);return !v || v.autoGenerated!==true;}
@@ -52642,16 +52657,16 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
       var conflicts=selected.filter(function(sec){var raw=track.patterns['s:'+sec.id];return raw && !(same && old.managed[String(sec.id)] && raw.autoGenerated===true);});
       if(conflicts.length && !HOST.confirm('Заменить собственные рисунки секций: '+conflicts.length+'? Если отказаться, они сохранятся; остальные выбранные секции обновятся.')) selected=selected.filter(function(sec){return conflicts.indexOf(sec)<0;});
       var next={primary:primary.value,secondary:secondary.value||null,trackId:dialogTrack,managed:managed,autoBass:true,swing:swing.checked,engine:'notes-v1',shapeAware:true,followShape:shape.checked};
-      var prepared=selected.map(function(sec){return {sec:sec,result:HOST.StruChordNoteCandidate.prepare(sec,next,HOST.StruChordNoteCandidate.seedFor(sec,next.trackId))};});
-      if(prepared.some(function(x){return !x.result.ok;})){if(HOST.showToast)HOST.showToast(shape.checked ? 'Не удалось сыграть выбранную форму: проверьте размах, диапазон и переходы между аккордами' : 'Не удалось создать партию: проверьте аккорды, размер и диапазон');return;}
+      var prepared=selected.map(function(sec){var N=HOST.StruChordNoteCandidate,previous=T().patternFor(next.trackId,'s:'+sec.id),start=previous && previous.autoGenerated===true ? N.variationOf(previous)+1 : 0;return {sec:sec,result:N.prepareVariation(sec,next,start)};});
+      if(prepared.some(function(x){return !x.result.ok;})){if(HOST.showToast)HOST.showToast(prepared.some(function(x){return x.result.reason==='no-distinct-variation';}) ? 'Не удалось создать отличающийся рисунок без изменения настроек' : shape.checked ? 'Не удалось сыграть выбранную форму: проверьте размах, диапазон и переходы между аккордами' : 'Не удалось создать партию: проверьте аккорды, размер и диапазон');return;}
       var keys=new Set(Object.keys(track.patterns));prepared.forEach(function(x){x.result.clear.forEach(function(k){keys.delete(k);});x.result.writes.forEach(function(w){keys.add(w.key);});keys.add('s:'+x.sec.id);});
       if(keys.size>4096){if(HOST.showToast)HOST.showToast('Слишком много рисунков на дорожке');return;}
       HOST.songStore.dispatch('b39/auto-apply',function(){
         prepared.forEach(function(x){HOST.StruChordNoteCandidate.commit(dialogTrack,x.result);});
-        selected.forEach(function(sec){var prior=track.patterns['s:'+sec.id],pattern=makePattern(sec,next.primary,next.secondary,{previous:prior,variation:prior && prior.autoVariation});if(pattern){T().setPattern(dialogTrack,'s:'+sec.id,pattern);T().setBassRole(dialogTrack,sec.id,'auto');next.managed[String(sec.id)]=true;}});
+        selected.forEach(function(sec){var prior=track.patterns['s:'+sec.id],pattern=makePattern(sec,next.primary,next.secondary,{previous:prior,variation:prior && prior.autoVariation});if(pattern){var generated=prepared.find(function(x){return x.sec===sec;});if(generated && generated.result.writes.length)pattern.noteVariation=generated.result.variation;T().setPattern(dialogTrack,'s:'+sec.id,pattern);T().setBassRole(dialogTrack,sec.id,'auto');next.managed[String(sec.id)]=true;}});
         T().setAutoAccomp(next);T().setLinkedVoicings(dialogTrack,link.checked);
       },{history:'atomic'});
-      close();if(HOST.showToast)HOST.showToast('Автоаккомпанемент обновлён');
+      var anyGenerated=prepared.some(function(x){return x.result.writes.length>0;});close();if(HOST.showToast)HOST.showToast(anyGenerated?'Автоаккомпанемент обновлён':'Нет доступных ячеек для генерации; ручные рисунки сохранены');
     });
     actions.appendChild(cancel);actions.appendChild(apply);
     if(cfg && cfg.trackId===dialogTrack){var off=element('button','b39-acc-action','Отключить авто');off.type='button';off.id='b39AutoOff';off.addEventListener('click',function(){HOST.songStore.dispatch('b39/auto-off',function(){
