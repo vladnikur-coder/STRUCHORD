@@ -1,8 +1,8 @@
-// Offline keyboard sample decoder; data is embedded by patch-b39-sampled-timbres.py.
+// Offline keyboard sample decoder; data comes from keyboard-sounds.js next to the app.
 // No network requests and no synthesized substitution while samples load.
 (function (HOST) {
   'use strict';
-  const banks=HOST.__b39SampleData, ready=new Map(), pending=new Map();
+  const banks=HOST.__b39SampleData || {}, ready=new Map(), pending=new Map();
   function binary(base64){const s=HOST.atob(base64),a=new Uint8Array(s.length);for(let i=0;i<s.length;i++)a[i]=s.charCodeAt(i);return a.buffer;}
   // Crossfade a copy of the recorded tail into its loop start. MP3 has no
   // reliable original loop metadata. This is not a Leslie simulation.

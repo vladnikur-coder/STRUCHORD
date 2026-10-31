@@ -12,7 +12,7 @@
 // (например, struchord-v2) — иначе браузер продолжит показывать
 // старую закэшированную версию, потому что имя кэша не поменялось.
 
-const CACHE_NAME = 'struchord-v770';
+const CACHE_NAME = 'struchord-v771';
 
 // Список файлов, которые нужно закэшировать сразу при установке.
 // './' добавлен на случай, если приложение открывают по адресу
@@ -20,7 +20,7 @@ const CACHE_NAME = 'struchord-v770';
 // 0.698: иконки приложения из manifest.json — часть PWA-пакета: без них
 // установленное приложение на «Домой» получает пустую заглушку, если
 // сеть недоступна в момент первой отрисовки.
-const APP_SHELL = ['./', './STRUCHORD.html', './manifest.json', './icon-192.png', './icon-512.png', './icon-512-maskable.png', './uploads/220.mp3', './uploads/грохочет гром.mp3', './uploads/ofont.ru_Izhitsa.ttf'];
+const APP_SHELL = ['./', './STRUCHORD.html', './keyboard-sounds.js', './manifest.json', './icon-192.png', './icon-512.png', './icon-512-maskable.png', './uploads/220.mp3', './uploads/грохочет гром.mp3', './uploads/ofont.ru_Izhitsa.ttf'];
 
 self.addEventListener('install', (event) => {
   // skipWaiting — новая версия SW начинает работать сразу, не дожидаясь
@@ -49,7 +49,7 @@ self.addEventListener('activate', (event) => {
 
 self.addEventListener('fetch', (event) => {
   // Обрабатываем только GET-запросы того же происхождения (сам файл
-  // приложения). Остального в STRUCHORD и нет — всё встроено в HTML.
+  // приложения и файл клавишных звуков рядом с ним).
   if (event.request.method !== 'GET') return;
 
   // B-66.2.3: Range-запросы (206 Partial Content). Safari воспроизводит

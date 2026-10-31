@@ -3,6 +3,7 @@
 from pathlib import Path
 import json,base64,hashlib,sys,os
 root=Path(__file__).resolve().parents[1]; p=Path(sys.argv[1]); s=p.read_text(); assets=Path(os.environ.get('B39_SAMPLE_ROOT','/tmp/struchord-tone-assets')); manifest=json.loads((root/'assets/keyboard/manifest.json').read_text()); data={}
+if 'keyboard-sounds.js' in s:raise SystemExit('Sounds are already in keyboard-sounds.js; do not inline them again')
 for mode,items in manifest['banks'].items():
  bank='acoustic' if mode=='piano' else mode
  data[bank]=[]
