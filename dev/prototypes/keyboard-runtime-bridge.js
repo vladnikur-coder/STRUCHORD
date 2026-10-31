@@ -43,7 +43,7 @@ function prepareSection(o) {
   const range=tracks.keyRange(trackId);
   if(!range) return {ok:false,reason:'invalid-range'};
   try {
-    const result=buildSection({cells,low:range.low,high:range.high,bpm:o.bpm,meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,seed:o.seed});
+    const result=buildSection({cells,low:range.low,high:range.high,bpm:o.bpm,meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,rhythmVersion:o.rhythmVersion,seed:o.seed});
     if (!result.ok) return result;
     // Each repeated square/section reuses the same cell events. Reserve enough
     // time for last -> first as well as the ordinary linear successor.

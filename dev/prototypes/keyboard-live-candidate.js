@@ -15,7 +15,7 @@
   const base=Number.isInteger(start)&&start>=0?start:0, old=reference||track.patterns;
   for(let attempt=0;attempt<24;attempt++){
    const variation=(base+attempt)%1000000, seed=(Number(sec.id)||1)+variation*1009;
-   const result=prepare(sec,cfg,seed,replaceEdited,overrideSwing);if(!result.ok)return result;
+   const result=prepare(sec,cfg,seed,replaceEdited,overrideSwing,2);if(!result.ok)return result;
    const comparable=result.writes.filter(w=>old[w.key] && old[w.key].type===TYPE);
    if(!comparable.length || comparable.some(w=>fingerprint(w.pattern.notes)!==fingerprint(old[w.key].notes)))return {...result,variation};
   }
@@ -30,11 +30,11 @@
   const variants=keys.generateKeysVoicings(chord,key,t.keyRange(id),null,{});if(!variants.length)return null;
   return variants[keys.variantIndex(id,chord,cell)%variants.length].slice();
  }
- function prepare(sec,cfg,seed,replaceEdited,overrideSwing){
+ function prepare(sec,cfg,seed,replaceEdited,overrideSwing,overrideRhythmVersion){
   const t=T(),track=t.track(cfg.trackId);if(!track||track.instrument!=='keys')return {ok:false,reason:'no-track'};
   // Own unedited generated cells are candidates for replacement, not manual.
   const patterns={...track.patterns};Object.keys(patterns).forEach(k=>{const v=patterns[k];if(v && v.type===TYPE && (v.status==='generated' || replaceEdited===true))delete patterns[k];});
-  const shadow={...track,patterns};let g=HOST.__keyModules.bridge.prepareSection({section:sec,track:shadow,trackId:cfg.trackId,tracks:t,formula:HOST.StruChordFormula.chordFormula,globalKey,globalTimeSig,bpm:getEffectiveBpm(sec),genre:cfg.primary,secondary:cfg.secondary,role:String(sec.type||'Verse').toLowerCase(),shapeAware:cfg.shapeAware===true,strictShape:cfg.followShape===true,selectedShape,swing:!!cfg.swing,sectionSwing:typeof overrideSwing==='boolean'?overrideSwing:(()=>{let p=track.patterns['s:'+sec.id];return p && typeof p.swing==='boolean'?p.swing:null})(),seed:seed|0});
+  const shadow={...track,patterns};let g=HOST.__keyModules.bridge.prepareSection({section:sec,track:shadow,trackId:cfg.trackId,tracks:t,formula:HOST.StruChordFormula.chordFormula,globalKey,globalTimeSig,bpm:getEffectiveBpm(sec),genre:cfg.primary,secondary:cfg.secondary,role:String(sec.type||'Verse').toLowerCase(),shapeAware:cfg.shapeAware===true,strictShape:cfg.followShape===true,selectedShape,swing:!!cfg.swing,sectionSwing:typeof overrideSwing==='boolean'?overrideSwing:(()=>{let p=track.patterns['s:'+sec.id];return p && typeof p.swing==='boolean'?p.swing:null})(),rhythmVersion:overrideRhythmVersion===2 || (overrideRhythmVersion==null && track.patterns['s:'+sec.id] && track.patterns['s:'+sec.id].rhythmVersion===2)?2:1,seed:seed|0});
   if(!g.ok)return g;
   const specs=specifications(sec,cfg.trackId), writes=[],clear=[];
   for(const spec of specs){const old=track.patterns[spec.key];if(Object.prototype.hasOwnProperty.call(g.events,spec.key)){

@@ -43,7 +43,7 @@ function buildSection(options) {
     let j=i;while(j<items.length && items[j].type==='generate')j++;
     const part=items.slice(i,j);
     const chords=part.map(({cell})=>({bassPc:cell.chord.bassPc,tones:cell.chord.tones.slice(),beats:cell.beats,shape:cell.shape,strictShape:cell.strictShape===true}));
-    const gen=generatePerformance({chords,low:o.low,high:o.high,bpm:o.bpm,meter:o.meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,seed:(o.seed+i)|0});
+    const gen=generatePerformance({chords,low:o.low,high:o.high,bpm:o.bpm,meter:o.meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,rhythmVersion:o.rhythmVersion,seed:(o.seed+i)|0});
     if(!gen.ok) return {ok:false,reason:gen.reason,cellKey:part[gen.chordIndex].cell.key,events:{},decisions:{},preserved:[]};
     let start=0;
     for(let n=0;n<part.length;n++) {

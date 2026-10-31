@@ -14,6 +14,20 @@ const GENRES = Object.freeze({
   funk:    {chord:0.42, arp:0.08, offbeat:0.37, length:0.32},
   fusion:   {chord:0.38, arp:0.24, offbeat:0.30, length:0.48}
 });
+// Two-bar gesture vocabularies authored for this generator, not MIDI phrases.
+// C = chord, p = two notes, s = one note, . = space; eighth-note positions.
+// The original procedural groove remains one of the available families.
+const GROOVES = Object.freeze({
+ pop:     ['C.s.p.s.','C.sp..s.','C...p.s.','C.s..ps.'],
+ rock:    ['C...C.p.','C.p.C...','C...C..p','C.p.C.p.'],
+ punk:    ['C.C.C.C.','C.C.p..C','C..pC.C.','C.C..pC.'],
+ country: ['C.s.s.s.','C.ss.s.s','C.s.ps.s','C.ss.s..'],
+ blues:   ['C..pC..p','C.p..p.s','C..sC.p.','C.p.s..p'],
+ jazz:    ['C..p..p.','C.p..p..','C..p.p..','C...p..p'],
+ soul:    ['C...p...','C..p..s.','C...p..s','C..s..p.'],
+ funk:    ['C.p.p..p','C..pp.p.','C.p..pp.','C..p.pp.'],
+ fusion:  ['C.s.p.ss','C..sp.sp','C.sp.s.p','C.s..sps']
+});
 const ROLE = Object.freeze({intro:0.72, verse:0.82, prechorus:1.0, chorus:1.16, bridge:0.94, solo:0.72, outro:0.62, custom:0.9});
 const METERS = Object.freeze({'4/4':4, '3/4':3, '6/8':3}); // quarter-note beats per measure
 function rng(seed) {
@@ -49,6 +63,9 @@ function generatePerformance(options) {
       !Object.hasOwn(ROLE, role) || !Number.isInteger(seed) || typeof swing !== 'boolean') throw new TypeError('Invalid performance request');
   const useSwing = resolveSwing(swing, sectionSwing), human = rng(seed ^ 0x6d2b79f5), beatsPerBar = METERS[meter];
   let beat = 0;
+  // Old saved sections retain their original algorithm until explicitly
+  // regenerated. New sections mix the old and several structured gestures.
+  const modern=o.rhythmVersion===2, family=Math.floor(motifRandom(seed,0,beatsPerBar,17)*5);
   const notes = [], decisions = [], gestures = [];
   // Look ahead through the whole phrase rather than greedily choosing each
   // chord. Bounds are heuristics, not a physical fingering model.
@@ -95,7 +112,21 @@ function generatePerformance(options) {
       const baseline=isSixteenth ? (sixteenthScale ? 0.11 : 0) : isOff ? 0.33 : 0.62;
       const probability = Math.min(0.9, Math.max(baseline*strength,(isSixteenth ? profile.offbeat*sixteenthScale : isOff ? profile.offbeat*1.4 : profile.chord*1.15)*strength) + strong*0.10);
       const roll = choose(1), anchor = step % 8 === 0 && !isSixteenth;
-      if (roll < probability || sectionStart || anchor) {
+      if (modern && family!==0) {
+        // Eighth-note gestures form contrasting two- and four-bar phrases;
+        // the bar changes the answer rather than repeating the same contour.
+        const bar=Math.floor(step/(beatsPerBar*4)), pos=Math.floor((step%(beatsPerBar*4))/2);
+        const grooveGenre=secondary && local>=beatsPerBar-1 ? secondary : genre;
+        const pairSeed=seed ^ Math.imul(Math.floor(bar/2)+1,0x9e3779b1);
+        const lead=(family-1+Math.floor(motifRandom(pairSeed,0,beatsPerBar,20)*4))%4;
+        const answer=1+Math.floor(motifRandom(pairSeed,0,beatsPerBar,21)*3);
+        const pattern=GROOVES[grooveGenre][(lead+(bar%2?answer:0))%4];
+        const mark=step%2===0 ? pattern[pos] : '.';
+        if(sectionStart)rightMode='chord';
+        else if(mark==='C')rightMode='chord';
+        else if(mark==='p')rightMode='partial';
+        else if(mark==='s')rightMode='single';
+      } else if (roll < probability || sectionStart || anchor) {
         rightMode = isSixteenth && !sectionStart ? 'single' : (choose(2)<0.52 && voice.right.length>2 ? 'partial' : 'chord');
       } else if (choose(3) < profile.arp * 1.2 * strength * (isSixteenth ? sixteenthScale : 1)) rightMode = 'single';
       const baseDuration = Math.max(0.01, (isSixteenth ? next-at : swingAt(step+2,useSwing)-at)*profile.length);
@@ -129,7 +160,10 @@ function generatePerformance(options) {
       else if (rightMode === 'partial') {
         const startIndex=Math.floor(choose(4)*(voice.right.length-1));
         emit('right',voice.right.slice(startIndex,startIndex+2),72);
-      } else if (rightMode === 'single') emit('right',[voice.right[Math.floor(choose(4)*voice.right.length)]],66);
+      } else if (rightMode === 'single') {
+        const position=modern && family!==0 ? (Math.floor(step/2)+Math.floor(step/(beatsPerBar*4))+family)%voice.right.length : Math.floor(choose(4)*voice.right.length);
+        emit('right',[voice.right[position]],66);
+      }
     }
     const emitted = notes.slice(notesBefore);
     if (!emitted.some(n => n.hand === 'left') || !emitted.some(n => n.hand === 'right')) return {ok:false,reason:'not-enough-transition-time',chordIndex:index,notes:[],decisions:[]};
