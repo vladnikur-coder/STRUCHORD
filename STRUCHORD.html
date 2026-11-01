@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.772</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.773</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -38142,7 +38142,9 @@ function applyKeyChangeOnly(newGlobalKey, oldGlobalKey, opts, transition = {}) {
     ? transition.previousEffectiveKey
     : getActiveWheelHarmonyEffectiveKey(oldGlobalKey);
   songStore.dispatch('key/change-only', () => {
+    const previousKeys = new Map();
     for (const s of sections) {
+      previousKeys.set(s.id, s.key || oldGlobalKey);
       if (s.key) {
         let shift = s.shift;
         if (shift === undefined || shift === null) shift = getRawSemitonesBetween(oldGlobalKey, s.key);
@@ -38151,7 +38153,7 @@ function applyKeyChangeOnly(newGlobalKey, oldGlobalKey, opts, transition = {}) {
       }
     }
     globalKey = newGlobalKey;
-    applyEnharmonicCorrectionToAll();
+    applyEnharmonicCorrectionToAll((s) => previousKeys.get(s.id) || oldGlobalKey);
   }, opts);
   const hasNextOverride = Object.prototype.hasOwnProperty.call(transition, 'nextEffectiveKey');
   const nextEffectiveKey = hasNextOverride
@@ -38899,9 +38901,15 @@ function setReadableChordNamesEnabled(enabled) {
   return next;
 }
 window.setReadableChordNamesEnabled = setReadableChordNamesEnabled;
-function applyEnharmonicCorrectionToAll() {
+// previousKeyOf — тональность секции ДО правки. Нужна, когда меняется сама
+// тональность: свои формы аккорда лежат под парой «аккорд|тональность», и без
+// старого ключа они остаются под прежним адресом и пропадают из ячейки.
+function applyEnharmonicCorrectionToAll(previousKeyOf) {
   let ch = false;
-  for (const s of sections) ch = applyEnharmonicCorrectionToSection(s) || ch;
+  for (const s of sections) {
+    const previousKey = typeof previousKeyOf === 'function' ? previousKeyOf(s) : previousKeyOf;
+    ch = applyEnharmonicCorrectionToSection(s, previousKey) || ch;
+  }
   if (ch) requestRender();
 }
 // 0.263: секционный вариант — написание ВСЕХ аккордов секции под стиль
@@ -38909,9 +38917,10 @@ function applyEnharmonicCorrectionToAll() {
 // transposeChord сохраняет старое написание каждого аккорда, и после
 // модуляции в кросс-стилевую тональность (диезная песня → бемольная
 // секция, например C → −4 → Ab) секция показывала диезы.
-function applyEnharmonicCorrectionToSection(s) {
+function applyEnharmonicCorrectionToSection(s, previousKey) {
   let ch = false;
   const sectionKey = s.key ? s.key : globalKey;
+  const previousSectionKey = typeof previousKey === 'string' && previousKey ? previousKey : sectionKey;
   const sectionKeyStyle = getKeyStyle(sectionKey);
   for (const sq of s.squares)
     for (let i = 0; i < sq.events.length; i++) {
@@ -38921,7 +38930,7 @@ function applyEnharmonicCorrectionToSection(s) {
         if (corr !== orig) {
           sq.events[i].chord = corr;
           ch = true;
-          migrateFingeringChordName(orig, corr, sectionKey, s.id, sq.id, i);
+          migrateFingeringChordName(orig, corr, previousSectionKey, sectionKey, s.id, sq.id, i);
         }
       }
     }
@@ -38933,14 +38942,14 @@ function applyEnharmonicCorrectionToSection(s) {
 // userFingerings/preferredFingeringByChord остаются под старым именем,
 // а в ячейке уже новое — тултип не находит совпадение и показывает
 // стандартную аппликатуру вместо введённой.
-function migrateFingeringChordName(oldName, newName, key, secId, squareId, eventIndex) {
+function migrateFingeringChordName(oldName, newName, oldKey, newKey, secId, squareId, eventIndex) {
   // Переносим формы ВО ВСЕХ СТРОЯХ, а не только в текущем: ключ
   // помечен строем («Am|C@DADGBE4»), и работа, отложенная под другой
   // строй, тоже принадлежит этому аккорду. Иначе после
   // энгармонической правки в Drop D терялись бы свои формы,
   // собранные в стандартном.
-  const oldBase = oldName + '|' + key;
-  const newBase = newName + '|' + key;
+  const oldBase = oldName + '|' + oldKey;
+  const newBase = newName + '|' + newKey;
   if (oldBase !== newBase) {
     for (const oldCacheKey of [...userFingerings.keys()]) {
       if (oldCacheKey !== oldBase && !oldCacheKey.startsWith(oldBase + '@')) continue;
@@ -38958,8 +38967,8 @@ function migrateFingeringChordName(oldName, newName, key, secId, squareId, event
       fingeringCache.clear();
     }
   }
-  const oldPosKey = buildFingeringPositionKey(oldName, key, secId, squareId, eventIndex);
-  const newPosKey = buildFingeringPositionKey(newName, key, secId, squareId, eventIndex);
+  const oldPosKey = buildFingeringPositionKey(oldName, oldKey, secId, squareId, eventIndex);
+  const newPosKey = buildFingeringPositionKey(newName, newKey, secId, squareId, eventIndex);
   if (oldPosKey !== newPosKey && preferredFingeringByChord.has(oldPosKey)) {
     preferredFingeringByChord.set(newPosKey, preferredFingeringByChord.get(oldPosKey));
     preferredFingeringByChord.delete(oldPosKey);
@@ -61031,8 +61040,9 @@ function onKeyChange() {
   const newIsMinor = newGlobalKey.endsWith('m');
   if (oldIsMinor !== newIsMinor) {
     songStore.dispatch('key/change', () => {
+    const previousKeys = new Map(sections.map((s) => [s.id, s.key || oldGlobalKey]));
     globalKey = newGlobalKey;
-    applyEnharmonicCorrectionToAll();
+    applyEnharmonicCorrectionToAll((s) => previousKeys.get(s.id) || oldGlobalKey);
     if(window.StruChordNoteCandidate)sections.forEach(sec=>window.StruChordNoteCandidate.refreshManaged(sec));
     });
     enableWheelHarmonyModesOnTransition(
@@ -61049,8 +61059,9 @@ function onKeyChange() {
   }
   if (!hasAnyChords()) {
     songStore.dispatch('key/change', () => {
+    const previousKeys = new Map(sections.map((s) => [s.id, s.key || oldGlobalKey]));
     globalKey = newGlobalKey;
-    applyEnharmonicCorrectionToAll();
+    applyEnharmonicCorrectionToAll((s) => previousKeys.get(s.id) || oldGlobalKey);
     if(window.StruChordNoteCandidate)sections.forEach(sec=>window.StruChordNoteCandidate.refreshManaged(sec));
     });
     enableWheelHarmonyModesOnTransition(
