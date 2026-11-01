@@ -29,6 +29,60 @@ const GROOVES = Object.freeze({
  fusion:  ['C.s.p.ss','C..sp.sp','C.sp.s.p','C.s..sps']
 });
 const ROLE = Object.freeze({intro:0.72, verse:0.82, prechorus:1.0, chorus:1.16, bridge:0.94, solo:0.72, outro:0.62, custom:0.9});
+// Динамика исполнения (0.772). Записи имеют один слой силы на ноту, поэтому
+// velocity управляет только громкостью: удара и яркости forte здесь нет.
+// Числа — замысел, а не измерение живого пианиста.
+const ROLE_LEVEL = Object.freeze({intro:46, verse:59, prechorus:68, chorus:76, bridge:59, solo:60, outro:49, custom:64});
+const ROLE_ARC = Object.freeze({intro:4, verse:6, prechorus:9, chorus:11, bridge:6, solo:6, outro:5, custom:6});
+// В jazz/funk/soul метрический акцент слабее: доли ровнее.
+const GENRE_METRIC = Object.freeze({pop:1, rock:1, punk:1.05, country:0.95, blues:0.85, jazz:0.58, soul:0.76, funk:0.7, fusion:0.65});
+function hash01(a, b, c) {
+  let n = (a ^ Math.imul((b | 0) + 1, 0x9e3779b1) ^ Math.imul((c | 0) + 1, 0x85ebca6b)) >>> 0;
+  n ^= n >>> 16; n = Math.imul(n, 0x7feb352d); n ^= n >>> 15; n = Math.imul(n, 0x846ca68b); n ^= n >>> 16;
+  return (n >>> 0) / 4294967296;
+}
+// Сила шестнадцатой внутри такта: сильная доля, середина такта, слабые доли,
+// восьмые между долями и шестнадцатые. Знак и величина — в единицах velocity.
+function metricAccent(stepInBar, meter, beatsPerBar) {
+  if (stepInBar === 0) return 17;
+  if (meter === '6/8') return stepInBar === 12 ? 12 : stepInBar === 6 ? 8 : stepInBar % 4 === 0 ? 4 : stepInBar % 2 ? -11 : -5;
+  if (stepInBar % 4 === 0) {
+    const b = stepInBar / 4;
+    if (beatsPerBar === 3) return b === 2 ? 9 : 5;
+    return b === 2 ? 12 : b === 1 ? 6 : 5;
+  }
+  return stepInBar % 2 ? -11 : -5;
+}
+// Меняет только velocity: высоты, начала и длительности остаются прежними,
+// поэтому рисунок не перегенерируется.
+function applyDynamics(notes, o) {
+  const barLen = o.beatsPerBar, meter = o.meter, total = Math.max(1e-6, o.totalBeats || 0);
+  const level = ROLE_LEVEL[o.role] ?? 75, metric = GENRE_METRIC[o.genre] ?? 1, arcAmp = ROLE_ARC[o.role] ?? 6;
+  const groups = new Map();
+  for (const n of notes) {
+    const key = n.hand + ':' + Math.round(n.beat * 16);
+    if (!groups.has(key)) groups.set(key, []);
+    groups.get(key).push(n);
+  }
+  for (const group of groups.values()) group.sort((a, b) => b.midi - a.midi);
+  for (const n of notes) {
+    const posInBar = ((n.beat % barLen) + barLen) % barLen;
+    const stepInBar = Math.round(posInBar * 4) % (barLen * 4);
+    const accent = metricAccent(stepInBar, meter, barLen) * metric;
+    const x = Math.min(1, Math.max(0, n.beat / total));
+    const arc = arcAmp * (x < 0.75 ? x / 0.75 : (1 - x) / 0.25);
+    const remaining = total - n.beat;
+    const taper = remaining < barLen ? -9 * (1 - Math.max(0, remaining) / barLen) : 0;
+    const breath = 2.5 * Math.sin(Math.PI * ((n.beat % (barLen * 2)) / (barLen * 2)));
+    const rank = groups.get(n.hand + ':' + Math.round(n.beat * 16)).indexOf(n);
+    const balance = n.hand === 'left' ? (stepInBar === 0 ? 4 : stepInBar % 4 === 0 ? 1 : -3) : rank === 0 ? 5 : -2 * rank;
+    const register = n.midi < 40 ? 2 : n.midi > 88 ? -1 : 0;
+    const humanise = (hash01(o.seed, Math.round(n.beat * 16), n.hand === 'left' ? 7 : 11) - 0.5) * 5 +
+      (hash01(o.seed ^ 0x5bd1e995, n.midi, Math.round(n.beat * 16)) - 0.5) * 5;
+    n.velocity = Math.max(30, Math.min(118, Math.round(level + accent + arc + taper + breath + balance + register + humanise)));
+  }
+  return notes;
+}
 const METERS = Object.freeze({'4/4':4, '3/4':3, '6/8':3}); // quarter-note beats per measure
 function rng(seed) {
   let n = seed >>> 0;
@@ -169,6 +223,8 @@ function generatePerformance(options) {
     if (!emitted.some(n => n.hand === 'left') || !emitted.some(n => n.hand === 'right')) return {ok:false,reason:'not-enough-transition-time',chordIndex:index,notes:[],decisions:[]};
     beat = end;
   }
+  // 0.772: единая динамика секции поверх уже выбранных нот.
+  applyDynamics(notes, {role, genre, meter, beatsPerBar, totalBeats:beat, seed});
   // Some gestures sustain through an unused grid slot until the next gesture
   // of the same hand. Never cross a chord boundary, the next attack, or the
   // movement release limit. This is articulation, not sustain-pedal modelling.
@@ -188,4 +244,4 @@ function generatePerformance(options) {
   notes.sort((a,b) => a.beat-b.beat || a.midi-b.midi);
   return {ok:true, notes, decisions, beats:beat, swing:useSwing};
 }
-module.exports = {generatePerformance, resolveSwing, GENRES, METERS};
+module.exports = {generatePerformance, resolveSwing, GENRES, METERS, applyDynamics};
