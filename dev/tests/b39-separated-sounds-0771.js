@@ -18,8 +18,11 @@ const assert = require('assert'), puppeteer = require('puppeteer'), path = requi
   assert(!/keyboard-sounds\.js/.test(source), 'старый единый файл звуков больше не подключается');
 
   const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'sounds', 'manifest.json'), 'utf8'));
-  assert.deepStrictEqual(Object.keys(manifest).sort(), ['acoustic', 'organ', 'pad', 'rhodes'],
-    'манифест описывает четыре тембра');
+  // С 0.780 в манифесте появился пятый служебный банк — записи демпфера
+  // пианино (release); тембров по-прежнему четыре.
+  assert.deepStrictEqual(Object.keys(manifest).sort(), ['acoustic', 'organ', 'pad', 'release', 'rhodes'],
+    'манифест описывает четыре тембра и банк демпфера');
+  assert(manifest.release.length >= 80, 'записи демпфера на весь диапазон');
   const layered = manifest.acoustic.filter(e => Array.isArray(e.layers) && e.layers.length === 3);
   assert(layered.length >= 9, 'у пианино есть слои силы в среднем регистре: ' + layered.length);
   for (const mode of Object.keys(manifest)) {

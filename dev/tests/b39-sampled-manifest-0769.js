@@ -40,7 +40,10 @@ for (const [bank, items] of Object.entries(manifest)) {
   }
 }
 
-assert.equal(Object.keys(manifest).length, 4, 'четыре тембра');
+// Четыре тембра плюс служебный банк демпфера (0.780).
+assert.deepStrictEqual(Object.keys(manifest).sort(), ['acoustic', 'organ', 'pad', 'release', 'rhodes'],
+  'четыре тембра и банк демпфера');
 assert(loops >= 15, 'у Rhodes есть петли: ' + loops);
+assert(manifest.release.length === 88, 'записи демпфера на все 88 клавиш: ' + manifest.release.length);
 assert(bytes > 10_000_000, 'записи реально на месте: ' + (bytes / 1048576).toFixed(1) + ' МБ');
 console.log(`Записанные тембры: ${files.size} файлов в sounds/, ${(bytes / 1048576).toFixed(2)} МБ (${count} записей со слоями), петель ${loops}, HTML ${(Buffer.byteLength(html) / 1048576).toFixed(2)} МБ — OK`);

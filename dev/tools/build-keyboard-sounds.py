@@ -43,8 +43,14 @@ PIANO_ALL = [(21, 'A0')]
 for _n in range(1, 8):
     PIANO_ALL += [((_n + 1) * 12, 'C%d' % _n), ((_n + 1) * 12 + 6, 'F#%d' % _n)]
 PIANO_ALL += [(108, 'C8')]
-PIANO_LAYERED = {m for m, _ in PIANO_ALL if 36 <= m <= 84}
+# 0.780: слои — на всём диапазоне банка, а не только в среднем регистре.
+# Владелец сказал, что вес не важен (лишь бы в лимиты GitHub), поэтому
+# крайние октавы получают те же три записи, что и середина.
+PIANO_LAYERED = {m for m, _ in PIANO_ALL}
 PIANO_LAYERS = {'soft': 3, 'mid': 8, 'loud': 14}
+# Записанные release-сэмплы Salamander: 88 файлов rel1..rel88, по одной ноте
+# от A0 (MIDI 21) до C8 (MIDI 108).
+NPM_RELEASE = 'https://registry.npmjs.org/@audio-samples/piano-mp3-release/-/piano-mp3-release-1.0.5.tgz'
 NPM = 'https://registry.npmjs.org/@audio-samples/piano-mp3-velocity%s/-/piano-mp3-velocity%s-1.0.5.tgz'
 
 
@@ -56,6 +62,24 @@ def fetch(url, dest):
         data = r.read()
     dest.write_bytes(data)
     return data
+
+
+def npm_release():
+    """Записанные release-сэмплы: {midi: bytes}. rel1 — A0, rel88 — C8."""
+    tgz = CACHE / 'piano-mp3-release.tgz'
+    data = fetch(NPM_RELEASE, tgz)
+    out = {}
+    import io
+    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+        for member in tar.getmembers():
+            name = pathlib.PurePosixPath(member.name).name
+            m = re.match(r'^rel(\d+)\.mp3$', name)
+            if not m:
+                continue
+            index = int(m.group(1))
+            if 1 <= index <= 88:
+                out[20 + index] = tar.extractfile(member).read()
+    return out
 
 
 def npm_layer(velocity):
@@ -165,7 +189,7 @@ def main():
     banks = old_bank()
     manifest = {}
 
-    # ---- Пианино: три слоя силы + средний слой для крайних регистров ----
+    # ---- Пианино: три слоя силы на всём диапазоне ----
     layered = {k: npm_layer(v) for k, v in PIANO_LAYERS.items()}
     entries = []
     for midi, name in PIANO_ALL:
@@ -179,14 +203,17 @@ def main():
                                  'file': write_sample('acoustic', midi, blob, '%d-v%d.mp3' % (midi, velocity))})
             entries.append({'midi': midi, 'layers': variants})
         else:
-            # Крайние регистры — один средний слой: слоёв там всё равно не
-            # хватает на слух, а файл экономится.
             blob = layered['mid'].get(name)
             if not blob:
                 continue
             entries.append({'midi': midi, 'velocity': PIANO_LAYERS['mid'],
                             'file': write_sample('acoustic', midi, blob)})
     manifest['acoustic'] = entries
+
+    # ---- Записанные release-сэмплы пианино (демпфер) ----
+    releases = npm_release()
+    manifest['release'] = [{'midi': midi, 'file': write_sample('release', midi, releases[midi])}
+                           for midi in sorted(releases)]
 
     # ---- Остальные тембры: как были, но отдельными файлами ----
     for mode in ('rhodes', 'organ', 'pad'):
@@ -201,8 +228,8 @@ def main():
 
     (OUT / 'manifest.json').write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + '\n',
                                        encoding='utf-8')
-    total = sum(f.stat().st_size for f in OUT.rglob('*.mp3'))
-    print('файлов: %d, звуков: %.1f МБ' % (sum(1 for _ in OUT.rglob('*.mp3')), total / 1e6))
+    total = sum(f.stat().st_size for f in OUT.rglob('*') if f.is_file() and f.name != 'manifest.json')
+    print('файлов: %d, звуков: %.1f МБ' % (sum(1 for f in OUT.rglob('*') if f.is_file() and f.name != 'manifest.json'), total / 1e6))
     for mode, rows in manifest.items():
         files = [r['file'] for r in rows if 'file' in r]
         files += [layer['file'] for r in rows for layer in r.get('layers', [])]

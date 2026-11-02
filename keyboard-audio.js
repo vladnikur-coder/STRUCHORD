@@ -89,6 +89,24 @@
             .then(function () { return fetchBuffer(ctx, url, tries + 1); });
         });
     }
+    // Записи демпфера Salamander начинаются с тишины разной длины (у разных
+    // нот от 10 до 200 мс), а сам шорох занимает остаток. Без обрезки нота
+    // отпускается раньше, чем что-либо слышно.
+    function trimOnset(ctx, buf) {
+      try {
+        var d = buf.getChannelData(0), peak = 0, i, j;
+        for (i = 0; i < d.length; i++) { var v = Math.abs(d[i]); if (v > peak) peak = v; }
+        if (!peak) return buf;
+        var threshold = peak * .06, start = 0;
+        for (j = 0; j < d.length; j++) { if (Math.abs(d[j]) > threshold) { start = j; break; } }
+        if (!start) return buf;
+        var copy = ctx.createBuffer(buf.numberOfChannels, buf.length - start, buf.sampleRate);
+        for (var c = 0; c < buf.numberOfChannels; c++) {
+          copy.getChannelData(c).set(buf.getChannelData(c).subarray(start));
+        }
+        return copy;
+      } catch (e) { return buf; }
+    }
     // Одна запись (или один слой силы одной записи) -> буфер с метаданными.
     function decodeEntry(ctx, mode, base, item) {
       return fetchBuffer(ctx, './sounds/' + (item.file || base.file)).then(function (buf) {
@@ -97,6 +115,9 @@
           var loop = makeSustain(ctx, buf, Number(item.loopFade) || .12);
           rec.buffer = loop.buffer;
           if (loop.loopStart) { rec.loopStart = loop.loopStart; rec.loopEnd = loop.loopEnd; }
+        } else if (mode === 'release') {
+          rec.buffer = trimOnset(ctx, buf);
+          rec.unpitched = true;      // это шорох демпфера, а не струна
         } else if (mode === 'pad') {
           var padLoop = makeSustain(ctx, buf, .09);
           rec.buffer = padLoop.buffer;
@@ -412,7 +433,17 @@
     function timbreFor(track) {return track && track.timbre || MODE;}
     function sampled(mode){return ['acoustic','rhodes','organ','pad'].indexOf(mode)>=0;}
     function timbreReady(mode){return !sampled(mode)||HOST.StruChordSampleBank.ready(mode);}
-    function preloadTimbre(ctx,mode){return sampled(mode)?HOST.StruChordSampleBank.load(mode,ctx):Promise.resolve();}
+    function preloadTimbre(ctx,mode){
+      if(!sampled(mode))return Promise.resolve();
+      var task=HOST.StruChordSampleBank.load(mode,ctx);
+      // Пианино тянет за собой записи демпфера: без них нота обрывается
+      // на отпускании. Необязательный банк: его отсутствие не ломает тембр.
+      if(mode==='acoustic')task=task.then(function(list){
+        HOST.StruChordSampleBank.load('release',ctx).catch(function(){});
+        return list;
+      });
+      return task;
+    }
     function preloadTracks(ctx,list){return Promise.all(list.filter(t=>t.instrument==='keys').map(t=>preloadTimbre(ctx,timbreFor(t))));}
     // 0.776: сила удара управляет не только громкостью.
     //  * У пианино на каждую ноту есть три записи (тихая/средняя/громкая) —
@@ -475,8 +506,11 @@
     // клавише всегда слабее первой — палец не успевает ударить с той же
     // силой. Всё считается детерминированно от ноты и номера повтора.
     var hitCounts = new Map(), lastHit = new Map();
-    function lifeFor(mode, midi, at) {
-      var key = mode + ':' + midi, n = (hitCounts.get(key) || 0) + 1;
+    function lifeFor(mode, midi, at, trackId) {
+      // Ключ включает дорожку: у двух клавишных с одним тембром счётчики
+      // независимы, и «вторая атака» на одной не глушит ноту другой.
+      var key = mode + ':' + (trackId === undefined || trackId === null ? '-' : trackId) + ':' + midi;
+      var n = (hitCounts.get(key) || 0) + 1;
       hitCounts.set(key, n);
       if (hitCounts.size > 4096) hitCounts.clear();
       function rnd(seed) {
@@ -515,6 +549,29 @@
       } catch (e) { damperBuffer = null; }
       return damperBuffer;
     }
+    // 0.780: у пианино есть записанные release-сэмплы Salamander. Это
+    // настоящий шорох демпфера, а не белый шум; играем без транспозиции —
+    // запись не тональная, тон у неё не двигается.
+    var RELEASE_LEVEL = .22;
+    function releaseSample(ctx, target, midi, at, amp) {
+      if (!hasRoom()) return false;
+      var rec = null;
+      try { rec = HOST.StruChordSampleBank.nearest('release', midi, 0); } catch (e) { return false; }
+      if (!rec || !rec.buffer) return false;
+      try {
+        var src = ctx.createBufferSource(), g = ctx.createGain();
+        src.buffer = rec.buffer;
+        src.connect(g); g.connect(target);
+        var peak = Math.max(.0002, amp * RELEASE_LEVEL);
+        var tail = Math.min(rec.buffer.duration, .45);
+        g.gain.setValueAtTime(.0001, at);
+        g.gain.exponentialRampToValueAtTime(peak, at + .004);
+        g.gain.exponentialRampToValueAtTime(.0002, at + tail);
+        src.start(at); src.stop(at + tail + .02);
+        register(src);
+        return true;
+      } catch (e) { return false; }
+    }
     function damper(ctx, target, midi, at, amp, expression) {
       if (!hasRoom() || typeof ctx.createBufferSource !== 'function') return false;
       try {
@@ -536,14 +593,14 @@
         return true;
       } catch (e) { return false; }
     }
-    function playSample(ctx,target,mode,midi,start,dur,level,expression){
+    function playSample(ctx,target,mode,midi,start,dur,level,expression,trackId){
       var bank=HOST.StruChordSampleBank;
       var vel=velocityOf(expression);
       var rec=bank.nearest(mode,midi,vel);if(!rec || !hasRoom())return false;
       var voiceTail=mode==='pad'?.35:mode==='organ'?.08:mode==='rhodes'?.3:.22;
       var held=Math.max(.025,Math.min(30,Number(dur)||.4));
       var rate=Math.pow(2,(midi-rec.midi)/12);
-      var life=lifeFor(mode,midi,start);
+      var life=lifeFor(mode,midi,start,trackId);
       // У органа строй задаёт генератор, у pad это подложка — им расстройка
       // не нужна. Пианино и Rhodes играют записанные струны и молоточки.
       if(life.detune)rate*=1+life.detune;
@@ -592,7 +649,10 @@
       if(mode==='organ')organAttack(ctx,target,midi,start,level,expression);
       // Демпфер только у пианино: у Rhodes нота глохнет иначе, у органа и
       // pad демпфера нет вовсе.
-      if(mode==='acoustic' && DAMPER)damper(ctx,target,midi,end,amp,expression);
+      if(mode==='acoustic' && DAMPER){
+        // Сначала настоящая запись демпфера, синтез — только если банка нет.
+        if(!releaseSample(ctx,target,midi,end,amp)) damper(ctx,target,midi,end,amp,expression);
+      }
       return true;
     }
     function playNote(ctx, channel, midi, start, dur, level, expression, highlightOwner) {
@@ -601,7 +661,7 @@
       var mode=channel.__timbre||MODE;
       if(mode==='simple')playSimple(ctx,target,midi,start,dur,level);
       else if(mode==='piano')playPiano(ctx,target,midi,start,dur,level,expression);
-      else playSample(ctx,target,mode,midi,start,dur,level,expression);
+      else playSample(ctx,target,mode,midi,start,dur,level,expression,channel&&channel.__trackId);
       scheduleKeyHighlight(ctx, channel, midi, start, dur, highlightOwner);
     }
 
@@ -807,7 +867,7 @@
       timbreFor:timbreFor, timbreReady:timbreReady, preloadTimbre:preloadTimbre, preloadTracks:preloadTracks, previewGeneration:function(){return previewEpoch;},
     // 0.776: один голос тембра без состояния приложения — для замеров
     // офлайн-рендером (тест b39-timbre-voice-0776).
-    renderSample:function(ctx,target,mode,midi,start,dur,level,expression){return playSample(ctx,target,mode,midi,start,dur,level,expression);},
+    renderSample:function(ctx,target,mode,midi,start,dur,level,expression,trackId){return playSample(ctx,target,mode,midi,start,dur,level,expression,trackId);},
       voicingFor: voicingFor, effectiveGain: effectiveGain, frequencyOf: frequencyOf,
       setMode: function (m) { if (['simple','piano','acoustic','rhodes','organ','pad'].indexOf(m)>=0) MODE = m; return MODE; },
       getMode: function () { return MODE; },

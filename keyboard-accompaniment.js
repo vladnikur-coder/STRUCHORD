@@ -527,15 +527,15 @@
     // длительностями. На слух это и давало «pad заливает», «орган стучит
     // стаккато», «пианино механическое». Теперь рисунок один, а исполнение
     // зависит от тембра:
-    //   pad      — реже удары (только по сильным долям), длинные ноты:
-    //              коротких нажатий у pad не бывает по природе;
+    //   pad      — не играет рисунок вовсе: держит аккорд целиком до
+    //              следующей смены гармонии (см. padFigure ниже);
     //   organ    — легато: нота тянется до следующей атаки, без провалов;
     //   acoustic — педаль и затухание, как было (0.774);
     //   rhodes   — как было: у него записанный сустейн и так тянется.
     // В плотных жанрах (фанк, панк, блюз) ничего не удлиняем: там
     // отрывистость — часть грува.
     var TIMBRE_ARTICULATION = {
-      pad:      { legato: true, gapBeats: 0.10, thin: 2, minBeats: 1 },
+      pad:      { legato: true, gapBeats: 0.10, minBeats: 1 },
       organ:    { legato: true, gapBeats: 0.02 },
       acoustic: { legato: false, gapBeats: 0.04 },
       rhodes:   { legato: false, gapBeats: 0.06 }
@@ -556,10 +556,62 @@
         return typeof f === 'number' ? f : 1;
       } catch (e) { return 1; }
     }
+    // 0.779: pad собирает СВОЙ рисунок, а не разрежает чужой. Разрежение
+    // оставляло от аккорда одну басовую ноту, а иногда и тишину (замер 0.778:
+    // pad играл 1 ноту из 4, в фанке второй удар был пустым). У pad нет
+    // коротких нажатий: он держит гармонию, поэтому рисунок — это аккорд
+    // целиком от одной смены аккорда до следующей. В плотных жанрах
+    // (фанк, панк, блюз, джаз) добавляется вторая атака в середине такта,
+    // иначе двухдольная пульсация пропадает совсем.
+    function padFigure(steps, o, unit, beats) {
+      var chord = (Array.isArray(o.notes) ? o.notes : []).map(Number).filter(isMidi).sort(asc);
+      if (!chord.length) {
+        var seen = {};
+        steps.forEach(function (s) {
+          (Array.isArray(s.notes) ? s.notes : []).forEach(function (n) { if (isMidi(n)) seen[n] = 1; });
+        });
+        chord = Object.keys(seen).map(Number).sort(asc);
+      }
+      if (!chord.length || !(unit > 0) || !(beats > 0)) return null;
+      var dur = Number(o.dur);
+      var bar = Math.min(beats, Math.max(1, numerator(o.ts || (current && current.ts) || '4/4')));
+      if (!(bar > 0)) bar = beats;
+      var at = [];
+      for (var b = 0; b < beats - 1e-6; b += bar) at.push(b);
+      // Плотность берём у самого рисунка, а не только у включённого
+      // автоаккомпанемента: иначе предпросмотр фанка на pad звучал как поп.
+      var ownGenre = preset(o.pattern && o.pattern.type);
+      var dense = ownGenre && DENSE_GENRE_FACTOR[ownGenre.genre] !== undefined
+        ? DENSE_GENRE_FACTOR[ownGenre.genre] < 1
+        : genreFactor() < 1;
+      if (dense) {
+        var withHalf = at.slice();
+        at.forEach(function (b) { if (b + bar / 2 < beats - 1e-6) withHalf.push(b + bar / 2); });
+        at = withHalf.sort(asc);
+      }
+      if (!at.length) at = [0];
+      var gap = Math.max(0.01, unit * (TIMBRE_ARTICULATION.pad.gapBeats || 0.1));
+      var template = steps[0] || {};
+      var out = [];
+      at.forEach(function (beat, i) {
+        var start = beat * unit;
+        if (start >= dur - 0.005) return;
+        var stop = (i + 1 < at.length ? at[i + 1] * unit : dur) - gap;
+        var len = Math.max(unit * 0.5, stop - start);
+        if (start + len > dur) len = Math.max(0.05, dur - start);
+        out.push({
+          index: out.length, stepIndex: 0, token: 'H', at: start, dur: len,
+          notes: chord.slice(), subdivision: template.subdivision, swing: false,
+          type: template.type, source: template.source, timbre: 'pad'
+        });
+      });
+      return out.length ? out : null;
+    }
+
     // Рисунок остаётся тем же; меняется только исполнение: какие удары
     // звучат и как долго тянется нота. Ноты, высоты и порядок не меняются.
     function articulate(steps, options) {
-      if (!Array.isArray(steps) || steps.length < 2) return steps;
+      if (!Array.isArray(steps) || !steps.length) return steps;
       var o = options || {};
       var timbre = trackTimbre(o.trackId);
       var voice = TIMBRE_ARTICULATION[timbre];
@@ -570,24 +622,15 @@
       if (!(dur > 0)) return steps;
       var beats = Number(o.beats) > 0 ? Number(o.beats) : (Number(o.span) || 1);
       var unit = dur / beats;
+      // pad не разрежаем, а пересобираем: иначе от аккорда остаётся одна нота.
+      if (timbre === 'pad') {
+        var figure = padFigure(steps, o, unit, beats);
+        if (figure) return figure;
+      }
       var gap = Math.max(0.004, unit * (voice.gapBeats || 0.04));
       var dense = genreFactor() < 1;
       var at = steps.map(function (s) { return Number(s.at) || 0; });
       var keep = steps.map(function () { return true; });
-      if (voice.thin > 1) {
-        // pad: оставляем удары на сильных долях (каждые thin долей) и первый
-        // удар ячейки. Остальные удары не звучат — это разрежение, а не
-        // случайные ноты: решение детерминированное.
-        var lastKeptBeat = -1e9;
-        steps.forEach(function (s, i) {
-          var beat = at[i] / unit;
-          var near = Math.round(beat * 2) / 2;
-          var onGrid = Math.abs(beat - near) < 0.12;
-          var structural = onGrid && Math.abs(near % voice.thin) < 1e-6;
-          if (i === 0 || structural) { keep[i] = true; lastKeptBeat = beat; }
-          else keep[i] = false;
-        });
-      }
       var result = [];
       for (var i = 0; i < steps.length; i++) {
         if (!keep[i]) continue;

@@ -32,7 +32,9 @@ const assert = require('assert'), puppeteer = require('puppeteer');
           const src = make();
           const start = src.start.bind(src);
           src.start = function (when) {
-            if (src.buffer && src.buffer.duration > 0.12) params.push(src.playbackRate);
+            // Ноты банка длиннее 0,6 с; запись демпфера короче и играется
+            // без транспозиции, поэтому в расстройку она не попадает.
+            if (src.buffer && src.buffer.duration > 0.6) params.push(src.playbackRate);
             return start(when);
           };
           return src;

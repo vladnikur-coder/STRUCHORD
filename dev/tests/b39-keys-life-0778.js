@@ -5,8 +5,9 @@
 //  2. Вторая атака по той же клавише слабее первой: палец не успевает
 //     ударить с той же силой.
 //  3. У пианино в момент отпускания клавиши слышно демпфер, а не просто
-//     обрыв звука. Уровень — примерно −23 дБ от ноты. У Rhodes, органа и
-//     pad демпфера нет.
+//     обрыв звука. Это запись Salamander (0.780), а не синтезированный шум:
+//     источник запускается без транспозиции и живёт дольше 0,15 с.
+//     Уровень — около −21 дБ от ноты. У Rhodes, органа и pad демпфера нет.
 const assert = require('assert'), puppeteer = require('puppeteer');
 
 (async () => {
@@ -36,7 +37,11 @@ const assert = require('assert'), puppeteer = require('puppeteer');
           const src = make();
           const start = src.start.bind(src);
           src.start = function (when) {
-            starts.push({ when, dur: src.buffer ? +src.buffer.duration.toFixed(3) : 0 });
+            starts.push({
+              when,
+              dur: src.buffer ? +src.buffer.duration.toFixed(3) : 0,
+              rate: src.playbackRate ? src.playbackRate.value : 1
+            });
             return start(when);
           };
           return src;
@@ -50,6 +55,9 @@ const assert = require('assert'), puppeteer = require('puppeteer');
       {
         const off = new OfflineAudioContext(1, 44100 * 3, 44100);
         await window.StruChordSampleBank.load('acoustic', off);
+        // В приложении банк демпфера приходит вместе с пианино
+        // (preloadTimbre), здесь грузим явно.
+        await window.StruChordSampleBank.load('release', off);
         const starts = [];
         watch(off, starts);
         const out = off.createGain();
@@ -62,8 +70,13 @@ const assert = require('assert'), puppeteer = require('puppeteer');
         window.StruChordAudio.setDamper(true);
         const buf = (await off.startRendering()).getChannelData(0);
         const withDamper = rms(buf, 0.402, 0.47), without = rms(buf, 1.402, 1.47);
+        // Запись демпфера — единственный источник длиной 0,15–0,6 с;
+        // нота живёт дольше, синтезированный шум был бы короче 0,12 с.
+        var release = starts.filter(x => x.dur > 0.15 && x.dur < 0.6);
         notes.acoustic = {
-          dampers: starts.filter(x => x.dur > 0.05 && x.dur < 0.12).length,
+          recorded: release.length,
+          rates: release.map(x => +Number(x.rate).toFixed(3)),
+          synthetic: starts.filter(x => x.dur > 0.05 && x.dur <= 0.12).length,
           level: 20 * Math.log10(Math.sqrt(Math.max(0, withDamper * withDamper - without * without)) /
             rms(buf, 1.105, 1.30))
         };
@@ -78,7 +91,10 @@ const assert = require('assert'), puppeteer = require('puppeteer');
         out.connect(off.destination);
         window.StruChordAudio.renderSample(off, out, mode, 60, 0.1, 0.3, 0.5, 0.8);
         await off.startRendering();
-        notes[mode] = { dampers: starts.filter(x => x.dur > 0.05 && x.dur < 0.12).length };
+        notes[mode] = {
+          recorded: starts.filter(x => x.dur > 0.15 && x.dur < 0.6).length,
+          synthetic: starts.filter(x => x.dur > 0.05 && x.dur <= 0.12).length
+        };
       }
 
       // --- Аккорд: разброс атак -------------------------------------------
@@ -93,8 +109,9 @@ const assert = require('assert'), puppeteer = require('puppeteer');
           window.StruChordAudio.renderSample(off, out, mode, midi, 0.2, 0.4, 0.5, 0.8);
         }
         await off.startRendering();
-        // Первые четыре источника — ноты аккорда; демпфер идёт следом.
-        chords[mode] = { starts: starts.filter(x => x.dur > 0.12).slice(0, 4).map(x => x.when) };
+        // Ноты банка длиннее 0,6 с; запись демпфера короче и запускается
+        // без транспозиции — в разброс атаки она не входит.
+        chords[mode] = { starts: starts.filter(x => x.dur > 0.6).slice(0, 4).map(x => x.when) };
       }
 
       // --- Повтор одной ноты: вторая атака слабее -------------------------
@@ -111,6 +128,32 @@ const assert = require('assert'), puppeteer = require('puppeteer');
         chords[mode].first = rms(buf, 1.02, 1.20);
         chords[mode].second = rms(buf, 1.37, 1.55);
       }
+      // --- Две дорожки с одним тембром не глушат друг друга ---------------
+      // Уровень удара виден по огибающей: пик громкости каждого источника.
+      async function peaksFor(firstTrack, secondTrack) {
+        const off = new OfflineAudioContext(1, 44100 * 2, 44100);
+        await window.StruChordSampleBank.load('acoustic', off);
+        const peaks = [];
+        const make = off.createGain.bind(off);
+        off.createGain = function () {
+          const g = make(), ramp = g.gain.exponentialRampToValueAtTime.bind(g.gain);
+          g.gain.exponentialRampToValueAtTime = function (v, t) {
+            if (v > 0.01) peaks.push(+Number(v).toFixed(5));
+            return ramp(v, t);
+          };
+          return g;
+        };
+        const out = off.createGain();
+        out.connect(off.destination);
+        // Пики идут парами: громкость ноты, затем громкость демпфера.
+        window.StruChordAudio.renderSample(off, out, 'acoustic', 62, 0.1, 0.3, 0.6, 0.8, firstTrack);
+        window.StruChordAudio.renderSample(off, out, 'acoustic', 62, 0.15, 0.3, 0.6, 0.8, secondTrack);
+        await off.startRendering();
+        return peaks;
+      }
+      const twoTracks = await peaksFor(1, 2);
+      const oneTrack = await peaksFor(1, 1);
+      chords.tracks = { twoTracks, oneTrack };
       return { notes, chords };
     });
 
@@ -135,19 +178,37 @@ const assert = require('assert'), puppeteer = require('puppeteer');
       assert(ratio > 0.75, mode + ': вторая атака не проваливается, а не ' + ratio.toFixed(3));
     }
 
+    // Вторая дорожка с тем же тембром — это первая атака на своей дорожке,
+    // а не «второй удар подряд»: softening не должен её глушить.
+    {
+      const { twoTracks, oneTrack } = data.chords.tracks;
+      // Пик каждой ноты — первое значение пары (второе — демпфер).
+      const notePeaks = list => [list[0], list[2]];
+      const [crossA, crossB] = notePeaks(twoTracks);
+      const [sameA, sameB] = notePeaks(oneTrack);
+      assert(Math.abs(crossB / crossA - 1) < 0.005,
+        'дорожки не глушат друг друга: ' + (crossB / crossA).toFixed(3));
+      assert(Math.abs(sameB / sameA - 1) > 0.02,
+        'на одной дорожке второй удар заметно отличается: ' + (sameB / sameA).toFixed(3));
+    }
+
     // 3. Демпфер у пианино и его отсутствие у остальных.
-    assert(data.notes.acoustic.dampers >= 1, 'у пианино есть шум демпфера');
+    assert.equal(data.notes.acoustic.synthetic, 0, 'играет запись, а не синтезированный шум');
+    assert(data.notes.acoustic.recorded >= 1, 'у пианино есть записанный демпфер');
+    assert(data.notes.acoustic.rates.every(r => r === 1), 'шум демпфера не транспонируется: ' +
+      JSON.stringify(data.notes.acoustic.rates));
     const db = data.notes.acoustic.level;
     assert(db > -30 && db < -15, 'демпфер слышен, но тише ноты на 15–30 дБ, а не ' + db.toFixed(1));
     for (const mode of ['rhodes', 'organ', 'pad']) {
-      assert.equal(data.notes[mode].dampers, 0, mode + ': демпфера нет');
+      assert.equal(data.notes[mode].recorded, 0, mode + ': записанного демпфера нет');
+      assert.equal(data.notes[mode].synthetic, 0, mode + ': синтезированного демпфера нет');
     }
 
     console.log('Живость: аккорд ' +
       ['acoustic', 'rhodes', 'organ'].map(m => m + ' ' + (spread(data.chords[m].starts) * 1000).toFixed(1) + ' мс').join(', ') +
       '; pad 0 мс; вторая атака ' +
       ['acoustic', 'rhodes'].map(m => m + ' ×' + (data.chords[m].second / data.chords[m].first).toFixed(2)).join(', ') +
-      '; демпфер ' + db.toFixed(1) + ' дБ от ноты, у остальных тембров 0 — OK');
+      '; демпфер (запись) ' + db.toFixed(1) + ' дБ от ноты, у остальных тембров 0 — OK');
   } finally {
     await browser.close();
   }
