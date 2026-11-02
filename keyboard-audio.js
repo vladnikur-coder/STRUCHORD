@@ -462,6 +462,20 @@
         } catch (err) {}
       }
     }
+    // Повтор одного и того же удара звучит как секвенсор: файл, громкость и
+    // срез у повторов совпадают до бита. У живых пианиста и пианино каждый
+    // повтор чуть расстроен. Расстройка в пределах 6 центов на слух не
+    // читается как фальшь, но убирает «машинное» совпадение. Считается
+    // детерминированно от ноты и номера повтора: один и тот же проход песни
+    // всегда звучит одинаково, поэтому экспорт и замеры воспроизводимы.
+    var hitCounts = new Map();
+    function detuneFor(mode, midi) {
+      var key = mode + ':' + midi, n = (hitCounts.get(key) || 0) + 1;
+      hitCounts.set(key, n);
+      if (hitCounts.size > 2048) hitCounts.clear();
+      var x = Math.sin(n * 12.9898 + midi * 78.233 + mode.length * 37.719) * 43758.5453;
+      return (x - Math.floor(x) - .5) * .007;      // ±0,0035 = ±6 центов
+    }
     function playSample(ctx,target,mode,midi,start,dur,level,expression){
       var bank=HOST.StruChordSampleBank;
       var vel=velocityOf(expression);
@@ -469,6 +483,9 @@
       var voiceTail=mode==='pad'?.35:mode==='organ'?.08:mode==='rhodes'?.3:.22;
       var held=Math.max(.025,Math.min(30,Number(dur)||.4));
       var rate=Math.pow(2,(midi-rec.midi)/12);
+      // У органа строй задаёт генератор, у pad это подложка — им расстройка
+      // не нужна. Пианино и Rhodes играют записанные струны и молоточки.
+      if(mode==='acoustic'||mode==='rhodes')rate*=1+detuneFor(mode,midi);
       var src=ctx.createBufferSource(),g=ctx.createGain();
       src.buffer=rec.buffer;src.playbackRate.value=rate;
       if(rec.loopEnd && rec.loopStart>=0 && rec.loopEnd>rec.loopStart && rec.loopEnd<=rec.buffer.duration){src.loop=true;src.loopStart=rec.loopStart;src.loopEnd=rec.loopEnd;}
