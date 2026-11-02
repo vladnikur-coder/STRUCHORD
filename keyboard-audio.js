@@ -169,6 +169,7 @@
 
     var MODE = 'acoustic';
     var PEDAL = false;
+    var DAMPER = true;          // шум демпфера у пианино; выключается для замеров
     var MAX_VOICES = 320;             // 8 нот × (6 парциалов + молоток) × ~5 аккордов
     var PARTIALS = 6;
     var HEADROOM = 0.16;            // суммарная громкость ноты до шины канала
@@ -468,13 +469,72 @@
     // читается как фальшь, но убирает «машинное» совпадение. Считается
     // детерминированно от ноты и номера повтора: один и тот же проход песни
     // всегда звучит одинаково, поэтому экспорт и замеры воспроизводимы.
-    var hitCounts = new Map();
-    function detuneFor(mode, midi) {
+    // Кроме расстройки у живого исполнителя есть ещё две вещи, которых нет
+    // у секвенсора: аккорд берётся не строго одновременно (клавиши под
+    // пальцами встают на 2–9 мс вразнобой), а вторая атака по той же
+    // клавише всегда слабее первой — палец не успевает ударить с той же
+    // силой. Всё считается детерминированно от ноты и номера повтора.
+    var hitCounts = new Map(), lastHit = new Map();
+    function lifeFor(mode, midi, at) {
       var key = mode + ':' + midi, n = (hitCounts.get(key) || 0) + 1;
       hitCounts.set(key, n);
-      if (hitCounts.size > 2048) hitCounts.clear();
-      var x = Math.sin(n * 12.9898 + midi * 78.233 + mode.length * 37.719) * 43758.5453;
-      return (x - Math.floor(x) - .5) * .007;      // ±0,0035 = ±6 центов
+      if (hitCounts.size > 4096) hitCounts.clear();
+      function rnd(seed) {
+        var x = Math.sin(n * 12.9898 + midi * 78.233 + seed * 37.719) * 43758.5453;
+        return x - Math.floor(x);
+      }
+      var out = { detune: 0, jitter: 0, soften: 1 };
+      if (mode === 'acoustic' || mode === 'rhodes') {
+        out.detune = (rnd(1) - .5) * .007;                       // ±6 центов
+        out.jitter = (rnd(2) - .5) * (mode === 'acoustic' ? .009 : .008);
+        var prev = lastHit.get(key);
+        if (prev && at - prev.at >= 0 && at - prev.at < .45) {
+          out.soften = .84 + rnd(3) * .1;                        // вторая атака тише
+        }
+        lastHit.set(key, { at: at });
+        if (lastHit.size > 2048) lastHit.clear();
+      } else if (mode === 'organ') {
+        out.jitter = (rnd(2) - .5) * .004;                       // контакты клавиш
+      }
+      return out;
+    }
+    // Шум демпфера: у настоящего пианино нота не просто затухает, в момент
+    // отпускания клавиши слышно, как демпфер ложится на струну. Без этого
+    // даже хороший сэмпл звучит как «просто выключили».
+    var damperBuffer = null;
+    function damperNoise(ctx) {
+      if (damperBuffer && damperBuffer.sampleRate === ctx.sampleRate) return damperBuffer;
+      try {
+        var len = Math.max(1, Math.floor(ctx.sampleRate * .08)), seed = 22222;
+        damperBuffer = ctx.createBuffer(1, len, ctx.sampleRate);
+        var data = damperBuffer.getChannelData(0);
+        for (var i = 0; i < len; i++) {
+          seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+          data[i] = (seed / 0x3fffffff - 1) * Math.pow(1 - i / len, 2.4);
+        }
+      } catch (e) { damperBuffer = null; }
+      return damperBuffer;
+    }
+    function damper(ctx, target, midi, at, amp, expression) {
+      if (!hasRoom() || typeof ctx.createBufferSource !== 'function') return false;
+      try {
+        var buf = damperNoise(ctx); if (!buf) return false;
+        var src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
+        src.buffer = buf;
+        bp.type = 'bandpass';
+        bp.frequency.value = Math.max(500, Math.min(4200, frequencyOf(midi) * 2.4));
+        bp.Q.value = .9;
+        src.connect(bp); bp.connect(g); g.connect(target);
+        // Демпфер — это шорох, а не второй удар: на слух он должен быть
+        // заметно тише ноты (замер: −22 дБ от её уровня).
+        var peak = Math.max(.0002, amp * (.04 + .09 * strengthOf(expression)));
+        g.gain.setValueAtTime(.0001, at);
+        g.gain.exponentialRampToValueAtTime(peak, at + .006);
+        g.gain.exponentialRampToValueAtTime(.0001, at + .09);
+        src.start(at); src.stop(at + .1);
+        register(src);
+        return true;
+      } catch (e) { return false; }
     }
     function playSample(ctx,target,mode,midi,start,dur,level,expression){
       var bank=HOST.StruChordSampleBank;
@@ -483,9 +543,12 @@
       var voiceTail=mode==='pad'?.35:mode==='organ'?.08:mode==='rhodes'?.3:.22;
       var held=Math.max(.025,Math.min(30,Number(dur)||.4));
       var rate=Math.pow(2,(midi-rec.midi)/12);
+      var life=lifeFor(mode,midi,start);
       // У органа строй задаёт генератор, у pad это подложка — им расстройка
       // не нужна. Пианино и Rhodes играют записанные струны и молоточки.
-      if(mode==='acoustic'||mode==='rhodes')rate*=1+detuneFor(mode,midi);
+      if(life.detune)rate*=1+life.detune;
+      // Аккорд не берётся строго одновременно: у каждой клавиши свой сдвиг.
+      if(life.jitter)start=Math.max((ctx.currentTime||0)+.002,start+life.jitter);
       var src=ctx.createBufferSource(),g=ctx.createGain();
       src.buffer=rec.buffer;src.playbackRate.value=rate;
       if(rec.loopEnd && rec.loopStart>=0 && rec.loopEnd>rec.loopStart && rec.loopEnd<=rec.buffer.duration){src.loop=true;src.loopStart=rec.loopStart;src.loopEnd=rec.loopEnd;}
@@ -498,6 +561,7 @@
       var unit=rec.velocity?Math.pow(vel/Math.max(1,rec.velocity),0.85):1;
       var strength=mode==='organ'?0.35:1;
       var amp=Math.max(.0002,level*1.8*cal*unit*Math.pow(strengthOf(expression),strength));
+      if(life.soften<1)amp*=life.soften;   // вторая атака подряд — слабее
       var head=src;
       if(mode==='acoustic'||mode==='rhodes'){
         if(typeof ctx.createBiquadFilter==='function'){
@@ -526,6 +590,9 @@
       g.gain.exponentialRampToValueAtTime(.0001,end+voiceTail);
       head.connect(g);g.connect(target);src.start(start);src.stop(end+voiceTail+.01);register(src);stats.notes++;
       if(mode==='organ')organAttack(ctx,target,midi,start,level,expression);
+      // Демпфер только у пианино: у Rhodes нота глохнет иначе, у органа и
+      // pad демпфера нет вовсе.
+      if(mode==='acoustic' && DAMPER)damper(ctx,target,midi,end,amp,expression);
       return true;
     }
     function playNote(ctx, channel, midi, start, dur, level, expression, highlightOwner) {
@@ -745,6 +812,7 @@
       setMode: function (m) { if (['simple','piano','acoustic','rhodes','organ','pad'].indexOf(m)>=0) MODE = m; return MODE; },
       getMode: function () { return MODE; },
       setPedal: function (on) { PEDAL = !!on; return PEDAL; },
+      setDamper: function (on) { DAMPER = !!on; return DAMPER; },
       setPartials: function (n) { var v = Number(n); if (v >= 1 && v <= 12) PARTIALS = Math.round(v); return PARTIALS; },
       setHeadroom: function (v) { var n = Number(v); if (n > 0 && n <= 1) HEADROOM = n; return HEADROOM; },
       stats: function () { return Object.assign({}, stats, { liveVoices: voices.size, channels: channels.size }); }

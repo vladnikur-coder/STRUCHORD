@@ -24,11 +24,17 @@ const assert = require('assert'), puppeteer = require('puppeteer');
         // Web Audio не принимает.
         const off = new OfflineAudioContext(1, 44100 * 8, 44100);
         await window.StruChordSampleBank.load(mode, off);
+        // Только сами ноты: шум демпфера тоже создаёт источник, но у него
+        // скорость всегда 1 и к расстройке он отношения не имеет.
         const params = [];
         const make = off.createBufferSource.bind(off);
         off.createBufferSource = function () {
           const src = make();
-          params.push(src.playbackRate);
+          const start = src.start.bind(src);
+          src.start = function (when) {
+            if (src.buffer && src.buffer.duration > 0.12) params.push(src.playbackRate);
+            return start(when);
+          };
           return src;
         };
         const target = off.createGain();
