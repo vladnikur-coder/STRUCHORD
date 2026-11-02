@@ -67,5 +67,31 @@ for (const id of INERT_BLOCK_IDS) {
   }
 }
 
+// --- внешние локальные модули (0.776): свои файлы тоже проверяем ---
+// keyboard-audio.js и keyboard-accompaniment.js вынесены из HTML; без этой
+// проверки опечатка в них ломалась бы только в браузере.
+const external = [];
+const srcRe = /<script\b[^>]*\bsrc\s*=\s*["'](\.\/[^"']+\.js)["']/gi;
+let srcMatch;
+while ((srcMatch = srcRe.exec(html)) !== null) {
+  const rel = srcMatch[1].slice(2);
+  if (external.includes(rel)) continue;
+  external.push(rel);
+  const full = path.join(path.dirname(file), rel);
+  if (!fs.existsSync(full)) {
+    failures++;
+    console.error(`ОШИБКА: HTML ссылается на ${rel}, файла нет рядом`);
+    continue;
+  }
+  checked++;
+  try {
+    new vm.Script(fs.readFileSync(full, 'utf8'), { filename: rel });
+  } catch (err) {
+    failures++;
+    console.error(`ОШИБКА в ${rel}:`);
+    console.error('  ' + (err && err.message));
+  }
+}
+
 console.log(`scripts checked: ${checked}, inert blocks checked: ${seenInert.length}, failures: ${failures}`);
 process.exitCode = failures ? 1 : 0;

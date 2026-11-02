@@ -29,7 +29,7 @@ const mean=a=>a.reduce((x,y)=>x+y,0)/a.length;
  const lvl=data.Chorus.velocities;
  assert(Math.max(...lvl)-Math.min(...lvl)>=15,'generated velocities inside the chorus vary, spread '+(Math.max(...lvl)-Math.min(...lvl)));
 
- const audio=await p.evaluate(async()=>{const ctx=getAudioContext();await ctx.resume();const rec=[];
+ const audio=await p.evaluate(async()=>{const ctx=getAudioContext();await ctx.resume();await window.StruChordSampleBank.load('acoustic',ctx);const rec=[];
    const original=ctx.createGain.bind(ctx);
    ctx.createGain=function(){const g=original();const set=g.gain.setValueAtTime.bind(g.gain),ramp=g.gain.exponentialRampToValueAtTime.bind(g.gain);
      g.gain.setValueAtTime=function(v,t){if(v>0.001)rec.push(v);return set(v,t);};

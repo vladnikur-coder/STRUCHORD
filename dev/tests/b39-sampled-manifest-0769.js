@@ -1,10 +1,46 @@
 'use strict';
-const fs=require('fs'),crypto=require('crypto'),assert=require('assert'),path=require('path');
-const html=fs.readFileSync(process.env.STRUCHORD_HTML||'STRUCHORD.html','utf8'),assetPath=path.resolve(process.env.STRUCHORD_SOUNDS||'keyboard-sounds.js'),manifest=require('../assets/keyboard/manifest.json');
-assert(!html.includes('window.__b39SampleData='),'sample audio is not embedded in HTML');
-assert(html.includes('<script src="./keyboard-sounds.js"></script>'),'HTML loads the separate sound file');
-assert(html.includes('window.StruChordSampleCredits='),'licences stay available in app settings');
-const asset=fs.readFileSync(assetPath,'utf8'),start=asset.indexOf('window.__b39SampleData=');assert(start>=0);const from=start+'window.__b39SampleData='.length,end=asset.indexOf(';\n',from);assert(end>from);const data=JSON.parse(asset.slice(from,end));let count=0,bytes=0;
-for(const [bank,items] of Object.entries(manifest.banks))for(const x of items){const mode=bank==='piano'?'acoustic':bank,encoded=data[mode].find(y=>y.midi===x.midi);assert(encoded,mode+':'+x.midi);let b=Buffer.from(encoded.data,'base64');assert.equal(crypto.createHash('sha256').update(b).digest('hex'),x.sha256);assert.equal(b.length,x.bytes);if(bank==='rhodes'){assert.equal(encoded.loopStart,x.loopStart);assert.equal(encoded.loopEnd,x.loopEnd);}count++;bytes+=b.length}
-assert.equal(Object.keys(data).length,4,'four banks');assert(bytes>7_000_000,'the sound file really contains the samples');
-console.log(`Separate sound file: ${count} exact source hashes, ${(fs.statSync(assetPath).size/1048576).toFixed(2)} MB, HTML ${(Buffer.byteLength(html)/1048576).toFixed(2)} MB — OK`);
+// B-39 · 0.769: записанные тембры. В 0.769 сэмплы лежали base64 внутри
+// keyboard-sounds.js; с 0.776 это отдельные mp3 в sounds/. Смысл проверки
+// сохранился: в HTML нет ни одного образца, лицензии остаются в настройках,
+// а манифест действительно указывает на существующие файлы.
+const fs = require('fs'), assert = require('assert'), path = require('path');
+const html = fs.readFileSync(process.env.STRUCHORD_HTML || 'STRUCHORD.html', 'utf8');
+const audio = fs.readFileSync('keyboard-audio.js', 'utf8');
+const dir = path.resolve(process.env.STRUCHORD_SOUNDS || 'sounds');
+const manifest = JSON.parse(fs.readFileSync(path.join(dir, 'manifest.json'), 'utf8'));
+
+assert(!html.includes('window.__b39SampleData='), 'образцы не встроены в HTML');
+assert(!/data:audio\/[a-z0-9.+-]+;base64/.test(html), 'в HTML нет mp3 как data-URI');
+assert(audio.includes('window.StruChordSampleCredits='), 'лицензии остаются в настройках');
+assert(html.includes('StruChordSampleCredits'), 'настройки показывают источники звуков');
+for (const name of ['keyboard-audio.js', 'keyboard-accompaniment.js']) {
+  assert(html.includes('src="./' + name + '"'), 'HTML подключает ' + name);
+}
+
+let count = 0, files = new Set(), bytes = 0, loops = 0;
+for (const [bank, items] of Object.entries(manifest)) {
+  assert(items.length, bank + ': записи есть');
+  for (const entry of items) {
+    // Пианино в среднем регистре лежит слоями силы, остальные — одной записью.
+    const takes = entry.layers ? entry.layers.map(l => ({ ...entry, ...l })) : [entry];
+    for (const x of takes) {
+    const file = path.join(dir, x.file);
+    assert(fs.existsSync(file), 'нет файла ' + x.file);
+    const buf = fs.readFileSync(file);
+    assert(buf.length > 1000, x.file + ': файл не пустой');
+    // Rhodes лежит WAV: у него записанная петля, mp3 добавил бы щелчок на стыке.
+    const riff = buf.slice(0, 4).toString('latin1') === 'RIFF';
+    const mp3 = buf.slice(0, 3).toString('latin1') === 'ID3' ||
+      (buf[0] === 0xff && (buf[1] & 0xe0) === 0xe0);
+    assert(riff || mp3, x.file + ': это аудиофайл, который понимает браузер');
+    assert(x.file.endsWith(riff ? '.wav' : '.mp3'), x.file + ': расширение совпадает с форматом');
+    if (x.loopStart !== undefined) { loops++; assert(x.loopEnd > x.loopStart, x.file + ': петля в порядке'); }
+    count++; files.add(x.file); bytes += buf.length;
+    }
+  }
+}
+
+assert.equal(Object.keys(manifest).length, 4, 'четыре тембра');
+assert(loops >= 15, 'у Rhodes есть петли: ' + loops);
+assert(bytes > 10_000_000, 'записи реально на месте: ' + (bytes / 1048576).toFixed(1) + ' МБ');
+console.log(`Записанные тембры: ${files.size} файлов в sounds/, ${(bytes / 1048576).toFixed(2)} МБ (${count} записей со слоями), петель ${loops}, HTML ${(Buffer.byteLength(html) / 1048576).toFixed(2)} МБ — OK`);
