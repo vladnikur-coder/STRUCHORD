@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.779</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.780</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20223,7 +20223,11 @@ let activeSectionKey = null;
       id: id, instrument: instrument, name: name,
       volume: 100, mute: false, solo: false,
       chords: {}, voicings: {}, patterns: {}, guitarShapes: {}, guitarShapeHistory: {},
-      keyboardSize: null, ...(instrument === 'guitar' ? {guitarShapesVersion:1,trackTuning:{id:'e-std',notes:null}} : {})
+      keyboardSize: null,
+      // 0.780: новая клавишная дорожка сразу получает голосоведение.
+      // У старых песен поля нет — они звучат как прежде, без миграции.
+      ...(instrument === 'keys' ? {linkedVoicings:true} : {}),
+      ...(instrument === 'guitar' ? {guitarShapesVersion:1,trackTuning:{id:'e-std',notes:null}} : {})
     };
   }
   function b39DefaultName(inst, n) {
@@ -32238,6 +32242,217 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     }
     return dp[m][n];
   }
+  // ---------- Голосоведение (0.780) ----------
+  //
+  // До этой волны «плавные обращения» были эвристикой: собрать все
+  // близкие позиции аккорда и выбрать ту, что ближе к предыдущей. На слух
+  // это давало почти то же самое, что и обычный режим — аккорд просто
+  // подбирался поближе к центру, а голоса всё равно шли параллельно.
+  //
+  // Настоящее голосоведение устроено иначе, и именно это слышно:
+  //   * общие тоны соседних аккордов остаются на месте (C→Am: E и C стоят);
+  //   * остальные голоса идут шагом; скачок больше кварты — исключение и
+  //     штраф, тритон в одном голосе — тоже;
+  //   * параллельные квинты и октавы запрещены (штраф больше, чем любая
+  //     экономия движения);
+  //   * голоса не пересекаются и не накладываются;
+  //   * бас живёт в левой руке (ниже правой) и идёт ближайшей октавой;
+  //   * состав аккорда не меняется (R12): те же ступени, тот же бас.
+  // Всё детерминированно: одинаковый вход всегда даёт одну и ту же позицию.
+  function ascMidi(a, b) { return a - b; }
+  var VL_TARGET = 60;            // центр правой руки, примерно C4
+  var VL_MAX_SPAN = 15;          // растяжение правой руки
+  var VL_COMFORT_SPAN = 10;
+
+  /** Сопоставление голосов: минимальное суммарное движение, голоса по порядку. */
+  function matchVoices(a, b) {
+    var m = a.length, n = b.length, INF = 1e9, dp = [], take = [], i, j;
+    for (i = 0; i <= m; i++) {
+      dp.push([]); take.push([]);
+      for (j = 0; j <= n; j++) { dp[i].push(INF); take[i].push(0); }
+    }
+    dp[0][0] = 0;
+    for (i = 0; i <= m; i++) for (j = 0; j <= n; j++) {
+      var cur = dp[i][j]; if (cur >= INF) continue;
+      if (i < m && cur + 8 < dp[i + 1][j]) { dp[i + 1][j] = cur + 8; take[i + 1][j] = 1; }
+      if (j < n && cur + 8 < dp[i][j + 1]) { dp[i][j + 1] = cur + 8; take[i][j + 1] = 2; }
+      if (i < m && j < n) {
+        var c = cur + Math.abs(a[i] - b[j]);
+        if (c < dp[i + 1][j + 1]) { dp[i + 1][j + 1] = c; take[i + 1][j + 1] = 3; }
+      }
+    }
+    var moves = [], x = m, y = n;
+    while (x > 0 || y > 0) {
+      var t = take[x][y];
+      if (t === 3) { moves.push({ from: a[x - 1], to: b[y - 1] }); x--; y--; }
+      else if (t === 1) { moves.push({ from: a[x - 1], to: null }); x--; }
+      else if (t === 2) { moves.push({ from: null, to: b[y - 1] }); y--; }
+      else break;
+    }
+    moves.reverse();
+    return { cost: dp[m][n], moves: moves };
+  }
+
+  /** Параллельные квинты и октавы между голосами — грубая ошибка. */
+  function parallelPerfects(moves) {
+    var n = 0;
+    for (var i = 0; i < moves.length; i++) for (var j = i + 1; j < moves.length; j++) {
+      var a = moves[i], b = moves[j];
+      if (a.from === null || a.to === null || b.from === null || b.to === null) continue;
+      if (a.to === a.from || b.to === b.from) continue;          // один голос стоит
+      if (Math.sign(a.to - a.from) !== Math.sign(b.to - b.from)) continue;  // разные стороны
+      var before = Math.min(mod12(b.from - a.from), 12 - mod12(b.from - a.from));
+      var after = Math.min(mod12(b.to - a.to), 12 - mod12(b.to - a.to));
+      if (before === after && (before === 0 || before === 7)) n++;
+    }
+    return n;
+  }
+
+  /** Все позиции аккорда: закрытые обращения и широкие (drop-2/drop-3). */
+  function voiceLeadCandidates(pcs, range) {
+    var low = range.low, high = range.high;
+    var rhLow = Math.max(low + 12, 48), rhHigh = Math.min(high, 84);
+    if (rhHigh < rhLow) rhHigh = Math.min(high, rhLow + 12);
+    var out = [], seen = {};
+    function addHand(hand) {
+      if (!hand || hand.length < 2) return;
+      var sorted = hand.slice().sort(ascMidi);
+      for (var i = 1; i < sorted.length; i++) if (sorted[i] === sorted[i - 1]) return;
+      if (sorted[sorted.length - 1] - sorted[0] > VL_MAX_SPAN) return;
+      if (sorted[0] < rhLow - 6 || sorted[sorted.length - 1] > rhHigh) return;
+      var sig = sorted.join(',');
+      if (seen[sig]) return;
+      seen[sig] = true;
+      out.push(sorted);
+    }
+    for (var r = 0; r < pcs.length; r++) {
+      for (var start = rhLow; start <= rhHigh; start++) {
+        if (mod12(start) !== pcs[r]) continue;
+        var hand = [start], last = start, ok = true;
+        for (var k = 1; k < pcs.length; k++) {
+          var pc = pcs[(r + k) % pcs.length];
+          var next = last + 1 + mod12(pc - mod12(last + 1));
+          if (next > rhHigh) { ok = false; break; }
+          hand.push(next); last = next;
+        }
+        if (ok) addHand(hand);
+      }
+    }
+    // Широкие позиции: второй или третий сверху голос на октаву ниже.
+    out.slice().forEach(function (h) {
+      for (var drop = 2; drop <= 3; drop++) {
+        if (h.length < drop) continue;
+        var wide = h.slice();
+        wide[wide.length - drop] -= 12;
+        addHand(wide);
+      }
+    });
+    return out;
+  }
+
+  /** Оценка позиции: меньше — лучше. */
+  function voiceLeadCost(prev, notes, opts) {
+    var hand = notes.slice(1), cost = 0, i;
+    if (!hand.length) return Infinity;
+    var center = hand.reduce(function (a, b) { return a + b; }, 0) / hand.length;
+    cost += Math.abs(center - VL_TARGET) * 0.06;
+    // Корень в правой руке: без него аккорд звучит «без фундамента», а бас
+    // остаётся одиноким низом. Не обязателен, но предпочтителен.
+    if (Number.isFinite(opts.rootPc) && hand.some(function (n) { return mod12(n) === opts.rootPc; })) cost -= 1.6;
+    var span = hand[hand.length - 1] - hand[0];
+    if (span > VL_COMFORT_SPAN) cost += (span - VL_COMFORT_SPAN) * 0.9;
+    // Секунда рядом в низком регистре звучит грязно: у пианиста такие
+    // созвучия не встречаются ниже C4. Целый тон внизу — уже нормально.
+    for (i = 1; i < hand.length; i++) {
+      var gap = hand[i] - hand[i - 1];
+      if (gap <= 2 && hand[i - 1] < 62) cost += gap === 1 ? 2 : 0.4;
+    }
+    // Левая рука не должна уезжать на две октавы: удобная разница между
+    // басом и низом правой — примерно от сексты до двух октав.
+    var bassGap = hand[0] - notes[0];
+    if (bassGap > 0) cost += Math.max(0, Math.abs(bassGap - 14) - 5) * 0.5;
+    if (!prev || prev.length < 2) return cost;
+
+    var prevHand = prev.slice(1).sort(ascMidi);
+    var match = matchVoices(prevHand, hand);
+    cost += match.cost;
+    match.moves.forEach(function (mv) {
+      if (mv.from === null || mv.to === null) { cost += 3; return; }
+      var d = Math.abs(mv.to - mv.from);
+      if (d > 5) cost += (d - 5) * 1.8;
+      if (d === 6) cost += 1.5;
+    });
+    // Общие тоны должны стоять на месте: за каждый удержанный — бонус.
+    var prevSet = {};
+    prevHand.forEach(function (n) { prevSet[n] = 1; });
+    hand.forEach(function (n) { if (prevSet[n]) cost -= 2.4; });
+    cost += parallelPerfects(match.moves) * 6;
+    // Бас — отдельная линия: шаг приветствуется, скачок на кварту-квинту
+    // допустим, дальше — уже прыжок.
+    if (Number.isFinite(prev[0])) {
+      var bd = Math.abs(notes[0] - prev[0]);
+      cost += bd * 0.10;
+      if (bd > 7) cost += (bd - 7) * 0.8;
+    }
+    return cost;
+  }
+
+  /**
+   * Голосоведение для аккорда: позиция, которая продолжает предыдущую.
+   * Возвращает массив MIDI (бас первым) или null, если формула неизвестна.
+   */
+  function voiceLead(chordName, key, range, prev, opts) {
+    var F = formula();
+    if (!F || typeof F.chordFormula !== 'function' || !range) return null;
+    var f = F.chordFormula(chordName, key);
+    if (!f || !f.tones || !f.tones.length) return null;
+    if (range.low > range.high) return null;
+    var o = opts || {};
+    // Тот же набор ступеней и тот же приоритет, что у generateKeysVoicings:
+    // голосоведение меняет октавы, но не состав аккорда (R12).
+    // В одной руке пять нот — предел: септаккорд с надстройками иначе
+    // превращается в кластер. Лишние надстройки отбрасываются по приоритету.
+    var limit = Math.min(o.maxTones || handLimit(range.size || 61), 5);
+    var tones = f.tones.slice().sort(function (a, b) {
+      return toneRank(a.degree) - toneRank(b.degree) || a.semitones - b.semitones;
+    }).slice(0, limit);
+    // Ступени в порядке от корня: так аккорд складывается в одну октаву.
+    // У C13 в списке формулы 9, 11 и 13 идут после септимы, и «по порядку
+    // массива» аккорд растягивался на две октавы — позиций не оставалось.
+    tones = tones.slice().sort(function (a, b) { return mod12(a.semitones) - mod12(b.semitones); });
+    var pcs = [];
+    tones.forEach(function (t) {
+      var pc = mod12(f.rootPc + t.semitones);
+      if (pcs.indexOf(pc) < 0) pcs.push(pc);
+    });
+    if (!pcs.length) return null;
+    var hands = voiceLeadCandidates(pcs, range);
+    if (!hands.length) return null;
+    var bassPc = f.bass ? f.bass.pitchClass : f.rootPc;
+    // Бас — в левой руке, ниже правой. Если диапазон слишком узкий,
+    // берём ближайшую октаву вообще.
+    var bassList = [];
+    var rhLow = Math.max(range.low + 12, 48);
+    for (var m = firstMidiWithPc(range.low, bassPc); m <= range.high; m += 12) {
+      if (m < rhLow || !bassList.length) bassList.push(m);
+      else if (bassList.length && m <= rhLow + 6) bassList.push(m);
+    }
+    if (!bassList.length) bassList = [firstMidiWithPc(range.low, bassPc)];
+    var best = null, bestCost = Infinity;
+    hands.forEach(function (hand) {
+      bassList.forEach(function (bass) {
+        if (bass >= hand[0]) return;              // бас выше руки — не бас
+        if (hand.indexOf(bass) >= 0) return;
+        var notes = [bass].concat(hand);
+        var cost = voiceLeadCost(prev, notes, Object.assign({ rootPc: f.rootPc }, o));
+        // При равной цене предпочитаем более низкий бас: он естественнее.
+        cost += bass * 0.001;
+        if (cost < bestCost - 1e-9) { bestCost = cost; best = notes; }
+      });
+    });
+    return best;
+  }
+
   function chooseLinked(candidates,prev,range) {
     if(!candidates.length)return null;
     var target=Math.max(range.low+12,Math.min(range.high-6,64)), best=null, score=Infinity;
@@ -32272,7 +32487,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       if(!Number.isInteger(manual))manual=t.voicings[e.cell];
       var variants=generateKeysVoicings(chord,key,cache.range,cache.prev,{}), notes=null;
       if(Number.isInteger(manual) && variants.length)notes=variants[manual%variants.length];
-      else notes=chooseLinked(inversionCandidates(chord,key,cache.range),cache.prev,cache.range);
+      else notes=voiceLead(chord,key,cache.range,cache.prev,{}) || chooseLinked(inversionCandidates(chord,key,cache.range),cache.prev,cache.range);
       if(notes && notes.length){cache.prev=notes.slice();cache.entries[e.cell]={chord:chord,notes:notes.slice(),manual:Number.isInteger(manual),index:Number.isInteger(manual)?manual%variants.length:null,count:variants.length};}
       else cache.entries[e.cell]={empty:true};
     }
@@ -32283,7 +32498,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       var exactFar=T.exactNotes(trackId,cell,name);
       if(exactFar) return {chord:name,notes:exactFar,manual:true,exact:true};
       var vi=t.voicings['v:'+name];if(!Number.isInteger(vi))vi=t.voicings[cell];
-      var fallback=generateKeysVoicings(name,sec.key||currentKey(),cache.range,null,{});
+      var fallback=voiceLead(name,sec.key||currentKey(),cache.range,null,{}) ? [voiceLead(name,sec.key||currentKey(),cache.range,null,{})] : generateKeysVoicings(name,sec.key||currentKey(),cache.range,null,{});
       if(fallback.length)cache.entries[cell]={chord:name,notes:fallback[(Number.isInteger(vi)?vi:0)%fallback.length].slice(),manual:Number.isInteger(vi),index:vi,count:fallback.length,limited:true};
     }
     var result=cache.entries[cell];return result && !result.empty ? result : null;
@@ -32670,7 +32885,10 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     });
     foot = el('div', 'b39-keys-foot', ''); head.insertBefore(foot, nav);
     var linkRow=el('label','tools-label b39-keys-link');linkedToggle=el('input');linkedToggle.type='checkbox';linkedToggle.id='b39LinkedVoicings';
-    linkRow.appendChild(linkedToggle);linkRow.appendChild(doc.createTextNode(' Плавные обращения внутри секции (для всей дорожки)'));
+    linkRow.appendChild(linkedToggle);linkRow.appendChild(doc.createTextNode(' Голосоведение внутри секции'));
+    // Длинное пояснение в подсказке: строка настроек должна оставаться в одну
+    // строку, иначе нижнее управление уезжает за экран (тест 0729).
+    linkRow.title = 'Общие тоны держатся на месте, остальные голоса идут шагом. Действует для всей дорожки.';
     linkedToggle.addEventListener('change',function(){var T=tracks(),a=activeTrack();if(T && a)T.setLinkedVoicings(a.track.id,linkedToggle.checked);renderPanel();});
     autoChoiceBtn=el('button','b39-keys-reset scheme-item','Сбросить выбор позиции');autoChoiceBtn.type='button';autoChoiceBtn.id='b39LinkedReset';autoChoiceBtn.title='Вернуть авто для этого аккорда и текущей ячейки';
     autoChoiceBtn.addEventListener('click',function(){var T=tracks(),a=activeTrack();if(!T || !a || !lastChord)return;if(!HOST.confirm('Сбросить ручную позицию этого аккорда на всей дорожке и в текущей ячейке?'))return;variantState.delete(a.track.id+'|'+lastChord);T.clearVoicingChoice(a.track.id,lastChord,lastCellKey);renderPanel();});
@@ -33052,6 +33270,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     keyboardSVG: keyboardSVG, renderKeysVoicingSVG: renderKeysVoicingSVG,
     variantIndex: variantIndex, setVariantIndex: setVariantIndex, stepVariant: stepVariant,
     linkedSelection:linkedSelection, clearLinkedCache:clearLinkedCache, inversionCandidates:inversionCandidates, motionCost:motionCost,
+    voiceLead:voiceLead, matchVoices:matchVoices, voiceLeadCandidates:voiceLeadCandidates, voiceLeadCost:voiceLeadCost,
     button: function () { return btn; }, panel: function () { return panel; },
     last: function () { return { chord: lastChord, cellKey: lastCellKey, trackId: lastTrackId }; }
   });

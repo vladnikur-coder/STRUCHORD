@@ -6,7 +6,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   const p=await b.newPage(),errors=[];p.on('pageerror',e=>errors.push(e.message));await p.setViewport({width,height});
   await p.evaluateOnNewDocument(s=>{localStorage.setItem('struchord-default-instrument','keys');localStorage.setItem('struchord-ui-scale',String(s));},scale);
   await p.goto(process.env.STRUCHORD_URL||'http://127.0.0.1:8000/STRUCHORD.html');
-  await p.evaluate(()=>{startNewSongFromHome();for(let i=0;i<15;i++){addSection('Verse');sections.at(-1).squares[0].events[0].chord='C';}StruChordKeys.open();});await wait(220);await p.evaluate(()=>window.scrollTo(0,1200));await wait(160);
+  await p.evaluate(()=>{startNewSongFromHome();for(let i=0;i<15;i++){addSection('Verse');sections.at(-1).squares[0].events[0].chord='C';}StruChordKeys.open();StruChordTracks.setLinkedVoicings(1,false);});await wait(220);await p.evaluate(()=>window.scrollTo(0,1200));await wait(160);
   const before=await p.evaluate(()=>JSON.stringify(StruChordTracks.exportForSave()));
   const measure=()=>p.evaluate(()=>{let p=document.querySelector('#b39KeysPanel'),r=p.getBoundingClientRect(),s=p.querySelector('#b39KeysSettings'),style=getComputedStyle(p),body=p.querySelector('.b39-keys-body');return {rect:r.toJSON(),keyboard:body.getBoundingClientRect().toJSON(),settings:s.getBoundingClientRect().toJSON(),key:body.querySelector('svg rect').getBoundingClientRect().height,overflow:style.overflowY,max:style.maxHeight,scroll:p.scrollTop,expanded:p.querySelector('#b39KeysSettingsToggle').getAttribute('aria-expanded')};});
   let d=await measure();assert(d.rect.bottom<=height/4+1 || d.key<=100*scale/100+1);assert.equal(d.overflow,'visible');
