@@ -201,6 +201,7 @@
     var previewJobs = new Set();    // отмена таймеров длинного предпрослушивания
     var channels = new Map();       // trackId -> канал микшера
     var prevByTrack = new Map();    // голосоведение: предыдущие MIDI-ноты
+    var padLines = new Map();       // 0.782: живая непрерывная линия pad, trackId -> голоса
     var hammer = null;              // общий буфер шума молоточка
     var voicingProvider = null;     // STAGE 4 подменяет голосоведение
     var eventNotifier = null;       // STAGE 4 следит за текущим аккордом
@@ -240,7 +241,7 @@
     function ensureCtx(ctx) {
       if (ctxRef === ctx) return;
       // Контекст пересоздан (audioPreflightForGesture): старые узлы уже мертвы.
-      clearKeyHighlights(); voices.clear(); channels.clear(); hammer = null; ctxRef = ctx;
+      clearKeyHighlights(); voices.clear(); channels.clear(); padLines.clear(); hammer = null; ctxRef = ctx;
     }
 
     // ---------- Шина дорожки ----------
@@ -655,6 +656,160 @@
       }
       return true;
     }
+    // 0.782 · B-110: непрерывная линия pad. Один голос живёт от ячейки к
+    // ячейке: общий тон продлевается без новой атаки, изменившийся ведётся
+    // по высоте smoothstep-кривой за 1/3 доли (0.784), а с 0.785 — НАЧИНАЯ
+    // с границы: старый аккорд держится до щелчка, новый приходит через 1/3
+    // доли ПОСЛЕ него. Лишние голоса уходят, новые наплывают — паузы нет.
+    // Кривая считается детерминированно, экспорт и замеры воспроизводимы.
+    function padRate(midi, baseMidi) { return Math.pow(2, (midi - baseMidi) / 12); }
+    function padCurve(from, to, n) {
+      var arr = new Float32Array(Math.max(2, n));
+      for (var i = 0; i < arr.length; i++) {
+        var t = i / (arr.length - 1), s = t * t * (3 - 2 * t);   // smoothstep
+        arr[i] = from * Math.pow(to / from, s);                   // линейно по полутонам
+      }
+      return arr;
+    }
+    function padVoice(ctx, target, midi, start, end, level, fadeIn) {
+      var bank = HOST.StruChordSampleBank;
+      var rec = bank && bank.nearest ? bank.nearest('pad', midi, velocityOf(null)) : null;
+      if (!rec || !rec.buffer || !hasRoom()) return null;
+      try {
+        var src = ctx.createBufferSource(), g = ctx.createGain();
+        src.buffer = rec.buffer;
+        var rate = padRate(midi, rec.midi);
+        src.playbackRate.value = rate;
+        if (rec.loopEnd && rec.loopStart >= 0 && rec.loopEnd > rec.loopStart && rec.loopEnd <= rec.buffer.duration) {
+          src.loop = true; src.loopStart = rec.loopStart; src.loopEnd = rec.loopEnd;
+        }
+        // Калибровка та же, что в playSample: level * 1.8 * cal(pad=4).
+        var tail = .35;
+        var amp = Math.max(.0002, level * 1.8 * 4 * strengthOf(null));
+        var attack = Math.max(.004, Math.min(fadeIn || .14, (end - start) * .5));
+        g.gain.setValueAtTime(.0001, start);
+        g.gain.exponentialRampToValueAtTime(amp, start + attack);
+        g.gain.setValueAtTime(amp, end);
+        g.gain.exponentialRampToValueAtTime(.0001, end + tail);
+        src.connect(g); g.connect(target);
+        src.start(start); src.stop(end + tail + .01);
+        register(src); stats.notes++;
+        return { src: src, gain: g, amp: amp, midi: midi, baseMidi: rec.midi, rate: rate,
+                 start: start, end: end, tail: tail, dead: false };
+      } catch (e) { return null; }
+    }
+    // Продлить голос на новую ячейку: старый запланированный хвост отменяется,
+    // источник не перезапускается. stop() можно звать повторно — последний
+    // вызов по спецификации Web Audio перекрывает предыдущий.
+    function padExtend(v, end) {
+      try {
+        v.gain.gain.cancelScheduledValues(v.end - .001);
+        v.gain.gain.setValueAtTime(v.amp, end);
+        v.gain.gain.exponentialRampToValueAtTime(.0001, end + v.tail);
+        v.src.stop(end + v.tail + .01);
+        v.end = end;
+        return true;
+      } catch (e) { return false; }
+    }
+    // Слайд по высоте: экспоненциальная кривая playbackRate = линейный ход
+    // по полутонам, S-форма по времени (как изгиб в пиано-ролле эталона).
+    function padGlide(v, toMidi, fromTime, endTime) {
+      try {
+        var target = padRate(toMidi, v.baseMidi);
+        var curve = padCurve(v.rate, target, 33);
+        v.src.playbackRate.cancelScheduledValues(fromTime - .001);
+        v.src.playbackRate.setValueAtTime(v.rate, fromTime - .001);
+        v.src.playbackRate.setValueCurveAtTime(curve, fromTime, endTime - fromTime);
+        // 0.786 (B-114): v.midi здесь уже нота СЛЕДУЮЩЕГО аккорда. Подсветка
+        // её больше не читает — она берёт p.from (см. padStep ниже). Звук и
+        // само голосоведение от этого комментария не меняются.
+        v.midi = toMidi; v.rate = target;
+        return true;
+      } catch (e) { return false; }
+    }
+    function padRelease(v, fromTime, endTime) {
+      try {
+        v.gain.gain.cancelScheduledValues(v.end - .001);
+        v.gain.gain.setValueAtTime(v.amp, fromTime);
+        v.gain.gain.exponentialRampToValueAtTime(.0001, endTime);
+        v.src.stop(endTime + .01);
+        v.dead = true;
+        return true;
+      } catch (e) { return false; }
+    }
+    // Один шаг pad-фигуры: сопоставляем план с живыми голосами дорожки.
+    // Общий тон -> продление, изменённый -> слайд, лишний -> затухание,
+    // новый -> наплыв. Паузы между ячейками нет ни при каком исходе.
+    function padStep(ctx, channel, trackId, st, start, dur, level) {
+      var target = voiceTarget(channel);
+      if (!target) return;
+      var info = st && st.pad;
+      var notes = (Array.isArray(st.notes) ? st.notes : []).map(Number)
+        .filter(function (n) { return Number.isFinite(n); });
+      if (!info || !notes.length) {                 // запасной путь как в 0.779
+        notes.forEach(function (m) { playNote(ctx, channel, m, start, dur, level); });
+        return;
+      }
+      var key = String(trackId);
+      var line = (padLines.get(key) || []).filter(function (v) { return !v.dead && v.end + v.tail > start; });
+      var lead = Math.max(.05, Math.min(Number(info.lead) || .35, dur * .45));
+      // 0.785 (B-113): смена аккорда больше НЕ опережает щелчок. Граница
+      // ячейки — это сам щелчок; изгиб, уход старых нот и наплыв новых идут
+      // от boundary до boundary + lead. Голоса поэтому живут на lead дольше
+      // ячейки, иначе Web Audio оборвал бы их прямо на ударе. Следующая
+      // ячейка продлевает их обычным padExtend(), лишних источников нет.
+      var boundary = start + dur;
+      var end = boundary + lead;
+      var map = Array.isArray(info.map) && info.map.length ? info.map
+        : notes.map(function (n) { return { from: n, to: null, kind: 'hold' }; });
+      var nextLine = [], used = [], litNotes = [];
+      map.forEach(function (p) {
+        if (p.from !== null && p.from !== undefined) {
+          var v = null;
+          for (var i = 0; i < line.length; i++) {
+            if (used.indexOf(line[i]) >= 0) continue;
+            if (line[i].midi === p.from) { v = line[i]; break; }
+          }
+          if (v) padExtend(v, end);
+          else v = padVoice(ctx, target, p.from, start, end, level, .14);
+          if (v) {
+            used.push(v);
+            // 0.786 (B-114): p.from — нота, которая звучит ДО щелчка в этой
+            // ячейке. Запоминаем её ДО padGlide(), иначе v.midi уедет вперёд
+            // на целый аккорд. new-ноты (from === null) сюда не попадают: они
+            // начинают звучать только после щелчка и подсветятся своей ячейкой.
+            litNotes.push(p.from);
+            if (p.kind === 'glide' && p.to !== null) padGlide(v, p.to, end - lead, end);
+            else if (p.kind === 'release') padRelease(v, end - lead, end);
+            nextLine.push(v);
+          }
+        } else if (p.kind === 'new' && p.to !== null) {
+          var nv = padVoice(ctx, target, p.to, end - lead, end, level, lead);
+          if (nv) nextLine.push(nv);
+        }
+      });
+      // 0.783: несовпавшие голоса гаснут НА границе (start), а не в конце
+      // новой ячейки. Здесь страховка от рассогласования плана (повтор,
+      // скачок, правка войсинга на ходу): короткий кроссфейд с наплывом
+      // новых нот. Штатный слайд (0.785: после щелчка) ставится картой заранее.
+      var crossfade = Math.min(lead, 0.12);
+      line.forEach(function (v) {
+        if (used.indexOf(v) < 0 && nextLine.indexOf(v) < 0) padRelease(v, start, start + crossfade);
+      });
+      padLines.set(key, nextLine);
+      // 0.763 / 0.786 (B-114): звучащие клавиши подсвечиваются и в
+      // непрерывной линии pad. Раньше здесь читали v.midi — но padGlide()
+      // помечает голос нотой СЛЕДУЮЩЕГО аккорда заранее, поэтому с 0.785
+      // подсветка опережала звук на целую ячейку. Берём litNotes (p.from):
+      // это ноты реально звучащего аккорда, а не подготовленного следующего.
+      // Интервал [start, start + dur] сохранён: смена подсветки происходит
+      // ровно на щелчке, уходящие ноты гаснут вместе со сменой аккорда, а
+      // пустоты на стыке нет (записи новой ячейки стартуют в её start).
+      litNotes.forEach(function (m) {
+        scheduleKeyHighlight(ctx, channel, m, start, dur);
+      });
+    }
+
     function playNote(ctx, channel, midi, start, dur, level, expression, highlightOwner) {
       var target = voiceTarget(channel);
       if (!target) return;
@@ -671,7 +826,7 @@
      * дорожки берёт её собственный аккорд (пусто = призрак, звука нет) и
      * ставит ноты в Web Audio. Главная гитарная звучит прежним кодом.
      */
-    function scheduleEvent(ctx, sec, sq, ev, ei, evStart, dur, bpm, ts) {
+    function scheduleEvent(ctx, sec, sq, ev, ei, evStart, dur, bpm, ts, padNext) {
       var T = tracks();
       if (!T || !ctx || !sec || !sq || !ev) return;
       ensureCtx(ctx);
@@ -706,7 +861,10 @@
               ctx: ctx, evStart: evStart, dur: dur, bpm: bpm, ts: ts,
               sec: sec, sq: sq, ev: ev, ei: ei, cell: cell,
               chord: chord, key: key, range: range, notes: notes,
-              trackId: track.id, span: (ev && ev.span) || 1
+              trackId: track.id, span: (ev && ev.span) || 1,
+              // 0.783: реальное следующее событие от плеера. undefined —
+              // превью/старые вызывающие, null — конец песни.
+              padNext: padNext
             });
           } catch (e) { steps = null; }
         }
@@ -714,10 +872,16 @@
           steps.forEach(function (st) {
             var at = Math.max(0, Number(st.at) || 0);
             var len = Math.max(0.02, Number(st.dur) || seconds);
-            (Array.isArray(st.notes) ? st.notes : []).forEach(function (midi) {
-              var dynamics=Number.isFinite(st.gain) ? st.gain : null;
-              playNote(ctx, channel, midi, evStart + at, len, level * (dynamics===null ? 1 : dynamics), dynamics);
-            });
+            // 0.782: pad-линия ведёт живые голоса сама. Обычный путь создавал
+            // бы новый источник на каждую ячейку и давал провал на стыке.
+            if (st.timbre === 'pad' && channel.__timbre === 'pad' && st.pad) {
+              padStep(ctx, channel, track.id, st, evStart + at, len, level);
+            } else {
+              (Array.isArray(st.notes) ? st.notes : []).forEach(function (midi) {
+                var dynamics=Number.isFinite(st.gain) ? st.gain : null;
+                playNote(ctx, channel, midi, evStart + at, len, level * (dynamics===null ? 1 : dynamics), dynamics);
+              });
+            }
           });
         } else {
           notes.forEach(function (midi) { playNote(ctx, channel, midi, evStart, seconds, level); });
@@ -845,6 +1009,7 @@
       voices.forEach(function (src) { try { src.stop(); } catch (e) {} });
       voices.clear();
       prevByTrack.clear();
+      padLines.clear();   // 0.782: Стоп рвёт непрерывную линию pad
       // B-39 STAGE5: снимаем подсветку шагов, если она была запланирована.
       var Acc = HOST.StruChordAccomp;
       if (Acc && typeof Acc.clearHighlights === 'function') {
