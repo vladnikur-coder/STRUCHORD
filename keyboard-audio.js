@@ -720,6 +720,9 @@
         v.src.playbackRate.cancelScheduledValues(fromTime - .001);
         v.src.playbackRate.setValueAtTime(v.rate, fromTime - .001);
         v.src.playbackRate.setValueCurveAtTime(curve, fromTime, endTime - fromTime);
+        // 0.786 (B-114): v.midi здесь уже нота СЛЕДУЮЩЕГО аккорда. Подсветка
+        // её больше не читает — она берёт p.from (см. padStep ниже). Звук и
+        // само голосоведение от этого комментария не меняются.
         v.midi = toMidi; v.rate = target;
         return true;
       } catch (e) { return false; }
@@ -759,7 +762,7 @@
       var end = boundary + lead;
       var map = Array.isArray(info.map) && info.map.length ? info.map
         : notes.map(function (n) { return { from: n, to: null, kind: 'hold' }; });
-      var nextLine = [], used = [];
+      var nextLine = [], used = [], litNotes = [];
       map.forEach(function (p) {
         if (p.from !== null && p.from !== undefined) {
           var v = null;
@@ -771,6 +774,11 @@
           else v = padVoice(ctx, target, p.from, start, end, level, .14);
           if (v) {
             used.push(v);
+            // 0.786 (B-114): p.from — нота, которая звучит ДО щелчка в этой
+            // ячейке. Запоминаем её ДО padGlide(), иначе v.midi уедет вперёд
+            // на целый аккорд. new-ноты (from === null) сюда не попадают: они
+            // начинают звучать только после щелчка и подсветятся своей ячейкой.
+            litNotes.push(p.from);
             if (p.kind === 'glide' && p.to !== null) padGlide(v, p.to, end - lead, end);
             else if (p.kind === 'release') padRelease(v, end - lead, end);
             nextLine.push(v);
@@ -789,11 +797,16 @@
         if (used.indexOf(v) < 0 && nextLine.indexOf(v) < 0) padRelease(v, start, start + crossfade);
       });
       padLines.set(key, nextLine);
-      // 0.763: звучащие клавиши подсвечиваются и в непрерывной линии pad.
-      nextLine.forEach(function (v) {
-        // Подсветка клавиш остаётся в рамках ячейки: звук живёт чуть дольше
-        // границы, но визуально аккорд по-прежнему сменяется на щелчке.
-        if (!v.dead) scheduleKeyHighlight(ctx, channel, v.midi, start, dur);
+      // 0.763 / 0.786 (B-114): звучащие клавиши подсвечиваются и в
+      // непрерывной линии pad. Раньше здесь читали v.midi — но padGlide()
+      // помечает голос нотой СЛЕДУЮЩЕГО аккорда заранее, поэтому с 0.785
+      // подсветка опережала звук на целую ячейку. Берём litNotes (p.from):
+      // это ноты реально звучащего аккорда, а не подготовленного следующего.
+      // Интервал [start, start + dur] сохранён: смена подсветки происходит
+      // ровно на щелчке, уходящие ноты гаснут вместе со сменой аккорда, а
+      // пустоты на стыке нет (записи новой ячейки стартуют в её start).
+      litNotes.forEach(function (m) {
+        scheduleKeyHighlight(ctx, channel, m, start, dur);
       });
     }
 

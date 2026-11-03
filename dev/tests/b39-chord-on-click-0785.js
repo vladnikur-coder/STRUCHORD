@@ -29,14 +29,20 @@ const ok = (msg) => { groups++; console.log('  ok  ' + msg); };
 // ---------------------------------------------------------------------------
 // 1. Статический контракт
 // ---------------------------------------------------------------------------
+// 0.786: контракт «версия и кэш парой» не привязан к номеру релиза.
 const VER = (HTML.match(/· ver (\d+\.\d+)/) || [])[1];
-assert.equal(VER, '0.785', 'версия в шапке 0.785');
-assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v785'),
-  'R7: кэш выложен парой с HTML');
+assert(VER, 'версия в шапке');
+assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8')
+  .includes('struchord-v' + VER.split('.')[1]),
+  'R7: кэш выложен парой с версией ' + VER);
 assert(AUDIO.includes('var boundary = start + dur;') && AUDIO.includes('var end = boundary + lead;'),
   'padStep: конец голоса отодвинут на длину перехода');
-assert(/scheduleKeyHighlight\(ctx, channel, v\.midi, start, dur\)/.test(AUDIO),
-  'подсветка клавиш осталась в рамках ячейки');
+// 0.786 (B-114): подсветка по-прежнему в [start, start + dur], но берёт
+// p.from, а не v.midi — тот после padGlide() уже нота следующего аккорда.
+// Само звуковое расписание 0.785 от этого не изменилось.
+assert(/scheduleKeyHighlight\(ctx, channel, m, start, dur\);/.test(AUDIO) &&
+  AUDIO.includes('litNotes.push(p.from);'),
+  'подсветка клавиш осталась в рамках ячейки (0.786: по звучащему аккорду)');
 assert(/padGlide\(v, p\.to, end - lead, end\)/.test(AUDIO) &&
   /padRelease\(v, end - lead, end\)/.test(AUDIO) &&
   /padVoice\(ctx, target, p\.to, end - lead, end, level, lead\)/.test(AUDIO),
