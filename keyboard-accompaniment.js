@@ -563,6 +563,79 @@
     // целиком от одной смены аккорда до следующей. В плотных жанрах
     // (фанк, панк, блюз, джаз) добавляется вторая атака в середине такта,
     // иначе двухдольная пульсация пропадает совсем.
+    // 0.782 · B-110: pad перетекает между аккордами, а не гаснет на стыке.
+    // Замер по эталону uploads/Follow for daily chord progressions!.mp4
+    // (кадр 3,7 с): границы аккордов идут 94 px/с, шаг 354 px ≈ 3,8 с;
+    // изгиб голоса начинается за 28–36 px = 0,30–0,38 с ДО границы и
+    // приходит ровно в неё, общие тоны идут горизонтально, разрывов нет.
+    var PAD_GLIDE_LEAD = 0.35;   // с, опережение слайда
+    var PAD_GLIDE_MAX_ST = 7;    // полутонов, предел portamento
+
+    // Чистая раскладка голосов: что держится, что ползёт, что уходит,
+    // что появляется. Отдаётся в API для проверок без браузера.
+    function padVoiceMap(from, to, maxSt) {
+      function clean(list) {
+        return (Array.isArray(list) ? list : []).map(Number).filter(isMidi)
+          .slice().sort(asc).filter(function (n, i, a) { return i === 0 || n !== a[i - 1]; });
+      }
+      var A = clean(from), B = clean(to), used = B.map(function () { return false; });
+      var limit = Number.isFinite(maxSt) ? maxSt : PAD_GLIDE_MAX_ST;
+      var out = [], i, j;
+      // Общие тоны не перезапускаются вообще — главное отличие от 0.779.
+      for (i = 0; i < A.length; i++) {
+        j = B.indexOf(A[i]);
+        if (j >= 0 && !used[j]) { used[j] = true; out.push({ from: A[i], to: B[j], kind: 'hold' }); }
+      }
+      // Оставшиеся голоса идут к ближайшей свободной высоте следующего аккорда.
+      for (i = 0; i < A.length; i++) {
+        if (out.some(function (p) { return p.from === A[i]; })) continue;
+        var best = -1, dist = Infinity;
+        for (j = 0; j < B.length; j++) {
+          if (used[j]) continue;
+          var d = Math.abs(B[j] - A[i]);
+          if (d < dist) { dist = d; best = j; }
+        }
+        if (best >= 0 && dist <= limit) { used[best] = true; out.push({ from: A[i], to: B[best], kind: 'glide' }); }
+        else out.push({ from: A[i], to: null, kind: 'release' });
+      }
+      for (j = 0; j < B.length; j++) if (!used[j]) out.push({ from: null, to: B[j], kind: 'new' });
+      return out;
+    }
+
+    // Войсинг следующей ячейки ВНУТРИ секции. Слайд за 0,35 с нельзя
+    // поставить из следующей ячейки: плеер будит её лишь за 120 мс
+    // (scheduleNextEvent, tWait = ... - 120). Поэтому читаем готовый план
+    // секции 0.780 (linkedSelection) заранее; при выключенном голосоведении
+    // считаем voiceLead от текущих нот. Смена секции — без раннего слайда.
+    function padNextVoicing(o, chord) {
+      var T = tracks(), K = keys();
+      if (!T || !o.sec || !o.sq || typeof o.ei !== 'number') return null;
+      var list = [];
+      (o.sec.squares || []).forEach(function (sq) {
+        (sq.events || []).forEach(function (ev, i) { list.push({ sq: sq, ev: ev, ei: i }); });
+      });
+      var here = -1;
+      for (var k = 0; k < list.length; k++) {
+        if (list[k].sq === o.sq && list[k].ei === o.ei) { here = k; break; }
+      }
+      if (here < 0 || here + 1 >= list.length) return null;   // граница секции
+      var n = list[here + 1], cell = null;
+      try { cell = T.cellKey(o.sec, n.sq, n.ei); } catch (e) { return null; }
+      if (!cell) return null;
+      var nextChord = null;
+      try { nextChord = T.trackChord(o.trackId, cell, n.ev); } catch (e) {}
+      if (!nextChord) return { notes: [], silence: true };    // пустая ячейка/пауза
+      var notes = null, range = o.range || (T.keyRange ? T.keyRange(o.trackId) : null);
+      if (K && typeof K.linkedSelection === 'function') {
+        try { var sel = K.linkedSelection(o.trackId, cell); if (sel && sel.notes) notes = sel.notes.slice(); } catch (e) {}
+      }
+      if (!notes && K && typeof K.voiceLead === 'function' && range) {
+        try { notes = K.voiceLead(nextChord, o.key || o.sec.key || 'C', range, chord, {}); } catch (e) {}
+      }
+      if (!notes || !notes.length) return { notes: [], silence: true };
+      return { notes: notes.map(Number).filter(isMidi).sort(asc), silence: false };
+    }
+
     function padFigure(steps, o, unit, beats) {
       var chord = (Array.isArray(o.notes) ? o.notes : []).map(Number).filter(isMidi).sort(asc);
       if (!chord.length) {
@@ -590,19 +663,29 @@
         at = withHalf.sort(asc);
       }
       if (!at.length) at = [0];
-      var gap = Math.max(0.01, unit * (TIMBRE_ARTICULATION.pad.gapBeats || 0.1));
+      // 0.782: паузы перед границей больше нет — нота держится до неё самой,
+      // поэтому старый и новый аккорд перекрываются и звук не проваливается.
       var template = steps[0] || {};
+      var next = padNextVoicing(o, chord);
+      var lead = Math.max(0.05, Math.min(PAD_GLIDE_LEAD, (Number(o.dur) || 0) * 0.2));
+      var plain = chord.map(function (n) { return { from: n, to: null, kind: 'hold' }; });
+      var finalMap = next ? padVoiceMap(chord, next.notes, PAD_GLIDE_MAX_ST) : plain;
+      var release = !!(next && next.silence);
       var out = [];
       at.forEach(function (beat, i) {
         var start = beat * unit;
         if (start >= dur - 0.005) return;
-        var stop = (i + 1 < at.length ? at[i + 1] * unit : dur) - gap;
+        var stop = (i + 1 < at.length ? at[i + 1] * unit : dur);
         var len = Math.max(unit * 0.5, stop - start);
         if (start + len > dur) len = Math.max(0.05, dur - start);
+        var last = i === at.length - 1;
         out.push({
           index: out.length, stepIndex: 0, token: 'H', at: start, dur: len,
           notes: chord.slice(), subdivision: template.subdivision, swing: false,
-          type: template.type, source: template.source, timbre: 'pad'
+          type: template.type, source: template.source, timbre: 'pad',
+          // Промежуточная атака в плотном жанре остаётся в плане, но голос
+          // не перезапускается: реестр в audio-слое просто продлевает его.
+          pad: { lead: lead, final: last, map: last ? finalMap : plain, release: last && release }
         });
       });
       return out.length ? out : null;
@@ -689,9 +772,11 @@
       // Явные пресеты, включая сохранённый keys-block, не меняем.
       if (cfg.source === 'default') {
         var single=[{index:0,stepIndex:0,token:'H',at:0,dur:dur,notes:tokenNotes('H',C,function(){return 0;}),subdivision:sub,swing:false,type:cfg.type,source:cfg.source}];
-        if (!o.noHighlight && o.ctx && typeof o.evStart === 'number') scheduleHighlights(o,single);
-        if (stepObserver) { try { stepObserver({cell:o.cell,trackId:o.trackId,cfg:cfg,steps:single}); } catch(e) {} }
-        return single;
+        // 0.782: pad держит гармонию и без сохранённого рисунка.
+        var shaped = articulate(single, o);
+        if (!o.noHighlight && o.ctx && typeof o.evStart === 'number') scheduleHighlights(o,shaped);
+        if (stepObserver) { try { stepObserver({cell:o.cell,trackId:o.trackId,cfg:cfg,steps:shaped}); } catch(e) {} }
+        return shaped;
       }
       // Номер звука арпеджио принадлежит всему рисунку секции, а не отдельной
       // ячейке. Считаем только шаги A (в том числе в сочетаниях) до её начала.
@@ -1259,6 +1344,7 @@
 
     var api = Object.freeze({
       boot: boot, plan: plan, resolve: resolve, buildSteps: buildSteps,
+      padVoiceMap: padVoiceMap, padGlideLead: function () { return PAD_GLIDE_LEAD; },
       bassPolicy:bassPolicy, stripBass:stripBass, sectionFromCell:sectionFromCell,
       normalize: normalize, preset: preset, list: list, styles: function () { return STYLES.map(function (s) { return {id:s[0],label:s[1]}; }); }, tokens: function () { return TOKENS.slice(); },
       adoptRhythm: adoptRhythm, rhythm: rhythm,
