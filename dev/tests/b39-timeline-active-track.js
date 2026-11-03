@@ -1,0 +1,17 @@
+/* Лента: активная дорожка, свои ноты и формы, пустая главная, живое воспроизведение. */
+const assert=require('assert'),puppeteer=require('puppeteer');
+const wait=ms=>new Promise(r=>setTimeout(r,ms));
+(async()=>{const b=await puppeteer.launch({executablePath:process.env.PUPPETEER_EXECUTABLE_PATH||'/tmp/chromium',args:['--no-sandbox']});try{
+ const p=await b.newPage(),errors=[];p.on('pageerror',e=>errors.push(e.message));p.on('dialog',d=>d.accept());await p.setViewport({width:1440,height:900});await p.evaluateOnNewDocument(()=>localStorage.setItem('struchord-default-instrument','guitar'));await p.goto(process.env.STRUCHORD_URL||'http://127.0.0.1:8011/STRUCHORD.html');
+ const x=await p.evaluate(()=>{startNewSongFromHome();addSection('Verse');const s=sections[0],q=s.squares[0],T=StruChordTracks;q.events[0].chord='C';q.events[0].fingering='x,3,2,0,1,0';const g=T.addTrack('guitar'),k=T.cellKey(s,q,0);T.setTrackChord(g,k,'Am');T.setGuitarShape(g,k,'Am',['x',0,2,2,1,0],[],null);const piano=T.addTrack('keys');T.setTrackChord(piano,k,'Dm');T.setExactNotes(piano,k,'Dm',[50,62,65,69]);return{g,piano,k}});await wait(200);await p.click('#btnModeToggle');await wait(400);
+ const read=()=>p.evaluate(()=>({cell:document.querySelector('.tl-cell-name')?.textContent,now:document.querySelector('#tlNowChord').textContent,svg:!!document.querySelector('#tlNowFing .b39-keys-svg'),notes:document.querySelectorAll('#tlNowFing .b39-key-inset').length,empty:document.querySelector('#tlEmpty').hidden,attached:!!timelineActiveCell?.isConnected}));
+ let r=await read();assert.equal(r.cell,'Dm');assert.equal(r.now,'Dm');assert(r.svg&&r.notes===3&&r.attached);
+ await p.evaluate(x=>StruChordTracks.setActive(x.g),x);await wait(200);r=await read();assert.equal(r.cell,'Am');assert.equal(r.now,'Am');assert(!r.svg&&r.attached);
+ const svg=await p.evaluate(x=>{let choice=StruChordTracks.guitarShape(x.g,x.k,'Am');let tmp=document.createElement('div');tmp.innerHTML=renderFingeringSVG(choice.shape,undefined,{barreOff:choice.barreOff,customFingers:choice.fingers,chord:'Am',cellKey:x.k});return {actual:document.querySelector('#tlNowFing svg').outerHTML,expected:tmp.querySelector('svg').outerHTML}},x);assert.equal(svg.actual,svg.expected);
+ await p.evaluate(()=>StruChordTracks.setActive(1));await wait(200);r=await read();assert.equal(r.cell,'C');assert.equal(r.now,'C');assert(r.attached);
+ await p.evaluate(x=>{sections[0].squares[0].events[0].chord='';StruChordTracks.setActive(x.piano)},x);await wait(200);r=await read();assert.equal(r.cell,'Dm');assert.equal(r.now,'Dm');assert(r.svg&&r.empty);
+ await p.evaluate(x=>StruChordTracks.setActive(1),x);await wait(200);r=await read();assert.notEqual(r.cell,'Dm');assert.equal(r.now,'');assert(r.empty,'другая дорожка звучит, подсказка пустой песни не должна закрывать ленту');
+ await p.evaluate(x=>StruChordTracks.setActive(x.piano),x);await wait(200);await p.click('#btnPlay');await wait(350);r=await read();assert.equal(r.now,'Dm','реальный плеер показывает активные клавиши');assert(r.svg);assert(await p.evaluate(()=>playbackState.isPlaying));
+ await p.evaluate(x=>StruChordTracks.setActive(x.g),x);await wait(200);r=await read();assert.equal(r.now,'Am','переключение во время игры');assert(!r.svg&&r.attached);assert(await p.evaluate(()=>playbackState.isPlaying));await p.evaluate(()=>stopPlayback());
+ assert.deepStrictEqual(errors,[]);console.log('Лента: активные дорожки, точные ноты, формы, пустая главная, переключение и плеер — OK');
+ }finally{await b.close()}})().catch(e=>{console.error(e);process.exit(1)});

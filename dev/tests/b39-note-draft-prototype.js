@@ -1,0 +1,31 @@
+'use strict';
+const assert=require('assert');
+const {buildSection}=require('../prototypes/keyboard-section-adapter');
+const D=require('../prototypes/keyboard-note-draft'),R=require('../prototypes/keyboard-note-render'),S=require('../prototypes/keyboard-note-storage');
+const cells=[{key:'1:1:0',beats:4,chord:{bassPc:0,tones:[0,4,7]}},{key:'1:1:1',beats:4,chord:{bassPc:9,tones:[9,0,4]}},{key:'1:2:0',beats:4,manual:true},{key:'1:2:1',beats:4,rest:true}];
+const args={cells,low:36,high:96,bpm:110,meter:'4/4',genre:'pop',role:'verse',swing:false,sectionSwing:null,seed:42};
+const gen=o=>buildSection({...args,...o});
+const a=gen(),draft=D.create(cells,a);assert.deepStrictEqual(draft.cells.slice(0,2).map(c=>c.notes),[a.events[cells[0].key],a.events[cells[1].key]]);assert(draft.cells.slice(2).every(c=>c.status==='preserved'&&c.notes===null));
+const initial=JSON.stringify(draft),first=draft.cells[0].notes;assert(first.length>0);
+const rendered=R.planCell(draft,cells[0].key,{duration:2,span:4,denominator:4});assert.deepStrictEqual(rendered.map(n=>n.at),first.map(n=>n.beat*.5).sort((a,b)=>a-b));for(const n of rendered)assert.equal(n.dur,first[n.index].duration*.5);
+const reverse=D.replaceCell(draft,cells[0].key,first.slice().reverse(),0), chronological=R.planCell(reverse,cells[0].key,{duration:2,span:4,denominator:4});assert(chronological.every((n,i)=>i===0||n.at>=chronological[i-1].at),'preview scheduler gets sorted notes');
+const rest=D.replaceCell(draft,cells[0].key,[],0);assert.deepStrictEqual(R.planCell(rest,cells[0].key,{duration:2,span:4,denominator:4})[0].notes,[],'intentional empty part does not trigger fallback chord');
+assert.equal(R.planCell(draft,cells[2].key,{duration:2,span:4,denominator:4}),null);assert.throws(()=>R.planCell(draft,cells[0].key,{duration:2,span:3,denominator:4}),/duration changed/);
+const six=R.planCell(draft,cells[0].key,{duration:2,span:8,denominator:8});assert.deepStrictEqual(six,rendered,'denominator conversion uses quarter beats');
+const altered=first.map((n,i)=>i===0?{...n,velocity:n.velocity===127?126:n.velocity+1}:n);
+const edited=D.replaceCell(draft,cells[0].key,altered,0);assert.equal(JSON.stringify(draft),initial);assert.equal(edited.cells[0].status,'manual');assert.equal(edited.revision,1);
+assert.throws(()=>D.replaceCell(edited,cells[0].key,altered,0),/Stale/);assert.throws(()=>D.replaceCell(edited,cells[2].key,[],1),/Preserved/);
+const nextGen=gen({seed:43}),merged=D.regenerate(edited,nextGen,1);assert.deepStrictEqual(merged.cells[0].notes,altered);assert.deepStrictEqual(merged.cells[1].notes,nextGen.events[cells[1].key]);assert.equal(merged.cells[0].status,'manual');
+const replaced=D.regenerate(merged,nextGen,2,true);assert.deepStrictEqual(replaced.cells[0].notes,nextGen.events[cells[0].key]);assert.equal(replaced.cells[0].status,'generated');assert(replaced.cells.slice(2).every(c=>c.status==='preserved'));
+const changed={...nextGen,events:{...nextGen.events},preserved:[...nextGen.preserved,cells[0].key]};delete changed.events[cells[0].key];assert.throws(()=>D.regenerate(edited,changed,1),/Cell source changed/,'external manual or empty cell is not silently overwritten');
+const writes=S.prepare(edited,{}), patterns=Object.fromEntries(writes.map(x=>[x.key,x.pattern]));assert.deepStrictEqual(S.decode(cells,patterns).cells,edited.cells,'lossless per-cell storage');
+assert.throws(()=>S.prepare(edited,{[cells[0].key]:{type:'keys-block'}}),/Manual pattern conflict/);assert.throws(()=>S.prepare(draft,patterns),/Manual note conflict/);assert(S.prepare(draft,patterns,{replaceManual:true}).length>0);
+assert.throws(()=>S.decode([{...cells[0],beats:2}],patterns),/duration changed/);
+const dense=D.replaceCell(draft,cells[0].key,Array.from({length:1024},()=>first[0]),0);assert.throws(()=>S.prepare(dense,{}),/storage limit/,'reject oversized cell before writing');
+const saved=JSON.stringify(replaced),loaded=D.snapshot(JSON.parse(saved));assert.deepStrictEqual(loaded,replaced);loaded.cells[0].notes[0].midi=1;assert.equal(JSON.stringify(replaced),saved);
+for(const bad of [{...first[0],midi:128},{...first[0],velocity:0},{...first[0],beat:4},{...first[0],duration:5},{...first[0],beat:NaN},{...first[0],hand:'other'}])assert.throws(()=>D.replaceCell(edited,cells[0].key,[bad],1));
+assert.equal(JSON.stringify(draft),initial);assert.throws(()=>D.create(cells,{...a,events:{...a.events,unknown:[]}}));assert.throws(()=>D.create([...cells,cells[0]],a));assert.throws(()=>D.regenerate(edited,{...nextGen,events:{...nextGen.events,[cells[1].key]:[{...first[0],velocity:0}]}},1));assert.deepStrictEqual(edited.cells[0].notes,altered);
+let count=0;for(const genre of ['pop','rock','punk','country','blues','jazz','soul','funk','fusion'])for(const meter of ['4/4','3/4','6/8'])for(const swing of [false,true])for(const seed of [1,2,3,4]){
+ const g=gen({genre,meter,swing,seed});assert(g.ok);const d=D.create(cells,g);assert.deepStrictEqual(d.cells[0].notes,g.events[cells[0].key]);assert.deepStrictEqual(D.snapshot(JSON.parse(JSON.stringify(d))),d);count++;
+}
+console.log(`Note draft: ${count} generated examples preserve individual notes, atomic edits, overrides and JSON round-trip — OK`);

@@ -15,7 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const { JSDOM, VirtualConsole } = require('jsdom');
 
-const html = fs.readFileSync(path.join(__dirname, '..', '..', 'STRUCHORD.html'), 'utf8');
+const html = fs.readFileSync(process.env.STRUCHORD_HTML || path.join(__dirname, '..', '..', 'STRUCHORD.html'), 'utf8');
 const domErrors = [];
 const virtualConsole = new VirtualConsole();
 virtualConsole.on('jsdomError', (error) => domErrors.push(String(error)));

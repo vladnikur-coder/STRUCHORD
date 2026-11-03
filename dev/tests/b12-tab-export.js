@@ -10,7 +10,7 @@ const measurements = [];
 if (output) fs.mkdirSync(output, { recursive: true });
 const errors = [];
 const vc = new VirtualConsole(); vc.on('jsdomError', e => errors.push(e.message));
-const dom = new JSDOM(fs.readFileSync(path.join(root, 'STRUCHORD.html'), 'utf8'), {
+const dom = new JSDOM(fs.readFileSync(process.env.STRUCHORD_HTML || path.join(root, 'STRUCHORD.html'), 'utf8'), {
   runScripts: 'dangerously', pretendToBeVisual: true, url: 'https://localhost/?view=editor', virtualConsole: vc,
   beforeParse(w) {
     w.TextEncoder = TextEncoder; w.TextDecoder = TextDecoder;

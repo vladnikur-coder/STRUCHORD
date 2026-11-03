@@ -1,0 +1,34 @@
+/* B-39: собственные рисунки по приёмам аккомпанемента, без замены старых. */
+const assert=require('assert'),puppeteer=require('puppeteer');
+(async()=>{const browser=await puppeteer.launch({executablePath:process.env.PUPPETEER_EXECUTABLE_PATH||'/tmp/chromium',args:['--no-sandbox']});try{
+ const page=await browser.newPage(),errors=[];page.on('pageerror',e=>errors.push(e.message));await page.setViewport({width:390,height:844});await page.goto(process.env.STRUCHORD_URL||'http://127.0.0.1:8000/STRUCHORD.html');await page.evaluate(()=>localStorage.setItem('struchord-default-instrument','keys'));await page.reload();
+ await page.evaluate(()=>{startNewSongFromHome();addSection('Verse');songStore.dispatch('test/chord',()=>{sections[0].squares[0].events[0].chord='C/E';});});
+ const ids=['piano-soft-pulse','piano-breathing-arp','piano-three-three-two'];
+ const check=await page.evaluate(ids=>{const A=StruChordAccomp,T=StruChordTracks,s=sections[0],sq=s.squares[0],e=sq.events[0],common={trackId:1,sec:s,sq,ev:e,ei:0,chord:'C/E',key:'C',range:T.keyRange(1),notes:[40,60,64,67],noHighlight:true,noSwing:true};
+ const patterns=ids.map(id=>[id,...[4,3,6].map(beats=>A.buildSteps(id,2,beats))]);
+ const plan=(id,ts,span)=>A.plan({...common,ts,span,dur:span,pattern:{type:id,subdivision:2},patternSource:'section'});
+ let first=plan(ids[2],'4/4',8),soft=plan(ids[0],'4/4',8),rh=A.plan({...common,ts:'4/4',span:4,dur:4,pattern:{type:'keys-block',subdivision:1,steps:['H','R','M','B']},patternSource:'cell'});
+ T.setBassRole(1,s.id,'nobass');let nobass=A.plan({...common,ts:'4/4',span:4,dur:4,pattern:{type:'keys-block',subdivision:1,steps:['H','R','M','B']},patternSource:'cell'});T.setBassRole(1,s.id,'legacy');
+ return {patterns,first,soft,rh,nobass,old:A.buildSteps('keys-alberti',2,4)};},ids);
+ for(const row of check.patterns){for(const [index,n] of [[1,8],[2,6],[3,12]]){let arr=row[index];assert.equal(arr.length,n*2);assert.notDeepStrictEqual(arr.slice(0,n),arr.slice(n),`${row[0]}: разные такты для ${n}`);}}
+ assert.deepStrictEqual(check.first.map((x,i)=>x.token===null?null:i).filter(x=>x!==null),[0,3,6,8,11,14],'ритм 3+3+2 в обоих тактах 4/4');
+ assert.deepStrictEqual(check.rh.map(x=>x.notes),[[40,60,64,67],[60,64,67],[64],[40]],'два новых звука не включают слэш-бас');
+ assert.deepStrictEqual(check.nobass.map(x=>x.notes),[[60,64,67],[60,64,67],[64],[]],'без баса остаются аккорд и средняя нота');
+ assert(check.soft[2].gain < check.soft[0].gain && check.soft[2].gain < check.soft[4].gain,'средний голос тише аккорда');
+ assert(check.soft.filter(x=>x.notes.length).every(x=>x.dur<.5),'соседние паузы не заполняются удержанием');
+ assert.deepStrictEqual(check.old,['t1','t5','t3','t5','t1','t5','t3','t5'],'прежний пресет не меняется');
+ const continuity=await page.evaluate(()=>{const A=StruChordAccomp,s=sections[0],first={id:99998,customBeats:4,events:[{span:4}],repeat:1},second={id:99999,customBeats:4,events:[{span:4}],repeat:1};let original=s.squares;s.squares=[first,second];try{const common={trackId:1,sec:s,chord:'C/E',key:'C',range:StruChordTracks.keyRange(1),notes:[40,60,64,67],ts:'4/4',span:4,dur:4,ei:0,ev:{span:4},pattern:{type:'piano-three-three-two',subdivision:2},patternSource:'section',noHighlight:true,noSwing:true};return [A.plan({...common,sq:first}).map(x=>x.token),A.plan({...common,sq:second}).map(x=>x.token)];}finally{s.squares=original;}});assert.deepStrictEqual(continuity[0],check.first.slice(0,8).map(x=>x.token));assert.deepStrictEqual(continuity[1],check.first.slice(8).map(x=>x.token),'второй квадрат продолжает второй такт');
+ await page.evaluate(()=>openStrumPatternEditor('section',sections[0].id));
+ await page.setViewport({width:320,height:640});let m=await page.$eval('#b39AccPanel',e=>({w:e.getBoundingClientRect().width,sw:e.scrollWidth,cw:e.clientWidth,vw:innerWidth}));assert(m.w<=m.vw && m.sw<=m.cw,'редактор не переполняет экран');await page.setViewport({width:390,height:844});
+ await page.click('[data-preset="piano-three-three-two"]');assert.match(await page.$eval('#b39AccPanel',e=>e.textContent),/3\+3\+2 восьмых/);assert.equal(await page.$$eval('#b39AccSteps [data-step]',x=>x.length),16);
+ let preview=await page.evaluate(async()=>{let found;StruChordAccomp.setStepObserver(x=>found=x.steps);const c=getAudioContext();await c.resume();document.querySelector('#b39AccPreview').click();StruChordAccomp.setStepObserver(null);return found.map(x=>({token:x.token,gain:x.gain}));});assert.deepStrictEqual(preview.map(x=>x.token),check.first.map(x=>x.token));
+ await page.click('#b39AccSave');let state=await page.evaluate(()=>StruChordTracks.state()),id=await page.evaluate(()=>sections[0].id);assert.equal(state.tracks[0].patterns['s:'+id].type,ids[2]);
+ const result=await page.evaluate(()=>{let T=StruChordTracks,A=StruChordAccomp,E=StruChordExport,s=sections[0],sq=s.squares[0],ev=sq.events[0],cell=T.cellKey(s,sq,0),range=T.keyRange(1),notes=[40,60,64,67],span=ev.span||1,ts='4/4';let a=A.plan({trackId:1,sec:s,sq,ev,ei:0,cell,ts,span,dur:span,chord:'C/E',key:'C',range,notes,noSwing:true,noHighlight:true}),b=E.stepsFor(T.track(1),cell,s,sq,ev,0,'C/E','C',range,notes,span,ts);return {a:a.map(x=>[x.notes,x.gain]),b:b.map(x=>[x.notes,x.gain]),midi:window.midiExportBytes().report.stats.notes,gp:E.buildParts({sections,globalKey,globalTimeSig})[0].pitchRolls[s.id]};});
+ assert.deepStrictEqual(result.a,result.b,'экспорт и транспортный план совпадают');assert(result.midi>0 && result.gp.length>0);assert(new Set(result.gp.map(x=>x.velocity)).size>1,'динамика записана в ноты GP/MIDI');
+ const loaded=await page.evaluate(()=>{let T=StruChordTracks,r={sections:JSON.parse(JSON.stringify(sections)),...T.exportForSave()};return T.attach(r,r);});assert.equal(loaded.tracks[0].patterns['s:'+id].type,ids[2]);
+ await page.evaluate(()=>undoEdit());await new Promise(r=>setTimeout(r,150));assert(!(await page.evaluate(id=>StruChordTracks.track(1).patterns['s:'+id],id)));await page.evaluate(()=>redoEdit());await new Promise(r=>setTimeout(r,150));assert.equal(await page.evaluate(id=>StruChordTracks.track(1).patterns['s:'+id].type,id),ids[2]);
+ // Новые звуки доступны для собственных шагов и сохраняются как данные.
+ await page.evaluate(id=>openStrumPatternEditor('section',id),id);await page.click('#b39AccSteps [data-step="1"]');await page.click('#b39AccStepChoice [data-token="R"]');await page.click('#b39AccSave');assert.equal(await page.evaluate(id=>StruChordTracks.track(1).patterns['s:'+id].steps[1],id),'R');
+ const custom=await page.evaluate(()=>{let T=StruChordTracks,r={sections:JSON.parse(JSON.stringify(sections)),...T.exportForSave()};return T.attach(r,r).tracks[0];});assert.equal(custom.patterns['s:'+id].steps[1],'R');
+ assert.deepStrictEqual(errors,[]);console.log('B-39: три рисунка, шаги без баса, опоры, 3+3+2, файл, экспорт — OK');
+}finally{await browser.close();}})().catch(e=>{console.error(e);process.exit(1)});
