@@ -773,7 +773,14 @@
           if (nv) nextLine.push(nv);
         }
       });
-      line.forEach(function (v) { if (used.indexOf(v) < 0 && nextLine.indexOf(v) < 0) padRelease(v, end - lead, end); });
+      // 0.783: несовпавшие голоса гаснут НА границе (start), а не в конце
+      // новой ячейки. Здесь страховка от рассогласования плана (повтор,
+      // скачок, правка войсинга на ходу): короткий кроссфейд с наплывом
+      // новых нот. Штатный слайд на 0,35 с ставится картой заранее.
+      var crossfade = Math.min(lead, 0.12);
+      line.forEach(function (v) {
+        if (used.indexOf(v) < 0 && nextLine.indexOf(v) < 0) padRelease(v, start, start + crossfade);
+      });
       padLines.set(key, nextLine);
       // 0.763: звучащие клавиши подсвечиваются и в непрерывной линии pad.
       nextLine.forEach(function (v) {
@@ -797,7 +804,7 @@
      * дорожки берёт её собственный аккорд (пусто = призрак, звука нет) и
      * ставит ноты в Web Audio. Главная гитарная звучит прежним кодом.
      */
-    function scheduleEvent(ctx, sec, sq, ev, ei, evStart, dur, bpm, ts) {
+    function scheduleEvent(ctx, sec, sq, ev, ei, evStart, dur, bpm, ts, padNext) {
       var T = tracks();
       if (!T || !ctx || !sec || !sq || !ev) return;
       ensureCtx(ctx);
@@ -832,7 +839,10 @@
               ctx: ctx, evStart: evStart, dur: dur, bpm: bpm, ts: ts,
               sec: sec, sq: sq, ev: ev, ei: ei, cell: cell,
               chord: chord, key: key, range: range, notes: notes,
-              trackId: track.id, span: (ev && ev.span) || 1
+              trackId: track.id, span: (ev && ev.span) || 1,
+              // 0.783: реальное следующее событие от плеера. undefined —
+              // превью/старые вызывающие, null — конец песни.
+              padNext: padNext
             });
           } catch (e) { steps = null; }
         }

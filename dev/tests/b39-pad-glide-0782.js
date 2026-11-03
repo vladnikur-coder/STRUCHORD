@@ -144,13 +144,19 @@ function boot() {
   return { win, ctx, sources, gains, A: win.StruChordAccomp, Audio: win.StruChordAudio, Bank: win.StruChordSampleBank };
 }
 
+// 0.783: плеер передаёт реальное следующее событие в plan(). Здесь песня
+// линейная, поэтому это просто следующая ячейка; null — конец песни.
+function padNextFor(idx) {
+  const n = CELLS[idx + 1];
+  return n ? { sec: sec, sq: sq, ei: idx + 1, ev: sq.events[idx + 1] } : null;
+}
 function planFor(env, idx, extra) {
   const c = CELLS[idx];
   return env.A.plan(Object.assign({
     trackId: 1, chord: c.chord, key: 'C', range: RANGE,
     notes: c.notes ? c.notes.slice() : [],
     ts: '4/4', span: 4, dur: 2, ev: { span: 4 }, sec: sec, sq: sq, ei: idx,
-    cell: c.id, noHighlight: true
+    cell: c.id, noHighlight: true, padNext: padNextFor(idx)
   }, extra || {}));
 }
 
@@ -193,10 +199,13 @@ function planFor(env, idx, extra) {
   const p2 = planFor(env, 2);
   assert(p2[0].pad.release === true, 'пустая следующая ячейка гасит линию');
   assert(p2[0].pad.map.every(p => p.kind === 'release'), 'все голоса уходят мягко');
+  // 0.783: в 0.782 здесь по ошибке ожидался hold на конце песни. По
+  // подтверждённому ТЗ подложка в конце песни гаснет мягко; между секциями
+  // (решением владельца от 2026-11-03) она перетекает — см. b111-тест.
   const p4 = planFor(env, 4);
-  assert(p4[0].pad.release === false, 'конец секции не выдумывает тишину');
-  assert(p4[0].pad.map.every(p => p.kind === 'hold'), 'на границе секции без раннего слайда');
-  console.log('  ok  plan: цепочка слайдов, пустая ячейка и граница секции');
+  assert(p4[0].pad.release === true, 'конец песни гасит подложку мягко');
+  assert(p4[0].pad.map.every(p => p.kind === 'release'), 'все голоса уходят мягко');
+  console.log('  ok  plan: цепочка слайдов, пустая ячейка и конец песни');
 
   const funk = A.list().filter(p => /^perform-funk-/.test(p.id))[0];
   assert(funk, 'в каталоге есть perform-funk-*');
@@ -243,7 +252,7 @@ function planFor(env, idx, extra) {
 
   // Ячейка C уже знает следующий аккорд (Am) и ставит слайд 48 -> 45
   // ЗА 0,35 с до границы t=2 — именно так выглядит изгиб в пиано-ролле.
-  Audio.scheduleEvent(ctx, sec, sq, ev(0), 0, 0, 2, 120, '4/4');
+  Audio.scheduleEvent(ctx, sec, sq, ev(0), 0, 0, 2, 120, '4/4', padNextFor(0));
   assert.equal(sources.length, 4, 'первая ячейка: четыре голоса');
   sources.forEach(s => {
     assert.equal(s.started, 0);
@@ -255,7 +264,7 @@ function planFor(env, idx, extra) {
   console.log('  ok  audio: линия создана, слайд C -> Am за 0,35 с до границы t=2');
 
   // Am: два общих тона держатся БЕЗ новой атаки, два голоса ползут к F.
-  Audio.scheduleEvent(ctx, sec, sq, ev(1), 1, 2, 2, 120, '4/4');
+  Audio.scheduleEvent(ctx, sec, sq, ev(1), 1, 2, 2, 120, '4/4', padNextFor(1));
   assert.equal(sources.length, 4, 'общие тоны НЕ создают новые источники');
   curves = allCurves();
   assert.equal(curves.length, 3, 'добавились ровно два слайда Am -> F');
@@ -268,21 +277,21 @@ function planFor(env, idx, extra) {
   console.log('  ok  audio: hold без рестарта, цепочка слайдов, провала нет');
 
   // F -> пустая ячейка: мягкое затухание, без раннего слайда в тишину.
-  Audio.scheduleEvent(ctx, sec, sq, ev(2), 2, 4, 2, 120, '4/4');
+  Audio.scheduleEvent(ctx, sec, sq, ev(2), 2, 4, 2, 120, '4/4', padNextFor(2));
   assert.equal(sources.length, 4, 'новых источников нет и на уходе линии');
   assert.equal(allCurves().length, 3, 'в пустоту слайд не ставится');
   assert(sources.every(s => Math.abs(s.stopped - 6.01) < 1e-9), 'линия гаснет к границе t=6');
 
-  Audio.scheduleEvent(ctx, sec, sq, ev(3), 3, 6, 2, 120, '4/4');
+  Audio.scheduleEvent(ctx, sec, sq, ev(3), 3, 6, 2, 120, '4/4', padNextFor(3));
   assert.equal(sources.length, 4, 'в тишине новых источников нет');
   assert(Audio.stats().skippedGhost >= 1, 'пустая ячейка честно пропущена');
 
-  Audio.scheduleEvent(ctx, sec, sq, ev(4), 4, 8, 2, 120, '4/4');
+  Audio.scheduleEvent(ctx, sec, sq, ev(4), 4, 8, 2, 120, '4/4', padNextFor(4));
   assert.equal(sources.length, 8, 'после тишины аккорд начинает новую линию');
   console.log('  ok  audio: пауза рвёт линию, следующий аккорд начинается заново');
 
   Audio.stopAll();
-  Audio.scheduleEvent(ctx, sec, sq, ev(4), 4, 10, 2, 120, '4/4');
+  Audio.scheduleEvent(ctx, sec, sq, ev(4), 4, 10, 2, 120, '4/4', padNextFor(4));
   assert.equal(sources.length, 12, 'Стоп чистит реестр: снова четыре новых голоса');
   console.log('  ok  audio: stopAll() рвёт непрерывную линию');
 

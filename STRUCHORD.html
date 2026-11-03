@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.782</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.783</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -45666,10 +45666,29 @@ function scheduleNextEvent(ctx) {
     squareIndex: next.squareIndex,
     eventIndex: next.eventIndex,
   };
+  // 0.783: pad'у нужен РЕАЛЬНЫЙ следующий аккорд ЗА 0,35 с до границы,
+  // а плеер будит следующую ячейку лишь за 120 мс. Плеер уже считает его
+  // для подсказки следующего аккорда — поднимаем тот же расчёт выше и
+  // отдаём в клавишные. findNextEvent, метроном и 0.775 не меняются.
+  // Считаем на КОПИЯХ счётчиков: заглядывание вперёд не сбивает игру.
+  const previewEvent = findNextEvent(
+    next.sectionIndex,
+    next.squareIndex,
+    next.eventIndex + 1,
+    { ...playbackState._sectionRepeatCount },
+    { ...playbackState._squareRepeatCount },
+    playbackState._structureWalk
+  );
+  // null = конец песни (подложка гаснет мягко). Иначе — точные секция,
+  // квадрат, номер ячейки и событие, включая повторы, скачки и вольты.
+  const padNext = previewEvent ? {
+    sec: previewEvent.section, sq: previewEvent.square,
+    ei: previewEvent.eventIndex, ev: previewEvent.event
+  } : null;
   // B-39 STAGE3: свои голоса клавишных дорожек планируются здесь же,
   // до гитарного боя — время начала то же, рассинхрона нет.
   if (window.StruChordAudio) window.StruChordAudio.scheduleEvent(
-    ctx, next.section, next.square, next.event, next.eventIndex, evStart, dur, bpm, ts);
+    ctx, next.section, next.square, next.event, next.eventIndex, evStart, dur, bpm, ts, padNext);
 
   // Якорь фазы такта: время начала ТЕКУЩЕГО квадрата = время начала
   // текущего события минус время всех событий этого квадрата, что уже
@@ -45830,22 +45849,12 @@ function scheduleNextEvent(ctx) {
   // === РАБОТА С ПРЕВЬЮ ===
   hideFingeringTooltip(true);
 
-  // Превью следующего аккорда — это "заглядывание вперёд", а не
-  // реальный переход, поэтому считаем его на КОПИИ счётчиков повторов,
-  // чтобы не сбивать реальное состояние воспроизведения.
-  const previewEvent = findNextEvent(
-    next.sectionIndex,
-    next.squareIndex,
-    next.eventIndex + 1,
-    { ...playbackState._sectionRepeatCount },
-    { ...playbackState._squareRepeatCount },
-    playbackState._structureWalk
-  );
-
+  // 0.783: previewEvent и padNext посчитаны выше, до планирования
+  // клавишных. Тем же значением пользуются закреплённый гриф и подсказка
+  // следующего аккорда; второй раз findNextEvent не вызываем, чтобы
+  // счётчики повторов не удваивались.
   // Закреплённый гриф ведём за игрой: слева аккорд, который звучит
-  // сейчас, справа — следующий. Стоит ЗДЕСЬ, а не выше у показа
-  // тултипа: «следующий» считает findNextEvent, и до этой строки он
-  // ещё не известен.
+  // сейчас, справа — следующий.
   if (isFingeringPinned()) {
     const nextPos = previewEvent ? {
       secId: previewEvent.section.id, squareId: previewEvent.square.id,

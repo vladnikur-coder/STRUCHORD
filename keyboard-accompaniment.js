@@ -602,14 +602,37 @@
       return out;
     }
 
-    // Войсинг следующей ячейки ВНУТРИ секции. Слайд за 0,35 с нельзя
-    // поставить из следующей ячейки: плеер будит её лишь за 120 мс
-    // (scheduleNextEvent, tWait = ... - 120). Поэтому читаем готовый план
-    // секции 0.780 (linkedSelection) заранее; при выключенном голосоведении
-    // считаем voiceLead от текущих нот. Смена секции — без раннего слайда.
+    // Войсинг РЕАЛЬНО следующего события. Слайд за 0,35 с нельзя поставить
+    // из следующей ячейки: плеер будит её лишь за 120 мс (scheduleNextEvent,
+    // tWait = ... - 120). 0.783: плеер передаёт точный ответ через
+    // o.padNext (findNextEvent на копиях счётчиков), поэтому повторы
+    // квадратов/секций, вольты, D.C./D.S./Coda, зацикливание и переход в
+    // следующую секцию больше не угадываются по геометрии нотного листа.
+    // null — конец песни (мягкое гашение). undefined — превью/экспорт/
+    // тесты без плеера: старый линейный путь внутри секции как запасной.
     function padNextVoicing(o, chord) {
       var T = tracks(), K = keys();
       if (!T || !o.sec || !o.sq || typeof o.ei !== 'number') return null;
+      if (o.padNext !== undefined) {
+        var n = o.padNext;
+        if (!n || !n.sec || !n.sq) return { notes: [], silence: true, end: true };
+        var cell = null;
+        try { cell = T.cellKey(n.sec, n.sq, n.ei); } catch (e) {}
+        if (!cell) return { notes: [], silence: true, end: true };
+        var nextChord = null;
+        try { nextChord = T.trackChord(o.trackId, cell, n.ev); } catch (e) {}
+        if (!nextChord) return { notes: [], silence: true, end: false };  // пустая ячейка
+        var notes = null, range = o.range || (T.keyRange ? T.keyRange(o.trackId) : null);
+        if (K && typeof K.linkedSelection === 'function') {
+          try { var sel = K.linkedSelection(o.trackId, cell); if (sel && sel.notes) notes = sel.notes.slice(); } catch (e) {}
+        }
+        if (!notes && K && typeof K.voiceLead === 'function' && range) {
+          try { notes = K.voiceLead(nextChord, o.key || o.sec.key || 'C', range, chord, {}); } catch (e) {}
+        }
+        if (!notes || !notes.length) return { notes: [], silence: true, end: false };
+        return { notes: notes.map(Number).filter(isMidi).sort(asc), silence: false,
+                 end: false, section: n.sec !== o.sec };
+      }
       var list = [];
       (o.sec.squares || []).forEach(function (sq) {
         (sq.events || []).forEach(function (ev, i) { list.push({ sq: sq, ev: ev, ei: i }); });
@@ -618,22 +641,22 @@
       for (var k = 0; k < list.length; k++) {
         if (list[k].sq === o.sq && list[k].ei === o.ei) { here = k; break; }
       }
-      if (here < 0 || here + 1 >= list.length) return null;   // граница секции
-      var n = list[here + 1], cell = null;
-      try { cell = T.cellKey(o.sec, n.sq, n.ei); } catch (e) { return null; }
-      if (!cell) return null;
-      var nextChord = null;
-      try { nextChord = T.trackChord(o.trackId, cell, n.ev); } catch (e) {}
-      if (!nextChord) return { notes: [], silence: true };    // пустая ячейка/пауза
-      var notes = null, range = o.range || (T.keyRange ? T.keyRange(o.trackId) : null);
+      if (here < 0 || here + 1 >= list.length) return null;   // граница секции (fallback)
+      var nF = list[here + 1], cellF = null;
+      try { cellF = T.cellKey(o.sec, nF.sq, nF.ei); } catch (e) { return null; }
+      if (!cellF) return null;
+      var nextChordF = null;
+      try { nextChordF = T.trackChord(o.trackId, cellF, nF.ev); } catch (e) {}
+      if (!nextChordF) return { notes: [], silence: true };    // пустая ячейка/пауза
+      var notesF = null, rangeF = o.range || (T.keyRange ? T.keyRange(o.trackId) : null);
       if (K && typeof K.linkedSelection === 'function') {
-        try { var sel = K.linkedSelection(o.trackId, cell); if (sel && sel.notes) notes = sel.notes.slice(); } catch (e) {}
+        try { var selF = K.linkedSelection(o.trackId, cellF); if (selF && selF.notes) notesF = selF.notes.slice(); } catch (e) {}
       }
-      if (!notes && K && typeof K.voiceLead === 'function' && range) {
-        try { notes = K.voiceLead(nextChord, o.key || o.sec.key || 'C', range, chord, {}); } catch (e) {}
+      if (!notesF && K && typeof K.voiceLead === 'function' && rangeF) {
+        try { notesF = K.voiceLead(nextChordF, o.key || o.sec.key || 'C', rangeF, chord, {}); } catch (e) {}
       }
-      if (!notes || !notes.length) return { notes: [], silence: true };
-      return { notes: notes.map(Number).filter(isMidi).sort(asc), silence: false };
+      if (!notesF || !notesF.length) return { notes: [], silence: true };
+      return { notes: notesF.map(Number).filter(isMidi).sort(asc), silence: false };
     }
 
     function padFigure(steps, o, unit, beats) {
