@@ -7,7 +7,7 @@
 // Что именно проверяем:
 //  * padVoiceMap — общие тоны держатся, отличающиеся ползут, лишние уходят;
 //  * plan() — паузы перед границей нет, слайд только у последнего шага,
-//    опережение 0,35 с, плотный жанр сохраняет второй шаг без перезапуска,
+//    заход 1/3 доли (0.784: на 120 BPM это 0,1667 с, предел 0,35 с),
 //    пустая следующая ячейка гасит линию, ручной рисунок не трогается,
 //    другие тембры pad-метаданных не получают;
 //  * звук — на второй ячейке общие тоны НЕ создают новых источников, один
@@ -22,6 +22,8 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const RANGE = { low: 36, high: 84, size: 49 };
+// 0.784 (B-112): заход считается от доли, а не фиксированными 0,35 с.
+const LEAD = 1 / 6;   // 1/3 четверти при 120 BPM
 
 // C -> Am -> F -> (пусто) -> G. У C и Am три общих тона и один голос 48 -> 45,
 // у Am и F два общих тона и два слайда. Пустая ячейка рвёт линию.
@@ -155,7 +157,7 @@ function planFor(env, idx, extra) {
   return env.A.plan(Object.assign({
     trackId: 1, chord: c.chord, key: 'C', range: RANGE,
     notes: c.notes ? c.notes.slice() : [],
-    ts: '4/4', span: 4, dur: 2, ev: { span: 4 }, sec: sec, sq: sq, ei: idx,
+    ts: '4/4', span: 4, dur: 2, bpm: 120, ev: { span: 4 }, sec: sec, sq: sq, ei: idx,
     cell: c.id, noHighlight: true, padNext: padNextFor(idx)
   }, extra || {}));
 }
@@ -172,7 +174,9 @@ function planFor(env, idx, extra) {
   assert.equal(glide.length, 1, 'один голос переплывает');
   assert.equal(glide[0].from, 48);
   assert.equal(glide[0].to, 45);
-  assert.equal(A.padGlideLead(), 0.35, 'опережение по замеру видео');
+  assert.equal(A.padGlideLead(), 0.35, 'предел 0,35 с по замеру видео');
+  assert(Math.abs(A.padGlideLead({ bpm: 120, ts: '4/4', dur: 2 }) - LEAD) < 1e-12,
+    '0.784: рабочий заход 1/3 доли');
   const wide = A.padVoiceMap([60], [72], 7);
   assert(wide.some(p => p.kind === 'release') && wide.some(p => p.kind === 'new'),
     'скачок больше предела не превращается в сирену');
@@ -186,12 +190,12 @@ function planFor(env, idx, extra) {
   assert.equal(p0[0].dur, 2, 'паузы перед границей больше нет');
   assert.equal(p0[0].timbre, 'pad');
   assert(p0[0].pad && p0[0].pad.final === true, 'последний шаг несёт слайд');
-  assert(Math.abs(p0[0].pad.lead - 0.35) < 1e-9, 'опережение 0,35 с');
+  assert(Math.abs(p0[0].pad.lead - LEAD) < 1e-9, '0.784: заход 1/3 доли');
   const m0 = p0[0].pad.map;
   assert.equal(m0.filter(p => p.kind === 'hold').length, 3, 'C -> Am: три общих тона');
   assert.equal(m0.filter(p => p.kind === 'glide').length, 1, 'C -> Am: один слайд 48 -> 45');
   assert.deepStrictEqual(planFor(env, 0), p0, 'план детерминирован');
-  console.log('  ok  plan: длительность до границы, слайд 0,35 с, детерминизм');
+  console.log('  ok  plan: длительность до границы, слайд 1/3 доли, детерминизм');
 
   const p1 = planFor(env, 1);
   assert.equal(p1[0].pad.map.filter(p => p.kind === 'hold').length, 2, 'Am -> F: два общих тона');
@@ -240,7 +244,7 @@ function planFor(env, idx, extra) {
     return out;
   }
   function checkGlide(c, fromMidi, toMidi, boundary) {
-    assert(Math.abs(c.t - (boundary - 0.35)) < 1e-9, 'слайд начинается за 0,35 с до границы');
+    assert(Math.abs(c.t - (boundary - LEAD)) < 1e-9, 'слайд начинается за 1/3 доли до границы');
     assert(Math.abs(c.t + c.d - boundary) < 1e-9, 'слайд приходит ровно в границу');
     assert(c.values.length >= 8, 'кривая, а не скачок');
     assert(Math.abs(c.values[0] - Math.pow(2, (fromMidi - 60) / 12)) < 1e-6, 'начало от старой ноты');
@@ -251,7 +255,7 @@ function planFor(env, idx, extra) {
   }
 
   // Ячейка C уже знает следующий аккорд (Am) и ставит слайд 48 -> 45
-  // ЗА 0,35 с до границы t=2 — именно так выглядит изгиб в пиано-ролле.
+  // ЗА 1/3 доли до границы t=2 — именно так выглядит изгиб в пиано-ролле.
   Audio.scheduleEvent(ctx, sec, sq, ev(0), 0, 0, 2, 120, '4/4', padNextFor(0));
   assert.equal(sources.length, 4, 'первая ячейка: четыре голоса');
   sources.forEach(s => {
@@ -261,7 +265,7 @@ function planFor(env, idx, extra) {
   let curves = allCurves();
   assert.equal(curves.length, 1, 'ровно один голос переплывает по высоте');
   checkGlide(curves[0], 48, 45, 2);
-  console.log('  ok  audio: линия создана, слайд C -> Am за 0,35 с до границы t=2');
+  console.log('  ok  audio: линия создана, слайд C -> Am за 1/3 доли до границы t=2');
 
   // Am: два общих тона держатся БЕЗ новой атаки, два голоса ползут к F.
   Audio.scheduleEvent(ctx, sec, sq, ev(1), 1, 2, 2, 120, '4/4', padNextFor(1));
@@ -270,7 +274,7 @@ function planFor(env, idx, extra) {
   assert.equal(curves.length, 3, 'добавились ровно два слайда Am -> F');
   const second = curves.filter(c => c.t > 3);
   assert.equal(second.length, 2, 'два слайда перед второй границей');
-  assert(second.every(c => Math.abs(c.t - 3.65) < 1e-9), 'второй слайд тоже за 0,35 с');
+  assert(second.every(c => Math.abs(c.t - (4 - LEAD)) < 1e-9), 'второй слайд тоже за 1/3 доли');
   assert(second.every(c => Math.abs(c.t + c.d - 4) < 1e-9), 'второй слайд приходит в t=4');
   sources.forEach(s => assert(Math.abs(s.stopped - 4.36) < 1e-9, 'голоса доживают до конца второй ячейки'));
   assert.equal(Audio.stats().liveVoices, 4, 'реестр держит четыре живых голоса');

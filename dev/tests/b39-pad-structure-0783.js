@@ -119,7 +119,7 @@ function D(sec, sq, ei) { return { sec: sec, sq: sq, ei: ei, ev: sq.events[ei] }
 function planAt(env, sec, sq, ei, cell, padNext) {
   const o = {
     trackId: 1, chord: V[cell].chord, key: 'C', range: RANGE, notes: V[cell].notes.slice(),
-    ts: '4/4', span: 4, dur: 2, ev: sq ? sq.events[ei] : {}, sec: sec, sq: sq, ei: ei,
+    ts: '4/4', span: 4, dur: 2, bpm: 120, ev: sq ? sq.events[ei] : {}, sec: sec, sq: sq, ei: ei,
     cell: cell, noHighlight: true
   };
   if (padNext !== undefined) o.padNext = padNext;   // undefined = путь без плеера
@@ -177,12 +177,12 @@ function lastFade(g) {
     'без padNext старый линейный путь работает (превью/экспорт не падают)');
   console.log('  ok  без плеера: запасной линейный путь жив');
 
-  assert.equal(A.padGlideLead(), 0.35, 'опережение слайда не изменилось');
+  assert.equal(A.padGlideLead(), 0.35, 'предел слайда 0,35 с не изменился');
   win.__track.timbre = 'acoustic';
   const pAcoustic = planAt(env, secA, q1, 0, 'A:q1:0', D(secA, q1, 1));
   assert(pAcoustic.every(s => !s.pad), 'другие тембры pad-линии не получают');
   win.__track.timbre = 'pad';
-  console.log('  ok  0,35 с и другие тембры не тронуты');
+  console.log('  ok  предел 0,35 с и другие тембры не тронуты');
 
   // ---- 2. Реальный порядок воспроизведения --------------------------------
   // q1 ×2, затем q2, затем переход в секцию B и конец песни.
@@ -250,16 +250,20 @@ function lastFade(g) {
 
   // ---- 4. Контракт с плеером (статическая проверка HTML) -----------------
   const html = fs.readFileSync(path.join(ROOT, 'STRUCHORD.html'), 'utf8');
-  assert(html.includes('· ver 0.783'), 'версия в шапке');
+  // 0.784: контракт «версия и кэш выложены парой» не должен привязываться
+  // к конкретному номеру, иначе любой следующий релиз ломает старый тест.
+  const ver = (html.match(/· ver (\d+\.\d+)/) || [])[1];
+  assert(ver, 'версия в шапке');
   const iPrev = html.indexOf('const previewEvent = findNextEvent(');
   const iCall = html.indexOf('StruChordAudio.scheduleEvent(');
   assert(iPrev >= 0 && iCall > iPrev, 'реальное следующее событие считается ДО планирования звука');
   assert.equal(html.split('const previewEvent = findNextEvent(').length - 1, 1,
     'findNextEvent для превью вызывается один раз (счётчики не удваиваются)');
   assert(/evStart, dur, bpm, ts, padNext\)/.test(html), 'padNext передан в scheduleEvent');
-  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes("struchord-v783"),
-    'R7: кэш выложен парой с версией');
-  console.log('  ok  плеер отдаёт padNext до звука, один расчёт, версия/кэш парой');
+  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8')
+    .includes('struchord-v' + ver.split('.')[1]),
+    'R7: кэш выложен парой с версией ' + ver);
+  console.log('  ok  плеер отдаёт padNext до звука, один расчёт, версия/кэш парой (' + ver + ')');
 
   console.log('\nB-111 / 0.783: повторы и переходы между секциями — ВСЕ ПРОВЕРКИ ПРОЙДЕНЫ');
 })().catch(e => { console.error('ПРОВАЛ:', e && e.stack || e); process.exit(1); });

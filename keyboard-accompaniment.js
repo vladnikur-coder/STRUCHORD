@@ -568,7 +568,27 @@
     // (кадр 3,7 с): границы аккордов идут 94 px/с, шаг 354 px ≈ 3,8 с;
     // изгиб голоса начинается за 28–36 px = 0,30–0,38 с ДО границы и
     // приходит ровно в неё, общие тоны идут горизонтально, разрывов нет.
-    var PAD_GLIDE_LEAD = 0.35;   // с, опережение слайда
+    // 0.782: 0,35 с — замер опережения по видео. 0.784: это ПРЕДЕЛ,
+    // а рабочая длина считается от доли метронома (padGlideLeadFor).
+    // На 120 BPM 0,35 с занимали ~18 % ячейки (в видео было ~9 %), и pad
+    // начинал менять аккорд задолго до щелчка. Теперь заход ровно 1/3 доли.
+    var PAD_GLIDE_LEAD = 0.35;          // с, верхний предел (видео)
+    var PAD_GLIDE_BEAT_FRACTION = 1 / 3;
+    function padPulseSeconds(o) {
+      var raw = String((o && o.ts) || (current && current.ts) || '4/4').split('/');
+      var num = parseInt(raw[0], 10) || 4, den = parseInt(raw[1], 10) || 4;
+      var bpm = Number(o && o.bpm) > 0 ? Number(o.bpm) : 120;
+      var qd = 60 / bpm;
+      // В составном размере метроном тоже считает пульс пунктирной четвертью.
+      return (den === 8 && num >= 6 && num % 3 === 0) ? qd * 1.5 : qd;
+    }
+    function padGlideLeadFor(o) {
+      var dur = Number(o && o.dur) || 0;
+      return Math.max(0.05, Math.min(
+        PAD_GLIDE_BEAT_FRACTION * padPulseSeconds(o),
+        PAD_GLIDE_LEAD,
+        dur * 0.2));
+    }
     var PAD_GLIDE_MAX_ST = 7;    // полутонов, предел portamento
 
     // Чистая раскладка голосов: что держится, что ползёт, что уходит,
@@ -602,7 +622,7 @@
       return out;
     }
 
-    // Войсинг РЕАЛЬНО следующего события. Слайд за 0,35 с нельзя поставить
+    // Войсинг РЕАЛЬНО следующего события. Слайд (0.784: 1/3 доли) нельзя поставить
     // из следующей ячейки: плеер будит её лишь за 120 мс (scheduleNextEvent,
     // tWait = ... - 120). 0.783: плеер передаёт точный ответ через
     // o.padNext (findNextEvent на копиях счётчиков), поэтому повторы
@@ -690,7 +710,8 @@
       // поэтому старый и новый аккорд перекрываются и звук не проваливается.
       var template = steps[0] || {};
       var next = padNextVoicing(o, chord);
-      var lead = Math.max(0.05, Math.min(PAD_GLIDE_LEAD, (Number(o.dur) || 0) * 0.2));
+      // 0.784: заход от доли метронома, а не фиксированные 0,35 с.
+      var lead = padGlideLeadFor(o);
       var plain = chord.map(function (n) { return { from: n, to: null, kind: 'hold' }; });
       var finalMap = next ? padVoiceMap(chord, next.notes, PAD_GLIDE_MAX_ST) : plain;
       var release = !!(next && next.silence);
@@ -1367,7 +1388,10 @@
 
     var api = Object.freeze({
       boot: boot, plan: plan, resolve: resolve, buildSteps: buildSteps,
-      padVoiceMap: padVoiceMap, padGlideLead: function () { return PAD_GLIDE_LEAD; },
+      padVoiceMap: padVoiceMap,
+      // Без аргумента — исторический предел 0,35 с (старые тесты и превью).
+      padGlideLead: function (o) { return o ? padGlideLeadFor(o) : PAD_GLIDE_LEAD; },
+      padGlideLeadFor: padGlideLeadFor,
       bassPolicy:bassPolicy, stripBass:stripBass, sectionFromCell:sectionFromCell,
       normalize: normalize, preset: preset, list: list, styles: function () { return STYLES.map(function (s) { return {id:s[0],label:s[1]}; }); }, tokens: function () { return TOKENS.slice(); },
       adoptRhythm: adoptRhythm, rhythm: rhythm,

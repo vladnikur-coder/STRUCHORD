@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.783</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.784</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -45666,7 +45666,8 @@ function scheduleNextEvent(ctx) {
     squareIndex: next.squareIndex,
     eventIndex: next.eventIndex,
   };
-  // 0.783: pad'у нужен РЕАЛЬНЫЙ следующий аккорд ЗА 0,35 с до границы,
+  // 0.783: pad'у нужен РЕАЛЬНЫЙ следующий аккорд ЗА время захода до
+  // границы (0.784: это 1/3 доли, а не фиксированные 0,35 с),
   // а плеер будит следующую ячейку лишь за 120 мс. Плеер уже считает его
   // для подсказки следующего аккорда — поднимаем тот же расчёт выше и
   // отдаём в клавишные. findNextEvent, метроном и 0.775 не меняются.
@@ -45698,10 +45699,19 @@ function scheduleNextEvent(ctx) {
   // фаза всегда считается от факта, а не накапливается.
   playbackState.squareAnchorTime = evStart - getSquareEventOffsetSeconds(next.square, next.eventIndex, bpm, ts);
 
-  if (tsChanged && !playbackState.metronomeMuted) {
-    stopMetronomeScheduler();
-    metronomeFrameId = null;
-    scheduleMetronomeEvents(ctx, playbackState.squareAnchorTime, ts, bpm);
+  // 0.784: метроном живёт на тех же часах, что и pad. Раньше сетку
+  // перевешивали только при смене РАЗМЕРА — при смене BPM секции щелчки
+  // продолжали идти по старому темпу и уезжали от аккордов (замер:
+  // 214 мс уже на первом такте при 120 -> 140). Теперь ключ часов
+  // включает темп, размер, долю и точку запуска; resumeAtNow не даёт
+  // залпа, если якорь уже в прошлом.
+  if (!playbackState.metronomeMuted) {
+    const key = metronomeKeyFor(ts, bpm);
+    if (key !== metronomeGridKey) {
+      stopMetronomeScheduler();
+      metronomeFrameId = null;
+      scheduleMetronomeEvents(ctx, playbackState.squareAnchorTime, ts, bpm, true);
+    }
   }
 
   const currentWrapper = document.querySelector('.chord-wrapper.playback-active');
@@ -49034,16 +49044,30 @@ function stopAllAudio() {
   activeOscillators.clear();
   ringingVoices = [];
 }
+// 0.784: метроном должен жить на тех же часах, что и pad. Ключ НЕ содержит
+// якорь квадрата: тот пересчитывается на каждом событии и дрожит на
+// последних знаках, а сетку надо перевешивать только при реальной смене
+// темпа, размера, доли или при новом запуске/перемотке. Иначе планировщик
+// перезапускался бы перед каждой ячейкой и акценты плясали.
+let metronomeGridKey = null;
+function metronomeKeyFor(ts, bpm) {
+  return [ts, bpm, metronomeSubdivision, playbackStartTime].join('|');
+}
 function stopMetronomeScheduler() {
   if (metronomeFrameId) {
     cancelAnimationFrame(metronomeFrameId);
     metronomeFrameId = null;
   }
+  // Любая остановка (Стоп, пауза, выключение метронома, смена доли,
+  // восстановление контекста) делает часы недействительными — следующий
+  // запуск перевесит сетку заново.
+  metronomeGridKey = null;
 }
 let metronomeSubdivision = 1;
 function scheduleMetronomeEvents(ctx, st, ts, bpm, resumeAtNow) {
   if (!playbackState.isPlaying) return;
   stopMetronomeScheduler();
+  metronomeGridKey = metronomeKeyFor(ts, bpm);
   const { numerator: beats, denominator: div } = parseTimeSig(ts);
   const qd = 60 / bpm;
   let effectiveSubdivision = metronomeSubdivision;
@@ -60794,7 +60818,8 @@ function toggleMetronome() {
         const curSec = sections[playbackState.currentSectionIndex];
         const bpm = getEffectiveBpm(curSec);
         const ts = playbackState.currentTimeSig || curSec?.timeSig || globalTimeSig;
-        scheduleMetronomeEvents(ctx, playbackState.squareAnchorTime, ts, bpm);
+        // 0.784: включаемся с текущей позиции, а не с начала квадрата.
+        scheduleMetronomeEvents(ctx, playbackState.squareAnchorTime, ts, bpm, true);
       } else stopMetronomeScheduler();
     }
   }
@@ -60825,7 +60850,8 @@ function setSubdivision(val, btn) {
       const curSec = sections[playbackState.currentSectionIndex];
       const bpm = getEffectiveBpm(curSec);
       const ts = playbackState.currentTimeSig || curSec?.timeSig || globalTimeSig;
-      scheduleMetronomeEvents(ctx, playbackState.squareAnchorTime, ts, bpm);
+      // 0.784: смена доли на ходу — тоже без залпа запоздалых щелчков.
+      scheduleMetronomeEvents(ctx, playbackState.squareAnchorTime, ts, bpm, true);
     }
   }
 }
@@ -78192,12 +78218,12 @@ function regenerateManagedAccompaniment() {
 }
 function reanchorMetronomeForTempo(bpm) {
   if (!playbackState.isPlaying || playbackState.metronomeMuted) return;
-  const ctx = getAudioContext();
-  const anchor = playbackState.squareAnchorTime;
-  if (!ctx || !Number.isFinite(anchor)) return;
-  const ts = playbackState.currentTimeSig || globalTimeSig;
-  const section = sections[playbackState.currentSectionIndex];
-  scheduleMetronomeEvents(ctx, anchor, ts, getEffectiveBpm(section) || bpm, true);
+  // 0.784: новый темп вступает со СЛЕДУЮЩЕГО аккорда (см. applyBpmChange).
+  // Раньше здесь клики перевешивались немедленно от якоря, посчитанного
+  // под старый BPM: сетка уезжала от pad на весь остаток песни. Теперь
+  // лишь помечаем часы устаревшими — scheduleNextEvent перевесит их от
+  // свежего якоря и нового темпа, без залпа запоздалых щелчков.
+  metronomeGridKey = null;
 }
 function applyBpmChange() {
   const el = DOM.bpmInput;
