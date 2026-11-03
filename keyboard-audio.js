@@ -451,8 +451,9 @@
     //    берегётся ближайшая, поэтому яркость настоящая, а не фильтрованная.
     //  * У пианино и Rhodes поверх идёт фильтр, срез которого следует за силой:
     //    тихий удар глуше, громкий ярче. Это и есть «яркость от силы».
-    //  * У органа силы удара нет по природе: акцент даёт щелчок клавиши и
-    //    перкуссия, а не громкость.
+    //  * У органа силы удара нет по природе: акцент даёт перкуссию
+    //    тон-колёс (0.787 — только на новой атаке), а не громкость; тихий
+    //    щелчок клавиши звучит на каждой ноте.
     function strengthOf(expression) {
       return Number.isFinite(expression) ? Math.max(0, Math.min(1, expression)) : .85;
     }
@@ -464,8 +465,14 @@
     }
     // Щелчок клавиши и перкуссия тон-колёс: короткий шум и затухающий тон
     // на третьей гармонике. Именно этого не хватает «электронному» органу.
-    function organAttack(ctx, target, midi, start, level, expression) {
+    // 0.787 (B-115): щелчок остался на КАЖДОЙ ноте — как механический
+    // контакт у Hammond, — но стал тише (~×0.3) и получил
+    // детерминированный разброс уровня от ноты и номера повтора
+    // (life.clickVar). Перкуссия звучит только на новой атаке
+    // (life.percussive): повтор той же ноты внутри рисунка её не даёт.
+    function organAttack(ctx, target, midi, start, level, expression, life) {
       var e = strengthOf(expression), f0 = frequencyOf(midi);
+      var clickVar = life && Number.isFinite(life.clickVar) ? life.clickVar : 1;
       var nb = hammerBuffer(ctx);
       if (nb && hasRoom() && typeof ctx.createBufferSource === 'function') {
         try {
@@ -475,13 +482,13 @@
           bp.frequency.value = Math.min(5200, Math.max(900, f0 * 3.2));
           bp.Q.value = 1.1;
           src.connect(bp); bp.connect(g); g.connect(target);
-          g.gain.setValueAtTime(Math.max(.0002, level * (.9 + 1.4 * e)), start);
+          g.gain.setValueAtTime(Math.max(.0002, level * (.27 + .42 * e) * clickVar), start);
           g.gain.exponentialRampToValueAtTime(.0001, start + .012);
           src.start(start); src.stop(start + .02);
           register(src);
         } catch (err) {}
       }
-      if (hasRoom()) {
+      if ((!life || life.percussive !== false) && hasRoom()) {
         try {
           var osc = ctx.createOscillator(), pg = ctx.createGain();
           osc.type = 'sine';
@@ -530,6 +537,17 @@
         if (lastHit.size > 2048) lastHit.clear();
       } else if (mode === 'organ') {
         out.jitter = (rnd(2) - .5) * .004;                       // контакты клавиш
+        // 0.787 (B-115): щелчок клавиши звучит на каждой ноте, но тихо и с
+        // детерминированным разбросом уровня — повторы не звучат машинно
+        // бит-в-бит (та же схема, что расстройка у пианино/Rhodes выше).
+        out.clickVar = .75 + rnd(4) * .5;
+        // Перкуссия тон-колёс — только на НОВОЙ атаке: если та же нота этой
+        // дорожки звучала менее 0,45 с назад, это повтор внутри рисунка,
+        // а не смена аккорда, — перкуссии нет.
+        var prevOrgan = lastHit.get(key);
+        out.percussive = !(prevOrgan && at - prevOrgan.at >= 0 && at - prevOrgan.at < .45);
+        lastHit.set(key, { at: at });
+        if (lastHit.size > 2048) lastHit.clear();
       }
       return out;
     }
@@ -614,7 +632,8 @@
       var attack=mode==='pad'?.14:.004,end=start+held;
       // Калибровка по тембру: записи разной громкости, чтобы Rhodes не лез
       // вперёд, а pad не заливал. Орган на силу удара не реагирует: у него
-      // акцент даёт атака (щелчок и перкуссия), поэтому громкость почти ровная.
+      // акцент даёт перкуссию на новой атаке (0.787), а тихий щелчок клавиши
+      // звучит на каждой ноте, поэтому громкость почти ровная.
       var cal=({acoustic:1.3,rhodes:.55,organ:1.1,pad:4}[mode])||1;
       var unit=rec.velocity?Math.pow(vel/Math.max(1,rec.velocity),0.85):1;
       var strength=mode==='organ'?0.35:1;
@@ -647,7 +666,7 @@
       else g.gain.setValueAtTime(amp,end);
       g.gain.exponentialRampToValueAtTime(.0001,end+voiceTail);
       head.connect(g);g.connect(target);src.start(start);src.stop(end+voiceTail+.01);register(src);stats.notes++;
-      if(mode==='organ')organAttack(ctx,target,midi,start,level,expression);
+      if(mode==='organ')organAttack(ctx,target,midi,start,level,expression,life);
       // Демпфер только у пианино: у Rhodes нота глохнет иначе, у органа и
       // pad демпфера нет вовсе.
       if(mode==='acoustic' && DAMPER){
