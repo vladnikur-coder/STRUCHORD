@@ -7,7 +7,7 @@
 // Что именно проверяем:
 //  * padVoiceMap — общие тоны держатся, отличающиеся ползут, лишние уходят;
 //  * plan() — паузы перед границей нет, слайд только у последнего шага,
-//    заход 1/3 доли (0.784: на 120 BPM это 0,1667 с, предел 0,35 с),
+//    переход 1/3 доли (0.785: НАЧИНАЕТСЯ на щелчке, а не до него),
 //    пустая следующая ячейка гасит линию, ручной рисунок не трогается,
 //    другие тембры pad-метаданных не получают;
 //  * звук — на второй ячейке общие тоны НЕ создают новых источников, один
@@ -22,7 +22,7 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const RANGE = { low: 36, high: 84, size: 49 };
-// 0.784 (B-112): заход считается от доли, а не фиксированными 0,35 с.
+// 0.784: длина от доли. 0.785 (B-113): она же, но ОТСЧИТЫВАЕТСЯ ПОСЛЕ щелчка.
 const LEAD = 1 / 6;   // 1/3 четверти при 120 BPM
 
 // C -> Am -> F -> (пусто) -> G. У C и Am три общих тона и один голос 48 -> 45,
@@ -244,8 +244,8 @@ function planFor(env, idx, extra) {
     return out;
   }
   function checkGlide(c, fromMidi, toMidi, boundary) {
-    assert(Math.abs(c.t - (boundary - LEAD)) < 1e-9, 'слайд начинается за 1/3 доли до границы');
-    assert(Math.abs(c.t + c.d - boundary) < 1e-9, 'слайд приходит ровно в границу');
+    assert(Math.abs(c.t - boundary) < 1e-9, '0.785: слайд начинается ровно на щелчке');
+    assert(Math.abs(c.t + c.d - (boundary + LEAD)) < 1e-9, '0.785: приходит через 1/3 доли ПОСЛЕ щелчка');
     assert(c.values.length >= 8, 'кривая, а не скачок');
     assert(Math.abs(c.values[0] - Math.pow(2, (fromMidi - 60) / 12)) < 1e-6, 'начало от старой ноты');
     assert(Math.abs(c.values[c.values.length - 1] - Math.pow(2, (toMidi - 60) / 12)) < 1e-6, 'конец у новой ноты');
@@ -255,17 +255,17 @@ function planFor(env, idx, extra) {
   }
 
   // Ячейка C уже знает следующий аккорд (Am) и ставит слайд 48 -> 45
-  // ЗА 1/3 доли до границы t=2 — именно так выглядит изгиб в пиано-ролле.
+  // 0.785: НА щелчке t=2 и 1/3 доли после него.
   Audio.scheduleEvent(ctx, sec, sq, ev(0), 0, 0, 2, 120, '4/4', padNextFor(0));
   assert.equal(sources.length, 4, 'первая ячейка: четыре голоса');
   sources.forEach(s => {
     assert.equal(s.started, 0);
-    assert(Math.abs(s.stopped - 2.36) < 1e-9, 'хвост запланирован, но не обрыв раньше границы');
+    assert(Math.abs(s.stopped - (2 + LEAD + 0.36)) < 1e-9, 'голос живёт до щелчка + 1/3 доли + хвост');
   });
   let curves = allCurves();
   assert.equal(curves.length, 1, 'ровно один голос переплывает по высоте');
   checkGlide(curves[0], 48, 45, 2);
-  console.log('  ok  audio: линия создана, слайд C -> Am за 1/3 доли до границы t=2');
+  console.log('  ok  audio: линия создана, слайд C -> Am НАЧИНАЕТСЯ на щелчке t=2');
 
   // Am: два общих тона держатся БЕЗ новой атаки, два голоса ползут к F.
   Audio.scheduleEvent(ctx, sec, sq, ev(1), 1, 2, 2, 120, '4/4', padNextFor(1));
@@ -274,9 +274,9 @@ function planFor(env, idx, extra) {
   assert.equal(curves.length, 3, 'добавились ровно два слайда Am -> F');
   const second = curves.filter(c => c.t > 3);
   assert.equal(second.length, 2, 'два слайда перед второй границей');
-  assert(second.every(c => Math.abs(c.t - (4 - LEAD)) < 1e-9), 'второй слайд тоже за 1/3 доли');
-  assert(second.every(c => Math.abs(c.t + c.d - 4) < 1e-9), 'второй слайд приходит в t=4');
-  sources.forEach(s => assert(Math.abs(s.stopped - 4.36) < 1e-9, 'голоса доживают до конца второй ячейки'));
+  assert(second.every(c => Math.abs(c.t - 4) < 1e-9), 'второй слайд тоже начинается на щелчке t=4');
+  assert(second.every(c => Math.abs(c.t + c.d - (4 + LEAD)) < 1e-9), 'второй слайд идёт 1/3 доли после t=4');
+  sources.forEach(s => assert(Math.abs(s.stopped - (4 + LEAD + 0.36)) < 1e-9, 'голоса живут через границу'));
   assert.equal(Audio.stats().liveVoices, 4, 'реестр держит четыре живых голоса');
   console.log('  ok  audio: hold без рестарта, цепочка слайдов, провала нет');
 
@@ -284,7 +284,7 @@ function planFor(env, idx, extra) {
   Audio.scheduleEvent(ctx, sec, sq, ev(2), 2, 4, 2, 120, '4/4', padNextFor(2));
   assert.equal(sources.length, 4, 'новых источников нет и на уходе линии');
   assert.equal(allCurves().length, 3, 'в пустоту слайд не ставится');
-  assert(sources.every(s => Math.abs(s.stopped - 6.01) < 1e-9), 'линия гаснет к границе t=6');
+  assert(sources.every(s => Math.abs(s.stopped - (6 + LEAD + 0.01)) < 1e-9), 'линия гаснет ПОСЛЕ границы t=6');
 
   Audio.scheduleEvent(ctx, sec, sq, ev(3), 3, 6, 2, 120, '4/4', padNextFor(3));
   assert.equal(sources.length, 4, 'в тишине новых источников нет');

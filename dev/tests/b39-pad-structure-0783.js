@@ -18,6 +18,8 @@ const path = require('path');
 
 const ROOT = path.resolve(__dirname, '..', '..');
 const RANGE = { low: 36, high: 84, size: 49 };
+// 0.785 (B-113): переход длиной 1/3 доли лежит ПОСЛЕ щелчка.
+const LEAD = 1 / 6;
 
 // A: q1(C,Am) ×2, q2(F,G) → B: q3(Dm,C). Подобрано так, что ни один
 // штатный переход не создаёт «новую» ноту: при исправном плане реестр голосов
@@ -210,25 +212,27 @@ function lastFade(g) {
   // Ни один голос не должен гаснуть или обрываться ДО конца песни.
   sources.forEach((s, k) => {
     const fade = lastFade(gains[k]);
-    assert(fade !== null && Math.abs(fade - 16) < 1e-6,
-      `src#${k}: гашение в ${fade}, а не в конце песни t=16`);
+    assert(fade !== null && Math.abs(fade - (16 + LEAD)) < 1e-6,
+      `src#${k}: гашение в ${fade}, а должно начаться в t=16 и идти 1/3 доли`);
     assert(s.stopped >= 16 - 1e-6, `src#${k}: stop в ${s.stopped}, голос оборван раньше конца`);
   });
-  console.log('  ok  старый аккорд не гудит поверх нового: гаснет только в t=16');
+  console.log('  ok  старый аккорд не гудит поверх нового: гаснет только ПОСЛЕ t=16');
 
   const boundaries = [2, 4, 6, 8, 10, 12, 14, 16];
   sources.forEach((s, k) => {
     const curves = s.playbackRate.events.filter(e => e.k === 'curve');
     const seen = new Set();
     curves.forEach(c => {
-      assert(boundaries.some(b => Math.abs(c.t + c.d - b) < 1e-6),
-        `src#${k}: слайд приходит в ${c.t + c.d}, а не в границу ячейки`);
+      assert(boundaries.some(b => Math.abs(c.t - b) < 1e-6),
+        `src#${k}: 0.785 — слайд начинается в ${c.t}, а не на щелчке`);
+      assert(Math.abs(c.d - LEAD) < 1e-6,
+        `src#${k}: длина слайда ${c.d}, а не 1/3 доли после щелчка`);
       assert(!seen.has(c.t), `src#${k}: две кривые на одной границе ${c.t}`);
       seen.add(c.t);
     });
     assert(curves.length > 0, `src#${k}: голос ни разу не переплыл`);
   });
-  console.log('  ok  слайды приходят ровно в границы, без наложений');
+  console.log('  ok  слайды начинаются ровно на щелчках, без наложений');
 
   // ---- 3. Страховка: рассогласование плана гасит НА границе --------------
   const e2 = boot();

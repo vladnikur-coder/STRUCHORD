@@ -658,8 +658,9 @@
     }
     // 0.782 · B-110: непрерывная линия pad. Один голос живёт от ячейки к
     // ячейке: общий тон продлевается без новой атаки, изменившийся ведётся
-    // по высоте smoothstep-кривой за 1/3 доли (0.784) ДО границы и приходит в неё
-    // ровно. Лишние голоса уходят, новые наплывают — паузы в звуке нет.
+    // по высоте smoothstep-кривой за 1/3 доли (0.784), а с 0.785 — НАЧИНАЯ
+    // с границы: старый аккорд держится до щелчка, новый приходит через 1/3
+    // доли ПОСЛЕ него. Лишние голоса уходят, новые наплывают — паузы нет.
     // Кривая считается детерминированно, экспорт и замеры воспроизводимы.
     function padRate(midi, baseMidi) { return Math.pow(2, (midi - baseMidi) / 12); }
     function padCurve(from, to, n) {
@@ -746,10 +747,16 @@
         notes.forEach(function (m) { playNote(ctx, channel, m, start, dur, level); });
         return;
       }
-      var end = start + dur;
       var key = String(trackId);
       var line = (padLines.get(key) || []).filter(function (v) { return !v.dead && v.end + v.tail > start; });
       var lead = Math.max(.05, Math.min(Number(info.lead) || .35, dur * .45));
+      // 0.785 (B-113): смена аккорда больше НЕ опережает щелчок. Граница
+      // ячейки — это сам щелчок; изгиб, уход старых нот и наплыв новых идут
+      // от boundary до boundary + lead. Голоса поэтому живут на lead дольше
+      // ячейки, иначе Web Audio оборвал бы их прямо на ударе. Следующая
+      // ячейка продлевает их обычным padExtend(), лишних источников нет.
+      var boundary = start + dur;
+      var end = boundary + lead;
       var map = Array.isArray(info.map) && info.map.length ? info.map
         : notes.map(function (n) { return { from: n, to: null, kind: 'hold' }; });
       var nextLine = [], used = [];
@@ -776,7 +783,7 @@
       // 0.783: несовпавшие голоса гаснут НА границе (start), а не в конце
       // новой ячейки. Здесь страховка от рассогласования плана (повтор,
       // скачок, правка войсинга на ходу): короткий кроссфейд с наплывом
-      // новых нот. Штатный слайд на 0,35 с ставится картой заранее.
+      // новых нот. Штатный слайд (0.785: после щелчка) ставится картой заранее.
       var crossfade = Math.min(lead, 0.12);
       line.forEach(function (v) {
         if (used.indexOf(v) < 0 && nextLine.indexOf(v) < 0) padRelease(v, start, start + crossfade);
@@ -784,7 +791,9 @@
       padLines.set(key, nextLine);
       // 0.763: звучащие клавиши подсвечиваются и в непрерывной линии pad.
       nextLine.forEach(function (v) {
-        if (!v.dead) scheduleKeyHighlight(ctx, channel, v.midi, start, end - start);
+        // Подсветка клавиш остаётся в рамках ячейки: звук живёт чуть дольше
+        // границы, но визуально аккорд по-прежнему сменяется на щелчке.
+        if (!v.dead) scheduleKeyHighlight(ctx, channel, v.midi, start, dur);
       });
     }
 

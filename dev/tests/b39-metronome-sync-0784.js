@@ -11,6 +11,8 @@
 //   * включение метронома / смена доли на ходу планировали все прошедшие
 //     клики в прошлом («залп»).
 //
+// 0.785 (B-113) перенёс сам переход ПОСЛЕ щелчка; часы метронома от этого
+// не изменились, поэтому ниже проверяется уже новое окно перехода.
 // Проверяется без браузера: реальные функции извлекаются из STRUCHORD.html и
 // keyboard-accompaniment.js и гоняются в vm-песочнице с управляемыми часами
 // Web Audio и mock'ом requestAnimationFrame. НЕ заменяет слуховую проверку
@@ -30,9 +32,12 @@ const ok = (msg) => { groups++; console.log('  ok  ' + msg); };
 // ---------------------------------------------------------------------------
 // 1. Статический контракт: патч на месте, запрещённые зоны не тронуты
 // ---------------------------------------------------------------------------
-assert(HTML.includes('· ver 0.784'), 'версия в шапке 0.784');
-assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes("struchord-v784"),
-  'R7: кэш выложен парой с HTML');
+// 0.785: контракт «версия и кэш парой» не привязан к номеру релиза.
+const VER = (HTML.match(/· ver (\d+\.\d+)/) || [])[1];
+assert(VER, 'версия в шапке');
+assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8')
+  .includes('struchord-v' + VER.split('.')[1]),
+  'R7: кэш выложен парой с версией ' + VER);
 assert(HTML.includes('let metronomeGridKey = null;'), 'ключ часов объявлен');
 assert(HTML.includes('return [ts, bpm, metronomeSubdivision, playbackStartTime].join'),
   'ключ часов включает темп, размер, долю и точку запуска');
@@ -229,27 +234,35 @@ function maxDrift(run) {
   }
   return worst;
 }
-function clicksInGlide(run, leadSeconds) {
+// 0.785 (B-113): переход лежит ПОСЛЕ щелчка — окно (граница, граница + span).
+function clicksAfterClick(run, span) {
   let n = 0;
-  for (const ev of run.timeline) {
-    const from = ev.end - leadSeconds;
-    n += run.clicks.filter(c => c.t > from + 1e-9 && c.t < ev.end - 1e-9).length;
-  }
+  for (const ev of run.timeline)
+    n += run.clicks.filter(c => c.t > ev.end + 1e-9 && c.t < ev.end + span - 1e-9).length;
+  return n;
+}
+// Для справки: как считалось до 0.785 — окно ДО щелчка.
+function clicksBeforeClick(run, span) {
+  let n = 0;
+  for (const ev of run.timeline)
+    n += run.clicks.filter(c => c.t > ev.end - span + 1e-9 && c.t < ev.end - 1e-9).length;
   return n;
 }
 
-// 3.1 Ровный темп: 0 мс и новый короткий заход не задевает щелчков.
+// 3.1 Ровный темп: 0 мс; окно перехода после щелчка не задевает кликов.
 let run = simulate(row(4, 4, 120));
 assert(maxDrift(run) < 1e-9, 'ровный 4/4 @120: граница аккорда ровно на щелчке');
-assert.equal(clicksInGlide(run, 0.35), 0, 'на четвертях и старый заход не задевал кликов');
+assert.equal(clicksAfterClick(run, 1 / 6), 0, '0.785: переход 1/3 доли после щелчка чистый');
 ok('ровный темп: 0 мс расхождения, сильный щелчок на границе');
 
-// 3.2 Ранний заход: на восьмых 0,35 с задевали лишний клик, 1/3 доли — нет.
+// 3.2 Восьмые: до 0.785 окно 0,35 с ДО щелчка накрывало лишний клик;
+//     после 0.785 окно 1/3 доли ПОСЛЕ щелчка его не задевает.
 run = simulate(row(2, 4, 120), { sub: 2 });
 assert(maxDrift(run) < 1e-9, 'subdivision=2: границы всё ещё на акценте');
-assert(clicksInGlide(run, 0.35) > 0, 'до правки 0,35 с накрывали лишний щелчок восьмой');
-assert.equal(clicksInGlide(run, 1 / 6), 0, 'после правки окно слайда чистое и на восьмых');
-ok('причина «pad опережает» устранена: на восьмых внутри слайда больше нет щелчка');
+assert(clicksBeforeClick(run, 0.35) > 0, 'диагноз: до 0.785 заход 0,35 с накрывал щелчок восьмой');
+assert(clicksAfterClick(run, 0.35) > 0, 'контроль: будь переход 0,35 с, он задевал бы восьмую и после щелчка');
+assert.equal(clicksAfterClick(run, 1 / 6), 0, '0.785: окно 1/3 доли после щелчка чистое');
+ok('0.785: переход перенесён за щелчок, внутри окна нет лишнего клика');
 
 // 3.3 Смена BPM секции: было 214 мс, стало 0 мс.
 run = simulate(row(2, 4, 120).concat(row(2, 4, 140)), {});
@@ -261,7 +274,7 @@ ok('смена BPM секции 120 → 140: дрейф устранён');
 // 3.4 Составной размер 6/8: пульс метронома — пунктирная четверть.
 run = simulate([cell(6, 120, '6/8', 'a', 0), cell(6, 120, '6/8', 'b', 0), cell(6, 120, '6/8', 'c', 0)]);
 assert(maxDrift(run) < 1e-9, '6/8: граница аккорда на сильном щелчке');
-assert.equal(clicksInGlide(run, 0.25), 0, '6/8: заход 0,25 с не задевает щелчков');
+assert.equal(clicksAfterClick(run, 0.25), 0, '6/8: переход 0,25 с после щелчка не задевает кликов');
 ok('6/8 @120: 0 мс, доля метронома и pad совпадают');
 
 // 3.5 Смена темпа на ходу: invalidation ключа, без залпа, новый темп
