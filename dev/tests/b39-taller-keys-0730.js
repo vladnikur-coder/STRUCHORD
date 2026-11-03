@@ -15,7 +15,7 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
   assert.equal(await p.evaluate(()=>JSON.stringify(StruChordTracks.exportForSave())),before,`${label}: данные не изменились`);
   await p.click('#b39KeysSettingsToggle');await p.select('#b39KeysTrackSize','88');await p.click('#b39KeysSettingsToggle');d=await get();assert(d.key.height>=100*scale/100-.5);assert(d.scrollWidth>d.clientWidth,`${label}: длинная клавиатура прокручивается горизонтально`);
   const scroll=await p.evaluate(()=>{let e=document.querySelector('.b39-keys-body');e.scrollLeft=0;e.scrollLeft=e.scrollWidth;return e.scrollLeft;});assert(scroll>0);
-  await p.evaluate(()=>{document.getElementById('showFingers').checked=true;toggleFingersVisibility();});await wait(80);d=await get();assert(d.svg.bottom<=d.rect.bottom-1,`${label}: пальцы видны`);assert.match(await p.$eval('.b39-keys-foot',e=>e.textContent),/цифры условны/);
+  await p.evaluate(()=>{document.getElementById('showFingers').checked=true;toggleFingersVisibility();});await wait(80);d=await get();assert(d.svg.bottom<=d.rect.bottom-1,`${label}: пальцы видны`);assert.match(await p.$eval('.b39-keys-foot',e=>e.textContent),/аппликатура/);
   assert.deepStrictEqual(errors,[]);await p.close();
  }
  const p=await browser.newPage();await p.setViewport({width:1440,height:1800});await p.evaluateOnNewDocument(()=>{localStorage.setItem('struchord-default-instrument','keys');localStorage.setItem('struchord-ui-scale','150');});await p.goto(process.env.STRUCHORD_URL||'http://127.0.0.1:8000/STRUCHORD.html');
