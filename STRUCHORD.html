@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.789</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.790</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32568,7 +32568,10 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     });return best;
   }
   function clearLinkedCache(){linkedCache.clear();}
-  // Линейно обходим соседние ячейки внутри секции, с ограничением.
+  // 0.790 (B-118): линейно обходим ячейки ВСЕЙ песни (секции в порядке
+  // документа), prev перетекает через границы секций. Повторы и скачки
+  // (D.S./Coda) не раскрываются: у повтора тот же выбор, что у первого
+  // прохода — детерминированно, звук/превью/экспорт/схема совпадают.
   // Кэш сбрасывается при любой команде песни и при загрузке/undo.
   function linkedSelection(trackId,cell) {
     var T=tracks(), t=T && T.track(trackId);
@@ -32576,17 +32579,17 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var secId=String(cell).split(':')[0], sec;
     try { sec=sections.find(function(s){return String(s.id)===secId;}); } catch(e) {return null;}
     if(!sec)return null;
-    var cacheKey=String(trackId)+':'+secId, cache=linkedCache.get(cacheKey);
+    var cacheKey=String(trackId), cache=linkedCache.get(cacheKey);
     if(!cache){
       cache={entries:{}, events:[], indexes:{}, next:0, prev:null, range:T.keyRange(trackId)};
-      (sec.squares||[]).forEach(function(sq){(sq.events||[]).forEach(function(ev,ei){var k=T.cellKey(sec,sq,ei);cache.indexes[k]=cache.events.length;cache.events.push({sq:sq,ev:ev,ei:ei,cell:k});});});
+      sections.forEach(function(sec2){(sec2.squares||[]).forEach(function(sq){(sq.events||[]).forEach(function(ev,ei){var k=T.cellKey(sec2,sq,ei);cache.indexes[k]=cache.events.length;cache.events.push({sec:sec2,sq:sq,ev:ev,ei:ei,cell:k});});});});
       linkedCache.set(cacheKey,cache);
     }
-    // Очень длинная секция после 2048 ячеек использует прежний алгоритм.
+    // Очень длинная песня после 2048 ячеек использует прежний алгоритм.
     while(cache.next<cache.events.length && cache.next<2048 && !cache.entries[cell]){
       var e=cache.events[cache.next++], chord=T.trackChord(trackId,e.cell,e.ev);
       if(!chord){cache.entries[e.cell]={empty:true};continue;}
-      var key=sec.key || currentKey(), exact=T.exactNotes(trackId,e.cell,chord);
+      var key=(e.sec&&e.sec.key) || currentKey(), exact=T.exactNotes(trackId,e.cell,chord);
       if(exact){cache.prev=exact.slice();cache.entries[e.cell]={chord:chord,notes:exact.slice(),manual:true,exact:true};continue;}
       var manual=t.voicings['v:'+chord];
       if(!Number.isInteger(manual))manual=t.voicings[e.cell];
@@ -32597,13 +32600,13 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       else cache.entries[e.cell]={empty:true};
     }
     // За пределом лимита выбираем независимо от истории воспроизведения:
-    // схема, звук и экспорт должны совпадать даже в длинной секции.
+    // схема, звук и экспорт должны совпадать даже в длинной песне.
     if(!cache.entries[cell] && cache.indexes[cell]>=2048){
       var far=cache.events[cache.indexes[cell]], name=T.trackChord(trackId,cell,far.ev);
       var exactFar=T.exactNotes(trackId,cell,name);
       if(exactFar) return {chord:name,notes:exactFar,manual:true,exact:true};
       var vi=t.voicings['v:'+name];if(!Number.isInteger(vi))vi=t.voicings[cell];
-      var fallback=voiceLead(name,sec.key||currentKey(),cache.range,null,{}) ? [voiceLead(name,sec.key||currentKey(),cache.range,null,{})] : generateKeysVoicings(name,sec.key||currentKey(),cache.range,null,{});
+      var fallback=voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{}) ? [voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{})] : generateKeysVoicings(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{});
       if(fallback.length)cache.entries[cell]={chord:name,notes:fallback[(Number.isInteger(vi)?vi:0)%fallback.length].slice(),manual:Number.isInteger(vi),index:vi,count:fallback.length,limited:true};
     }
     var result=cache.entries[cell];return result && !result.empty ? result : null;
@@ -32993,7 +32996,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     });
     foot = el('div', 'b39-keys-foot', ''); head.insertBefore(foot, nav);
     var linkRow=el('label','tools-label b39-keys-link');linkedToggle=el('input');linkedToggle.type='checkbox';linkedToggle.id='b39LinkedVoicings';
-    linkRow.appendChild(linkedToggle);linkRow.appendChild(doc.createTextNode(' Голосоведение внутри секции'));
+    linkRow.appendChild(linkedToggle);linkRow.appendChild(doc.createTextNode(' Голосоведение по всей песне'));
     // Длинное пояснение в подсказке: строка настроек должна оставаться в одну
     // строку, иначе нижнее управление уезжает за экран (тест 0729).
     linkRow.title = 'Общие тоны держатся на месте, остальные голоса идут шагом. Действует для всей дорожки.';
