@@ -10,19 +10,8 @@ const assert=require('assert'),puppeteer=require('puppeteer');
  assert.deepStrictEqual(defs.am0,[45,57,60,64],'Am умолчание = бас A + A C E');
  assert(defs.cSlots>=3,'у C минимум 3 обращения');
  assert(defs.wide.some(w=>w>=0),'на 61 клавише широкие слоты есть');
- // При ВКЛЮЧЁННОМ голосоведении (умолчание для новой песни) стрелки и тоггл скрыты, стрелка — no-op.
+ // Панель: стрелка › переключает на следующее обращение, индекс сохраняется, звук = тому же списку.
  await page.evaluate(()=>{StruChordKeys.open();const T=StruChordTracks,s=sections[0],sq=s.squares[0];StruChordKeys.focusCell(T.cellKey(s,sq,0));});
- const linkedOn=await page.evaluate(()=>{const T=StruChordTracks;const prev=document.querySelector('button[aria-label="Предыдущая позиция"]'),next=document.querySelector('button[aria-label="Следующая позиция"]'),dens=document.getElementById('b39KeysDensity');const cs=getComputedStyle(prev);const before=T.track(1).voicings['v:C']??null;StruChordKeys.stepVariant(1);const after=T.track(1).voicings['v:C']??null;return {dispPrev:cs.display,densDisp:getComputedStyle(dens).display,isLinked:document.getElementById('b39KeysPanel').classList.contains('is-linked'),before,after,count:document.querySelector('.b39-keys-count').textContent};});
- assert.equal(linkedOn.isLinked,true,'панель в режиме is-linked (голосоведение включено)');
- assert.equal(linkedOn.dispPrev,'none','стрелки скрыты при включённом голосоведении');
- assert.equal(linkedOn.densDisp,'none','тоггл скрыт при включённом голосоведении');
- assert.equal(linkedOn.before,linkedOn.after,'stepVariant при включённом голосоведении — no-op (нет конфликта с авто)');
- assert.match(linkedOn.count,/Авто|Ручная|—/,'счётчик в авто-режиме без «обращение i/n»');
- // При ВЫКЛЮЧЕННОМ голосоведении стрелки и тоггл работают.
- await page.evaluate(()=>{StruChordTracks.setLinkedVoicings(1,false);StruChordKeys.open();const T=StruChordTracks,s=sections[0],sq=s.squares[0];StruChordKeys.focusCell(T.cellKey(s,sq,0));});
- const linkedOff=await page.evaluate(()=>({isLinked:document.getElementById('b39KeysPanel').classList.contains('is-linked'),disp:getComputedStyle(document.querySelector('button[aria-label="Следующая позиция"]')).display}));
- assert.equal(linkedOff.isLinked,false,'is-linked снят');
- assert.notEqual(linkedOff.disp,'none','стрелки видны при выключенном голосоведении');
  const before=await page.evaluate(()=>{const K=StruChordKeys,T=StruChordTracks,s=sections[0],sq=s.squares[0],cell=T.cellKey(s,sq,0);return {stored:T.track(1).voicings['v:C']??null,sel:K.linkedSelection(1,cell)&&K.linkedSelection(1,cell).notes,count:document.querySelector('.b39-keys-count').textContent};});
  await page.click('button[aria-label="Следующая позиция"]');
  const after=await page.evaluate(()=>{const K=StruChordKeys,T=StruChordTracks,s=sections[0],sq=s.squares[0],cell=T.cellKey(s,sq,0);const st=K.voicingVariantStructure('C','C',T.keyRange(1));return {stored:T.track(1).voicings['v:C'],sel:K.linkedSelection(1,cell),count:document.querySelector('.b39-keys-count').textContent,list:st.list,slots:st.slots};});
