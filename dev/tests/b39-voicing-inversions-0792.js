@@ -113,7 +113,7 @@ ok('широкие варианты для C/Am/G7 на 88 и C на 61: раз�
   const VER = (HTML.match(/· ver (\d+\.\d+)/) || [])[1];
   assert(VER === '0.792', 'версия 0.792, а не ' + VER);
   assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v792'), 'CACHE_NAME v792');
-  const log = execSync('git log --oneline -3', { cwd: ROOT, encoding: 'utf8' });
+  const log = execSync('git log --oneline -6', { cwd: ROOT, encoding: 'utf8' });
   assert(log.includes('Revert "0.791'), 'в истории есть revert 0.791');
   ok('R7: 0.792 + struchord-v792; 0.791 откачен revert-коммитом');
 }
@@ -137,6 +137,9 @@ for (const [needle, label] of [
 }
 assert(HTML.includes('var basic=generateKeysVoicings(chord,key,range,null,{});'), 'inversionCandidates на базе (авто-голосоведение без изменений)');
 assert(HTML.includes('extra - rh[0] > 16'), 'широкие проверяют размах руки <= 16 (играбельность)');
+assert(!HTML.includes('is-linked'), 'стрелки/тоггл НЕ скрываются при голосоведении — доступны всегда');
+assert(HTML.includes('Авто-выбор: первое нажатие стрелки'), 'при включённом голосоведении первая стрелка берёт ручную форму (как раньше)');
+assert(!HTML.includes('if (active.track.linkedVoicings) return;'), 'нет guardа, запрещающего стрелки при голосоведении');
 ok('UI: карточки убраны, стрелки + тоггл плотно/широко, единый список во всех точках звука');
 
 console.log('\n0.792 B-119 rework (обращения + плотно/широко): все проверки пройдены (' + groups + ' групп)');

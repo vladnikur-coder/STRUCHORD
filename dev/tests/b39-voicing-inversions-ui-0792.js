@@ -13,12 +13,17 @@ const assert=require('assert'),puppeteer=require('puppeteer');
  // Панель: стрелка › переключает на следующее обращение, индекс сохраняется, звук = тому же списку.
  await page.evaluate(()=>{StruChordKeys.open();const T=StruChordTracks,s=sections[0],sq=s.squares[0];StruChordKeys.focusCell(T.cellKey(s,sq,0));});
  const before=await page.evaluate(()=>{const K=StruChordKeys,T=StruChordTracks,s=sections[0],sq=s.squares[0],cell=T.cellKey(s,sq,0);return {stored:T.track(1).voicings['v:C']??null,sel:K.linkedSelection(1,cell)&&K.linkedSelection(1,cell).notes,count:document.querySelector('.b39-keys-count').textContent};});
+ // Стрелки доступны всегда. При включённом голосоведении первая › берёт ручную классическую форму (основное положение).
+ await page.click('button[aria-label="Следующая позиция"]');
+ const after1=await page.evaluate(()=>{const K=StruChordKeys,T=StruChordTracks,s=sections[0],sq=s.squares[0],cell=T.cellKey(s,sq,0);const st=K.voicingVariantStructure('C','C',T.keyRange(1));return {stored:T.track(1).voicings['v:C'],sel:K.linkedSelection(1,cell),count:document.querySelector('.b39-keys-count').textContent,list:st.list,slots:st.slots};});
+ assert(Number.isInteger(after1.stored),'ручной индекс сохранён (v:C)');
+ assert.equal(after1.sel.manual,true,'linkedSelection ручной');
+ assert.equal(after1.stored,after1.slots[0].base,'первая стрелка при авто = основное положение (классическая форма C E G)');
+ assert.deepStrictEqual(after1.sel.notes,after1.list[after1.stored],'звук резолвится по тому же списку обращений');
+ // Вторая › — следующее обращение.
  await page.click('button[aria-label="Следующая позиция"]');
  const after=await page.evaluate(()=>{const K=StruChordKeys,T=StruChordTracks,s=sections[0],sq=s.squares[0],cell=T.cellKey(s,sq,0);const st=K.voicingVariantStructure('C','C',T.keyRange(1));return {stored:T.track(1).voicings['v:C'],sel:K.linkedSelection(1,cell),count:document.querySelector('.b39-keys-count').textContent,list:st.list,slots:st.slots};});
- assert(Number.isInteger(after.stored),'ручной индекс сохранён (v:C)');
- assert.equal(after.sel.manual,true,'linkedSelection ручной');
- assert.deepStrictEqual(after.sel.notes,after.list[after.stored],'звук резолвится по тому же списку обращений');
- assert.equal(after.sel.notes.join(','),after.list[after.slots[1].base].join(','),'стрелка › = обращение 2 (E G C с басом C)');
+ assert.equal(after.sel.notes.join(','),after.list[after.slots[1].base].join(','),'вторая стрелка › = обращение 2 (E G C с басом C)');
  assert.match(after.count,/обращение 2\/\d+ · плотно/,'счётчик «обращение 2/N · плотно»');
  // Тоггл «Широко»: верхняя нота RH +12, индекс = широкий слот того же обращения.
  await page.click('#b39KeysDensity .b39-density-btn:last-child');
