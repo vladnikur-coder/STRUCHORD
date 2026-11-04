@@ -1,6 +1,10 @@
 import os,urllib.parse,concurrent.futures,subprocess,pathlib,re,struct,json,hashlib
 R=pathlib.Path('/tmp/struchord-tone-assets');R.mkdir(exist_ok=True)
-repos={'piano':('Tonejs/audio','efd8296360f9526e379bfbe5c1698ff54d6a1d34'),'rhodes':('sfzinstruments/Discord-SFZ-GM-Bank','7a9c478fe331f94f246d33332f0adedb25bbbe27'),'organ':('t-hamano/piano-block','897256cd5506a5c2cba14f6bb48fef8113dc39b5'),'pad':('educandu/abcjs-soundfonts','ebd5724f5d334b5b6347562b0044f75e16df90b7')}
+# 0.788 (B-116): орган больше не из t-hamano/piano-block (там только MP3) —
+# WAV-ноты берутся из npm-пакета tonejs-instrument-organ-wav 1.1.0
+# (tonejs-instruments, MIT) прямо в build-keyboard-sounds.py (npm_organ);
+# здесь его сознательно нет в списке репозиториев.
+repos={'piano':('Tonejs/audio','efd8296360f9526e379bfbe5c1698ff54d6a1d34'),'rhodes':('sfzinstruments/Discord-SFZ-GM-Bank','7a9c478fe331f94f246d33332f0adedb25bbbe27'),'pad':('educandu/abcjs-soundfonts','ebd5724f5d334b5b6347562b0044f75e16df90b7')}
 a=[]
 def add(mode,midi,path):a.append((mode,midi,path))
 add('piano',21,'salamander/A0.mp3')
@@ -9,7 +13,8 @@ for n in range(1,8):
 add('piano',108,'salamander/C8.mp3')
 for i,note in [(29,'F1'),(35,'B1'),(40,'E2'),(45,'A2'),(50,'D3'),(55,'G3'),(59,'B3'),(62,'D4'),(65,'F4'),(71,'B4'),(76,'E5'),(81,'A5'),(86,'D6'),(91,'G6'),(96,'C7')]:
  x=3 if i<=65 else 4;add('rhodes',i,f'Discord GM/Melodic/005-Electric Piano 1/A_{i:03d}__{note}_{x}.wav')
-for n,mid in [('G2',43),('C3',48),('G3',55),('C4',60),('G4',67),('C5',72),('G5',79)]:add('organ',mid,f'assets/instruments/organ/{n}.mp3')
+# Орган (бывшие ноты 43/48/55/60/67/72/79) с 0.788 качается из npm-пакета
+# tonejs-instrument-organ-wav: источники Fs2/C3/Fs3/C4/Fs4/C5/Fs5 (42/48/54/60/66/72/78).
 for octave in range(1,8):
  for name,pc in [('C',0),('Gb',6)]:add('pad',(octave+1)*12+pc,f'FluidR3_Salamander_GM/pad_2_warm-mp3/{name}{octave}.mp3')
 add('pad',96,'FluidR3_Salamander_GM/pad_2_warm-mp3/C7.mp3') if False else None

@@ -10,15 +10,20 @@
     @audio-samples/piano-mp3-velocity*): тихая, средняя и громкая записи
     одной ноты — это и есть «живость» пианино, которой не даёт один слой.
 
-Источники и лицензии не меняются: Salamander Grand Piano V3 (Alexander Holm,
-CC BY 3.0, с 2022 в общественном достоянии), jRhodes GM (CC0), tonewheel
-organ hammondman (CC0), FluidR3 warm pad (MIT / CC BY 3.0).
+Источники и лицензии: Salamander Grand Piano V3 (Alexander Holm,
+CC BY 3.0, с 2022 в общественном достоянии), jRhodes GM (CC0), FluidR3 warm
+pad (MIT / CC BY 3.0). 0.788 (B-116): орган переведён на WAV — пакет
+tonejs-instrument-organ-wav 1.1.0 (набор tonejs-instruments,
+https://www.npmjs.com/package/tonejs-instrument-organ-wav, MIT); прежние
+MP3 t-hamano/piano-block убраны, у MP3 нет петли по сэмплам и на стыке
+цикла слышен щелчок кодера.
 
 Запуск:
-    python3 dev/tools/build-keyboard-sounds.py [--cache DIR]
+    python3 dev/tools/build-keyboard-sounds.py [--only organ]
 
-Кэш скачанного — по умолчанию /tmp/struchord-samples; повторный запуск
-не качает заново.
+--only organ — пересобрать только тембр органа и обновить manifest.json
+на месте (остальные тембры не трогает). Кэш скачанного — по умолчанию
+/tmp/struchord-samples; повторный запуск не качает заново.
 """
 import base64
 import json
@@ -52,6 +57,12 @@ PIANO_LAYERS = {'soft': 3, 'mid': 8, 'loud': 14}
 # от A0 (MIDI 21) до C8 (MIDI 108).
 NPM_RELEASE = 'https://registry.npmjs.org/@audio-samples/piano-mp3-release/-/piano-mp3-release-1.0.5.tgz'
 NPM = 'https://registry.npmjs.org/@audio-samples/piano-mp3-velocity%s/-/piano-mp3-velocity%s-1.0.5.tgz'
+# 0.788 (B-116): орган — WAV из npm-пакета tonejs-instrument-organ-wav
+# (tonejs-instruments, MIT). В пакете ноты A/C/Ds/Fs, поэтому берём
+# ближайшие к прежним нотам: сдвиг не больше 2 полутонов, а высоту всё
+# равно меняет playbackRate при проигрывании.
+NPM_ORGAN = 'https://registry.npmjs.org/tonejs-instrument-organ-wav/-/tonejs-instrument-organ-wav-1.1.0.tgz'
+ORGAN_SOURCES = [(42, 'Fs2'), (48, 'C3'), (54, 'Fs3'), (60, 'C4'), (66, 'Fs4'), (72, 'C5'), (78, 'Fs5')]
 
 
 def fetch(url, dest):
@@ -98,20 +109,78 @@ def npm_layer(velocity):
     return out
 
 
-# Прежние источники трёх тембров (те же, что в 0.769): нужны, если рядом нет
+# Прежние источники тембров (те же, что в 0.769): нужны, если рядом нет
 # старого keyboard-sounds.js. Файлы небольшие, качаются через GitHub API.
+# Орган с 0.788 из GitHub не берётся — только WAV-пакет из npm (см. ниже).
 SOURCES = {
     'rhodes': ('sfzinstruments/Discord-SFZ-GM-Bank', '7a9c478fe331f94f246d33332f0adedb25bbbe27',
                [29, 35, 40, 45, 50, 55, 59, 62, 65, 71, 76, 81, 86, 91, 96]),
-    'organ': ('t-hamano/piano-block', '897256cd5506a5c2cba14f6bb48fef8113dc39b5', None),
     'pad': ('educandu/abcjs-soundfonts', 'ebd5724f5d334b5b6347562b0044f75e16df90b7', None),
 }
 RHODES_FILES = {29: ('F1', 3), 35: ('B1', 3), 40: ('E2', 3), 45: ('A2', 3), 50: ('D3', 3),
                 55: ('G3', 3), 59: ('B3', 3), 62: ('D4', 3), 65: ('F4', 3), 71: ('B4', 4),
                 76: ('E5', 4), 81: ('A5', 4), 86: ('D6', 4), 91: ('G6', 4), 96: ('C7', 4)}
-ORGAN_FILES = [(43, 'G2'), (48, 'C3'), (55, 'G3'), (60, 'C4'), (67, 'G4'), (72, 'C5'), (79, 'G5')]
 PAD_FILES = [(m, ('%s%d' % (('C' if m % 12 == 0 else 'Gb'), m // 12 - 1))) for m in
              [(n + 1) * 12 + pc for n in range(1, 8) for pc in (0, 6)]]
+
+
+def trim_wav(data, max_seconds=8.0, threshold=0.004, preroll=0.005):
+    """Обрезает WAV: ведущую тишину (с коротким упреждением) и хвост.
+
+    В tonejs-instrument-organ-wav у каждой ноты ~30 мс тишины в начале —
+    если не убрать, атака ноты начнётся позже нажатия. Чистый stdlib,
+    новых зависимостей нет. Возвращает байты mono 16-bit WAV.
+    """
+    import io
+    import struct
+    import wave
+    with wave.open(io.BytesIO(data), 'rb') as w:
+        channels, width, rate, frames = w.getnchannels(), w.getsampwidth(), w.getframerate(), w.getnframes()
+        if width != 2:
+            raise RuntimeError('ожидался 16-bit WAV')
+        raw = w.readframes(frames)
+    count = len(raw) // (2 * channels)
+    samples = struct.unpack('<%dh' % (count * channels), raw)
+    mono = list(samples) if channels == 1 else [sum(samples[i * channels:(i + 1) * channels]) // channels
+                                                  for i in range(count)]
+    limit = threshold * 32768
+    window = max(1, rate // 1000)                      # окно 1 мс
+    start = 0
+    for i in range(0, count, window):
+        if max((abs(x) for x in mono[i:i + window]), default=0) > limit:
+            start = max(0, i - int(preroll * rate))
+            break
+    end = min(count, start + int(max_seconds * rate))
+    trimmed = mono[start:end]
+    buf = io.BytesIO()
+    with wave.open(buf, 'wb') as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(struct.pack('<%dh' % len(trimmed), *trimmed))
+    return buf.getvalue()
+
+
+def npm_organ():
+    """Орган 0.788: WAV-ноты из tonejs-instrument-organ-wav (MIT).
+
+    Возвращает [(midi источника, байты WAV), ...]; midi записи стоит в
+    manifest, поэтому playbackRate сам подгоняет высоту под нужную ноту.
+    """
+    import io
+    tgz = CACHE / 'tonejs-instrument-organ-wav-1.1.0.tgz'
+    data = fetch(NPM_ORGAN, tgz)
+    wanted = {name: midi for midi, name in ORGAN_SOURCES}
+    out = []
+    with tarfile.open(fileobj=io.BytesIO(data)) as tar:
+        for member in tar.getmembers():
+            name = pathlib.PurePosixPath(member.name).name
+            base = name[:-4] if name.lower().endswith('.wav') else None
+            if base in wanted:
+                out.append((wanted[base], trim_wav(tar.extractfile(member).read())))
+    if len(out) != len(ORGAN_SOURCES):
+        raise RuntimeError('в пакете нашлось не все ноты органа: %d из %d' % (len(out), len(ORGAN_SOURCES)))
+    return out
 
 
 def github_raw(repo, sha, path):
@@ -152,9 +221,7 @@ def downloaded_bank():
         extra = {'loopStart': loop[0], 'loopEnd': loop[1]} if loop else {}
         rows.append((midi, data, extra))
     out['rhodes'] = rows
-    repo, sha, _ = SOURCES['organ']
-    out['organ'] = [(midi, github_raw(repo, sha, 'assets/instruments/organ/%s.mp3' % name), {})
-                    for midi, name in ORGAN_FILES]
+    # Орган с 0.788 — из npm (npm_organ), см. main().
     repo, sha, _ = SOURCES['pad']
     out['pad'] = [(midi, github_raw(repo, sha, 'FluidR3_Salamander_GM/pad_2_warm-mp3/%s.mp3' % name), {})
                   for midi, name in PAD_FILES]
@@ -184,9 +251,45 @@ def write_sample(mode, midi, payload, name=None):
     return '%s/%s' % (mode, name)
 
 
+def organ_rows():
+    """Записи органа [(midi, payload, extra)] для manifest/сборки."""
+    return [(midi, payload, {}) for midi, payload in npm_organ()]
+
+
+def rebuild_only(mode):
+    """--only organ: пересобрать один тембр и обновить manifest.json на
+    месте, не трогая остальные. Старые файлы этого тембра удаляются."""
+    if mode != 'organ':
+        sys.exit('--only пока поддерживает только organ')
+    rows = []
+    for midi, payload, extra in organ_rows():
+        entry = {'midi': midi, 'file': write_sample(mode, midi, payload)}
+        for key in ('loopStart', 'loopEnd'):
+            if key in extra:
+                entry[key] = extra[key]
+        rows.append(entry)
+    manifest_path = OUT / 'manifest.json'
+    manifest = json.loads(manifest_path.read_text(encoding='utf-8'))
+    keep = {r['file'] for r in rows}
+    folder = OUT / mode
+    folder.mkdir(parents=True, exist_ok=True)
+    for f in folder.iterdir():
+        if f.is_file() and ('%s/%s' % (mode, f.name)) not in keep:
+            f.unlink()
+    manifest[mode] = rows
+    manifest_path.write_text(json.dumps(manifest, ensure_ascii=False, indent=1) + '\n', encoding='utf-8')
+    size = sum((OUT / r['file']).stat().st_size for r in rows)
+    print('organ: %d нот, %d файлов, %.2f МБ' % (len(rows), len(rows), size / 1e6))
+    print('ноты-источники: %s' % ', '.join('%d=%s' % (m, n) for m, n in ORGAN_SOURCES))
+
+
 def main():
     CACHE.mkdir(parents=True, exist_ok=True)
+    if '--only' in sys.argv:
+        rebuild_only(sys.argv[sys.argv.index('--only') + 1])
+        return
     banks = old_bank()
+    banks['organ'] = organ_rows()
     manifest = {}
 
     # ---- Пианино: три слоя силы на всём диапазоне ----
