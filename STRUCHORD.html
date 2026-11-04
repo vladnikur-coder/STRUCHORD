@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.790</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.792</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32049,6 +32049,13 @@ html.b39-keys-mode .tl-fing-controls { display: none !important; }
   color: inherit; cursor: pointer; padding: 0; font-size: 1.15rem; }
 .b39-keys-count { font-size: .8rem; min-width: 2.3rem; text-align: center;
   color: var(--color-text-secondary, #666); }
+.b39-keys-density { display: none; margin-left: .35rem; }
+.b39-keys-panel.has-wide .b39-keys-density { display: inline-flex; }
+.b39-density-btn { min-height: 1.6rem; padding: 0 .45rem; font-size: .72rem; cursor: pointer;
+  border: .0625rem solid var(--color-border-medium, #c9cdd4); background: var(--color-surface, #fff); color: inherit; }
+.b39-density-btn:first-child { border-radius: .5rem 0 0 .5rem; }
+.b39-density-btn:last-child { border-radius: 0 .5rem .5rem 0; border-left: none; }
+.b39-density-btn[aria-pressed="true"] { background: var(--color-accent, #2c3e66); border-color: var(--color-accent, #2c3e66); color: #fff; }
 .b39-keys-body { min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
 .b39-keys-body svg.b39-keys-svg { display: block; height: auto; max-width: none; margin-inline: auto; }
 .b39-keys-body svg rect[data-midi] { cursor:pointer; outline:none; }
@@ -32088,6 +32095,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   var VARIANT_COUNT = 5;
   var doc = HOST.document;
   var btn = null, panel = null, body = null, countEl = null, foot = null, titleEl = null;
+  var densityEl = null, densityTight = null, densityWide = null;
   var timbreSel = null;
   var keyboardWhiteHeight = 40, keyboardFingers = false;
   // Только интерфейс текущей сессии; в песню и настройки дорожки не записывается.
@@ -32230,6 +32238,56 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     }
     return out.length ? out : basic;
   }
+  // 0.792 (B-119 rework; владелец отклонил карточки 0.791): список вариантов =
+  // ОБРАЩЕНИЯ аккорда (основное положение первым — для C: бас C + C E G, для
+  // Am: бас A + A C E, размах правой руки ограничен, играбельно) + в хвосте
+  // «широкие» копии с верхней нотой правой руки +12 (только на 61+ и если
+  // нота влезает в диапазон и в handLimit).
+  function voicingVariantStructure(chord, key, range) {
+    var invs = inversionCandidates(chord, key, range);
+    var basic = generateKeysVoicings(chord, key, range, null, {});
+    if (basic.length) {
+      var sig0 = basic[0].join(',');
+      invs = [basic[0]].concat(invs.filter(function (v) { return v.join(',') !== sig0; }));
+    }
+    // Только канонические обращения в первой октаве правой руки: стрелки
+    // переключают обращения, а не регистры (играбельные положения пианиста).
+    var lo = Math.max(range.low + 12, 48);
+    var oneOct = invs.filter(function (v) { return v.length > 1 && v[1] >= lo && v[1] < lo + 12; });
+    if (oneOct.length) invs = oneOct;
+    // Первым — основное положение (правая рука с корня: C -> C E G, Am -> A C E).
+    var F = formula(), f = F && F.chordFormula(chord, key);
+    var rootPc = f && Number.isInteger(f.rootPc) ? f.rootPc : null;
+    if (rootPc !== null) {
+      for (var k = 0; k < invs.length; k++) {
+        if (invs[k].length > 1 && mod12(invs[k][1]) === rootPc) {
+          invs.unshift(invs.splice(k, 1)[0]);
+          break;
+        }
+      }
+    }
+    var list = invs.slice(), slots = [];
+    var size = (range && range.size) || 61, limit = handLimit(size), rhHigh = Math.min(range.high, 84);
+    invs.forEach(function (base, i) {
+      var slot = { base: i, wide: -1 }, rh = base.slice(1);
+      if (size >= 61 && rh.length && base.length < limit && base.length < 9) {
+        var extra = Math.max.apply(null, rh) + 12;
+        if (extra <= rhHigh) {
+          var dup = base.concat([extra]).sort(function (a, b) { return a - b; });
+          var sig = dup.join(',');
+          if (!list.some(function (v) { return v.join(',') === sig; })) { slot.wide = list.length; list.push(dup); }
+        }
+      }
+      slots.push(slot);
+    });
+    return { list: list, slots: slots };
+  }
+  // Единый список вариантов для UI (стрелки/тоггл), ручного выбора и звука:
+  // ручной индекс всюду резолвится одинаково.
+  function listVoicingVariants(chord, key, range, prev, opts) {
+    return voicingVariantStructure(chord, key, range).list;
+  }
+
   function motionCost(prev,next) {
     var a=prev.slice(1), b=next.slice(1), m=a.length,n=b.length, dp=[];
     for(var i=0;i<=m;i++){dp[i]=[];for(var j=0;j<=n;j++)dp[i][j]=Infinity;}
@@ -32593,7 +32651,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       if(exact){cache.prev=exact.slice();cache.entries[e.cell]={chord:chord,notes:exact.slice(),manual:true,exact:true};continue;}
       var manual=t.voicings['v:'+chord];
       if(!Number.isInteger(manual))manual=t.voicings[e.cell];
-      var variants=generateKeysVoicings(chord,key,cache.range,cache.prev,{}), notes=null;
+      var variants=listVoicingVariants(chord,key,cache.range,cache.prev,{}), notes=null;
       if(Number.isInteger(manual) && variants.length)notes=variants[manual%variants.length];
       else notes=voiceLead(chord,key,cache.range,cache.prev,{}) || chooseLinked(inversionCandidates(chord,key,cache.range),cache.prev,cache.range);
       if(notes && notes.length){cache.prev=notes.slice();cache.entries[e.cell]={chord:chord,notes:notes.slice(),manual:Number.isInteger(manual),index:Number.isInteger(manual)?manual%variants.length:null,count:variants.length};}
@@ -32606,7 +32664,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       var exactFar=T.exactNotes(trackId,cell,name);
       if(exactFar) return {chord:name,notes:exactFar,manual:true,exact:true};
       var vi=t.voicings['v:'+name];if(!Number.isInteger(vi))vi=t.voicings[cell];
-      var fallback=voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{}) ? [voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{})] : generateKeysVoicings(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{});
+      var fallback=voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{}) ? [voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{})] : listVoicingVariants(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{});
       if(fallback.length)cache.entries[cell]={chord:name,notes:fallback[(Number.isInteger(vi)?vi:0)%fallback.length].slice(),manual:Number.isInteger(vi),index:vi,count:fallback.length,limited:true};
     }
     var result=cache.entries[cell];return result && !result.empty ? result : null;
@@ -32841,7 +32899,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     if (!T || !F || !chordName) return '';
     var o = opts || {};
     var range = T.keyRange(trackId);
-    var variants = generateKeysVoicings(chordName, currentKey(), range, o.prev || null, {});
+    var variants = listVoicingVariants(chordName, currentKey(), range, o.prev || null, {});
     var exact=T.exactNotes(trackId,o.cellKey,chordName);
     if (!variants.length && !exact) return '';
     var idx = variantIndex(trackId, chordName, o.cellKey) % Math.max(1,variants.length);
@@ -32939,6 +32997,17 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var next = el('button', '', '›'); next.type = 'button'; next.setAttribute('aria-label', 'Следующая позиция');
     next.addEventListener('click', function () { stepVariant(1); });
     nav.appendChild(prev); nav.appendChild(countEl); nav.appendChild(next);
+    // 0.792: toggl «Плотно | Широко» рядом со стрелками обращений.
+    densityEl = el('span', 'b39-keys-density'); densityEl.id = 'b39KeysDensity';
+    densityEl.setAttribute('role', 'group'); densityEl.setAttribute('aria-label', 'Плотность расположения');
+    densityTight = el('button', 'b39-density-btn', 'Плотно'); densityTight.type = 'button';
+    densityTight.setAttribute('aria-pressed', 'true'); densityTight.title = 'Ноты правой руки в пределах октавы';
+    densityWide = el('button', 'b39-density-btn', 'Широко'); densityWide.type = 'button';
+    densityWide.setAttribute('aria-pressed', 'false'); densityWide.title = 'Верхняя нота правой руки удваивается октавой выше (на клавиатурах от 61 клавиши)';
+    densityTight.addEventListener('click', function () { if (densityWide.getAttribute('aria-pressed') === 'true') toggleDensity(); });
+    densityWide.addEventListener('click', function () { if (densityWide.getAttribute('aria-pressed') !== 'true') toggleDensity(); });
+    densityEl.appendChild(densityTight); densityEl.appendChild(densityWide);
+    nav.appendChild(densityEl);
 
     var close = el('button', 'b39-keys-close', '×'); close.type = 'button';
     close.setAttribute('aria-label', 'Закрыть клавиатуру'); close.addEventListener('click', closePanel);
@@ -33225,22 +33294,52 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     if (r.top < bottom || r.bottom > (HOST.innerHeight || 600)) panel.scrollIntoView({block:'start'});
   }
 
+  // 0.792 (B-119 rework): текущий слот варианта (обращение + плотность).
+  function currentVariantSlot(trackId, chord, cellKey, range) {
+    var st = voicingVariantStructure(chord, panelKey(), range);
+    var n0 = st.list.length || 1;
+    var idx = ((variantIndex(trackId, chord, cellKey) % n0) + n0) % n0;
+    for (var i = 0; i < st.slots.length; i++) {
+      var s = st.slots[i];
+      if (s.base === idx || s.wide === idx) return { st: st, slot: s, inv: i, wide: s.wide === idx, idx: idx };
+    }
+    return { st: st, slot: st.slots[0] || { base: 0, wide: -1 }, inv: 0, wide: false, idx: st.slots[0] ? st.slots[0].base : 0 };
+  }
+  // Стрелки ‹ › переключают обращения аккорда (с сохранением текущего блока плотности).
   function stepVariant(delta) {
     var T = tracks(); if (!T || !lastChord || noteDraft) return;
     var active = activeTrack(); if (!active || !active.track) return;
     var range = T.keyRange(active.track.id);
-    var variants = generateKeysVoicings(lastChord, panelKey(), range, null, {});
-    if (!variants.length) return;
-    if(T.exactNotes(active.track.id,lastCellKey,lastChord)) {
-      if(!HOST.confirm('Снять вручную введённые ноты этой ячейки и вернуться к обычному расположению?'))return;
-      T.clearExactNotes(active.track.id,lastCellKey);
-      renderPanel();return;
+    if (T.exactNotes(active.track.id, lastCellKey, lastChord)) {
+      if (!HOST.confirm('Снять вручную введённые ноты этой ячейки и вернуться к обычному расположению?')) return;
+      T.clearExactNotes(active.track.id, lastCellKey);
+      renderPanel(); return;
     }
-    var selection=linkedSelection(active.track.id,lastCellKey);
-    var cur = selection && selection.chord===lastChord && !selection.manual ? (delta>0 ? -1 : 0) : variantIndex(active.track.id, lastChord, lastCellKey) % variants.length;
-    setVariantIndex(active.track.id, lastChord, lastCellKey, cur + delta, variants.length);
+    var cur = currentVariantSlot(active.track.id, lastChord, lastCellKey, range);
+    var n = cur.st.slots.length; if (!n) return;
+    var selection = linkedSelection(active.track.id, lastCellKey);
+    if (selection && selection.chord === lastChord && !selection.manual) {
+      // Авто-выбор: первое нажатие стрелки — ручное основное (вперёд) / последнее (назад).
+      var t0 = delta > 0 ? cur.st.slots[0].base : cur.st.slots[n - 1].base;
+      setVariantIndex(active.track.id, lastChord, lastCellKey, t0, cur.st.list.length);
+      renderPanel(); return;
+    }
+    var inv = ((cur.inv + delta) % n + n) % n, slot = cur.st.slots[inv];
+    var target = cur.wide && slot.wide >= 0 ? slot.wide : slot.base;
+    setVariantIndex(active.track.id, lastChord, lastCellKey, target, cur.st.list.length);
     renderPanel();
-    var M = mixer(); if (M && typeof M.render === 'function') { /* панель микшера не перерисовываем */ }
+  }
+  // Тоггл «Плотно | Широко»: октавное удвоение верхней ноты правой руки.
+  function toggleDensity() {
+    var T = tracks(); if (!T || !lastChord || noteDraft) return;
+    var active = activeTrack(); if (!active || !active.track) return;
+    var range = T.keyRange(active.track.id);
+    if (T.exactNotes(active.track.id, lastCellKey, lastChord)) return;
+    var cur = currentVariantSlot(active.track.id, lastChord, lastCellKey, range);
+    var target = cur.wide ? cur.slot.base : (cur.slot.wide >= 0 ? cur.slot.wide : cur.slot.base);
+    if (target === cur.idx) return;
+    setVariantIndex(active.track.id, lastChord, lastCellKey, target, cur.st.list.length);
+    renderPanel();
   }
 
   function renderPanel() {
@@ -33252,6 +33351,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       panel.classList.remove('has-keyboard'); titleEl.textContent = 'Клавиатура'; contextEl.textContent = ''; bassEl.textContent = ''; lastChord = null; lastTrackId = null;
       body.innerHTML = '<div class="b39-keys-foot">Активная дорожка — гитара. Выберите клавишную строку в микшере.</div>';
       countEl.textContent = '—'; foot.textContent = '';
+      panel.classList.remove('has-wide');
       return;
     }
     var range = T.keyRange(active.track.id);
@@ -33280,7 +33380,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     // Диапазон дорожки виден всегда, даже без секций или в пустой ячейке.
     // Без аккорда отображаем те же клавиши, но без подсветки и баса.
     panel.classList.add('has-keyboard');
-    var variants = chord ? generateKeysVoicings(chord, panelKey(), range, null, {}) : [];
+    var variants = chord ? listVoicingVariants(chord, panelKey(), range, null, {}) : [];
     var idx = variantIndex(active.track.id, chord, lastCellKey) % Math.max(1, variants.length);
     var selected=chord ? linkedSelection(active.track.id,lastCellKey) : null;
     var exact=chord ? T.exactNotes(active.track.id,lastCellKey,chord) : null;
@@ -33319,6 +33419,21 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     else if (lastVisibleContext === visibleContext) body.scrollLeft = oldScroll;
     lastVisibleContext = visibleContext;
     countEl.textContent = noteDraft ? 'Ввод' : exact ? 'Своя' : !chord ? '—' : selected && selected.chord===chord ? (selected.limited ? 'Обычная' : selected.manual ? 'Ручная' : 'Авто') : (idx + 1) + '/' + Math.max(1, variants.length);
+    // 0.792: toggl «Плотно|Широко» и номер обращения в счётчике.
+    if (densityEl) {
+      if (chord && !noteDraft) {
+        var st2 = voicingVariantStructure(chord, panelKey(), range);
+        var hasWide = st2.slots.some(function (s) { return s.wide >= 0; });
+        panel.classList.toggle('has-wide', hasWide);
+        var cur2 = currentVariantSlot(active.track.id, chord, lastCellKey, range);
+        densityTight.setAttribute('aria-pressed', String(!cur2.wide));
+        densityWide.setAttribute('aria-pressed', String(cur2.wide));
+        if (!exact && !(selected && selected.chord === chord && selected.limited)) {
+          var mode = selected && selected.chord === chord ? (selected.manual ? 'Ручная' : 'Авто') : 'Вариант';
+          countEl.textContent = mode + ' · обращение ' + (cur2.inv + 1) + '/' + st2.slots.length + (cur2.wide ? ' · широко' : ' · плотно');
+        }
+      } else panel.classList.remove('has-wide');
+    }
     var bass = noteDraft ? (notes.length ? notes[0] : null) : ((!sec || !acc || acc.bassPolicy(active.track.id,sec).include) && notes.length ? notes[0] : null);
     var footParts = [];
     // Аппликатура теперь считается, поэтому подпись — не оговорка, а расшифровка.
@@ -33351,7 +33466,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     A.setVoicingProvider(function (chordName, key, range, prev, trackId, cell) {
       var exact=T.exactNotes(trackId,cell,chordName);if(exact)return exact;
       var linked=linkedSelection(trackId,cell);if(linked && linked.chord===chordName)return linked.notes.slice();
-      var variants = generateKeysVoicings(chordName, key, range, prev, {});
+      var variants = listVoicingVariants(chordName, key, range, prev, {});
       if (!variants.length) return null;
       var idx = variantIndex(trackId, chordName, null) % variants.length;
       return variants[idx];
@@ -33378,7 +33493,9 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     boot: boot, installRenderer: wrapFingeringRenderer,
     open: openPanel, close: closePanel, toggle: togglePanel, render: renderPanel, beginNoteInput:beginNoteInput,
     focusCell: function (key) { selectedCellKey=key; onAudioEvent({cell:key}); },
-    generateKeysVoicings: generateKeysVoicings, toneRank: toneRank, handLimit: handLimit,
+    generateKeysVoicings: generateKeysVoicings, listVoicingVariants: listVoicingVariants, voicingVariantStructure: voicingVariantStructure,
+    toggleDensity: toggleDensity,
+    toneRank: toneRank, handLimit: handLimit,
     keyboardSVG: keyboardSVG, renderKeysVoicingSVG: renderKeysVoicingSVG,
     variantIndex: variantIndex, setVariantIndex: setVariantIndex, stepVariant: stepVariant,
     linkedSelection:linkedSelection, clearLinkedCache:clearLinkedCache, inversionCandidates:inversionCandidates, motionCost:motionCost,
@@ -51369,7 +51486,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
  function selectedShape(id,cell,chord,key){
   const t=T(), exact=t.exactNotes(id,cell,chord);if(exact)return exact;
   const keys=HOST.StruChordKeys, linked=keys.linkedSelection(id,cell);if(linked && linked.chord===chord)return linked.notes.slice();
-  const variants=keys.generateKeysVoicings(chord,key,t.keyRange(id),null,{});if(!variants.length)return null;
+  const variants=(keys.listVoicingVariants||keys.generateKeysVoicings)(chord,key,t.keyRange(id),null,{});if(!variants.length)return null;
   return variants[keys.variantIndex(id,chord,cell)%variants.length].slice();
  }
  function prepare(sec,cfg,seed,replaceEdited,overrideSwing,overrideRhythmVersion){
@@ -82117,7 +82234,7 @@ toggleTimeAndBeats();
     if (track.instrument === 'keys' && K && T &&
         typeof K.generateKeysVoicings === 'function' && typeof T.keyRange === 'function') {
       try {
-        var list = K.generateKeysVoicings(chord, key, T.keyRange(track.id), null, {});
+        var list = (K.listVoicingVariants || K.generateKeysVoicings)(chord, key, T.keyRange(track.id), null, {});
         if (list && list.length) {
           var idx = 0;
           try { idx = Number(K.variantIndex(track.id, chord, null)) || 0; } catch (e) {}
