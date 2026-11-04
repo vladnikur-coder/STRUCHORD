@@ -70,8 +70,14 @@ FUNC_NEW = """  // 0.792 (B-119 rework; владелец отклонил кар
     invs.forEach(function (base, i) {
       var slot = { base: i, wide: -1 }, rh = base.slice(1);
       if (size >= 61 && rh.length && base.length < limit && base.length < 9) {
-        var extra = Math.max.apply(null, rh) + 12;
-        if (extra <= rhHigh) {
+        // «Широко» по-пианистски: поднимаем ОДНУ ноту правой руки на октаву,
+        // пробуя сверху вниз, но размах руки должен остаться <= 16 полутонов
+        // (тот же лимит, что в inversionCandidates) — иначе одной рукой не
+        // сыграть. Для C из C E G получится открытое C G E' (48..64), а не
+        // C E G G' (48..67, размах 19 — неиграбельно).
+        for (var k = rh.length - 1; k >= 0 && slot.wide < 0; k--) {
+          var extra = rh[k] + 12;
+          if (extra > rhHigh || extra - rh[0] > 16) continue;
           var dup = base.concat([extra]).sort(function (a, b) { return a - b; });
           var sig = dup.join(',');
           if (!list.some(function (v) { return v.join(',') === sig; })) { slot.wide = list.length; list.push(dup); }
@@ -183,7 +189,7 @@ L7_NEW = """    countEl.textContent = noteDraft ? 'Ввод' : exact ? 'Своя
         var cur2 = currentVariantSlot(active.track.id, chord, lastCellKey, range);
         densityTight.setAttribute('aria-pressed', String(!cur2.wide));
         densityWide.setAttribute('aria-pressed', String(cur2.wide));
-        if (!exact && !(selected && selected.chord === chord && selected.limited)) {
+        if (!exact && !(selected && selected.chord === chord && !selected.manual && !selected.limited)) {
           var mode = selected && selected.chord === chord ? (selected.manual ? 'Ручная' : 'Авто') : 'Вариант';
           countEl.textContent = mode + ' · обращение ' + (cur2.inv + 1) + '/' + st2.slots.length + (cur2.wide ? ' · широко' : ' · плотно');
         }

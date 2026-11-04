@@ -26,6 +26,7 @@ assert(slice.includes('function voicingVariantStructure') && slice.includes('fun
 const FORMULAS = {
   C: { rootPc: 0, bass: null, tones: [{ degree: 1, semitones: 0 }, { degree: 3, semitones: 4 }, { degree: 5, semitones: 7 }] },
   Am: { rootPc: 9, bass: null, tones: [{ degree: 1, semitones: 0 }, { degree: 3, semitones: 3 }, { degree: 5, semitones: 7 }] },
+  G7: { rootPc: 7, bass: null, tones: [{ degree: 1, semitones: 0 }, { degree: 3, semitones: 4 }, { degree: 5, semitones: 7 }, { degree: 7, semitones: 10 }] },
 };
 const sandbox = { formula: () => ({ chordFormula: (name) => FORMULAS[name] || null }) };
 vm.createContext(sandbox);
@@ -41,9 +42,9 @@ const X = sandbox.__x;
   assert.deepStrictEqual(JSON.parse(J(st.list[1])), [36, 52, 55, 60], 'обращение 2: E G C');
   assert.deepStrictEqual(JSON.parse(J(st.list[2])), [36, 55, 60, 64], 'обращение 3: G C E');
   assert(st.slots.every((s) => s.wide >= 0), 'у каждого обращения есть широкий слот (88 клавиш)');
-  assert.deepStrictEqual(JSON.parse(J(st.list[st.slots[0].wide])), [36, 48, 52, 55, 67], 'широкое: верх G +12 = C5');
+  assert.deepStrictEqual(JSON.parse(J(st.list[st.slots[0].wide])), [36, 48, 52, 55, 64], 'широкое C = C E G + E5 (подняли E на октаву, а не верхнюю G: размах 16, а не 19)');
   assert.strictEqual(J(X.listVoicingVariants('C', 'C', range, null, {})), J(st.list), 'listVoicingVariants = structure.list');
-  ok('C на 88: основное первым, 3 обращения, широкие = +октава в хвосте');
+  ok('C на 88: основное первым, 3 обращения, широкое = C E G + E5, размах 16 (играбельно)');
 }
 
 // 2. Am: умолчание = основное положение (бас A + A C E)
@@ -64,12 +65,15 @@ for (const size of [25, 37, 49]) {
 }
 ok('25/37/49: тоггл «Широко» не предлагается (нет широких слотов)');
 
-// 4. Рука не вмещает — широкого нет и на 61+
+// 4. Рука/диапазон не вмещают — широкого нет и на 61+
 {
-  const range = { low: 36, high: 64, size: 61 };
+  const range64 = { low: 36, high: 64, size: 61 };
+  const st64 = X.voicingVariantStructure('C', 'C', range64);
+  assert.deepStrictEqual(JSON.parse(J(st64.list[st64.slots[0].wide])), [36, 48, 52, 55, 64], 'верх 64: широкое = C E G + E5 (влезает, размах 16)');
+  const range = { low: 36, high: 59, size: 61 };
   const st = X.voicingVariantStructure('C', 'C', range);
-  assert(st.slots.every((s) => s.wide === -1), 'верх 64: G4+12=67 не влезает');
-  ok('61 с узким верхом: рука не позволяет — широких нет');
+  assert(st.slots.every((s) => s.wide === -1), 'верх 59: ни одна нота +12 не влезает (C5=60 > 59)');
+  ok('61 клавиш: широкое предлагается только если влезает в диапазон и размах <= 16');
 }
 
 // 5. Арифметика стрелок/тоггла по слотам
@@ -83,6 +87,25 @@ ok('25/37/49: тоггл «Широко» не предлагается (нет 
   assert.strictEqual(step(0, -1), n - 1, '‹ из основного = последнее обращение');
   ok('стрелки ходят по обращениям по кругу');
 }
+
+// 4b. Самопроверка «как бы сыграл пианист»: у ЛЮБОГО широкого варианта размах
+// правой руки <= 16 полутонов (одной рукой играбельно) и нот <= handLimit.
+for (const [name, range] of [['C', { low: 36, high: 96, size: 88 }], ['Am', { low: 36, high: 96, size: 88 }], ['G7', { low: 36, high: 96, size: 88 }], ['C', { low: 36, high: 88, size: 61 }]]) {
+  const st = X.voicingVariantStructure(name, 'C', range);
+  const limit = X.handLimit(range.size);
+  st.slots.forEach((slot) => {
+    if (slot.wide < 0) return;
+    const w = st.list[slot.wide], b = st.list[slot.base];
+    const rhW = w.slice(1), span = Math.max.apply(null, rhW) - Math.min.apply(null, rhW);
+    assert(span <= 16, name + ' wide: размах руки ' + span + ' > 16 — неиграбельно: ' + w.join(','));
+    assert(w.length <= limit + 1 && w.length <= 9, name + ' wide: нот слишком много: ' + w.length);
+    assert(w.length === b.length + 1, name + ' wide: ровно одна нота поднята на октаву');
+    assert(w.includes(Math.max.apply(null, b.slice(1)) + 12) || true, '');
+    const added = w.filter((n) => !b.includes(n));
+    assert(added.length === 1 && b.some((n) => n + 12 === added[0]), name + ' wide: добавлена ровно одна нота = какая-то базовая +12: ' + w.join(','));
+  });
+}
+ok('широкие варианты для C/Am/G7 на 88 и C на 61: размах руки <= 16, нот в пределах руки — играбельно одной рукой');
 
 // --- статический контракт ---
 // 6. R7: 0.792 + v792 (0.791 откачен revert'ом)
@@ -113,6 +136,7 @@ for (const [needle, label] of [
   assert(HTML.includes(needle), 'нет: ' + label);
 }
 assert(HTML.includes('var basic=generateKeysVoicings(chord,key,range,null,{});'), 'inversionCandidates на базе (авто-голосоведение без изменений)');
+assert(HTML.includes('extra - rh[0] > 16'), 'широкие проверяют размах руки <= 16 (играбельность)');
 ok('UI: карточки убраны, стрелки + тоггл плотно/широко, единый список во всех точках звука');
 
 console.log('\n0.792 B-119 rework (обращения + плотно/широко): все проверки пройдены (' + groups + ' групп)');

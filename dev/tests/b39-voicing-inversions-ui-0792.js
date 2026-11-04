@@ -27,7 +27,11 @@ const assert=require('assert'),puppeteer=require('puppeteer');
  assert.equal(wide.stored,wide.slot.wide,'индекс = широкий слот обращения 2');
  const baseNotes=after.sel.notes, wideNotes=wide.sel.notes;
  assert.equal(wideNotes.length,baseNotes.length+1,'широко = +1 нота');
- assert.equal(Math.max.apply(null,wideNotes),Math.max.apply(null,baseNotes)+12,'широко = верхняя нота +12');
+ const added=wideNotes.filter(n=>!baseNotes.includes(n));
+ assert.equal(added.length,1,'ровно одна новая нота');
+ assert(baseNotes.some(n=>n+12===added[0]),'новая нота = какая-то базовая +12 (октава)');
+ const span=Math.max.apply(null,wideNotes.slice(1))-Math.min.apply(null,wideNotes.slice(1));
+ assert(span<=16,'размах руки <= 16 — играбельно одной рукой (размах '+span+')');
  assert.match(wide.count,/широко/,'счётчик показывает «широко»');
  // Обратно «Плотно».
  await page.click('#b39KeysDensity .b39-density-btn:first-child');
