@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.792</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.793</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20226,7 +20226,7 @@ let activeSectionKey = null;
       keyboardSize: null,
       // 0.780: новая клавишная дорожка сразу получает голосоведение.
       // У старых песен поля нет — они звучат как прежде, без миграции.
-      ...(instrument === 'keys' ? {linkedVoicings:true} : {}),
+      ...(instrument === 'keys' ? {linkedVoicings:true, endAccent:false} : {}),   // 0.793: у НОВЫХ клавишных дорожек «13/9 в конце такта» выключено
       ...(instrument === 'guitar' ? {guitarShapesVersion:1,trackTuning:{id:'e-std',notes:null}} : {})
     };
   }
@@ -20419,6 +20419,7 @@ let activeSectionKey = null;
         guitarShapeHistory: sanitizeMap(raw.guitarShapeHistory, validKeys, cleanShapeHistory, false, false),
         ...(Object.keys(cleanBassRoles(raw.bassRoles, song.sections)).length ? {bassRoles:cleanBassRoles(raw.bassRoles, song.sections)} : {}),
         ...(raw.linkedVoicings===true ? {linkedVoicings:true} : {}),
+        ...(raw.endAccent===false ? {endAccent:false} : {}),   // 0.793: у старых песен поля нет — акцент остаётся как в 0.789
         ...(inst==='keys' && B39_TIMBRES.includes(raw.timbre) ? {timbre:raw.timbre} : {}),
         keyboardSize: size, ...(inst==='guitar' ? {guitarShapesVersion:raw.guitarShapesVersion===1?1:0,trackTuning:Object.prototype.hasOwnProperty.call(raw,'trackTuning')?cleanTrackTuning(raw.trackTuning):legacyTrackTuning(song)} : {})
       });
@@ -20814,6 +20815,12 @@ let activeSectionKey = null;
     if(!!t.linkedVoicings===on)return true;
     return dispatch('b39/linked-voicings',function(){if(on)t.linkedVoicings=true;else delete t.linkedVoicings;return true;});
   }
+  // 0.793: опция «Выделять 13/9 в конце такта». absent === true (старые песни, 0.789).
+  function setEndAccent(id,on) {
+    var t=findTrack(id); if(!t || t.instrument!=='keys' || typeof on!=='boolean')return false;
+    if((t.endAccent!==false)===on)return true;
+    return dispatch('b39/end-accent',function(){if(on)delete t.endAccent;else t.endAccent=false;return true;});
+  }
   function clearVoicingChoice(id,chord,cell) {
     var t=findTrack(id);if(!t || !chord)return false;
     return dispatch('b39/voicing-auto',function(){delete t.voicings['v:'+chord];if(cell)delete t.voicings[cell];return true;});
@@ -20990,7 +20997,7 @@ let activeSectionKey = null;
     exactNotes:exactNotes, setExactNotes:setExactNotes, clearExactNotes:clearExactNotes, moveMainExactNotes:moveMainExactNotes,
     patternFor: patternFor, clearPattern: clearPattern, setAutoAccomp: setAutoAccomp,
     bassRole:bassRole, setBassRole:setBassRole, cloneBassRoles:cloneBassRoles, removeBassRoles:removeBassRoles,
-    setLinkedVoicings:setLinkedVoicings, clearVoicingChoice:clearVoicingChoice,
+    setLinkedVoicings:setLinkedVoicings, setEndAccent:setEndAccent, clearVoicingChoice:clearVoicingChoice,
     voicingForChord: voicingForChord, setVoicingForChord: setVoicingForChord,
     addTrack: addTrack, removeTrack: removeTrack, reorderTracks: reorderTracks,
     resetToEmpty: resetToEmpty, resetForNewSong: resetForNewSong,
@@ -32232,7 +32239,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
         var pc=pcs[(first+k)%pcs.length], next=last+1+mod12(pc-mod12(last+1));
         rh.push(next);last=next;
       }
-      if(last>hi || last-start>16)continue;
+      if(last>hi || last-start>15)continue;   // 0.793: единый потолок размаха правой руки 15 п/т (как VL_MAX_SPAN)
       var notes=[bass].concat(rh), signature=notes.join(',');
       if(!seen[signature]){seen[signature]=true;out.push(notes);}
     }
@@ -32270,19 +32277,28 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var size = (range && range.size) || 61, limit = handLimit(size), rhHigh = Math.min(range.high, 84);
     invs.forEach(function (base, i) {
       var slot = { base: i, wide: -1 }, rh = base.slice(1);
-      if (size >= 61 && rh.length && base.length < limit && base.length < 9) {
-        // «Широко» по-пианистски: поднимаем ОДНУ ноту правой руки на октаву,
-        // пробуя сверху вниз, но размах руки должен остаться <= 16 полутонов
-        // (тот же лимит, что в inversionCandidates) — иначе одной рукой не
-        // сыграть. Для C из C E G получится открытое C G E' (48..64), а не
-        // C E G G' (48..67, размах 19 — неиграбельно).
-        for (var k = rh.length - 1; k >= 0 && slot.wide < 0; k--) {
-          var extra = rh[k] + 12;
-          if (extra > rhHigh || extra - rh[0] > 16) continue;
-          var dup = base.concat([extra]).sort(function (a, b) { return a - b; });
-          var sig = dup.join(',');
-          if (!list.some(function (v) { return v.join(',') === sig; })) { slot.wide = list.length; list.push(dup); }
+      if (size >= 61 && rh.length) {
+        // 0.793 (ревью): «Широко» = РАЗДВИЖЕНИЕ теми же нотами — одна нота
+        // правой руки переносится на октаву, исходная убирается; число голосов,
+        // состав аккорда и бас не меняются (удвоения плотности нет — «+октава»
+        // будет отдельным приёмом). Вариант предлагается, только если размах
+        // руки вырос, но остался в пределах потолка генератора 15 п/т;
+        // если удобного широкого нет — широкого нет вообще.
+        var baseSpan = rh[rh.length - 1] - rh[0], best = null, bestSpan = 1e9;
+        for (var k = 0; k < rh.length; k++) {
+          for (var d = 0; d < 2; d++) {
+            var moved = rh[k] + (d ? -12 : 12);
+            if (moved < lo || moved > rhHigh) continue;
+            var cand = rh.map(function (n, idx) { return idx === k ? moved : n; }).sort(function (a, b) { return a - b; });
+            var span = cand[cand.length - 1] - cand[0];
+            if (span <= baseSpan || span > 15) continue;
+            var notes = [base[0]].concat(cand);
+            var sig = notes.join(',');
+            if (sig === base.join(',') || list.some(function (v) { return v.join(',') === sig; })) continue;
+            if (span < bestSpan) { bestSpan = span; best = notes; }
+          }
         }
+        if (best) { slot.wide = list.length; list.push(best); }
       }
       slots.push(slot);
     });
@@ -32316,8 +32332,9 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   //   * общие тоны соседних аккордов остаются на месте (C→Am: E и C стоят);
   //   * остальные голоса идут шагом; скачок больше кварты — исключение и
   //     штраф, тритон в одном голосе — тоже;
-  //   * параллельные квинты и октавы запрещены (штраф больше, чем любая
-  //     экономия движения);
+  //   * параллельные квинты — малый штраф, параллельные октавы/унисоны — больший
+  //     (0.793, мягко, не запрет: в жанровом аккомпанементе параллели допустимы,
+  //     а приоритет — состав аккорда, удобство рук и верхняя линия);
   //   * голоса не пересекаются и не накладываются;
   //   * бас живёт в левой руке (ниже правой) и идёт ближайшей октавой;
   //   * состав аккорда не меняется (R12): те же ступени, тот же бас.
@@ -32356,19 +32373,27 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     return { cost: dp[m][n], moves: moves };
   }
 
-  /** Параллельные квинты и октавы между голосами — грубая ошибка. */
+  /** Параллельные совершенные интервалы между голосами — МЯГКИЕ штрафы, не запрет
+   *  (ревью 0.793): параллельная квинта (направленный класс 7) — малый штраф,
+   *  параллельные октава/унисон (класс 0) — больший. В поп/рок/джазе параллели
+   *  допустимы; приоритет — осмысленный состав, удобство рук, верхняя линия.
+   *  Неподвижный голос — не параллель; бас вне движений (RH-only), поэтому
+   *  «бас oktавой» и удвоение мелодии oktавой штрафом не задеваются.
+   *  ВАЖНО: свёртка min(mod12(d), 12-mod12(d)) даёт 0..6 и квинту (7) превращает
+   *  в 5 — такая ветка квинты НЕ видит. Сравниваем направленные классы mod12. */
   function parallelPerfects(moves) {
-    var n = 0;
+    var fifths = 0, octaves = 0;
     for (var i = 0; i < moves.length; i++) for (var j = i + 1; j < moves.length; j++) {
       var a = moves[i], b = moves[j];
       if (a.from === null || a.to === null || b.from === null || b.to === null) continue;
       if (a.to === a.from || b.to === b.from) continue;          // один голос стоит
       if (Math.sign(a.to - a.from) !== Math.sign(b.to - b.from)) continue;  // разные стороны
-      var before = Math.min(mod12(b.from - a.from), 12 - mod12(b.from - a.from));
-      var after = Math.min(mod12(b.to - a.to), 12 - mod12(b.to - a.to));
-      if (before === after && (before === 0 || before === 7)) n++;
+      var before = mod12(b.from - a.from), after = mod12(b.to - a.to);
+      if (before !== after) continue;
+      if (before === 7) fifths++;
+      else if (before === 0) octaves++;
     }
-    return n;
+    return { fifths: fifths, octaves: octaves };
   }
 
   /** Все позиции аккорда: закрытые обращения и широкие (drop-2/drop-3). */
@@ -32449,7 +32474,8 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var prevSet = {};
     prevHand.forEach(function (n) { prevSet[n] = 1; });
     hand.forEach(function (n) { if (prevSet[n]) cost -= 2.4; });
-    cost += parallelPerfects(match.moves) * 6;
+    var pp = parallelPerfects(match.moves);
+    cost += pp.fifths * 2 + pp.octaves * 4;   // 0.793 (ревью): мягкие раздельные штрафы, не запрет
     // Бас — отдельная линия: шаг приветствуется, скачок на кварту-квинту
     // допустим, дальше — уже прыжок.
     if (Number.isFinite(prev[0])) {
@@ -32997,19 +33023,19 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       }).catch(function(){if(request===timbreRequest){renderPanel();if(HOST.showToast)HOST.showToast('Не удалось загрузить тембр: проверьте папку sounds рядом с приложением');}});
     });
     var nav = el('div', 'b39-keys-nav');
-    var prev = el('button', '', '‹'); prev.type = 'button'; prev.setAttribute('aria-label', 'Предыдущая позиция');
+    var prev = el('button', '', '‹'); prev.type = 'button'; prev.setAttribute('aria-label', 'Предыдущее расположение');
     prev.addEventListener('click', function () { stepVariant(-1); });
     countEl = el('span', 'b39-keys-count', '1/1');
-    var next = el('button', '', '›'); next.type = 'button'; next.setAttribute('aria-label', 'Следующая позиция');
+    var next = el('button', '', '›'); next.type = 'button'; next.setAttribute('aria-label', 'Следующее расположение');
     next.addEventListener('click', function () { stepVariant(1); });
     nav.appendChild(prev); nav.appendChild(countEl); nav.appendChild(next);
     // 0.792: toggl «Плотно | Широко» рядом со стрелками обращений.
     densityEl = el('span', 'b39-keys-density'); densityEl.id = 'b39KeysDensity';
-    densityEl.setAttribute('role', 'group'); densityEl.setAttribute('aria-label', 'Плотность расположения');
+    densityEl.setAttribute('role', 'group'); densityEl.setAttribute('aria-label', 'Расположение правой руки: плотно или широко. Бас не меняется');
     densityTight = el('button', 'b39-density-btn', 'Плотно'); densityTight.type = 'button';
-    densityTight.setAttribute('aria-pressed', 'true'); densityTight.title = 'Ноты правой руки в пределах октавы';
+    densityTight.setAttribute('aria-pressed', 'true'); densityTight.title = 'Ноты правой руки плотно (в пределах потолка размаха генератора 15 полутонов — не норма руки)';
     densityWide = el('button', 'b39-density-btn', 'Широко'); densityWide.type = 'button';
-    densityWide.setAttribute('aria-pressed', 'false'); densityWide.title = 'Верхняя нота правой руки удваивается октавой выше (на клавиатурах от 61 клавиши)';
+    densityWide.setAttribute('aria-pressed', 'false'); densityWide.title = 'Раздвинуть расположение правой руки без добавления нот (на клавиатурах от 61 клавиши), если размах руки остаётся в пределах 15 полутонов; иначе широкого варианта нет';
     densityTight.addEventListener('click', function () { if (densityWide.getAttribute('aria-pressed') === 'true') toggleDensity(); });
     densityWide.addEventListener('click', function () { if (densityWide.getAttribute('aria-pressed') !== 'true') toggleDensity(); });
     densityEl.appendChild(densityTight); densityEl.appendChild(densityWide);
@@ -33028,7 +33054,8 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       var item = el('label', 'tools-label b39-keys-field'); item.appendChild(doc.createTextNode(label)); item.appendChild(control); controls.appendChild(item);
     }
     field('Размер клавиатуры', trackSizeSel); field('Тембр дорожки', timbreSel);
-    nav.setAttribute('aria-label', 'Расположение аккорда');
+    nav.setAttribute('aria-label', 'Расположение правой руки (бас не меняется)');
+    nav.title = 'Автоматически подобранное расположение. Удобство зависит от размера руки, темпа и способа исполнения; широкие интервалы могут потребовать арпеджирования или распределения между руками. Этот предел не оценивает удобство арпеджио и игры двумя руками.';
     noteBar=el('div','b39-note-input');noteBar.id='b39NoteInput';noteBar.hidden=true;
     noteInfo=el('span','b39-note-info');noteInfo.setAttribute('aria-live','polite');
     noteCandidates=el('select');noteCandidates.id='b39NoteCandidates';noteCandidates.setAttribute('aria-label','Варианты названия');
@@ -33436,7 +33463,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
         densityWide.setAttribute('aria-pressed', String(cur2.wide));
         if (!exact && !(selected && selected.chord === chord && !selected.manual && !selected.limited)) {
           var mode = selected && selected.chord === chord ? (selected.manual ? 'Ручная' : 'Авто') : 'Вариант';
-          countEl.textContent = mode + ' · обращение ' + (cur2.inv + 1) + '/' + st2.slots.length + (cur2.wide ? ' · широко' : ' · плотно');
+          countEl.textContent = 'Правая рука: ' + (cur2.inv + 1) + '/' + st2.slots.length + (cur2.wide ? ' · широко' : hasWide ? ' · плотно' : ' · плотно, широкого нет');
         }
       } else panel.classList.remove('has-wide');
     }
@@ -51733,6 +51760,10 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
     var f=select('Основной жанр','b39AutoPrimary',false),s=select('Дополнительный жанр','b39AutoSecondary',true);primary=f.sel;secondary=s.sel;box.appendChild(f.row);box.appendChild(s.row);
     var linkRow=element('label','tools-label b39-auto-select'), link=element('input');link.type='checkbox';link.id='b39AutoLinked';link.checked=track.linkedVoicings===true;
     linkRow.appendChild(link);linkRow.appendChild(element('span','','Плавные обращения для всей дорожки (ручные позиции сохраняются)'));box.appendChild(linkRow);
+    var accRow=element('label','tools-label b39-auto-select'), acc=element('input');acc.type='checkbox';acc.id='b39AutoEndAccent';acc.checked=track.endAccent!==false;
+    accRow.appendChild(acc);accRow.appendChild(element('span','','Выделять 13/9 в конце такта'));
+    accRow.title='Добавлять сверху 13-ю, иначе 9-ю ступень, если она есть в обозначении аккорда, на последней блоковой атаке такта. Может менять верхнюю линию и увеличивать размах. Выключение не удаляет 9/13 из самого аккорда — отключает только дополнительное выделение.';
+    box.appendChild(accRow);
     var cfg=auto();if(cfg){primary.value=cfg.primary;secondary.value=cfg.secondary||'';}
     var swingRow=element('label','tools-label b39-auto-select'), swing=element('input');swing.type='checkbox';swing.id='b39AutoSwing';swing.checked=!!(cfg && cfg.trackId===dialogTrack && cfg.swing===true);
     swingRow.appendChild(swing);swingRow.appendChild(element('span','','Swing'));box.appendChild(swingRow);
@@ -51755,7 +51786,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
       HOST.songStore.dispatch('b39/auto-apply',function(){
         prepared.forEach(function(x){HOST.StruChordNoteCandidate.commit(dialogTrack,x.result);});
         selected.forEach(function(sec){var prior=track.patterns['s:'+sec.id],pattern=makePattern(sec,next.primary,next.secondary,{previous:prior,variation:prior && prior.autoVariation});if(pattern){var generated=prepared.find(function(x){return x.sec===sec;});if(generated && generated.result.writes.length){pattern.noteVariation=generated.result.variation;pattern.rhythmVersion=2;}T().setPattern(dialogTrack,'s:'+sec.id,pattern);T().setBassRole(dialogTrack,sec.id,'auto');next.managed[String(sec.id)]=true;}});
-        T().setAutoAccomp(next);T().setLinkedVoicings(dialogTrack,link.checked);
+        T().setAutoAccomp(next);T().setLinkedVoicings(dialogTrack,link.checked);T().setEndAccent(dialogTrack,acc.checked);
       },{history:'atomic'});
       var anyGenerated=prepared.some(function(x){return x.result.writes.length>0;});close();if(HOST.showToast)HOST.showToast(anyGenerated?'Автоаккомпанемент обновлён':'Нет доступных ячеек для генерации; ручные рисунки сохранены');
     });

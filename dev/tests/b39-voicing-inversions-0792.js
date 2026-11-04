@@ -15,6 +15,8 @@ const HTML = fs.readFileSync(path.join(ROOT, 'STRUCHORD.html'), 'utf8');
 let groups = 0;
 const ok = (msg) => { groups++; console.log('  ok  ' + msg); };
 const J = (a) => JSON.stringify(a);
+const pcsOf = (a) => a.map((n) => ((n % 12) + 12) % 12).sort((x, y) => x - y);
+const spanOf = (a) => { const rh = a.slice(1); return rh.length ? Math.max.apply(null, rh) - Math.min.apply(null, rh) : 0; };
 
 // --- vm-прогон вырезанного блока ---
 const START = '  function mod12(n) { return ((n % 12) + 12) % 12; }\n  function firstMidiWithPc';
@@ -41,10 +43,18 @@ const X = sandbox.__x;
   assert.strictEqual(st.slots.length, 3, 'три обращения трезвучия');
   assert.deepStrictEqual(JSON.parse(J(st.list[1])), [36, 52, 55, 60], 'обращение 2: E G C');
   assert.deepStrictEqual(JSON.parse(J(st.list[2])), [36, 55, 60, 64], 'обращение 3: G C E');
-  assert(st.slots.every((s) => s.wide >= 0), 'у каждого обращения есть широкий слот (88 клавиш)');
-  assert.deepStrictEqual(JSON.parse(J(st.list[st.slots[0].wide])), [36, 48, 52, 55, 64], 'широкое C = C E G + E5 (подняли E на октаву, а не верхнюю G: размах 16, а не 19)');
+  // 0.793: широкое — только если раздвижение теми же нотами укладывается в потолок 15 п/т
+  st.slots.forEach((slot) => {
+    if (slot.wide < 0) return;
+    const b = st.list[slot.base], w = st.list[slot.wide];
+    assert.strictEqual(w.length, b.length, 'широкое: нот столько же (раздвижение, не удвоение)');
+    assert.deepStrictEqual(pcsOf(w), pcsOf(b), 'широкое: тот же состав');
+    assert.strictEqual(w[0], b[0], 'широкое: бас не меняется');
+    const bs = spanOf(b), ws = spanOf(w);
+    assert(ws > bs && ws <= 15, 'широкое: спан вырос (' + bs + '->' + ws + ') и <= 15');
+  });
   assert.strictEqual(J(X.listVoicingVariants('C', 'C', range, null, {})), J(st.list), 'listVoicingVariants = structure.list');
-  ok('C на 88: основное первым, 3 обращения, широкое = C E G + E5, размах 16 (играбельно)');
+  ok('C на 88: основное первым, 3 обращения, широкие — раздвижение теми же нотами в пределах 15');
 }
 
 // 2. Am: умолчание = основное положение (бас A + A C E)
@@ -65,15 +75,19 @@ for (const size of [25, 37, 49]) {
 }
 ok('25/37/49: тоггл «Широко» не предлагается (нет широких слотов)');
 
-// 4. Рука/диапазон не вмещают — широкого нет и на 61+
+// 4. Удобного широкого нет — широкого нет вообще (0.793: потолок спана 15)
 {
-  const range64 = { low: 36, high: 64, size: 61 };
-  const st64 = X.voicingVariantStructure('C', 'C', range64);
-  assert.deepStrictEqual(JSON.parse(J(st64.list[st64.slots[0].wide])), [36, 48, 52, 55, 64], 'верх 64: широкое = C E G + E5 (влезает, размах 16)');
-  const range = { low: 36, high: 59, size: 61 };
-  const st = X.voicingVariantStructure('C', 'C', range);
-  assert(st.slots.every((s) => s.wide === -1), 'верх 59: ни одна нота +12 не влезает (C5=60 > 59)');
-  ok('61 клавиш: широкое предлагается только если влезает в диапазон и размах <= 16');
+  for (const high of [59, 64, 72]) {
+    const st = X.voicingVariantStructure('C', 'C', { low: 36, high, size: 61 });
+    st.slots.forEach((slot) => {
+      if (slot.wide < 0) return;
+      const b = st.list[slot.base], w = st.list[slot.wide];
+      assert(w.length === b.length && spanOf(w) > spanOf(b) && spanOf(w) <= 15, 'high ' + high + ': спан ' + spanOf(w));
+    });
+  }
+  const st88 = X.voicingVariantStructure('C', 'C', { low: 36, high: 96, size: 88 });
+  assert.strictEqual(st88.slots[0].wide, -1, 'C основное на 88: C G E′ = 16 п/т > потолка 15 — широкого нет');
+  ok('широкое предлагается только при спане в пределах 15 (C-трезвучие на 88 — нет широкого)');
 }
 
 // 5. Арифметика стрелок/тоггла по слотам
@@ -97,25 +111,25 @@ for (const [name, range] of [['C', { low: 36, high: 96, size: 88 }], ['Am', { lo
     if (slot.wide < 0) return;
     const w = st.list[slot.wide], b = st.list[slot.base];
     const rhW = w.slice(1), span = Math.max.apply(null, rhW) - Math.min.apply(null, rhW);
-    assert(span <= 16, name + ' wide: размах руки ' + span + ' > 16 — неиграбельно: ' + w.join(','));
-    assert(w.length <= limit + 1 && w.length <= 9, name + ' wide: нот слишком много: ' + w.length);
-    assert(w.length === b.length + 1, name + ' wide: ровно одна нота поднята на октаву');
-    assert(w.includes(Math.max.apply(null, b.slice(1)) + 12) || true, '');
-    const added = w.filter((n) => !b.includes(n));
-    assert(added.length === 1 && b.some((n) => n + 12 === added[0]), name + ' wide: добавлена ровно одна нота = какая-то базовая +12: ' + w.join(','));
+    assert(span <= 15, name + ' wide: размах ' + span + ' > 15 (потолок генератора): ' + w.join(','));
+    assert(w.length === b.length, name + ' wide: раздвижение без добавления нот: ' + w.join(','));
+    assert.deepStrictEqual(pcsOf(w), pcsOf(b), name + ' wide: тот же состав аккорда');
+    assert.strictEqual(w[0], b[0], name + ' wide: бас не меняется');
+    const moved = w.filter((n) => !b.includes(n));
+    assert(moved.length === 1 && b.some((n) => Math.abs(n - moved[0]) === 12), name + ' wide: одна нота перенесена на октаву: ' + w.join(','));
   });
 }
-ok('широкие варианты для C/Am/G7 на 88 и C на 61: размах руки <= 16, нот в пределах руки — играбельно одной рукой');
+ok('широкие для C/Am/G7 на 88 и C на 61: раздвижение теми же нотами, спан > базового и <= 15');
 
 // --- статический контракт ---
 // 6. R7: 0.792 + v792 (0.791 откачен revert'ом)
 {
   const VER = (HTML.match(/· ver (\d+\.\d+)/) || [])[1];
-  assert(VER === '0.792', 'версия 0.792, а не ' + VER);
-  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v792'), 'CACHE_NAME v792');
-  const log = execSync('git log --oneline -6', { cwd: ROOT, encoding: 'utf8' });
+  assert(VER && /^\d+\.\d+$/.test(VER), 'версия читается: ' + VER);
+  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v' + VER.split('.')[1]), 'CACHE_NAME парой');
+  const log = execSync('git log --oneline -8', { cwd: ROOT, encoding: 'utf8' });
   assert(log.includes('Revert "0.791'), 'в истории есть revert 0.791');
-  ok('R7: 0.792 + struchord-v792; 0.791 откачен revert-коммитом');
+  ok('R7: версия ' + VER + ' + struchord-v' + VER.split('.')[1] + ' парой; 0.791 откачен revert-коммитом');
 }
 
 // 7. Карточек нет, toggl и стрелки есть
@@ -127,7 +141,7 @@ for (const [needle, label] of [
   ["'Широко'", 'кнопка Широко'],
   ['function stepVariant(delta)', 'stepVariant (стрелки) на месте'],
   ['function toggleDensity()', 'toggleDensity на месте'],
-  ['обращение \' + (cur2.inv + 1) + \'/\'', 'счётчик «обращение i/n»'],
+  ["countEl.textContent = 'Правая рука: '", 'счётчик «Правая рука: i/n · плотно/широко» (бас не меняется)'],
   ['var variants=listVoicingVariants(chord,key,cache.range,cache.prev,{}), notes=null;', 'linkedSelection: ручной индекс по списку обращений'],
   ['(keys.listVoicingVariants||keys.generateKeysVoicings)', 'selectedShape'],
   ['(K.listVoicingVariants || K.generateKeysVoicings)', 'авто-модуль'],
@@ -136,7 +150,7 @@ for (const [needle, label] of [
   assert(HTML.includes(needle), 'нет: ' + label);
 }
 assert(HTML.includes('var basic=generateKeysVoicings(chord,key,range,null,{});'), 'inversionCandidates на базе (авто-голосоведение без изменений)');
-assert(HTML.includes('extra - rh[0] > 16'), 'широкие проверяют размах руки <= 16 (играбельность)');
+assert(HTML.includes('span <= baseSpan || span > 15'), 'широкое: спан вырос и <= 15 (потолок генератора, не норма руки)');
 assert(!HTML.includes('is-linked'), 'стрелки/тоггл НЕ скрываются при голосоведении — доступны всегда');
 assert(HTML.includes('Авто-выбор: первое нажатие стрелки'), 'при включённом голосоведении первая стрелка берёт ручную форму (как раньше)');
 assert(!HTML.includes('if (active.track.linkedVoicings) return;'), 'нет guardа, запрещающего стрелки при голосоведении');

@@ -28,8 +28,8 @@ assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v' 
   'CACHE_NAME парой с версией');
 assert(ACCOMP.includes('function applyExtensionAccent('), 'helper applyExtensionAccent на месте');
 assert(ACCOMP.includes('0.789 (B-117)'), 'комментарий 0.789 на месте');
-assert(ACCOMP.includes("if (cfg.source !== 'cell' && !(o.pattern && o.pattern.status === 'manual')) out = applyExtensionAccent(out, C, beats, sub);"),
-  'вызов в plan() гейтится ручным рисунком');
+assert(ACCOMP.includes("if (endAccentEnabled(o) && cfg.source !== 'cell' && !(o.pattern && o.pattern.status === 'manual')) out = applyExtensionAccent(out, C, beats, sub);"),
+  'вызов в plan() гейтится ручным рисунком и опцией endAccent (0.793)');
 ok('R7 ' + VER + ' + struchord-v' + VER.split('.')[1] + '; контракт 0.789 в keyboard-accompaniment.js');
 
 // ---------------------------------------------------------------------------
@@ -77,8 +77,10 @@ function planWith(A, patterns, chord, notes, o) {
   }, o || {}));
 }
 
-const C13_NOTES = [36, 55, 60, 64, 67, 70, 74];   // бас C2 + RH incl. 9-я (D5=74)
-const C13_EXT = 81;                               // A5 = 13-я (pc 9) поверх блока
+// 0.793: добавленная надстройка проходит проверку размаха руки (<=15 п/т),
+// поэтому берём компактный воцинг: RH спан 12, 13-я (69) сверху даёт спан 14.
+const C13_NOTES = [36, 55, 58, 64, 67];   // бас C2 + RH (G Bb E G)
+const C13_EXT = 69;                         // A4 = 13-я (pc 9) поверх блока
 
 // --- 2a. блоковый пресет, 4/4: акцент только на последнем аккорде такта ---
 {
