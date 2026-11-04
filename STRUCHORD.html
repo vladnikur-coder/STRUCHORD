@@ -32056,6 +32056,9 @@ html.b39-keys-mode .tl-fing-controls { display: none !important; }
 .b39-density-btn:first-child { border-radius: .5rem 0 0 .5rem; }
 .b39-density-btn:last-child { border-radius: 0 .5rem .5rem 0; border-left: none; }
 .b39-density-btn[aria-pressed="true"] { background: var(--color-accent, #2c3e66); border-color: var(--color-accent, #2c3e66); color: #fff; }
+/* 0.792: при включённом голосоведении авто-выбор единственный — стрелки и
+   тоггл плотности скрыты, чтобы не конфликтовать с авто (счётчик виден). */
+.b39-keys-panel.is-linked .b39-keys-nav button, .b39-keys-panel.is-linked .b39-keys-density { display: none; }
 .b39-keys-body { min-width: 0; max-width: 100%; overflow-x: auto; overflow-y: hidden; overscroll-behavior-x: contain; }
 .b39-keys-body svg.b39-keys-svg { display: block; height: auto; max-width: none; margin-inline: auto; }
 .b39-keys-body svg rect[data-midi] { cursor:pointer; outline:none; }
@@ -33315,6 +33318,9 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   function stepVariant(delta) {
     var T = tracks(); if (!T || !lastChord || noteDraft) return;
     var active = activeTrack(); if (!active || !active.track) return;
+    // 0.792: стрелки по обращениям — только при ВЫКЛЮЧЕННОМ голосоведении,
+    // иначе конфликт с авто-выбором (там ручной сброс — кнопкой «Сбросить»).
+    if (active.track.linkedVoicings) return;
     var range = T.keyRange(active.track.id);
     if (T.exactNotes(active.track.id, lastCellKey, lastChord)) {
       if (!HOST.confirm('Снять вручную введённые ноты этой ячейки и вернуться к обычному расположению?')) return;
@@ -33323,13 +33329,6 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     }
     var cur = currentVariantSlot(active.track.id, lastChord, lastCellKey, range);
     var n = cur.st.slots.length; if (!n) return;
-    var selection = linkedSelection(active.track.id, lastCellKey);
-    if (selection && selection.chord === lastChord && !selection.manual) {
-      // Авто-выбор: первое нажатие стрелки — ручное основное (вперёд) / последнее (назад).
-      var t0 = delta > 0 ? cur.st.slots[0].base : cur.st.slots[n - 1].base;
-      setVariantIndex(active.track.id, lastChord, lastCellKey, t0, cur.st.list.length);
-      renderPanel(); return;
-    }
     var inv = ((cur.inv + delta) % n + n) % n, slot = cur.st.slots[inv];
     var target = cur.wide && slot.wide >= 0 ? slot.wide : slot.base;
     setVariantIndex(active.track.id, lastChord, lastCellKey, target, cur.st.list.length);
@@ -33339,6 +33338,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   function toggleDensity() {
     var T = tracks(); if (!T || !lastChord || noteDraft) return;
     var active = activeTrack(); if (!active || !active.track) return;
+    if (active.track.linkedVoicings) return; // toggl — только при выключенном голосоведении
     var range = T.keyRange(active.track.id);
     if (T.exactNotes(active.track.id, lastCellKey, lastChord)) return;
     var cur = currentVariantSlot(active.track.id, lastChord, lastCellKey, range);
@@ -33364,6 +33364,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     if(timbreSel)timbreSel.value=active.track.timbre||'acoustic';
     panel.classList.toggle('is-compact-range', range.size === 25);
     if(linkedToggle)linkedToggle.checked=!!active.track.linkedVoicings;
+    panel.classList.toggle('is-linked', !!active.track.linkedVoicings);
     if(autoChoiceBtn)autoChoiceBtn.hidden=!active.track.linkedVoicings;
     var trackSizeSelect = doc.getElementById('b39KeysTrackSize');
     // Старые файлы могут не содержать размер дорожки: показываем фактический диапазон, ничего не записывая.

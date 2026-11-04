@@ -137,6 +137,10 @@ for (const [needle, label] of [
 }
 assert(HTML.includes('var basic=generateKeysVoicings(chord,key,range,null,{});'), 'inversionCandidates на базе (авто-голосоведение без изменений)');
 assert(HTML.includes('extra - rh[0] > 16'), 'широкие проверяют размах руки <= 16 (играбельность)');
+assert(HTML.includes('.b39-keys-panel.is-linked .b39-keys-nav button, .b39-keys-panel.is-linked .b39-keys-density { display: none; }'), 'при включённом голосоведении стрелки/тоггл скрыты');
+assert(HTML.includes("panel.classList.toggle('is-linked', !!active.track.linkedVoicings);"), 'renderPanel ставит is-linked');
+assert((HTML.match(/if \(active\.track\.linkedVoicings\) return;/g) || []).length === 2, 'guards в stepVariant и toggleDensity (стрелки/тоггл только при выключенном голосоведении)');
+assert(!HTML.includes('Авто-выбор: первое нажатие стрелки'), 'авто→ручной переход по стрелке убран (конфликт с голосоведением)');
 ok('UI: карточки убраны, стрелки + тоггл плотно/широко, единый список во всех точках звука');
 
 console.log('\n0.792 B-119 rework (обращения + плотно/широко): все проверки пройдены (' + groups + ' групп)');

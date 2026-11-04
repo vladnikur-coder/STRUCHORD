@@ -17,7 +17,9 @@
 по rootPc) + широкие в хвосте; `slots[i]={base,wide}`. Единый список
 `listVoicingVariants` используют стрелки/tоггл, linkedSelection (ручной
 индекс), fallback 2048, voicingProvider, selectedShape, авто-модуль.
-Старые ручные индексы переинтерпретируются (осознанно). Тоггл
+Старые ручные индексы переинтерпретируются (осознанно). ВАЖНО: стрелки/тоггл
+плотности — ТОЛЬКО при выключенном голосоведении (при включённом скрыты
+is-linked, stepVariant/toggleDensity — no-op), иначе конфликт с авто. Тоггл
 `#b39KeysDensity` виден только с has-wide. Тесты: node
 `b39-voicing-inversions-0792.js` (vm + stub C/Am, 7 групп), браузерный
 `b39-voicing-inversions-ui-0792.js` (у владельца). Спек:
