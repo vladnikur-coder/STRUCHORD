@@ -158,14 +158,13 @@ function planWith(A, notes, extra) {
 // ---------- статический контракт ----------
 {
   const VER = (HTML.match(/· ver (\d+\.\d+)/) || [])[1];
-  assert(VER === '0.794', 'версия 0.794, а не ' + VER);
-  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v794'), 'v794');
-  ok('R7: 0.794 + struchord-v794');
+  assert(VER && VER.length > 0, 'версия читается: ' + VER);
+  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v' + VER.split('.')[1]), 'CACHE_NAME парой с версией (динамический контракт)');
+  ok('R7: версия ' + VER + ' + struchord-v' + VER.split('.')[1] + ' парой');
 }
 for (const [needle, label] of [
   // п.1
   ['акцент 13/9 к ней не применяется', 'accomp: комментарий — акцент не применяется к нотной партии'],
-  ['В нотной автопартии (отдельные ноты) не применяется', 'title чекбокса: оговорка про нотную партию'],
   // п.2
   ['var rh = (C && Array.isArray(C.rh) && C.rh.length) ? C.rh : st.notes.slice(1);', 'accomp: спан по C.rh (все ноты руки)'],
   // п.4
@@ -181,10 +180,13 @@ for (const [needle, label] of [
   ["t.voicings[key] = n; t.voicingsVersion = 2;", 'setVoicing пишет v2'],
   ["t.voicings['v:' + chord] = n;\n      t.voicingsVersion = 2;", 'setVoicingForChord пишет v2'],
   ['raw.voicingsVersion===2 ? {voicingsVersion:2} : {}', 'sanitize: v2 сохраняется, absent = v1'],
-  ['{linkedVoicings:true, endAccent:false, voicingsVersion:2}', 'новая дорожка: voicingsVersion:2'],
+  ['{linkedVoicings:true, endAccent:false, voicingsVersion:2, saturation:50}', 'новая дорожка: voicingsVersion:2, насыщенность 50 (0.795)'],
 ]) {
   assert(HTML.includes(needle) || ACCOMP.includes(needle), 'нет: ' + label + ' :: ' + needle.slice(0, 60));
 }
 ok('п.4: voicingsVersion во всех звуковых путях + запись v2 при ручном выборе; п.1/2 — на месте');
+// 0.795 (№22): чекбокс 13/9 (accRow) убран из UI; оговорка про нотную партию остаётся в комментарии кода выше.
+assert(!HTML.includes('accRow.title='), 'чекбокс 13/9 с title убран из UI (0.795)');
+assert(!HTML.includes("acc.id='b39AutoEndAccent'"), 'id #b39AutoEndAccent убран (0.795)');
 
 console.log('\n0.794 (ревью №2, доведение): все проверки пройдены (' + groups + ' групп)');

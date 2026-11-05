@@ -43,10 +43,13 @@ assert(HTML.includes('0.790 (B-118)'), 'комментарий 0.790 на мес
 ok('UI: «Голосоведение по всей песне»');
 
 // 4. Защита ручного и старых песен не тронута
-assert(HTML.includes('if(!t || !t.linkedVoicings || !cell)return null;'),
-  'без галочки linkedVoicings выбор прежний (старые песни)');
+// 0.796 (№23): по умолчанию голосоведение вкл (absent = вкл), выкл — только явным false.
+assert(HTML.includes('if(!t || t.linkedVoicings===false || !cell)return null;'),
+  'linkedSelection: absent = вкл, явное false = выкл (0.796)');
 assert(HTML.includes('if(exact){cache.prev=exact.slice();'), 'exactNotes ручной расчёт имеет приоритет и задаёт prev');
-assert(HTML.includes("var manual=t.voicings['v:'+chord];"), 'ручной индекс варианта на месте');
+// 0.795 (№21, якорь-ячейка): per-cell вариант приоритетнее v:<аккорд>
+assert(HTML.includes("var manual=t.voicings[e.cell];"), 'per-cell ручной индекс — первый приоритет (0.795)');
+assert(HTML.includes("if(!Number.isInteger(manual))manual=t.voicings['v:'+chord];"), 'v:<аккорд> — запасной приоритет (0.795)');
 ok('ручной выбор (exactNotes/индекс) и старые песни без галочки — без изменений');
 
 // 5. Тест 0.720 обновлён под новую подпись

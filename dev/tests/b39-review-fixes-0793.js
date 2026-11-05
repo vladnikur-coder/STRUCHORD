@@ -160,13 +160,13 @@ function planWith(A, notes) {
 // ---------- статический контракт ----------
 {
   const VER = (HTML.match(/· ver (\d+\.\d+)/) || [])[1];
-  assert(VER === '0.794', 'версия 0.794, а не ' + VER);
-  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v794'), 'v794');
-  ok('R7: 0.794 + struchord-v794');
+  assert(VER && VER.length > 0, 'версия читается: ' + VER);
+  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v' + VER.split('.')[1]), 'CACHE_NAME парой с версией (динамический контракт)');
+  ok('R7: версия ' + VER + ' + struchord-v' + VER.split('.')[1] + ' парой');
 }
 for (const [needle, label] of [
-  ["countEl.textContent = 'Правая рука: '", 'счётчик «Правая рука: i/n»'],
-  ["' · плотно, широкого нет'", 'явно «широкого нет», когда широкого нет'],
+  // 0.795 (№22): счётчик «Правая рука: i/n · плотно/широко» убран вместе с тогглом.
+  // 0.795 (№22): текст счётчика «плотно, широкого нет» убран вместе с тогглом.
   ["prev.setAttribute('aria-label', 'Предыдущее расположение')", 'стрелка ‹ «Предыдущее расположение»'],
   ["next.setAttribute('aria-label', 'Следующее расположение')", 'стрелка › «Следующее расположение»'],
   ["nav.setAttribute('aria-label', 'Расположение правой руки (бас не меняется)')", 'nav aria: бас не меняется'],
@@ -175,9 +175,8 @@ for (const [needle, label] of [
   ['span > 15) continue;', 'широкое: спан <= 15'],
   ['span <= baseSpan || span > 15', 'широкое: спан вырос относительно базового'],
   ['function setEndAccent(id,on)', 'setEndAccent'],
-  ["{linkedVoicings:true, endAccent:false, voicingsVersion:2}", 'новая дорожка: endAccent выкл, voicingsVersion:2 (0.794)'],
+  ["{linkedVoicings:true, endAccent:false, voicingsVersion:2, saturation:50}", 'новая дорожка: endAccent выкл, voicingsVersion:2 (0.794), насыщенность 50 (0.795)'],
   ["raw.endAccent===false ? {endAccent:false} : {}", 'старые песни: поля нет = акцент как в 0.789'],
-  ["acc.id='b39AutoEndAccent'", 'чекбокс «Выделять 13/9 в конце такта»'],
   ['function endAccentEnabled(o)', 'endAccentEnabled в plan-модуле'],
   ['Math.max(Math.max.apply(null, rh), ext) - Math.min.apply(null, rh) <= 15', 'проверка размаха для добавленной ноты'],
   ['if (endAccentEnabled(o)) applyExtensionAccent(single', 'гейт акцента в default-ветке'],
@@ -185,6 +184,9 @@ for (const [needle, label] of [
   assert(HTML.includes(needle) || ACCOMP.includes(needle), 'нет: ' + label);
 }
 assert(!HTML.includes('обращение \' + (cur2.inv'), 'старой подписи «обращение i/n» нет');
-ok('UI/модель: подписи «Правая рука», toggl-тексты, endAccent plumbing, лимит 15 — на месте');
+// 0.795 (№22): чекбокс «13/9 в конце такта» убран из UI — акцент идёт от ползунка насыщенности.
+assert(!HTML.includes("acc.id='b39AutoEndAccent'"), 'чекбокс «Выделять 13/9 в конце такта» убран (0.795)');
+assert(ACCOMP.includes('t.saturation >= 80'), 'акцент 13/9 теперь от насыщенности >= 80 (0.795)');
+ok('UI/модель: toggl/счётчик убраны (0.795), endAccent plumbing, лимит 15 — на месте');
 
 console.log('\n0.793 (ревью преподавателя, актуально на 0.794): все проверки пройдены (' + groups + ' групп)');
