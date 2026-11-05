@@ -21,11 +21,11 @@ ok('UI: ползунок в шапке панели рядом со стрелк
 // live_save: input → setSaturation + renderPanel (тот же track.saturation, что у авто).
 assert(HTML.includes("if (T && a && a.track && a.track.instrument === 'keys') { T.setSaturation(a.track.id, Number(satInput.value)); renderPanel(); }"),
   'input: setSaturation(track.id) + renderPanel — сразу и в дорожку (0.798)');
-assert(HTML.includes('satVal.textContent = satInput.value;'), 'подпись значения обновляется на лету (0.798)');
+assert(!HTML.includes('satVal.textContent = satInput.value;'), 'числовой readout рядом с ползунком отсутствует');
 ok('поведение: live + запись в track.saturation (общее с диалогом авто)');
 
 // shared: renderPanel синхронизирует позицию ползунка (не трогая активный ползунок).
-assert(HTML.includes('if (satInput && active && active.track) { var sv = Number.isInteger(active.track.saturation) ? active.track.saturation : 50; if (Number(satInput.value) !== sv && doc.activeElement !== satInput) { satInput.value = String(sv); satVal.textContent = String(sv); } }'),
+assert(HTML.includes('if (satInput && active && active.track) { var sv = Number.isInteger(active.track.saturation) ? active.track.saturation : 50; if (Number(satInput.value) !== sv && doc.activeElement !== satInput) { satInput.value = String(sv); } }'),
   'renderPanel: синхронизация с track.saturation, absent = 50 (0.798)');
 assert(HTML.includes('if (HOST.StruChordKeys && typeof HOST.StruChordKeys.render === \'function\') HOST.StruChordKeys.render();'),
   'диалог авто после «Применить» обновляет панель (0.798)');
