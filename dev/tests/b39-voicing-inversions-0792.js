@@ -135,13 +135,7 @@ ok('широкие для C/Am/G7 на 88 и C на 61: раздвижение �
 // 7. Карточек нет, toggl и стрелки есть
 assert(!HTML.includes('b39KeysVariants'), 'карточек #b39KeysVariants больше нет');
 for (const [needle, label] of [
-  ["densityEl = el('span', 'b39-keys-density'); densityEl.id = 'b39KeysDensity';", 'DOM тоггла #b39KeysDensity'],
-  [".b39-keys-panel.has-wide .b39-keys-density { display: inline-flex; }", 'CSS: тоггл виден только когда есть широкие'],
-  ["'Плотно'", 'кнопка Плотно'],
-  ["'Широко'", 'кнопка Широко'],
   ['function stepVariant(delta)', 'stepVariant (стрелки) на месте'],
-  ['function toggleDensity()', 'toggleDensity на месте'],
-  ["countEl.textContent = 'Правая рука: '", 'счётчик «Правая рука: i/n · плотно/широко» (бас не меняется)'],
   ['var variants=trackVariantList(trackId,chord,key,cache.range,cache.prev), notes=null;', 'linkedSelection: ручной индекс по списку дорожки (voicingsVersion, 0.794)'],
   ['(keys.listVoicingVariants||keys.generateKeysVoicings)', 'selectedShape'],
   ['(K.listVoicingVariants || K.generateKeysVoicings)', 'авто-модуль'],
@@ -149,11 +143,22 @@ for (const [needle, label] of [
 ]) {
   assert(HTML.includes(needle), 'нет: ' + label);
 }
+// 0.795 (№22): toggl «Плотно|Широко» убран из UI — насыщенность управляется ползунком.
+for (const [needle, label] of [
+  ["densityEl = el('span', 'b39-keys-density')", 'DOM тоггла #b39KeysDensity'],
+  ['.b39-keys-panel.has-wide', 'CSS has-wide'],
+  ["'Плотно'", 'кнопка «Плотно»'],
+  ["'Широко'", 'кнопка «Широко»'],
+  ['function toggleDensity()', 'toggleDensity'],
+  ["countEl.textContent = 'Правая рука: '", 'счётчик «плотно/широко»'],
+]) {
+  assert(!HTML.includes(needle), 'остался (должен быть убран в 0.795): ' + label);
+}
 assert(HTML.includes('var basic=generateKeysVoicings(chord,key,range,null,{});'), 'inversionCandidates на базе (авто-голосоведение без изменений)');
 assert(HTML.includes('span <= baseSpan || span > 15'), 'широкое: спан вырос и <= 15 (потолок генератора, не норма руки)');
 assert(!HTML.includes('is-linked'), 'стрелки/тоггл НЕ скрываются при голосоведении — доступны всегда');
 assert(HTML.includes('Авто-выбор: первое нажатие стрелки'), 'при включённом голосоведении первая стрелка берёт ручную форму (как раньше)');
 assert(!HTML.includes('if (active.track.linkedVoicings) return;'), 'нет guardа, запрещающего стрелки при голосоведении');
-ok('UI: карточки убраны, стрелки + тоггл плотно/широко, единый список во всех точках звука');
+ok('UI: карточки и тоггл плотно/широко убраны (0.795), стрелки на месте, единый список во всех точках звука');
 
 console.log('\n0.792 B-119 rework (обращения + плотно/широко): все проверки пройдены (' + groups + ' групп)');
