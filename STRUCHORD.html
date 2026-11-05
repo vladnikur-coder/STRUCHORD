@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.795</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.796</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20418,7 +20418,7 @@ let activeSectionKey = null;
         guitarShapes: sanitizeMap(raw.guitarShapes, validKeys, cleanGuitarShape, false, false),
         guitarShapeHistory: sanitizeMap(raw.guitarShapeHistory, validKeys, cleanShapeHistory, false, false),
         ...(Object.keys(cleanBassRoles(raw.bassRoles, song.sections)).length ? {bassRoles:cleanBassRoles(raw.bassRoles, song.sections)} : {}),
-        ...(raw.linkedVoicings===true ? {linkedVoicings:true} : {}),
+        ...(typeof raw.linkedVoicings==='boolean' ? {linkedVoicings:raw.linkedVoicings} : {}),   // 0.796 (№23): явное false не теряется
         ...(raw.endAccent===false ? {endAccent:false} : {}),   // 0.793: у старых песен поля нет — акцент остаётся как в 0.789
         ...(raw.voicingsVersion===2 ? {voicingsVersion:2} : {}),   // 0.794: у старых песен поля нет — ручные индексы резолвятся по прежнему списку (v1)
         ...(inst==='keys' && B39_TIMBRES.includes(raw.timbre) ? {timbre:raw.timbre} : {}),
@@ -20813,8 +20813,8 @@ let activeSectionKey = null;
   }
   function setLinkedVoicings(id,on) {
     var t=findTrack(id); if(!t || t.instrument!=='keys' || typeof on!=='boolean')return false;
-    if(!!t.linkedVoicings===on)return true;
-    return dispatch('b39/linked-voicings',function(){if(on)t.linkedVoicings=true;else delete t.linkedVoicings;return true;});
+    if((t.linkedVoicings!==false)===on)return true;   // 0.796 (№23): absent = вкл
+    return dispatch('b39/linked-voicings',function(){t.linkedVoicings=on;return true;});   // false сохраняется явно
   }
   // 0.793: опция «Выделять 13/9 в конце такта». absent === true (старые песни, 0.789).
   function setEndAccent(id,on) {
@@ -32683,7 +32683,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   }
   function linkedSelection(trackId,cell) {
     var T=tracks(), t=T && T.track(trackId);
-    if(!t || !t.linkedVoicings || !cell)return null;
+    if(!t || t.linkedVoicings===false || !cell)return null;   // 0.796 (№23): по умолчанию вкл
     var secId=String(cell).split(':')[0], sec;
     try { sec=sections.find(function(s){return String(s.id)===secId;}); } catch(e) {return null;}
     if(!sec)return null;
@@ -33385,7 +33385,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var range = T.keyRange(active.track.id);
     if(timbreSel)timbreSel.value=active.track.timbre||'acoustic';
     panel.classList.toggle('is-compact-range', range.size === 25);
-    if(linkedToggle)linkedToggle.checked=!!active.track.linkedVoicings;
+    if(linkedToggle)linkedToggle.checked=active.track.linkedVoicings!==false;   // 0.796 (№23)
     var trackSizeSelect = doc.getElementById('b39KeysTrackSize');
     // Старые файлы могут не содержать размер дорожки: показываем фактический диапазон, ничего не записывая.
     if (trackSizeSelect) trackSizeSelect.value = String(range.size);
@@ -82244,7 +82244,7 @@ toggleTimeAndBeats();
     if(track.instrument==='keys' && T && cell && typeof T.exactNotes==='function') {
       var exact=T.exactNotes(track.id,cell,chord); if(exact)return exact;
     }
-    if(track.instrument==='keys' && K && track.linkedVoicings && cell) {
+    if(track.instrument==='keys' && K && track.linkedVoicings!==false && cell) {   // 0.796 (№23)
       var linked=K.linkedSelection(track.id,cell);if(linked && linked.chord===chord)return linked.notes.slice();
     }
     if (track.instrument === 'keys' && K && T &&

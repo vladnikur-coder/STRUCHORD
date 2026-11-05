@@ -37,7 +37,7 @@ const assert=require('assert'),puppeteer=require('puppeteer');
  // 0.795 (№22): в диалоге авто галочки «плавных обращений» нет — голосоведением управляет чекбокс #b39LinkedVoicings в панели.
  await page.click('#b39AutoOpen');assert.equal(await page.$('#b39AutoLinked'),null,'в диалоге авто #b39AutoLinked убран (0.795)');await page.click('#b39AutoCancel');
  assert.equal((await page.evaluate(()=>StruChordTracks.track(1))).linkedVoicings,true);
- await page.click('#b39LinkedVoicings');assert.equal((await page.evaluate(()=>StruChordTracks.track(1))).linkedVoicings,undefined,'галочка голосоведения выключает linkedVoicings');
+ await page.click('#b39LinkedVoicings');assert.equal((await page.evaluate(()=>StruChordTracks.track(1))).linkedVoicings,false,'галочка голосоведения выключает linkedVoicings явным false (0.796)');
  await page.click('#b39LinkedVoicings');assert.equal((await page.evaluate(()=>StruChordTracks.track(1))).linkedVoicings,true,'галочка голосоведения включает linkedVoicings');
  // За пределом 2048 событий используется одинаковый ограниченный выбор.
  const bounded=await page.evaluate(()=>{songStore.dispatch('test/long-section',()=>{let e=sections[0].squares[0].events;while(e.length<2050)e.push({chord:'C',span:1});});const s=sections[0],sq=s.squares[0],cell=StruChordTracks.cellKey(s,sq,2049);let a=StruChordKeys.linkedSelection(1,cell),b=StruChordKeys.linkedSelection(1,cell);return {a,b};});assert.equal(bounded.a.limited,true);assert.deepStrictEqual(bounded.a.notes,bounded.b.notes);

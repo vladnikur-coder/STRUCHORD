@@ -158,9 +158,9 @@ function planWith(A, notes, extra) {
 // ---------- статический контракт ----------
 {
   const VER = (HTML.match(/· ver (\d+\.\d+)/) || [])[1];
-  assert(VER === '0.794', 'версия 0.794, а не ' + VER);
-  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v794'), 'v794');
-  ok('R7: 0.794 + struchord-v794');
+  assert(VER && VER.length > 0, 'версия читается: ' + VER);
+  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v' + VER.split('.')[1]), 'CACHE_NAME парой с версией (динамический контракт)');
+  ok('R7: версия ' + VER + ' + struchord-v' + VER.split('.')[1] + ' парой');
 }
 for (const [needle, label] of [
   // п.1
