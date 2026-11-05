@@ -181,7 +181,7 @@ for (const [needle, label] of [
   ["t.voicings[key] = n; t.voicingsVersion = 2;", 'setVoicing пишет v2'],
   ["t.voicings['v:' + chord] = n;\n      t.voicingsVersion = 2;", 'setVoicingForChord пишет v2'],
   ['raw.voicingsVersion===2 ? {voicingsVersion:2} : {}', 'sanitize: v2 сохраняется, absent = v1'],
-  ['{linkedVoicings:true, endAccent:false, voicingsVersion:2}', 'новая дорожка: voicingsVersion:2'],
+  ['{linkedVoicings:true, endAccent:false, voicingsVersion:2, saturation:50}', 'новая дорожка: voicingsVersion:2, насыщенность 50 (0.795)'],
 ]) {
   assert(HTML.includes(needle) || ACCOMP.includes(needle), 'нет: ' + label + ' :: ' + needle.slice(0, 60));
 }

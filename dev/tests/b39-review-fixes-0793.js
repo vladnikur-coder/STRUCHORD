@@ -175,7 +175,7 @@ for (const [needle, label] of [
   ['span > 15) continue;', 'широкое: спан <= 15'],
   ['span <= baseSpan || span > 15', 'широкое: спан вырос относительно базового'],
   ['function setEndAccent(id,on)', 'setEndAccent'],
-  ["{linkedVoicings:true, endAccent:false, voicingsVersion:2}", 'новая дорожка: endAccent выкл, voicingsVersion:2 (0.794)'],
+  ["{linkedVoicings:true, endAccent:false, voicingsVersion:2, saturation:50}", 'новая дорожка: endAccent выкл, voicingsVersion:2 (0.794), насыщенность 50 (0.795)'],
   ["raw.endAccent===false ? {endAccent:false} : {}", 'старые песни: поля нет = акцент как в 0.789'],
   ["acc.id='b39AutoEndAccent'", 'чекбокс «Выделять 13/9 в конце такта»'],
   ['function endAccentEnabled(o)', 'endAccentEnabled в plan-модуле'],

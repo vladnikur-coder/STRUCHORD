@@ -834,6 +834,7 @@
     // включён): сохранённые партии не меняют звучание. У новых дорожек false.
     function endAccentEnabled(o) {
       var T = HOST.StruChordTracks, t = T && typeof T.track === 'function' && o && o.trackId ? T.track(o.trackId) : null;
+      if (t && Number.isInteger(t.saturation)) return t.saturation >= 80;   // 0.795 (№22): акцент 13/9 от ползунка насыщенности
       return !t || t.endAccent !== false;
     }
     function plan(o) {
