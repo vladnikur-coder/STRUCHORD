@@ -816,7 +816,10 @@
             // 0.793 (ревью): добавленная надстройка проходит проверку размаха
             // правой руки (<= 15 п/т, потолок генератора); не проходит —
             // украшение пропускается, аккорд не меняется.
-            var rh = st.notes.slice(1);
+            // 0.794 (ревью №2, п.2): размах считаем по ВСЕМ нотам правой руки
+            // из tokenContext (бас отделён по bassPolicy, в т.ч. nobrass/RH-only),
+            // а не по «всем, кроме первой ноты события».
+            var rh = (C && Array.isArray(C.rh) && C.rh.length) ? C.rh : st.notes.slice(1);
             if (!rh.length || Math.max(Math.max.apply(null, rh), ext) - Math.min.apply(null, rh) <= 15)
               st.notes = st.notes.concat([ext]).sort(asc);
           }
@@ -835,7 +838,11 @@
     }
     function plan(o) {
       o = o || {};
-      var individual=HOST.StruChordNoteCandidate && HOST.StruChordNoteCandidate.plan(o);if(individual)return articulate(individual,o);
+      var individual=HOST.StruChordNoteCandidate && HOST.StruChordNoteCandidate.plan(o);
+      // 0.794 (ревью №2, п.1): нотная автопартия — события отдельных нот без
+      // блоковых атак (токенов H/R), поэтому акцент 13/9 к ней не применяется
+      // по смыслу (title чекбокса это оговаривает); шаги возвращаем как есть.
+      if(individual)return articulate(individual,o);
       var cfg = o.pattern ? normalize(o.pattern) : null;
       if (cfg) cfg.source = o.patternSource === 'cell' ? 'cell' : 'section';
       else cfg = resolve(o.trackId, o.cell, o.sec);

@@ -160,9 +160,9 @@ function planWith(A, notes) {
 // ---------- статический контракт ----------
 {
   const VER = (HTML.match(/· ver (\d+\.\d+)/) || [])[1];
-  assert(VER === '0.793', 'версия 0.793, а не ' + VER);
-  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v793'), 'v793');
-  ok('R7: 0.793 + struchord-v793');
+  assert(VER === '0.794', 'версия 0.794, а не ' + VER);
+  assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v794'), 'v794');
+  ok('R7: 0.794 + struchord-v794');
 }
 for (const [needle, label] of [
   ["countEl.textContent = 'Правая рука: '", 'счётчик «Правая рука: i/n»'],
@@ -175,7 +175,7 @@ for (const [needle, label] of [
   ['span > 15) continue;', 'широкое: спан <= 15'],
   ['span <= baseSpan || span > 15', 'широкое: спан вырос относительно базового'],
   ['function setEndAccent(id,on)', 'setEndAccent'],
-  ["{linkedVoicings:true, endAccent:false}", 'новая дорожка: endAccent выкл'],
+  ["{linkedVoicings:true, endAccent:false, voicingsVersion:2}", 'новая дорожка: endAccent выкл, voicingsVersion:2 (0.794)'],
   ["raw.endAccent===false ? {endAccent:false} : {}", 'старые песни: поля нет = акцент как в 0.789'],
   ["acc.id='b39AutoEndAccent'", 'чекбокс «Выделять 13/9 в конце такта»'],
   ['function endAccentEnabled(o)', 'endAccentEnabled в plan-модуле'],
@@ -187,4 +187,4 @@ for (const [needle, label] of [
 assert(!HTML.includes('обращение \' + (cur2.inv'), 'старой подписи «обращение i/n» нет');
 ok('UI/модель: подписи «Правая рука», toggl-тексты, endAccent plumbing, лимит 15 — на месте');
 
-console.log('\n0.793 (ревью преподавателя): все проверки пройдены (' + groups + ' групп)');
+console.log('\n0.793 (ревью преподавателя, актуально на 0.794): все проверки пройдены (' + groups + ' групп)');

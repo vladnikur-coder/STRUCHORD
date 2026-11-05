@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.793</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.794</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20226,7 +20226,7 @@ let activeSectionKey = null;
       keyboardSize: null,
       // 0.780: новая клавишная дорожка сразу получает голосоведение.
       // У старых песен поля нет — они звучат как прежде, без миграции.
-      ...(instrument === 'keys' ? {linkedVoicings:true, endAccent:false} : {}),   // 0.793: у НОВЫХ клавишных дорожек «13/9 в конце такта» выключено
+      ...(instrument === 'keys' ? {linkedVoicings:true, endAccent:false, voicingsVersion:2} : {}),   // 0.793: endAccent выкл у новых; 0.794: voicingsVersion=2 — новый порядок вариантов
       ...(instrument === 'guitar' ? {guitarShapesVersion:1,trackTuning:{id:'e-std',notes:null}} : {})
     };
   }
@@ -20420,6 +20420,7 @@ let activeSectionKey = null;
         ...(Object.keys(cleanBassRoles(raw.bassRoles, song.sections)).length ? {bassRoles:cleanBassRoles(raw.bassRoles, song.sections)} : {}),
         ...(raw.linkedVoicings===true ? {linkedVoicings:true} : {}),
         ...(raw.endAccent===false ? {endAccent:false} : {}),   // 0.793: у старых песен поля нет — акцент остаётся как в 0.789
+        ...(raw.voicingsVersion===2 ? {voicingsVersion:2} : {}),   // 0.794: у старых песен поля нет — ручные индексы резолвятся по прежнему списку (v1)
         ...(inst==='keys' && B39_TIMBRES.includes(raw.timbre) ? {timbre:raw.timbre} : {}),
         keyboardSize: size, ...(inst==='guitar' ? {guitarShapesVersion:raw.guitarShapesVersion===1?1:0,trackTuning:Object.prototype.hasOwnProperty.call(raw,'trackTuning')?cleanTrackTuning(raw.trackTuning):legacyTrackTuning(song)} : {})
       });
@@ -20785,7 +20786,7 @@ let activeSectionKey = null;
   function setVoicing(id, key, index) {
     var t = findTrack(id), n = Number(index);
     if (!t || !Number.isInteger(n) || n < 0 || n > 99) return false;
-    return dispatch('b39/track-voicing', function () { t.voicings[key] = n; return true; });
+    return dispatch('b39/track-voicing', function () { t.voicings[key] = n; t.voicingsVersion = 2; return true; });   // 0.794: новая ручная запись — новый порядок вариантов (v2)
   }
   function setPattern(id, key, pattern) {
     var t = findTrack(id), v = patternValue(pattern);
@@ -20952,6 +20953,7 @@ let activeSectionKey = null;
     if (!t || typeof chord !== 'string' || !chord || !Number.isInteger(n) || n < 0 || n > 99) return false;
     return dispatch('b39/track-voicing-chord', function () {
       t.voicings['v:' + chord] = n;
+      t.voicingsVersion = 2;   // 0.794 (ревью №2, п.4): этот индекс пишется по новому списку (v2)
       return true;
     });
   }
@@ -32378,7 +32380,11 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
    *  параллельные октава/унисон (класс 0) — больший. В поп/рок/джазе параллели
    *  допустимы; приоритет — осмысленный состав, удобство рук, верхняя линия.
    *  Неподвижный голос — не параллель; бас вне движений (RH-only), поэтому
-   *  «бас oktавой» и удвоение мелодии oktавой штрафом не задеваются.
+   *  удвоение басом октавой штрафом не задевается. ВНУТРИ правой руки проверка
+   *  видит только интервалы и направление движения, но не назначение голосов:
+   *  намеренное октавное удвоение мелодии (мелодия + её дубль в октаву) от двух
+   *  самостоятельных голосов в параллельной октаве не отличить — потому штраф
+   *  мягкий (октавы ×4, квинты ×2), а не запрет: удвоение не ломается.
    *  ВАЖНО: свёртка min(mod12(d), 12-mod12(d)) даёт 0..6 и квинту (7) превращает
    *  в 5 — такая ветка квинты НЕ видит. Сравниваем направленные классы mod12. */
   function parallelPerfects(moves) {
@@ -32663,6 +32669,18 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   // (D.S./Coda) не раскрываются: у повтора тот же выбор, что у первого
   // прохода — детерминированно, звук/превью/экспорт/схема совпадают.
   // Кэш сбрасывается при любой команде песни и при загрузке/undo.
+  // 0.794 (ревью №2, п.4): порядок вариантов сменился в 0.792, а в файле
+  // песни лежит ИНДЕКС. Старые песни (поля voicingsVersion нет) резолвят
+  // ручные индексы по ПРЕЖНЕМУ списку generateKeysVoicings — сохранённый
+  // индекс не «переезжает» на другое расположение. Новая дорожка и любая
+  // новая ручная запись (setVoicing/setVoicingForChord) получают
+  // voicingsVersion=2 и резолвятся по новому listVoicingVariants.
+  function trackVariantList(trackId, chord, key, range, prev) {
+    var T = tracks(), t = T && T.track(trackId);
+    var useNew = !!(t && t.voicingsVersion === 2 && typeof listVoicingVariants === 'function');
+    var fn = useNew ? listVoicingVariants : (generateKeysVoicings || listVoicingVariants);
+    return fn(chord, key, range, prev, {});
+  }
   function linkedSelection(trackId,cell) {
     var T=tracks(), t=T && T.track(trackId);
     if(!t || !t.linkedVoicings || !cell)return null;
@@ -32683,7 +32701,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       if(exact){cache.prev=exact.slice();cache.entries[e.cell]={chord:chord,notes:exact.slice(),manual:true,exact:true};continue;}
       var manual=t.voicings['v:'+chord];
       if(!Number.isInteger(manual))manual=t.voicings[e.cell];
-      var variants=listVoicingVariants(chord,key,cache.range,cache.prev,{}), notes=null;
+      var variants=trackVariantList(trackId,chord,key,cache.range,cache.prev), notes=null;   // 0.794: voicingsVersion выбирает порядок вариантов
       if(Number.isInteger(manual) && variants.length)notes=variants[manual%variants.length];
       else notes=voiceLead(chord,key,cache.range,cache.prev,{}) || chooseLinked(inversionCandidates(chord,key,cache.range),cache.prev,cache.range);
       if(notes && notes.length){cache.prev=notes.slice();cache.entries[e.cell]={chord:chord,notes:notes.slice(),manual:Number.isInteger(manual),index:Number.isInteger(manual)?manual%variants.length:null,count:variants.length};}
@@ -32696,7 +32714,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       var exactFar=T.exactNotes(trackId,cell,name);
       if(exactFar) return {chord:name,notes:exactFar,manual:true,exact:true};
       var vi=t.voicings['v:'+name];if(!Number.isInteger(vi))vi=t.voicings[cell];
-      var fallback=voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{}) ? [voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{})] : listVoicingVariants(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{});
+      var fallback=voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{}) ? [voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{})] : trackVariantList(trackId,name,(far.sec&&far.sec.key)||currentKey(),cache.range,null);
       if(fallback.length)cache.entries[cell]={chord:name,notes:fallback[(Number.isInteger(vi)?vi:0)%fallback.length].slice(),manual:Number.isInteger(vi),index:vi,count:fallback.length,limited:true};
     }
     var result=cache.entries[cell];return result && !result.empty ? result : null;
@@ -32931,7 +32949,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     if (!T || !F || !chordName) return '';
     var o = opts || {};
     var range = T.keyRange(trackId);
-    var variants = listVoicingVariants(chordName, currentKey(), range, o.prev || null, {});
+    var variants = trackVariantList(trackId, chordName, currentKey(), range, o.prev || null);   // 0.794: voicingsVersion
     var exact=T.exactNotes(trackId,o.cellKey,chordName);
     if (!variants.length && !exact) return '';
     var idx = variantIndex(trackId, chordName, o.cellKey) % Math.max(1,variants.length);
@@ -33413,7 +33431,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     // Диапазон дорожки виден всегда, даже без секций или в пустой ячейке.
     // Без аккорда отображаем те же клавиши, но без подсветки и баса.
     panel.classList.add('has-keyboard');
-    var variants = chord ? listVoicingVariants(chord, panelKey(), range, null, {}) : [];
+    var variants = chord ? trackVariantList(active.track.id, chord, panelKey(), range, null) : [];   // 0.794: voicingsVersion
     var idx = variantIndex(active.track.id, chord, lastCellKey) % Math.max(1, variants.length);
     var selected=chord ? linkedSelection(active.track.id,lastCellKey) : null;
     var exact=chord ? T.exactNotes(active.track.id,lastCellKey,chord) : null;
@@ -33499,7 +33517,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     A.setVoicingProvider(function (chordName, key, range, prev, trackId, cell) {
       var exact=T.exactNotes(trackId,cell,chordName);if(exact)return exact;
       var linked=linkedSelection(trackId,cell);if(linked && linked.chord===chordName)return linked.notes.slice();
-      var variants = listVoicingVariants(chordName, key, range, prev, {});
+      var variants = trackVariantList(trackId, chordName, key, range, prev);   // 0.794: voicingsVersion
       if (!variants.length) return null;
       var idx = variantIndex(trackId, chordName, null) % variants.length;
       return variants[idx];
@@ -33526,7 +33544,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     boot: boot, installRenderer: wrapFingeringRenderer,
     open: openPanel, close: closePanel, toggle: togglePanel, render: renderPanel, beginNoteInput:beginNoteInput,
     focusCell: function (key) { selectedCellKey=key; onAudioEvent({cell:key}); },
-    generateKeysVoicings: generateKeysVoicings, listVoicingVariants: listVoicingVariants, voicingVariantStructure: voicingVariantStructure,
+    generateKeysVoicings: generateKeysVoicings, listVoicingVariants: listVoicingVariants, trackVariantList: trackVariantList, voicingVariantStructure: voicingVariantStructure,
     toggleDensity: toggleDensity,
     toneRank: toneRank, handLimit: handLimit,
     keyboardSVG: keyboardSVG, renderKeysVoicingSVG: renderKeysVoicingSVG,
@@ -51519,7 +51537,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
  function selectedShape(id,cell,chord,key){
   const t=T(), exact=t.exactNotes(id,cell,chord);if(exact)return exact;
   const keys=HOST.StruChordKeys, linked=keys.linkedSelection(id,cell);if(linked && linked.chord===chord)return linked.notes.slice();
-  const variants=(keys.listVoicingVariants||keys.generateKeysVoicings)(chord,key,t.keyRange(id),null,{});if(!variants.length)return null;
+  const variants=(keys.trackVariantList?keys.trackVariantList(id,chord,key,t.keyRange(id),null):(keys.listVoicingVariants||keys.generateKeysVoicings)(chord,key,t.keyRange(id),null,{}));if(!variants.length)return null;   // 0.794: voicingsVersion
   return variants[keys.variantIndex(id,chord,cell)%variants.length].slice();
  }
  function prepare(sec,cfg,seed,replaceEdited,overrideSwing,overrideRhythmVersion){
@@ -51762,7 +51780,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
     linkRow.appendChild(link);linkRow.appendChild(element('span','','Плавные обращения для всей дорожки (ручные позиции сохраняются)'));box.appendChild(linkRow);
     var accRow=element('label','tools-label b39-auto-select'), acc=element('input');acc.type='checkbox';acc.id='b39AutoEndAccent';acc.checked=track.endAccent!==false;
     accRow.appendChild(acc);accRow.appendChild(element('span','','Выделять 13/9 в конце такта'));
-    accRow.title='Добавлять сверху 13-ю, иначе 9-ю ступень, если она есть в обозначении аккорда, на последней блоковой атаке такта. Может менять верхнюю линию и увеличивать размах. Выключение не удаляет 9/13 из самого аккорда — отключает только дополнительное выделение.';
+    accRow.title='Добавлять сверху 13-ю, иначе 9-ю ступень, если она есть в обозначении аккорда, на последней блоковой атаке такта. Может менять верхнюю линию и увеличивать размах. Выключение не удаляет 9/13 из самого аккорда — отключает только дополнительное выделение. В нотной автопартии (отдельные ноты) не применяется: там верхняя линия — сама сгенерированная партия.';
     box.appendChild(accRow);
     var cfg=auto();if(cfg){primary.value=cfg.primary;secondary.value=cfg.secondary||'';}
     var swingRow=element('label','tools-label b39-auto-select'), swing=element('input');swing.type='checkbox';swing.id='b39AutoSwing';swing.checked=!!(cfg && cfg.trackId===dialogTrack && cfg.swing===true);
@@ -82271,7 +82289,7 @@ toggleTimeAndBeats();
     if (track.instrument === 'keys' && K && T &&
         typeof K.generateKeysVoicings === 'function' && typeof T.keyRange === 'function') {
       try {
-        var list = (K.listVoicingVariants || K.generateKeysVoicings)(chord, key, T.keyRange(track.id), null, {});
+        var list = K.trackVariantList ? K.trackVariantList(track.id, chord, key, T.keyRange(track.id), null) : (K.listVoicingVariants || K.generateKeysVoicings)(chord, key, T.keyRange(track.id), null, {});   // 0.794: voicingsVersion дорожки
         if (list && list.length) {
           var idx = 0;
           try { idx = Number(K.variantIndex(track.id, chord, null)) || 0; } catch (e) {}

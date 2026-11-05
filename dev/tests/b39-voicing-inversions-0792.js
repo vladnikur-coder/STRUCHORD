@@ -142,10 +142,10 @@ for (const [needle, label] of [
   ['function stepVariant(delta)', 'stepVariant (стрелки) на месте'],
   ['function toggleDensity()', 'toggleDensity на месте'],
   ["countEl.textContent = 'Правая рука: '", 'счётчик «Правая рука: i/n · плотно/широко» (бас не меняется)'],
-  ['var variants=listVoicingVariants(chord,key,cache.range,cache.prev,{}), notes=null;', 'linkedSelection: ручной индекс по списку обращений'],
+  ['var variants=trackVariantList(trackId,chord,key,cache.range,cache.prev), notes=null;', 'linkedSelection: ручной индекс по списку дорожки (voicingsVersion, 0.794)'],
   ['(keys.listVoicingVariants||keys.generateKeysVoicings)', 'selectedShape'],
   ['(K.listVoicingVariants || K.generateKeysVoicings)', 'авто-модуль'],
-  ['listVoicingVariants: listVoicingVariants, voicingVariantStructure: voicingVariantStructure,', 'API export'],
+  ['listVoicingVariants: listVoicingVariants, trackVariantList: trackVariantList, voicingVariantStructure: voicingVariantStructure,', 'API export (incl. trackVariantList, 0.794)'],
 ]) {
   assert(HTML.includes(needle), 'нет: ' + label);
 }
