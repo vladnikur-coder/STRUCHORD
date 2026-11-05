@@ -32,7 +32,7 @@
   // Все источники регистрируются и глушатся из stopAllAudio().
   // ==========================================================================
 
-  window.StruChordSampleCredits="Источники клавишных звуков STRUCHORD\n\nПианино: Salamander Grand Piano V3, Alexander Holm, три слоя силы (velocity 3/8/14) из npm-пакетов @audio-samples/piano-mp3-velocity* (https://www.npmjs.com/package/@audio-samples/piano-mp3-velocity8), исходная библиотека https://archive.org/details/SalamanderGrandPianoV3 ; часть нот — версия MP3 из Tone.js https://github.com/Tonejs/audio/tree/efd8296360f9526e379bfbe5c1698ff54d6a1d34/salamander . Автор объявил библиотеку общественным достоянием с 4 марта 2022: https://rytmenpinne.wordpress.com/sounds-and-such/salamander-grandpiano/ . Историческая лицензия CC BY 3.0: https://creativecommons.org/licenses/by/3.0/ . Изменения: отбор нот, выбор слоя силы, высота изменяется при проигрывании; огибающая, фильтр яркости; release-записи не используются.\n\nRhodes: jRhodes GM, Jeff Learman, CC0 1.0: https://creativecommons.org/publicdomain/zero/1.0/ . GM-версия: https://github.com/sfzinstruments/Discord-SFZ-GM-Bank/blob/7a9c478fe331f94f246d33332f0adedb25bbbe27/Discord%20GM/Melodic/005-Electric%20Piano%201.sfz . WAV сэмплы выбраны из данного набора; высота и огибающая изменяются при проигрывании. У других версий jRhodes другие лицензии.\n\nОрган: tonewheel organ sound samples by hammondman, CC0 1.0, https://freesound.org/people/hammondman/packs/18844/ ; обработанные MP3 из https://github.com/t-hamano/piano-block/tree/897256cd5506a5c2cba14f6bb48fef8113dc39b5/assets/instruments/organ . Изменения: отбор нот, высота, огибающая и сглаженный цикл. Точная модель органа не подтверждена.\n\nPad: FluidR3 warm pad, Frank Wen и участники, перекодированные MP3 из educandu/abcjs-soundfonts, https://github.com/educandu/abcjs-soundfonts/tree/ebd5724f5d334b5b6347562b0044f75e16df90b7/FluidR3_Salamander_GM/pad_2_warm-mp3 . Промежуточный midi-js-soundfonts указывает CC BY 3.0: https://creativecommons.org/licenses/by/3.0/ . Изменения: отбор нот, высота, огибающая, сглаженный цикл.\n\nFluid (R3) SoundFont\nCopyright (c) 2000-2002, 2008 Frank Wen\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\nThe MIT License (MIT)\nCopyright (c) 2023 Educandu Team\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\nCopyright (C) 2012 Benjamin Gleitzman (gleitz@mit.edu)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n";
+  window.StruChordSampleCredits="Источники клавишных звуков STRUCHORD\n\nПианино: Salamander Grand Piano V3, Alexander Holm, три слоя силы (velocity 3/8/14) из npm-пакетов @audio-samples/piano-mp3-velocity* (https://www.npmjs.com/package/@audio-samples/piano-mp3-velocity8), исходная библиотека https://archive.org/details/SalamanderGrandPianoV3 ; часть нот — версия MP3 из Tone.js https://github.com/Tonejs/audio/tree/efd8296360f9526e379bfbe5c1698ff54d6a1d34/salamander . Автор объявил библиотеку общественным достоянием с 4 марта 2022: https://rytmenpinne.wordpress.com/sounds-and-such/salamander-grandpiano/ . Историческая лицензия CC BY 3.0: https://creativecommons.org/licenses/by/3.0/ . Изменения: отбор нот, выбор слоя силы, высота изменяется при проигрывании; огибающая, фильтр яркости; release-записи не используются.\n\nRhodes: jRhodes GM, Jeff Learman, CC0 1.0: https://creativecommons.org/publicdomain/zero/1.0/ . GM-версия: https://github.com/sfzinstruments/Discord-SFZ-GM-Bank/blob/7a9c478fe331f94f246d33332f0adedb25bbbe27/Discord%20GM/Melodic/005-Electric%20Piano%201.sfz . WAV сэмплы выбраны из данного набора; высота и огибающая изменяются при проигрывании. У других версий jRhodes другие лицензии.\n\nОрган: WAV-сэмплы из набора tonejs-instruments (проект Makefully-Studios), лицензия MIT, npm-пакет tonejs-instrument-organ-wav 1.1.0 (https://www.npmjs.com/package/tonejs-instrument-organ-wav), 44,1 кГц моно. Изменения: отбор 7 нот (Fs2/C3/Fs3/C4/Fs4/C5/Fs5), обрезка ведущей тишины и хвоста до 8 с, высота изменяется при проигрывании, огибающая и сглаженный цикл.\n\nPad: FluidR3 warm pad, Frank Wen и участники, перекодированные MP3 из educandu/abcjs-soundfonts, https://github.com/educandu/abcjs-soundfonts/tree/ebd5724f5d334b5b6347562b0044f75e16df90b7/FluidR3_Salamander_GM/pad_2_warm-mp3 . Промежуточный midi-js-soundfonts указывает CC BY 3.0: https://creativecommons.org/licenses/by/3.0/ . Изменения: отбор нот, высота, огибающая, сглаженный цикл.\n\nFluid (R3) SoundFont\nCopyright (c) 2000-2002, 2008 Frank Wen\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n\nThe MIT License (MIT)\nCopyright (c) 2023 Educandu Team\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\nCopyright (C) 2012 Benjamin Gleitzman (gleitz@mit.edu)\n\nPermission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the \"Software\"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.\n";
   // Записанные звуки лежат отдельными mp3 в sounds/ (0.776). Браузер качает
   // только выбранный тембр и только нужные слои; в git их несёт папка sounds,
   // а не 10 МБ base64 внутри скрипта. У пианино три слоя силы: тихая,
@@ -451,8 +451,10 @@
     //    берегётся ближайшая, поэтому яркость настоящая, а не фильтрованная.
     //  * У пианино и Rhodes поверх идёт фильтр, срез которого следует за силой:
     //    тихий удар глуше, громкий ярче. Это и есть «яркость от силы».
-    //  * У органа силы удара нет по природе: акцент даёт щелчок клавиши и
-    //    перкуссия, а не громкость.
+    //  * У органа силы удара нет по природе: акцент — в атаке самого
+    //    сэмпла, а не в громкости. 0.788 (B-116): синтетические щелчок
+    //    клавиши и перкуссия тон-колёс удалены вовсе, атака сэмпла
+    //    сглажена до ~20 мс — жёсткости не осталось ни в коде, ни в записи.
     function strengthOf(expression) {
       return Number.isFinite(expression) ? Math.max(0, Math.min(1, expression)) : .85;
     }
@@ -462,39 +464,10 @@
       var base = mode === 'rhodes' ? 3.2 : 2.4, span = mode === 'rhodes' ? 12 : 10;
       return Math.max(600, Math.min(15000, f0 * (base + span * e)));
     }
-    // Щелчок клавиши и перкуссия тон-колёс: короткий шум и затухающий тон
-    // на третьей гармонике. Именно этого не хватает «электронному» органу.
-    function organAttack(ctx, target, midi, start, level, expression) {
-      var e = strengthOf(expression), f0 = frequencyOf(midi);
-      var nb = hammerBuffer(ctx);
-      if (nb && hasRoom() && typeof ctx.createBufferSource === 'function') {
-        try {
-          var src = ctx.createBufferSource(), bp = ctx.createBiquadFilter(), g = ctx.createGain();
-          src.buffer = nb;
-          bp.type = 'bandpass';
-          bp.frequency.value = Math.min(5200, Math.max(900, f0 * 3.2));
-          bp.Q.value = 1.1;
-          src.connect(bp); bp.connect(g); g.connect(target);
-          g.gain.setValueAtTime(Math.max(.0002, level * (.9 + 1.4 * e)), start);
-          g.gain.exponentialRampToValueAtTime(.0001, start + .012);
-          src.start(start); src.stop(start + .02);
-          register(src);
-        } catch (err) {}
-      }
-      if (hasRoom()) {
-        try {
-          var osc = ctx.createOscillator(), pg = ctx.createGain();
-          osc.type = 'sine';
-          osc.frequency.value = Math.min(8000, f0 * 3);
-          osc.connect(pg); pg.connect(target);
-          pg.gain.setValueAtTime(.0001, start);
-          pg.gain.exponentialRampToValueAtTime(Math.max(.0002, level * (.18 + .38 * e)), start + .006);
-          pg.gain.exponentialRampToValueAtTime(.0001, start + .28);
-          osc.start(start); osc.stop(start + .3);
-          register(osc);
-        } catch (err) {}
-      }
-    }
+    // 0.788 (B-116): синтетические щелчок клавиши и перкуссия тон-колёс
+    // (бывшая organAttack, 0.786–0.787) удалены целиком: владелец посчитал
+    // атаку слишком жёсткой, а настоящий фронт атаки теперь даёт сам
+    // WAV-сэмпл органа + рампа громкости ~20 мс в playSample ниже.
     // Повтор одного и того же удара звучит как секвенсор: файл, громкость и
     // срез у повторов совпадают до бита. У живых пианиста и пианино каждый
     // повтор чуть расстроен. Расстройка в пределах 6 центов на слух не
@@ -529,6 +502,8 @@
         lastHit.set(key, { at: at });
         if (lastHit.size > 2048) lastHit.clear();
       } else if (mode === 'organ') {
+        // 0.788 (B-116): щелчка/перкуссии больше нет, из «жизни» у органа
+        // остался только разброс момента нажатия клавиш.
         out.jitter = (rnd(2) - .5) * .004;                       // контакты клавиш
       }
       return out;
@@ -611,10 +586,13 @@
       src.buffer=rec.buffer;src.playbackRate.value=rate;
       if(rec.loopEnd && rec.loopStart>=0 && rec.loopEnd>rec.loopStart && rec.loopEnd<=rec.buffer.duration){src.loop=true;src.loopStart=rec.loopStart;src.loopEnd=rec.loopEnd;}
       if(!src.loop)held=Math.max(.025,Math.min(held,Math.max(.025,rec.buffer.duration/rate-voiceTail-.02)));
-      var attack=mode==='pad'?.14:.004,end=start+held;
+      // 0.788 (B-116): у органа атака сэмпла ~20 мс вместо 4 мс —
+      // нажатие не «втыкается» в звук, фронт мягкий.
+      var attack=mode==='pad'?.14:mode==='organ'?.02:.004,end=start+held;
       // Калибровка по тембру: записи разной громкости, чтобы Rhodes не лез
-      // вперёд, а pad не заливал. Орган на силу удара не реагирует: у него
-      // акцент даёт атака (щелчок и перкуссия), поэтому громкость почти ровная.
+      // вперёд, а pad не заливал. Орган на силу удара не реагирует: акцент
+      // — в атаке самого WAV-сэмпла (с 0.788 рампа ~20 мс), поэтому
+      // громкость почти ровная.
       var cal=({acoustic:1.3,rhodes:.55,organ:1.1,pad:4}[mode])||1;
       var unit=rec.velocity?Math.pow(vel/Math.max(1,rec.velocity),0.85):1;
       var strength=mode==='organ'?0.35:1;
@@ -647,7 +625,6 @@
       else g.gain.setValueAtTime(amp,end);
       g.gain.exponentialRampToValueAtTime(.0001,end+voiceTail);
       head.connect(g);g.connect(target);src.start(start);src.stop(end+voiceTail+.01);register(src);stats.notes++;
-      if(mode==='organ')organAttack(ctx,target,midi,start,level,expression);
       // Демпфер только у пианино: у Rhodes нота глохнет иначе, у органа и
       // pad демпфера нет вовсе.
       if(mode==='acoustic' && DAMPER){

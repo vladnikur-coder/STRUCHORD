@@ -40,9 +40,11 @@ const ok = (msg) => { groups++; console.log('  ok  ' + msg); };
 //    подготовленную будущую ноту, версия и кэш выложены парой (R7).
 // ---------------------------------------------------------------------------
 const VER = (HTML.match(/· ver (\d+\.\d+)/) || [])[1];
-assert.equal(VER, '0.786', 'версия в шапке 0.786');
-assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8').includes('struchord-v786'),
-  'R7: кэш выложен парой с HTML');
+assert(VER, 'версия в шапке есть');
+// 0.787: контракт «версия и кэш парой» не привязан к номеру релиза.
+assert(fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8')
+  .includes('struchord-v' + VER.split('.')[1]),
+  'R7: кэш выложен парой с версией ' + VER);
 assert(AUDIO.includes('var nextLine = [], used = [], litNotes = [];'),
   'padStep: список litNotes');
 assert(AUDIO.includes('litNotes.push(p.from);') &&

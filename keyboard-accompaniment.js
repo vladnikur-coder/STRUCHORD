@@ -783,9 +783,66 @@
       }
       return result.length ? result : steps;
     }
+    // 0.789 (B-117) · «аккорды в автоплане»: в блоковых авто-рисунках
+    // последний аккорд каждого такта получает сверху «цветную» ступень —
+    // 13-ю, а если её нет в аккорде, то 9-ю, — как делает пианист в
+    // поп/роке («top note» на последнем ударе такта). Ступени нет в
+    // аккорде — шаг не меняется. Переборы (A/t3/t5) и ручные рисунки не трогаем.
+    function extensionAccentMidi(C, topOf) {
+      var f = C && C.formula;
+      if (!f || !Array.isArray(f.tones)) return null;
+      var pc = tonePitchClass(f, 't13');
+      if (pc === null) pc = tonePitchClass(f, 't9');
+      if (pc === null) return null;
+      var low = Number.isFinite(C.low) ? C.low : 0, high = Number.isFinite(C.high) ? C.high : 127;
+      var m = null, x;
+      for (x = Math.max(topOf + 1, low); x <= high; x++) if (mod12(x) === pc) { m = x; break; }
+      if (m === null) for (x = high; x >= low; x--) if (mod12(x) === pc) { m = x; break; }
+      return m;
+    }
+    function applyExtensionAccent(steps, C, beats, sub) {
+      if (!Array.isArray(steps) || !steps.length) return steps;
+      var perBar = Math.max(1, Math.round((Number(beats) || 1) * (Number(sub) || 1)));
+      for (var bar = 0; bar < steps.length; bar += perBar) {
+        var end = Math.min(bar + perBar, steps.length);
+        for (var k = end - 1; k >= bar; k--) {
+          var st = steps[k], tk = st.token;
+          var toks = Array.isArray(tk) ? tk : [tk];
+          if (toks.indexOf('H') < 0 && toks.indexOf('R') < 0) continue;
+          if (!Array.isArray(st.notes) || !st.notes.length) continue;
+          var top = Math.max.apply(null, st.notes);
+          var ext = extensionAccentMidi(C, top);
+          if (ext !== null && ext >= 0 && ext <= 127 && st.notes.indexOf(ext) < 0) {
+            // 0.793 (ревью): добавленная надстройка проходит проверку размаха
+            // правой руки (<= 15 п/т, потолок генератора); не проходит —
+            // украшение пропускается, аккорд не меняется.
+            // 0.794 (ревью №2, п.2): размах считаем по ВСЕМ нотам правой руки
+            // из tokenContext (бас отделён по bassPolicy, в т.ч. nobrass/RH-only),
+            // а не по «всем, кроме первой ноты события».
+            var rh = (C && Array.isArray(C.rh) && C.rh.length) ? C.rh : st.notes.slice(1);
+            if (!rh.length || Math.max(Math.max.apply(null, rh), ext) - Math.min.apply(null, rh) <= 15)
+              st.notes = st.notes.concat([ext]).sort(asc);
+          }
+          break;
+        }
+      }
+      return steps;
+    }
+
+    // 0.793 (ревью): опция дорожки endAccent «Выделять 13/9 в конце такта».
+    // У старых песен поля нет — тогда прежнее поведение 0.789 (акцент
+    // включён): сохранённые партии не меняют звучание. У новых дорожек false.
+    function endAccentEnabled(o) {
+      var T = HOST.StruChordTracks, t = T && typeof T.track === 'function' && o && o.trackId ? T.track(o.trackId) : null;
+      return !t || t.endAccent !== false;
+    }
     function plan(o) {
       o = o || {};
-      var individual=HOST.StruChordNoteCandidate && HOST.StruChordNoteCandidate.plan(o);if(individual)return articulate(individual,o);
+      var individual=HOST.StruChordNoteCandidate && HOST.StruChordNoteCandidate.plan(o);
+      // 0.794 (ревью №2, п.1): нотная автопартия — события отдельных нот без
+      // блоковых атак (токенов H/R), поэтому акцент 13/9 к ней не применяется
+      // по смыслу (title чекбокса это оговаривает); шаги возвращаем как есть.
+      if(individual)return articulate(individual,o);
       var cfg = o.pattern ? normalize(o.pattern) : null;
       if (cfg) cfg.source = o.patternSource === 'cell' ? 'cell' : 'section';
       else cfg = resolve(o.trackId, o.cell, o.sec);
@@ -818,6 +875,7 @@
       // Явные пресеты, включая сохранённый keys-block, не меняем.
       if (cfg.source === 'default') {
         var single=[{index:0,stepIndex:0,token:'H',at:0,dur:dur,notes:tokenNotes('H',C,function(){return 0;}),subdivision:sub,swing:false,type:cfg.type,source:cfg.source}];
+        if (endAccentEnabled(o)) applyExtensionAccent(single, C, span, sub);   // 0.789/0.793: 13-я/9-я сверху, если опция включена
         // 0.782: pad держит гармонию и без сохранённого рисунка.
         var shaped = articulate(single, o);
         if (!o.noHighlight && o.ctx && typeof o.evStart === 'number') scheduleHighlights(o,shaped);
@@ -875,6 +933,10 @@
           subdivision: sub, swing: !!swingOn, type: cfg.type, source: cfg.source
         });
       }
+      // 0.789 (B-117): автоплан «как пианист» — в блоковых рисунках
+      // последний аккорд такта получает сверху 13-ю (или 9-ю), если эта
+      // ступень есть в аккорде. Ручные рисунки (ячейка / manual) не трогаем.
+      if (endAccentEnabled(o) && cfg.source !== 'cell' && !(o.pattern && o.pattern.status === 'manual')) out = applyExtensionAccent(out, C, beats, sub);
       out = articulate(out, o);   // 0.776: исполнение зависит от тембра
       if (!o.noHighlight && o.ctx && typeof o.evStart === 'number') scheduleHighlights(o, out);
       if (stepObserver) {
