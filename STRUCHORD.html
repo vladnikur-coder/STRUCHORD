@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.796</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.797</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32306,6 +32306,45 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     });
     return { list: list, slots: slots };
   }
+  // 0.797 (№24): ползунок «Насыщенность» действует и на расположение в панели
+  // (авто-вариант; ручные exactNotes/voicings[cell] побеждают и не насыщаются).
+  // sat>=60 — октавное удвоение корня сверху (если влезает и спан руки <= 15);
+  // sat>=80 — плюс 13-я (иначе 9-я) сверху, если ступень есть в аккорде и влезает.
+  function saturateNotes(trackId, notes, chordName, key, range) {
+    var T = tracks(), t = T && T.track(trackId);
+    var sat = t && Number.isInteger(t.saturation) ? t.saturation : null;
+    if (sat === null || !Array.isArray(notes) || notes.length < 2 || !range) return notes;
+    var F = formula(), f = (F && typeof F.chordFormula === 'function') ? F.chordFormula(chordName, key) : null;
+    if (!f) return notes;
+    var out = notes.slice().sort(function (a, b) { return a - b; });
+    var high = range.high;
+    function nextPcAbove(pc) {
+      var top = out[out.length - 1];
+      var d = mod12(pc - mod12(top));
+      var m = top + (d === 0 ? 12 : d);   // та же pc сверху = октава выше
+      return (m > top && m <= high) ? m : null;
+    }
+    function spanOk(extra) {
+      var rh = out.slice(1);
+      var lo = rh.length ? rh[0] : out[0];
+      return (extra - lo) <= 15;   // потолок генератора, как везде (0.793)
+    }
+    if (sat >= 60) {
+      var dbl = nextPcAbove(f.rootPc);
+      if (dbl !== null && spanOk(dbl)) out.push(dbl);
+    }
+    if (sat >= 80 && Array.isArray(f.tones)) {
+      var extPc = null;
+      for (var j = 0; j < f.tones.length; j++) if (f.tones[j].semitones === 21) { extPc = f.tones[j].pitchClass; break; }   // 13-я
+      if (extPc === null) for (var k = 0; k < f.tones.length; k++) if (f.tones[k].semitones === 14) { extPc = f.tones[k].pitchClass; break; }   // 9-я
+      if (extPc !== null) {
+        var ext = nextPcAbove(extPc);
+        if (ext !== null && spanOk(ext)) out.push(ext);
+      }
+    }
+    return out.sort(function (a, b) { return a - b; });
+  }
+
   // Единый список вариантов для UI (стрелки/тоггл), ручного выбора и звука:
   // ручной индекс всюду резолвится одинаково.
   function listVoicingVariants(chord, key, range, prev, opts) {
@@ -32956,7 +32995,13 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     if (!variants.length && !exact) return '';
     var idx = variantIndex(trackId, chordName, o.cellKey) % Math.max(1,variants.length);
     var linked=linkedSelection(trackId,o.cellKey);
-    var notes = exact || (linked && linked.chord===chordName ? linked.notes.slice() : variants[idx]), acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(o.cellKey);
+    var notes = exact || (linked && linked.chord===chordName ? linked.notes.slice() : variants[idx]);
+    // 0.797 (№24): насыщенность и на карточке/SVG; ручной выбор не насыщается.
+    if (!exact && chordName && !(linked && linked.chord===chordName && linked.manual)) {
+      var tv2=((T.track(trackId)||{}).voicings)||{};
+      if (!Number.isInteger(tv2[o.cellKey]) && !Number.isInteger(tv2['v:'+chordName])) notes=saturateNotes(trackId, notes, chordName, currentKey(), range);
+    }
+    var acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(o.cellKey);
     if(acc && sec)notes=acc.stripBass(trackId,sec,notes);
     var f = F.chordFormula(chordName, currentKey());
     var bass = (!sec || !acc || acc.bassPolicy(trackId,sec).include) && notes.length ? notes[0] : null;
@@ -33412,6 +33457,11 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var selected=chord ? linkedSelection(active.track.id,lastCellKey) : null;
     var exact=chord ? T.exactNotes(active.track.id,lastCellKey,chord) : null;
     var notes = exact || (selected && selected.chord===chord ? selected.notes.slice() : (variants.length ? variants[idx] : []));
+    // 0.797 (№24): ползунок насыщенности действует и на авто-расположение в панели; ручной выбор не насыщается.
+    if (!exact && chord && !(selected && selected.chord===chord && selected.manual)) {
+      var tv=(active.track.voicings)||{};
+      if (!Number.isInteger(tv[lastCellKey]) && !Number.isInteger(tv['v:'+chord])) notes=saturateNotes(active.track.id, notes, chord, panelKey(), range);
+    }
     var acc=HOST.StruChordAccomp, sec=acc && acc.sectionFromCell(lastCellKey);
     if(acc && sec)notes=acc.stripBass(active.track.id,sec,notes);
     if(noteDraft) notes=noteDraft.notes.slice();
@@ -33477,11 +33527,18 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     if (!A || typeof A.setVoicingProvider !== 'function' || !T) return;
     A.setVoicingProvider(function (chordName, key, range, prev, trackId, cell) {
       var exact=T.exactNotes(trackId,cell,chordName);if(exact)return exact;
-      var linked=linkedSelection(trackId,cell);if(linked && linked.chord===chordName)return linked.notes.slice();
+      var t=T.track(trackId), tv=(t && t.voicings) || {};
+      var manualIdx=Number.isInteger(tv[cell]) ? tv[cell] : (typeof T.voicingForChord==='function' ? T.voicingForChord(trackId,chordName) : null);
+      var linked=linkedSelection(trackId,cell);
+      if(linked && linked.chord===chordName){
+        if(linked.manual || Number.isInteger(manualIdx)) return linked.notes.slice();   // ручной выбор — якорь, без насыщения
+        return saturateNotes(trackId, linked.notes, chordName, key, range);   // 0.797 (№24)
+      }
       var variants = trackVariantList(trackId, chordName, key, range, prev);   // 0.794: voicingsVersion
       if (!variants.length) return null;
       var idx = variantIndex(trackId, chordName, cell) % variants.length;   // 0.795 (№21): per-cell якорь
-      return variants[idx];
+      var notes = variants[idx];
+      return Number.isInteger(manualIdx) ? notes : saturateNotes(trackId, notes, chordName, key, range);   // 0.797 (№24)
     });
   }
 
@@ -33505,7 +33562,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     boot: boot, installRenderer: wrapFingeringRenderer,
     open: openPanel, close: closePanel, toggle: togglePanel, render: renderPanel, beginNoteInput:beginNoteInput,
     focusCell: function (key) { selectedCellKey=key; onAudioEvent({cell:key}); },
-    generateKeysVoicings: generateKeysVoicings, listVoicingVariants: listVoicingVariants, trackVariantList: trackVariantList, voicingVariantStructure: voicingVariantStructure,
+    generateKeysVoicings: generateKeysVoicings, listVoicingVariants: listVoicingVariants, trackVariantList: trackVariantList, voicingVariantStructure: voicingVariantStructure, saturateNotes: saturateNotes,   // 0.797 (№24)
     toneRank: toneRank, handLimit: handLimit,
     keyboardSVG: keyboardSVG, renderKeysVoicingSVG: renderKeysVoicingSVG,
     variantIndex: variantIndex, setVariantIndex: setVariantIndex, stepVariant: stepVariant,
