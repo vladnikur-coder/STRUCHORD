@@ -32699,8 +32699,8 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       if(!chord){cache.entries[e.cell]={empty:true};continue;}
       var key=(e.sec&&e.sec.key) || currentKey(), exact=T.exactNotes(trackId,e.cell,chord);
       if(exact){cache.prev=exact.slice();cache.entries[e.cell]={chord:chord,notes:exact.slice(),manual:true,exact:true};continue;}
-      var manual=t.voicings['v:'+chord];
-      if(!Number.isInteger(manual))manual=t.voicings[e.cell];
+      var manual=t.voicings[e.cell];   // 0.795 (№21): per-cell выше v:<аккорд>
+      if(!Number.isInteger(manual))manual=t.voicings['v:'+chord];
       var variants=trackVariantList(trackId,chord,key,cache.range,cache.prev), notes=null;   // 0.794: voicingsVersion выбирает порядок вариантов
       if(Number.isInteger(manual) && variants.length)notes=variants[manual%variants.length];
       else notes=voiceLead(chord,key,cache.range,cache.prev,{}) || chooseLinked(inversionCandidates(chord,key,cache.range),cache.prev,cache.range);
@@ -32713,7 +32713,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       var far=cache.events[cache.indexes[cell]], name=T.trackChord(trackId,cell,far.ev);
       var exactFar=T.exactNotes(trackId,cell,name);
       if(exactFar) return {chord:name,notes:exactFar,manual:true,exact:true};
-      var vi=t.voicings['v:'+name];if(!Number.isInteger(vi))vi=t.voicings[cell];
+      var vi=t.voicings[cell];if(!Number.isInteger(vi))vi=t.voicings['v:'+name];   // 0.795 (№21)
       var fallback=voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{}) ? [voiceLead(name,(far.sec&&far.sec.key)||currentKey(),cache.range,null,{})] : trackVariantList(trackId,name,(far.sec&&far.sec.key)||currentKey(),cache.range,null);
       if(fallback.length)cache.entries[cell]={chord:name,notes:fallback[(Number.isInteger(vi)?vi:0)%fallback.length].slice(),manual:Number.isInteger(vi),index:vi,count:fallback.length,limited:true};
     }
@@ -32724,12 +32724,13 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
   function variantIndex(trackId, chord, cellKey) {
     var T = tracks();
     var fromModel = null;
-    if (T && typeof T.voicingForChord === 'function') {
+    // 0.795 (№21): якорь — ячейка; per-cell вариант приоритетнее общего для аккорда.
+    if (cellKey && T && typeof T.track === 'function') {
+      var t = T.track(trackId);
+      if (t && t.voicings && Number.isInteger(t.voicings[cellKey])) fromModel = t.voicings[cellKey];
+    }
+    if (!Number.isInteger(fromModel) && T && typeof T.voicingForChord === 'function') {
       fromModel = T.voicingForChord(trackId, chord);
-      if (fromModel === null && cellKey && typeof T.track === 'function') {
-        var t = T.track(trackId);
-        if (t && t.voicings && Number.isInteger(t.voicings[cellKey])) fromModel = t.voicings[cellKey];
-      }
     }
     if (Number.isInteger(fromModel)) return fromModel;
     var k = trackId + '|' + chord;
@@ -32739,8 +32740,9 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var next = ((index % total) + total) % total;
     variantState.set(trackId + '|' + chord, next);
     var T = tracks();
-    if (T && typeof T.setVoicingForChord === 'function') T.setVoicingForChord(trackId, chord, next);
-    else if (T && cellKey && typeof T.setVoicing === 'function') T.setVoicing(trackId, cellKey, next);
+    // 0.795 (№21): при выбранной ячейке стрелки/тоггл меняют только её (per-cell).
+    if (T && cellKey && typeof T.setVoicing === 'function') T.setVoicing(trackId, cellKey, next);
+    else if (T && typeof T.setVoicingForChord === 'function') T.setVoicingForChord(trackId, chord, next);
     return next;
   }
 
@@ -33519,7 +33521,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       var linked=linkedSelection(trackId,cell);if(linked && linked.chord===chordName)return linked.notes.slice();
       var variants = trackVariantList(trackId, chordName, key, range, prev);   // 0.794: voicingsVersion
       if (!variants.length) return null;
-      var idx = variantIndex(trackId, chordName, null) % variants.length;
+      var idx = variantIndex(trackId, chordName, cell) % variants.length;   // 0.795 (№21): per-cell якорь
       return variants[idx];
     });
   }
