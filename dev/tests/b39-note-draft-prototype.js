@@ -25,7 +25,7 @@ const dense=D.replaceCell(draft,cells[0].key,Array.from({length:1024},()=>first[
 const saved=JSON.stringify(replaced),loaded=D.snapshot(JSON.parse(saved));assert.deepStrictEqual(loaded,replaced);loaded.cells[0].notes[0].midi=1;assert.equal(JSON.stringify(replaced),saved);
 for(const bad of [{...first[0],midi:128},{...first[0],velocity:0},{...first[0],beat:4},{...first[0],duration:5},{...first[0],beat:NaN},{...first[0],hand:'other'}])assert.throws(()=>D.replaceCell(edited,cells[0].key,[bad],1));
 assert.equal(JSON.stringify(draft),initial);assert.throws(()=>D.create(cells,{...a,events:{...a.events,unknown:[]}}));assert.throws(()=>D.create([...cells,cells[0]],a));assert.throws(()=>D.regenerate(edited,{...nextGen,events:{...nextGen.events,[cells[1].key]:[{...first[0],velocity:0}]}},1));assert.deepStrictEqual(edited.cells[0].notes,altered);
-let count=0;for(const genre of ['pop','rock','punk','country','blues','jazz','soul','funk','fusion'])for(const meter of ['4/4','3/4','6/8'])for(const swing of [false,true])for(const seed of [1,2,3,4]){
+let count=0;for(const genre of ['pop','rock','punk','country','blues','jazz','hiphop','funk','fusion'])for(const meter of ['4/4','3/4','6/8'])for(const swing of [false,true])for(const seed of [1,2,3,4]){
  const g=gen({genre,meter,swing,seed});assert(g.ok);const d=D.create(cells,g);assert.deepStrictEqual(d.cells[0].notes,g.events[cells[0].key]);assert.deepStrictEqual(D.snapshot(JSON.parse(JSON.stringify(d))),d);count++;
 }
 console.log(`Note draft: ${count} generated examples preserve individual notes, atomic edits, overrides and JSON round-trip — OK`);

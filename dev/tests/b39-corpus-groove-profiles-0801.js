@@ -3,7 +3,7 @@ const fs=require('fs');
 const assert=require('assert');
 const html=fs.readFileSync('STRUCHORD.html','utf8');
 const sourceProfiles=require('../audits/b39-corpus-groove-profiles.json');
-const allowed=new Set(['pop','rock','punk','country','blues','jazz','soul','funk','fusion']);
+const allowed=new Set(['pop','rock','punk','country','blues','jazz','hiphop','funk','fusion']);
 assert.strictEqual(sourceProfiles.schema,1);
 assert.strictEqual(sourceProfiles.sourceMidiFiles,23707);
 assert.strictEqual(Object.keys(sourceProfiles.styleMap).length,109,'all audited folders represented');

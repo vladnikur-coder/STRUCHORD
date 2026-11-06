@@ -3,6 +3,8 @@ const fs = require('fs');
 const assert = require('assert');
 const vm = require('vm');
 const html = fs.readFileSync('STRUCHORD.html', 'utf8');
+const sw = fs.readFileSync('sw.js', 'utf8');
+const VER = (html.match(/· ver (\d+\.\d+)/) || [])[1];
 
 assert(html.includes("phraseModel:1,phraseSeed:Math.floor(Math.random()*2147483648)"),
   'fresh auto plans persist a song-wide phrase seed');
@@ -31,5 +33,5 @@ assert.strictEqual(sectionRole({type:'Custom',customName:'Bridge instrumental'})
 assert.strictEqual(sectionRole({type:'Custom',customName:'Новая часть'}), 'custom');
 assert.strictEqual(sectionRole({type:'Pre-Chorus'}), 'prechorus');
 assert.strictEqual(sectionRole({type:'Chorus'}), 'chorus');
-assert(html.includes('· ver 0.801'), 'current application version remains registered');
+assert(VER && sw.includes('struchord-v' + VER.replace(/^0\./, '')), 'current application version remains registered');
 console.log('B-39 auto-cohesion 0.800: 17 assertions passed');
