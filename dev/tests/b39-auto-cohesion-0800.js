@@ -31,5 +31,5 @@ assert.strictEqual(sectionRole({type:'Custom',customName:'Bridge instrumental'})
 assert.strictEqual(sectionRole({type:'Custom',customName:'Новая часть'}), 'custom');
 assert.strictEqual(sectionRole({type:'Pre-Chorus'}), 'prechorus');
 assert.strictEqual(sectionRole({type:'Chorus'}), 'chorus');
-assert(html.includes('· ver 0.800'), 'application version bumped');
+assert(html.includes('· ver 0.801'), 'current application version remains registered');
 console.log('B-39 auto-cohesion 0.800: 17 assertions passed');

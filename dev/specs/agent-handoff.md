@@ -8,6 +8,12 @@
 
 ---
 
+## B-39 · MIDI-derived groove profiles 0.801
+
+R8 confirmed before code: compact descriptors only (no source note sequences in app), subtle section development, automated all-folder/all-supported-meter checks, no new UI. `STRUCHORD.html` embeds aggregate profile vectors for 9 app genres × 3 supported meters × 8 roles; they were derived from 23,707 MIDI files across all 109 source folders. Profiles contain velocity-weighted attack phases, relative density, velocity delta, and a bounded mean-pitch register proxy. Genre routing is a weak name-based prior; attack-phase vectors rank authored groove candidates (phase 0.62, density 0.23, family prior 0.15). Role density is blended at 45% of a ±10% cap; velocity delta at 45% of ±4; register can bias only the choice among existing single-note chord tones by at most one index. Legacy calls without integer `phraseSeed` do not use profiles. Manual cells and saved patterns on load are not rewritten. 578 MIDI files in unsupported meters are outside this prototype; the corpus has no dedicated punk folder, so punk uses nearby high-energy source categories. Tests: `b39-corpus-groove-profiles-0801.js`, `b39-auto-cohesion-0800.js`, `b39-performance-prototype.js`, HTML syntax. Browser suites requiring Puppeteer cannot run in this environment. No subjective audition/A-B yet. Rebuild: `analyze_ezkeys_corpus.py` → `build-b39-corpus-groove-profiles.py` → patcher. Spec: `dev/specs/b39-corpus-groove-profiles-0801.md`.
+
+---
+
 ## B-119 rework · обращения + плотно/широко 0.792 (0.791 откачен)
 
 Владелец отклонил 0.791 (карточки): нужны стрелки по ОБРАЩЕНИЯМ (умолчание —
