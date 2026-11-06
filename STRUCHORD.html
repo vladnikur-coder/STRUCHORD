@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.798</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.801</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20438,7 +20438,7 @@ let activeSectionKey = null;
     if (!tracks.some(function(t){return t.id===trackId && t.instrument==='keys';})) return null;
     var ids = new Set((Array.isArray(secs)?secs:[]).map(function(s){return String(s.id);}));
     var managed = {}; if (b39IsObj(raw.managed)) Object.keys(raw.managed).slice(0,B39_LIMITS.MAX_CELL_ENTRIES).forEach(function(k){if (ids.has(k) && raw.managed[k]===true) managed[k]=true;});
-    return {primary:raw.primary,secondary:secondary,trackId:trackId,managed:managed,...(raw.autoBass===true?{autoBass:true}:{}),...(typeof raw.swing==='boolean'?{swing:raw.swing}:{}),...(raw.engine==='notes-v1'?{engine:'notes-v1'}:{}),...(raw.shapeAware===true?{shapeAware:true,followShape:raw.followShape===true}:{})};
+    return {primary:raw.primary,secondary:secondary,trackId:trackId,managed:managed,...(raw.autoBass===true?{autoBass:true}:{}),...(typeof raw.swing==='boolean'?{swing:raw.swing}:{}),...(raw.engine==='notes-v1'?{engine:'notes-v1'}:{}),...(raw.shapeAware===true?{shapeAware:true,followShape:raw.followShape===true}:{}),...(raw.phraseModel===1&&Number.isInteger(raw.phraseSeed)&&raw.phraseSeed>=0&&raw.phraseSeed<=2147483647?{phraseModel:1,phraseSeed:raw.phraseSeed}:{})};
   }
   // Старый файл (без tracks) -> одна гитарная дорожка, поля НЕ пишутся в
   // файл при сохранении (exportForSave вернёт {}).
@@ -33113,13 +33113,11 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     var satWrap = el('span', 'b39-keys-sat');
     satInput = el('input'); satInput.type='range'; satInput.id='b39KeysSaturation'; satInput.min='0'; satInput.max='100'; satInput.step='1'; satInput.value='50';
     satInput.setAttribute('aria-label','Насыщенность'); satInput.title='Насыщенность (0–100): влияет на автоаккомпанемент и на расположение в панели. Общее значение с диалогом автоаккомпанемента.';
-    satVal = el('span', 'b39-keys-sat-val', '50');
     satInput.addEventListener('input', function () {
-      satVal.textContent = satInput.value;
       var T = tracks(), a = activeTrack();
       if (T && a && a.track && a.track.instrument === 'keys') { T.setSaturation(a.track.id, Number(satInput.value)); renderPanel(); }
     });
-    satWrap.appendChild(satInput); satWrap.appendChild(satVal);
+    satWrap.appendChild(satInput);
     head.appendChild(identity); head.appendChild(nav); head.appendChild(satWrap); head.appendChild(settingsToggle); head.appendChild(close);
     var controls = el('div', 'b39-keys-controls');
     function field(label, control) {
@@ -33514,7 +33512,7 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     lastVisibleContext = visibleContext;
     countEl.textContent = noteDraft ? 'Ввод' : exact ? 'Своя' : !chord ? '—' : selected && selected.chord===chord ? (selected.limited ? 'Обычная' : selected.manual ? 'Ручная' : 'Авто') : (idx + 1) + '/' + Math.max(1, variants.length);
     // 0.798 (№25): ползунок насыщенности в шапке синхронизирован с общим track.saturation (не трогаем, пока пользователь тащит).
-    if (satInput && active && active.track) { var sv = Number.isInteger(active.track.saturation) ? active.track.saturation : 50; if (Number(satInput.value) !== sv && doc.activeElement !== satInput) { satInput.value = String(sv); satVal.textContent = String(sv); } }
+    if (satInput && active && active.track) { var sv = Number.isInteger(active.track.saturation) ? active.track.saturation : 50; if (Number(satInput.value) !== sv && doc.activeElement !== satInput) { satInput.value = String(sv); } }
     var bass = noteDraft ? (notes.length ? notes[0] : null) : ((!sec || !acc || acc.bassPolicy(active.track.id,sec).include) && notes.length ? notes[0] : null);
     var footParts = [];
     // Аппликатура теперь считается, поэтому подпись — не оговорка, а расшифровка.
@@ -51113,6 +51111,27 @@ const ROLE = Object.freeze({intro:0.72, verse:0.82, prechorus:1.0, chorus:1.16, 
 // Числа — замысел, а не измерение живого пианиста.
 const ROLE_LEVEL = Object.freeze({intro:46, verse:59, prechorus:68, chorus:76, bridge:59, solo:60, outro:49, custom:64});
 const ROLE_ARC = Object.freeze({intro:4, verse:6, prechorus:9, chorus:11, bridge:6, solo:6, outro:5, custom:6});
+// 0.801: compact aggregate groove descriptors from 23,707 MIDIs; no note sequences.
+const CORPUS_PROFILES = {"pop":{"4/4":{"intro":{"a":[35,7,9,10,14,8,10,7],"d":0.9,"v":-4,"r":0.56,"n":1151},"verse":{"a":[30,7,10,11,14,8,12,8],"d":0.976,"v":-0.27,"r":-1.21,"n":1102},"prechorus":{"a":[32,6,10,11,14,8,12,7],"d":0.995,"v":3.8,"r":-0.69,"n":1046},"chorus":{"a":[28,7,10,12,14,9,12,8],"d":1.1,"v":4,"r":-0.97,"n":1100},"bridge":{"a":[30,7,10,12,13,9,12,7],"d":1.025,"v":1.34,"r":0.51,"n":1137},"solo":{"a":[31,7,10,11,14,8,11,8],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[31,7,10,11,14,8,11,8],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[27,9,10,14,13,8,10,9],"d":0.934,"v":-4,"r":3.38,"n":784}},"3/4":{"intro":{"a":[57,3,10,9,15,6,0,0],"d":0.9,"v":-4,"r":0.15,"n":43},"verse":{"a":[51,4,10,10,17,8,0,0],"d":0.939,"v":-0.72,"r":-1.02,"n":43},"prechorus":{"a":[46,6,14,10,17,7,0,0],"d":1.007,"v":2.66,"r":0.29,"n":43},"chorus":{"a":[47,6,11,12,17,7,0,0],"d":1.1,"v":3.18,"r":-0.73,"n":43},"bridge":{"a":[43,6,14,12,18,7,0,0],"d":1.076,"v":0.29,"r":2.7,"n":43},"solo":{"a":[48,5,12,11,17,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[48,5,12,11,17,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[40,7,22,7,17,7,0,0],"d":0.9,"v":-4,"r":-1.16,"n":12}},"6/8":{"intro":{"a":[45,6,7,25,8,9,0,0],"d":0.9,"v":-4,"r":0.25,"n":106},"verse":{"a":[39,7,8,25,10,11,0,0],"d":1.012,"v":-1.2,"r":-1.52,"n":106},"prechorus":{"a":[41,7,8,24,9,11,0,0],"d":1.056,"v":4,"r":-0.91,"n":106},"chorus":{"a":[38,8,8,24,11,11,0,0],"d":1.1,"v":4,"r":0.04,"n":106},"bridge":{"a":[38,8,9,24,11,10,0,0],"d":1.1,"v":3.78,"r":0.2,"n":106},"solo":{"a":[40,8,8,24,10,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[40,8,8,24,10,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[37,11,10,20,12,10,0,0],"d":0.9,"v":-4,"r":2.89,"n":72}}},"rock":{"4/4":{"intro":{"a":[37,6,8,12,11,7,10,9],"d":0.9,"v":-4,"r":1.09,"n":428},"verse":{"a":[32,6,9,14,11,8,11,9],"d":1.001,"v":-2.09,"r":-0.7,"n":426},"prechorus":{"a":[34,5,9,13,11,7,11,10],"d":0.995,"v":0.94,"r":-0.06,"n":424},"chorus":{"a":[30,6,9,13,12,8,12,10],"d":1.1,"v":2.36,"r":-0.54,"n":424},"bridge":{"a":[32,6,9,12,11,9,11,10],"d":1.072,"v":1.81,"r":0.38,"n":420},"solo":{"a":[33,6,9,12,12,8,11,9],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[45,4,7,7,12,6,10,9],"d":0.9,"v":-3.94,"r":4.84,"n":11},"custom":{"a":[28,7,11,10,14,9,11,10],"d":0.979,"v":3.81,"r":0.16,"n":117}},"3/4":{"intro":{"a":[35,15,13,11,18,8,0,0],"d":1.0,"v":0.0,"r":0.0,"n":4},"verse":{"a":[35,15,13,11,18,8,0,0],"d":1.0,"v":0.0,"r":0.0,"n":4},"prechorus":{"a":[35,15,13,11,18,8,0,0],"d":1.0,"v":0.0,"r":0.0,"n":4},"chorus":{"a":[35,15,13,11,18,8,0,0],"d":1.0,"v":0.0,"r":0.0,"n":4},"bridge":{"a":[35,15,13,11,18,8,0,0],"d":1.0,"v":0.0,"r":0.0,"n":4},"solo":{"a":[35,15,13,11,18,8,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[35,15,13,11,18,8,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[35,15,13,11,18,8,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0}},"6/8":{"intro":{"a":[50,6,7,22,6,9,0,0],"d":0.984,"v":-4,"r":0.29,"n":40},"verse":{"a":[52,5,7,20,6,10,0,0],"d":0.929,"v":-4,"r":-0.13,"n":36},"prechorus":{"a":[45,6,9,21,8,11,0,0],"d":0.984,"v":-4,"r":-0.43,"n":36},"chorus":{"a":[42,7,10,23,7,11,0,0],"d":1.044,"v":-0.88,"r":0.07,"n":36},"bridge":{"a":[45,9,8,19,9,10,0,0],"d":0.966,"v":-2.22,"r":0.09,"n":36},"solo":{"a":[47,7,8,20,8,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[47,7,8,20,8,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":3},"custom":{"a":[46,8,8,16,11,11,0,0],"d":1.1,"v":4,"r":0.32,"n":24}}},"punk":{"4/4":{"intro":{"a":[47,6,7,10,11,5,8,6],"d":0.9,"v":-4,"r":-1.44,"n":104},"verse":{"a":[44,4,9,15,7,7,8,6],"d":1.1,"v":-0.33,"r":-8.07,"n":40},"prechorus":{"a":[45,4,7,11,12,5,10,6],"d":1.085,"v":1.37,"r":-8.27,"n":40},"chorus":{"a":[41,3,8,15,9,7,8,9],"d":1.1,"v":2.75,"r":-8.05,"n":40},"bridge":{"a":[44,4,8,12,10,7,9,6],"d":1.1,"v":-3.46,"r":-6.2,"n":40},"solo":{"a":[35,6,9,12,11,8,10,9],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[40,6,10,10,11,6,11,6],"d":0.9,"v":-4,"r":-0.46,"n":56},"custom":{"a":[26,8,10,12,12,9,11,12],"d":0.944,"v":4,"r":4.92,"n":289}},"3/4":{"intro":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"verse":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"prechorus":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"chorus":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"bridge":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"solo":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"outro":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"custom":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0}},"6/8":{"intro":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"verse":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"prechorus":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"chorus":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"bridge":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"solo":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"outro":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"custom":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0}}},"country":{"4/4":{"intro":{"a":[34,6,9,12,13,8,10,8],"d":0.9,"v":-4,"r":0.76,"n":216},"verse":{"a":[29,6,11,11,14,9,12,8],"d":1.005,"v":-0.9,"r":-1.19,"n":220},"prechorus":{"a":[29,6,10,12,14,9,11,9],"d":1.029,"v":2.59,"r":0.08,"n":212},"chorus":{"a":[28,7,10,11,15,9,12,8],"d":1.093,"v":3.1,"r":-0.3,"n":220},"bridge":{"a":[30,6,9,12,14,9,12,8],"d":1.018,"v":2.67,"r":0.78,"n":220},"solo":{"a":[30,6,10,12,14,9,11,8],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[30,6,10,12,14,9,11,8],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[30,6,10,12,14,9,11,8],"d":1.0,"v":0.0,"r":0.0,"n":0}},"3/4":{"intro":{"a":[59,3,15,3,13,7,0,0],"d":0.9,"v":-4,"r":-1.45,"n":32},"verse":{"a":[53,3,15,4,17,8,0,0],"d":0.933,"v":-0.97,"r":-0.35,"n":32},"prechorus":{"a":[51,3,17,4,19,6,0,0],"d":1.078,"v":-0.12,"r":-0.5,"n":28},"chorus":{"a":[49,3,17,4,20,7,0,0],"d":1.1,"v":4,"r":1.62,"n":32},"bridge":{"a":[56,4,16,4,15,5,0,0],"d":1.048,"v":2.28,"r":2.15,"n":32},"solo":{"a":[54,3,16,4,16,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[54,3,16,4,16,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[54,3,16,4,16,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0}},"6/8":{"intro":{"a":[40,5,6,25,11,13,0,0],"d":0.9,"v":-2.27,"r":0.34,"n":24},"verse":{"a":[43,9,6,21,10,11,0,0],"d":0.975,"v":-1.87,"r":-1.78,"n":24},"prechorus":{"a":[41,7,7,24,9,12,0,0],"d":0.946,"v":0.95,"r":0.31,"n":24},"chorus":{"a":[36,9,9,23,10,13,0,0],"d":1.1,"v":1.31,"r":-0.45,"n":23},"bridge":{"a":[38,10,8,23,10,11,0,0],"d":1.03,"v":-2.33,"r":2.45,"n":24},"solo":{"a":[40,8,7,23,10,12,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[40,8,7,23,10,12,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[40,8,7,23,10,12,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0}}},"blues":{"4/4":{"intro":{"a":[20,9,13,13,12,10,13,10],"d":0.987,"v":-0.58,"r":0.18,"n":132},"verse":{"a":[25,8,11,13,12,9,12,10],"d":1.1,"v":-4,"r":-3.48,"n":72},"prechorus":{"a":[25,8,11,9,15,10,12,10],"d":0.9,"v":4,"r":-5.34,"n":36},"chorus":{"a":[23,9,11,13,13,9,12,10],"d":1.1,"v":0.02,"r":-2.3,"n":68},"bridge":{"a":[26,9,10,11,15,9,11,9],"d":1.067,"v":2.74,"r":-2.18,"n":64},"solo":{"a":[21,10,12,13,13,9,12,10],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[19,13,15,14,12,7,13,7],"d":0.9,"v":4,"r":11.47,"n":63},"custom":{"a":[16,12,12,14,13,9,13,11],"d":1.054,"v":-1.8,"r":5.39,"n":176}},"3/4":{"intro":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"verse":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"prechorus":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"chorus":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"bridge":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"solo":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"outro":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0},"custom":{"a":[46,7,14,9,17,7,0,0],"d":0.9,"v":-4,"r":0.23,"n":0}},"6/8":{"intro":{"a":[30,5,8,25,11,21,0,0],"d":1.057,"v":-4,"r":-0.56,"n":12},"verse":{"a":[27,6,8,24,9,26,0,0],"d":0.942,"v":-4,"r":1.7,"n":12},"prechorus":{"a":[32,8,10,23,9,18,0,0],"d":1.1,"v":4,"r":-0.28,"n":8},"chorus":{"a":[24,7,8,27,11,23,0,0],"d":1.004,"v":0.32,"r":1.24,"n":12},"bridge":{"a":[28,9,8,26,12,17,0,0],"d":1.037,"v":4,"r":-1.37,"n":8},"solo":{"a":[28,7,8,25,10,22,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[28,7,8,25,10,22,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[28,7,8,25,10,22,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0}}},"jazz":{"4/4":{"intro":{"a":[34,7,9,11,13,7,9,10],"d":0.936,"v":3.45,"r":1.63,"n":128},"verse":{"a":[41,8,8,9,8,9,12,5],"d":1.029,"v":4,"r":-4.19,"n":40},"prechorus":{"a":[43,11,5,10,7,9,11,4],"d":0.941,"v":4,"r":-4.16,"n":40},"chorus":{"a":[36,9,5,12,10,9,11,8],"d":0.983,"v":4,"r":-4.21,"n":52},"bridge":{"a":[27,9,6,12,17,8,11,10],"d":1.1,"v":4,"r":-4.51,"n":40},"solo":{"a":[30,8,8,12,14,9,10,9],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[26,9,9,14,15,7,10,10],"d":1.013,"v":-4,"r":1.92,"n":178},"custom":{"a":[29,7,8,13,14,10,9,10],"d":1.002,"v":-4,"r":1.83,"n":416}},"3/4":{"intro":{"a":[55,8,4,16,12,5,0,0],"d":1.025,"v":-3.01,"r":4.27,"n":12},"verse":{"a":[50,8,8,17,10,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"prechorus":{"a":[50,8,8,17,10,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"chorus":{"a":[50,8,8,17,10,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"bridge":{"a":[50,8,8,17,10,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"solo":{"a":[50,8,8,17,10,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[53,6,7,15,12,7,0,0],"d":0.9,"v":0.25,"r":-1.64,"n":24},"custom":{"a":[48,9,9,19,8,7,0,0],"d":1.059,"v":0.0,"r":0.0,"n":44}},"6/8":{"intro":{"a":[46,10,9,16,7,12,0,0],"d":0.9,"v":4,"r":2.94,"n":8},"verse":{"a":[37,13,9,18,13,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"prechorus":{"a":[37,13,9,18,13,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"chorus":{"a":[37,13,9,18,13,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"bridge":{"a":[37,13,9,18,13,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"solo":{"a":[37,13,9,18,13,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[37,13,9,18,13,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":4},"custom":{"a":[35,13,8,19,16,9,0,0],"d":1.0,"v":4,"r":-0.27,"n":24}}},"soul":{"4/4":{"intro":{"a":[29,6,11,12,12,9,11,10],"d":0.971,"v":-2.22,"r":0.27,"n":377},"verse":{"a":[29,6,10,11,12,10,12,10],"d":0.965,"v":-1.7,"r":-0.17,"n":441},"prechorus":{"a":[28,7,9,12,13,9,12,10],"d":0.998,"v":3.62,"r":0.83,"n":348},"chorus":{"a":[26,7,11,12,14,9,11,10],"d":1.1,"v":2.43,"r":-0.41,"n":449},"bridge":{"a":[30,7,9,12,12,9,12,9],"d":1.029,"v":2.19,"r":0.31,"n":399},"solo":{"a":[30,7,10,12,12,9,11,9],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[30,7,10,12,12,9,11,9],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[33,7,8,12,12,9,11,8],"d":0.97,"v":-3.3,"r":-0.21,"n":700}},"3/4":{"intro":{"a":[55,1,11,3,22,8,0,0],"d":0.911,"v":-3.86,"r":2.14,"n":16},"verse":{"a":[55,1,9,4,22,9,0,0],"d":1.086,"v":-4,"r":-4.58,"n":16},"prechorus":{"a":[49,1,13,4,24,9,0,0],"d":0.936,"v":2.47,"r":-0.42,"n":16},"chorus":{"a":[49,1,11,4,24,11,0,0],"d":1.1,"v":1.41,"r":-1.39,"n":16},"bridge":{"a":[51,2,12,5,19,11,0,0],"d":1.1,"v":2.42,"r":-0.3,"n":16},"solo":{"a":[52,1,11,4,22,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[52,1,11,4,22,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[52,1,11,4,22,10,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0}},"6/8":{"intro":{"a":[45,3,5,24,10,13,0,0],"d":0.9,"v":-3.48,"r":3.81,"n":68},"verse":{"a":[40,4,8,23,10,15,0,0],"d":1.046,"v":-2.03,"r":-1.29,"n":72},"prechorus":{"a":[39,5,8,25,10,13,0,0],"d":1.1,"v":2.06,"r":-0.55,"n":68},"chorus":{"a":[37,6,9,24,10,14,0,0],"d":1.045,"v":2.14,"r":-0.05,"n":72},"bridge":{"a":[38,6,10,23,11,12,0,0],"d":1.1,"v":3.39,"r":0.66,"n":68},"solo":{"a":[41,5,8,23,10,13,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[41,5,8,23,10,13,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[50,9,7,16,9,9,0,0],"d":0.9,"v":-1.39,"r":-0.44,"n":42}}},"funk":{"4/4":{"intro":{"a":[30,8,9,11,10,11,12,9],"d":0.918,"v":-3.87,"r":-2.31,"n":190},"verse":{"a":[21,11,12,11,10,11,13,11],"d":1.1,"v":-2.44,"r":-1.03,"n":200},"prechorus":{"a":[24,9,11,13,10,9,14,10],"d":1.1,"v":-3.31,"r":-0.42,"n":170},"chorus":{"a":[20,11,11,12,12,11,13,10],"d":1.1,"v":0.27,"r":-1.64,"n":200},"bridge":{"a":[22,11,13,12,10,10,13,9],"d":1.1,"v":1.22,"r":-0.84,"n":134},"solo":{"a":[25,9,11,12,11,10,12,10],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[25,9,11,12,11,10,12,10],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[27,9,10,12,12,9,11,10],"d":0.9,"v":2.19,"r":2.7,"n":788}},"3/4":{"intro":{"a":[26,19,12,15,17,11,0,0],"d":1.0,"v":0.0,"r":0.0,"n":5},"verse":{"a":[26,19,12,15,17,11,0,0],"d":1.0,"v":0.0,"r":0.0,"n":5},"prechorus":{"a":[26,19,12,15,17,11,0,0],"d":1.0,"v":0.0,"r":0.0,"n":5},"chorus":{"a":[26,19,12,15,17,11,0,0],"d":1.0,"v":0.0,"r":0.0,"n":5},"bridge":{"a":[26,19,12,15,17,11,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"solo":{"a":[26,19,12,15,17,11,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[26,19,12,15,17,11,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"custom":{"a":[26,19,12,15,17,11,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0}},"6/8":{"intro":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"verse":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"prechorus":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"chorus":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"bridge":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"solo":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"outro":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0},"custom":{"a":[41,7,8,22,10,12,0,0],"d":0.928,"v":-4,"r":-1.27,"n":0}}},"fusion":{"4/4":{"intro":{"a":[35,8,9,9,13,7,11,8],"d":0.9,"v":-4,"r":-0.57,"n":980},"verse":{"a":[31,7,8,11,15,8,10,10],"d":0.9,"v":4,"r":1.57,"n":300},"prechorus":{"a":[35,7,7,10,13,7,12,9],"d":0.9,"v":4,"r":2.44,"n":290},"chorus":{"a":[29,8,9,11,14,9,10,10],"d":1.069,"v":4,"r":2.77,"n":296},"bridge":{"a":[32,8,9,9,15,7,12,8],"d":0.957,"v":3.37,"r":-0.7,"n":804},"solo":{"a":[22,8,10,17,11,9,11,12],"d":1.1,"v":1.44,"r":2.37,"n":14},"outro":{"a":[33,8,11,9,15,7,10,7],"d":0.972,"v":-4,"r":-1.13,"n":429},"custom":{"a":[28,9,10,12,14,8,11,8],"d":1.1,"v":-2.72,"r":-0.36,"n":1702}},"3/4":{"intro":{"a":[39,9,18,10,16,8,0,0],"d":0.991,"v":-3.45,"r":-0.82,"n":84},"verse":{"a":[51,2,19,3,21,4,0,0],"d":1.1,"v":4,"r":3.2,"n":12},"prechorus":{"a":[52,2,19,4,19,4,0,0],"d":1.1,"v":4,"r":4.85,"n":12},"chorus":{"a":[49,3,18,4,22,4,0,0],"d":1.1,"v":4,"r":4.16,"n":12},"bridge":{"a":[40,9,22,7,15,7,0,0],"d":1.1,"v":0.97,"r":-1.98,"n":72},"solo":{"a":[41,9,17,9,17,7,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[42,8,18,9,16,7,0,0],"d":1.1,"v":-4,"r":0.69,"n":60},"custom":{"a":[39,10,14,13,17,7,0,0],"d":0.958,"v":2.64,"r":-0.09,"n":143}},"6/8":{"intro":{"a":[45,9,7,18,9,12,0,0],"d":0.934,"v":-4,"r":-2.1,"n":68},"verse":{"a":[56,1,2,16,12,13,0,0],"d":0.9,"v":4,"r":5.33,"n":16},"prechorus":{"a":[55,4,5,18,5,13,0,0],"d":1.1,"v":4,"r":7.95,"n":16},"chorus":{"a":[53,3,1,12,14,17,0,0],"d":1.1,"v":4,"r":5.72,"n":16},"bridge":{"a":[46,11,7,17,8,11,0,0],"d":1.061,"v":-3.0,"r":-4.2,"n":60},"solo":{"a":[44,9,8,17,10,12,0,0],"d":1.0,"v":0.0,"r":0.0,"n":0},"outro":{"a":[39,13,9,23,10,6,0,0],"d":1.049,"v":-4,"r":-1.48,"n":28},"custom":{"a":[38,10,11,17,11,13,0,0],"d":0.942,"v":1.52,"r":-0.94,"n":132}}}};
+function corpusProfileFor(genre,meter,role){const byGenre=CORPUS_PROFILES[genre],byMeter=byGenre&&byGenre[meter];return byMeter&&(byMeter[role]||byMeter.custom)||null;}
+function corpusGrooveIndex(patterns,profile,preferred,meter){
+  if(!profile||!Array.isArray(profile.a)||!patterns.length)return preferred;
+  const slots=meter==='4/4'?8:6, target=profile.a.slice(0,slots).map(x=>Number(x)||0), targetSum=target.reduce((a,b)=>a+b,0);
+  if(!targetSum)return preferred;
+  const avg=patterns.reduce((sum,p)=>sum+[...p.slice(0,slots)].reduce((n,c)=>n+(c==='C'?3:c==='p'?2:c==='s'?1:0),0),0)/patterns.length;
+  let best=preferred, bestScore=Infinity;
+  patterns.forEach((pattern,index)=>{
+    const weights=Array(slots).fill(0);let total=0;
+    for(let i=0;i<slots;i++){const c=pattern[i];weights[i]=c==='C'?3:c==='p'?2:c==='s'?1:0;total+=weights[i];}
+    if(!total)return;
+    let phase=0;for(let i=0;i<slots;i++)phase+=Math.abs(weights[i]/total-target[i]/targetSum);
+    let d=Math.abs(total-avg*(Number.isFinite(profile.d)?profile.d:1))/Math.max(1,avg);
+    const dist=Math.min((index-preferred+patterns.length)%patterns.length,(preferred-index+patterns.length)%patterns.length)/Math.max(1,patterns.length);
+    const score=phase*0.62+Math.min(1,d)*0.23+dist*0.15;
+    if(score<bestScore-1e-9){bestScore=score;best=index;}
+  });
+  return best;
+}
 // В jazz/funk/soul метрический акцент слабее: доли ровнее.
 const GENRE_METRIC = Object.freeze({pop:1, rock:1, punk:1.05, country:0.95, blues:0.85, jazz:0.58, soul:0.76, funk:0.7, fusion:0.65});
 function hash01(a, b, c) {
@@ -51136,7 +51155,7 @@ function metricAccent(stepInBar, meter, beatsPerBar) {
 // поэтому рисунок не перегенерируется.
 function applyDynamics(notes, o) {
   const barLen = o.beatsPerBar, meter = o.meter, total = Math.max(1e-6, o.totalBeats || 0);
-  const level = ROLE_LEVEL[o.role] ?? 75, metric = GENRE_METRIC[o.genre] ?? 1, arcAmp = ROLE_ARC[o.role] ?? 6;
+  const level = (ROLE_LEVEL[o.role] ?? 75) + (Number.isFinite(o.corpusVelocityOffset)?o.corpusVelocityOffset:0), metric = GENRE_METRIC[o.genre] ?? 1, arcAmp = ROLE_ARC[o.role] ?? 6;
   const groups = new Map();
   for (const n of notes) {
     const key = n.hand + ':' + Math.round(n.beat * 16);
@@ -51189,16 +51208,17 @@ function resolveSwing(global, section) {
 }
 function generatePerformance(options) {
   const o = options || {};
-  const {chords, low, high, bpm, meter, genre, secondary, role, swing, sectionSwing, seed, saturation} = o;   // 0.795 (№22)
+  const {chords, low, high, bpm, meter, genre, secondary, role, swing, sectionSwing, seed, saturation, phraseSeed} = o;   // 0.800: song-wide groove family
   if (!Array.isArray(chords) || !chords.length || !Number.isFinite(bpm) || bpm < 30 || bpm > 300 ||
       !Object.hasOwn(METERS, meter) || !Object.hasOwn(GENRES, genre) ||
       (secondary && (!Object.hasOwn(GENRES, secondary) || secondary === genre)) ||
-      !Object.hasOwn(ROLE, role) || !Number.isInteger(seed) || typeof swing !== 'boolean') throw new TypeError('Invalid performance request');
+      !Object.hasOwn(ROLE, role) || !Number.isInteger(seed) || !(phraseSeed==null||Number.isInteger(phraseSeed)&&phraseSeed>=0&&phraseSeed<=2147483647) || typeof swing !== 'boolean') throw new TypeError('Invalid performance request');
   const useSwing = resolveSwing(swing, sectionSwing), human = rng(seed ^ 0x6d2b79f5), beatsPerBar = METERS[meter];
+  const corpusProfile=Number.isInteger(phraseSeed)?corpusProfileFor(genre,meter,role):null;
   let beat = 0;
   // Old saved sections retain their original algorithm until explicitly
   // regenerated. New sections mix the old and several structured gestures.
-  const modern=o.rhythmVersion===2, family=Math.floor(motifRandom(seed,0,beatsPerBar,17)*5);
+  const modern=o.rhythmVersion===2, familySeed=Number.isInteger(phraseSeed)?phraseSeed:seed, family=Math.floor(motifRandom(familySeed,0,beatsPerBar,17)*5);
   const notes = [], decisions = [], gestures = [];
   // Look ahead through the whole phrase rather than greedily choosing each
   // chord. Bounds are heuristics, not a physical fingering model.
@@ -51235,7 +51255,8 @@ function generatePerformance(options) {
       const isSixteenth = step % 2 === 1, isOff = step % 4 !== 0;
       const profile = secondary && local >= beatsPerBar - 1 ? GENRES[secondary] : GENRES[genre];
       const satN = Number.isInteger(saturation) ? saturation : null;   // 0.795 (№22): ползунок насыщенности масштабирует плотность роли
-      const strength = ROLE[role]*(satN===null?1:0.75+satN/250), strong = downbeat ? 1 : (bassBeat ? 0.65 : 0.2);
+      const profileDensity=corpusProfile?1+(corpusProfile.d-1)*0.45:1;
+      const strength = ROLE[role]*(satN===null?1:0.75+satN/250)*profileDensity, strong = downbeat ? 1 : (bassBeat ? 0.65 : 0.2);
       const sectionStart = step === firstStep;
       const choose = lane => motifRandom(seed,step,beatsPerBar,lane);
       const left = sectionStart || (bassBeat && choose(0) < Math.min(0.95, 0.57 * strength));
@@ -51251,10 +51272,12 @@ function generatePerformance(options) {
         // the bar changes the answer rather than repeating the same contour.
         const bar=Math.floor(step/(beatsPerBar*4)), pos=Math.floor((step%(beatsPerBar*4))/2);
         const grooveGenre=secondary && local>=beatsPerBar-1 ? secondary : genre;
-        const pairSeed=seed ^ Math.imul(Math.floor(bar/2)+1,0x9e3779b1);
+        const pairSeed=familySeed ^ Math.imul(Math.floor(bar/2)+1,0x9e3779b1);
         const lead=(family-1+Math.floor(motifRandom(pairSeed,0,beatsPerBar,20)*4))%4;
-        const answer=1+Math.floor(motifRandom(pairSeed,0,beatsPerBar,21)*3);
-        const pattern=GROOVES[grooveGenre][(lead+(bar%2?answer:0))%4];
+        const answer=1+Math.floor(motifRandom(pairSeed,0,beatsPerBar,21)*3);   // 0.800: same rhythmic motif language across sections
+        const grooveSet=GROOVES[grooveGenre],preferred=(lead+(bar%2?answer:0))%grooveSet.length;
+        const grooveProfile=corpusProfile&&corpusProfileFor(grooveGenre,meter,role);
+        const pattern=grooveSet[corpusGrooveIndex(grooveSet,grooveProfile,preferred,meter)];
         const mark=step%2===0 ? pattern[pos] : '.';
         if(sectionStart)rightMode='chord';
         else if(mark==='C')rightMode='chord';
@@ -51295,7 +51318,9 @@ function generatePerformance(options) {
         const startIndex=Math.floor(choose(4)*(voice.right.length-1));
         emit('right',voice.right.slice(startIndex,startIndex+2),72);
       } else if (rightMode === 'single') {
-        const position=modern && family!==0 ? (Math.floor(step/2)+Math.floor(step/(beatsPerBar*4))+family)%voice.right.length : Math.floor(choose(4)*voice.right.length);
+        const basePosition=modern && family!==0 ? (Math.floor(step/2)+Math.floor(step/(beatsPerBar*4))+family)%voice.right.length : Math.floor(choose(4)*voice.right.length);
+        const registerShift=corpusProfile?Math.max(-1,Math.min(1,Math.round(corpusProfile.r/6))):0;
+        const position=Math.max(0,Math.min(voice.right.length-1,basePosition+registerShift));
         emit('right',[voice.right[position]],66);
       }
     }
@@ -51304,7 +51329,7 @@ function generatePerformance(options) {
     beat = end;
   }
   // 0.772: единая динамика секции поверх уже выбранных нот.
-  applyDynamics(notes, {role, genre, meter, beatsPerBar, totalBeats:beat, seed});
+  applyDynamics(notes, {role, genre, meter, beatsPerBar, totalBeats:beat, seed, corpusVelocityOffset:corpusProfile?corpusProfile.v*0.45:0});
   // Some gestures sustain through an unused grid slot until the next gesture
   // of the same hand. Never cross a chord boundary, the next attack, or the
   // movement release limit. This is articulation, not sustain-pedal modelling.
@@ -51324,7 +51349,7 @@ function generatePerformance(options) {
   notes.sort((a,b) => a.beat-b.beat || a.midi-b.midi);
   return {ok:true, notes, decisions, beats:beat, swing:useSwing};
 }
-module.exports = {generatePerformance, resolveSwing, GENRES, METERS, applyDynamics};
+module.exports = {generatePerformance, resolveSwing, GENRES, METERS, applyDynamics, corpusProfileFor, corpusGrooveIndex, CORPUS_PROFILES};
 
 return module.exports;})(),section=(function(){let module={exports:{}},require=function(){return perf};
 'use strict';
@@ -51372,7 +51397,7 @@ function buildSection(options) {
     let j=i;while(j<items.length && items[j].type==='generate')j++;
     const part=items.slice(i,j);
     const chords=part.map(({cell})=>({bassPc:cell.chord.bassPc,tones:cell.chord.tones.slice(),beats:cell.beats,shape:cell.shape,strictShape:cell.strictShape===true}));
-    const gen=generatePerformance({chords,low:o.low,high:o.high,bpm:o.bpm,meter:o.meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,rhythmVersion:o.rhythmVersion,seed:(o.seed+i)|0,saturation:Number.isInteger(o.saturation)?o.saturation:null});   // 0.795 (№22)
+    const gen=generatePerformance({chords,low:o.low,high:o.high,bpm:o.bpm,meter:o.meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,rhythmVersion:o.rhythmVersion,seed:(o.seed+i)|0,phraseSeed:Number.isInteger(o.phraseSeed)?o.phraseSeed:null,saturation:Number.isInteger(o.saturation)?o.saturation:null});   // 0.795 (№22)
     if(!gen.ok) return {ok:false,reason:gen.reason,cellKey:part[gen.chordIndex].cell.key,events:{},decisions:{},preserved:[]};
     let start=0;
     for(let n=0;n<part.length;n++) {
@@ -51433,7 +51458,7 @@ function prepareSection(o) {
   const range=tracks.keyRange(trackId);
   if(!range) return {ok:false,reason:'invalid-range'};
   try {
-    const result=buildSection({cells,low:range.low,high:range.high,bpm:o.bpm,meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,rhythmVersion:o.rhythmVersion,seed:o.seed,saturation:Number.isInteger(o.saturation)?o.saturation:null});   // 0.795 (№22)
+    const result=buildSection({cells,low:range.low,high:range.high,bpm:o.bpm,meter,genre:o.genre,secondary:o.secondary,role:o.role,swing:o.swing,sectionSwing:o.sectionSwing,rhythmVersion:o.rhythmVersion,seed:o.seed,phraseSeed:Number.isInteger(o.phraseSeed)?o.phraseSeed:null,saturation:Number.isInteger(o.saturation)?o.saturation:null});   // 0.800: shared phrase family
     if (!result.ok) return result;
     // Each repeated square/section reuses the same cell events. Reserve enough
     // time for last -> first as well as the ordinary linear successor.
@@ -51579,11 +51604,23 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
   const variants=(keys.trackVariantList?keys.trackVariantList(id,chord,key,t.keyRange(id),null):(keys.listVoicingVariants||keys.generateKeysVoicings)(chord,key,t.keyRange(id),null,{}));if(!variants.length)return null;   // 0.794: voicingsVersion
   return variants[keys.variantIndex(id,chord,cell)%variants.length].slice();
  }
+ function sectionRole(sec){
+  var type=String(sec&&sec.type||'').toLowerCase();if(type&&type!=='custom')return type.replace(/[\s_-]+/g,'');
+  var name=String(sec&&(sec.customName||sec.name)||'').trim().toLowerCase().replace(/[\s_-]+/g,'');
+  if(/предприпев|prechorus|prechor/.test(name))return 'prechorus';
+  if(/вступлен|интро|^intro/.test(name))return 'intro';
+  if(/куплет|^verse/.test(name))return 'verse';
+  if(/припев|^chorus/.test(name))return 'chorus';
+  if(/бридж|мост|^bridge/.test(name))return 'bridge';
+  if(/проигрыш|соло|инструментал|^solo|^instrumental/.test(name))return 'solo';
+  if(/аутро|кода|финал|^outro/.test(name))return 'outro';
+  return 'custom';
+ }
  function prepare(sec,cfg,seed,replaceEdited,overrideSwing,overrideRhythmVersion){
   const t=T(),track=t.track(cfg.trackId);if(!track||track.instrument!=='keys')return {ok:false,reason:'no-track'};
   // Own unedited generated cells are candidates for replacement, not manual.
   const patterns={...track.patterns};Object.keys(patterns).forEach(k=>{const v=patterns[k];if(v && v.type===TYPE && (v.status==='generated' || replaceEdited===true))delete patterns[k];});
-  const shadow={...track,patterns};let g=HOST.__keyModules.bridge.prepareSection({section:sec,track:shadow,trackId:cfg.trackId,tracks:t,formula:HOST.StruChordFormula.chordFormula,globalKey,globalTimeSig,bpm:getEffectiveBpm(sec),genre:cfg.primary,secondary:cfg.secondary,role:String(sec.type||'Verse').toLowerCase(),shapeAware:cfg.shapeAware===true,strictShape:cfg.followShape===true,selectedShape,swing:!!cfg.swing,sectionSwing:typeof overrideSwing==='boolean'?overrideSwing:(()=>{let p=track.patterns['s:'+sec.id];return p && typeof p.swing==='boolean'?p.swing:null})(),rhythmVersion:overrideRhythmVersion===2 || (overrideRhythmVersion==null && track.patterns['s:'+sec.id] && track.patterns['s:'+sec.id].rhythmVersion===2)?2:1,seed:seed|0,saturation:Number.isInteger(track.saturation)?track.saturation:null});   // 0.795 (№22)
+  const shadow={...track,patterns};let g=HOST.__keyModules.bridge.prepareSection({section:sec,track:shadow,trackId:cfg.trackId,tracks:t,formula:HOST.StruChordFormula.chordFormula,globalKey,globalTimeSig,bpm:getEffectiveBpm(sec),genre:cfg.primary,secondary:cfg.secondary,role:sectionRole(sec),shapeAware:cfg.shapeAware===true,strictShape:cfg.followShape===true,selectedShape,swing:!!cfg.swing,sectionSwing:typeof overrideSwing==='boolean'?overrideSwing:(()=>{let p=track.patterns['s:'+sec.id];return p && typeof p.swing==='boolean'?p.swing:null})(),rhythmVersion:overrideRhythmVersion===2 || (overrideRhythmVersion==null && track.patterns['s:'+sec.id] && track.patterns['s:'+sec.id].rhythmVersion===2)?2:1,seed:seed|0,phraseSeed:cfg.phraseModel===1?cfg.phraseSeed:null,saturation:Number.isInteger(track.saturation)?track.saturation:null});   // 0.800
   if(!g.ok)return g;
   const specs=specifications(sec,cfg.trackId), writes=[],clear=[];
   for(const spec of specs){const old=track.patterns[spec.key];if(Object.prototype.hasOwnProperty.call(g.events,spec.key)){
@@ -51821,8 +51858,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
     var swingRow=element('label','tools-label b39-auto-select'), swing=element('input');swing.type='checkbox';swing.id='b39AutoSwing';swing.checked=!!(cfg && cfg.trackId===dialogTrack && cfg.swing===true);
     swingRow.appendChild(swing);    swingRow.appendChild(element('span','','Swing'));box.appendChild(swingRow);
     var satRow=element('label','tools-label b39-auto-select'), sat=element('input');sat.type='range';sat.id='b39AutoSaturation';sat.min='0';sat.max='100';sat.step='1';sat.value=String(Number.isInteger(track.saturation)?track.saturation:50);sat.setAttribute('aria-label','Насыщенность');   // 0.795 (№22)
-    var satVal=element('span','b39-auto-sat-val',sat.value);sat.addEventListener('input',function(){satVal.textContent=sat.value;});
-    satRow.appendChild(element('span','','Насыщенность'));satRow.appendChild(sat);satRow.appendChild(satVal);box.appendChild(satRow);saturationInput=sat;
+    satRow.appendChild(element('span','','Насыщенность'));satRow.appendChild(sat);box.appendChild(satRow);saturationInput=sat;
     // 0.795 (№22): чекбокса «Держаться выбранной формы» нет — при наличии ползунка насыщенности не нужен.
     var actions=element('div','b39-acc-actions'), cancel=element('button','b39-acc-action','Отмена'), apply=element('button','b39-acc-action b39-acc-save','Применить');
     cancel.type=apply.type='button';cancel.id='b39AutoCancel';apply.id='b39AutoApply';cancel.addEventListener('click',close);
@@ -51833,7 +51869,7 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
       var old=auto(), same=old && old.trackId===dialogTrack, managed=same?Object.assign({},old.managed):{}, selected=secs().slice();
       var conflicts=selected.filter(function(sec){var raw=track.patterns['s:'+sec.id];return raw && !(same && old.managed[String(sec.id)] && raw.autoGenerated===true);});
       if(conflicts.length && !HOST.confirm('Заменить собственные рисунки секций: '+conflicts.length+'? Если отказаться, они сохранятся; остальные выбранные секции обновятся.')) selected=selected.filter(function(sec){return conflicts.indexOf(sec)<0;});
-      var next={primary:primary.value,secondary:secondary.value||null,trackId:dialogTrack,managed:managed,autoBass:true,swing:swing.checked,engine:'notes-v1',shapeAware:true};   // 0.795 (№22): followShape больше не выставляется из UI
+      var next={primary:primary.value,secondary:secondary.value||null,trackId:dialogTrack,managed:managed,autoBass:true,swing:swing.checked,engine:'notes-v1',shapeAware:true,phraseModel:1,phraseSeed:Math.floor(Math.random()*2147483648)};   // 0.800: new plans share a song-level rhythmic family   // 0.795 (№22): followShape больше не выставляется из UI
       var prepared=selected.map(function(sec){var N=HOST.StruChordNoteCandidate,previous=T().patternFor(next.trackId,'s:'+sec.id),start=previous && previous.autoGenerated===true ? N.variationOf(previous)+1 : 0;return {sec:sec,result:N.prepareVariation(sec,next,start)};});
       if(prepared.some(function(x){return !x.result.ok;})){if(HOST.showToast)HOST.showToast(prepared.some(function(x){return x.result.reason==='no-distinct-variation';}) ? 'Не удалось создать отличающийся рисунок без изменения настроек' : 'Не удалось создать партию: проверьте аккорды, размер и диапазон');return;}
       var keys=new Set(Object.keys(track.patterns));prepared.forEach(function(x){x.result.clear.forEach(function(k){keys.delete(k);});x.result.writes.forEach(function(w){keys.add(w.key);});keys.add('s:'+x.sec.id);});
