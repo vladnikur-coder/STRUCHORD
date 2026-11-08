@@ -1,3 +1,7 @@
+## 0.807 · 2026-11-08
+
+**B-13 · хотфикс вёрстки стартового меню в Safari.** По скриншоту владельца (2880×1800 Retina / 1440×900 CSS px, Safari, `--ui-scale: 1.25`) выполнен попиксельный замер: `.home-shell` (`min-height: calc(100vh - 5.5rem)`, без `height`) давал `507.5px` под `.home-main` (`display: flex; flex: 1 1 auto; min-height: 0`), а вложенный `.home-hub` (`display: grid; flex: 1 1 auto; align-content: center`) в WebKit получал `473 + 221 = 694px`, сдвигая блок кнопок вниз на `93.25px` поверх `.home-footer` («Песни сохраняются в этом браузере»). Вложенное flex-растяжение заменено на прямой блок `.home-main { display: block; flex: 0 0 auto; width: 100%; margin: auto 0 }` (`margin: 0 0 auto` при открытом `#homeLibraryView`) и `.home-shell:has(.home-hub:not([hidden])) .home-header { margin-bottom: 0 }`: меню симметрично центрируется между шапкой и подвалом и никогда не может наехать на `.home-footer`. R7: `ver 0.807` + `struchord-v807`.
+
 ## 0.806 · 2026-11-08
 
 **B-39 · комплексное исправление взаимодействия гитарных и клавишных дорожек.** Полный аудит и закрытие 11 групп багов при переключении, добавлении, перестановке и совместной работе дорожек Гитара ↔ Клавиши (решения владельца R8: `set_instrument_cleanup = clean_on_switch`, `multi_keys_auto_accomp = per_track`, `timeline_keys_rhythm = ruler_only`, `add_track_copy_scope = copy_full`):
