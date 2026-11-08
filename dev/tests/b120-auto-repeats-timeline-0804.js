@@ -230,15 +230,15 @@ setTimeout(() => {
 
     check('toggleTimelineMode(true) синхронно прогревает fingeringCache всех аккордов песни',
       tlRes.warmedSize >= 7, String(tlRes.warmedSize));
-    check('одноимённые секции нумеруются в #tlSecNav и заголовках полосы («Куплет 1», «Куплет 2»)',
-      JSON.stringify(tlRes.navLabels) === JSON.stringify(['Интро', 'Куплет 1 [1/2]', 'Куплет 1 [2/2]', 'Куплет 2']) &&
-      tlRes.headLabels[1].startsWith('Куплет 1') && tlRes.headLabels[3] === 'Куплет 2',
+    check('одноимённые секции нумеруются в #tlSecNav (одной пилюлей ×N) и заголовках полосы (1/N, 2/N)',
+      JSON.stringify(tlRes.navLabels) === JSON.stringify(['Интро', 'Куплет 1 [×2]', 'Куплет 2']) &&
+      tlRes.headLabels[1] === 'Куплет 1 1/2' && tlRes.headLabels[2] === 'Куплет 1 2/2' && tlRes.headLabels[3] === 'Куплет 2',
       JSON.stringify({ nav: tlRes.navLabels, heads: tlRes.headLabels }));
     check('в режиме Ленты знаки репризы |: :| не рисуются (повторы уже развёрнуты в полосу)',
       tlRes.tlOpenMarks === 0 && tlRes.tlCloseMarks === 0,
       JSON.stringify({ open: tlRes.tlOpenMarks, close: tlRes.tlCloseMarks }));
     check('во время проигрывания #tlSecNav идёт шаг-в-шаг со звучащим аккордом на всех границах и повторах',
-      tlRes.trace.length === 17 && tlRes.trace.every((t) => t.secIdx === t.navIdx && t.secPass === t.navPass),
+      tlRes.trace.length === 17 && tlRes.trace.every((t) => t.secIdx === t.navIdx),
       JSON.stringify(tlRes.trace));
 
     // 4. Редактирование аппликатуры на паузе в Ленте сразу обновляет панель «Сейчас»
