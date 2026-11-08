@@ -91,10 +91,10 @@
         ['Разреженные аккорды',[null,'H',null,null,'H',null,null,'H']],
         ['Свинговые акценты',['B',null,'H',null,null,'H',null,'H'],true],
         ['Бас и аккорды',['B',null,'H',null,'B','H',null,'H']]]],
-      ['soul','Соул',[
-        ['Мягкие аккорды',['H',null,null,null,'H',null,null,null]],
-        ['Перебор',['B',null,'A','t3','t5',null,'A',null]],
-        ['Пульс',['B',null,'H','H',null,'H','H',null]]]],
+      ['hiphop','Хип-хоп',[
+        ['Стабы на 1 и 3',['H',null,null,null,'H',null,null,null]],
+        ['Бас и синкопы',['B',null,null,'H',null,null,'H',null]],
+        ['Мелодичный луп',['B',null,'t3',null,'t5',null,'t3',null]]]],
       ['funk','Фанк',[
         ['Синкопы',[null,'H',null,'H',null,null,'H','H']],
         ['С паузами',['H',null,null,'H',null,'H',null,'H']],
@@ -148,12 +148,12 @@
         ['B',null,'H',null,null,'H','t5','H'],
         ['B','H',null,'H','B',null,'H','H'],
         ['B',null,'H',null,['B','H'],null,null,null]],
-      soul:[
-        ['B',null,null,'t3','H',null,null,null],
-        ['B',null,'t3','t5','H',null,'t3',null],
-        ['B',null,'t3','t5','H',null,'H','t5'],
-        [['B','H'],null,'t3','H','B',null,'H','t5'],
-        ['B',null,'t3','t5',['B','H'],null,null,null]],
+      hiphop:[
+        ['B',null,null,null,'H',null,null,null],
+        ['H',null,null,null,'H',null,null,'H'],
+        ['B',null,null,'H',null,null,'H',null],
+        [['B','H'],null,null,'H',null,null,'H',null],
+        ['B',null,null,null,['B','H'],null,null,null]],
       funk:[
         ['B',null,null,'H',null,null,'H',null],
         ['B',null,'H',null,null,'H',null,'H'],

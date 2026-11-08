@@ -10,7 +10,7 @@ const GENRES = Object.freeze({
   country: {chord:0.38, arp:0.26, offbeat:0.12, length:0.52},
   blues:   {chord:0.43, arp:0.16, offbeat:0.20, length:0.58},
   jazz:    {chord:0.30, arp:0.16, offbeat:0.32, length:0.52},
-  soul:    {chord:0.32, arp:0.21, offbeat:0.22, length:0.78},
+  hiphop:  {chord:0.52, arp:0.10, offbeat:0.14, length:0.86},
   funk:    {chord:0.42, arp:0.08, offbeat:0.37, length:0.32},
   fusion:   {chord:0.38, arp:0.24, offbeat:0.30, length:0.48}
 });
@@ -24,7 +24,7 @@ const GROOVES = Object.freeze({
  country: ['C.s.s.s.','C.ss.s.s','C.s.ps.s','C.ss.s..'],
  blues:   ['C..pC..p','C.p..p.s','C..sC.p.','C.p.s..p'],
  jazz:    ['C..p..p.','C.p..p..','C..p.p..','C...p..p'],
- soul:    ['C...p...','C..p..s.','C...p..s','C..s..p.'],
+ hiphop:  ['C.....s.','C...p..s','C..s...s','C.s...p.'],
  funk:    ['C.p.p..p','C..pp.p.','C.p..pp.','C..p.pp.'],
  fusion:  ['C.s.p.ss','C..sp.sp','C.sp.s.p','C.s..sps']
 });
@@ -34,8 +34,8 @@ const ROLE = Object.freeze({intro:0.72, verse:0.82, prechorus:1.0, chorus:1.16, 
 // Числа — замысел, а не измерение живого пианиста.
 const ROLE_LEVEL = Object.freeze({intro:46, verse:59, prechorus:68, chorus:76, bridge:59, solo:60, outro:49, custom:64});
 const ROLE_ARC = Object.freeze({intro:4, verse:6, prechorus:9, chorus:11, bridge:6, solo:6, outro:5, custom:6});
-// В jazz/funk/soul метрический акцент слабее: доли ровнее.
-const GENRE_METRIC = Object.freeze({pop:1, rock:1, punk:1.05, country:0.95, blues:0.85, jazz:0.58, soul:0.76, funk:0.7, fusion:0.65});
+// В jazz/funk метрический акцент слабее: доли ровнее; хип-хоп прямой, доли ровные.
+const GENRE_METRIC = Object.freeze({pop:1, rock:1, punk:1.05, country:0.95, blues:0.85, jazz:0.58, hiphop:0.95, funk:0.7, fusion:0.65});
 function hash01(a, b, c) {
   let n = (a ^ Math.imul((b | 0) + 1, 0x9e3779b1) ^ Math.imul((c | 0) + 1, 0x85ebca6b)) >>> 0;
   n ^= n >>> 16; n = Math.imul(n, 0x7feb352d); n ^= n >>> 15; n = Math.imul(n, 0x846ca68b); n ^= n >>> 16;
@@ -57,7 +57,7 @@ function metricAccent(stepInBar, meter, beatsPerBar) {
 // поэтому рисунок не перегенерируется.
 function applyDynamics(notes, o) {
   const barLen = o.beatsPerBar, meter = o.meter, total = Math.max(1e-6, o.totalBeats || 0);
-  const level = ROLE_LEVEL[o.role] ?? 75, metric = GENRE_METRIC[o.genre] ?? 1, arcAmp = ROLE_ARC[o.role] ?? 6;
+  const level = (ROLE_LEVEL[o.role] ?? 75) + (Number.isFinite(o.corpusVelocityOffset)?o.corpusVelocityOffset:0), metric = GENRE_METRIC[o.genre] ?? 1, arcAmp = ROLE_ARC[o.role] ?? 6;
   const groups = new Map();
   for (const n of notes) {
     const key = n.hand + ':' + Math.round(n.beat * 16);

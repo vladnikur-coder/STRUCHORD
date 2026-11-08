@@ -11,7 +11,7 @@ const pos=n=>Math.round((((n.beat%4)+4)%4)*4)%16;
 
 // 1. Рисунок не перегенерирован: совпадают высоты, начала и длительности.
 const fingerprint={};
-for(const genre of ['pop','rock','punk','country','blues','jazz','soul','funk','fusion'])for(const role of ['intro','verse','prechorus','chorus','bridge','outro'])for(let seed=1;seed<=6;seed++){
+for(const genre of ['pop','rock','punk','country','blues','jazz','hiphop','funk','fusion'])for(const role of ['intro','verse','prechorus','chorus','bridge','outro'])for(let seed=1;seed<=6;seed++){
   const g=generatePerformance({chords,low:48,high:72,bpm:96,meter:'4/4',genre,role,swing:false,rhythmVersion:2,seed});
   assert(g.ok,g.reason);
   fingerprint[genre+'/'+role+'/'+seed]=crypto.createHash('sha256').update(JSON.stringify(g.notes.map(x=>[x.hand,x.midi,+x.beat.toFixed(4),+x.duration.toFixed(4)]))).digest('hex').slice(0,16);
@@ -20,7 +20,7 @@ assert.equal(crypto.createHash('sha256').update(JSON.stringify(fingerprint)).dig
 
 // 2. Сила нот в допустимых пределах и целая.
 const all=[];
-for(const genre of ['pop','rock','punk','country','blues','jazz','soul','funk','fusion'])for(const role of ['intro','verse','prechorus','chorus','bridge','outro'])for(let seed=1;seed<=6;seed++){
+for(const genre of ['pop','rock','punk','country','blues','jazz','hiphop','funk','fusion'])for(const role of ['intro','verse','prechorus','chorus','bridge','outro'])for(let seed=1;seed<=6;seed++){
   const g=generatePerformance({chords,low:48,high:72,bpm:96,meter:'4/4',genre,role,swing:false,rhythmVersion:2,seed});
   for(const n of g.notes){assert(Number.isInteger(n.velocity)&&n.velocity>=30&&n.velocity<=118,'velocity '+n.velocity);all.push(n.velocity);}
 }
@@ -57,8 +57,8 @@ assert(bars[2]>bars[0]+2&&bars[3]<bars[2],'phrase should swell and ease before t
 const spread=role=>{const g=gen({role,genre:'pop'}),j=gen({role,genre:'jazz'});return [mean(g.notes.filter(n=>pos(n)===0).map(n=>n.velocity))-mean(g.notes.filter(n=>pos(n)%4===2).map(n=>n.velocity)),mean(j.notes.filter(n=>pos(n)===0).map(n=>n.velocity))-mean(j.notes.filter(n=>pos(n)%4===2).map(n=>n.velocity))];};
 const [popSpread,jazzSpread]=spread('chorus');
 assert(popSpread>jazzSpread,'jazz should accent the beat less than pop');
-assert.deepStrictEqual(gen({genre:'soul'}).notes.map(n=>n.velocity),gen({genre:'soul'}).notes.map(n=>n.velocity),'same seed, same dynamics');
-assert(gen({genre:'soul',seed:8}).notes.length>0,'another seed still generates');
+assert.deepStrictEqual(gen({genre:'hiphop'}).notes.map(n=>n.velocity),gen({genre:'hiphop'}).notes.map(n=>n.velocity),'same seed, same dynamics');
+assert(gen({genre:'hiphop',seed:8}).notes.length>0,'another seed still generates');
 
 // 6. Другие размеры и короткие секции не ломаются.
 for(const [meter,beats] of [['3/4',3],['6/8',3],['4/4',4],['4/4',16]]){
@@ -84,5 +84,5 @@ const proto=fs.readFileSync(path.resolve(__dirname,'../prototypes/keyboard-perfo
 const roleLine="const ROLE = Object.freeze({intro:0.72, verse:0.82, prechorus:1.0, chorus:1.16, bridge:0.94, solo:0.72, outro:0.62, custom:0.9});";
 const block=proto.slice(proto.indexOf(roleLine),proto.indexOf('\nconst METERS = Object.freeze('));
 assert(html.includes(block),'embedded generator drifted from dev/prototypes/keyboard-performance.js');
-assert(html.includes('applyDynamics(notes, {role, genre, meter, beatsPerBar, totalBeats:beat, seed});'),'HTML must apply dynamics');
+assert(html.includes('applyDynamics(notes, {role, genre, meter, beatsPerBar, totalBeats:beat, seed, corpusVelocityOffset:corpusProfile?corpusProfile.v*0.45:0});'),'HTML must apply dynamics');
 console.log('Keyboard dynamics: 13224 notes keep pitch and timing; '+(20*Math.log10(all[all.length-1]/all[0])).toFixed(1)+' dB span, chorus '+means.chorus.toFixed(1)+' vs intro '+means.intro.toFixed(1)+' — OK');

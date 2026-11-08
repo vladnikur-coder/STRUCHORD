@@ -5,18 +5,31 @@ from collections import defaultdict, Counter
 
 INPUT=sys.argv[1] if len(sys.argv)>1 else 'dev/audits/ezkeys-corpus.json'
 OUTPUT=sys.argv[2] if len(sys.argv)>2 else 'dev/audits/b39-corpus-groove-profiles.json'
-APP_GENRES=('pop','rock','punk','country','blues','jazz','soul','funk','fusion')
+APP_GENRES=('pop','rock','punk','country','blues','jazz','hiphop','funk','fusion')
 METERS=('4/4','3/4','6/8')
 ROLES=('intro','verse','prechorus','chorus','bridge','solo','outro','custom')
+
+# 0.802: the soul pool is dissolved (owner decision: hip-hop replaces soul in
+# the app). The 14 non-hip-hop soul-library folders were redistributed to the
+# nearest surviving pool by measured descriptor distance (candidates funk/pop):
+# phase-vector L1 + density/velocity/register z-scores over the supported-meter
+# rows. gospel organs and retro soul/rnb land in funk; ballads, R&B, neo-soul
+# and classic soul land in pop. See dev/specs/b39-hiphop-genre-0802.md.
+SOUL_REDIST={
+ 'classic_soul':'pop','contemporary_r&b':'pop','contemporary_soul_ballads':'pop',
+ 'detroit_soul':'pop','ekx_soul_roads':'pop','gospel':'funk','gospel_organ':'funk',
+ 'modern_soul':'pop','neo_soul':'pop','r&b_themes':'pop','retro_soul':'funk',
+ 'rnb':'funk','soul_organ':'funk','traditional_gospel':'pop'}
 
 # Folder names route reference pools to the app's broad genre families. The
 # measured descriptors, not these labels, are what select a groove candidate.
 def route(style):
  s=style.lower()
+ if 'hip-hop' in s: return 'hiphop'
+ if s in SOUL_REDIST: return SOUL_REDIST[s]
  if any(x in s for x in ('country','americana','folk','singer_songwriter')): return 'country'
  if any(x in s for x in ('blues','shuffle','boogie')): return 'blues'
  if any(x in s for x in ('jazz','big_band')): return 'jazz'
- if any(x in s for x in ('soul','gospel','r&b','rnb','hip-hop','detroit_soul')): return 'soul'
  if any(x in s for x in ('funk','disco','house','edm','reggae','techno','tropical')): return 'funk'
  if any(x in s for x in ('punk','metal','industrial','goth_rock')): return 'punk'
  if any(x in s for x in ('rock','aor','new_wave','british_invasion','seventies_prog')): return 'rock'
