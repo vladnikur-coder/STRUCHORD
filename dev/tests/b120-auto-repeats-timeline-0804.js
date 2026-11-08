@@ -32,8 +32,18 @@ function check(name, ok, detail) {
 }
 
 // --- Статические проверки CSS / кода ---
-check('CSS .tl-secnav-item имеет flex: 0 0 auto (не сжимается по вертикали)',
-  /\.tl-secnav-item\s*\{[^}]*flex:\s*0\s+0\s+auto/.test(HTML));
+check('CSS .tl-secnav-item имеет flex: 0 0 auto и геометрию пилюли .songmap-item (align-items: center, padding: 0.375rem 0.625rem)',
+  /\.tl-secnav-item\s*\{[^}]*flex:\s*0\s+0\s+auto/.test(HTML) &&
+  /\.tl-secnav-item\s*\{[^}]*align-items:\s*center/.test(HTML) &&
+  /\.tl-secnav-item\s*\{[^}]*padding:\s*0\.375rem\s+0\.625rem/.test(HTML) &&
+  /\.tl-secnav\s*\{[^}]*max-width:\s*11rem/.test(HTML));
+check('CSS .tl-secnav-item повторяет цветной ховер по типу секции и капсульный бейдж ×N из .songmap-item/.songmap-repeat',
+  ['verse', 'chorus', 'bridge', 'intro', 'outro', 'solo', 'pre-chorus'].every((t) =>
+    new RegExp(`\\.tl-secnav-item\\.${t}:hover\\s*\\{[^}]*color-mix\\(in srgb,\\s*var\\(--label-`).test(HTML)
+  ) &&
+  /\.tl-secnav-pass\s*\{[^}]*rgba\(var\(--color-accent-rgb\),\s*0\.12\)/.test(HTML) &&
+  /\.tl-secnav-pass\s*\{[^}]*border-radius:\s*var\(--border-radius-pill\)/.test(HTML) &&
+  /:root\s*\{[\s\S]*?--label-verse-bg:/.test(HTML));
 check('CSS .square--repeat-open/.square--repeat-close поднимает псевдоэлементы над фоном ячеек (z-index: 3)',
   /\.square--repeat-open\s+\.square-inner::before,\s*\.square--repeat-close\s+\.square-inner::after\s*\{[^}]*z-index:\s*3/.test(HTML));
 check('ручной контрол .struct-badge удалён из верстки и CSS',
@@ -240,6 +250,30 @@ setTimeout(() => {
     check('во время проигрывания #tlSecNav идёт шаг-в-шаг со звучащим аккордом на всех границах и повторах',
       tlRes.trace.length === 17 && tlRes.trace.every((t) => t.secIdx === t.navIdx),
       JSON.stringify(tlRes.trace));
+
+    const navClickRes = w.eval(`(() => {
+      if (playbackState.isPlaying) stopPlayback();
+      const btns = Array.from(document.querySelectorAll('#tlSecNav .tl-secnav-item'));
+      btns[1].click();
+      const after1 = {
+        secIdx: timelineStartPosition && timelineStartPosition.sectionIndex,
+        secPass: timelineStartPosition ? ((timelineStartPosition.sectionRepeatCount || {})['sec_1'] || 0) : -1,
+        curIdx: Number((document.querySelector('#tlSecNav .tl-secnav-item.is-current') || {}).dataset?.sectionIndex ?? -1),
+        pastCount: document.querySelectorAll('#tlSecNav .tl-secnav-item.is-past').length,
+      };
+      btns[2].click();
+      const after2 = {
+        secIdx: timelineStartPosition && timelineStartPosition.sectionIndex,
+        curIdx: Number((document.querySelector('#tlSecNav .tl-secnav-item.is-current') || {}).dataset?.sectionIndex ?? -1),
+        pastCount: document.querySelectorAll('#tlSecNav .tl-secnav-item.is-past').length,
+      };
+      return { after1, after2 };
+    })()`);
+    check('клик по пилюле #tlSecNav переводит Ленту на начало выбранной секции и отмечает пройденные',
+      navClickRes.after1.secIdx === 1 && navClickRes.after1.secPass === 0 &&
+      navClickRes.after1.curIdx === 1 && navClickRes.after1.pastCount === 1 &&
+      navClickRes.after2.secIdx === 2 && navClickRes.after2.curIdx === 2 && navClickRes.after2.pastCount === 2,
+      JSON.stringify(navClickRes));
 
     // 4. Редактирование аппликатуры на паузе в Ленте сразу обновляет панель «Сейчас»
     const pauseEditRes = w.eval(`(() => {
