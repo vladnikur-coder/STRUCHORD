@@ -15502,7 +15502,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.802</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.803</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -32322,6 +32322,18 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
     if (sat === null || !Array.isArray(notes) || notes.length < 2 || !range) return notes;
     var F = formula(), f = (F && typeof F.chordFormula === 'function') ? F.chordFormula(chordName, key) : null;
     if (!f) return notes;
+    // 0.803 (№27): кривая smoothstep в окне [from,to] и детерминированный хэш.
+    function satCurveBetween(v, from, to) {
+      var x = Math.max(0, Math.min(1, (v - from) / (to - from)));
+      return x * x * (3 - 2 * x);
+    }
+    function satHashStr(s, salt) {
+      var h = 2166136261 >>> 0;
+      s = String(s) + '#' + salt;
+      for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+      h ^= h >>> 13; h = Math.imul(h, 1274126177) >>> 0; h ^= h >>> 16;
+      return h / 4294967296;
+    }
     var out = notes.slice().sort(function (a, b) { return a - b; });
     var high = range.high;
     function nextPcAbove(pc) {
@@ -32335,11 +32347,14 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
       var lo = rh.length ? rh[0] : out[0];
       return (extra - lo) <= 15;   // потолок генератора, как везде (0.793)
     }
-    if (sat >= 60) {
+    // 0.803 (№27): плавные вероятности вместо порогов 60/80; решение
+    // детерминировано по (дорожка, аккорд) — одинаковые аккорды насыщаются
+    // одинаково, панель зеркалит звук.
+    if (satHashStr(trackId + '|' + chordName, 1) < satCurveBetween(sat, 40, 90)) {
       var dbl = nextPcAbove(f.rootPc);
       if (dbl !== null && spanOk(dbl)) out.push(dbl);
     }
-    if (sat >= 80 && Array.isArray(f.tones)) {
+    if (satHashStr(trackId + '|' + chordName, 2) < satCurveBetween(sat, 70, 100) && Array.isArray(f.tones)) {
       var extPc = null;
       for (var j = 0; j < f.tones.length; j++) if (f.tones[j].semitones === 21) { extPc = f.tones[j].pitchClass; break; }   // 13-я
       if (extPc === null) for (var k = 0; k < f.tones.length; k++) if (f.tones[k].semitones === 14) { extPc = f.tones[k].pitchClass; break; }   // 9-я
@@ -50979,7 +50994,7 @@ function movement(a, b) {
   return d[a.length][b.length];
 }
 function center(notes) { return (notes[0] + notes[notes.length-1]) / 2; }
-function candidates({low, high, bassPc, tones, shape, strictShape, preferDoubling}) {
+function candidates({low, high, bassPc, tones, shape, strictShape, preferDoubling, preferShell}) {
   if (!Number.isInteger(low) || !Number.isInteger(high) || low < 0 || high > 127 || low > high ||
       !Number.isInteger(bassPc) || !Array.isArray(tones) || !tones.length) throw new TypeError('Invalid voicing request');
   const pcs = [];
@@ -51007,13 +51022,17 @@ function candidates({low, high, bassPc, tones, shape, strictShape, preferDoublin
       choices.push(base.concat(base[0]));
       choices.push(base.concat(base[2]));
     }
+    // 0.803 (№27): «беднее нормы» — 2-нотный шелл; для септаккордов есть и
+    // вариант корень+7-я (джазовый шелл), выбор остаётся за стоимостью.
+    if (count===2 && preferShell && pcs.length>=4) choices.push([pcs[0],pcs[3]]);
     for (const choice of choices) for (const right of enumerateHand(choice,low,high,12)) for (const bass of basses) {
       if (bass >= right[0]) continue;
       const omitted=pcs.slice(count);
       const target=selected.length>1 ? center(selected.slice(1)) : Math.min(high,Math.max(low,64));
       const shapeCost=selected.length>1 ? movement(selected.slice(1),right)*0.35 + Math.abs(selected[0]-bass)*0.15 : 0;
       const doubleBonus=choice.length>base.length ? 12 : 0;
-      const cost=Math.abs(center(right)-target)*0.8 + Math.abs(bass-43)*0.35 + (Math.min(4,pcs.length)-count)*14 + shapeCost-doubleBonus;
+      const shellBonus=preferShell && count===2 ? (Math.min(4,pcs.length)-count)*14+16 : 0;   // 0.803 (№27): шелл решительно выигрывает у полного голосоведения
+      const cost=Math.abs(center(right)-target)*0.8 + Math.abs(bass-43)*0.35 + (Math.min(4,pcs.length)-count)*14 + shapeCost-doubleBonus-shellBonus;
       out.push({left:[bass],right,omitted,cost});
     }
   }
@@ -51037,17 +51056,30 @@ function planVoicing(options) {
   }
   return best?clean(best):null;
 }
-function planSequence({chords,low,high,bpm,role,saturation}) {   // 0.795 (№22)
+// 0.803 (№27): плавная кривая насыщенности (smoothstep) и детерминированный
+// хэш (seed, аккорд) для вероятностных решений генератора.
+function satSmooth(t) { t=Math.max(0,Math.min(1,t)); return t*t*(3-2*t); }
+function satHash(seed,i,salt) { let h=(seed|0)>>>0; h=Math.imul(h^Math.imul(i+1,0x85ebca6b),0xc2b2ae35); h=Math.imul(h^(salt|0),0x27d4eb2f); h^=h>>>15; h=Math.imul(h,0x2545f491); h^=h>>>13; return (h>>>0)/4294967296; }
+function planSequence({chords,low,high,bpm,role,saturation,seed}) {   // 0.795 (№22); 0.803 (№27): seed для кривых насыщения
   if (!Array.isArray(chords) || !chords.length || chords.length>256 || !Number.isFinite(bpm) || bpm<=0) throw new TypeError('Invalid sequence');
   const layers=[];
   for (let i=0;i<chords.length;i++) {
     const chord=chords[i];
     // Full voicings are a section-level choice, not random isolated inserts.
     // Leave short and fast changes sparse; the path still prefers smooth motion.
-    // 0.795 (№22): удвоение корня/квинты — по ползунку насыщенности; absent — прежнее правило припева.
+    // 0.803 (№27): насыщенность = богатство звука. Удвоение корня/квинты —
+    // плавная вероятность smoothstep((sat-40)/50); ниже нормы — «бедный»
+    // 2-нотный шелл (корень+3-я/7-я) с вероятностью smoothstep((40-sat)/40).
+    // Окна не пересекаются: доступность нот аккорда монотонна по ползунку.
+    // absent — прежнее правило припева (0.795).
     const satN=Number.isInteger(saturation)?saturation:null;
-    const preferDoubling=chord.beats>=2 && bpm<=140 && (satN===null ? role==='chorus' : satN>=60);
-    const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones,shape:chord.shape,strictShape:chord.strictShape,preferDoubling});
+    let preferDoubling=false, preferShell=false;
+    if (satN===null) preferDoubling=chord.beats>=2 && bpm<=140 && role==='chorus';
+    else {
+      preferDoubling=chord.beats>=2 && bpm<=140 && satHash(seed,i,1)<satSmooth((satN-40)/50);
+      preferShell=!preferDoubling && satHash(seed,i,2)<satSmooth((40-satN)/40);
+    }
+    const list=candidates({low,high,bassPc:chord.bassPc,tones:chord.tones,shape:chord.shape,strictShape:chord.strictShape,preferDoubling,preferShell});
     if (!list.length) return {ok:false,reason:'no-playable-candidate',chordIndex:i};
     const layer=[];
     if (!i) for (const v of list) layer.push({v,total:v.cost,previous:-1});
@@ -51225,7 +51257,7 @@ function generatePerformance(options) {
   for (const chord of chords) {
     if (!chord || !Number.isFinite(chord.beats) || chord.beats < 0.25 || chord.beats > 32 || chord.beats * 4 !== Math.round(chord.beats * 4)) throw new TypeError('Chord duration must be sixteenth-note aligned');
   }
-  const planned=planSequence({chords,low,high,bpm,role,saturation});   // 0.795 (№22)
+  const planned=planSequence({chords,low,high,bpm,role,saturation,seed});   // 0.795 (№22); 0.803 (№27): seed для кривых насыщения
   if (!planned.ok) return {ok:false,reason:planned.reason,chordIndex:planned.chordIndex,notes:[],decisions:[]};
   const voices=planned.voices;
   for (let index = 0; index < chords.length; index++) {
@@ -51254,9 +51286,8 @@ function generatePerformance(options) {
       const bassBeat = downbeat || compoundMiddle || (meter !== '6/8' && Math.abs(local - Math.floor(beatsPerBar / 2)) < 1e-9);
       const isSixteenth = step % 2 === 1, isOff = step % 4 !== 0;
       const profile = secondary && local >= beatsPerBar - 1 ? GENRES[secondary] : GENRES[genre];
-      const satN = Number.isInteger(saturation) ? saturation : null;   // 0.795 (№22): ползунок насыщенности масштабирует плотность роли
       const profileDensity=corpusProfile?1+(corpusProfile.d-1)*0.45:1;
-      const strength = ROLE[role]*(satN===null?1:0.75+satN/250)*profileDensity, strong = downbeat ? 1 : (bassBeat ? 0.65 : 0.2);
+      const strength = ROLE[role]*profileDensity, strong = downbeat ? 1 : (bassBeat ? 0.65 : 0.2);   // 0.803 (№27): плотность — не насыщенность; ей станет «Интенсивность» (№28)
       const sectionStart = step === firstStep;
       const choose = lane => motifRandom(seed,step,beatsPerBar,lane);
       const left = sectionStart || (bassBeat && choose(0) < Math.min(0.95, 0.57 * strength));

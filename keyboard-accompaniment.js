@@ -800,10 +800,20 @@
       if (m === null) for (x = high; x >= low; x--) if (mod12(x) === pc) { m = x; break; }
       return m;
     }
-    function applyExtensionAccent(steps, C, beats, sub) {
+    // 0.803 (№27): детерминированный хэш такта для вероятностного акцента 13/9.
+    function accentRand(s) {
+      var h = 2166136261 >>> 0;
+      s = String(s);
+      for (var i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+      h ^= h >>> 13; h = Math.imul(h, 1274126177) >>> 0; h ^= h >>> 16;
+      return h / 4294967296;
+    }
+    function applyExtensionAccent(steps, C, beats, sub, p, hbase) {
       if (!Array.isArray(steps) || !steps.length) return steps;
       var perBar = Math.max(1, Math.round((Number(beats) || 1) * (Number(sub) || 1)));
       for (var bar = 0; bar < steps.length; bar += perBar) {
+        // 0.803 (№27): плавная вероятность вместо порога — такт решает хэш.
+        if (p < 1 && accentRand(hbase + '#' + (bar / perBar)) >= p) continue;
         var end = Math.min(bar + perBar, steps.length);
         for (var k = end - 1; k >= bar; k--) {
           var st = steps[k], tk = st.token;
@@ -834,7 +844,8 @@
     // включён): сохранённые партии не меняют звучание. У новых дорожек false.
     function endAccentEnabled(o) {
       var T = HOST.StruChordTracks, t = T && typeof T.track === 'function' && o && o.trackId ? T.track(o.trackId) : null;
-      if (t && Number.isInteger(t.saturation)) return t.saturation >= 80;   // 0.795 (№22): акцент 13/9 от ползунка насыщенности
+      // 0.803 (№27): вероятность 0..1 — smoothstep((sat-70)/30), окно 70–100.
+      if (t && Number.isInteger(t.saturation)) { var ax = Math.max(0, Math.min(1, (t.saturation - 70) / 30)); return ax * ax * (3 - 2 * ax); }
       return !t || t.endAccent !== false;
     }
     function plan(o) {
@@ -859,6 +870,8 @@
       var notes = (Array.isArray(o.notes) ? o.notes : [])
         .map(Number).filter(isMidi).slice().sort(asc);
       var ev = o.ev || {};
+      // 0.803 (№27): вероятность акцента 13/9 и детерминированная база хэша.
+      var eaP = endAccentEnabled(o), eaBase = o.trackId + '|' + (o.sec && o.sec.id || '') + '|' + (o.sq || 0);
       var span = Math.max(0.25, Number(o.span) || Number(ev.span) || 1);
       var dur = Math.max(0.05, Number(o.dur) || 0.5);
       var unit = dur / span;
@@ -876,7 +889,7 @@
       // Явные пресеты, включая сохранённый keys-block, не меняем.
       if (cfg.source === 'default') {
         var single=[{index:0,stepIndex:0,token:'H',at:0,dur:dur,notes:tokenNotes('H',C,function(){return 0;}),subdivision:sub,swing:false,type:cfg.type,source:cfg.source}];
-        if (endAccentEnabled(o)) applyExtensionAccent(single, C, span, sub);   // 0.789/0.793: 13-я/9-я сверху, если опция включена
+        if (eaP > 0) applyExtensionAccent(single, C, span, sub, eaP, eaBase);   // 0.789/0.793; 0.803 (№27): плавная вероятность
         // 0.782: pad держит гармонию и без сохранённого рисунка.
         var shaped = articulate(single, o);
         if (!o.noHighlight && o.ctx && typeof o.evStart === 'number') scheduleHighlights(o,shaped);
@@ -937,7 +950,7 @@
       // 0.789 (B-117): автоплан «как пианист» — в блоковых рисунках
       // последний аккорд такта получает сверху 13-ю (или 9-ю), если эта
       // ступень есть в аккорде. Ручные рисунки (ячейка / manual) не трогаем.
-      if (endAccentEnabled(o) && cfg.source !== 'cell' && !(o.pattern && o.pattern.status === 'manual')) out = applyExtensionAccent(out, C, beats, sub);
+      if (eaP > 0 && cfg.source !== 'cell' && !(o.pattern && o.pattern.status === 'manual')) out = applyExtensionAccent(out, C, beats, sub, eaP, eaBase);   // 0.803 (№27): плавная вероятность
       out = articulate(out, o);   // 0.776: исполнение зависит от тембра
       if (!o.noHighlight && o.ctx && typeof o.evStart === 'number') scheduleHighlights(o, out);
       if (stepObserver) {

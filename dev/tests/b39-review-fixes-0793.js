@@ -179,14 +179,14 @@ for (const [needle, label] of [
   ["raw.endAccent===false ? {endAccent:false} : {}", 'старые песни: поля нет = акцент как в 0.789'],
   ['function endAccentEnabled(o)', 'endAccentEnabled в plan-модуле'],
   ['Math.max(Math.max.apply(null, rh), ext) - Math.min.apply(null, rh) <= 15', 'проверка размаха для добавленной ноты'],
-  ['if (endAccentEnabled(o)) applyExtensionAccent(single', 'гейт акцента в default-ветке'],
+  ['if (eaP > 0) applyExtensionAccent(single', 'гейт акцента в default-ветке (0.803: вероятность)'],
 ]) {
   assert(HTML.includes(needle) || ACCOMP.includes(needle), 'нет: ' + label);
 }
 assert(!HTML.includes('обращение \' + (cur2.inv'), 'старой подписи «обращение i/n» нет');
 // 0.795 (№22): чекбокс «13/9 в конце такта» убран из UI — акцент идёт от ползунка насыщенности.
 assert(!HTML.includes("acc.id='b39AutoEndAccent'"), 'чекбокс «Выделять 13/9 в конце такта» убран (0.795)');
-assert(ACCOMP.includes('t.saturation >= 80'), 'акцент 13/9 теперь от насыщенности >= 80 (0.795)');
+assert(ACCOMP.includes('var ax = Math.max(0, Math.min(1, (t.saturation - 70) / 30)); return ax * ax * (3 - 2 * ax);'), 'акцент 13/9: плавная кривая smoothstep((sat-70)/30) (0.803, №27)');
 ok('UI/модель: toggl/счётчик убраны (0.795), endAccent plumbing, лимит 15 — на месте');
 
 console.log('\n0.793 (ревью преподавателя, актуально на 0.794): все проверки пройдены (' + groups + ' групп)');
