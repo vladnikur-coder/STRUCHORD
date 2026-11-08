@@ -15441,7 +15441,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.807</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.808</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -63499,14 +63499,21 @@ function renderRhythmTrack() {
     // (см. комментарий у getSquareEventVisualOffsetUnits).
     const barOffset = getSquareEventVisualOffsetUnits(sq, ei, parentTs);
 
-    // Деления линейки и счёт под ней.
+    // Деления линейки и счёт под ней: шагаем по узлам метрической сетки
+    // квадрата (nIdx / stepsPerBeat), а не от 0 внутри ячейки. Иначе при
+    // синкопе на шестнадцатую/восьмую (например, C 1.75 -> G 2.25 в Oasis,
+    // barOffset = 1.75) начало ячейки ошибочно считалось целой долей:
+    // пропадали цифры «3» и «4», слоги «та и та» сдвигались, а штрихи
+    // is-beat ставились на четвёртые шестнадцатые вместо долей.
     const stepsPerBeat = Math.max(1, Math.round(div));
-    const total = Math.round(beats * stepsPerBeat);
-    for (let k = 0; k < total; k++) {
-      const beatPos = k / stepsPerBeat;          // долей от начала ячейки
-      const isBeat = k % stepsPerBeat === 0;
-      const absBeat = barOffset + beatPos;
-      const isBar = isBeat && Math.abs(absBeat % beatsPerBar) < 1e-6;
+    const firstIdx = Math.ceil(barOffset * stepsPerBeat - 1e-6);
+    for (let nIdx = firstIdx; nIdx / stepsPerBeat < barOffset + beats - 1e-6; nIdx++) {
+      const node = nIdx / stepsPerBeat;
+      const beatPos = node - barOffset;          // долей от начала ячейки
+      const subIndex = ((nIdx % stepsPerBeat) + stepsPerBeat) % stepsPerBeat;
+      const isBeat = subIndex === 0;
+      const absBeat = isBeat ? Math.round(node) : node;
+      const isBar = isBeat && (absBeat % beatsPerBar === 0);
       const x = left + (beatPos / beats) * width;
 
       const tick = document.createElement('div');
@@ -63514,7 +63521,7 @@ function renderRhythmTrack() {
       tick.style.left = x + 'px';
       frag.appendChild(tick);
 
-      const label = countLabelFor(absBeat, k % stepsPerBeat, stepsPerBeat, beatsPerBar);
+      const label = countLabelFor(absBeat, subIndex, stepsPerBeat, beatsPerBar);
       if (label) {
         const cnt = document.createElement('div');
         cnt.className = 'tl-count' + (isBeat ? ' is-beat' : '');
