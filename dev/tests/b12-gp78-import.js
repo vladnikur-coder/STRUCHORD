@@ -140,8 +140,10 @@ function currentState() {
     metadata: { artist: DOM.songArtist.value, title: DOM.songTitle.value },
     sections: sections.map((section) => ({
       id: section.id, type: section.type, customName: section.customName, timeSig: section.timeSig,
-      squares: section.squares.map((square) => ({
-        repeat: square.repeat, repeatOpen: square.repeatOpen, repeatClose: square.repeatClose,
+      squares: section.squares.map((square, sqIdx) => ({
+        repeat: square.repeat,
+        autoRepeatOpen: structureRepeatOpen(section, square, sqIdx),
+        autoRepeatClose: structureRepeatClose(section, square, sqIdx),
         volta: square.volta, mark: square.mark, jump: square.jump, eventCount: square.events.length,
       })),
     })),
@@ -204,10 +206,9 @@ function currentState() {
   check('GPIF source name, GM program and MIDI channel are retained on every selected role',
     gp8Guitar?.sourceName === 'Гитара' && gp8Keys?.sourceName === 'Клавиши' && gp8Drums?.sourceName === 'Ударные' &&
     [gp8Guitar, gp8Keys, gp8Drums].every((part) => Number.isInteger(part.gmProgram) && Number.isInteger(part.midiChannel)));
-  check('repeat start/end, three passes, first volta, Fine and D.C. target are mapped',
-    firstSquare?.repeatOpen === true && lastSquare?.repeatClose === true && lastSquare.repeat === 3 &&
-    lastSquare.volta === 1 && lastSquare.mark === 'fine' &&
-    lastSquare.jump?.type === 'dc' && lastSquare.jump?.target === 'fine',
+  check('three passes survive import and manual structure signs are stripped cleanly (0.804)',
+    lastSquare?.repeat === 3 && lastSquare.autoRepeatOpen === true && lastSquare.autoRepeatClose === true &&
+    lastSquare.volta === undefined && lastSquare.mark === undefined && lastSquare.jump === undefined,
     JSON.stringify({ firstSquare, lastSquare }));
   check('report identifies ZIP64, preserved attachments, and the best-effort GPIF caveat',
     report.textContent.includes('Контейнер ZIP64 прочитан') && report.textContent.includes('аудио 1, изображения 1') &&
@@ -222,21 +223,23 @@ function currentState() {
 
   // B-12.9.8: кнопка «Экспорт» спрашивает формат; JSON песни качает exportStruchordFile.
   const exported = await w.exportStruchordFile();
-  check('export serializes lyrics, repeat markers, volta/jump data, and inline attachment bytes',
+  check('export serializes lyrics, square repeat count, and inline attachment bytes (without legacy volta/jump)',
     exported.parts[0].lyrics?.some((lyric) => lyric.text === 'текст' && lyric.secId === exported.sections[0].id && lyric.dur > 0) &&
-    exported.sections[0].squares[0].repeatOpen === true &&
-    exported.sections[1].squares.at(-1).repeatClose === true &&
-    exported.sections[1].squares.at(-1).volta === 1 &&
+    exported.sections[1].squares.at(-1).repeat === 3 &&
+    exported.sections[1].squares.at(-1).volta === undefined &&
+    exported.sections[1].squares.at(-1).jump === undefined &&
     exported.gpAssets?.length === 2 && exported.gpAssets.every((asset) => typeof asset.data === 'string' && asset.data.length > 0),
     JSON.stringify({ lyrics: exported.parts[0].lyrics, lastSquare: exported.sections[1].squares.at(-1), assets: exported.gpAssets?.map((asset) => [asset.name, !!asset.data]) }));
   w.localStorage.setItem('struchord_songs', JSON.stringify([exported]));
   w.eval('gpMediaAssetData.clear()');
   w.loadSong(0);
   state = currentState();
-  check('saved/exported GP data reloads through schema sanitation without losing lyrics or structure',
+  check('saved/exported GP data reloads through schema sanitation without losing lyrics or repeat count',
     state.parts[0]?.lyrics?.some((lyric) => lyric.text === 'текст' && lyric.dur > 0) &&
-    state.sections[0]?.squares[0]?.repeatOpen === true &&
-    state.sections[1]?.squares.at(-1)?.jump?.target === 'fine', JSON.stringify({ lyrics: state.parts[0]?.lyrics, squares: state.sections.map((section) => section.squares) }));
+    state.sections[1]?.squares.at(-1)?.repeat === 3 &&
+    state.sections[1]?.squares.at(-1)?.autoRepeatOpen === true &&
+    state.sections[1]?.squares.at(-1)?.autoRepeatClose === true,
+    JSON.stringify({ lyrics: state.parts[0]?.lyrics, squares: state.sections.map((section) => section.squares) }));
   check('inline audio and image payloads restore after clearing the in-memory asset cache',
     state.gpAssets.length === 2 && state.gpAssets.every((asset) => state.assetIds.includes(asset.id)),
     JSON.stringify({ assets: state.gpAssets, ids: state.assetIds }));

@@ -153,8 +153,9 @@ function songState() {
     globalTimeSig: (sections[0] && sections[0].timeSig) || '4/4',
     sections: (sections || []).map((s) => ({ id: s.id, type: s.type, customName: s.customName,
       repeat: s.repeat, squares: (s.squares || []).length,
-      squareMarks: (s.squares || []).map((square) => ({ repeat: square.repeat, repeatOpen: square.repeatOpen,
-        repeatClose: square.repeatClose, mark: square.mark })) })),
+      squareMarks: (s.squares || []).map((square, sqIdx) => ({ repeat: square.repeat,
+        repeatOpen: structureRepeatOpen(s, square, sqIdx),
+        repeatClose: structureRepeatClose(s, square, sqIdx) })) })),
     parts: (songParts || []).map((p) => ({
       name: p.name, instrument: p.instrument, capo: p.capo || 0, strings: p.strings || null, tuning: p.tuning || null,
       mix: p.mix || null, gmProgram: p.gmProgram === undefined ? null : p.gmProgram,
@@ -407,8 +408,8 @@ w.addEventListener('load', async () => {
     const slide = findNote((note) => note.effect.slide);
     check('слайд записан одним байтом типа 2 (легато)', !!slide && slide.effect.slide === 2,
       JSON.stringify(slide && slide.effect.slide));
-    check('вольта второго такта записана маской окончаний',
-      (gp5.measureHeaders[1] || {}).alternateEndings === 1,
+    check('ручная вольта из старых данных очищается (0.804) и не попадает в GP5',
+      !(gp5.measureHeaders[1] || {}).alternateEndings,
       JSON.stringify(gp5.measureHeaders[1]));
     check('вольта не появилась на первом такте',
       !(gp5.measureHeaders[0] || {}).alternateEndings,
