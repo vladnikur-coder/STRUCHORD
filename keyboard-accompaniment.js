@@ -442,7 +442,7 @@
     // прежние песни без поля swing продолжают наследовать старый ритм.
     function inheritedAutoSwing(trackId, sec, source) {
       var T=tracks(), sid=sec && typeof sec==='object' ? sec.id : sec, state=T && T.state(), track=T && T.track(trackId);
-      var raw=track && track.patterns && track.patterns['s:'+sid], cfg=state && state.autoAccomp;
+      var raw=track && track.patterns && track.patterns['s:'+sid], cfg=T && typeof T.autoAccompFor==='function' ? T.autoAccompFor(trackId) : (state && state.autoAccomp);
       if(source==='cell' && raw && raw.autoSwing===true && typeof raw.swing==='boolean') return raw.swing;
       if(cfg && cfg.trackId===trackId && cfg.managed[String(sid)] && typeof cfg.swing==='boolean') return cfg.swing;
       if(raw && raw.autoSwing===true && typeof raw.swing==='boolean') return raw.swing;
@@ -548,9 +548,10 @@
         return (t && t.timbre) || 'acoustic';
       } catch (e) { return 'acoustic'; }
     }
-    function genreFactor() {
+    function genreFactor(trackId) {
       try {
-        var cfg = tracks() && tracks().state() && tracks().state().autoAccomp;
+        var T = tracks();
+        var cfg = T && typeof T.autoAccompFor === 'function' ? T.autoAccompFor(trackId) : (T && T.state() && T.state().autoAccomp);
         var main = cfg && cfg.primary;
         var f = main && DENSE_GENRE_FACTOR[main];
         return typeof f === 'number' ? f : 1;
@@ -701,7 +702,7 @@
       var ownGenre = preset(o.pattern && o.pattern.type);
       var dense = ownGenre && DENSE_GENRE_FACTOR[ownGenre.genre] !== undefined
         ? DENSE_GENRE_FACTOR[ownGenre.genre] < 1
-        : genreFactor() < 1;
+        : genreFactor(o && o.trackId) < 1;
       if (dense) {
         var withHalf = at.slice();
         at.forEach(function (b) { if (b + bar / 2 < beats - 1e-6) withHalf.push(b + bar / 2); });
@@ -1078,7 +1079,7 @@
       footEl = el('div', 'pattern-hint'); panel.appendChild(footEl);
       var regen=el('button','b39-acc-action','Создать другой рисунок');regen.id='b39AccRegenerate';regen.type='button';regen.hidden=true;
       regen.addEventListener('click',function(){
-        var T=tracks(), state=T && T.state(), cfg=state && state.autoAccomp, sec;
+        var T=tracks(), state=T && T.state(), cfg=T && typeof T.autoAccompFor==='function' ? T.autoAccompFor(editingTrackId) : (state && state.autoAccomp), sec;
         try {sec=sections.find(function(s){return String(s.id)===String(current.secId);});}catch(e){}
         if(!sec || !cfg || cfg.trackId!==editingTrackId || !cfg.managed[String(sec.id)] || !HOST.StruChordAuto)return;
         var old=T.patternFor(editingTrackId,'s:'+sec.id), priorDraft;try{priorDraft=JSON.parse(originalDraft);}catch(e){priorDraft={};}
@@ -1276,7 +1277,7 @@
       if (swingBtn) { var allowed = draft.subdivision === 2 || draft.subdivision === 4; var enabled = draft.swing === true || !!inheritedSwing; swingBtn.hidden = !allowed; var label=doc.getElementById('b39AccSwingLabel');if(label)label.hidden=!allowed; swingBtn.checked=!!(allowed && enabled); swingBtn.classList.toggle('active', allowed && enabled); swingBtn.setAttribute('aria-pressed', String(allowed && enabled)); }
       if (scopeLabel) { scopeLabel.hidden = current.scope !== 'cell'; scopeLabel.textContent = current.scope === 'cell' ? 'только для этой ячейки' : ''; }
       var resetButton = doc.getElementById('b39AccReset'); if (resetButton) resetButton.textContent = current.scope === 'cell' ? 'Сбросить к секции' : 'Убрать паттерн';
-      var regen=doc.getElementById('b39AccRegenerate'), autoCfg=active && active.autoAccomp;
+      var regen=doc.getElementById('b39AccRegenerate'), TAcc=tracks(), autoCfg=TAcc && active && typeof TAcc.autoAccompFor==='function' ? TAcc.autoAccompFor(active.activeTrackId) : (active && active.autoAccomp);
       if(regen) regen.hidden=!(current.scope==='section' && autoCfg && autoCfg.trackId===active.activeTrackId && autoCfg.managed[String(current.secId)]);
       renderLength(); renderSteps(); renderStepChoice();
       if (footEl) {
@@ -1416,7 +1417,7 @@
       // Не оставлять раскрытый гитарный строй при смене активной дорожки.
       var tuningList = doc.getElementById('tuningPickerList');
       if (on && tuningList && !tuningList.hidden && typeof HOST.toggleTuningPicker === 'function') HOST.toggleTuningPicker(false);
-      // Кнопок клавишных окон на гитаре нет — значит и открытые окна закрываем.
+      // Кнопок несовместимых окон на новой дорожке нет — закрываем открытые модалки старого типа.
       if (!on) {
         try {
           var K = HOST.StruChordKeys;
@@ -1426,6 +1427,14 @@
           }
         } catch (e) { /* чужой модуль не должен ломать режим */ }
         try { if (panel && !panel.hidden) closePanel(); } catch (e) { /* то же */ }
+        try { if (HOST.StruChordAuto && typeof HOST.StruChordAuto.close === 'function') HOST.StruChordAuto.close(); } catch (e) {}
+        try { if (HOST.StruChordNoteEditor && typeof HOST.StruChordNoteEditor.close === 'function') HOST.StruChordNoteEditor.close(); } catch (e) {}
+      } else {
+        try {
+          doc.querySelectorAll('.strum-modal-overlay').forEach(function (ov) {
+            if (typeof ov._closeGuitarModal === 'function') ov._closeGuitarModal();
+          });
+        } catch (e) {}
       }
       var nodes = doc.querySelectorAll('.chord-btn-strum, .strum-badge-wrap, [title*="Бой/перебор"], [data-b39-acc-label]');
       Array.prototype.forEach.call(nodes, function (n) {
