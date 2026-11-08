@@ -21,7 +21,8 @@ const swingLine=accompaniment.match(/presetSwing:style\[0\]==='blues'\s*\|\|\s*s
 assert(swingLine.length>=2,'свинг включён только у blues/jazz (семейства и исполнения)');
 assert(html.includes("var AUTO_GENRES = ['pop','rock','punk','country','blues','jazz','hiphop','funk','fusion'];"),'санитайзер: hiphop в списке');
 assert(!html.includes("'soul'"),'в HTML не осталось soul-жанра');
-assert(html.includes('· ver 0.802')&&sw.includes('struchord-v802'),'версия и кэш парой (R7)');
+const VER=(html.match(/· ver (\d+\.\d+)/)||[])[1];   // динамический R7-контракт (как в 0.785/0.800): тест живёт между волнами
+assert(VER&&sw.includes('struchord-v'+VER.replace(/^0\./,'')),'версия и кэш парой (R7): ver '+VER);
 
 // 2. Профили корпуса: soul растворён, hiphop из 516 файлов, фанк/поп поглотили папки.
 assert.deepStrictEqual(profiles.genres,GENRES,'билдер: 9 жанров с hiphop');
