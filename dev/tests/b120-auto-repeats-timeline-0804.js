@@ -234,8 +234,8 @@ setTimeout(() => {
       JSON.stringify(tlRes.navLabels) === JSON.stringify(['Интро', 'Куплет 1 [1/2]', 'Куплет 1 [2/2]', 'Куплет 2']) &&
       tlRes.headLabels[1].startsWith('Куплет 1') && tlRes.headLabels[3] === 'Куплет 2',
       JSON.stringify({ nav: tlRes.navLabels, heads: tlRes.headLabels }));
-    check('на полосе Ленты отрисованы автоматические репризы |: и :| для квадратов и секций',
-      tlRes.tlOpenMarks === 4 && tlRes.tlCloseMarks === 4,
+    check('в режиме Ленты знаки репризы |: :| не рисуются (повторы уже развёрнуты в полосу)',
+      tlRes.tlOpenMarks === 0 && tlRes.tlCloseMarks === 0,
       JSON.stringify({ open: tlRes.tlOpenMarks, close: tlRes.tlCloseMarks }));
     check('во время проигрывания #tlSecNav идёт шаг-в-шаг со звучащим аккордом на всех границах и повторах',
       tlRes.trace.length === 17 && tlRes.trace.every((t) => t.secIdx === t.navIdx && t.secPass === t.navPass),
