@@ -15750,7 +15750,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.811</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.812</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -87613,7 +87613,10 @@ function gpExportModal(title, bodyHtml, label) {
   let raf = 0;
   let drag = null;
   let audioZeroCtxTime = null;
+  let cachedBarGrid = null;
+  let syncPointMapCache = null;
   let pendingStart = null;
+  let lastDriftCorrectionAt = 0;
   let driftTimer = 0;
   let audioStartTimer = 0;
   let loadToken = 0;
@@ -87672,9 +87675,10 @@ function gpExportModal(title, bodyHtml, label) {
   function songIdentity() { try { const m = currentSongMetadata(); return String(m && (m.id || m.title) || 'current'); } catch (_) { return 'current'; } }
   function syncSongMeta() {
     const id = songIdentity();
-    if (id !== lastSongKey) { lastSongKey = id; meta = null; audioZeroCtxTime = null; }
+    if (id !== lastSongKey) { lastSongKey = id; meta = null; audioZeroCtxTime = null; cachedBarGrid = null; syncPointMapCache = null; }
   }
   function getBarGrid() {
+    if (cachedBarGrid) return cachedBarGrid;
     const out = []; let q = 0, bar = 0;
     (sections || []).forEach((sec, si) => {
       const ts = sec.timeSig || globalTimeSig || '4/4';
@@ -87698,11 +87702,16 @@ function gpExportModal(title, bodyHtml, label) {
         });
       }
     });
-    return { events: out.filter(x => !x.boundary), boundaries: out.filter(x => x.boundary), bars: bar, totalQ: q };
+    const events = out.filter(x => !x.boundary), boundaries = out.filter(x => x.boundary);
+    const eventByPosition = new Map(events.map(x => [positionKey(x.si, x.qi, x.ei, x.sp, x.qp), x]));
+    const boundaryByBar = new Map(boundaries.map(x => [x.bar, x]));
+    cachedBarGrid = { events, boundaries, eventByPosition, boundaryByBar, bars: bar, totalQ: q };
+    return cachedBarGrid;
   }
+  function positionKey(si, qi, ei, sp, qp) { return `${Number(si)||0}:${Number(qi)||0}:${Number(ei)||0}:${Number(sp)||0}:${Number(qp)||0}`; }
   function eventQuarter(si, qi, ei, secPass, sqPass) {
     const grid = getBarGrid();
-    const found = grid.events.find(x => x.si === si && x.qi === qi && x.ei === ei && x.sp === (Number(secPass)||0) && x.qp === (Number(sqPass)||0));
+    const found = grid.eventByPosition.get(positionKey(si, qi, ei, secPass, sqPass));
     if (found) return found.q;
     const sec = sections[si], sq = sec && sec.squares[qi], events = sq && (typeof getSquarePlaybackEvents === 'function' ? getSquarePlaybackEvents(sq, sec.timeSig || globalTimeSig) : sq.events);
     if (!sec || !sq) return 0;
@@ -87716,11 +87725,15 @@ function gpExportModal(title, bodyHtml, label) {
     for(let j=0;j<(Number(ei)||0);j++) q += Math.max(1/64, typeof getEventSpanInParentUnits === 'function' ? getEventSpanInParentUnits(events[j], sec.timeSig || globalTimeSig) : (Number(events && events[j] && events[j].span)||1))*unit;
     return q;
   }
-  function qAtBar(bar) { const grid=getBarGrid(), b=Math.max(0,Math.floor(Number(bar)||0)); if (b>=grid.bars) { const tail=sections&&sections.length?sections[sections.length-1]:null, sig=parseTimeSig((tail&&tail.timeSig)||globalTimeSig||'4/4'), one=sig.numerator*(4/sig.denominator); return grid.totalQ+Math.max(0,b-grid.bars)*one; } const hit=grid.boundaries.find(x=>x.bar===b); return hit ? hit.q : 0; }
+  function qAtBar(bar) { const grid=getBarGrid(), b=Math.max(0,Math.floor(Number(bar)||0)); if (b>=grid.bars) { const tail=sections&&sections.length?sections[sections.length-1]:null, sig=parseTimeSig((tail&&tail.timeSig)||globalTimeSig||'4/4'), one=sig.numerator*(4/sig.denominator); return grid.totalQ+Math.max(0,b-grid.bars)*one; } const hit=grid.boundaryByBar.get(b); return hit ? hit.q : 0; }
+  function syncPointMap() {
+    if (!syncPointMapCache) syncPointMapCache = (meta && meta.points || []).map(p => ({ q: qAtBar(p.bar), t: p.time }));
+    return syncPointMapCache;
+  }
   function tAtQ(q) {
-    const pts = meta && meta.points || []; const base = Number(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
-    if (!pts.length) return q * 60/base;
-    const list = pts.map(p=>({q:qAtBar(p.bar),t:p.time}));
+    const base = Number(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
+    const list = syncPointMap();
+    if (!list.length) return q * 60/base;
     if (list.length===1) return list[0].t + (q-list[0].q)*60/base;
     let a,b;
     if(q<=list[0].q){a=list[0];b=list[1];}
@@ -87740,8 +87753,8 @@ function gpExportModal(title, bodyHtml, label) {
   }
   function gridPayload() { return meta ? {...meta, points:meta.points.map(p=>({...p}))} : null; }
   function stateForSave() { return meta ? {...meta, points:meta.points.map(p=>({...p}))} : null; }
-  function captureEdit() { try { if (window.captureHistorySnapshot) window.captureHistorySnapshot(); } catch (_) {} }
-  function setMeta(next) { meta=cleanMeta(next); renderDrawer(); syncMixerUi(); }
+  function captureEdit() { syncPointMapCache=null; try { if (window.captureHistorySnapshot) window.captureHistorySnapshot(); } catch (_) {} }
+  function setMeta(next) { meta=cleanMeta(next); syncPointMapCache=null; renderDrawer(); syncMixerUi(); }
   function ensureAudio() {
     if (!audio) { audio=new Audio(); audio.preload='auto'; audio.setAttribute('playsinline',''); audio.preservesPitch=true; audio.mozPreservesPitch=true; audio.webkitPreservesPitch=true; audio.addEventListener('loadedmetadata',()=>{duration=audio.duration||duration; if(meta)meta.duration=duration;drawWave();}); }
     return audio;
@@ -87860,15 +87873,15 @@ function gpExportModal(title, bodyHtml, label) {
   function mainAudible(){return !!meta&&!meta.mute&&meta.volume>0&&(!hasOtherSolo()||meta.solo);}
   function audioAllowed(){return mainAudible()&&!missingAudio;}
   function stopAudio(){if(audioStartTimer){clearTimeout(audioStartTimer);audioStartTimer=0;}if(driftTimer){clearInterval(driftTimer);driftTimer=0;}if(audio){try{audio.pause();}catch(_){}audio.volume=meta&&meta.mute?0:(meta?meta.volume/100:0);audioZeroCtxTime=null;}}
-  function scheduleAudio(ctx, q, launchAt, targetOverride){if(!audioAllowed())return;const el=ensureAudio();el.volume=0;el.playbackRate=meta.speed;const target=Math.max(0,targetOverride===undefined?tAtQ(q):targetOverride),when=launchAt||ctx.currentTime,delay=Math.max(0,when-ctx.currentTime)*1000;if(audioStartTimer)clearTimeout(audioStartTimer);try{const warm=el.play();if(warm&&warm.catch)warm.catch(()=>{});}catch(_){}audioStartTimer=window.setTimeout(()=>{audioStartTimer=0;try{el.currentTime=clamp(target,0,Math.max(0,(duration||el.duration||target)-.02));el.volume=meta.mute?0:meta.volume/100;const p=el.play();if(p&&p.catch)p.catch(()=>{});}catch(_){}},delay);audioZeroCtxTime=when-target/meta.speed;if(driftTimer)clearInterval(driftTimer);driftTimer=setInterval(()=>{if(!audio||audio.paused||audioZeroCtxTime===null)return;const expected=Math.max(0,(ctx.currentTime-audioZeroCtxTime)*meta.speed);if(Math.abs(audio.currentTime-expected)>.045){try{audio.currentTime=expected;}catch(_){}}},300);}
+  function scheduleAudio(ctx, q, launchAt, targetOverride){if(!audioAllowed())return;const el=ensureAudio();el.volume=0;el.playbackRate=meta.speed;const target=Math.max(0,targetOverride===undefined?tAtQ(q):targetOverride),when=launchAt||ctx.currentTime,delay=Math.max(0,when-ctx.currentTime)*1000;if(audioStartTimer)clearTimeout(audioStartTimer);try{const warm=el.play();if(warm&&warm.catch)warm.catch(()=>{});}catch(_){}audioStartTimer=window.setTimeout(()=>{audioStartTimer=0;try{el.currentTime=clamp(target,0,Math.max(0,(duration||el.duration||target)-.02));el.volume=meta.mute?0:meta.volume/100;const p=el.play();if(p&&p.catch)p.catch(()=>{});}catch(_){}},delay);audioZeroCtxTime=when-target/meta.speed;lastDriftCorrectionAt=0;if(driftTimer)clearInterval(driftTimer);driftTimer=setInterval(()=>{if(!audio||audio.paused||audioZeroCtxTime===null)return;const now=performance.now(),expected=Math.max(0,(ctx.currentTime-audioZeroCtxTime)*meta.speed);if(Math.abs(audio.currentTime-expected)>.14&&now-lastDriftCorrectionAt>1200){lastDriftCorrectionAt=now;try{audio.currentTime=expected;}catch(_){}}},1000);}
   function preparePlaybackStart(ctx, state, launchBase, songStart){if(!meta)return songStart;const pos={sectionIndex:state.currentSectionIndex,squareIndex:state.currentSquareIndex,eventIndex:state.currentEventIndex,sectionRepeatCount:state._sectionRepeatCount,squareRepeatCount:state._squareRepeatCount};const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);const audioT=tAtQ(q), countIn=Math.max(0,songStart-launchBase), pickup=audioT-countIn*meta.speed;const audioStart=pickup>=0?launchBase:launchBase+Math.max(0,countIn-audioT/meta.speed);const target=pickup>=0?pickup:0;scheduleAudio(ctx,q,audioStart,target);return songStart;}
   function resolveScheduledEvent(ctx,si,qi,ei,sp,qp,evStart,span,ts,fallbackBpm){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp), sig=parseTimeSig(ts||globalTimeSig||'4/4'), quarters=Number(span||1)*(4/sig.denominator), native=tAtQ(q+quarters)-tAtQ(q), dur=native/meta.speed, bpm=dur>0?Math.round((60*quarters/dur)*10000)/10000:fallbackBpm;return {bpm,dur};}
   function getCountInBpm(state){if(!meta)return 0;return bpmAtQ(eventQuarter(state.currentSectionIndex,state.currentSquareIndex,state.currentEventIndex,(state._sectionRepeatCount||{})['sec_'+state.currentSectionIndex],(state._squareRepeatCount||{})['sq_'+state.currentSectionIndex+'_'+state.currentSquareIndex]),1)*meta.speed;}
   function consumePendingStartPosition(){const p=pendingStart;pendingStart=null;return p;}
   function syncPreviewToPosition(pos){if(!meta||!audio||playbackState.isPlaying)return;try{audio.currentTime=clamp(pointTimeForPosition(pos),0,Math.max(0,(duration||audio.duration||0)-.02));}catch(_){} }
   function seekDuringPlayback(pos){if(!meta||!pos)return;const ctx=typeof getAudioContext==='function'?getAudioContext():null;if(!ctx)return;const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);stopAudio();scheduleAudio(ctx,q,Math.max(ctx.currentTime+.02,Number(nextEventTime)||ctx.currentTime+.02));}
-  function invalidateGrid(){if(!meta)return;meta.points=normalizePoints(meta.points);drawWave();}
-  async function loadSong(song){const token=++loadToken;blobLoadToken++;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
+  function invalidateGrid(){cachedBarGrid=null;syncPointMapCache=null;if(!meta)return;meta.points=normalizePoints(meta.points);drawWave();}
+  async function loadSong(song){const token=++loadToken;blobLoadToken++;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
   async function exportSong(song, embed){if(!meta)return song;const out={...song,backingTrack:stateForSave()};return exportStoredSong(out,embed);}
   async function exportStoredSong(song,embed){const out={...song};const bt=cleanMeta(song&&song.backingTrack);if(!bt)return out;out.backingTrack=bt;if(embed){const blob=await dbGet(bt.id);if(blob){const buf=await blob.arrayBuffer();out.backingTrack={...bt,embedded:arrayBufferToBase64(buf)};}else toast('Аудиофайл недоступен; экспортирована только разметка синхронизации.');}return out;}
   function arrayBufferToBase64(buf){let s='';const b=new Uint8Array(buf);for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode(...b.subarray(i,i+0x8000));return btoa(s);}
@@ -87876,7 +87889,7 @@ function gpExportModal(title, bodyHtml, label) {
   function getBpmForBar(bar){const q=qAtBar(bar);const b=qAtBar(bar+1);return bpmAtQ(q,b-q||1);}
   function getBpmForEvent(si,qi,ei,sp,qp,span,ts){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp),sig=parseTimeSig(ts||globalTimeSig||'4/4'),dq=Number(span||1)*(4/sig.denominator);return bpmAtQ(q,dq);}
   function getFirstPassBpmForBar(bar){let q=0,b=0;for(const sec of sections||[]){const sig=parseTimeSig(sec.timeSig||globalTimeSig||'4/4'),quarters=sig.numerator*(4/sig.denominator);let sectionQ=0;for(let qi=0;qi<(sec.squares||[]).length;qi++){const count=Math.max(1,Number(sec.squares[qi].repeat)||1);for(let r=0;r<count;r++){if(b===bar)return bpmAtQ(q+sectionQ,quarters);b++;sectionQ+=quarters;}}q+=sectionQ*Math.max(1,Number(sec.repeat)||1);}return getBpmForBar(bar);}
-  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
+  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
   window.StruChordBackingTrack=api;
   const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();});};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready();

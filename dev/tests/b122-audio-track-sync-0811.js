@@ -76,8 +76,16 @@ setTimeout(async () => {
       assert.strictEqual(embeddedExport.backingTrack.embedded, w.btoa('RIFF'));
     });
     await bt.deleteAudio('embed-test');
-    check('sync grid follows expanded measures and retains an out-of-grid GP bar anchor', () => {
+    check('sync grid is cached across event lookups and retains an out-of-grid GP bar anchor', () => {
       w.document.getElementById('songTitle').value = 'Renamed while audio is attached';
+      const cachedGrid = bt.getBarGrid();
+      assert.strictEqual(bt.getBarGrid(), cachedGrid);
+      assert.strictEqual(cachedGrid.bars, 2);
+      w.eval('sections[0].repeat = 2');
+      bt.invalidateGrid();
+      assert.strictEqual(bt.getBarGrid().bars, 4);
+      w.eval('sections[0].repeat = 1');
+      bt.invalidateGrid();
       assert.strictEqual(bt.getBarGrid().bars, 2);
       assert.deepStrictEqual(Array.from(bt.state.points, p => p.bar), [0, 4]);
       assert.strictEqual(bt.state.id, 'b122-test-audio');
