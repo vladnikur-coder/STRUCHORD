@@ -276,6 +276,9 @@
       if (!track || track.mute) return 0;
       var anySolo = false;
       for (var i = 0; i < state.tracks.length; i++) if (state.tracks[i].solo) anySolo = true;
+      if (typeof window !== 'undefined' && window.StruChordBackingTrack &&
+          typeof window.StruChordBackingTrack.isSolo === 'function' &&
+          window.StruChordBackingTrack.isSolo()) anySolo = true;
       if (anySolo && !track.solo) return 0;
       var v = Number(track.volume);
       if (!Number.isFinite(v)) v = 100;
