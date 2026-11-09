@@ -15553,6 +15553,8 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         display: block;
         height: 6.75rem;
       }
+      .bt-wave-playhead { position: absolute; z-index: 2; top: 0; bottom: 0; width: 0.12rem; background: #ff5d62; box-shadow: 0 0 0.25rem rgba(0,0,0,.55); pointer-events: none; }
+      .bt-wave-playhead[hidden] { display: none; }
       .bt-hint {
         display: flex;
         align-items: center;
@@ -15753,7 +15755,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.813</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.814</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -87619,6 +87621,7 @@ function gpExportModal(title, bodyHtml, label) {
   let cachedBarGrid = null;
   let syncPointMapCache = null;
   let pendingStart = null;
+  let pendingAutoSync = false;
   let lastDriftCorrectionAt = 0;
   let driftTimer = 0;
   let audioStartTimer = 0;
@@ -87699,7 +87702,7 @@ function gpExportModal(title, bodyHtml, label) {
               out.push({si, qi, ei, sp, qp, bar, q: q + local, span, section: sec, square: sq, event: ev});
               local += span;
             });
-            out.push({boundary: true, bar: bar + 1, q: q + quarters, si, qi, sp, qp});
+            out.push({boundary: true, bar: bar + 1, q: q + quarters, si, qi, sp, qp, section: sec, timeSig: ts, quarters});
             q += quarters; bar++;
           }
         });
@@ -87708,7 +87711,8 @@ function gpExportModal(title, bodyHtml, label) {
     const events = out.filter(x => !x.boundary), boundaries = out.filter(x => x.boundary);
     const eventByPosition = new Map(events.map(x => [positionKey(x.si, x.qi, x.ei, x.sp, x.qp), x]));
     const boundaryByBar = new Map(boundaries.map(x => [x.bar, x]));
-    cachedBarGrid = { events, boundaries, eventByPosition, boundaryByBar, bars: bar, totalQ: q };
+    const barInfo = new Map(boundaries.map(x => [x.bar - 1, { section: x.section, timeSig: x.timeSig, quarters: x.quarters }]));
+    cachedBarGrid = { events, boundaries, eventByPosition, boundaryByBar, barInfo, bars: bar, totalQ: q };
     return cachedBarGrid;
   }
   function positionKey(si, qi, ei, sp, qp) { return `${Number(si)||0}:${Number(qi)||0}:${Number(ei)||0}:${Number(sp)||0}:${Number(qp)||0}`; }
@@ -87741,7 +87745,7 @@ function gpExportModal(title, bodyHtml, label) {
     let a,b;
     if(q<=list[0].q){a=list[0];b=list[1];}
     else if(q>=list[list.length-1].q){a=list[list.length-2];b=list[list.length-1];}
-    else { let i=0; while(i<list.length-1 && q>list[i+1].q)i++; a=list[i];b=list[i+1]; }
+    else { let lo=0,hi=list.length-1;while(lo+1<hi){const mid=(lo+hi)>>1;if(q>list[mid].q)lo=mid;else hi=mid;}a=list[lo];b=list[hi]; }
     const dq=b.q-a.q, dt=b.t-a.t;
     return dq>0 ? a.t+(q-a.q)/dq*dt : q*60/base;
   }
@@ -87760,7 +87764,11 @@ function gpExportModal(title, bodyHtml, label) {
   function setMeta(next) { meta=cleanMeta(next); syncPointMapCache=null; renderDrawer(); syncMixerUi(); }
   function updatePreviewStatus() {
     const output = $('btPlayhead');
-    if (output) output.textContent = secText(audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+    const playheadTime = audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0;
+    if (output) output.textContent = secText(playheadTime);
+    const cursor = $('btWavePlayhead');
+    const durationForCursor = duration || (meta && meta.duration) || 0;
+    if (cursor) { cursor.style.left = `${durationForCursor > 0 ? playheadTime / durationForCursor * canvasCssWidth : 0}px`; cursor.hidden = !durationForCursor; }
     const button = $('btDrawer') && $('btDrawer').querySelector('[data-bt-action="preview"]');
     if (button) {
       button.textContent = audio && !audio.paused ? 'Пауза MP3' : '▶ Прослушать MP3';
@@ -87770,7 +87778,7 @@ function gpExportModal(title, bodyHtml, label) {
   function ensureAudio() {
     if (!audio) {
       audio=new Audio(); audio.preload='auto'; audio.setAttribute('playsinline',''); audio.preservesPitch=true; audio.mozPreservesPitch=true; audio.webkitPreservesPitch=true;
-      audio.addEventListener('loadedmetadata',()=>{duration=audio.duration||duration; if(meta)meta.duration=duration;drawWave();updatePreviewStatus();});
+      audio.addEventListener('loadedmetadata',()=>{duration=audio.duration||duration; if(meta)meta.duration=duration;if(pendingAutoSync&&duration>0&&meta){meta.points=generateAutoSyncPoints();pendingAutoSync=false;captureEdit();renderDrawer();}drawWave();updatePreviewStatus();});
       audio.addEventListener('timeupdate',updatePreviewStatus);
       audio.addEventListener('play',updatePreviewStatus);
       audio.addEventListener('pause',updatePreviewStatus);
@@ -87806,6 +87814,121 @@ function gpExportModal(title, bodyHtml, label) {
     captureEdit();
     renderDrawer();
   }
+  function generateAutoSyncPoints() {
+    const grid = getBarGrid();
+    if (!meta || grid.bars < 1) return [{ bar: 0, time: 0 }];
+    const nativeAtBar = [0];
+    const tempoAtBar = [];
+    let total = 0;
+    for (let bar = 0; bar < grid.bars; bar++) {
+      const info = grid.barInfo.get(bar), section = info && info.section;
+      const bpm = Math.max(1, Number(typeof getEffectiveBpm === 'function' ? getEffectiveBpm(section) : 0) || Number(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM);
+      nativeAtBar[bar] = total;
+      tempoAtBar[bar] = bpm;
+      total += Math.max(0, qAtBar(bar + 1) - qAtBar(bar)) * 60 / bpm;
+      nativeAtBar[bar + 1] = total;
+    }
+    const audioDuration = duration || Number(meta.duration) || total;
+    const points = [{ bar: 0, time: 0 }];
+    for (let bar = 1; bar < grid.bars; bar++) {
+      if (tempoAtBar[bar] !== tempoAtBar[bar - 1]) {
+        points.push({ bar, time: total > 0 ? nativeAtBar[bar] / total * audioDuration : 0 });
+      }
+    }
+    if (audioDuration > points[points.length - 1].time) points.push({ bar: grid.bars, time: audioDuration });
+    return normalizePoints(points);
+  }
+  function resetAutoSyncPoints() {
+    if (!meta) return;
+    const next = generateAutoSyncPoints();
+    const unchanged = meta.points.length === next.length && meta.points.every((p, i) => p.bar === next[i].bar && Math.abs(p.time - next[i].time) < .0005);
+    if (!unchanged && meta.points.length && !window.confirm('Заменить все точки синхронизации автоматическими? Ручные позиции будут потеряны.')) return;
+    meta.points = next;
+    selectedPoint = -1;
+    syncPointMapCache = null;
+    captureEdit();
+    renderDrawer();
+  }
+  function pointIndexAtBar(bar) { return meta ? meta.points.findIndex(p => p.bar === bar) : -1; }
+  function ensureBoundaryAnchors() {
+    if (!meta) return false;
+    const grid = getBarGrid(), mediaDuration = waveDuration();
+    if (grid.bars < 1 || !(mediaDuration > 0)) return false;
+    const before = meta.points.map(p => `${p.bar}:${p.time}`).join('|');
+    let points = normalizePoints(meta.points);
+    if (!points.length) points = [{ bar: 0, time: 0 }];
+    if (points[0].bar > 0 && points[0].time > 0) points.unshift({ bar: 0, time: 0 });
+    const last = points[points.length - 1];
+    if (last.bar < grid.bars && mediaDuration > last.time) points.push({ bar: grid.bars, time: mediaDuration });
+    meta.points = normalizePoints(points);
+    const after = meta.points.map(p => `${p.bar}:${p.time}`).join('|');
+    if (before !== after) syncPointMapCache = null;
+    return before !== after;
+  }
+  function toggleSyncPointAtBar(bar) {
+    if (!meta) return;
+    const grid = getBarGrid(), b = Math.max(0, Math.round(Number(bar) || 0));
+    const seeded = ensureBoundaryAnchors();
+    focusedBarMarker = Math.min(grid.bars, b);
+    const i = pointIndexAtBar(b);
+    if (i >= 0) {
+      if (i === 0 || i === meta.points.length - 1) {
+        toast('Начальная и конечная точки синхронизации закреплены');
+        if (seeded) { captureEdit(); renderDrawer(); }
+        return;
+      }
+      meta.points.splice(i, 1);
+      selectedPoint = -1;
+    } else {
+      if (b > grid.bars) { toast('Новая точка должна соответствовать такту текущей структуры'); return; }
+      const time = duration > 0 ? tAtQ(qAtBar(b)) : (grid.totalQ ? qAtBar(b) / grid.totalQ * (meta.duration || 0) : 0);
+      const at = meta.points.findIndex(p => p.bar > b), next = at < 0 ? null : meta.points[at], prev = at < 0 ? meta.points[meta.points.length - 1] : meta.points[at - 1];
+      if (prev && time <= prev.time || next && time >= next.time) { toast('Эту точку нельзя поставить между соседними Sync Points'); return; }
+      meta.points.push({ bar: b, time: Math.max(0, time) });
+      meta.points = normalizePoints(meta.points);
+      selectedPoint = pointIndexAtBar(b);
+    }
+    syncPointMapCache = null;
+    captureEdit();
+    renderDrawer();
+  }
+
+  function focusSyncPoint(index) {
+    selectedPoint = Math.max(0, Math.min(meta.points.length - 1, index));
+    const bar = meta.points[selectedPoint] && meta.points[selectedPoint].bar;
+    if (Number.isFinite(bar)) focusedBarMarker = bar;
+    renderDrawer();
+    const button = $('btDrawer') && $('btDrawer').querySelector(`[data-point="${selectedPoint}"]`);
+    if (button) button.focus();
+    const barInput = $('btBarInput'); if (barInput && Number.isFinite(bar)) barInput.value = String(bar + 1);
+  }
+  function adjustSyncPointTime(index, delta) {
+    if (!meta || index < 0 || index >= meta.points.length) return;
+    const point = meta.points[index], min = index ? meta.points[index - 1].time + .001 : 0;
+    const max = index + 1 < meta.points.length ? meta.points[index + 1].time - .001 : (waveDuration() || Infinity);
+    const time = Math.round((point.time + delta) * 1000) / 1000;
+    if (time < min || time > max) { toast('Точка не может пройти через соседнюю Sync Point'); return; }
+    point.time = time; selectedPoint = index; syncPointMapCache = null; captureEdit(); focusSyncPoint(index);
+  }
+  function removeSyncPoint(index) {
+    if (!meta || index < 0 || index >= meta.points.length) return;
+    if (index === 0 || index === meta.points.length - 1) { toast('Начальная и конечная точки синхронизации закреплены'); return; }
+    meta.points.splice(index, 1); selectedPoint = Math.min(index, meta.points.length - 1); syncPointMapCache = null; captureEdit(); renderDrawer();
+  }
+  function waveKeydown(e) {
+    if (!meta || !getBarGrid().bars || !['ArrowLeft','ArrowRight','Enter'].includes(e.key)) return;
+    if (e.key === 'Enter') { e.preventDefault(); toggleSyncPointAtBar(focusedBarMarker); return; }
+    e.preventDefault();
+    const dir = e.key === 'ArrowLeft' ? -1 : 1, grid = getBarGrid();
+    if (e.shiftKey) {
+      const candidates = meta.points.map(p => p.bar).filter(b => dir < 0 ? b < focusedBarMarker : b > focusedBarMarker);
+      if (candidates.length) focusedBarMarker = dir < 0 ? Math.max(...candidates) : Math.min(...candidates);
+    } else focusedBarMarker = Math.max(0, Math.min(grid.bars, focusedBarMarker + dir));
+    if (audio) audio.currentTime = clamp(barTime(focusedBarMarker), 0, Math.max(0, (waveDuration() || 0) - .02));
+    const input = $('btBarInput'); if (input) input.value = String(focusedBarMarker + 1);
+    updatePreviewStatus(); drawWave();
+  }
+
   async function decodePeaks(blob, token) {
     let nextPeaks = [];
     let nextDuration = 0;
@@ -87883,33 +88006,161 @@ function gpExportModal(title, bodyHtml, label) {
   }
   function measureCanvas(){const canvas=$('btWaveCanvas');if(!canvas)return;const rect=canvas.getBoundingClientRect();if(rect.width>0)canvasCssWidth=rect.width;if(rect.height>0)canvasCssHeight=rect.height;}
   function drawWave() {
-    const canvas=$('btWaveCanvas'); if(!canvas)return; const dpr=Math.max(1,window.devicePixelRatio||1), w=Math.max(1,Math.floor(canvasCssWidth*dpr)), h=Math.max(1,Math.floor(canvasCssHeight*dpr)); if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;} const c=canvas.getContext&&canvas.getContext('2d'); if(!c)return;c.clearRect(0,0,w,h);c.fillStyle='rgba(105,153,255,.62)'; const mid=h/2, n=peaks.length||Math.min(300,w);for(let x=0;x<w;x++){const i=Math.floor(x/w*n), p=peaks[i]||0;const half=Math.max(1,p*mid*.92);c.fillRect(x,mid-half,1,half*2);} c.strokeStyle='rgba(255,255,255,.22)';c.lineWidth=Math.max(1,dpr); const grid=getBarGrid(); if(grid.bars){for(let b=0;b<=grid.bars;b++){const t=tAtQ(qAtBar(b)),x=duration? t/duration*w : b/grid.bars*w;if(x>=0&&x<=w){c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke();}}} if(meta){meta.points.forEach((p,i)=>{const point=drag&&drag.index===i?{...p,time:drag.time}:p;const x=duration?point.time/duration*w:0;c.strokeStyle=i?'#ffd166':'#7de2b8';c.lineWidth=2*dpr;c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke();});} }
+    const canvas = $('btWaveCanvas');
+    if (!canvas) return;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.floor(canvasCssWidth * dpr));
+    const h = Math.max(1, Math.floor(canvasCssHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    const c = canvas.getContext && canvas.getContext('2d');
+    if (!c) return;
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = 'rgba(105,153,255,.62)';
+    const mid = h / 2, n = peaks.length || Math.min(300, w);
+    for (let x = 0; x < w; x++) {
+      const i = Math.floor(x / w * n), p = peaks[i] || 0;
+      const half = Math.max(1, p * mid * .92);
+      c.fillRect(x, mid - half, 1, half * 2);
+    }
+    const grid = getBarGrid(), mediaDuration = duration || (meta && meta.duration) || 0;
+    const xAtQ = q => mediaDuration > 0
+      ? tAtQ(q) / mediaDuration * w
+      : (grid.totalQ > 0 ? q / grid.totalQ * w : 0);
+    // Bar markers: strong ticks with bar numbers. Beat markers are lighter
+    // and appear when zoom makes them readable, including expanded repeats.
+    c.lineWidth = Math.max(1, dpr);
+    c.font = `${Math.max(9, 10 * dpr)}px sans-serif`;
+    c.textBaseline = 'top';
+    for (let bar = 0; bar <= grid.bars; bar++) {
+      const x = xAtQ(qAtBar(bar));
+      if (x < 0 || x > w) continue;
+      c.strokeStyle = bar === focusedBarMarker ? '#7de2b8' : 'rgba(255,255,255,.42)';
+      c.lineWidth = bar === focusedBarMarker ? 2 * dpr : Math.max(1, dpr);
+      c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h * .28); c.stroke();
+      const nextX = bar < grid.bars ? xAtQ(qAtBar(bar + 1)) : x;
+      if (nextX - x > 25 * dpr) {
+        c.fillStyle = 'rgba(255,255,255,.82)';
+        c.fillText(bar === grid.bars ? 'End' : String(bar + 1), x + 3 * dpr, 2 * dpr);
+      }
+      if (bar < grid.bars) {
+        const info = grid.barInfo.get(bar);
+        const sig = parseTimeSig(info && info.timeSig || globalTimeSig || '4/4');
+        const beatQ = 4 / sig.denominator;
+        if (nextX - x > 18 * dpr) {
+          c.strokeStyle = 'rgba(255,255,255,.24)';
+          for (let beat = 1; beat < sig.numerator; beat++) {
+            const bx = xAtQ(qAtBar(bar) + beat * beatQ);
+            c.beginPath(); c.moveTo(bx, h * .68); c.lineTo(bx, h * .91); c.stroke();
+          }
+        }
+      }
+    }
+    if (meta) {
+      meta.points.forEach((point, i) => {
+        const time = drag && drag.index === i ? drag.time : point.time;
+        const x = mediaDuration > 0 ? time / mediaDuration * w : 0;
+        c.strokeStyle = i === selectedPoint ? '#fff' : (i === 0 || i === meta.points.length - 1 ? '#7de2b8' : '#ffd166');
+        c.lineWidth = 2 * dpr;
+        c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+      });
+      if (drag && drag.index < 0) {
+        const x = mediaDuration > 0 ? drag.time / mediaDuration * w : 0;
+        c.strokeStyle = '#fff'; c.lineWidth = 2 * dpr;
+        c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+      }
+    }
+  }
   function secText(s) { const whole=Math.max(0,Number(s)||0);return `${Math.floor(whole/60)}:${String(Math.floor(whole%60)).padStart(2,'0')}.${String(Math.floor(whole*1000)%1000).padStart(3,'0')}`; }
   function renderDrawer() {
     const drawer=$('btDrawer'); if(!drawer)return;
     if(!meta){drawer.innerHTML='<div class="bt-empty"><strong>Фоновое аудио</strong><p>Загрузите аудиозапись, затем поставьте точки синхронизации на границах тактов.</p><button type="button" class="bt-button" data-bt-action="load">Выбрать аудио</button></div>';drawer.querySelector('[data-bt-action="load"]').onclick=chooseFile;return;}
-    drawer.innerHTML=`<div class="bt-toolbar"><strong class="bt-title">${escapeHtml(meta.name)}</strong><span class="bt-size">${(meta.size/1048576).toFixed(1)} МБ</span><button type="button" class="bt-button" data-bt-action="replace">Заменить</button><button type="button" class="bt-button" data-bt-action="remove">Удалить</button><button type="button" class="bt-button" data-bt-action="close" aria-label="Свернуть">Свернуть</button></div>${missingAudio?'<div class="bt-missing-banner"><span>Аудиофайл не найден в этом браузере.</span><button type="button" class="bt-button" data-bt-action="replace">Связать файл</button></div>':''}<div class="bt-wave-viewport"><canvas id="btWaveCanvas" class="bt-wave-canvas" aria-label="Звуковая волна и точки синхронизации"></canvas></div><div class="bt-controls"><button type="button" class="bt-button" data-bt-action="preview" ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>${audio&&!audio.paused?'Пауза MP3':'▶ Прослушать MP3'}</button><output id="btPlayhead" class="bt-status" aria-live="off">${secText(audio&&audio.currentTime||0)}</output><label>Скорость <input id="btSpeed" type="range" min="50" max="150" value="${Math.round(meta.speed*100)}"><output>${Math.round(meta.speed*100)}%</output></label><label>Громкость <input id="btVolume" type="range" min="0" max="100" value="${meta.volume}"></label><label>Точка: такт <input id="btBarInput" type="number" min="1" value="1"></label><label>Масштаб <input id="btZoom" type="range" min="50" max="500" value="${Math.round(waveZoom*100)}"></label><button type="button" class="bt-button" data-bt-action="addpoint">Добавить точку</button><button type="button" class="bt-button" data-bt-action="delpoint">Удалить выбранную</button><span class="bt-status"></span></div><div class="bt-point-list">${meta.points.map((p,i)=>`<label class="bt-point-edit"><button type="button" class="bt-point${selectedPoint===i?' is-selected':''}" data-point="${i}">Такт ${p.bar+1}</button><input class="bt-point-time" type="number" min="0" max="${duration||''}" step="0.001" value="${p.time.toFixed(3)}" data-point-time="${i}" aria-label="Время точки такта ${p.bar+1}, секунды"></label>`).join('')}</div>`;
+    drawer.innerHTML=`<div class="bt-toolbar"><strong class="bt-title">${escapeHtml(meta.name)}</strong><span class="bt-size">${(meta.size/1048576).toFixed(1)} МБ</span><button type="button" class="bt-button" data-bt-action="replace">Заменить</button><button type="button" class="bt-button" data-bt-action="remove">Удалить</button><button type="button" class="bt-button" data-bt-action="close" aria-label="Свернуть">Свернуть</button></div>${missingAudio?'<div class="bt-missing-banner"><span>Аудиофайл не найден в этом браузере.</span><button type="button" class="bt-button" data-bt-action="replace">Связать файл</button></div>':''}<div class="bt-wave-viewport"><canvas id="btWaveCanvas" class="bt-wave-canvas" aria-label="Волна, маркеры тактов и точки синхронизации"></canvas><div id="btWavePlayhead" class="bt-wave-playhead" hidden aria-hidden="true"></div></div><div class="bt-hint"><span>Перетащите маркер такта, чтобы создать/передвинуть Sync Point. Двойной щелчок — добавить или убрать точку.</span><span>Клик — перемотка · ←/→ на точке — переход · Alt+←/→ — подстройка (Shift: 100 мс)</span></div><div class="bt-controls"><button type="button" class="bt-button" data-bt-action="preview" ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>${audio&&!audio.paused?'Пауза MP3':'▶ Прослушать MP3'}</button><output id="btPlayhead" class="bt-status" aria-live="off">${secText(audio&&audio.currentTime||0)}</output><label>Скорость <input id="btSpeed" type="range" min="50" max="150" value="${Math.round(meta.speed*100)}"><output>${Math.round(meta.speed*100)}%</output></label><label>Громкость <input id="btVolume" type="range" min="0" max="100" value="${meta.volume}"></label><label>Точка: такт <input id="btBarInput" type="number" min="1" value="1"></label><label>Масштаб <input id="btZoom" type="range" min="50" max="500" value="${Math.round(waveZoom*100)}"></label><button type="button" class="bt-button" data-bt-action="autosync">Автосинхронизация</button><button type="button" class="bt-button" data-bt-action="addpoint">Добавить точку</button><button type="button" class="bt-button" data-bt-action="delpoint">Удалить выбранную</button><span class="bt-status"></span></div><div class="bt-point-list">${meta.points.map((p,i)=>`<label class="bt-point-edit"><button type="button" class="bt-point${selectedPoint===i?' is-selected':''}" data-point="${i}">${p.bar===getBarGrid().bars?'Конец':'Такт '+(p.bar+1)}</button><input class="bt-point-time" type="number" min="0" max="${duration||''}" step="0.001" value="${p.time.toFixed(3)}" data-point-time="${i}" aria-label="Время точки ${p.bar===getBarGrid().bars?'конца песни':'такта '+(p.bar+1)}, секунды"></label>`).join('')}</div>`;
     drawer.querySelector('[data-bt-action="replace"]').onclick=chooseFile; drawer.querySelector('[data-bt-action="remove"]').onclick=removeTrack; drawer.querySelector('[data-bt-action="close"]').onclick=()=>toggleDrawer(false);
     drawer.querySelector('[data-bt-action="preview"]').onclick=toggleAudioPreview;
+    drawer.querySelector('[data-bt-action="autosync"]').onclick=resetAutoSyncPoints;
     drawer.querySelectorAll('[data-point-time]').forEach(input=>input.onchange=()=>editPointTime(input));
     updatePreviewStatus();
     const speed=drawer.querySelector('#btSpeed');speed.oninput=()=>{meta.speed=Number(speed.value)/100;speed.nextElementSibling.value=speed.value+'%';if(audio)audio.playbackRate=meta.speed;drawWave();};speed.onchange=captureEdit;
     drawer.querySelector('#btVolume').oninput=e=>{meta.volume=Number(e.target.value);if(audio)audio.volume=audioAllowed()?meta.volume/100:0;syncMixerUi();};drawer.querySelector('#btVolume').onchange=captureEdit;
-    drawer.querySelector('[data-bt-action="addpoint"]').onclick=()=>{const b=Math.max(0,(Number(drawer.querySelector('#btBarInput').value)||1)-1);const t=audio?audio.currentTime:Math.max(0,tAtQ(qAtBar(b))),at=meta.points.findIndex(x=>x.bar>b),next=at<0?null:meta.points[at],prev=at<0?meta.points[meta.points.length-1]:meta.points[at-1];if(meta.points.some(x=>x.bar===b)){toast('На этом такте уже есть точка синхронизации');return;}if(prev&&t<=prev.time||next&&t>=next.time){toast('Время новой точки должно идти между соседними точками — запустите MP3 или выберите позицию на волне');return;}meta.points=normalizePoints([...meta.points,{bar:b,time:Math.max(0,t)}]);captureEdit();renderDrawer();};
-    drawer.querySelector('[data-bt-action="delpoint"]').onclick=()=>{if(selectedPoint>=0&&selectedPoint<meta.points.length){meta.points.splice(selectedPoint,1);selectedPoint=-1;captureEdit();renderDrawer();}};
-    drawer.querySelectorAll('[data-point]').forEach(b=>b.onclick=()=>{selectedPoint=Number(b.dataset.point);drawer.querySelectorAll('[data-point]').forEach(x=>x.classList.toggle('is-selected',x===b));});
-    const canvas=$('btWaveCanvas');canvas.style.width=(waveZoom*100)+'%';measureCanvas();const zoom=drawer.querySelector('#btZoom');zoom.oninput=()=>{waveZoom=Number(zoom.value)/100;canvas.style.width=(waveZoom*100)+'%';measureCanvas();drawWave();};canvas.addEventListener('pointerdown',wavePointerDown);canvas.addEventListener('pointermove',wavePointerMove);canvas.addEventListener('pointerup',wavePointerUp);canvas.addEventListener('pointercancel',wavePointerUp);canvas.addEventListener('click',waveSeek);drawWave();
+    drawer.querySelector('[data-bt-action="addpoint"]').onclick=()=>{const b=Math.max(0,(Number(drawer.querySelector('#btBarInput').value)||1)-1);const seeded=ensureBoundaryAnchors(),t=audio?audio.currentTime:Math.max(0,tAtQ(qAtBar(b))),at=meta.points.findIndex(x=>x.bar>b),next=at<0?null:meta.points[at],prev=at<0?meta.points[meta.points.length-1]:meta.points[at-1];if(meta.points.some(x=>x.bar===b)){if(seeded){captureEdit();renderDrawer();}toast('На этом такте уже есть точка синхронизации');return;}if(prev&&t<=prev.time||next&&t>=next.time){if(seeded){captureEdit();renderDrawer();}toast('Время новой точки должно идти между соседними точками — запустите MP3 или выберите позицию на волне');return;}meta.points=normalizePoints([...meta.points,{bar:b,time:Math.max(0,t)}]);captureEdit();renderDrawer();};
+    drawer.querySelector('[data-bt-action="delpoint"]').onclick=()=>removeSyncPoint(selectedPoint);
+    drawer.querySelectorAll('[data-point]').forEach(b=>{const i=Number(b.dataset.point);b.onclick=()=>{selectedPoint=i;drawer.querySelector('#btBarInput').value=String(meta.points[i].bar+1);drawer.querySelectorAll('[data-point]').forEach(x=>x.classList.toggle('is-selected',Number(x.dataset.point)===i));};b.ondblclick=e=>{e.preventDefault();toggleSyncPointAtBar(meta.points[i].bar);};b.onkeydown=e=>{if(e.key==='Delete'||e.key==='Backspace'){e.preventDefault();removeSyncPoint(i);return;}if(e.key==='ArrowLeft'||e.key==='ArrowRight'){e.preventDefault();const dir=e.key==='ArrowLeft'?-1:1;if(e.altKey){const step=e.shiftKey?.1:.01;adjustSyncPointTime(i,dir*step);}else{const next=Math.max(0,Math.min(meta.points.length-1,i+dir));focusSyncPoint(next);}}};});
+    const canvas=$('btWaveCanvas');canvas.tabIndex=0;canvas.style.width=(waveZoom*100)+'%';measureCanvas();const zoom=drawer.querySelector('#btZoom');zoom.oninput=()=>{waveZoom=Number(zoom.value)/100;canvas.style.width=(waveZoom*100)+'%';measureCanvas();drawWave();updatePreviewStatus();};canvas.addEventListener('pointerdown',wavePointerDown);canvas.addEventListener('pointermove',wavePointerMove);canvas.addEventListener('pointerup',wavePointerUp);canvas.addEventListener('pointercancel',wavePointerUp);canvas.addEventListener('click',waveSeek);canvas.addEventListener('dblclick',waveDoubleClick);canvas.addEventListener('keydown',waveKeydown);drawWave();updatePreviewStatus();
     if(audio){audio.volume=audioAllowed()?meta.volume/100:0;audio.playbackRate=meta.speed;}
   }
   let selectedPoint=-1;
-  function canvasX(e){const r=e.currentTarget.getBoundingClientRect();return clamp((e.clientX-r.left)/Math.max(1,r.width),0,1);}
-  function wavePointerDown(e){if(!meta||!meta.points.length)return;const r=e.currentTarget.getBoundingClientRect(),x=clamp((e.clientX-r.left)/Math.max(1,r.width),0,1),i=meta.points.reduce((best,p,j)=>Math.abs(p.time/(duration||1)-x)<Math.abs(meta.points[best].time/(duration||1)-x)?j:best,0);if(Math.abs(meta.points[i].time/(duration||1)-x)>.025)return;drag={index:i,time:meta.points[i].time,rect:{left:r.left,width:r.width}};selectedPoint=i;e.currentTarget.setPointerCapture&&e.currentTarget.setPointerCapture(e.pointerId);}
-  function wavePointerMove(e){if(!drag)return;const x=clamp((e.clientX-drag.rect.left)/Math.max(1,drag.rect.width),0,1),i=drag.index,min=i?meta.points[i-1].time+.001:0,max=i+1<meta.points.length?meta.points[i+1].time-.001:(duration||1e9);drag.time=clamp(x*(duration||1),min,max);if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});}
+  let focusedBarMarker=0;
+  function canvasX(e) { const r=e.currentTarget.getBoundingClientRect(); return clamp((e.clientX-r.left)/Math.max(1,r.width),0,1); }
+  function waveDuration() { return duration || (meta && meta.duration) || 0; }
+  function barTime(bar) { return tAtQ(qAtBar(bar)); }
+  function nearestBarForX(x, width) {
+    const grid = getBarGrid();
+    let best = -1, bestDistance = Infinity;
+    for (let bar = 0; bar <= grid.bars; bar++) {
+      const time = barTime(bar), markerX = waveDuration() > 0 ? time / waveDuration() * width : (grid.bars ? bar / grid.bars * width : 0);
+      const distance = Math.abs(markerX - x);
+      if (distance < bestDistance) { best = bar; bestDistance = distance; }
+    }
+    return { bar: best, distance: bestDistance };
+  }
+  function insertionNeighbors(bar) {
+    const at = meta.points.findIndex(p => p.bar > bar);
+    return { prev: at < 0 ? meta.points[meta.points.length - 1] : meta.points[at - 1], next: at < 0 ? null : meta.points[at] };
+  }
+  function beginMarkerDrag(e, index, bar, x, rect) {
+    const time = index >= 0 ? meta.points[index].time : barTime(bar);
+    drag = { index, bar, time, originalTime: time, startX: x, moved: false, rect: { left: rect.left, width: rect.width } };
+    selectedPoint = index;
+    focusedBarMarker = bar;
+    e.currentTarget.setPointerCapture && e.currentTarget.setPointerCapture(e.pointerId);
+    drawWave();
+  }
+  function wavePointerDown(e) {
+    if (!meta || !getBarGrid().bars) return;
+    const rect=e.currentTarget.getBoundingClientRect(), x=e.clientX-rect.left, width=Math.max(1,rect.width), total=waveDuration();
+    let nearestPoint=-1, pointDistance=Infinity;
+    meta.points.forEach((p,i)=>{const px=total>0?p.time/total*width:0,distance=Math.abs(px-x);if(distance<pointDistance){nearestPoint=i;pointDistance=distance;}});
+    if (nearestPoint>=0 && pointDistance<=12) {
+      beginMarkerDrag(e,nearestPoint,meta.points[nearestPoint].bar,x,rect); return;
+    }
+    const marker=nearestBarForX(x,width);
+    if (marker.bar>=0 && marker.distance<=12) beginMarkerDrag(e,-1,marker.bar,x,rect);
+  }
+  function wavePointerMove(e) {
+    if (!drag) return;
+    const x=clamp((e.clientX-drag.rect.left)/Math.max(1,drag.rect.width),0,1), width=Math.max(1,drag.rect.width), total=waveDuration()||Math.max(1,drag.time);
+    if (Math.abs(x*width-drag.startX)>3) drag.moved=true;
+    if (!drag.moved) return;
+    const index=drag.index>=0?drag.index:meta.points.findIndex(p=>p.bar>drag.bar), prev=drag.index>=0?meta.points[index-1]:index<0?meta.points[meta.points.length-1]:meta.points[index-1], next=drag.index>=0?meta.points[index+1]:index<0?null:meta.points[index];
+    const min=prev?prev.time+.001:0, max=next?next.time-.001:(waveDuration()||1e9);
+    drag.time=clamp(x*total,min,max);
+    if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});
+  }
   let suppressWaveClick=false;
-  function wavePointerUp(){if(!drag)return;meta.points[drag.index].time=drag.time;drag=null;suppressWaveClick=true;captureEdit();renderDrawer();setTimeout(()=>{suppressWaveClick=false;},0);}
-  function waveSeek(e){if(!meta||drag||suppressWaveClick)return;const t=canvasX(e)*(duration||0);if(audio){audio.currentTime=clamp(t,0,Math.max(0,duration-.02));}const grid=getBarGrid();const q=(()=>{if(t>=tAtQ(grid.totalQ))return grid.totalQ;for(let b=0;b<grid.bars;b++){if(t>=tAtQ(qAtBar(b))&&t<tAtQ(qAtBar(b+1)))return qAtBar(b);}return 0;})();const pos=positionForQ(q);if(timelineMode){pendingStart=null;timelineStartPosition=pos;if(!playbackState.isPlaying)syncPreviewToPosition(pos);}else{pendingStart=pos;}if(playbackState.isPlaying&&pos){playbackState.currentSectionIndex=pos.sectionIndex;playbackState.currentSquareIndex=pos.squareIndex;playbackState.currentEventIndex=pos.eventIndex;playbackState._sectionRepeatCount=pos.sectionRepeatCount;playbackState._squareRepeatCount=pos.squareRepeatCount;seekDuringPlayback(pos);}else if(!playbackState.isPlaying){toast('Позиция выбрана — нажмите Play');}}
+  function wavePointerUp() {
+    if(!drag)return;
+    const finished=drag;drag=null;
+    if(!finished.moved){drawWave();return;}
+    if(finished.index>=0) meta.points[finished.index].time=finished.time;
+    else {
+      if(pointIndexAtBar(finished.bar)>=0){drawWave();return;}
+      const {prev,next}=insertionNeighbors(finished.bar);
+      if(prev&&finished.time<=prev.time||next&&finished.time>=next.time){toast('Точку нельзя переместить за соседнюю Sync Point');drawWave();return;}
+      meta.points.push({bar:finished.bar,time:finished.time});
+      meta.points=normalizePoints(meta.points);
+    }
+    selectedPoint=pointIndexAtBar(finished.bar);
+    suppressWaveClick=true;captureEdit();renderDrawer();
+    setTimeout(()=>{suppressWaveClick=false;},0);
+  }
+  function waveDoubleClick(e) {
+    if(!meta)return;
+    const rect=e.currentTarget.getBoundingClientRect(),marker=nearestBarForX(e.clientX-rect.left,Math.max(1,rect.width));
+    if(marker.bar>=0&&marker.distance<=14){e.preventDefault();toggleSyncPointAtBar(marker.bar);}
+  }
+  function waveSeek(e){if(!meta||drag||suppressWaveClick)return;const total=waveDuration(),t=canvasX(e)*total;if(audio){audio.currentTime=clamp(t,0,Math.max(0,total-.02));}const rect=e.currentTarget.getBoundingClientRect(),marker=nearestBarForX(e.clientX-rect.left,Math.max(1,rect.width));if(marker.bar>=0&&marker.distance<=16){focusedBarMarker=marker.bar;const barInput=$('btBarInput');if(barInput)barInput.value=String(marker.bar+1);drawWave();}const grid=getBarGrid();const q=(()=>{if(t>=tAtQ(grid.totalQ))return grid.totalQ;for(let b=0;b<grid.bars;b++){if(t>=tAtQ(qAtBar(b))&&t<tAtQ(qAtBar(b+1)))return qAtBar(b);}return 0;})();const pos=positionForQ(q);if(timelineMode){pendingStart=null;timelineStartPosition=pos;if(!playbackState.isPlaying)syncPreviewToPosition(pos);}else{pendingStart=pos;}if(playbackState.isPlaying&&pos){playbackState.currentSectionIndex=pos.sectionIndex;playbackState.currentSquareIndex=pos.squareIndex;playbackState.currentEventIndex=pos.eventIndex;playbackState._sectionRepeatCount=pos.sectionRepeatCount;playbackState._squareRepeatCount=pos.squareRepeatCount;seekDuringPlayback(pos);}else if(!playbackState.isPlaying){toast('Позиция выбрана — нажмите Play');}}
   function positionForQ(q){const grid=getBarGrid();let found=grid.events[0];for(const x of grid.events){if(x.q<=q)found=x;else break;}return found?{sectionIndex:found.si,squareIndex:found.qi,eventIndex:found.ei,sectionRepeatCount:{['sec_'+found.si]:found.sp},squareRepeatCount:{['sq_'+found.si+'_'+found.qi]:found.qp}}:null;}
-  async function chooseFile(){const input=document.createElement('input');input.type='file';input.accept='audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac,.webm';input.style.position='fixed';input.style.left='-9999px';input.style.opacity='0';document.body.appendChild(input);input.onchange=async()=>{const file=input.files&&input.files[0];input.remove();if(!file)return;const ext=String(file.name||'').split('.').pop().toLowerCase();if(!(String(file.type||'').startsWith('audio/')||['mp3','wav','m4a','ogg','flac','aac','webm'].includes(ext))){toast('Выберите MP3, WAV, M4A, OGG, FLAC, AAC или WEBM');return;}if(file.size>LIMIT){toast('Аудиофайл больше лимита 25 МБ');return;}const id='bt-'+(window.crypto&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));const token=++loadToken;blobLoadToken++;const points=meta?meta.points:[{bar:0,time:0}];const next=cleanMeta({id,name:file.name,type:file.type,size:file.size,points,speed:meta&&meta.speed,volume:meta&&meta.volume,mute:meta&&meta.mute,solo:meta&&meta.solo});await dbPut(id,file);if(token!==loadToken)return;setMeta(next);await loadBlob(file);if(token===loadToken)captureEdit();};input.addEventListener('cancel',()=>input.remove(),{once:true});window.addEventListener('focus',()=>setTimeout(()=>input.remove(),1000),{once:true});input.click();}
+  async function chooseFile(){const input=document.createElement('input');input.type='file';input.accept='audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac,.webm';input.style.position='fixed';input.style.left='-9999px';input.style.opacity='0';document.body.appendChild(input);input.onchange=async()=>{const file=input.files&&input.files[0];input.remove();if(!file)return;const ext=String(file.name||'').split('.').pop().toLowerCase();if(!(String(file.type||'').startsWith('audio/')||['mp3','wav','m4a','ogg','flac','aac','webm'].includes(ext))){toast('Выберите MP3, WAV, M4A, OGG, FLAC, AAC или WEBM');return;}if(file.size>LIMIT){toast('Аудиофайл больше лимита 25 МБ');return;}const id='bt-'+(window.crypto&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));const token=++loadToken;blobLoadToken++;const hadTrack=!!meta;const points=meta?meta.points:[{bar:0,time:0}];const next=cleanMeta({id,name:file.name,type:file.type,size:file.size,points,speed:meta&&meta.speed,volume:meta&&meta.volume,mute:meta&&meta.mute,solo:meta&&meta.solo});await dbPut(id,file);if(token!==loadToken)return;setMeta(next);await loadBlob(file);if(token===loadToken){if(!hadTrack){if(duration>0){meta.points=generateAutoSyncPoints();syncPointMapCache=null;captureEdit();}else pendingAutoSync=true;}else captureEdit();renderDrawer();}};input.addEventListener('cancel',()=>input.remove(),{once:true});window.addEventListener('focus',()=>setTimeout(()=>input.remove(),1000),{once:true});input.click();}
   async function loadBlob(blob){if(!blob)return;const token=++blobLoadToken;missingAudio=false;await decodePeaks(blob,token);if(token!==blobLoadToken)return;const el=ensureAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl=URL.createObjectURL(blob);el.src=audioUrl;el.load();renderDrawer();}
   async function removeTrack(){loadToken++;blobLoadToken++;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';setMeta(null);captureEdit();}
   async function deleteAudio(id){if(id)await dbDelete(String(id));}
@@ -87931,7 +88182,7 @@ function gpExportModal(title, bodyHtml, label) {
   function syncPreviewToPosition(pos){if(!meta||!audio||playbackState.isPlaying)return;try{audio.currentTime=clamp(pointTimeForPosition(pos),0,Math.max(0,(duration||audio.duration||0)-.02));}catch(_){} }
   function seekDuringPlayback(pos){if(!meta||!pos)return;const ctx=typeof getAudioContext==='function'?getAudioContext():null;if(!ctx)return;const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);stopAudio();scheduleAudio(ctx,q,Math.max(ctx.currentTime+.02,Number(nextEventTime)||ctx.currentTime+.02));}
   function invalidateGrid(){cachedBarGrid=null;syncPointMapCache=null;if(!meta)return;meta.points=normalizePoints(meta.points);drawWave();}
-  async function loadSong(song){const token=++loadToken;blobLoadToken++;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
+  async function loadSong(song){const token=++loadToken;blobLoadToken++;pendingAutoSync=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
   async function exportSong(song, embed){if(!meta)return song;const out={...song,backingTrack:stateForSave()};return exportStoredSong(out,embed);}
   async function exportStoredSong(song,embed){const out={...song};const bt=cleanMeta(song&&song.backingTrack);if(!bt)return out;out.backingTrack=bt;if(embed){const blob=await dbGet(bt.id);if(blob){const buf=await blob.arrayBuffer();out.backingTrack={...bt,embedded:arrayBufferToBase64(buf)};}else toast('Аудиофайл недоступен; экспортирована только разметка синхронизации.');}return out;}
   function arrayBufferToBase64(buf){let s='';const b=new Uint8Array(buf);for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode(...b.subarray(i,i+0x8000));return btoa(s);}
@@ -87939,9 +88190,9 @@ function gpExportModal(title, bodyHtml, label) {
   function getBpmForBar(bar){const q=qAtBar(bar);const b=qAtBar(bar+1);return bpmAtQ(q,b-q||1);}
   function getBpmForEvent(si,qi,ei,sp,qp,span,ts){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp),sig=parseTimeSig(ts||globalTimeSig||'4/4'),dq=Number(span||1)*(4/sig.denominator);return bpmAtQ(q,dq);}
   function getFirstPassBpmForBar(bar){let q=0,b=0;for(const sec of sections||[]){const sig=parseTimeSig(sec.timeSig||globalTimeSig||'4/4'),quarters=sig.numerator*(4/sig.denominator);let sectionQ=0;for(let qi=0;qi<(sec.squares||[]).length;qi++){const count=Math.max(1,Number(sec.squares[qi].repeat)||1);for(let r=0;r<count;r++){if(b===bar)return bpmAtQ(q+sectionQ,quarters);b++;sectionQ+=quarters;}}q+=sectionQ*Math.max(1,Number(sec.repeat)||1);}return getBpmForBar(bar);}
-  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
+  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, toggleSyncPointAtBar, resetAutoSyncPoints, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;pendingAutoSync=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
   window.StruChordBackingTrack=api;
-  const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();});};
+  const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();updatePreviewStatus();});};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready();
 })();
 
