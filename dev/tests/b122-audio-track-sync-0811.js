@@ -17,7 +17,7 @@ const dom = new JSDOM(html, {
   beforeParse(win) {
     win.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
     win.HTMLCanvasElement.prototype.getContext = () => ({ font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) });
-    win.Audio = function () { this.paused = true; this.currentTime = 0; this.volume = 1; this.playbackRate = 1; this.addEventListener = () => {}; this.setAttribute = () => {}; this.load = () => {}; this.pause = () => {}; this.play = () => Promise.resolve(); };
+    win.Audio = function () { this.paused = true; this.currentTime = 0; this.volume = 1; this.playbackRate = 1; this.addEventListener = () => {}; this.setAttribute = () => {}; this.load = () => {}; this.pause = () => { this.paused = true; }; this.play = () => { this.paused = false; return Promise.resolve(); }; };
     win.Blob = Blob;
     win.URL.createObjectURL = () => 'blob:b122-test';
     win.URL.revokeObjectURL = () => {};
@@ -53,11 +53,22 @@ setTimeout(async () => {
         { id: 2, repeat: 1, events: [{ chord: 'G', span: 4 }] },
       ] }];
     `);
+    await bt.importEmbedded({ backingTrack: { id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 4, points: [], embedded: w.btoa('RIFF') } });
     await bt.loadSong({ backingTrack: {
       id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 512,
       duration: 8, speed: 1, volume: 80, mute: false, solo: true,
       points: [{ bar: 0, time: 0 }, { bar: 4, time: 12 }],
     } });
+    check('wave drawer provides standalone MP3 audition controls', () => {
+      bt.toggleDrawer(true);
+      const preview = w.document.querySelector('#btDrawer [data-bt-action="preview"]');
+      assert(preview, 'preview button exists');
+      assert(w.document.getElementById('btPlayhead'), 'playhead time is visible');
+      preview.click();
+      assert.strictEqual(w.document.querySelector('#btDrawer [data-bt-action="preview"]').textContent, 'Пауза MP3');
+      w.document.querySelector('#btDrawer [data-bt-action="preview"]').click();
+      assert.strictEqual(w.document.querySelector('#btDrawer [data-bt-action="preview"]').textContent, '▶ Прослушать MP3');
+    });
     check('.struchord export offers embed vs lightweight sync metadata', () => {
       w.exportStruchordFile();
       assert(w.document.getElementById('btEmbedAudio'));
@@ -96,6 +107,18 @@ setTimeout(async () => {
       const normal = bt.resolveScheduledEvent(null, 0, 0, 0, 0, 0, 10, 4, '4/4', 120);
       assert.strictEqual(normal.bpm, 80);
       assert.strictEqual(normal.dur, 3);
+    });
+    check('sync-point time can be entered precisely in seconds', () => {
+      const time = w.document.querySelector('#btDrawer [data-point-time="1"]');
+      assert(time, 'numeric time editor exists');
+      time.value = '11.25';
+      time.dispatchEvent(new w.Event('change', { bubbles: true }));
+      assert.strictEqual(bt.state.points[1].time, 11.25);
+      assert.strictEqual(w.document.querySelector('#btDrawer [data-point-time="1"]').value, '11.250');
+      const invalid = w.document.querySelector('#btDrawer [data-point-time="1"]');
+      invalid.value = '0';
+      invalid.dispatchEvent(new w.Event('change', { bubbles: true }));
+      assert.strictEqual(bt.state.points[1].time, 11.25, 'invalid order leaves the model unchanged');
     });
     await bt.loadSong({ backingTrack: { id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 512, duration: 8, speed: 0.5, volume: 80, mute: false, solo: true, points: [{ bar: 0, time: 0 }, { bar: 2, time: 6 }] } });
     check('50 percent speed scales scheduler BPM and duration without pitch shifting', () => {
