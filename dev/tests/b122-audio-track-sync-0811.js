@@ -16,7 +16,7 @@ const dom = new JSDOM(html, {
   pretendToBeVisual: true,
   beforeParse(win) {
     win.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
-    win.HTMLCanvasElement.prototype.getContext = function () { const canvas = this; return { font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() { if (canvas.id === 'btWaveCanvas') win.__btWaveXs = []; }, fillRect() {}, beginPath() {}, moveTo(x, y) { if (canvas.id === 'btWaveCanvas' && y === 0) (win.__btWaveXs ||= []).push(x); }, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) }; };
+    win.HTMLCanvasElement.prototype.getContext = function () { const canvas = this; return { font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() { if (canvas.id === 'btWaveCanvas') { win.__btWaveXs = []; win.__btWaveHeights = []; } }, fillRect(x, y, width, height) { if (canvas.id === 'btWaveCanvas') (win.__btWaveHeights ||= []).push(height); }, beginPath() {}, moveTo(x, y) { if (canvas.id === 'btWaveCanvas' && y === 0) (win.__btWaveXs ||= []).push(x); }, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) }; };
     win.__audioInstances = [];
     win.Audio = function () { this.paused = true; this.currentTime = 0; this.volume = 1; this.playbackRate = 1; this.addEventListener = () => {}; this.setAttribute = () => {}; this.load = () => {}; this.pause = () => { this.paused = true; }; this.play = () => { this.paused = false; return Promise.resolve(); }; win.__audioInstances.push(this); };
     win.Blob = Blob;
@@ -147,24 +147,26 @@ setTimeout(async () => {
         Object.defineProperties(event, { pointerType: { value: 'touch' }, pointerId: { value: id }, clientX: { value: x }, clientY: { value: y } });
         return event;
       };
-      const beforePinch = canvas.style.width;
+      const space = w.document.getElementById('btWaveSpace');
+      const beforePinch = space.style.width;
       canvas.dispatchEvent(pointer('pointerdown', 11, 160, 50));
       canvas.dispatchEvent(pointer('pointerdown', 12, 440, 50));
       canvas.dispatchEvent(pointer('pointermove', 12, 520, 50));
-      assert.notStrictEqual(canvas.style.width, beforePinch, 'pinch gesture changes zoom');
+      assert.notStrictEqual(space.style.width, beforePinch, 'pinch gesture changes zoom');
       canvas.dispatchEvent(pointer('pointerup', 11, 160, 50));
       canvas.dispatchEvent(pointer('pointerup', 12, 520, 50));
-      const beforeWheel = canvas.style.width;
+      const beforeWheel = space.style.width;
       const wheel = new w.WheelEvent('wheel', { ctrlKey: true, deltaY: -80, clientX: 300, bubbles: true, cancelable: true });
       canvas.dispatchEvent(wheel);
       assert.strictEqual(wheel.defaultPrevented, true, 'Ctrl+wheel is captured for zoom');
-      assert.notStrictEqual(canvas.style.width, beforeWheel, 'Ctrl+wheel changes zoom');
+      assert.notStrictEqual(space.style.width, beforeWheel, 'Ctrl+wheel changes zoom');
       const zoom = w.document.querySelector('#btZoom');
-      assert.strictEqual(zoom.value, String(Math.round(parseFloat(canvas.style.width))));
+      assert.strictEqual(zoom.value, String(Math.round(parseFloat(space.style.width))));
       assert.strictEqual(zoom.max, '10000', 'zoom control supports magnification well beyond the old 500% limit');
       zoom.value = '1200';
       zoom.dispatchEvent(new w.Event('input', { bubbles: true }));
-      assert.strictEqual(canvas.style.width, '1200%', 'wave can be zoomed past 500%');
+      assert.strictEqual(space.style.width, '1200%', 'wave can be zoomed past 500%');
+      assert.strictEqual(canvas.style.width, '600px', 'canvas renders only the viewport at full device-pixel resolution');
     });
     await bt.importEmbedded({ backingTrack: { id: 'wave-grid-test', name: 'grid.wav', type: 'audio/wav', size: 4, duration: 12, points: [], embedded: w.btoa('RIFF') } });
     await bt.loadSong({ backingTrack: { id: 'wave-grid-test', name: 'grid.wav', type: 'audio/wav', size: 4, duration: 12, speed: 1, volume: 80, mute: false, solo: false, points: [{ bar: 0, time: 0 }, { bar: 2, time: 4 }] } });
@@ -173,7 +175,9 @@ setTimeout(async () => {
       const canvas = w.document.getElementById('btWaveCanvas');
       canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
       const zoom = w.document.querySelector('#btZoom');
+      zoom.value = '100';
       zoom.dispatchEvent(new w.Event('input', { bubbles: true }));
+      canvas.parentElement.parentElement.dispatchEvent(new w.Event('scroll'));
       assert(bt.getBarGrid().bars < 6, 'test score is shorter than the audio');
       assert(w.__btWaveXs.length >= 9, 'extended bars and sync markers reach the full recording duration');
     });
@@ -217,6 +221,12 @@ setTimeout(async () => {
       assert.strictEqual(slow.dur, 6);
       assert.strictEqual(bt.isSolo(), true);
     });
+    check('backing-track drift correction eases with pitch-preserved rate changes before any large resync', () => {
+      assert(bt.getDriftPlaybackRate(0.2, 1) > 1, 'lagging backing audio is gently sped up');
+      assert(bt.getDriftPlaybackRate(-0.2, 1) < 1, 'leading backing audio is gently slowed');
+      assert.strictEqual(bt.getDriftPlaybackRate(0.04, 1), 1, 'small jitter stays untouched');
+      assert(bt.getDriftPlaybackRate(5, 1) <= 1.02, 'rate correction is tightly bounded');
+    });
     check('Solo participates in the shared mixer matrix', () => assert.strictEqual(bt.isSolo(), true));
     w.eval(`sections = [
       { id: 1, type: 'Verse', repeat: 2, timeSig: '4/4', squares: [
@@ -237,11 +247,13 @@ setTimeout(async () => {
     wav.write('fmt ', 12); wav.writeUInt32LE(16, 16); wav.writeUInt16LE(1, 20); wav.writeUInt16LE(1, 22);
     wav.writeUInt32LE(8000, 24); wav.writeUInt32LE(16000, 28); wav.writeUInt16LE(2, 32); wav.writeUInt16LE(16, 34);
     wav.write('data', 36); wav.writeUInt32LE(wav.length - 44, 40);
+    for (let i = 0; i < 8000; i++) wav.writeInt16LE(Math.round(Math.sin(i * Math.PI * 2 * 440 / 8000) * 1200), 44 + i * 2);
     await bt.importEmbedded({ backingTrack: { id: 'wav-fallback', name: 'fallback.wav', type: 'audio/wav', size: wav.length, points: [], embedded: wav.toString('base64') } });
     await bt.loadSong({ backingTrack: { id: 'wav-fallback', name: 'fallback.wav', type: 'audio/wav', size: wav.length, points: [] } });
     check('pure-JS PCM WAV fallback recovers duration and high-resolution waveform peaks', () => {
       assert.strictEqual(bt.state.duration, 1);
       assert(bt.peakCount > 1800, `expected high-resolution peaks, received ${bt.peakCount}`);
+      assert(Math.max(...w.__btWaveHeights) > 90, 'quiet source is auto-scaled to a clearly visible waveform height');
     });
     console.log('\nB-122 checks completed.');
   } finally {

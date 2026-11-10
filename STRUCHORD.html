@@ -15540,6 +15540,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         position: relative;
         width: 100%;
         max-width: 100%;
+        height: 6.75rem;
         overflow-x: auto;
         overflow-y: hidden;
         border-radius: 0.55rem;
@@ -15549,9 +15550,13 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
         user-select: none;
         -webkit-user-select: none;
       }
+      .bt-wave-space { position: relative; height: 100%; width: 100%; }
       .bt-wave-canvas {
+        position: sticky;
+        left: 0;
+        z-index: 1;
         display: block;
-        height: 6.75rem;
+        height: 100%;
       }
       .bt-hint {
         display: flex;
@@ -15753,7 +15758,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.814</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.815</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -87621,6 +87626,7 @@ function gpExportModal(title, bodyHtml, label) {
   let audio = null;
   let audioUrl = '';
   let peaks = [];
+  let peakMax = 0;
   let duration = 0;
   let raf = 0;
   let drag = null;
@@ -87818,6 +87824,7 @@ function gpExportModal(title, bodyHtml, label) {
   }
   async function decodePeaks(blob, token) {
     let nextPeaks = [];
+    let nextPeakMax = 0;
     let nextDuration = 0;
     try {
       const bytes = await blob.arrayBuffer();
@@ -87829,18 +87836,22 @@ function gpExportModal(title, bodyHtml, label) {
             const buffer = await ctx.decodeAudioData(bytes.slice(0));
             nextDuration = buffer.duration;
             const data = buffer.getChannelData(0);
-            const count = Math.min(120000, Math.max(1, data.length));
+            const count = Math.min(500000, Math.max(1, data.length));
+            const bins = new Float32Array(count);
             const step = Math.max(1, Math.ceil(data.length / count));
             for (let i = 0; i < count; i++) {
               let max = 0;
               for (let j = i * step; j < Math.min(data.length, (i + 1) * step); j++) {
                 max = Math.max(max, Math.abs(data[j]));
               }
-              nextPeaks.push(max);
+              bins[i] = max;
+              if (max > nextPeakMax) nextPeakMax = max;
             }
+            nextPeaks = bins;
           }
         } catch (_) {
           nextPeaks = [];
+          nextPeakMax = 0;
           nextDuration = 0;
         } finally {
           if (ctx.close) try { await ctx.close(); } catch (_) {}
@@ -87865,7 +87876,8 @@ function gpExportModal(title, bodyHtml, label) {
             const frameBytes = fmt.channels * bytesPer;
             const total = Math.floor(dataLen / frameBytes);
             nextDuration = total / fmt.rate;
-            const count = Math.min(120000, Math.max(1, total)), step = Math.max(1, Math.ceil(total / count));
+            const count = Math.min(500000, Math.max(1, total)), step = Math.max(1, Math.ceil(total / count));
+            const bins = new Float32Array(count);
             for (let i = 0; i < count; i++) {
               let max = 0;
               for (let sample = i * step; sample < Math.min(total, (i + 1) * step); sample++) {
@@ -87877,28 +87889,108 @@ function gpExportModal(title, bodyHtml, label) {
                 else value = fmt.code === 3 ? view.getFloat32(p, true) : view.getInt32(p, true) / 2147483648;
                 max = Math.max(max, Math.abs(value));
               }
-              nextPeaks.push(max);
+              bins[i] = max;
+              if (max > nextPeakMax) nextPeakMax = max;
             }
+            nextPeaks = bins;
           }
         }
       }
     } catch (_) {
       nextPeaks = [];
+      nextPeakMax = 0;
       nextDuration = 0;
     }
     if (token !== blobLoadToken) return;
     peaks = nextPeaks;
+    peakMax = nextPeakMax;
     duration = nextDuration;
     if (meta && duration > 0) meta.duration = duration;
   }
-  function measureCanvas(){const canvas=$('btWaveCanvas');if(!canvas)return;const rect=canvas.getBoundingClientRect();if(rect.width>0)canvasCssWidth=rect.width;if(rect.height>0)canvasCssHeight=rect.height;}
+  function waveViewportWidth() {
+    const viewport = $('btWaveViewport');
+    return Math.max(1, (viewport && (viewport.clientWidth || viewport.getBoundingClientRect().width)) || canvasCssWidth || 600);
+  }
+  function waveVirtualWidth() { return waveViewportWidth() * waveZoom; }
+  function resizeWaveCanvas() {
+    const canvas = $('btWaveCanvas'), viewport = $('btWaveViewport');
+    if (!canvas || !viewport) return;
+    canvas.style.width = waveViewportWidth() + 'px';
+    const rect = canvas.getBoundingClientRect();
+    if (rect.width > 0) canvasCssWidth = rect.width;
+    if (rect.height > 0) canvasCssHeight = rect.height;
+  }
+  function measureCanvas() { resizeWaveCanvas(); }
   function drawWave() {
-    const canvas=$('btWaveCanvas'); if(!canvas)return; const dpr=Math.max(1,window.devicePixelRatio||1), w=Math.max(1,Math.min(16384,Math.floor(canvasCssWidth*dpr))), h=Math.max(1,Math.floor(canvasCssHeight*dpr)); if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;} const c=canvas.getContext&&canvas.getContext('2d'); if(!c)return;c.clearRect(0,0,w,h);c.fillStyle='rgba(105,153,255,.62)'; const mid=h/2, n=peaks.length||Math.min(300,w),visualOffset=(Number(meta&&meta.trackOffset)||0)+(wholeTrackDrag?wholeTrackDrag.visualDelta:0),waveShift=duration?visualOffset/duration*w:0;for(let x=0;x<w;x++){const sourceX=x-waveShift;if(sourceX<0||sourceX>=w)continue;const i=Math.floor(sourceX/w*n), p=peaks[i]||0;const half=Math.max(1,p*mid*.92);c.fillRect(x,mid-half,1,half*2);} c.strokeStyle='rgba(255,255,255,.22)';c.lineWidth=Math.max(1,dpr); const grid=getBarGrid(),previewModelDelta=wholeTrackDrag?-wholeTrackDrag.visualDelta:0,displayOffset=visualOffset,mediaLen=waveDuration();if(grid.bars){let lastGridBar=grid.bars;if(mediaLen>0){const limit=grid.bars+20000;while(lastGridBar<limit&&tAtQ(qAtBar(lastGridBar))+displayOffset<mediaLen)lastGridBar++;}for(let b=0;b<=lastGridBar;b++){const t=tAtQ(qAtBar(b))+previewModelDelta,x=mediaLen? (t+displayOffset)/mediaLen*w : b/lastGridBar*w;if(x>=0&&x<=w){c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke();}}} if(meta){meta.points.forEach((p,i)=>{const point=drag&&drag.index===i?{...p,time:drag.time}:p,time=point.time+previewModelDelta,x=duration?(time+displayOffset)/duration*w:0;c.strokeStyle=i?'#ffd166':'#7de2b8';c.lineWidth=2*dpr;c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke();});} }
+    const canvas = $('btWaveCanvas');
+    if (!canvas) return;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const w = Math.max(1, Math.floor(canvasCssWidth * dpr));
+    const h = Math.max(1, Math.floor(canvasCssHeight * dpr));
+    if (canvas.width !== w || canvas.height !== h) { canvas.width = w; canvas.height = h; }
+    const c = canvas.getContext && canvas.getContext('2d');
+    if (!c) return;
+    c.clearRect(0, 0, w, h);
+    c.fillStyle = 'rgba(105,153,255,.72)';
+    const mid = h / 2, n = peaks.length, mediaLen = waveDuration();
+    const viewport = $('btWaveViewport'), virtualWidth = waveVirtualWidth();
+    const viewStart = mediaLen ? (viewport.scrollLeft / virtualWidth) * mediaLen : 0;
+    const viewDuration = mediaLen / waveZoom;
+    const visualOffset = (Number(meta && meta.trackOffset) || 0) + (wholeTrackDrag ? wholeTrackDrag.visualDelta : 0);
+    const gain = peakMax > 1e-7 ? 1 / peakMax : 1;
+    for (let x = 0; x < w; x++) {
+      const audioStart = viewStart + (x / w) * viewDuration - visualOffset;
+      const audioEnd = viewStart + ((x + 1) / w) * viewDuration - visualOffset;
+      if (audioEnd <= 0 || audioStart >= mediaLen || !n) continue;
+      const first = Math.max(0, Math.floor(audioStart / mediaLen * n));
+      const after = Math.min(n, Math.max(first + 1, Math.ceil(audioEnd / mediaLen * n)));
+      let peak = 0;
+      for (let i = first; i < after; i++) if (peaks[i] > peak) peak = peaks[i];
+      const amplitude = Math.min(1, peak * gain);
+      const half = Math.max(1, amplitude * mid * .92);
+      c.fillRect(x, mid - half, 1, half * 2);
+    }
+    c.strokeStyle = 'rgba(255,255,255,.22)';
+    c.lineWidth = Math.max(1, dpr);
+    const grid = getBarGrid();
+    const previewModelDelta = wholeTrackDrag ? -wholeTrackDrag.visualDelta : 0;
+    const displayOffset = visualOffset;
+    if (grid.bars && mediaLen > 0) {
+      let lastGridBar = grid.bars;
+      const gridEndTime = tAtQ(qAtBar(lastGridBar)) + displayOffset;
+      if (gridEndTime < mediaLen) {
+        const limit = grid.bars + 20000;
+        while (lastGridBar < limit && tAtQ(qAtBar(lastGridBar)) + displayOffset < mediaLen) lastGridBar++;
+      }
+      const viewEnd = viewStart + viewDuration;
+      let lo = 0, hi = lastGridBar;
+      while (lo < hi) {
+        const midBar = (lo + hi) >> 1;
+        if (tAtQ(qAtBar(midBar)) + displayOffset < viewStart) lo = midBar + 1;
+        else hi = midBar;
+      }
+      for (let b = lo; b <= lastGridBar; b++) {
+        const displayTime = tAtQ(qAtBar(b)) + previewModelDelta + displayOffset;
+        if (displayTime > viewEnd) break;
+        const x = ((displayTime - viewStart) / viewDuration) * w;
+        if (x >= 0 && x <= w) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); }
+      }
+    }
+    if (meta && mediaLen > 0) meta.points.forEach((p, i) => {
+      const point = drag && drag.index === i ? { ...p, time: drag.time } : p;
+      const time = point.time + previewModelDelta + displayOffset;
+      const x = ((time - viewStart) / viewDuration) * w;
+      if (x < 0 || x > w) return;
+      c.strokeStyle = i ? '#ffd166' : '#7de2b8';
+      c.lineWidth = 2 * dpr;
+      c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+    });
+  }
   function secText(s) { const whole=Math.max(0,Number(s)||0);return `${Math.floor(whole/60)}:${String(Math.floor(whole%60)).padStart(2,'0')}.${String(Math.floor(whole*1000)%1000).padStart(3,'0')}`; }
   function renderDrawer() {
     const drawer=$('btDrawer'); if(!drawer)return;
     if(!meta){drawer.innerHTML='<div class="bt-empty"><strong>Фоновое аудио</strong><p>Загрузите аудиозапись, затем поставьте точки синхронизации на границах тактов.</p><button type="button" class="bt-button" data-bt-action="load">Выбрать аудио</button></div>';drawer.querySelector('[data-bt-action="load"]').onclick=chooseFile;return;}
-    drawer.innerHTML=`<div class="bt-toolbar"><strong class="bt-title">${escapeHtml(meta.name)}</strong><span class="bt-size">${(meta.size/1048576).toFixed(1)} МБ</span><button type="button" class="bt-button" data-bt-action="replace">Заменить</button><button type="button" class="bt-button" data-bt-action="remove">Удалить</button><button type="button" class="bt-button" data-bt-action="close" aria-label="Свернуть">Свернуть</button></div>${missingAudio?'<div class="bt-missing-banner"><span>Аудиофайл не найден в этом браузере.</span><button type="button" class="bt-button" data-bt-action="replace">Связать файл</button></div>':''}<div class="bt-wave-viewport"><canvas id="btWaveCanvas" class="bt-wave-canvas" aria-label="Звуковая волна и точки синхронизации"></canvas></div><div class="bt-hint"><span>Масштаб: щипок двумя пальцами или Ctrl+колесо. Сдвинуть запись относительно тактов: Option/Alt + перетаскивание.</span></div><div class="bt-controls"><button type="button" class="bt-button" data-bt-action="preview" ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>${audio&&!audio.paused?'Пауза MP3':'▶ Прослушать MP3'}</button><output id="btPlayhead" class="bt-status" aria-live="off">${secText(audio&&audio.currentTime||0)}</output><label>Скорость <input id="btSpeed" type="range" min="50" max="150" value="${Math.round(meta.speed*100)}"><output>${Math.round(meta.speed*100)}%</output></label><label>Громкость <input id="btVolume" type="range" min="0" max="100" value="${meta.volume}"></label><label>Точка: такт <input id="btBarInput" type="number" min="1" value="1"></label><label>Масштаб <input id="btZoom" type="range" min="50" max="10000" value="${Math.round(waveZoom*100)}"></label><button type="button" class="bt-button" data-bt-action="addpoint">Добавить точку</button><button type="button" class="bt-button" data-bt-action="delpoint">Удалить выбранную</button><span class="bt-status"></span></div><div class="bt-point-list">${meta.points.map((p,i)=>`<label class="bt-point-edit"><button type="button" class="bt-point${selectedPoint===i?' is-selected':''}" data-point="${i}">Такт ${p.bar+1}</button><input class="bt-point-time" type="number" min="0" max="${duration||''}" step="0.001" value="${p.time.toFixed(3)}" data-point-time="${i}" aria-label="Время точки такта ${p.bar+1}, секунды"></label>`).join('')}</div>`;
+    drawer.innerHTML=`<div class="bt-toolbar"><strong class="bt-title">${escapeHtml(meta.name)}</strong><span class="bt-size">${(meta.size/1048576).toFixed(1)} МБ</span><button type="button" class="bt-button" data-bt-action="replace">Заменить</button><button type="button" class="bt-button" data-bt-action="remove">Удалить</button><button type="button" class="bt-button" data-bt-action="close" aria-label="Свернуть">Свернуть</button></div>${missingAudio?'<div class="bt-missing-banner"><span>Аудиофайл не найден в этом браузере.</span><button type="button" class="bt-button" data-bt-action="replace">Связать файл</button></div>':''}<div class="bt-wave-viewport" id="btWaveViewport"><div class="bt-wave-space" id="btWaveSpace"><canvas id="btWaveCanvas" class="bt-wave-canvas" aria-label="Звуковая волна и точки синхронизации"></canvas></div></div><div class="bt-hint"><span>Масштаб: щипок двумя пальцами или Ctrl+колесо. Сдвинуть запись относительно тактов: Option/Alt + перетаскивание.</span></div><div class="bt-controls"><button type="button" class="bt-button" data-bt-action="preview" ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>${audio&&!audio.paused?'Пауза MP3':'▶ Прослушать MP3'}</button><output id="btPlayhead" class="bt-status" aria-live="off">${secText(audio&&audio.currentTime||0)}</output><label>Скорость <input id="btSpeed" type="range" min="50" max="150" value="${Math.round(meta.speed*100)}"><output>${Math.round(meta.speed*100)}%</output></label><label>Громкость <input id="btVolume" type="range" min="0" max="100" value="${meta.volume}"></label><label>Точка: такт <input id="btBarInput" type="number" min="1" value="1"></label><label>Масштаб <input id="btZoom" type="range" min="50" max="10000" value="${Math.round(waveZoom*100)}"></label><button type="button" class="bt-button" data-bt-action="addpoint">Добавить точку</button><button type="button" class="bt-button" data-bt-action="delpoint">Удалить выбранную</button><span class="bt-status"></span></div><div class="bt-point-list">${meta.points.map((p,i)=>`<label class="bt-point-edit"><button type="button" class="bt-point${selectedPoint===i?' is-selected':''}" data-point="${i}">Такт ${p.bar+1}</button><input class="bt-point-time" type="number" min="0" max="${duration||''}" step="0.001" value="${p.time.toFixed(3)}" data-point-time="${i}" aria-label="Время точки такта ${p.bar+1}, секунды"></label>`).join('')}</div>`;
     drawer.querySelector('[data-bt-action="replace"]').onclick=chooseFile; drawer.querySelector('[data-bt-action="remove"]').onclick=removeTrack; drawer.querySelector('[data-bt-action="close"]').onclick=()=>toggleDrawer(false);
     drawer.querySelector('[data-bt-action="preview"]').onclick=toggleAudioPreview;
     drawer.querySelectorAll('[data-point-time]').forEach(input=>input.onchange=()=>editPointTime(input));
@@ -87908,7 +88000,7 @@ function gpExportModal(title, bodyHtml, label) {
     drawer.querySelector('[data-bt-action="addpoint"]').onclick=()=>{const b=Math.max(0,(Number(drawer.querySelector('#btBarInput').value)||1)-1);const t=audio?audio.currentTime:Math.max(0,tAtQ(qAtBar(b))),at=meta.points.findIndex(x=>x.bar>b),next=at<0?null:meta.points[at],prev=at<0?meta.points[meta.points.length-1]:meta.points[at-1];if(meta.points.some(x=>x.bar===b)){toast('На этом такте уже есть точка синхронизации');return;}if(prev&&t<=prev.time||next&&t>=next.time){toast('Время новой точки должно идти между соседними точками — запустите MP3 или выберите позицию на волне');return;}meta.points=normalizePoints([...meta.points,{bar:b,time:Math.max(0,t)}]);captureEdit();renderDrawer();};
     drawer.querySelector('[data-bt-action="delpoint"]').onclick=()=>{if(selectedPoint>=0&&selectedPoint<meta.points.length){meta.points.splice(selectedPoint,1);selectedPoint=-1;captureEdit();renderDrawer();}};
     drawer.querySelectorAll('[data-point]').forEach(b=>b.onclick=()=>{selectedPoint=Number(b.dataset.point);drawer.querySelectorAll('[data-point]').forEach(x=>x.classList.toggle('is-selected',x===b));});
-    const canvas=$('btWaveCanvas');canvas.style.width=(waveZoom*100)+'%';measureCanvas();const zoom=drawer.querySelector('#btZoom');zoom.oninput=()=>applyWaveZoom(Number(zoom.value)/100);canvas.addEventListener('pointerdown',wavePointerDown);canvas.addEventListener('pointermove',wavePointerMove);canvas.addEventListener('pointerup',wavePointerUp);canvas.addEventListener('pointercancel',wavePointerUp);canvas.addEventListener('wheel',waveWheelZoom,{passive:false});canvas.addEventListener('click',waveSeek);drawWave();
+    const canvas=$('btWaveCanvas'),viewport=$('btWaveViewport'),space=$('btWaveSpace');space.style.width=(waveZoom*100)+'%';resizeWaveCanvas();const zoom=drawer.querySelector('#btZoom');zoom.oninput=()=>applyWaveZoom(Number(zoom.value)/100);canvas.addEventListener('pointerdown',wavePointerDown);canvas.addEventListener('pointermove',wavePointerMove);canvas.addEventListener('pointerup',wavePointerUp);canvas.addEventListener('pointercancel',wavePointerUp);canvas.addEventListener('wheel',waveWheelZoom,{passive:false});canvas.addEventListener('click',waveSeek);viewport.addEventListener('scroll',()=>drawWave(),{passive:true});drawWave();
     if(audio){audio.volume=audioAllowed()?meta.volume/100:0;audio.playbackRate=meta.speed;}
   }
   let selectedPoint=-1;
@@ -87916,19 +88008,18 @@ function gpExportModal(title, bodyHtml, label) {
   const activeWavePointers=new Map();
   let pinchStart=null;
   function applyWaveZoom(next,anchorClientX){
-    const canvas=$('btWaveCanvas');if(!canvas)return;
-    const viewport=canvas.parentElement,oldWidth=canvas.getBoundingClientRect().width||canvasCssWidth||600;
-    const vr=viewport&&viewport.getBoundingClientRect?viewport.getBoundingClientRect():{left:0,width:oldWidth};
-    const viewWidth=vr.width||oldWidth,offset=anchorClientX==null?viewWidth/2:clamp(anchorClientX-(vr.left||0),0,viewWidth);
-    const anchorRatio=clamp(((viewport&&viewport.scrollLeft)||0)+offset,0,oldWidth)/oldWidth;
-    waveZoom=clamp(Number(next)||1,.5,100);canvas.style.width=(waveZoom*100)+'%';
+    const canvas=$('btWaveCanvas'),viewport=$('btWaveViewport'),space=$('btWaveSpace');if(!canvas||!viewport||!space)return;
+    const oldWidth=waveVirtualWidth(),vr=viewport.getBoundingClientRect(),viewWidth=waveViewportWidth();
+    const offset=anchorClientX==null?viewWidth/2:clamp(anchorClientX-vr.left,0,viewWidth);
+    const anchorRatio=clamp(viewport.scrollLeft+offset,0,oldWidth)/oldWidth;
+    waveZoom=clamp(Number(next)||1,.5,100);space.style.width=(waveZoom*100)+'%';
     const zoom=$('btZoom');if(zoom)zoom.value=String(Math.round(waveZoom*100));
-    measureCanvas();drawWave();
-    requestAnimationFrame(()=>{const width=canvas.getBoundingClientRect().width||canvasCssWidth||oldWidth;if(viewport)viewport.scrollLeft=Math.max(0,anchorRatio*width-offset);});
+    requestAnimationFrame(()=>{const width=waveVirtualWidth();viewport.scrollLeft=Math.max(0,anchorRatio*width-offset);resizeWaveCanvas();drawWave();});
   }
   function waveWheelZoom(e){if(!e.ctrlKey&&!e.metaKey)return;e.preventDefault();applyWaveZoom(waveZoom*Math.exp(-(Number(e.deltaY)||0)*.003),e.clientX);}
   function waveDuration(){return duration||Number(meta&&meta.duration)||Number(audio&&audio.duration)||0;}
-  function canvasX(e){const r=e.currentTarget.getBoundingClientRect();return clamp((e.clientX-r.left)/Math.max(1,r.width),0,1);}
+  function canvasX(e){const viewport=$('btWaveViewport'),r=viewport.getBoundingClientRect(),width=waveVirtualWidth();return clamp((viewport.scrollLeft+e.clientX-r.left)/width,0,1);}
+  function waveTimeAtClientX(clientX){return canvasX({clientX})*waveDuration()-(Number(meta&&meta.trackOffset)||0);}
   function wavePointerDown(e){
     if(e.pointerType==='touch'){
       activeWavePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
@@ -87936,18 +88027,18 @@ function gpExportModal(title, bodyHtml, label) {
     }
     if(pinchStart||!meta||!meta.points.length)return;
     if(e.altKey&&e.pointerType!=='touch'){
-      const r=e.currentTarget.getBoundingClientRect();wholeTrackDrag={startX:e.clientX,rect:{left:r.left,width:r.width||canvasCssWidth||600},points:meta.points.map(p=>({...p})),startOffset:Number(meta.trackOffset)||0,visualDelta:0,mediaDuration:waveDuration()};
+      wholeTrackDrag={startX:e.clientX,points:meta.points.map(p=>({...p})),startOffset:Number(meta.trackOffset)||0,visualDelta:0,mediaDuration:waveDuration()};
       e.preventDefault();e.currentTarget.setPointerCapture&&e.currentTarget.setPointerCapture(e.pointerId);return;
     }
-    const r=e.currentTarget.getBoundingClientRect(),x=clamp((e.clientX-r.left)/Math.max(1,r.width),0,1),i=meta.points.reduce((best,p,j)=>Math.abs(p.time/(duration||1)-x)<Math.abs(meta.points[best].time/(duration||1)-x)?j:best,0);
-    if(Math.abs(meta.points[i].time/(duration||1)-x)>.025)return;
-    drag={index:i,time:meta.points[i].time,rect:{left:r.left,width:r.width}};selectedPoint=i;e.currentTarget.setPointerCapture&&e.currentTarget.setPointerCapture(e.pointerId);
+    const x=canvasX(e),i=meta.points.reduce((best,p,j)=>Math.abs((p.time+(Number(meta.trackOffset)||0))/(waveDuration()||1)-x)<Math.abs((meta.points[best].time+(Number(meta.trackOffset)||0))/(waveDuration()||1)-x)?j:best,0);
+    if(Math.abs((meta.points[i].time+(Number(meta.trackOffset)||0))/(waveDuration()||1)-x)>.025)return;
+    drag={index:i,time:meta.points[i].time};selectedPoint=i;e.currentTarget.setPointerCapture&&e.currentTarget.setPointerCapture(e.pointerId);
   }
   function wavePointerMove(e){
     if(e.pointerType==='touch'&&activeWavePointers.has(e.pointerId))activeWavePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(pinchStart){const a=activeWavePointers.get(pinchStart.ids[0]),b=activeWavePointers.get(pinchStart.ids[1]);if(a&&b){applyWaveZoom(pinchStart.zoom*Math.hypot(a.x-b.x,a.y-b.y)/pinchStart.distance,(a.x+b.x)/2);e.preventDefault();}return;}
-    if(wholeTrackDrag){const d=wholeTrackDrag,media=d.mediaDuration||duration||0,requested=(e.clientX-d.startX)/Math.max(1,d.rect.width)*media,first=d.points[0],last=d.points[d.points.length-1],minVisual=media>0?last.time-media:-3600,maxVisual=first.time;d.visualDelta=clamp(requested,minVisual,maxVisual);e.preventDefault();if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});return;}
-    if(!drag)return;const x=clamp((e.clientX-drag.rect.left)/Math.max(1,drag.rect.width),0,1),i=drag.index,min=i?meta.points[i-1].time+.001:0,max=i+1<meta.points.length?meta.points[i+1].time-.001:(duration||1e9);drag.time=clamp(x*(duration||1),min,max);if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});
+    if(wholeTrackDrag){const d=wholeTrackDrag,media=d.mediaDuration||waveDuration()||0,requested=(e.clientX-d.startX)/waveVirtualWidth()*media,first=d.points[0],last=d.points[d.points.length-1],minVisual=media>0?last.time-media:-3600,maxVisual=first.time;d.visualDelta=clamp(requested,minVisual,maxVisual);e.preventDefault();if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});return;}
+    if(!drag)return;const i=drag.index,min=i?meta.points[i-1].time+.001:0,max=i+1<meta.points.length?meta.points[i+1].time-.001:(waveDuration()||1e9);drag.time=clamp(waveTimeAtClientX(e.clientX),min,max);if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});
   }
   let suppressWaveClick=false;
   function wavePointerUp(e){
@@ -87985,8 +88076,9 @@ function gpExportModal(title, bodyHtml, label) {
   function mainTrackAllowed(){try{const st=window.StruChordTracks&&window.StruChordTracks.state();if(!st||!st.tracks)return !(meta&&meta.solo);const anySolo=!!(meta&&meta.solo)||st.tracks.some(t=>t.solo);if(!st.tracks.length)return !anySolo;const main=st.tracks.find(t=>t.id===st.mainTrackId);if(!main)return !anySolo;return !main.mute&&(!anySolo||!!main.solo);}catch(_){return !(meta&&meta.solo);}}
   function mainAudible(){return !!meta&&!meta.mute&&meta.volume>0&&(!hasOtherSolo()||meta.solo);}
   function audioAllowed(){return mainAudible()&&!missingAudio;}
-  function stopAudio(){if(audioStartTimer){clearTimeout(audioStartTimer);audioStartTimer=0;}if(driftTimer){clearInterval(driftTimer);driftTimer=0;}if(audio){try{audio.pause();}catch(_){}audio.volume=meta&&meta.mute?0:(meta?meta.volume/100:0);audioZeroCtxTime=null;}}
-  function scheduleAudio(ctx, q, launchAt, targetOverride){if(!audioAllowed())return;const el=ensureAudio();el.volume=0;el.playbackRate=meta.speed;const target=Math.max(0,targetOverride===undefined?tAtQ(q):targetOverride),when=launchAt||ctx.currentTime,delay=Math.max(0,when-ctx.currentTime)*1000;if(audioStartTimer)clearTimeout(audioStartTimer);try{const warm=el.play();if(warm&&warm.catch)warm.catch(()=>{});}catch(_){}audioStartTimer=window.setTimeout(()=>{audioStartTimer=0;try{el.currentTime=clamp(target,0,Math.max(0,(duration||el.duration||target)-.02));el.volume=meta.mute?0:meta.volume/100;const p=el.play();if(p&&p.catch)p.catch(()=>{});}catch(_){}},delay);audioZeroCtxTime=when-target/meta.speed;lastDriftCorrectionAt=0;if(driftTimer)clearInterval(driftTimer);driftTimer=setInterval(()=>{if(!audio||audio.paused||audioZeroCtxTime===null)return;const now=performance.now(),expected=Math.max(0,(ctx.currentTime-audioZeroCtxTime)*meta.speed);if(Math.abs(audio.currentTime-expected)>.14&&now-lastDriftCorrectionAt>1200){lastDriftCorrectionAt=now;try{audio.currentTime=expected;}catch(_){}}},1000);}
+  function stopAudio(){if(audioStartTimer){clearTimeout(audioStartTimer);audioStartTimer=0;}if(driftTimer){clearInterval(driftTimer);driftTimer=0;}if(audio){try{audio.pause();}catch(_){}audio.playbackRate=meta?meta.speed:1;audio.volume=meta&&meta.mute?0:(meta?meta.volume/100:0);audioZeroCtxTime=null;}}
+  function driftPlaybackRate(drift,base){const error=Number(drift)||0,speed=clamp(Number(base)||1,.5,1.5);if(Math.abs(error)<=.06)return speed;return clamp(speed*(1+clamp(error*.06,-.015,.015)),.5,1.5);}
+  function scheduleAudio(ctx, q, launchAt, targetOverride){if(!audioAllowed())return;const el=ensureAudio();el.volume=0;el.playbackRate=meta.speed;const target=Math.max(0,targetOverride===undefined?tAtQ(q):targetOverride),when=launchAt||ctx.currentTime,delay=Math.max(0,when-ctx.currentTime)*1000;if(audioStartTimer)clearTimeout(audioStartTimer);try{const warm=el.play();if(warm&&warm.catch)warm.catch(()=>{});}catch(_){}audioStartTimer=window.setTimeout(()=>{audioStartTimer=0;try{el.currentTime=clamp(target,0,Math.max(0,(duration||el.duration||target)-.02));el.volume=meta.mute?0:meta.volume/100;const p=el.play();if(p&&p.catch)p.catch(()=>{});}catch(_){}},delay);audioZeroCtxTime=when-target/meta.speed;lastDriftCorrectionAt=0;if(driftTimer)clearInterval(driftTimer);driftTimer=setInterval(()=>{if(!audio||audio.paused||audioZeroCtxTime===null||!meta)return;const now=performance.now(),expected=Math.max(0,(ctx.currentTime-audioZeroCtxTime)*meta.speed),drift=expected-audio.currentTime;if(Math.abs(drift)>1.25&&now-lastDriftCorrectionAt>5000){lastDriftCorrectionAt=now;try{audio.currentTime=expected;}catch(_){}audio.playbackRate=meta.speed;}else audio.playbackRate=driftPlaybackRate(drift,meta.speed);},1000);}
   function preparePlaybackStart(ctx, state, launchBase, songStart, startAtAudioZero){if(!meta)return songStart;const pos={sectionIndex:state.currentSectionIndex,squareIndex:state.currentSquareIndex,eventIndex:state.currentEventIndex,sectionRepeatCount:state._sectionRepeatCount,squareRepeatCount:state._squareRepeatCount};const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);if(startAtAudioZero){scheduleAudio(ctx,q,launchBase,0);return songStart;}const audioT=tAtQ(q), countIn=Math.max(0,songStart-launchBase), pickup=audioT-countIn*meta.speed;const audioStart=pickup>=0?launchBase:launchBase+Math.max(0,countIn-audioT/meta.speed);const target=pickup>=0?pickup:0;scheduleAudio(ctx,q,audioStart,target);return songStart;}
   function resolveScheduledEvent(ctx,si,qi,ei,sp,qp,evStart,span,ts,fallbackBpm){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp), sig=parseTimeSig(ts||globalTimeSig||'4/4'), quarters=Number(span||1)*(4/sig.denominator), native=tAtQ(q+quarters)-tAtQ(q), dur=native/meta.speed, bpm=dur>0?Math.round((60*quarters/dur)*10000)/10000:fallbackBpm;return {bpm,dur};}
   function getCountInBpm(state){if(!meta)return 0;return bpmAtQ(eventQuarter(state.currentSectionIndex,state.currentSquareIndex,state.currentEventIndex,(state._sectionRepeatCount||{})['sec_'+state.currentSectionIndex],(state._squareRepeatCount||{})['sq_'+state.currentSectionIndex+'_'+state.currentSquareIndex]),1)*meta.speed;}
@@ -88003,7 +88095,7 @@ function gpExportModal(title, bodyHtml, label) {
   function getBpmForBar(bar){const q=qAtBar(bar);const b=qAtBar(bar+1);return bpmAtQ(q,b-q||1);}
   function getBpmForEvent(si,qi,ei,sp,qp,span,ts){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp),sig=parseTimeSig(ts||globalTimeSig||'4/4'),dq=Number(span||1)*(4/sig.denominator);return bpmAtQ(q,dq);}
   function getFirstPassBpmForBar(bar){let q=0,b=0;for(const sec of sections||[]){const sig=parseTimeSig(sec.timeSig||globalTimeSig||'4/4'),quarters=sig.numerator*(4/sig.denominator);let sectionQ=0;for(let qi=0;qi<(sec.squares||[]).length;qi++){const count=Math.max(1,Number(sec.squares[qi].repeat)||1);for(let r=0;r<count;r++){if(b===bar)return bpmAtQ(q+sectionQ,quarters);b++;sectionQ+=quarters;}}q+=sectionQ*Math.max(1,Number(sec.repeat)||1);}return getBpmForBar(bar);}
-  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, get peakCount(){return peaks.length;}, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
+  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
   window.StruChordBackingTrack=api;
   const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();});};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready();
