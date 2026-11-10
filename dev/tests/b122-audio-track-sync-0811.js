@@ -68,8 +68,10 @@ setTimeout(async () => {
       assert(w.document.getElementById('btPlayhead'), 'playhead time is visible');
       preview.click();
       assert.strictEqual(w.document.querySelector('#btDrawer [data-bt-action="preview"]').textContent, 'Пауза MP3');
+      assert(w.document.getElementById('btPlayheadCursor').classList.contains('is-visible'), 'playhead appears at the running audio position');
       w.document.querySelector('#btDrawer [data-bt-action="preview"]').click();
       assert.strictEqual(w.document.querySelector('#btDrawer [data-bt-action="preview"]').textContent, '▶ Прослушать MP3');
+      assert(!w.document.getElementById('btPlayheadCursor').classList.contains('is-visible'), 'playhead hides when audio playback pauses');
     });
     check('.struchord export offers embed vs lightweight sync metadata', () => {
       w.exportStruchordFile();
@@ -127,6 +129,38 @@ setTimeout(async () => {
       assert.strictEqual(bt.getBpmForBar(1), 180);
       assert.strictEqual(bt.getBpmForBar(2), 180, 'the exact four-second anchor remains aligned while the final tempo contour extrapolates');
       assert.strictEqual(bt.state.points[1].time, 4);
+    });
+    check('upper bar handles insert and move Sync Points; playback panel sticks like the keyboard panel', () => {
+      bt.toggleDrawer(true);
+      const canvas = w.document.getElementById('btWaveCanvas');
+      const drawer = w.document.getElementById('btDrawer');
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      canvas.parentElement.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      assert(w.document.getElementById('btPlayheadCursor'), 'playhead overlay is mounted above the waveform');
+      const pointer = (type, x, y) => {
+        const event = new w.Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, { pointerType: { value: 'mouse' }, pointerId: { value: 42 }, clientX: { value: x }, clientY: { value: y }, altKey: { value: false } });
+        return event;
+      };
+      canvas.dispatchEvent(pointer('pointerdown', 200, 6));
+      canvas.dispatchEvent(pointer('pointermove', 225, 6));
+      canvas.dispatchEvent(pointer('pointerup', 225, 6));
+      const inserted = bt.state.points.find(point => point.bar === 1);
+      assert(inserted, 'dragging the upper handle on bar 2 creates a Sync Point');
+      assert(Math.abs(inserted.time - 3) < 0.02, 'the dragged bar snaps to the waveform time under the pointer');
+      const canvasAfterInsert = w.document.getElementById('btWaveCanvas');
+      canvasAfterInsert.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      canvasAfterInsert.parentElement.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      canvasAfterInsert.dispatchEvent(pointer('pointerdown', 225, 6));
+      canvasAfterInsert.dispatchEvent(pointer('pointermove', 240, 6));
+      canvasAfterInsert.dispatchEvent(pointer('pointerup', 240, 6));
+      const moved = bt.state.points.find(point => point.bar === 1);
+      assert(Math.abs(moved.time - 3.2) < 0.02, 'dragging an existing upper bar handle moves its sync anchor');
+      w.eval('playbackState.isPlaying = true');
+      bt.syncPlaybackUi();
+      assert.strictEqual(w.getComputedStyle(drawer).position, 'sticky', 'open playback drawer is fixed in the scroll stack during playback');
+      w.eval('playbackState.isPlaying = false');
+      bt.syncPlaybackUi();
     });
     w.eval(`sections = [{ id: 1, type: 'Verse', repeat: 1, timeSig: '4/4', squares: [
       { id: 1, repeat: 1, events: [{ chord: 'C', span: 4 }] },
