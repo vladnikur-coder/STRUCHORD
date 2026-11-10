@@ -41,6 +41,24 @@ async function launchBrowser() {
     await page.setViewport({ width: 1440, height: 900 });
     const pageErrors = [];
     page.on('pageerror', (error) => pageErrors.push(error.message));
+    await page.evaluateOnNewDocument(() => {
+      window.__liveAudioStarts = { oscillators: 0, buffers: 0 };
+      const Audio = window.AudioContext || window.webkitAudioContext;
+      if (!Audio) return;
+      for (const [method, counter] of [['createOscillator', 'oscillators'], ['createBufferSource', 'buffers']]) {
+        const originalCreate = Audio.prototype[method];
+        if (typeof originalCreate !== 'function') continue;
+        Audio.prototype[method] = function (...args) {
+          const source = originalCreate.apply(this, args);
+          const originalStart = source.start.bind(source);
+          source.start = (...startArgs) => {
+            window.__liveAudioStarts[counter]++;
+            return originalStart(...startArgs);
+          };
+          return source;
+        };
+      }
+    });
     await page.goto(`file://${HTML}`, { waitUntil: 'networkidle0' });
 
     const songText = fs.readFileSync(FIXTURE, 'utf8');
@@ -66,9 +84,10 @@ async function launchBrowser() {
       state: getAudioContext() && getAudioContext().state,
       time: getAudioContext() && getAudioContext().currentTime,
       active: !!document.querySelector('.chord-wrapper.playback-active'),
+      sources: window.__liveAudioStarts.oscillators + window.__liveAudioStarts.buffers,
     }));
     check('real Play click starts audio and highlights the sounding chord',
-      editorStart.playing && editorStart.state === 'running' && editorStart.active,
+      editorStart.playing && editorStart.state === 'running' && editorStart.active && editorStart.sources > 0,
       JSON.stringify(editorStart));
     await wait(2200);
     const editorAdvance = await page.evaluate(() => ({
