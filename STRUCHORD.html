@@ -15770,7 +15770,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.817</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.818</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -87647,6 +87647,7 @@ function gpExportModal(title, bodyHtml, label) {
   let drag = null;
   let audioZeroCtxTime = null;
   let cachedBarGrid = null;
+  let cachedAudioTailBar = null;
   let syncPointMapCache = null;
   let pendingStart = null;
   let pendingAudioStartFromZero = false;
@@ -87810,6 +87811,15 @@ function gpExportModal(title, bodyHtml, label) {
     if (scoreSpan > 0) return a.t + (scoreTempoTimeAtQ(q) - scoreA) * anchorSpan / scoreSpan;
     return a.t + (q - a.q) * 60 / base;
   }
+  function lastGridBarForAudio(offsetOverride) {
+    const grid = getBarGrid(), mediaLen = waveDuration(), offset = Number.isFinite(offsetOverride) ? offsetOverride : (Number(meta && meta.trackOffset) || 0);
+    if (cachedAudioTailBar && cachedAudioTailBar.grid === grid && cachedAudioTailBar.duration === mediaLen && cachedAudioTailBar.offset === offset) return cachedAudioTailBar.bar;
+    let bar = grid.bars;
+    const limit = grid.bars + 20000;
+    while (mediaLen > 0 && bar < limit && tAtQ(qAtBar(bar)) + offset < mediaLen) bar++;
+    cachedAudioTailBar = { grid, duration: mediaLen, offset, bar };
+    return bar;
+  }
   function bpmAtQ(q, span) { const a=tAtQ(q), b=tAtQ(q+span); return b>a ? Math.round((60*span/(b-a))*10000)/10000 : Number(DOM.bpmInput.value)||120; }
   function pointTimeForPosition(pos) {
     if (!pos) return 0;
@@ -87821,8 +87831,8 @@ function gpExportModal(title, bodyHtml, label) {
   }
   function gridPayload() { return meta ? {...meta, points:meta.points.map(p=>({...p}))} : null; }
   function stateForSave() { return meta ? {...meta, points:meta.points.map(p=>({...p}))} : null; }
-  function captureEdit() { syncPointMapCache=null; try { if (window.captureHistorySnapshot) window.captureHistorySnapshot(); } catch (_) {} }
-  function setMeta(next) { meta=cleanMeta(next); syncPointMapCache=null; renderDrawer(); syncMixerUi(); }
+  function captureEdit() { syncPointMapCache=null;cachedAudioTailBar=null; try { if (window.captureHistorySnapshot) window.captureHistorySnapshot(); } catch (_) {} }
+  function setMeta(next) { meta=cleanMeta(next); syncPointMapCache=null;cachedAudioTailBar=null; renderDrawer(); syncMixerUi(); }
   function updatePlayheadCursor() {
     const cursor = $('btPlayheadCursor'), viewport = $('btWaveViewport');
     const running = !!(audio && !audio.paused && meta);
@@ -88041,12 +88051,7 @@ function gpExportModal(title, bodyHtml, label) {
     const previewModelDelta = wholeTrackDrag ? -wholeTrackDrag.visualDelta : 0;
     const displayOffset = visualOffset;
     if (grid.bars && mediaLen > 0) {
-      let lastGridBar = grid.bars;
-      const gridEndTime = tAtQ(qAtBar(lastGridBar)) + displayOffset;
-      if (gridEndTime < mediaLen) {
-        const limit = grid.bars + 20000;
-        while (lastGridBar < limit && tAtQ(qAtBar(lastGridBar)) + displayOffset < mediaLen) lastGridBar++;
-      }
+      const lastGridBar = lastGridBarForAudio(displayOffset);
       const viewEnd = viewStart + viewDuration;
       let lo = 0, hi = lastGridBar;
       while (lo < hi) {
@@ -88138,7 +88143,7 @@ function gpExportModal(title, bodyHtml, label) {
     if (!rect || !mediaLen || e.clientY - rect.top > 20) return -1;
     const x = canvasX(e), targetTime = x * mediaLen, trackOffset = Number(meta && meta.trackOffset) || 0, grid = getBarGrid();
     const lineTime = bar => tAtQ(qAtBar(bar)) + trackOffset;
-    let lo = 0, hi = grid.bars;
+    let lo = 0, hi = lastGridBarForAudio();
     while (lo < hi) { const mid = (lo + hi) >> 1; if (lineTime(mid) < targetTime) lo = mid + 1; else hi = mid; }
     const candidates = [lo, Math.max(0, lo - 1)];
     let bestBar = -1, bestDistance = Infinity;
@@ -88184,7 +88189,7 @@ function gpExportModal(title, bodyHtml, label) {
     if(e.pointerType==='touch'&&activeWavePointers.has(e.pointerId))activeWavePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(pinchStart){const a=activeWavePointers.get(pinchStart.ids[0]),b=activeWavePointers.get(pinchStart.ids[1]);if(a&&b){applyWaveZoom(pinchStart.zoom*Math.hypot(a.x-b.x,a.y-b.y)/pinchStart.distance,(a.x+b.x)/2);e.preventDefault();}return;}
     if(wholeTrackDrag){const d=wholeTrackDrag,media=d.mediaDuration||waveDuration()||0,requested=(e.clientX-d.startX)/waveVirtualWidth()*media,first=d.points[0],last=d.points[d.points.length-1],minVisual=media>0?last.time-media:-3600,maxVisual=first.time;d.visualDelta=clamp(requested,minVisual,maxVisual);e.preventDefault();if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});return;}
-    if(!drag){e.currentTarget.style.cursor=gridBarAtTopPointer(e)>=0?'ns-resize':'crosshair';return;}drag.time=clamp(waveTimeAtClientX(e.clientX),drag.minTime,drag.maxTime);if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});
+    if(!drag){e.currentTarget.style.cursor=gridBarAtTopPointer(e)>=0?'ew-resize':'crosshair';return;}drag.time=clamp(waveTimeAtClientX(e.clientX),drag.minTime,drag.maxTime);cachedAudioTailBar=null;if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});
   }
   let suppressWaveClick=false;
   function wavePointerUp(e){
@@ -88192,10 +88197,10 @@ function gpExportModal(title, bodyHtml, label) {
     if(wholeTrackDrag){const d=wholeTrackDrag;wholeTrackDrag=null;if(e&&e.type==='pointercancel'){drawWave();return;}const modelDelta=-d.visualDelta;if(Math.abs(modelDelta)>.0005){meta.points=d.points.map(p=>({...p,time:Math.max(0,p.time+modelDelta)}));meta.trackOffset=clamp(d.startOffset+d.visualDelta,-3600,3600);syncPointMapCache=null;captureEdit();renderDrawer();}suppressWaveClick=true;setTimeout(()=>{suppressWaveClick=false;},0);return;}
     if(!drag)return;
     const moved=drag;drag=null;
-    if(e&&e.type==='pointercancel'){drawWave();return;}
+    if(e&&e.type==='pointercancel'){cachedAudioTailBar=null;drawWave();return;}
     if(moved.isNew){meta.points.splice(moved.insertAt,0,{bar:moved.bar,time:moved.time});selectedPoint=moved.insertAt;}
     else{meta.points[moved.index].time=moved.time;selectedPoint=moved.index;}
-    meta.points=normalizePoints(meta.points);syncPointMapCache=null;suppressWaveClick=true;captureEdit();renderDrawer();setTimeout(()=>{suppressWaveClick=false;},0);
+    meta.points=normalizePoints(meta.points);syncPointMapCache=null;cachedAudioTailBar=null;suppressWaveClick=true;captureEdit();renderDrawer();setTimeout(()=>{suppressWaveClick=false;},0);
   }
   function waveSeek(e){
     if(!meta||drag||wholeTrackDrag||suppressWaveClick)return;
@@ -88237,7 +88242,7 @@ function gpExportModal(title, bodyHtml, label) {
   function consumePendingAudioStartFromZero(){const value=pendingAudioStartFromZero;pendingAudioStartFromZero=false;return value;}
   function syncPreviewToPosition(pos){if(!meta||!audio||playbackState.isPlaying)return;try{audio.currentTime=clamp(pointTimeForPosition(pos),0,Math.max(0,(duration||audio.duration||0)-.02));}catch(_){} }
   function seekDuringPlayback(pos,targetOverride){if(!meta||!pos)return;const ctx=typeof getAudioContext==='function'?getAudioContext():null;if(!ctx)return;const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);stopAudio();scheduleAudio(ctx,q,Math.max(ctx.currentTime+.02,Number(nextEventTime)||ctx.currentTime+.02),targetOverride);}
-  function invalidateGrid(){cachedBarGrid=null;syncPointMapCache=null;if(!meta)return;meta.points=normalizePoints(meta.points);drawWave();}
+  function invalidateGrid(){cachedBarGrid=null;syncPointMapCache=null;cachedAudioTailBar=null;if(!meta)return;meta.points=normalizePoints(meta.points);drawWave();}
   async function loadSong(song){const token=++loadToken;blobLoadToken++;pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
   async function exportSong(song, embed){if(!meta)return song;const out={...song,backingTrack:stateForSave()};return exportStoredSong(out,embed);}
   async function exportStoredSong(song,embed){const out={...song};const bt=cleanMeta(song&&song.backingTrack);if(!bt)return out;out.backingTrack=bt;if(embed){const blob=await dbGet(bt.id);if(blob){const buf=await blob.arrayBuffer();out.backingTrack={...bt,embedded:arrayBufferToBase64(buf)};}else toast('Аудиофайл недоступен; экспортирована только разметка синхронизации.');}return out;}

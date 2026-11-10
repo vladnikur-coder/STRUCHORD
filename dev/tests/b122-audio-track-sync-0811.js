@@ -238,6 +238,17 @@ setTimeout(async () => {
       canvas.parentElement.parentElement.dispatchEvent(new w.Event('scroll'));
       assert(bt.getBarGrid().bars < 6, 'test score is shorter than the audio');
       assert(w.__btWaveXs.length >= 9, 'extended bars and sync markers reach the full recording duration');
+      const pointer = (type, x, y) => {
+        const event = new w.Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, { pointerType: { value: 'mouse' }, pointerId: { value: 51 }, clientX: { value: x }, clientY: { value: y }, altKey: { value: false } });
+        return event;
+      };
+      canvas.dispatchEvent(pointer('pointerdown', 500, 6));
+      canvas.dispatchEvent(pointer('pointermove', 510, 6));
+      canvas.dispatchEvent(pointer('pointerup', 510, 6));
+      const tailPoint = bt.state.points.find(point => point.bar === 5);
+      assert(tailPoint, 'a tail-grid bar beyond the written score still has an accessible drag handle');
+      assert(Math.abs(tailPoint.time - 10.2) < 0.02, 'the extrapolated grid handle adds its exact audio anchor');
     });
     w.eval('timelineMode = false');
     await new Promise(resolve => w.setTimeout(resolve, 10));
