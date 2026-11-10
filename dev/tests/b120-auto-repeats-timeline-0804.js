@@ -7,7 +7,7 @@
 // 2. Лента (#tlSecNav): защита от сжатия пунктов при 10+ секциях/проходах,
 //    сквозная нумерация одноимённых секций («Куплет 1», «Куплет 2») и
 //    синхронизация с полосой ленты без отставания на 1 аккорд и отката после повтора.
-// 3. Предпрогрев fingeringCache + пропуск фоновых перестроек Редактора в Ленте
+// 3. Отсутствие блокирующего предпрогрева fingeringCache + пропуск фоновых перестроек Редактора в Ленте
 //    + отсутствие принудительного getBoundingClientRect в vibrateFingeringStrings.
 // 4. Рабочий карандаш ✎ / пин / стрелки в #fingering-tooltip при capture pointerdown
 //    и мгновенное обновление аппликатуры в стоящей на паузе Ленте после сохранения.
@@ -105,7 +105,7 @@ for (const ext of ['keyboard-audio.js', 'keyboard-accompaniment.js']) {
   w.eval(fs.readFileSync(path.join(ROOT, ext), 'utf8'));
 }
 
-setTimeout(() => {
+setTimeout(async () => {
   try {
     // 1. Автоматические репризы + очистка устаревших ручных знаков в sanitizeSongData
     const autoRes = w.eval(`(() => {
@@ -199,47 +199,41 @@ setTimeout(() => {
       pencilRes.hasBtn && pencilRes.tipVisibleAfterPointerdown && pencilRes.openedEditor,
       JSON.stringify(pencilRes));
 
-    // 3. Лента: предпрогрев кэша, нумерация одноимённых секций, черты |: :| и синхронизация без лага
+    // 3. Лента: без блокирующего предпрогрева, нумерация секций, репризы и синхронизация
     const tlRes = w.eval(`(() => {
       fingeringCache.clear();
       toggleTimelineMode(true);
-      const warmedSize = fingeringCache.size;
-      const navLabels = Array.from(document.querySelectorAll('#tlSecNav .tl-secnav-item')).map((b) =>
-        b.querySelector('.tl-secnav-name').textContent +
-        (b.querySelector('.tl-secnav-pass') ? ' [' + b.querySelector('.tl-secnav-pass').textContent + ']' : '')
-      );
-      const headLabels = Array.from(document.querySelectorAll('.tl-section-head')).map((h) => h.textContent);
-      const tlOpenMarks = document.querySelectorAll('#timelineTrack .tl-repeat-mark--open').length;
-      const tlCloseMarks = document.querySelectorAll('#timelineTrack .tl-repeat-mark--close').length;
-
-      const trace = [];
-      const orig = scheduleNextEvent;
-      scheduleNextEvent = function (ctx) {
-        const r = orig.call(this, ctx);
-        if (playbackState.isPlaying) {
-          const cur = document.querySelector('#tlSecNav .tl-secnav-item.is-current');
-          trace.push({
-            chord: playbackState.soundingCell && playbackState.soundingCell.chord,
-            secIdx: playbackState.soundingCell.sectionIndex,
-            secPass: playbackState.soundingCell.secPass,
-            navIdx: cur ? Number(cur.dataset.sectionIndex) : -1,
-            navPass: cur ? Number(cur.dataset.secPass) : -1,
-          });
-        }
-        return r;
+      const result = {
+        warmedSize: fingeringCache.size,
+        navLabels: Array.from(document.querySelectorAll('#tlSecNav .tl-secnav-item')).map((b) =>
+          b.querySelector('.tl-secnav-name').textContent +
+          (b.querySelector('.tl-secnav-pass') ? ' [' + b.querySelector('.tl-secnav-pass').textContent + ']' : '')
+        ),
+        headLabels: Array.from(document.querySelectorAll('.tl-section-head')).map((h) => h.textContent),
+        tlOpenMarks: document.querySelectorAll('#timelineTrack .tl-repeat-mark--open').length,
+        tlCloseMarks: document.querySelectorAll('#timelineTrack .tl-repeat-mark--close').length,
       };
+      window.__b120AudioClock = getAudioContext();
       playAll();
-      let guard = 0;
-      while (playbackState.isPlaying && guard++ < 50) {
-        clearTimeout(playbackState.schedulerTimer);
-        scheduleNextEvent(getAudioContext());
-      }
-      scheduleNextEvent = orig;
-      return { warmedSize, navLabels, headLabels, tlOpenMarks, tlCloseMarks, trace };
+      return result;
     })()`);
+    const captureTimelineSync = () => w.eval(`(() => {
+      const cur = document.querySelector('#tlSecNav .tl-secnav-item.is-current');
+      return { secIdx: playbackState.soundingCell.sectionIndex, secPass: playbackState.soundingCell.secPass,
+        navIdx: cur ? Number(cur.dataset.sectionIndex) : -1, navPass: cur ? Number(cur.dataset.secPass) : -1 };
+    })()`);
+    tlRes.trace = [];
+    await new Promise(resolve => w.setTimeout(resolve, 20));
+    tlRes.trace.push(captureTimelineSync());
+    let playbackGuard = 0;
+    while (w.eval('playbackState.isPlaying') && playbackGuard++ < 50) {
+      w.eval('clearTimeout(playbackState.schedulerTimer); __b120AudioClock.currentTime = nextEventTime; scheduleNextEvent(__b120AudioClock);');
+      await new Promise(resolve => w.setTimeout(resolve, 20));
+      if (w.eval('playbackState.isPlaying')) tlRes.trace.push(captureTimelineSync());
+    }
 
-    check('toggleTimelineMode(true) синхронно прогревает fingeringCache всех аккордов песни',
-      tlRes.warmedSize >= 7, String(tlRes.warmedSize));
+    check('включение Ленты и старт Play не запускают синхронный предпрогрев аппликатур',
+      tlRes.warmedSize === 0, String(tlRes.warmedSize));
     check('одноимённые секции нумеруются в #tlSecNav (одной пилюлей ×N) и заголовках полосы (1/N, 2/N)',
       JSON.stringify(tlRes.navLabels) === JSON.stringify(['Интро', 'Куплет 1 [×2]', 'Куплет 2']) &&
       tlRes.headLabels[1] === 'Куплет 1 1/2' && tlRes.headLabels[2] === 'Куплет 1 2/2' && tlRes.headLabels[3] === 'Куплет 2',

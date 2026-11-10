@@ -8376,6 +8376,20 @@ body.mode-anim .transport-bar {
   background: var(--color-surface-hover);
   border-color: var(--color-text-tertiary);
 }
+.transport-btn--av-sync {
+  width: auto;
+  min-width: 2.25rem;
+  gap: 0.2rem;
+  padding: 0 0.55rem;
+  border-radius: 999px;
+  font-size: 0.68rem;
+  font-weight: 700;
+}
+.transport-btn--av-sync.active { color: var(--color-brand-on); }
+@media (max-width: 640px) {
+  .transport-btn--av-sync { width: 2.25rem; min-width: 2.25rem; padding: 0; }
+  .transport-btn--av-sync span { display: none; }
+}
 .transport-btn:active {
   transform: translateY(0.0625rem);
   box-shadow: none;
@@ -15159,6 +15173,22 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
 .home-settings-panel { display: grid; align-content: start; gap: 1rem; min-width: 0; }
 .home-settings-panel[hidden] { display: none !important; }
 .home-settings-section { display: grid; gap: 0.6rem; min-width: 0; }
+.home-av-sync-help, .home-av-sync-note { margin: 0; color: var(--color-text-secondary); font-size: 0.78rem; line-height: 1.5; }
+.home-av-sync-controls { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
+.home-av-sync-controls button { min-height: 2.6rem; padding: 0.45rem 0.85rem; border: 1px solid var(--color-border-medium); border-radius: 999px; background: var(--color-surface); color: var(--color-text-primary); font: inherit; font-weight: 650; cursor: pointer; }
+.home-av-sync-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
+.home-av-sync-controls #homeAvSyncTap { min-width: 4.25rem; background: var(--color-accent); border-color: var(--color-accent); color: var(--color-background-primary); }
+.home-av-sync-beat { width: 1rem; height: 1rem; border-radius: 50%; background: var(--color-border-medium); transition: transform 70ms ease, background 70ms ease, box-shadow 70ms ease; }
+.home-av-sync-beat.is-lit { transform: scale(1.35); background: var(--color-accent-warm); box-shadow: 0 0 0 0.35rem color-mix(in srgb, var(--color-accent-warm) 20%, transparent); }
+.home-av-sync-status { min-height: 1.2em; font-size: 0.78rem; font-weight: 600; }
+.home-av-sync-toggle { display: flex; align-items: flex-start; gap: 0.65rem; padding: 0.75rem; border: 1px solid var(--color-border-light); border-radius: 0.8rem; }
+.home-av-sync-toggle input { margin-top: 0.2rem; accent-color: var(--color-accent); }
+.home-av-sync-toggle span { display: grid; gap: 0.2rem; }
+.home-av-sync-toggle strong { font-size: 0.8rem; }
+.home-av-sync-toggle small { color: var(--color-text-secondary); font-size: 0.7rem; line-height: 1.4; }
+.home-av-sync-offset { display: grid; gap: 0.3rem; }
+.home-av-sync-offset > span { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.78rem; }
+.home-av-sync-offset input { width: 100%; accent-color: var(--color-accent); }
 .home-settings-section h3 { margin: 0; color: var(--color-text-secondary); font-size: 0.78rem; font-weight: 650; }
 .home-sound-sources { min-width: 0; border: 1px solid var(--color-border-light); border-radius: 0.72rem; background: var(--color-background-secondary); }
 .home-sound-sources summary { padding: 0.65rem 0.75rem; color: var(--color-text-primary); font-size: 0.82rem; font-weight: 590; cursor: pointer; }
@@ -15974,6 +16004,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       </div>
       <div class="transport-bar">
         <button class="transport-btn" id="btnPlay" onclick="playAll()" aria-label="Воспроизвести"><i class="ti ti-player-play"></i></button>
+        <button class="transport-btn transport-btn--av-sync" id="btnAvSync" type="button" onclick="toggleAvSync()" aria-label="Автосинхронизация аудио и видео" aria-pressed="false" title="Автосинхронизация выключена"><i class="ti ti-adjustments-plus" aria-hidden="true"></i><span>A/V</span></button>
         <button class="transport-btn" id="btnLoop" onclick="toggleLoop()" aria-label="Повтор воспроизведения">
           <i class="ti ti-repeat"></i>
         </button>
@@ -20309,6 +20340,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
   audioBlurStartedAt = 0,
   audioLastBlurDurationMs = 0,
   activeOscillators = new Set(),
+  metronomeScheduledOscillators = new Set(),
   metronomeGainNode = null,
   metronomeVolume = 0.8,
   metronomeAccent = true,
@@ -20320,6 +20352,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
 let ringingVoices = [];
 const fingeringCache = new Map();
 const userFingerings = new Map();
+const PLAYBACK_SCHEDULER_LOOKAHEAD_MS = 250;
 let playbackStartTime = 0,
   nextEventTime = 0,
   isProgrammaticKeyChange = false;
@@ -35823,7 +35856,7 @@ function updatePinnedNextTimer() {
   }
   const ctx = getAudioContext();
   if (!ctx) return;
-  const frac = (ctx.currentTime - st.cellStart) / st.cellDur;
+  const frac = (visualAudioContextTime(ctx) - st.cellStart) / st.cellDur;
   const clamped = Math.max(0, Math.min(1, frac));
   // B-42 (0.156): кадр за кадром значение почти не меняется — пишем
   // только при заметном сдвиге, RAF-цикл не будит стиль лишний раз.
@@ -46122,6 +46155,210 @@ function syncTimelineWithPlayback(sec, sq, ei, startTime, dur, secPass, sqPass) 
   if (!timelineMode || !sec || !sq) return;
   updateTimelineActive(sec.id, sq.id, ei, startTime, dur, secPass, sqPass);
 }
+const playbackVisualTimers = new Set();
+let playbackVisualGeneration = 0;
+const AV_SYNC_STORAGE_KEY = 'struchord-av-sync-v1';
+const AV_SYNC_MAX_OFFSET_MS = 250;
+function readAvSyncSettings() {
+  try {
+    const saved = JSON.parse(localStorage.getItem(AV_SYNC_STORAGE_KEY) || '{}');
+    const offsetMs = Number(saved.offsetMs);
+    return { enabled: !!saved.enabled, offsetMs: Number.isFinite(offsetMs) ? Math.max(-AV_SYNC_MAX_OFFSET_MS, Math.min(AV_SYNC_MAX_OFFSET_MS, offsetMs)) : 0 };
+  } catch (_) { return { enabled: false, offsetMs: 0 }; }
+}
+let avSyncSettings = readAvSyncSettings();
+function saveAvSyncSettings() {
+  try { localStorage.setItem(AV_SYNC_STORAGE_KEY, JSON.stringify(avSyncSettings)); } catch (_) {}
+  syncAvSyncControls();
+}
+function syncAvSyncControls() {
+  const button = document.getElementById('btnAvSync');
+  if (button) {
+    button.classList.toggle('active', avSyncSettings.enabled);
+    button.setAttribute('aria-pressed', String(avSyncSettings.enabled));
+    button.title = `Автосинхронизация ${avSyncSettings.enabled ? 'включена' : 'выключена'} · ${avSyncSettings.offsetMs >= 0 ? '+' : ''}${Math.round(avSyncSettings.offsetMs)} мс`;
+  }
+  const toggle = document.getElementById('homeAvSyncEnabled');
+  if (toggle) toggle.checked = avSyncSettings.enabled;
+  const range = document.getElementById('homeAvSyncOffset');
+  if (range) range.value = String(Math.round(avSyncSettings.offsetMs));
+  const output = document.getElementById('homeAvSyncOffsetValue');
+  if (output) output.textContent = `${avSyncSettings.offsetMs >= 0 ? '+' : ''}${Math.round(avSyncSettings.offsetMs)} мс`;
+}
+function toggleAvSync() {
+  avSyncSettings.enabled = !avSyncSettings.enabled;
+  saveAvSyncSettings();
+  showToast(`Автосинхронизация ${avSyncSettings.enabled ? 'включена' : 'выключена'}${avSyncSettings.enabled ? ` (${avSyncSettings.offsetMs >= 0 ? '+' : ''}${Math.round(avSyncSettings.offsetMs)} мс)` : ''}`);
+}
+window.toggleAvSync = toggleAvSync;
+syncAvSyncControls();
+let avSyncCalibration = null;
+function perfTimeForAudioContextTime(ctx, contextTime) {
+  try {
+    if (ctx && typeof ctx.getOutputTimestamp === 'function') {
+      const stamp = ctx.getOutputTimestamp();
+      if (Number.isFinite(Number(stamp.contextTime)) && Number.isFinite(Number(stamp.performanceTime))) {
+        return Number(stamp.performanceTime) + (contextTime - Number(stamp.contextTime)) * 1000;
+      }
+    }
+  } catch (_) {}
+  return performance.now() + (contextTime - audibleAudioContextTime(ctx)) * 1000;
+}
+function avSyncCalStatus(message) {
+  const status = document.getElementById('homeAvSyncStatus');
+  if (status) status.textContent = message;
+}
+function stopAvSyncCalibration() {
+  if (!avSyncCalibration) return;
+  const session = avSyncCalibration;
+  session.timers.forEach(clearTimeout);
+  session.oscillators.forEach((osc) => { try { osc.stop(); } catch (_) {} });
+  avSyncCalibration = null;
+  const pulse = document.getElementById('homeAvSyncBeat');
+  if (pulse) pulse.classList.remove('is-lit');
+  const tap = document.getElementById('homeAvSyncTap');
+  if (tap) tap.disabled = true;
+  const start = document.getElementById('homeAvSyncStart');
+  if (start) { start.disabled = false; start.textContent = 'Начать калибровку'; }
+  const cancel = document.getElementById('homeAvSyncCancel');
+  if (cancel) cancel.disabled = true;
+}
+function finishAvSyncCalibration() {
+  const session = avSyncCalibration;
+  if (!session) return;
+  const phases = session.taps.slice(2).map((time) => {
+    let best = null, bestDistance = Infinity;
+    session.beatPerfTimes.forEach((beatTime) => {
+      const delta = time - beatTime;
+      if (Math.abs(delta) < bestDistance) { best = delta; bestDistance = Math.abs(delta); }
+    });
+    return best;
+  }).filter((v) => Number.isFinite(v) && Math.abs(v) <= 300).sort((a, b) => a - b);
+  if (phases.length >= 4) {
+    const mid = Math.floor(phases.length / 2);
+    const median = phases.length % 2 ? phases[mid] : (phases[mid - 1] + phases[mid]) / 2;
+    // Tap timing includes a typical ~150 ms motor response. Remove that
+    // approximate human component; the remainder is the user's perceived
+    // audio/visual phase and can be fine-tuned with the slider.
+    avSyncSettings.offsetMs = Math.round(Math.max(-AV_SYNC_MAX_OFFSET_MS, Math.min(AV_SYNC_MAX_OFFSET_MS, median - 150)) / 5) * 5;
+    saveAvSyncSettings();
+    avSyncCalStatus(`Готово: поправка ${avSyncSettings.offsetMs >= 0 ? '+' : ''}${avSyncSettings.offsetMs} мс. При необходимости подстройте ползунком.`);
+  } else {
+    avSyncCalStatus('Недостаточно нажатий: попробуйте ещё раз и нажимайте ровно в такт.');
+  }
+  stopAvSyncCalibration();
+}
+function startAvSyncCalibration() {
+  if (playbackState.isPlaying) { avSyncCalStatus('Сначала остановите воспроизведение.'); return; }
+  stopAvSyncCalibration();
+  const ctx = getAudioContext();
+  if (!ctx) { avSyncCalStatus('Аудиоконтекст недоступен. Нажмите Play один раз и повторите.'); return; }
+  resumeAudioContext();
+  const startTime = ctx.currentTime + 0.35;
+  const beatCount = 12;
+  const beatPerfTimes = [];
+  const timers = new Set();
+  const oscillators = new Set();
+  avSyncCalibration = { taps: [], beatPerfTimes, timers, oscillators, startTime, ctx };
+  const start = document.getElementById('homeAvSyncStart');
+  const tap = document.getElementById('homeAvSyncTap');
+  if (start) { start.disabled = true; start.textContent = 'Идёт метроном…'; }
+  if (tap) { tap.disabled = false; tap.textContent = 'TAP'; }
+  const cancel = document.getElementById('homeAvSyncCancel');
+  if (cancel) cancel.disabled = false;
+  avSyncCalStatus('Слушайте щелчки 100 BPM и нажимайте TAP в такт; первые два нажатия — разогрев.');
+  for (let i = 0; i < beatCount; i++) {
+    const when = startTime + i * 0.6;
+    const session = avSyncCalibration;
+    beatPerfTimes.push(perfTimeForAudioContextTime(ctx, when));
+    try {
+      const osc = ctx.createOscillator(), gain = ctx.createGain();
+      session.oscillators.add(osc);
+      osc.onended = () => session.oscillators.delete(osc);
+      osc.type = 'sine'; osc.frequency.value = i % 4 === 0 ? 1000 : 720;
+      gain.gain.setValueAtTime(0.0001, when);
+      gain.gain.exponentialRampToValueAtTime(i % 4 === 0 ? 0.24 : 0.14, when + 0.002);
+      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.075);
+      osc.connect(gain); gain.connect(ctx.destination); osc.start(when); osc.stop(when + 0.08);
+    } catch (_) {}
+    const light = () => {
+      if (avSyncCalibration !== session) return;
+      const pulse = document.getElementById('homeAvSyncBeat');
+      if (pulse) { pulse.classList.add('is-lit'); setTimeout(() => pulse.classList.remove('is-lit'), 130); }
+    };
+    const fire = () => {
+      timers.delete(timer);
+      if (avSyncCalibration !== session) return;
+      const remaining = (when - audibleAudioContextTime(ctx)) * 1000;
+      if (remaining > 2) { timer = setTimeout(fire, Math.max(4, remaining)); timers.add(timer); return; }
+      light();
+    };
+    let timer = setTimeout(fire, Math.max(0, (when - audibleAudioContextTime(ctx)) * 1000));
+    timers.add(timer);
+  }
+  const endTimer = setTimeout(() => finishAvSyncCalibration(), Math.max(0, (startTime + beatCount * 0.6 - audibleAudioContextTime(ctx)) * 1000 + 100));
+  timers.add(endTimer);
+}
+function tapAvSyncCalibration() {
+  if (!avSyncCalibration) return;
+  avSyncCalibration.taps.push(performance.now());
+  const tap = document.getElementById('homeAvSyncTap');
+  if (tap) tap.textContent = `TAP · ${Math.min(10, avSyncCalibration.taps.length)}/10`;
+}
+function cancelAvSyncCalibration() {
+  stopAvSyncCalibration();
+  avSyncCalStatus('Калибровка отменена; сохранённая поправка не изменена.');
+}
+window.startAvSyncCalibration = startAvSyncCalibration;
+window.tapAvSyncCalibration = tapAvSyncCalibration;
+window.cancelAvSyncCalibration = cancelAvSyncCalibration;
+function audibleAudioContextTime(ctx) {
+  if (!ctx) return 0;
+  const current = Number(ctx.currentTime) || 0;
+  try {
+    if (typeof ctx.getOutputTimestamp === 'function') {
+      const stamp = ctx.getOutputTimestamp();
+      const outputTime = Number(stamp && stamp.contextTime);
+      const performanceTime = Number(stamp && stamp.performanceTime);
+      if (Number.isFinite(outputTime) && Number.isFinite(performanceTime) && outputTime > 0) {
+        const elapsed = Math.max(0, (performance.now() - performanceTime) / 1000);
+        return Math.min(current, outputTime + elapsed);
+      }
+    }
+  } catch (_) {}
+  const outputLatency = Number(ctx.outputLatency);
+  const baseLatency = Number(ctx.baseLatency);
+  const latency = (Number.isFinite(outputLatency) ? Math.max(0, outputLatency) : 0) +
+    (Number.isFinite(baseLatency) ? Math.max(0, baseLatency) : 0);
+  return Math.max(0, current - Math.min(1, latency));
+}
+function visualAudioContextTime(ctx) {
+  const correction = avSyncSettings.enabled ? avSyncSettings.offsetMs / 1000 : 0;
+  return audibleAudioContextTime(ctx) - correction;
+}
+function clearPlaybackVisualUpdates() {
+  playbackVisualGeneration++;
+  playbackVisualTimers.forEach(timer => clearTimeout(timer));
+  playbackVisualTimers.clear();
+}
+function schedulePlaybackVisualAt(ctx, contextTime, callback) {
+  const visualTime = contextTime + (avSyncSettings.enabled ? avSyncSettings.offsetMs / 1000 : 0);
+  const generation = playbackVisualGeneration;
+  let timer = 0;
+  const fire = () => {
+    playbackVisualTimers.delete(timer);
+    if (generation !== playbackVisualGeneration || !playbackState.isPlaying) return;
+    const remaining = (visualTime - audibleAudioContextTime(ctx)) * 1000;
+    if (remaining > 2) {
+      timer = setTimeout(fire, Math.max(4, remaining));
+      playbackVisualTimers.add(timer);
+      return;
+    }
+    callback();
+  };
+  timer = setTimeout(fire, Math.max(0, (visualTime - audibleAudioContextTime(ctx)) * 1000));
+  playbackVisualTimers.add(timer);
+}
 function scheduleNextEvent(ctx) {
   if (!playbackState.isPlaying) return;
 
@@ -46279,34 +46516,33 @@ function scheduleNextEvent(ctx) {
     tlPass.secPass,
     tlPass.sqPass
   );
-  updateTimelinePanels(next);
-
-  if (newWrapper) {
-    clearActiveHighlight();
-    newWrapper.classList.add('playback-active');
-    playbackState.activeElements.push(newWrapper);
-    // B-64: здесь же переезжает подсветка секции в панели — состояние
-    // гарантированно свежее.
-    updateSongMapCurrent();
-    if (!timelineMode) {
-      ensurePlaybackSquaresVisible(newWrapper);
-      const activeChord = pinnedTrackContext({
-        secId: next.section.id,
-        squareId: next.square.id,
-        eventIndex: next.eventIndex,
-      }).chord;
-      const showFingering = document.getElementById('showFingering')?.checked;
-      if (activeChord && showFingering) {
-        showFingeringTooltip(activeChord, newWrapper, false);
-      } else {
-        hideFingeringTooltip(false);
-      }
-      if (window._fingeringTimeout) {
-        clearTimeout(window._fingeringTimeout);
-        window._fingeringTimeout = null;
+  schedulePlaybackVisualAt(ctx, evStart, () => {
+    if (!playbackState.isPlaying) return;
+    updateTimelinePanels(next);
+    if (newWrapper && newWrapper.isConnected) {
+      clearActiveHighlight();
+      newWrapper.classList.add('playback-active');
+      playbackState.activeElements.push(newWrapper);
+      // B-64: подсветка секции меняется вместе со слышимым событием.
+      updateSongMapCurrent();
+      if (!timelineMode) {
+        ensurePlaybackSquaresVisible(newWrapper);
+        const activeChord = pinnedTrackContext({
+          secId: next.section.id,
+          squareId: next.square.id,
+          eventIndex: next.eventIndex,
+        }).chord;
+        const showFingering = document.getElementById('showFingering')?.checked;
+        if (activeChord && showFingering) showFingeringTooltip(activeChord, newWrapper, false);
+        else hideFingeringTooltip(false);
+        if (window._fingeringTimeout) {
+          clearTimeout(window._fingeringTimeout);
+          window._fingeringTimeout = null;
+        }
       }
     }
-  }
+    updatePlaybackPosition(next.sectionIndex, next.squareIndex, next.eventIndex);
+  });
 
   if (next.event.chord && next.event.chord.trim() !== '') {
     const oldKey = globalKey;
@@ -46330,10 +46566,11 @@ function scheduleNextEvent(ctx) {
     const strumPattern = ownEventPattern || inheritedPattern;
     // 0.804 (B-120): в режиме Ленты карточки редактора скрыты — не тратим
     // ~50 мс на пересборку скрытых превью боя в секции и ячейке на каждом аккорде.
-    if (!timelineMode) {
+    if (!timelineMode) schedulePlaybackVisualAt(ctx, evStart, () => {
+      if (!playbackState.isPlaying) return;
       setSectionLiveStrumBadge(next.section, strumPattern);
       setEventLiveStrumPreview(next.section.id, next.square.id, next.eventIndex, strumPattern, next.section.strumPattern || null);
-    }
+    });
     currentPlayingStrumPattern = strumPattern;
     // B-12.5.3: какое звучание аккомпанемента звучит на этой позиции —
     // точки автоматизации тембра перекрывают исходное звучание канала.
@@ -46355,9 +46592,11 @@ function scheduleNextEvent(ctx) {
     }));
     globalKey = oldKey;
   } else if (!timelineMode) {
-    // Пауза (в ячейке нет аккорда) — возвращаем секцию/ячейку к
-    // обычному статичному виду.
-    clearAllLiveStrumIndicators();
+    // Пауза (в ячейке нет аккорда) — сбрасываем визуальные маркеры в момент,
+    // когда началась слышимая пауза.
+    schedulePlaybackVisualAt(ctx, evStart, () => {
+      if (playbackState.isPlaying) clearAllLiveStrumIndicators();
+    });
   }
 
   // Другие гитары могут иметь собственный аккорд даже при пустой главной.
@@ -46394,11 +46633,15 @@ function scheduleNextEvent(ctx) {
   // «пустых» ячейках; подсветка секции — только когда открыто окно партий.
   if (typeof schedulePartsForEvent === 'function') {
     schedulePartsForEvent(ctx, next.section, next.square, next.eventIndex, evStart, dur);
-    syncPartsPlaybackHighlight(next.section.id, tlPass.secPass, next.square.id, tlPass.sqPass, next.eventIndex);
+    schedulePlaybackVisualAt(ctx, evStart, () => {
+      if (playbackState.isPlaying) syncPartsPlaybackHighlight(next.section.id, tlPass.secPass, next.square.id, tlPass.sqPass, next.eventIndex);
+    });
   }
 
   // === РАБОТА С ПРЕВЬЮ ===
-  hideFingeringTooltip(true);
+  schedulePlaybackVisualAt(ctx, evStart, () => {
+    if (playbackState.isPlaying) hideFingeringTooltip(true);
+  });
 
   // 0.783: previewEvent и padNext посчитаны выше, до планирования
   // клавишных. Тем же значением пользуются закреплённый гриф и подсказка
@@ -46406,7 +46649,8 @@ function scheduleNextEvent(ctx) {
   // счётчики повторов не удваивались.
   // Закреплённый гриф ведём за игрой: слева аккорд, который звучит
   // сейчас, справа — следующий.
-  if (isFingeringPinned()) {
+  if (isFingeringPinned()) schedulePlaybackVisualAt(ctx, evStart, () => {
+    if (!playbackState.isPlaying) return;
     const nextPos = previewEvent ? {
       secId: previewEvent.section.id, squareId: previewEvent.square.id,
       eventIndex: previewEvent.eventIndex, chord: pinnedTrackContext({
@@ -46414,7 +46658,7 @@ function scheduleNextEvent(ctx) {
       }).chord
     } : null;
     syncPinnedFingeringWithPlayback('', next.section.id, next.square.id, next.eventIndex, nextPos);
-  }
+  });
 
   const previewActiveChord = previewEvent
     ? pinnedTrackContext({
@@ -46481,28 +46725,14 @@ function scheduleNextEvent(ctx) {
     }
   }
 
-  updatePlaybackPosition(
-    next.sectionIndex,
-    next.squareIndex,
-    next.eventIndex
-  );
-
   nextEventTime += dur;
-  // Просыпаемся за 120 мс до события, а не за 50.
-  //
-  // Замер запаса между планированием звука и его началом: на спокойной
-  // странице 12-125 мс, под нагрузкой (кадры по 45 мс) минимум падал до
-  // 14 мс, а иногда уходил в минус — звук планировался в ПРОШЛОМ и
-  // просто не звучал. Браузер не обязан будить setTimeout вовремя: он
-  // задерживает его при тяжёлом кадре, при сборке мусора, а в фоновой
-  // вкладке округляет до секунды.
-  //
-  // 120 мс — компромисс. Больше запас = устойчивее к заминкам, но тем
-  // дальше вперёд «застывает» очередь: смена BPM или остановка на ходу
-  // отзываются с этой задержкой. Web Audio планирует по собственным
-  // часам, поэтому на ТОЧНОСТЬ момента звучания это не влияет вовсе —
-  // только на то, насколько заранее мы кладём событие в очередь.
-  const tWait = Math.max(0, (nextEventTime - ctx.currentTime) * 1000 - 120);
+  // Держим очередь звука на 250 мс впереди: задержки main thread из-за
+  // растеризации длинной ленты или GC больше не должны оставлять
+  // планировщик проснувшимся впритык к атаке. Web Audio всё равно
+  // воспроизводит ноты по точным AudioContext-часам; запас влияет только
+  // на отзывчивость при правках/смене темпа, а Stop немедленно отменяет
+  // уже запланированные голоса.
+  const tWait = Math.max(0, (nextEventTime - ctx.currentTime) * 1000 - PLAYBACK_SCHEDULER_LOOKAHEAD_MS);
   playbackState.schedulerTimer = setTimeout(() => scheduleNextEvent(ctx), tWait);
 }
 function clearActiveHighlight() {
@@ -49555,8 +49785,10 @@ function scheduleClick(ctx, t, acc, mid) {
     g.connect(metronomeGainNode);
     o.start(t);
     o.stop(t + (acc ? 0.08 : 0.04));
+    const scheduled = { osc: o, ctx, time: t };
     activeOscillators.add(o);
-    o.onended = () => activeOscillators.delete(o);
+    metronomeScheduledOscillators.add(scheduled);
+    o.onended = () => { activeOscillators.delete(o); metronomeScheduledOscillators.delete(scheduled); };
   } catch (e) {}
 }
 function setMetronomeVolume(v) {
@@ -49592,6 +49824,12 @@ function metronomeKeyFor(ts, bpm) {
   return [ts, bpm, metronomeSubdivision, playbackStartTime].join('|');
 }
 function stopMetronomeScheduler() {
+  metronomeScheduledOscillators.forEach((scheduled) => {
+    const now = Number(scheduled.ctx && scheduled.ctx.currentTime) || 0;
+    if (scheduled.time > now + 0.01) {
+      try { scheduled.osc.stop(); } catch (_) {}
+    }
+  });
   if (metronomeFrameId) {
     cancelAnimationFrame(metronomeFrameId);
     metronomeFrameId = null;
@@ -49643,7 +49881,8 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm, resumeAtNow) {
   // прошлом и звучали разом (залп).
   // ceil, а не floor: следующий клик должен быть ВПЕРЕДИ, иначе при задержке
   // кадра он ставится задним числом и звучит вместе с предыдущим.
-  let last = resumeAtNow ? Math.max(-1, Math.ceil((ctx.currentTime - st) / cd) - 1) : -1;
+  const metronomeLookahead = PLAYBACK_SCHEDULER_LOOKAHEAD_MS / 1000;
+  let last = resumeAtNow ? Math.max(-1, Math.ceil((ctx.currentTime + metronomeLookahead - st) / cd) - 1) : -1;
   function check() {
     if (!playbackState.isPlaying) return;
     const now = ctx.currentTime;
@@ -49652,7 +49891,7 @@ function scheduleMetronomeEvents(ctx, st, ts, bpm, resumeAtNow) {
       metronomeFrameId = requestAnimationFrame(check);
       return;
     }
-    const cur = Math.floor(el / cd);
+    const cur = Math.floor((el + metronomeLookahead) / cd);
     if (cur > last) {
       for (let cn = last + 1; cn <= cur; cn++) {
         const ct = st + cn * cd;
@@ -49742,46 +49981,20 @@ function runFingeringWarmJob(job) {
 }
 
 function warmSongFingeringCacheSync() {
+  // Intentionally disabled: a single generateFingeringVariants() call can
+  // occupy the main thread for hundreds of milliseconds on large songs.
+  // The former synchronous warm-up also ran directly inside Play.
+}
+
+function scheduleWarmSongFingeringCache() {
+  // Intentionally disabled for now. Splitting this work across setTimeout(0)
+  // still creates one long task per expensive chord and repeatedly interrupts
+  // playback/import. Variants are generated lazily by the UI when requested.
   if (_warmFingeringTimer) {
     clearTimeout(_warmFingeringTimer);
     _warmFingeringTimer = 0;
   }
   _warmFingeringToken++;
-  const jobs = collectSongGuitarChordJobs();
-  for (let i = 0; i < jobs.length; i++) {
-    runFingeringWarmJob(jobs[i]);
-  }
-}
-
-function scheduleWarmSongFingeringCache() {
-  if (_warmFingeringTimer) {
-    clearTimeout(_warmFingeringTimer);
-    _warmFingeringTimer = 0;
-  }
-  const token = ++_warmFingeringToken;
-  const jobs = collectSongGuitarChordJobs();
-  let idx = 0;
-  const step = () => {
-    _warmFingeringTimer = 0;
-    if (token !== _warmFingeringToken) return;
-    while (idx < jobs.length) {
-      const job = jobs[idx++];
-      let needed = false;
-      b39WithTrackTuning(job.trackId, () => {
-        needed = !fingeringCache.has(buildFingeringChordKey(job.chord, job.key));
-      });
-      if (needed) {
-        runFingeringWarmJob(job);
-        if (idx < jobs.length) {
-          _warmFingeringTimer = setTimeout(step, 0);
-        }
-        return;
-      }
-    }
-  };
-  if (jobs.length) {
-    _warmFingeringTimer = setTimeout(step, 0);
-  }
 }
 
 // воспроизведение
@@ -49824,11 +50037,8 @@ function playAll() {
     typeof window.StruChordBackingTrack.consumePendingAudioStartFromZero === 'function' &&
     window.StruChordBackingTrack.consumePendingAudioStartFromZero());
 
-  // 0.804 (B-120): прогреваем кэш гитарных форм ДО чтения ctx.currentTime,
-  // чтобы ни стартовый аккорд, ни смены аккордов в середине песни не тормозили
-  // главный поток и не сдвигали аудиочасы относительно прокрутки Ленты.
-  warmSongFingeringCacheSync();
-
+  // Не выполняем тяжёлый предпрогрев аппликатур в обработчике Play:
+  // аудио и визуальный транспорт должны стартовать без синхронного перебора аккордов.
   // Пользовательский Play — последняя безопасная точка восстановления до
   // планирования нот. Во время уже идущего такта контекст не пересоздаём.
   audioPreflightForGesture();
@@ -49896,8 +50106,8 @@ function playAll() {
   playbackStartTime = now;
   nextEventTime = now;
   if (countInEnabled || now > btLaunchBase + 0.02) {
-    // Отсчёт: первое событие ПЕСНИ планируем поздно — за 120 мс до
-    // конца отсчёта, а не сразу при старте. Иначе первый аккорд уже
+    // Отсчёт: первое событие ПЕСНИ планируем в последнем буфере перед
+    // концом отсчёта, а не сразу при старте. Иначе первый аккорд уже
     // лежал бы в очереди Web Audio (запланирован на начало песни), и
     // клик по другой ячейке во время отсчёта (attachChordWheelEvents
     // просто двигает текущие индексы) вступал в силу только ПОСЛЕ
@@ -49909,7 +50119,7 @@ function playAll() {
     // Таймер — тот же playbackState.schedulerTimer, что у обычного
     // планировщика: stopPlayback и пауза чистят его штатно, поздних
     // «призраков» после остановки нет.
-    const tWait = Math.max(0, (now - ctx.currentTime) * 1000 - 120);
+    const tWait = Math.max(0, (now - ctx.currentTime) * 1000 - PLAYBACK_SCHEDULER_LOOKAHEAD_MS);
     playbackState.schedulerTimer = setTimeout(() => scheduleNextEvent(ctx), tWait);
   } else {
     // scheduleNextEvent сам обнаружит смену размера (currentTimeSig
@@ -49924,6 +50134,7 @@ function playAll() {
 // между разными способами запуска и остановки.
 function setPlaybackBodyClass(on) {
   document.body.classList.toggle('is-playing', !!on);
+  if (!on) clearPlaybackVisualUpdates();
   if (window.StruChordBackingTrack && typeof window.StruChordBackingTrack.syncPlaybackUi === 'function') window.StruChordBackingTrack.syncPlaybackUi();
   // До этого места Play не доходит во время charging/armed. После
   // фактического выстрела фаза уже `striking`, и cancelStormSurprise()
@@ -64012,33 +64223,47 @@ function renderRhythmTrack() {
 let timelineMotion = null;
 let timelineRAF = 0;
 
+function setTimelineActiveCell(cell) {
+  if (timelineActiveCell && timelineActiveCell !== cell) timelineActiveCell.classList.remove('tl-active');
+  if (cell) cell.classList.add('tl-active');
+  timelineActiveCell = cell || null;
+}
 function updateTimelineActive(secId, sqId, ei, startTime, dur, secPass, sqPass) {
-  if (timelineActiveCell) {
-    timelineActiveCell.classList.remove('tl-active');
-    timelineActiveCell = null;
-  }
-  if (!timelineMode) return;
+  if (!timelineMode) { setTimelineActiveCell(null); return; }
   const cell = timelineCellByKey.get(timelineKey(secId, sqId, ei, secPass, sqPass));
-  if (!cell) return;
-  cell.classList.add('tl-active');
-  timelineActiveCell = cell;
+  if (!cell) { setTimelineActiveCell(null); return; }
 
   if (startTime !== undefined && dur > 0) {
-    // Размеры ПРЕДЫДУЩЕЙ ячейки нужны, чтобы доехать её хвост, пока
-    // планировщик уже переключился, а звук ещё не начался (см. разбор
-    // отрицательного прогресса в startTimelineMotion).
+    // Планировщик просыпается заранее, но не переносим метку на следующий
+    // аккорд раньше звука. Геометрию движения подготавливаем заранее, а
+    // смену tl-active ставим на тот же выходной момент, что и аудио.
     const prev = timelineMotion;
+    const viewport = document.getElementById('timelineViewport');
+    const viewportWidth = viewport ? viewport.clientWidth : 0;
     timelineMotion = {
       cell,
       startTime,
       dur,
-      left: cellContentLeft(cell),
+      left: cellContentLeft(cell) - timelineShiftApplied,
       width: cell.offsetWidth,
       prevWidth: prev ? prev.width : 0,
       prevDur: prev ? prev.dur : 0,
+      // Freeze layout-dependent values once per event. Reading scrollWidth /
+      // clientWidth in the animation frame after changing scrollLeft can
+      // force a synchronous layout on very long timelines.
+      maxScroll: viewport ? Math.max(0, viewport.scrollWidth - viewportWidth) : 0,
+      scrollBase: viewport ? viewport.scrollLeft : 0,
+      targetScroll: viewport ? viewport.scrollLeft : 0,
+      headOffset: viewportWidth * TIMELINE_HEAD_FRACTION,
     };
+    if (playbackState.isPlaying) {
+      schedulePlaybackVisualAt(getAudioContext(), startTime, () => {
+        if (timelineMode && cell.isConnected) setTimelineActiveCell(cell);
+      });
+    } else setTimelineActiveCell(cell);
     startTimelineMotion();
   } else {
+    setTimelineActiveCell(cell);
     // Позиция без привязки ко времени (вход в режим на паузе).
     scrollTimelineToCell(cell, true);
   }
@@ -64955,8 +65180,15 @@ function updateTimelinePanels(next) {
 
 function startTimelineMotion() {
   if (timelineRAF) return;
-  const step = () => {
+  let lastVisualFrame = 0;
+  const minFrameInterval = 1000 / 20;
+  const step = (timestamp) => {
     timelineRAF = 0;
+    if (lastVisualFrame && timestamp - lastVisualFrame < minFrameInterval) {
+      timelineRAF = requestAnimationFrame(step);
+      return;
+    }
+    lastVisualFrame = timestamp;
     const vp = document.getElementById('timelineViewport');
     const m = timelineMotion;
     if (!vp || !m || !timelineMode || !playbackState.isPlaying) return;
@@ -64974,7 +65206,7 @@ function startTimelineMotion() {
     // Отрицательный прогресс НЕ обрезаем, а продолжаем движение по
     // предыдущей ячейке: её конец геометрически совпадает с началом
     // текущей, значит лента едет ровно, без остановки и рывка.
-    const raw = (ctx.currentTime - m.startTime) / m.dur;
+    const raw = (visualAudioContextTime(ctx) - m.startTime) / m.dur;
     let progress;
     if (raw < 0 && m.prevWidth > 0) {
       // Ещё звучит предыдущая ячейка: доезжаем её хвост.
@@ -64991,27 +65223,19 @@ function startTimelineMotion() {
     // Таймеру отрицательные значения не нужны — там обрезаем.
     setTimelineNextProgress(Math.max(0, Math.min(1, raw)));
     const posInContent = m.left + m.width * progress;
-    const max = vp.scrollWidth - vp.clientWidth;
-    const next = Math.max(0, Math.min(max, posInContent - getTimelineHeadOffset()));
+    const next = Math.max(0, Math.min(m.maxScroll, posInContent - m.headOffset));
 
-    // scrollLeft ОКРУГЛЯЕТ до целых пикселей — замер: присвоили 100.5,
-    // прочли 101; присвоили 100.25, прочли 100. На 143 BPM лента едет
-    // 229 px/сек, то есть ~3.8 px за кадр: округление даёт шаги
-    // 3-4-3-4 px вместо ровных 3.8, и это видно как мелкая дрожь.
-    // Замер подтвердил: медиана отклонения от идеальной позиции
-    // 0.26 px, максимум 5.4 px, и 11 кадров из 360 вообще без движения.
-    //
-    // Поэтому целую часть отдаём scrollLeft (он нужен, чтобы работала
-    // прокрутка и не съезжала геометрия), а ДРОБНЫЙ ОСТАТОК добираем
-    // сдвигом содержимого: transform принимает доли пикселя и рисуется
-    // на композиторе, без пересчёта раскладки.
-    const whole = Math.floor(next);
-    const frac = next - whole;
-    if (vp.scrollLeft !== whole) vp.scrollLeft = whole;
-    // Компенсируем округление, которое scrollLeft всё же сделал.
-    const applied = vp.scrollLeft;
-    const shift = -(frac + (applied - whole));
-    setTimelineSubpixelShift(shift);
+    // Commit native scrolling at the capped visual rate; the subpixel
+    // remainder is a compositor transform shared by both rails. This
+    // preserves scrollbar position and hit-testing while avoiding two
+    // full-rate scroll/paint updates on long timelines.
+    const targetScroll = Math.round(next);
+    if (m.scrollBase !== targetScroll) {
+      vp.scrollLeft = targetScroll;
+      m.scrollBase = targetScroll;
+    }
+    m.targetScroll = targetScroll;
+    setTimelineSubpixelShift(targetScroll - next);
 
     timelineRAF = requestAnimationFrame(step);
   };
@@ -65050,14 +65274,11 @@ function setTimelineSubpixelShift(px) {
 function stopTimelineMotion() {
   if (timelineRAF) cancelAnimationFrame(timelineRAF);
   timelineRAF = 0;
+  const vp = document.getElementById('timelineViewport');
+  const motion = timelineMotion;
+  if (vp && motion) vp.scrollLeft = Math.max(0, Math.min(motion.maxScroll, Math.round(motion.targetScroll)));
   timelineMotion = null;
-  // Доводчик НЕ сбрасываем: обнуление видно как микрооткат назад на
-  // долю пикселя (замер: −0.42 px в кадре остановки), а перенести
-  // остаток в scrollLeft нельзя — тот умеет только целые.
-  // Оставить сдвиг безопасно: cellContentLeft читает geometry через
-  // getBoundingClientRect, который уже учитывает transform, поэтому
-  // поиск ячейки под меткой остаётся точным.
-  // В ноль его возвращает renderTimeline — там лента строится заново.
+  setTimelineSubpixelShift(0);
 }
 
 // Разовая установка позиции (вход в режим, остановка) — без анимации:
@@ -65332,6 +65553,10 @@ function attachTimelineScrollWatch() {
   vp.addEventListener(
     'scroll',
     () => {
+      // During playback the timeline itself writes scrollLeft every frame;
+      // that movement is not a seek. Do not enqueue a second RAF just to
+      // reach onTimelineManualScroll(), which would return immediately.
+      if (playbackState.isPlaying) return;
       // Прокрутка сыплется десятками событий в секунду, а пересчёт
       // позиции трогает геометрию всех ячеек. Схлопываем в один кадр.
       if (raf) return;
@@ -81277,7 +81502,8 @@ toggleTimeAndBeats();
     const dialog = createHomeModal(
       'Настройки приложения',
       'Параметры применяются сразу. Тема, цветовая схема, масштаб и написание аккордов запоминаются в этом браузере.',
-      'home-settings-modal'
+      'home-settings-modal',
+      () => { if (avSyncCalibration) cancelAvSyncCalibration(); }
     );
     const sections = document.createElement('div');
     sections.className = 'home-settings-sections';
@@ -81301,7 +81527,14 @@ toggleTimeAndBeats();
     instrumentTab.setAttribute('role', 'tab');
     instrumentTab.setAttribute('aria-controls', 'homeSettingsPanelInstrument');
     instrumentTab.textContent = 'Инструменты';
-    tabs.append(visualTab, instrumentTab);
+    const avSyncTab = document.createElement('button');
+    avSyncTab.type = 'button';
+    avSyncTab.className = 'home-settings-tab';
+    avSyncTab.id = 'homeSettingsTabAvSync';
+    avSyncTab.setAttribute('role', 'tab');
+    avSyncTab.setAttribute('aria-controls', 'homeSettingsPanelAvSync');
+    avSyncTab.textContent = 'Синхронизация';
+    tabs.append(visualTab, instrumentTab, avSyncTab);
 
     const visualPanel = document.createElement('section');
     visualPanel.className = 'home-settings-panel';
@@ -81317,9 +81550,39 @@ toggleTimeAndBeats();
     instrumentPanel.setAttribute('aria-labelledby', instrumentTab.id);
     instrumentPanel.tabIndex = 0;
 
+    const avSyncPanel = document.createElement('section');
+    avSyncPanel.className = 'home-settings-panel';
+    avSyncPanel.id = 'homeSettingsPanelAvSync';
+    avSyncPanel.setAttribute('role', 'tabpanel');
+    avSyncPanel.setAttribute('aria-labelledby', avSyncTab.id);
+    avSyncPanel.tabIndex = 0;
+    avSyncPanel.innerHTML = `
+      <section class="home-settings-section">
+        <h3>Калибровка аудио и визуала</h3>
+        <p class="home-av-sync-help">Метроном играет ровно 100 BPM. Слушайте щелчки и нажимайте TAP в такт; первые два нажатия нужны для разогрева. После измерения поправка применяется к подсветке, ленте и плейхеду при включённой автосинхронизации.</p>
+        <div class="home-av-sync-controls">
+          <span class="home-av-sync-beat" id="homeAvSyncBeat" aria-hidden="true"></span>
+          <button class="home-scale-control" id="homeAvSyncStart" type="button" onclick="startAvSyncCalibration()">Начать калибровку</button>
+          <button class="home-scale-control" id="homeAvSyncTap" type="button" onclick="tapAvSyncCalibration()" disabled>TAP</button>
+          <button class="home-scale-control" id="homeAvSyncCancel" type="button" onclick="cancelAvSyncCalibration()" disabled>Отмена</button>
+        </div>
+        <output class="home-av-sync-status" id="homeAvSyncStatus" aria-live="polite">Калибровка не запущена.</output>
+        <label class="home-av-sync-toggle"><input id="homeAvSyncEnabled" type="checkbox"><span><strong>Автосинхронизация при воспроизведении</strong><small>Использовать сохранённую поправку для визуальных индикаторов.</small></span></label>
+        <label class="home-av-sync-offset"><span>Поправка вручную <output id="homeAvSyncOffsetValue">0 мс</output></span><input id="homeAvSyncOffset" type="range" min="-250" max="250" step="5" value="0"></label>
+        <small class="home-av-sync-note">Тапы включают и вашу реакцию на кнопку, поэтому результат приблизительный. Для точной подстройки используйте ползунок; положительное значение задерживает визуал.</small>
+      </section>`;
+    avSyncPanel.querySelector('#homeAvSyncEnabled').addEventListener('change', (event) => {
+      avSyncSettings.enabled = event.target.checked;
+      saveAvSyncSettings();
+    });
+    avSyncPanel.querySelector('#homeAvSyncOffset').addEventListener('input', (event) => {
+      avSyncSettings.offsetMs = Number(event.target.value) || 0;
+      saveAvSyncSettings();
+    });
     const settingsTabs = [
       { button: visualTab, panel: visualPanel },
       { button: instrumentTab, panel: instrumentPanel },
+      { button: avSyncTab, panel: avSyncPanel },
     ];
     let activeTabIndex = 0;
     const selectSettingsTab = (index, focus = false) => {
@@ -81478,8 +81741,9 @@ toggleTimeAndBeats();
     soundSourcesSection.appendChild(soundSources);
     instrumentPanel.append(defaultSection, soundSourcesSection, instrumentOptionsSection, readableNamesSection);
 
-    sections.append(tabs, visualPanel, instrumentPanel);
+    sections.append(tabs, visualPanel, instrumentPanel, avSyncPanel);
     dialog.content.appendChild(sections);
+    syncAvSyncControls();
     dialog.actions.appendChild(createHomeActionButton('Готово', 'primary', dialog.close));
     selectSettingsTab(0);
     syncHomeSettingsControls();
@@ -87833,15 +88097,29 @@ function gpExportModal(title, bodyHtml, label) {
   function stateForSave() { return meta ? {...meta, points:meta.points.map(p=>({...p}))} : null; }
   function captureEdit() { syncPointMapCache=null;cachedAudioTailBar=null; try { if (window.captureHistorySnapshot) window.captureHistorySnapshot(); } catch (_) {} }
   function setMeta(next) { meta=cleanMeta(next); syncPointMapCache=null;cachedAudioTailBar=null; renderDrawer(); syncMixerUi(); }
+  function audibleBackingTime() {
+    if (!audio) return 0;
+    const mediaTime = Math.max(0, Number(audio.currentTime) || 0);
+    const ctx = playbackState.isPlaying && typeof getAudioContext === 'function' ? getAudioContext() : audioCtx;
+    if (!ctx) return mediaTime;
+    const audibleCtxTime = audibleAudioContextTime(ctx);
+    if (audioZeroCtxTime !== null && meta) {
+      const scheduledTime = Math.max(0, (audibleCtxTime - audioZeroCtxTime) * meta.speed);
+      return Math.min(mediaTime, scheduledTime);
+    }
+    const outputLag = Math.max(0, (Number(ctx.currentTime) || 0) - audibleCtxTime);
+    return Math.max(0, mediaTime - outputLag * (Number(meta && meta.speed) || 1));
+  }
   function updatePlayheadCursor() {
     const cursor = $('btPlayheadCursor'), viewport = $('btWaveViewport');
-    const running = !!(audio && !audio.paused && meta);
+    const running = !!(audio && !audio.paused && meta && !audioStartTimer);
     if (cursor && viewport && running) {
       const mediaLen = waveDuration(), virtualWidth = waveVirtualWidth();
       if (mediaLen > 0 && virtualWidth > 0) {
         const viewStart = (viewport.scrollLeft / virtualWidth) * mediaLen;
         const viewDuration = mediaLen / waveZoom;
-        const displayTime = audio.currentTime + (Number(meta.trackOffset) || 0);
+        const syncDelay = avSyncSettings.enabled ? (avSyncSettings.offsetMs / 1000) * (Number(meta.speed) || 1) : 0;
+        const displayTime = audibleBackingTime() - syncDelay + (Number(meta.trackOffset) || 0);
         const x = ((displayTime - viewStart) / viewDuration) * waveViewportWidth();
         cursor.style.left = `${x}px`;
         cursor.style.height = `${viewport.clientHeight || canvasCssHeight}px`;
@@ -87866,11 +88144,13 @@ function gpExportModal(title, bodyHtml, label) {
       updatePlayheadCursor();
       return;
     }
-    if (!playheadRaf) { updatePlayheadCursor(); playheadRaf = requestAnimationFrame(playheadAnimationFrame); }
+    updatePlayheadCursor();
+    if (!playheadRaf) playheadRaf = requestAnimationFrame(playheadAnimationFrame);
   }
   function updatePreviewStatus() {
     const output = $('btPlayhead');
-    if (output) output.textContent = secText(audio && Number.isFinite(audio.currentTime) ? audio.currentTime : 0);
+    const syncDelay = avSyncSettings.enabled ? (avSyncSettings.offsetMs / 1000) * (Number(meta && meta.speed) || 1) : 0;
+    if (output) output.textContent = secText(audio && Number.isFinite(audio.currentTime) ? Math.max(0, audibleBackingTime() - syncDelay) : 0);
     const button = $('btDrawer') && $('btDrawer').querySelector('[data-bt-action="preview"]');
     if (button) {
       button.textContent = audio && !audio.paused ? 'Пауза MP3' : '▶ Прослушать MP3';
@@ -87921,6 +88201,7 @@ function gpExportModal(title, bodyHtml, label) {
     let nextPeaks = [];
     let nextPeakMax = 0;
     let nextDuration = 0;
+    const yieldToBrowser = () => new Promise((resolve) => setTimeout(resolve, 0));
     try {
       const bytes = await blob.arrayBuffer();
       const Ctx = window.AudioContext || window.webkitAudioContext;
@@ -87934,10 +88215,16 @@ function gpExportModal(title, bodyHtml, label) {
             const count = Math.min(500000, Math.max(1, data.length));
             const bins = new Float32Array(count);
             const step = Math.max(1, Math.ceil(data.length / count));
+            let samplesSinceYield = 0;
             for (let i = 0; i < count; i++) {
               let max = 0;
               for (let j = i * step; j < Math.min(data.length, (i + 1) * step); j++) {
                 max = Math.max(max, Math.abs(data[j]));
+                if (++samplesSinceYield >= 100000) {
+                  samplesSinceYield = 0;
+                  if (token !== blobLoadToken) return;
+                  await yieldToBrowser();
+                }
               }
               bins[i] = max;
               if (max > nextPeakMax) nextPeakMax = max;
@@ -87973,6 +88260,7 @@ function gpExportModal(title, bodyHtml, label) {
             nextDuration = total / fmt.rate;
             const count = Math.min(500000, Math.max(1, total)), step = Math.max(1, Math.ceil(total / count));
             const bins = new Float32Array(count);
+            let samplesSinceYield = 0;
             for (let i = 0; i < count; i++) {
               let max = 0;
               for (let sample = i * step; sample < Math.min(total, (i + 1) * step); sample++) {
@@ -87983,6 +88271,11 @@ function gpExportModal(title, bodyHtml, label) {
                 else if (fmt.bits === 24) value = ((view.getUint8(p) | (view.getUint8(p + 1) << 8) | (view.getInt8(p + 2) << 16)) << 8 >> 8) / 8388608;
                 else value = fmt.code === 3 ? view.getFloat32(p, true) : view.getInt32(p, true) / 2147483648;
                 max = Math.max(max, Math.abs(value));
+                if (++samplesSinceYield >= 100000) {
+                  samplesSinceYield = 0;
+                  if (token !== blobLoadToken) return;
+                  await yieldToBrowser();
+                }
               }
               bins[i] = max;
               if (max > nextPeakMax) nextPeakMax = max;
@@ -88247,7 +88540,29 @@ function gpExportModal(title, bodyHtml, label) {
   async function exportSong(song, embed){if(!meta)return song;const out={...song,backingTrack:stateForSave()};return exportStoredSong(out,embed);}
   async function exportStoredSong(song,embed){const out={...song};const bt=cleanMeta(song&&song.backingTrack);if(!bt)return out;out.backingTrack=bt;if(embed){const blob=await dbGet(bt.id);if(blob){const buf=await blob.arrayBuffer();out.backingTrack={...bt,embedded:arrayBufferToBase64(buf)};}else toast('Аудиофайл недоступен; экспортирована только разметка синхронизации.');}return out;}
   function arrayBufferToBase64(buf){let s='';const b=new Uint8Array(buf);for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode(...b.subarray(i,i+0x8000));return btoa(s);}
-  async function importEmbedded(song){if(!song||!song.backingTrack)return;const bt=cleanMeta(song.backingTrack);if(song.backingTrack.embedded&&String(song.backingTrack.embedded).length<=Math.ceil(LIMIT*4/3)+8){try{const raw=atob(song.backingTrack.embedded),u=new Uint8Array(raw.length);for(let i=0;i<raw.length;i++)u[i]=raw.charCodeAt(i);const blob=new Blob([u],{type:bt.type});if(blob.size<=LIMIT)await dbPut(bt.id,blob);delete song.backingTrack.embedded;}catch(_){}}}
+  async function importEmbedded(song) {
+    if (!song || !song.backingTrack) return;
+    const bt = cleanMeta(song.backingTrack);
+    const encoded = String(song.backingTrack.embedded || '');
+    if (!encoded || encoded.length > Math.ceil(LIMIT * 4 / 3) + 8) return;
+    try {
+      // Decode in bounded chunks instead of one 10–30 MB main-thread task.
+      // A large embedded backing track used to freeze the editor during
+      // import, often while the user had already pressed Play.
+      const chunkChars = 256 * 1024; // multiple of four for base64 boundaries
+      const chunks = [];
+      for (let offset = 0; offset < encoded.length; offset += chunkChars) {
+        const raw = atob(encoded.slice(offset, Math.min(encoded.length, offset + chunkChars)));
+        const bytes = new Uint8Array(raw.length);
+        for (let i = 0; i < raw.length; i++) bytes[i] = raw.charCodeAt(i);
+        chunks.push(bytes);
+        if (offset + chunkChars < encoded.length) await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      const blob = new Blob(chunks, { type: bt.type });
+      if (blob.size <= LIMIT) await dbPut(bt.id, blob);
+      delete song.backingTrack.embedded;
+    } catch (_) {}
+  }
   function getBpmForBar(bar){const q=qAtBar(bar);const b=qAtBar(bar+1);return bpmAtQ(q,b-q||1);}
   function getBpmForEvent(si,qi,ei,sp,qp,span,ts){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp),sig=parseTimeSig(ts||globalTimeSig||'4/4'),dq=Number(span||1)*(4/sig.denominator);return bpmAtQ(q,dq);}
   function getFirstPassBpmForBar(bar){let q=0,b=0;for(const sec of sections||[]){const sig=parseTimeSig(sec.timeSig||globalTimeSig||'4/4'),quarters=sig.numerator*(4/sig.denominator);let sectionQ=0;for(let qi=0;qi<(sec.squares||[]).length;qi++){const count=Math.max(1,Number(sec.squares[qi].repeat)||1);for(let r=0;r<count;r++){if(b===bar)return bpmAtQ(q+sectionQ,quarters);b++;sectionQ+=quarters;}}q+=sectionQ*Math.max(1,Number(sec.repeat)||1);}return getBpmForBar(bar);}

@@ -23,7 +23,7 @@ const dom = new JSDOM(html, {
     win.URL.createObjectURL = () => 'blob:b122-test';
     win.URL.revokeObjectURL = () => {};
     win.HTMLAnchorElement.prototype.click = function () {};
-    win.AudioContext = win.webkitAudioContext = function () { this.currentTime = 10; this.state = 'running'; this.close = () => Promise.resolve(); };
+    win.AudioContext = win.webkitAudioContext = function () { this.currentTime = 10; this.outputLatency = 0.1; this.baseLatency = 0.02; this.state = 'running'; this.close = () => Promise.resolve(); };
   },
 });
 const w = dom.window;
@@ -36,6 +36,14 @@ setTimeout(async () => {
   try {
     const bt = w.StruChordBackingTrack;
     assert(bt, 'module registered');
+    check('audible AudioContext clock extrapolates output timestamps and falls back to latency estimates', () => {
+      const now = w.performance.now();
+      const timestampClock = { currentTime: 10, getOutputTimestamp: () => ({ contextTime: 9.5, performanceTime: now - 100 }) };
+      const audibleTimestamp = w.audibleAudioContextTime(timestampClock);
+      assert(audibleTimestamp >= 9.59 && audibleTimestamp <= 9.7, String(audibleTimestamp));
+      const estimatedClock = { currentTime: 10, outputLatency: 0.1, baseLatency: 0.02 };
+      assert(Math.abs(w.audibleAudioContextTime(estimatedClock) - 9.88) < 0.001);
+    });
     check('25 MB input limit is exposed and metadata is compact', () => {
       assert.strictEqual(bt.limit, 25 * 1024 * 1024);
       const meta = bt.sanitize({ id: 'audio-1', name: 'take.wav', size: 512, points: [{ bar: 0, time: 0 }, { bar: 1, time: 2 }] });
