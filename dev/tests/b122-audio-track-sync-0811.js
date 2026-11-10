@@ -16,7 +16,7 @@ const dom = new JSDOM(html, {
   pretendToBeVisual: true,
   beforeParse(win) {
     win.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
-    win.HTMLCanvasElement.prototype.getContext = () => ({ font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) });
+    win.HTMLCanvasElement.prototype.getContext = function () { const canvas = this; return { font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() { if (canvas.id === 'btWaveCanvas') win.__btWaveXs = []; }, fillRect() {}, beginPath() {}, moveTo(x, y) { if (canvas.id === 'btWaveCanvas' && y === 0) (win.__btWaveXs ||= []).push(x); }, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) }; };
     win.Audio = function () { this.paused = true; this.currentTime = 0; this.volume = 1; this.playbackRate = 1; this.addEventListener = () => {}; this.setAttribute = () => {}; this.load = () => {}; this.pause = () => { this.paused = true; }; this.play = () => { this.paused = false; return Promise.resolve(); }; };
     win.Blob = Blob;
     win.URL.createObjectURL = () => 'blob:b122-test';
@@ -157,7 +157,22 @@ setTimeout(async () => {
       canvas.dispatchEvent(wheel);
       assert.strictEqual(wheel.defaultPrevented, true, 'Ctrl+wheel is captured for zoom');
       assert.notStrictEqual(canvas.style.width, beforeWheel, 'Ctrl+wheel changes zoom');
-      assert.strictEqual(w.document.querySelector('#btZoom').value, String(Math.round(parseFloat(canvas.style.width) / 100 * 100)));
+      const zoom = w.document.querySelector('#btZoom');
+      assert.strictEqual(zoom.value, String(Math.round(parseFloat(canvas.style.width))));
+      assert.strictEqual(zoom.max, '10000', 'zoom control supports magnification well beyond the old 500% limit');
+      zoom.value = '1200';
+      zoom.dispatchEvent(new w.Event('input', { bubbles: true }));
+      assert.strictEqual(canvas.style.width, '1200%', 'wave can be zoomed past 500%');
+    });
+    await bt.loadSong({ backingTrack: { id: 'wave-grid-test', name: 'grid.wav', type: 'audio/wav', size: 512, duration: 12, speed: 1, volume: 80, mute: false, solo: false, points: [{ bar: 0, time: 0 }, { bar: 2, time: 4 }] } });
+    check('bar grid extrapolates through the end of audio beyond the score bars', () => {
+      bt.toggleDrawer(true);
+      const canvas = w.document.getElementById('btWaveCanvas');
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      const zoom = w.document.querySelector('#btZoom');
+      zoom.dispatchEvent(new w.Event('input', { bubbles: true }));
+      assert(bt.getBarGrid().bars < 6, 'test score is shorter than the audio');
+      assert(w.__btWaveXs.length >= 9, 'extended bars and sync markers reach the full recording duration');
     });
     await bt.loadSong({ backingTrack: { id: 'track-drag-test', name: 'drag.wav', type: 'audio/wav', size: 512, duration: 8, speed: 1, volume: 80, mute: false, solo: false, points: [{ bar: 0, time: 1 }, { bar: 2, time: 5 }] } });
     check('Alt+drag shifts the backing recording against bars while preserving sync spacing', () => {
