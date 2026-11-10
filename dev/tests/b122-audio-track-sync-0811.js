@@ -110,6 +110,30 @@ setTimeout(async () => {
       assert.strictEqual(normal.bpm, 80);
       assert.strictEqual(normal.dur, 3);
     });
+    w.eval(`sections = [
+      { id: 31, type: 'Verse', repeat: 1, bpm: 60, timeSig: '4/4', squares: [{ id: 311, repeat: 1, events: [{ chord: 'C', span: 4 }] }] },
+      { id: 32, type: 'Chorus', repeat: 1, bpm: 120, timeSig: '4/4', squares: [{ id: 321, repeat: 1, events: [{ chord: 'G', span: 4 }] }] },
+    ];`);
+    bt.invalidateGrid();
+    await bt.loadSong({ backingTrack: { id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 512, duration: 8, speed: 1, volume: 80, mute: false, solo: true, points: [] } });
+    check('audio bar grid follows BPM changes between sections without sync points', () => {
+      assert.strictEqual(bt.getBpmForBar(0), 60);
+      assert.strictEqual(bt.getBpmForBar(1), 120);
+      assert.strictEqual(bt.getBpmForBar(2), 120, 'tail extrapolation uses the final section BPM');
+    });
+    await bt.loadSong({ backingTrack: { id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 512, duration: 8, speed: 1, volume: 80, mute: false, solo: true, points: [{ bar: 0, time: 0 }, { bar: 2, time: 4 }] } });
+    check('section BPM contour is preserved between exact user sync anchors', () => {
+      assert.strictEqual(bt.getBpmForBar(0), 90);
+      assert.strictEqual(bt.getBpmForBar(1), 180);
+      assert.strictEqual(bt.getBpmForBar(2), 180, 'the exact four-second anchor remains aligned while the final tempo contour extrapolates');
+      assert.strictEqual(bt.state.points[1].time, 4);
+    });
+    w.eval(`sections = [{ id: 1, type: 'Verse', repeat: 1, timeSig: '4/4', squares: [
+      { id: 1, repeat: 1, events: [{ chord: 'C', span: 4 }] },
+      { id: 2, repeat: 1, events: [{ chord: 'G', span: 4 }] },
+    ] }];`);
+    bt.invalidateGrid();
+    await bt.loadSong({ backingTrack: { id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 512, duration: 8, speed: 1, volume: 80, mute: false, solo: true, points: [{ bar: 0, time: 0 }, { bar: 4, time: 12 }] } });
     check('sync-point time can be entered precisely in seconds', () => {
       const time = w.document.querySelector('#btDrawer [data-point-time="1"]');
       assert(time, 'numeric time editor exists');

@@ -15758,7 +15758,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.815</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.816</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -79039,6 +79039,7 @@ function applyBpmChange() {
   if (isNaN(v)) v = CONFIG.DEFAULT_BPM;
   v = Math.max(CONFIG.MIN_BPM, Math.min(CONFIG.MAX_BPM, v));
   el.value = v;
+  if (window.StruChordBackingTrack && typeof window.StruChordBackingTrack.invalidateGrid === 'function') window.StruChordBackingTrack.invalidateGrid();
   regenerateManagedAccompaniment();
   // Масштаб ленты считается от темпа — пересобираем её под новый BPM.
   // В режиме редактирования ничего не происходит: renderTimeline
@@ -87715,7 +87716,7 @@ function gpExportModal(title, bodyHtml, label) {
               out.push({si, qi, ei, sp, qp, bar, q: q + local, span, section: sec, square: sq, event: ev});
               local += span;
             });
-            out.push({boundary: true, bar: bar + 1, q: q + quarters, si, qi, sp, qp});
+            out.push({boundary: true, bar: bar + 1, q: q + quarters, si, qi, sp, qp, section: sec});
             q += quarters; bar++;
           }
         });
@@ -87724,7 +87725,17 @@ function gpExportModal(title, bodyHtml, label) {
     const events = out.filter(x => !x.boundary), boundaries = out.filter(x => x.boundary);
     const eventByPosition = new Map(events.map(x => [positionKey(x.si, x.qi, x.ei, x.sp, x.qp), x]));
     const boundaryByBar = new Map(boundaries.map(x => [x.bar, x]));
-    cachedBarGrid = { events, boundaries, eventByPosition, boundaryByBar, bars: bar, totalQ: q };
+    let scoreTime = 0, scoreQ = 0;
+    const tempoSegments = boundaries.map(boundary => {
+      const bpm = Number(getEffectiveBpm(boundary.section)) || Number(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
+      const segment = { q: scoreQ, endQ: boundary.q, time: scoreTime, bpm, section: boundary.section };
+      scoreTime += Math.max(0, boundary.q - scoreQ) * 60 / bpm;
+      scoreQ = boundary.q;
+      return segment;
+    });
+    const tailSection = sections && sections[sections.length - 1];
+    const tailBpm = Number(getEffectiveBpm(tailSection)) || Number(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
+    cachedBarGrid = { events, boundaries, eventByPosition, boundaryByBar, tempoSegments, scoreDuration: scoreTime, tailBpm, bars: bar, totalQ: q };
     return cachedBarGrid;
   }
   function positionKey(si, qi, ei, sp, qp) { return `${Number(si)||0}:${Number(qi)||0}:${Number(ei)||0}:${Number(sp)||0}:${Number(qp)||0}`; }
@@ -87749,17 +87760,36 @@ function gpExportModal(title, bodyHtml, label) {
     if (!syncPointMapCache) syncPointMapCache = (meta && meta.points || []).map(p => ({ q: qAtBar(p.bar), t: p.time }));
     return syncPointMapCache;
   }
+  function scoreTempoTimeAtQ(q) {
+    const grid = getBarGrid(), segments = grid.tempoSegments;
+    if (!segments.length) return q * 60 / (Number(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM);
+    if (q <= 0) return q * 60 / segments[0].bpm;
+    if (q >= grid.totalQ) return grid.scoreDuration + (q - grid.totalQ) * 60 / grid.tailBpm;
+    let lo = 0, hi = segments.length - 1;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (q < segments[mid].endQ) hi = mid;
+      else lo = mid + 1;
+    }
+    const segment = segments[lo];
+    return segment.time + (q - segment.q) * 60 / segment.bpm;
+  }
   function tAtQ(q) {
     const base = Number(DOM.bpmInput.value) || CONFIG.DEFAULT_BPM;
     const list = syncPointMap();
-    if (!list.length) return q * 60/base;
-    if (list.length===1) return list[0].t + (q-list[0].q)*60/base;
+    if (!list.length) return scoreTempoTimeAtQ(q);
+    if (list.length===1) return list[0].t + scoreTempoTimeAtQ(q) - scoreTempoTimeAtQ(list[0].q);
     let a,b;
     if(q<=list[0].q){a=list[0];b=list[1];}
     else if(q>=list[list.length-1].q){a=list[list.length-2];b=list[list.length-1];}
     else { let i=0; while(i<list.length-1 && q>list[i+1].q)i++; a=list[i];b=list[i+1]; }
-    const dq=b.q-a.q, dt=b.t-a.t;
-    return dq>0 ? a.t+(q-a.q)/dq*dt : q*60/base;
+    const scoreA = scoreTempoTimeAtQ(a.q), scoreB = scoreTempoTimeAtQ(b.q);
+    const scoreSpan = scoreB - scoreA, anchorSpan = b.t - a.t;
+    // Sync Points define absolute alignment. Inside each anchor interval, retain
+    // the section BPM contour by scaling its integrated tempo map to the exact
+    // user-authored anchor times; this keeps anchors fixed without flattening BPM changes.
+    if (scoreSpan > 0) return a.t + (scoreTempoTimeAtQ(q) - scoreA) * anchorSpan / scoreSpan;
+    return a.t + (q - a.q) * 60 / base;
   }
   function bpmAtQ(q, span) { const a=tAtQ(q), b=tAtQ(q+span); return b>a ? Math.round((60*span/(b-a))*10000)/10000 : Number(DOM.bpmInput.value)||120; }
   function pointTimeForPosition(pos) {
@@ -87969,11 +87999,24 @@ function gpExportModal(title, bodyHtml, label) {
         if (tAtQ(qAtBar(midBar)) + displayOffset < viewStart) lo = midBar + 1;
         else hi = midBar;
       }
-      for (let b = lo; b <= lastGridBar; b++) {
-        const displayTime = tAtQ(qAtBar(b)) + previewModelDelta + displayOffset;
-        if (displayTime > viewEnd) break;
+      const drawGridLine = (q, alpha, lineWidth) => {
+        const displayTime = tAtQ(q) + previewModelDelta + displayOffset;
+        if (displayTime < viewStart || displayTime > viewEnd) return;
         const x = ((displayTime - viewStart) / viewDuration) * w;
-        if (x >= 0 && x <= w) { c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke(); }
+        c.strokeStyle = `rgba(255,255,255,${alpha})`;
+        c.lineWidth = lineWidth * dpr;
+        c.beginPath(); c.moveTo(x, 0); c.lineTo(x, h); c.stroke();
+      };
+      for (let b = lo; b <= lastGridBar; b++) {
+        const qStart = qAtBar(b), qEnd = qAtBar(b + 1);
+        const barTime = tAtQ(qStart) + previewModelDelta + displayOffset;
+        if (barTime > viewEnd) break;
+        drawGridLine(qStart, .32, 1.4);
+        const boundary = grid.boundaryByBar.get(Math.min(grid.bars, b + 1));
+        const section = boundary && boundary.section || (sections && sections[sections.length - 1]);
+        const sig = parseTimeSig((section && section.timeSig) || globalTimeSig || '4/4');
+        const beatQ = 4 / sig.denominator;
+        if (beatQ > 0) for (let q = qStart + beatQ; q < qEnd - 1e-6; q += beatQ) drawGridLine(q, .12, 1);
       }
     }
     if (meta && mediaLen > 0) meta.points.forEach((p, i) => {
