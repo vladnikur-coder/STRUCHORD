@@ -10,7 +10,7 @@ const path = require('path');
 const puppeteer = require('puppeteer');
 
 const ROOT = path.resolve(__dirname, '..', '..');
-const FIXTURE = path.join(ROOT, 'dev', 'fixtures', 'wind-of-change.json');
+const FIXTURE = process.env.PLAYBACK_FIXTURE || path.join(ROOT, 'dev', 'fixtures', 'wind-of-change.json');
 const HTML = path.join(ROOT, 'STRUCHORD.html');
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const checks = [];
@@ -43,6 +43,16 @@ async function launchBrowser() {
     page.on('pageerror', (error) => pageErrors.push(error.message));
     await page.evaluateOnNewDocument(() => {
       window.__liveAudioStarts = { oscillators: 0, buffers: 0 };
+      window.__liveMedia = [];
+      const NativeAudioElement = window.Audio;
+      if (NativeAudioElement) {
+        window.Audio = function (...args) {
+          const audio = new NativeAudioElement(...args);
+          window.__liveMedia.push(audio);
+          return audio;
+        };
+        window.Audio.prototype = NativeAudioElement.prototype;
+      }
       const Audio = window.AudioContext || window.webkitAudioContext;
       if (!Audio) return;
       for (const [method, counter] of [['createOscillator', 'oscillators'], ['createBufferSource', 'buffers']]) {
@@ -62,12 +72,18 @@ async function launchBrowser() {
     await page.goto(`file://${HTML}`, { waitUntil: 'networkidle0' });
 
     const songText = fs.readFileSync(FIXTURE, 'utf8');
+    const hasBackingAudio = !!JSON.parse(songText).backingTrack;
     await page.evaluate((text) => {
-      window.importSong(new File([new Blob([text])], 'wind-of-change.json'));
+      window.importSong(new File([new Blob([text])], 'playback-regression.json'));
     }, songText);
     await wait(250);
+    if (hasBackingAudio) {
+      await page.waitForFunction(() => window.__liveMedia.some((audio) => audio.readyState >= 1), { timeout: 20000 });
+      check('embedded backing audio is decoded and loaded before Play', true,
+        `${await page.evaluate(() => window.__liveMedia[0]?.duration || 0)} s`);
+    }
 
-    // The fixture deliberately exercises the old-name migration flow.
+    // The default fixture deliberately exercises the old-name migration flow.
     const migrationDialog = await page.$('.legacy-metadata-overlay');
     if (migrationDialog) {
       await page.click('#legacyMetadataConfirm');
@@ -85,9 +101,11 @@ async function launchBrowser() {
       time: getAudioContext() && getAudioContext().currentTime,
       active: !!document.querySelector('.chord-wrapper.playback-active'),
       sources: window.__liveAudioStarts.oscillators + window.__liveAudioStarts.buffers,
+      backing: window.__liveMedia.map((audio) => ({ paused: audio.paused, time: audio.currentTime })),
     }));
     check('real Play click starts audio and highlights the sounding chord',
-      editorStart.playing && editorStart.state === 'running' && editorStart.active && editorStart.sources > 0,
+      editorStart.playing && editorStart.state === 'running' && editorStart.active &&
+        (hasBackingAudio ? editorStart.backing.some((audio) => !audio.paused && audio.time > 0) : editorStart.sources > 0),
       JSON.stringify(editorStart));
     await wait(2200);
     const editorAdvance = await page.evaluate(() => ({
@@ -99,12 +117,19 @@ async function launchBrowser() {
     check('editor playback clock advances and retains a live chord highlight',
       editorAdvance.playing && editorAdvance.time > editorStart.time + 1.8 && editorAdvance.active,
       JSON.stringify(editorAdvance));
+    const stopButtonReceivesHit = await page.evaluate(() => {
+      const button = document.getElementById('btnPlay');
+      const rect = button.getBoundingClientRect();
+      const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+      return !!hit && (hit === button || button.contains(hit));
+    });
+    check('visible fingering popup does not intercept the Play/Stop hit target', stopButtonReceivesHit);
     await page.click('#btnPlay');
     await wait(200);
     check('real Play button stops editor playback',
       !(await page.evaluate(() => playbackState.isPlaying)));
 
-    await page.evaluate(() => toggleTimelineMode(true));
+    await page.click('#btnModeToggle');
     await wait(400);
     const before = await page.evaluate(() => ({
       scroll: document.getElementById('timelineViewport').scrollLeft,
@@ -112,15 +137,16 @@ async function launchBrowser() {
     }));
     await page.click('#btnPlay');
     await wait(3200);
-    const after = await page.evaluate(() => ({
+    const after = await page.evaluate((withBackingAudio) => ({
       playing: playbackState.isPlaying,
       time: getAudioContext() && getAudioContext().currentTime,
       eventIndex: playbackState.currentEventIndex,
       scroll: document.getElementById('timelineViewport').scrollLeft,
       active: !!document.querySelector('.tl-cell.tl-active'),
-    }));
+      backingPlaying: !withBackingAudio || window.__liveMedia.some((audio) => !audio.paused && audio.currentTime > 0),
+    }), hasBackingAudio);
     check('real Play click advances the ribbon and highlights its current cell',
-      after.playing && after.time > before.ctx + 2.7 && after.scroll > before.scroll + 40 && after.active,
+      after.playing && after.time > before.ctx + 2.7 && after.scroll > before.scroll + 40 && after.active && after.backingPlaying,
       JSON.stringify({ before, after }));
 
     // Measure frame cadence only after a real, unblocked start. The test
