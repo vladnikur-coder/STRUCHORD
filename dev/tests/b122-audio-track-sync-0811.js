@@ -239,8 +239,9 @@ setTimeout(async () => {
     wav.write('data', 36); wav.writeUInt32LE(wav.length - 44, 40);
     await bt.importEmbedded({ backingTrack: { id: 'wav-fallback', name: 'fallback.wav', type: 'audio/wav', size: wav.length, points: [], embedded: wav.toString('base64') } });
     await bt.loadSong({ backingTrack: { id: 'wav-fallback', name: 'fallback.wav', type: 'audio/wav', size: wav.length, points: [] } });
-    check('pure-JS PCM WAV peak fallback recovers duration in an offline/JSDOM AudioContext', () => {
+    check('pure-JS PCM WAV fallback recovers duration and high-resolution waveform peaks', () => {
       assert.strictEqual(bt.state.duration, 1);
+      assert(bt.peakCount > 1800, `expected high-resolution peaks, received ${bt.peakCount}`);
     });
     console.log('\nB-122 checks completed.');
   } finally {
