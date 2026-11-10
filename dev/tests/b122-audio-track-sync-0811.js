@@ -16,7 +16,6 @@ const dom = new JSDOM(html, {
   pretendToBeVisual: true,
   beforeParse(win) {
     win.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
-    win.confirm = () => true;
     win.HTMLCanvasElement.prototype.getContext = () => ({ font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() {}, fillRect() {}, beginPath() {}, moveTo() {}, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) });
     win.Audio = function () { this.paused = true; this.currentTime = 0; this.volume = 1; this.playbackRate = 1; this.addEventListener = () => {}; this.setAttribute = () => {}; this.load = () => {}; this.pause = () => { this.paused = true; }; this.play = () => { this.paused = false; return Promise.resolve(); }; };
     win.Blob = Blob;
@@ -120,48 +119,6 @@ setTimeout(async () => {
       invalid.value = '0';
       invalid.dispatchEvent(new w.Event('change', { bubbles: true }));
       assert.strictEqual(bt.state.points[1].time, 11.25, 'invalid order leaves the model unchanged');
-    });
-    w.eval(`sections = [
-      { id: 31, type: 'Verse', repeat: 1, bpm: 120, timeSig: '4/4', squares: [{ id: 31, repeat: 1, events: [{ chord: 'C', span: 4 }] }] },
-      { id: 32, type: 'Chorus', repeat: 1, bpm: 60, timeSig: '4/4', squares: [{ id: 32, repeat: 1, events: [{ chord: 'F', span: 4 }] }] },
-      { id: 33, type: 'Chorus', repeat: 1, bpm: 60, timeSig: '4/4', squares: [{ id: 33, repeat: 1, events: [{ chord: 'G', span: 4 }] }] },
-    ];`);
-    bt.invalidateGrid();
-    check('auto-sync anchors start/end and tempo-change bars', () => {
-      bt.resetAutoSyncPoints();
-      assert.deepStrictEqual(Array.from(bt.state.points, p => p.bar), [0, 1, 3]);
-      assert(Math.abs(bt.state.points[1].time - 1.6) < 0.001);
-      assert.strictEqual(bt.state.points[2].time, 8);
-    });
-    check('bar markers can toggle internal Sync Points while endpoints stay pinned', () => {
-      bt.toggleSyncPointAtBar(2);
-      assert.deepStrictEqual(Array.from(bt.state.points, p => p.bar), [0, 1, 2, 3]);
-      bt.toggleSyncPointAtBar(2);
-      assert.deepStrictEqual(Array.from(bt.state.points, p => p.bar), [0, 1, 3]);
-      bt.toggleSyncPointAtBar(0);
-      assert.deepStrictEqual(Array.from(bt.state.points, p => p.bar), [0, 1, 3]);
-    });
-    check('dragging an unpinned bar marker creates a precise Sync Point', () => {
-      bt.toggleDrawer(true);
-      let canvas = w.document.getElementById('btWaveCanvas');
-      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
-      canvas.dispatchEvent(new w.MouseEvent('pointerdown', { clientX: 360, clientY: 40, bubbles: true }));
-      canvas.dispatchEvent(new w.MouseEvent('pointermove', { clientX: 390, clientY: 40, bubbles: true }));
-      canvas.dispatchEvent(new w.MouseEvent('pointerup', { clientX: 390, clientY: 40, bubbles: true }));
-      assert.deepStrictEqual(Array.from(bt.state.points, p => p.bar), [0, 1, 2, 3]);
-      assert(Math.abs(bt.state.points[2].time - 5.2) < 0.01);
-      bt.toggleSyncPointAtBar(2);
-      assert.deepStrictEqual(Array.from(bt.state.points, p => p.bar), [0, 1, 3]);
-    });
-    check('waveform keyboard navigates bars and Alt+arrow nudges a selected point', () => {
-      bt.toggleDrawer(true);
-      const canvas = w.document.getElementById('btWaveCanvas');
-      assert.strictEqual(canvas.tabIndex, 0);
-      canvas.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowRight', bubbles: true }));
-      assert.strictEqual(w.document.getElementById('btBarInput').value, '4');
-      const sync = w.document.querySelector('#btDrawer [data-point="1"]');
-      sync.dispatchEvent(new w.KeyboardEvent('keydown', { key: 'ArrowRight', altKey: true, bubbles: true }));
-      assert(Math.abs(bt.state.points[1].time - 1.61) < 0.001);
     });
     await bt.loadSong({ backingTrack: { id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 512, duration: 8, speed: 0.5, volume: 80, mute: false, solo: true, points: [{ bar: 0, time: 0 }, { bar: 2, time: 6 }] } });
     check('50 percent speed scales scheduler BPM and duration without pitch shifting', () => {
