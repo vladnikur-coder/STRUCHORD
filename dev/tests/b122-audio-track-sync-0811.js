@@ -115,10 +115,67 @@ setTimeout(async () => {
       time.dispatchEvent(new w.Event('change', { bubbles: true }));
       assert.strictEqual(bt.state.points[1].time, 11.25);
       assert.strictEqual(w.document.querySelector('#btDrawer [data-point-time="1"]').value, '11.250');
+      const focusedTime = w.document.querySelector('#btDrawer [data-point-time="1"]');
+      let undoCalls = 0, redoCalls = 0;
+      const originalUndo = w.undoEdit, originalRedo = w.redoEdit;
+      w.undoEdit = () => { undoCalls++; };
+      w.redoEdit = () => { redoCalls++; };
+      const undoKey = new w.KeyboardEvent('keydown', { key: 'z', ctrlKey: true, bubbles: true, cancelable: true });
+      focusedTime.dispatchEvent(undoKey);
+      assert.strictEqual(undoKey.defaultPrevented, true, 'Ctrl+Z is handled while the Sync Point time field has focus');
+      assert.strictEqual(undoCalls, 1, 'Ctrl+Z invokes the song undo command');
+      const redoKey = new w.KeyboardEvent('keydown', { key: 'z', ctrlKey: true, shiftKey: true, bubbles: true, cancelable: true });
+      focusedTime.dispatchEvent(redoKey);
+      assert.strictEqual(redoKey.defaultPrevented, true, 'Ctrl+Shift+Z redoes while the Sync Point time field has focus');
+      assert.strictEqual(redoCalls, 1, 'Ctrl+Shift+Z invokes the song redo command');
+      w.undoEdit = originalUndo;
+      w.redoEdit = originalRedo;
       const invalid = w.document.querySelector('#btDrawer [data-point-time="1"]');
       invalid.value = '0';
       invalid.dispatchEvent(new w.Event('change', { bubbles: true }));
       assert.strictEqual(bt.state.points[1].time, 11.25, 'invalid order leaves the model unchanged');
+    });
+    check('waveform zoom supports two-finger pinch and Ctrl+wheel gestures', () => {
+      bt.toggleDrawer(true);
+      const canvas = w.document.getElementById('btWaveCanvas');
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      canvas.parentElement.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      const pointer = (type, id, x, y) => {
+        const event = new w.Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, { pointerType: { value: 'touch' }, pointerId: { value: id }, clientX: { value: x }, clientY: { value: y } });
+        return event;
+      };
+      const beforePinch = canvas.style.width;
+      canvas.dispatchEvent(pointer('pointerdown', 11, 160, 50));
+      canvas.dispatchEvent(pointer('pointerdown', 12, 440, 50));
+      canvas.dispatchEvent(pointer('pointermove', 12, 520, 50));
+      assert.notStrictEqual(canvas.style.width, beforePinch, 'pinch gesture changes zoom');
+      canvas.dispatchEvent(pointer('pointerup', 11, 160, 50));
+      canvas.dispatchEvent(pointer('pointerup', 12, 520, 50));
+      const beforeWheel = canvas.style.width;
+      const wheel = new w.WheelEvent('wheel', { ctrlKey: true, deltaY: -80, clientX: 300, bubbles: true, cancelable: true });
+      canvas.dispatchEvent(wheel);
+      assert.strictEqual(wheel.defaultPrevented, true, 'Ctrl+wheel is captured for zoom');
+      assert.notStrictEqual(canvas.style.width, beforeWheel, 'Ctrl+wheel changes zoom');
+      assert.strictEqual(w.document.querySelector('#btZoom').value, String(Math.round(parseFloat(canvas.style.width) / 100 * 100)));
+    });
+    await bt.loadSong({ backingTrack: { id: 'track-drag-test', name: 'drag.wav', type: 'audio/wav', size: 512, duration: 8, speed: 1, volume: 80, mute: false, solo: false, points: [{ bar: 0, time: 1 }, { bar: 2, time: 5 }] } });
+    check('Alt+drag shifts the backing recording against bars while preserving sync spacing', () => {
+      bt.toggleDrawer(true);
+      const canvas = w.document.getElementById('btWaveCanvas');
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      const pointer = (type, x) => {
+        const event = new w.Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, { pointerType: { value: 'mouse' }, pointerId: { value: 21 }, clientX: { value: x }, clientY: { value: 52 }, altKey: { value: true } });
+        return event;
+      };
+      canvas.dispatchEvent(pointer('pointerdown', 200));
+      canvas.dispatchEvent(pointer('pointermove', 260));
+      canvas.dispatchEvent(pointer('pointerup', 260));
+      assert(Math.abs(bt.state.points[0].time - 0.2) < 0.001);
+      assert(Math.abs(bt.state.points[1].time - 4.2) < 0.001);
+      assert(Math.abs((bt.state.points[1].time - bt.state.points[0].time) - 4) < 0.001, 'relative sync interval is unchanged');
+      assert(Math.abs(bt.state.trackOffset - 0.8) < 0.001, 'waveform offset records the visible track movement');
     });
     await bt.loadSong({ backingTrack: { id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 512, duration: 8, speed: 0.5, volume: 80, mute: false, solo: true, points: [{ bar: 0, time: 0 }, { bar: 2, time: 6 }] } });
     check('50 percent speed scales scheduler BPM and duration without pitch shifting', () => {
