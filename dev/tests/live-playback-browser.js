@@ -107,6 +107,14 @@ async function launchBrowser() {
       editorStart.playing && editorStart.state === 'running' && editorStart.active &&
         (hasBackingAudio ? editorStart.backing.some((audio) => !audio.paused && audio.time > 0) : editorStart.sources > 0),
       JSON.stringify(editorStart));
+    const svgDimensions = await page.evaluate(() => {
+      const svg = document.querySelector('#fingering-tooltip svg');
+      return svg ? { width: svg.getAttribute('width'), height: svg.getAttribute('height'), style: svg.getAttribute('style') || '' } : null;
+    });
+    check('fingering SVG uses unitless dimensions and CSS rem sizing (Safari-safe)',
+      !!svgDimensions && /^\d+(?:\.\d+)?$/.test(svgDimensions.width) &&
+        /^\d+(?:\.\d+)?$/.test(svgDimensions.height) && /width:\s*[^;]+rem/.test(svgDimensions.style) &&
+        /height:\s*[^;]+rem/.test(svgDimensions.style), JSON.stringify(svgDimensions));
     await wait(2200);
     const editorAdvance = await page.evaluate(() => ({
       playing: playbackState.isPlaying,
