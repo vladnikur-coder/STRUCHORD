@@ -159,6 +159,25 @@ async function launchBrowser() {
     check('editor playback visibly animates the current strum or picking step',
       !hasStrumPattern || (editorRhythm.previews > 0 && editorRhythm.peak > 0),
       hasStrumPattern ? JSON.stringify(editorRhythm) : 'skipped: fixture has no stored strum/picking pattern');
+    const nextChordPreview = await page.evaluate(async () => {
+      let visibleMs = 0, chord = '';
+      let previous = performance.now();
+      const until = previous + 1200;
+      while (performance.now() < until) {
+        const now = performance.now();
+        const tip = document.getElementById('preview-tooltip');
+        if (tip && tip.style.display === 'block' && tip.classList.contains('visible')) {
+          visibleMs += now - previous;
+          chord = tip.querySelector('.fingering-chord-name')?.textContent.trim() || chord;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 20));
+        previous = now;
+      }
+      return { visibleMs: Math.round(visibleMs), chord };
+    });
+    check('editor keeps the next chord fingering preview visible during playback',
+      !hasStrumPattern || (nextChordPreview.visibleMs >= 200 && !!nextChordPreview.chord),
+      hasStrumPattern ? JSON.stringify(nextChordPreview) : 'skipped: fixture has no starting rhythm pattern');
     const stopButtonReceivesHit = await page.evaluate(() => {
       const button = document.getElementById('btnPlay');
       const rect = button.getBoundingClientRect();
