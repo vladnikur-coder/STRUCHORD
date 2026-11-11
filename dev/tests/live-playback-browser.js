@@ -161,11 +161,14 @@ async function launchBrowser() {
     // rejects broad jank, rather than a single noisy frame in a shared VM.
     const frames = await page.evaluate(async () => {
       const times = [];
-      let raf = 0;
+      const track = document.getElementById('timelineTrack');
+      let previousTransform = null, transformChanges = 0, raf = 0;
       const start = performance.now();
       await new Promise((resolve) => {
         const tick = (time) => {
           times.push(time);
+          const transform = track && track.style.transform;
+          if (transform !== previousTransform) { transformChanges++; previousTransform = transform; }
           if (time - start >= 3000) resolve();
           else raf = requestAnimationFrame(tick);
         };
@@ -175,10 +178,10 @@ async function launchBrowser() {
       const gaps = times.slice(1).map((time, i) => time - times[i]).sort((a, b) => a - b);
       const quantile = (q) => gaps[Math.min(gaps.length - 1, Math.floor(gaps.length * q))] || Infinity;
       const over20 = gaps.filter((gap) => gap > 20).length;
-      return { frames: gaps.length, median: quantile(0.5), p95: quantile(0.95), over20, over20Pct: over20 / gaps.length };
+      return { frames: gaps.length, median: quantile(0.5), p95: quantile(0.95), over20, over20Pct: over20 / gaps.length, transformChanges };
     });
-    check('live ribbon animation stays near 60 FPS without sustained frame stalls',
-      frames.frames > 100 && frames.median < 19 && frames.p95 < 24 && frames.over20Pct < 0.1,
+    check('live ribbon transform updates smoothly at display cadence without sustained stalls',
+      frames.frames > 100 && frames.median < 19 && frames.p95 < 24 && frames.over20Pct < 0.1 && frames.transformChanges > frames.frames * 0.5,
       JSON.stringify(frames));
 
     await page.click('#btnPlay');

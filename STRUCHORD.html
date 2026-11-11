@@ -64269,6 +64269,7 @@ function updateTimelineActive(secId, sqId, ei, startTime, dur, secPass, sqPass) 
       maxScroll: viewport ? Math.max(0, viewport.scrollWidth - viewportWidth) : 0,
       scrollBase: viewport ? viewport.scrollLeft : 0,
       targetScroll: viewport ? viewport.scrollLeft : 0,
+      lastScrollCommitAt: 0,
       headOffset: viewportWidth * TIMELINE_HEAD_FRACTION,
     };
     if (playbackState.isPlaying) {
@@ -65195,15 +65196,9 @@ function updateTimelinePanels(next) {
 
 function startTimelineMotion() {
   if (timelineRAF) return;
-  let lastVisualFrame = 0;
-  const minFrameInterval = 1000 / 20;
+  const nativeScrollInterval = 1000 / 20;
   const step = (timestamp) => {
     timelineRAF = 0;
-    if (lastVisualFrame && timestamp - lastVisualFrame < minFrameInterval) {
-      timelineRAF = requestAnimationFrame(step);
-      return;
-    }
-    lastVisualFrame = timestamp;
     const vp = document.getElementById('timelineViewport');
     const m = timelineMotion;
     if (!vp || !m || !timelineMode || !playbackState.isPlaying) return;
@@ -65240,17 +65235,19 @@ function startTimelineMotion() {
     const posInContent = m.left + m.width * progress;
     const next = Math.max(0, Math.min(m.maxScroll, posInContent - m.headOffset));
 
-    // Commit native scrolling at the capped visual rate; the subpixel
-    // remainder is a compositor transform shared by both rails. This
-    // preserves scrollbar position and hit-testing while avoiding two
-    // full-rate scroll/paint updates on long timelines.
+    // Animate the compositor transform every display frame. The former
+    // 20 Hz early-return throttled the RIBBON itself to ~20 fps even when
+    // the page's RAF benchmark reported 60 fps. Commit native scrollLeft
+    // at 20 Hz, then compensate its coarse steps with a per-frame transform;
+    // the net on-screen position remains continuous across each commit.
     const targetScroll = Math.round(next);
-    if (m.scrollBase !== targetScroll) {
-      vp.scrollLeft = targetScroll;
-      m.scrollBase = targetScroll;
+    if (timestamp - m.lastScrollCommitAt >= nativeScrollInterval) {
+      if (vp.scrollLeft !== targetScroll) vp.scrollLeft = targetScroll;
+      m.scrollBase = vp.scrollLeft;
+      m.lastScrollCommitAt = timestamp;
     }
-    m.targetScroll = targetScroll;
-    setTimelineSubpixelShift(targetScroll - next);
+    m.targetScroll = next;
+    setTimelineSubpixelShift(m.scrollBase - next);
 
     timelineRAF = requestAnimationFrame(step);
   };
