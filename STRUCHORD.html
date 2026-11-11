@@ -15805,7 +15805,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.818</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.819</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -51614,13 +51614,21 @@ function clearStrumStepHighlightTimers() {
 // приходится и на «вниз», и на «вверх». Раньше в таком случае класс не
 // ставился вообще — паузы просто не двигались.
 function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, restDir, cls) {
-  if (!els || !els.length) return;
-  const el = els[stepIndex % els.length];
-  if (!el) return;
+  if (!els) return;
   const activeClass = cls || 'strum-step-active';
   const delayMs = Math.max(0, (t - ctx.currentTime) * 1000);
   const onMs = Math.max(70, Math.min(stepDurSeconds * 1000 * 0.85, 400));
   const onId = setTimeout(() => {
+    // Playback visuals may rebuild their preview DOM at the event's audible
+    // start (rather than when its audio is queued). Resolve the element list
+    // at highlight time so timers never target detached, pre-render nodes.
+    const target = typeof els === 'function' ? els(stepIndex) : { els, stepIndex };
+    const targetEls = Array.isArray(target) ? target : target && target.els;
+    const targetIndex = Array.isArray(target) || !target || !Number.isInteger(target.stepIndex)
+      ? stepIndex : target.stepIndex;
+    if (!targetEls || !targetEls.length) return;
+    const el = targetEls[((targetIndex % targetEls.length) + targetEls.length) % targetEls.length];
+    if (!el || !el.isConnected) return;
     if (restDir && el.classList.contains('rest')) {
       el.classList.remove('rest-down', 'rest-up');
       el.classList.add(restDir);
@@ -52717,35 +52725,31 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
     //
     // Только для редактора. В ленте свои источники (дорожка ритма,
     // дрожание струн на панели «Сейчас»), и её это не касается.
-    const fingeringEls = !timelineMode ? fingeringStrumStepEls.get('current') : null;
-    const animateInTooltip = !timelineMode && !!fingeringEls;
-
-    // Полноразмерные превью (весь бой целиком) — бейдж секции и
-    // мини-превью в ячейке — индексируются позицией шага ВНУТРРИ ВСЕГО
-    // ТАКТА (stepIdx), т.к. показывают паттерн целиком.
-    const fullBarHighlightGroups = [];
-    if (!timelineMode && sec && !animateInTooltip) {
-      const els = strumPreviewStepEls.get(sec.id);
-      if (els) fullBarHighlightGroups.push(els);
-    }
-    if (!timelineMode && sec && square && !animateInTooltip) {
-      const evEls = eventStrumPreviewStepEls.get(`${sec.id}:${square.id}:${eventIndex}`);
-      if (evEls) fullBarHighlightGroups.push(evEls);
-    }
-    // Виджет в тултипе аппликатуры показывает только СРЕЗ паттерна под
-    // эту конкретную ячейку (см. getSlicedPatternForEvent) — у него своя,
-    // короткая нумерация шагов, поэтому подсвечивать нужно ЛОКАЛЬНЫМ
-    // индексом i (0..stepsInEvent-1), а не позицией в целом такте —
-    // иначе при неровных длительностях ячеек в такте подсветка попадала
-    // бы не в ту стрелку.
-    // Дорожка ритма показывает тот же СРЕЗ, что и виджет в тултипе, —
-    // значит и индексация у неё локальная (i), не позиция в такте.
-    const timelineEls =
-      timelineMode && sec && square
-        ? timelineHitEls.get(
-            timelineKey(sec.id, square.id, eventIndex, timelinePassHint.secPass, timelinePassHint.sqPass)
-          )
-        : null;
+    // The audible-start callback rebuilds the section badge, event preview,
+    // and fingering tooltip. Resolve the live DOM at each highlight instead
+    // of retaining nodes captured during the scheduler's look-ahead window.
+    // Full-bar badge indices use stepIdx; sliced cell/tooltip/timeline
+    // previews use the local event index i.
+    const resolveEditorHighlight = (localIndex) => {
+      const fingeringEls = fingeringStrumStepEls.get('current');
+      const fingeringTip = document.getElementById('fingering-tooltip');
+      if (fingeringTip && fingeringTip.style.display !== 'none' && fingeringEls &&
+          fingeringEls.some((el) => el.isConnected)) {
+        return { els: fingeringEls, stepIndex: localIndex };
+      }
+      const sectionEls = sec && strumPreviewStepEls.get(sec.id);
+      if (sectionEls && sectionEls.some((el) => el.isConnected)) {
+        return { els: sectionEls, stepIndex: (startStepInBar + localIndex) % totalSteps };
+      }
+      const eventEls = sec && square && eventStrumPreviewStepEls.get(`${sec.id}:${square.id}:${eventIndex}`);
+      if (eventEls && eventEls.some((el) => el.isConnected)) {
+        return { els: eventEls, stepIndex: localIndex };
+      }
+      return null;
+    };
+    const timelineEls = timelineMode && sec && square
+      ? timelineHitEls.get(timelineKey(sec.id, square.id, eventIndex, timelinePassHint.secPass, timelinePassHint.sqPass))
+      : null;
 
     for (let i = 0; i < stepsInEvent; i++) {
       const stepIdx = (startStepInBar + i) % totalSteps;
@@ -52765,16 +52769,14 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
       // паузу не качаем.
       const restDir = sub % 3 === 0 ? null : (stepIdx % 2 === 0 ? 'rest-down' : 'rest-up');
 
-      fullBarHighlightGroups.forEach((els) => {
-        scheduleStrumStepHighlight(ctx, els, stepIdx, t, thisStepSeconds, restDir);
-      });
-      if (fingeringEls) {
-        scheduleStrumStepHighlight(ctx, fingeringEls, i, t, thisStepSeconds, restDir);
-      }
-      if (timelineEls) {
-        // Свой класс: у дорожки другая типографика и другая амплитуда
-        // движения, чем у мелких превью в бейджах.
-        scheduleStrumStepHighlight(ctx, timelineEls, i, t, thisStepSeconds, restDir, 'tl-hit-on');
+      if (timelineMode) {
+        if (timelineEls) {
+          // Свой класс: у дорожки другая типографика и другая амплитуда
+          // движения, чем у мелких превью в бейджах.
+          scheduleStrumStepHighlight(ctx, timelineEls, i, t, thisStepSeconds, restDir, 'tl-hit-on');
+        }
+      } else {
+        scheduleStrumStepHighlight(ctx, resolveEditorHighlight, i, t, thisStepSeconds, restDir);
       }
 
       // Смешанная лента (волна-5, решение mode_step): режим привязан к

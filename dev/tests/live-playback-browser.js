@@ -71,8 +71,27 @@ async function launchBrowser() {
     });
     await page.goto(`file://${HTML}`, { waitUntil: 'networkidle0' });
 
-    const songText = fs.readFileSync(FIXTURE, 'utf8');
-    const hasBackingAudio = !!JSON.parse(songText).backingTrack;
+    const sourceText = fs.readFileSync(FIXTURE, 'utf8');
+    const songData = JSON.parse(sourceText);
+    const hasBackingAudio = !!songData.backingTrack;
+    const firstSection = (songData.sections || [])[0];
+    const firstEvent = firstSection && firstSection.squares && firstSection.squares[0] &&
+      firstSection.squares[0].events && firstSection.squares[0].events[0];
+    const startPattern = firstSection && (firstSection.strumPattern || (firstEvent && firstEvent.strumPattern));
+    let hasStrumPattern = !!(startPattern && Array.isArray(startPattern.steps) &&
+      startPattern.steps.some((step) => Array.isArray(step) ? step.length > 0 : !!step));
+    // Ensure even a rhythm-free smoke fixture exercises the animation path
+    // from the very first event; this is test data only, not app mutation.
+    let songText = sourceText;
+    if (!hasStrumPattern && firstSection) {
+      const numerator = Number(String(firstSection.timeSig || songData.globalTimeSig || '4/4').split('/')[0]) || 4;
+      firstSection.strumPattern = {
+        mode: 'strum', subdivision: 1,
+        steps: Array.from({ length: numerator }, (_, i) => i % 2 ? 'U' : 'D'),
+      };
+      songText = JSON.stringify(songData);
+      hasStrumPattern = true;
+    }
     await page.evaluate((text) => {
       window.importSong(new File([new Blob([text])], 'playback-regression.json'));
     }, songText);
@@ -125,6 +144,21 @@ async function launchBrowser() {
     check('editor playback clock advances and retains a live chord highlight',
       editorAdvance.playing && editorAdvance.time > editorStart.time + 1.8 && editorAdvance.active,
       JSON.stringify(editorAdvance));
+    const editorRhythm = await page.evaluate(async () => {
+      let peak = 0, previews = 0;
+      const until = performance.now() + 1200;
+      while (performance.now() < until) {
+        const sec = sections[playbackState.currentSectionIndex];
+        const els = fingeringStrumStepEls.get('current') || (sec && strumPreviewStepEls.get(sec.id)) || [];
+        previews = Math.max(previews, els.length);
+        peak = Math.max(peak, els.reduce((n, el) => n + Number(el.classList.contains('strum-step-active')), 0));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return { peak, previews };
+    });
+    check('editor playback visibly animates the current strum or picking step',
+      !hasStrumPattern || (editorRhythm.previews > 0 && editorRhythm.peak > 0),
+      hasStrumPattern ? JSON.stringify(editorRhythm) : 'skipped: fixture has no stored strum/picking pattern');
     const stopButtonReceivesHit = await page.evaluate(() => {
       const button = document.getElementById('btnPlay');
       const rect = button.getBoundingClientRect();
@@ -136,6 +170,33 @@ async function launchBrowser() {
     await wait(200);
     check('real Play button stops editor playback',
       !(await page.evaluate(() => playbackState.isPlaying)));
+
+    await page.evaluate(() => openStrumPatternEditor('section', sections[0].id));
+    if (!(await page.$('#patternGrid .pattern-step-btn.filled'))) {
+      await page.click('#patternGrid .pattern-step-btn[data-step-index="0"]');
+    }
+    await page.click('#preview-pattern');
+    const editorPreview = await page.evaluate(async () => {
+      let peak = 0;
+      const until = performance.now() + 1000;
+      while (performance.now() < until) {
+        peak = Math.max(peak, document.querySelectorAll('.pattern-step-btn.is-playing').length);
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return {
+        playing: typeof _patternPreviewPlaying !== 'undefined' && _patternPreviewPlaying,
+        active: peak,
+        audioState: getAudioContext() && getAudioContext().state,
+      };
+    });
+    check('pattern editor preview plays and visibly highlights its current step',
+      editorPreview.playing && editorPreview.active > 0 && editorPreview.audioState === 'running',
+      JSON.stringify(editorPreview));
+    await page.click('#preview-pattern');
+    await page.click('#cancel-pattern');
+    // Preview notes have a 1.7 s natural decay; let those scheduled voices
+    // finish before measuring playback frame cadence on the backing track.
+    await wait(1800);
 
     await page.click('#btnModeToggle');
     await wait(400);
@@ -156,6 +217,22 @@ async function launchBrowser() {
     check('real Play click advances the ribbon and highlights its current cell',
       after.playing && after.time > before.ctx + 2.7 && after.scroll > before.scroll + 40 && after.active && after.backingPlaying,
       JSON.stringify({ before, after }));
+    const ribbonRhythm = await page.evaluate(async () => {
+      let peak = 0, hits = 0;
+      const until = performance.now() + 1200;
+      while (performance.now() < until) {
+        const cell = timelineActiveCell;
+        const d = cell && cell.dataset;
+        const els = d ? timelineHitEls.get(timelineKey(d.sec, d.square, d.ei, d.secPass, d.sqPass)) || [] : [];
+        hits = Math.max(hits, els.length);
+        peak = Math.max(peak, els.reduce((n, el) => n + Number(el.classList.contains('tl-hit-on')), 0));
+        await new Promise((resolve) => setTimeout(resolve, 20));
+      }
+      return { peak, hits };
+    });
+    check('ribbon rhythm track visibly animates the current strum or picking step',
+      !hasStrumPattern || (ribbonRhythm.hits > 0 && ribbonRhythm.peak > 0),
+      hasStrumPattern ? JSON.stringify(ribbonRhythm) : 'skipped: fixture has no stored strum/picking pattern');
 
     // Measure frame cadence only after a real, unblocked start. The test
     // rejects broad jank, rather than a single noisy frame in a shared VM.
