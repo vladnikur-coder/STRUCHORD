@@ -46326,8 +46326,16 @@ function audibleAudioContextTime(ctx) {
       const outputTime = Number(stamp && stamp.contextTime);
       const performanceTime = Number(stamp && stamp.performanceTime);
       if (Number.isFinite(outputTime) && Number.isFinite(performanceTime) && outputTime > 0) {
-        const elapsed = Math.max(0, (performance.now() - performanceTime) / 1000);
-        return Math.min(current, outputTime + elapsed);
+        const ageMs = performance.now() - performanceTime;
+        const contextLag = current - outputTime;
+        // Safari/WebKit has shipped output timestamps whose performanceTime
+        // can be in a different clock epoch or briefly stale. Extrapolating
+        // such a stamp with elapsed=0 pins visual time to one contextTime,
+        // freezing the playhead and ribbon even while currentTime advances.
+        // Reject impossible/frozen timestamps and use the latency estimate.
+        if (ageMs >= -50 && ageMs <= 1000 && contextLag >= -0.25 && contextLag <= 2) {
+          return Math.min(current, outputTime + Math.max(0, ageMs) / 1000);
+        }
       }
     }
   } catch (_) {}

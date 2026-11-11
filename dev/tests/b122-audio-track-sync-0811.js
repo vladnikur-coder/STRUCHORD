@@ -43,6 +43,14 @@ setTimeout(async () => {
       assert(audibleTimestamp >= 9.59 && audibleTimestamp <= 9.7, String(audibleTimestamp));
       const estimatedClock = { currentTime: 10, outputLatency: 0.1, baseLatency: 0.02 };
       assert(Math.abs(w.audibleAudioContextTime(estimatedClock) - 9.88) < 0.001);
+      const futureEpochClock = { currentTime: 10, outputLatency: 0.1, baseLatency: 0.02,
+        getOutputTimestamp: () => ({ contextTime: 9.5, performanceTime: now + 10000 }) };
+      assert(Math.abs(w.audibleAudioContextTime(futureEpochClock) - 9.88) < 0.001,
+        'future performanceTime from a different epoch falls back instead of freezing at contextTime');
+      const staleOutputClock = { currentTime: 10, outputLatency: 0.1, baseLatency: 0.02,
+        getOutputTimestamp: () => ({ contextTime: 6, performanceTime: now - 100 }) };
+      assert(Math.abs(w.audibleAudioContextTime(staleOutputClock) - 9.88) < 0.001,
+        'stale output timestamp falls back to a progressing context clock');
     });
     check('25 MB input limit is exposed and metadata is compact', () => {
       assert.strictEqual(bt.limit, 25 * 1024 * 1024);
