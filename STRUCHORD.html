@@ -15775,7 +15775,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.824</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.823</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -49961,8 +49961,7 @@ function playAll() {
   // Планировщик событий, метроном и движение ленты отсчитываются от
   // playbackStartTime, поэтому достаточно сдвинуть одну точку —
   // синхронизировать что-то ещё не нужно.
-  // 0.824: перемотка кликом идёт без отсчёта — музыка уже звучала.
-  if (countInEnabled && !seekRestartInProgress) {
+  if (countInEnabled) {
     const startSec = sections[playbackState.currentSectionIndex];
     const startTs = (startSec && startSec.timeSig) || globalTimeSig;
     const countInBpm = (window.StruChordBackingTrack && typeof window.StruChordBackingTrack.getCountInBpm === 'function'
@@ -49996,7 +49995,7 @@ function playAll() {
     // squareAnchorTime — отдельный вызов здесь был избыточным дублем.
     scheduleNextEvent(ctx);
   }
-  if (!seekRestartInProgress) showToast('Воспроизведение');
+  showToast('Воспроизведение');
 }
 // Класс на <body> — единственный переключатель «идёт воспроизведение»
 // для CSS. Держим его в одном месте, чтобы состояние не разъезжалось
@@ -50492,50 +50491,6 @@ function updatePausedFingeringControls(pos) {
   bar.appendChild(edit);
 }
 
-// 0.824 (B-122): перемотка кликом по аккорду — ОДИН перезапуск транспорта.
-//
-// Почему не «переставить только запись», как было до 0.823: у песни своя
-// сетка (`playbackStartTime`/`nextEventTime`), у записи — своя секунда, у
-// метронома — фаза квадрата. Переставив одну запись, мы получаем ровно то,
-// на что жаловался владелец: подсветка уже на нажатом аккорде, а звук ещё
-// доигрывает старый такт, и запись вступает через полсекунды (её время
-// берётся из `nextEventTime`, а планировщик заглядывает на 500 мс вперёд).
-//
-// Здесь транспорт останавливается и стартует заново с нажатой ячейки — тем
-// же путём, что обычный Play. Всё, что умеет старт (запись на нужной
-// секунде с учётом поправки «Сдвиг записи», метроном, повторы секций, знаки
-// структуры), согласовано по построению, а не подгонкой.
-var seekRestartInProgress = false;
-function seekPlaybackToCell(sectionIndex, squareIndex, eventIndex) {
-  if (!playbackState.isPlaying) return false;
-  const sec = sections[sectionIndex];
-  const sq = sec && sec.squares[squareIndex];
-  if (!sq) return false;
-  // Позицию запоминаем ДО остановки: stopPlayback сбрасывает и индексы,
-  // и ход по знакам структуры.
-  const pos = {
-    sectionIndex,
-    squareIndex,
-    eventIndex: Math.max(0, Number(eventIndex) || 0),
-    sectionRepeatCount: { ...(playbackState._sectionRepeatCount || {}) },
-    squareRepeatCount: { ...(playbackState._squareRepeatCount || {}) },
-    structureWalk: playbackState._structureWalk || null,
-  };
-  stopPlayback();
-  if (window.StruChordBackingTrack && typeof window.StruChordBackingTrack.setPendingStart === 'function') {
-    window.StruChordBackingTrack.setPendingStart(pos);
-  }
-  // Отсчёт после клика не нужен: музыка уже звучит, человек просто хочет
-  // туда, куда нажал. Тот же флаг гасит тост, иначе серия кликов забивает
-  // экран сообщениями.
-  seekRestartInProgress = true;
-  try {
-    playAll();
-  } finally {
-    seekRestartInProgress = false;
-  }
-  return true;
-}
 function restartPlaybackFromCurrentPosition() {
   if (!playbackState.isPlaying) return;
   // 0.775: currentEventIndex — указатель на СЛЕДУЮЩУЮ ячейку (планировщик
@@ -61909,12 +61864,12 @@ function attachChordWheelEvents() {
             playbackState.savedSectionIndex = si;
             playbackState.savedSquareIndex = sqi;
             playbackState.savedEventIndex = ei;
-            // 0.824 (B-122): запись, аккорды и метроном перескакивают ВМЕСТЕ.
-            // Раньше здесь запись переставлялась отдельно, а песня продолжала
-            // старый отсчёт — владелец так это и описал: «перескакивают
-            // аккорды, но не запись».
+            if (window.StruChordBackingTrack && typeof window.StruChordBackingTrack.seekDuringPlayback === 'function') {
+              const pass = currentTimelinePasses(si, sqi);
+              window.StruChordBackingTrack.seekDuringPlayback({ sectionIndex: si, squareIndex: sqi, eventIndex: ei,
+                sectionRepeatCount: { ['sec_' + si]: pass.secPass }, squareRepeatCount: { ['sq_' + si + '_' + sqi]: pass.sqPass } });
+            }
             updatePlaybackPosition(si, sqi, ei);
-            seekPlaybackToCell(si, sqi, ei);
           }
           return;
         }
@@ -87991,9 +87946,7 @@ function gpExportModal(title, bodyHtml, label) {
     const events=sq && (typeof getSquarePlaybackEvents==='function'?getSquarePlaybackEvents(sq,ts):sq.events);
     const ei=Math.max(0,Number(pos.eventIndex)||0);
     const q=eventQuarter(pos.sectionIndex,pos.squareIndex,ei,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);
-    // 0.824: поправка «Сдвиг записи» — секунда В ЗАПИСИ, а не в сетке.
-    // Без неё любая перемотка сдвинутой записи попадала мимо на этот сдвиг.
-    return tAtQ(q) + (Number(meta && meta.trackOffset) || 0);
+    return tAtQ(q);
   }
   function gridPayload() { return meta ? {...meta, points:meta.points.map(p=>({...p}))} : null; }
   function stateForSave() { return meta ? {...meta, points:meta.points.map(p=>({...p}))} : null; }
@@ -88430,7 +88383,7 @@ function gpExportModal(title, bodyHtml, label) {
   function waveSeek(e){
     if(!meta||drag||wholeTrackDrag||suppressWaveClick)return;
     const mediaLen=waveDuration(),t=clamp(canvasX(e)*mediaLen-(Number(meta.trackOffset)||0),0,Math.max(0,mediaLen-.02));
-    if(audio)audio.currentTime=clamp(t+(Number(meta.trackOffset)||0),0,Math.max(0,mediaLen-.02));
+    if(audio)audio.currentTime=clamp(t,0,Math.max(0,mediaLen-.02));
     const grid=getBarGrid(),scoreStart=tAtQ(0),scoreEnd=tAtQ(grid.totalQ),outside=t<scoreStart-.001||t>scoreEnd+.001;
     let q=0;
     if(t>=scoreEnd)q=grid.totalQ;
@@ -88440,7 +88393,7 @@ function gpExportModal(title, bodyHtml, label) {
     pendingAudioStartFromZero=!!(outside&&!playbackState.isPlaying);
     if(timelineMode){pendingStart=null;timelineStartPosition=pos;if(!playbackState.isPlaying)syncPreviewToPosition(pos);}
     else pendingStart=pos;
-    if(playbackState.isPlaying&&pos){playbackState.currentSectionIndex=pos.sectionIndex;playbackState.currentSquareIndex=pos.squareIndex;playbackState.currentEventIndex=pos.eventIndex;playbackState._sectionRepeatCount=pos.sectionRepeatCount;playbackState._squareRepeatCount=pos.squareRepeatCount;seekPlaybackToCell(pos.sectionIndex,pos.squareIndex,pos.eventIndex);}
+    if(playbackState.isPlaying&&pos){playbackState.currentSectionIndex=pos.sectionIndex;playbackState.currentSquareIndex=pos.squareIndex;playbackState.currentEventIndex=pos.eventIndex;playbackState._sectionRepeatCount=pos.sectionRepeatCount;playbackState._squareRepeatCount=pos.squareRepeatCount;seekDuringPlayback(pos,t);}
     else if(!playbackState.isPlaying)toast(outside?'Позиция вне партитуры выбрана — Play начнёт запись с начала':'Позиция выбрана — нажмите Play');
   }
   function positionForQ(q){const grid=getBarGrid();let found=grid.events[0];for(const x of grid.events){if(x.q<=q)found=x;else break;}return found?{sectionIndex:found.si,squareIndex:found.qi,eventIndex:found.ei,sectionRepeatCount:{['sec_'+found.si]:found.sp},squareRepeatCount:{['sq_'+found.si+'_'+found.qi]:found.qp}}:null;}
@@ -88760,16 +88713,13 @@ function gpExportModal(title, bodyHtml, label) {
   }
 
 
-  function preparePlaybackStart(ctx, state, launchBase, songStart, startAtAudioZero){if(!meta)return songStart;const pos={sectionIndex:state.currentSectionIndex,squareIndex:state.currentSquareIndex,eventIndex:state.currentEventIndex,sectionRepeatCount:state._sectionRepeatCount,squareRepeatCount:state._squareRepeatCount};const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);if(startAtAudioZero){scheduleAudio(ctx,q,launchBase,0);return songStart;}const offset=Number(meta.trackOffset)||0, audioT=tAtQ(q)+offset, countIn=Math.max(0,songStart-launchBase), pickup=audioT-countIn*meta.speed;const audioStart=pickup>=0?launchBase:launchBase+Math.max(0,countIn-audioT/meta.speed);const target=pickup>=0?pickup:0;scheduleAudio(ctx,q,audioStart,target);return songStart;}
+  function preparePlaybackStart(ctx, state, launchBase, songStart, startAtAudioZero){if(!meta)return songStart;const pos={sectionIndex:state.currentSectionIndex,squareIndex:state.currentSquareIndex,eventIndex:state.currentEventIndex,sectionRepeatCount:state._sectionRepeatCount,squareRepeatCount:state._squareRepeatCount};const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);if(startAtAudioZero){scheduleAudio(ctx,q,launchBase,0);return songStart;}const audioT=tAtQ(q), countIn=Math.max(0,songStart-launchBase), pickup=audioT-countIn*meta.speed;const audioStart=pickup>=0?launchBase:launchBase+Math.max(0,countIn-audioT/meta.speed);const target=pickup>=0?pickup:0;scheduleAudio(ctx,q,audioStart,target);return songStart;}
   function resolveScheduledEvent(ctx,si,qi,ei,sp,qp,evStart,span,ts,fallbackBpm){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp), sig=parseTimeSig(ts||globalTimeSig||'4/4'), quarters=Number(span||1)*(4/sig.denominator), native=tAtQ(q+quarters)-tAtQ(q), dur=native/meta.speed, bpm=dur>0?Math.round((60*quarters/dur)*10000)/10000:fallbackBpm;return {bpm,dur};}
   function getCountInBpm(state){if(!meta)return 0;return bpmAtQ(eventQuarter(state.currentSectionIndex,state.currentSquareIndex,state.currentEventIndex,(state._sectionRepeatCount||{})['sec_'+state.currentSectionIndex],(state._squareRepeatCount||{})['sq_'+state.currentSectionIndex+'_'+state.currentSquareIndex]),1)*meta.speed;}
   function consumePendingStartPosition(){const p=pendingStart;pendingStart=null;return p;}
   function consumePendingAudioStartFromZero(){const value=pendingAudioStartFromZero;pendingAudioStartFromZero=false;return value;}
-  function syncPreviewToPosition(pos){if(!meta||!audio||playbackState.isPlaying)return;try{audio.currentTime=clamp(pointTimeForPosition(pos),0,Math.max(0,(duration||audio.duration||0)-.02));}catch(_){}updatePreviewStatus();updatePlayheadCursor();}
-  // 0.824: интерфейс перемотки — seekPlaybackToCell (перезапуск транспорта
-  // целиком). Эта функция переставляет только запись и оставлена ради
-  // совместимости: одна запись без песни — это и было расхождение.
-  function seekDuringPlayback(pos,targetOverride){if(!meta||!pos)return;const ctx=typeof getAudioContext==='function'?getAudioContext():null;if(!ctx)return;const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);stopAudio();scheduleAudio(ctx,q,Math.max(ctx.currentTime+.02,Number(nextEventTime)||ctx.currentTime+.02),Number.isFinite(targetOverride)?targetOverride:tAtQ(q)+(Number(meta.trackOffset)||0));}
+  function syncPreviewToPosition(pos){if(!meta||!audio||playbackState.isPlaying)return;try{audio.currentTime=clamp(pointTimeForPosition(pos),0,Math.max(0,(duration||audio.duration||0)-.02));}catch(_){} }
+  function seekDuringPlayback(pos,targetOverride){if(!meta||!pos)return;const ctx=typeof getAudioContext==='function'?getAudioContext():null;if(!ctx)return;const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);stopAudio();scheduleAudio(ctx,q,Math.max(ctx.currentTime+.02,Number(nextEventTime)||ctx.currentTime+.02),targetOverride);}
   function invalidateGrid(){cachedBarGrid=null;syncPointMapCache=null;cachedAudioTailBar=null;if(!meta)return;meta.points=normalizePoints(meta.points);drawWave();}
   async function loadSong(song){const token=++loadToken;blobLoadToken++;pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
   async function exportSong(song, embed){if(!meta)return song;const out={...song,backingTrack:stateForSave()};return exportStoredSong(out,embed);}
@@ -88801,7 +88751,7 @@ function gpExportModal(title, bodyHtml, label) {
   function getBpmForBar(bar){const q=qAtBar(bar);const b=qAtBar(bar+1);return bpmAtQ(q,b-q||1);}
   function getBpmForEvent(si,qi,ei,sp,qp,span,ts){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp),sig=parseTimeSig(ts||globalTimeSig||'4/4'),dq=Number(span||1)*(4/sig.denominator);return bpmAtQ(q,dq);}
   function getFirstPassBpmForBar(bar){let q=0,b=0;for(const sec of sections||[]){const sig=parseTimeSig(sec.timeSig||globalTimeSig||'4/4'),quarters=sig.numerator*(4/sig.denominator);let sectionQ=0;for(let qi=0;qi<(sec.squares||[]).length;qi++){const count=Math.max(1,Number(sec.squares[qi].repeat)||1);for(let r=0;r<count;r++){if(b===bar)return bpmAtQ(q+sectionQ,quarters);b++;sectionQ+=quarters;}}q+=sectionQ*Math.max(1,Number(sec.repeat)||1);}return getBpmForBar(bar);}
-  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, setPendingStart:(next)=>{pendingStart=next?{...next}:null;}, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
+  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
   window.StruChordBackingTrack=api;
   const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();});};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready();
