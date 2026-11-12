@@ -4,7 +4,24 @@
 уже стоило времени: где легко наступить на те же грабли. Проверять по дате —
 если запись устарела, правьте её, а не обходите.
 
-Обновлено: 2026-11-12, версия 0.823.
+Обновлено: 2026-11-12, версия 0.824.
+
+---
+
+## B-123 · 0.824: Safari Web Audio requires playback Audio Session
+
+- Владелец: Safari 17.6 / macOS, HTMLAudio слышно, Web Audio — нет. Его отчёт:
+  контекст `running`, `resume-resolved`, тестовый осциллятор `scheduled` → `ended`,
+  ошибок нет; `navigator.audioSession.type` всюду `auto`. Пересоздание контекста
+  (generation 2/3) тоже не помогло.
+- Для Safari Web Audio-only документа одной `AudioContext.state === 'running'`
+  недостаточно для активации playback media session. На явном пользовательском
+  audio-preflight выставлять `navigator.audioSession.type = 'playback'`, затем
+  повторно выставлять при managed resume и rebuild. Feature detect; без API — no-op.
+- Тест `dev/tests/b123-safari-audio-session-0824.js` имитирует API в Chromium:
+  gesture → playback, reset → resume reassert, reset → context rebuild reassert.
+  **Не считать Safari починенным до того, как владелец подтвердит слухом после патча.**
+- Спека/отчёт: пока не созданы; сначала дождаться результата Safari.
 
 ---
 
