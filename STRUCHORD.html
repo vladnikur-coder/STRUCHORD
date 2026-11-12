@@ -8376,20 +8376,6 @@ body.mode-anim .transport-bar {
   background: var(--color-surface-hover);
   border-color: var(--color-text-tertiary);
 }
-.transport-btn--av-sync {
-  width: auto;
-  min-width: 2.25rem;
-  gap: 0.2rem;
-  padding: 0 0.55rem;
-  border-radius: 999px;
-  font-size: 0.68rem;
-  font-weight: 700;
-}
-.transport-btn--av-sync.active { color: var(--color-brand-on); }
-@media (max-width: 640px) {
-  .transport-btn--av-sync { width: 2.25rem; min-width: 2.25rem; padding: 0; }
-  .transport-btn--av-sync span { display: none; }
-}
 .transport-btn:active {
   transform: translateY(0.0625rem);
   box-shadow: none;
@@ -15178,22 +15164,6 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
 .home-settings-panel { display: grid; align-content: start; gap: 1rem; min-width: 0; }
 .home-settings-panel[hidden] { display: none !important; }
 .home-settings-section { display: grid; gap: 0.6rem; min-width: 0; }
-.home-av-sync-help, .home-av-sync-note { margin: 0; color: var(--color-text-secondary); font-size: 0.78rem; line-height: 1.5; }
-.home-av-sync-controls { display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap; }
-.home-av-sync-controls button { min-height: 2.6rem; padding: 0.45rem 0.85rem; border: 1px solid var(--color-border-medium); border-radius: 999px; background: var(--color-surface); color: var(--color-text-primary); font: inherit; font-weight: 650; cursor: pointer; }
-.home-av-sync-controls button:disabled { opacity: 0.5; cursor: not-allowed; }
-.home-av-sync-controls #homeAvSyncTap { min-width: 4.25rem; background: var(--color-accent); border-color: var(--color-accent); color: var(--color-background-primary); }
-.home-av-sync-beat { width: 1rem; height: 1rem; border-radius: 50%; background: var(--color-border-medium); transition: transform 70ms ease, background 70ms ease, box-shadow 70ms ease; }
-.home-av-sync-beat.is-lit { transform: scale(1.35); background: var(--color-accent-warm); box-shadow: 0 0 0 0.35rem color-mix(in srgb, var(--color-accent-warm) 20%, transparent); }
-.home-av-sync-status { min-height: 1.2em; font-size: 0.78rem; font-weight: 600; }
-.home-av-sync-toggle { display: flex; align-items: flex-start; gap: 0.65rem; padding: 0.75rem; border: 1px solid var(--color-border-light); border-radius: 0.8rem; }
-.home-av-sync-toggle input { margin-top: 0.2rem; accent-color: var(--color-accent); }
-.home-av-sync-toggle span { display: grid; gap: 0.2rem; }
-.home-av-sync-toggle strong { font-size: 0.8rem; }
-.home-av-sync-toggle small { color: var(--color-text-secondary); font-size: 0.7rem; line-height: 1.4; }
-.home-av-sync-offset { display: grid; gap: 0.3rem; }
-.home-av-sync-offset > span { display: flex; justify-content: space-between; gap: 0.5rem; font-size: 0.78rem; }
-.home-av-sync-offset input { width: 100%; accent-color: var(--color-accent); }
 .home-settings-section h3 { margin: 0; color: var(--color-text-secondary); font-size: 0.78rem; font-weight: 650; }
 .home-sound-sources { min-width: 0; border: 1px solid var(--color-border-light); border-radius: 0.72rem; background: var(--color-background-secondary); }
 .home-sound-sources summary { padding: 0.65rem 0.75rem; color: var(--color-text-primary); font-size: 0.82rem; font-weight: 590; cursor: pointer; }
@@ -15805,7 +15775,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.821</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.822</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -16009,7 +15979,6 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       </div>
       <div class="transport-bar">
         <button class="transport-btn" id="btnPlay" onclick="playAll()" aria-label="Воспроизвести"><i class="ti ti-player-play"></i></button>
-        <button class="transport-btn transport-btn--av-sync" id="btnAvSync" type="button" onclick="toggleAvSync()" aria-label="Автосинхронизация аудио и видео" aria-pressed="false" title="Автосинхронизация выключена"><i class="ti ti-adjustments-plus" aria-hidden="true"></i><span>A/V</span></button>
         <button class="transport-btn" id="btnLoop" onclick="toggleLoop()" aria-label="Повтор воспроизведения">
           <i class="ti ti-repeat"></i>
         </button>
@@ -46164,161 +46133,6 @@ function syncTimelineWithPlayback(sec, sq, ei, startTime, dur, secPass, sqPass) 
 }
 const playbackVisualTimers = new Set();
 let playbackVisualGeneration = 0;
-const AV_SYNC_STORAGE_KEY = 'struchord-av-sync-v1';
-const AV_SYNC_MAX_OFFSET_MS = 250;
-function readAvSyncSettings() {
-  try {
-    const saved = JSON.parse(localStorage.getItem(AV_SYNC_STORAGE_KEY) || '{}');
-    const offsetMs = Number(saved.offsetMs);
-    return { enabled: !!saved.enabled, offsetMs: Number.isFinite(offsetMs) ? Math.max(-AV_SYNC_MAX_OFFSET_MS, Math.min(AV_SYNC_MAX_OFFSET_MS, offsetMs)) : 0 };
-  } catch (_) { return { enabled: false, offsetMs: 0 }; }
-}
-let avSyncSettings = readAvSyncSettings();
-function saveAvSyncSettings() {
-  try { localStorage.setItem(AV_SYNC_STORAGE_KEY, JSON.stringify(avSyncSettings)); } catch (_) {}
-  syncAvSyncControls();
-}
-function syncAvSyncControls() {
-  const button = document.getElementById('btnAvSync');
-  if (button) {
-    button.classList.toggle('active', avSyncSettings.enabled);
-    button.setAttribute('aria-pressed', String(avSyncSettings.enabled));
-    button.title = `Автосинхронизация ${avSyncSettings.enabled ? 'включена' : 'выключена'} · ${avSyncSettings.offsetMs >= 0 ? '+' : ''}${Math.round(avSyncSettings.offsetMs)} мс`;
-  }
-  const toggle = document.getElementById('homeAvSyncEnabled');
-  if (toggle) toggle.checked = avSyncSettings.enabled;
-  const range = document.getElementById('homeAvSyncOffset');
-  if (range) range.value = String(Math.round(avSyncSettings.offsetMs));
-  const output = document.getElementById('homeAvSyncOffsetValue');
-  if (output) output.textContent = `${avSyncSettings.offsetMs >= 0 ? '+' : ''}${Math.round(avSyncSettings.offsetMs)} мс`;
-}
-function toggleAvSync() {
-  avSyncSettings.enabled = !avSyncSettings.enabled;
-  saveAvSyncSettings();
-  showToast(`Автосинхронизация ${avSyncSettings.enabled ? 'включена' : 'выключена'}${avSyncSettings.enabled ? ` (${avSyncSettings.offsetMs >= 0 ? '+' : ''}${Math.round(avSyncSettings.offsetMs)} мс)` : ''}`);
-}
-window.toggleAvSync = toggleAvSync;
-syncAvSyncControls();
-let avSyncCalibration = null;
-function perfTimeForAudioContextTime(ctx, contextTime) {
-  try {
-    if (ctx && typeof ctx.getOutputTimestamp === 'function') {
-      const stamp = ctx.getOutputTimestamp();
-      if (Number.isFinite(Number(stamp.contextTime)) && Number.isFinite(Number(stamp.performanceTime))) {
-        return Number(stamp.performanceTime) + (contextTime - Number(stamp.contextTime)) * 1000;
-      }
-    }
-  } catch (_) {}
-  return performance.now() + (contextTime - audibleAudioContextTime(ctx)) * 1000;
-}
-function avSyncCalStatus(message) {
-  const status = document.getElementById('homeAvSyncStatus');
-  if (status) status.textContent = message;
-}
-function stopAvSyncCalibration() {
-  if (!avSyncCalibration) return;
-  const session = avSyncCalibration;
-  session.timers.forEach(clearTimeout);
-  session.oscillators.forEach((osc) => { try { osc.stop(); } catch (_) {} });
-  avSyncCalibration = null;
-  const pulse = document.getElementById('homeAvSyncBeat');
-  if (pulse) pulse.classList.remove('is-lit');
-  const tap = document.getElementById('homeAvSyncTap');
-  if (tap) tap.disabled = true;
-  const start = document.getElementById('homeAvSyncStart');
-  if (start) { start.disabled = false; start.textContent = 'Начать калибровку'; }
-  const cancel = document.getElementById('homeAvSyncCancel');
-  if (cancel) cancel.disabled = true;
-}
-function finishAvSyncCalibration() {
-  const session = avSyncCalibration;
-  if (!session) return;
-  const phases = session.taps.slice(2).map((time) => {
-    let best = null, bestDistance = Infinity;
-    session.beatPerfTimes.forEach((beatTime) => {
-      const delta = time - beatTime;
-      if (Math.abs(delta) < bestDistance) { best = delta; bestDistance = Math.abs(delta); }
-    });
-    return best;
-  }).filter((v) => Number.isFinite(v) && Math.abs(v) <= 300).sort((a, b) => a - b);
-  if (phases.length >= 4) {
-    const mid = Math.floor(phases.length / 2);
-    const median = phases.length % 2 ? phases[mid] : (phases[mid - 1] + phases[mid]) / 2;
-    // Tap timing includes a typical ~150 ms motor response. Remove that
-    // approximate human component; the remainder is the user's perceived
-    // audio/visual phase and can be fine-tuned with the slider.
-    avSyncSettings.offsetMs = Math.round(Math.max(-AV_SYNC_MAX_OFFSET_MS, Math.min(AV_SYNC_MAX_OFFSET_MS, median - 150)) / 5) * 5;
-    saveAvSyncSettings();
-    avSyncCalStatus(`Готово: поправка ${avSyncSettings.offsetMs >= 0 ? '+' : ''}${avSyncSettings.offsetMs} мс. При необходимости подстройте ползунком.`);
-  } else {
-    avSyncCalStatus('Недостаточно нажатий: попробуйте ещё раз и нажимайте ровно в такт.');
-  }
-  stopAvSyncCalibration();
-}
-function startAvSyncCalibration() {
-  if (playbackState.isPlaying) { avSyncCalStatus('Сначала остановите воспроизведение.'); return; }
-  stopAvSyncCalibration();
-  const ctx = getAudioContext();
-  if (!ctx) { avSyncCalStatus('Аудиоконтекст недоступен. Нажмите Play один раз и повторите.'); return; }
-  resumeAudioContext();
-  const startTime = ctx.currentTime + 0.35;
-  const beatCount = 12;
-  const beatPerfTimes = [];
-  const timers = new Set();
-  const oscillators = new Set();
-  avSyncCalibration = { taps: [], beatPerfTimes, timers, oscillators, startTime, ctx };
-  const start = document.getElementById('homeAvSyncStart');
-  const tap = document.getElementById('homeAvSyncTap');
-  if (start) { start.disabled = true; start.textContent = 'Идёт метроном…'; }
-  if (tap) { tap.disabled = false; tap.textContent = 'TAP'; }
-  const cancel = document.getElementById('homeAvSyncCancel');
-  if (cancel) cancel.disabled = false;
-  avSyncCalStatus('Слушайте щелчки 100 BPM и нажимайте TAP в такт; первые два нажатия — разогрев.');
-  for (let i = 0; i < beatCount; i++) {
-    const when = startTime + i * 0.6;
-    const session = avSyncCalibration;
-    beatPerfTimes.push(perfTimeForAudioContextTime(ctx, when));
-    try {
-      const osc = ctx.createOscillator(), gain = ctx.createGain();
-      session.oscillators.add(osc);
-      osc.onended = () => session.oscillators.delete(osc);
-      osc.type = 'sine'; osc.frequency.value = i % 4 === 0 ? 1000 : 720;
-      gain.gain.setValueAtTime(0.0001, when);
-      gain.gain.exponentialRampToValueAtTime(i % 4 === 0 ? 0.24 : 0.14, when + 0.002);
-      gain.gain.exponentialRampToValueAtTime(0.0001, when + 0.075);
-      osc.connect(gain); gain.connect(ctx.destination); osc.start(when); osc.stop(when + 0.08);
-    } catch (_) {}
-    const light = () => {
-      if (avSyncCalibration !== session) return;
-      const pulse = document.getElementById('homeAvSyncBeat');
-      if (pulse) { pulse.classList.add('is-lit'); setTimeout(() => pulse.classList.remove('is-lit'), 130); }
-    };
-    const fire = () => {
-      timers.delete(timer);
-      if (avSyncCalibration !== session) return;
-      const remaining = (when - audibleAudioContextTime(ctx)) * 1000;
-      if (remaining > 2) { timer = setTimeout(fire, Math.max(4, remaining)); timers.add(timer); return; }
-      light();
-    };
-    let timer = setTimeout(fire, Math.max(0, (when - audibleAudioContextTime(ctx)) * 1000));
-    timers.add(timer);
-  }
-  const endTimer = setTimeout(() => finishAvSyncCalibration(), Math.max(0, (startTime + beatCount * 0.6 - audibleAudioContextTime(ctx)) * 1000 + 100));
-  timers.add(endTimer);
-}
-function tapAvSyncCalibration() {
-  if (!avSyncCalibration) return;
-  avSyncCalibration.taps.push(performance.now());
-  const tap = document.getElementById('homeAvSyncTap');
-  if (tap) tap.textContent = `TAP · ${Math.min(10, avSyncCalibration.taps.length)}/10`;
-}
-function cancelAvSyncCalibration() {
-  stopAvSyncCalibration();
-  avSyncCalStatus('Калибровка отменена; сохранённая поправка не изменена.');
-}
-window.startAvSyncCalibration = startAvSyncCalibration;
-window.tapAvSyncCalibration = tapAvSyncCalibration;
-window.cancelAvSyncCalibration = cancelAvSyncCalibration;
 function audibleAudioContextTime(ctx) {
   if (!ctx) return 0;
   const current = Number(ctx.currentTime) || 0;
@@ -46348,8 +46162,7 @@ function audibleAudioContextTime(ctx) {
   return Math.max(0, current - Math.min(1, latency));
 }
 function visualAudioContextTime(ctx) {
-  const correction = avSyncSettings.enabled ? avSyncSettings.offsetMs / 1000 : 0;
-  return audibleAudioContextTime(ctx) - correction;
+  return audibleAudioContextTime(ctx);
 }
 function clearPlaybackVisualUpdates() {
   playbackVisualGeneration++;
@@ -46357,7 +46170,7 @@ function clearPlaybackVisualUpdates() {
   playbackVisualTimers.clear();
 }
 function schedulePlaybackVisualAt(ctx, contextTime, callback) {
-  const visualTime = contextTime + (avSyncSettings.enabled ? avSyncSettings.offsetMs / 1000 : 0);
+  const visualTime = contextTime;
   const generation = playbackVisualGeneration;
   let timer = 0;
   const fire = () => {
@@ -81509,8 +81322,7 @@ toggleTimeAndBeats();
     const dialog = createHomeModal(
       'Настройки приложения',
       'Параметры применяются сразу. Тема, цветовая схема, масштаб и написание аккордов запоминаются в этом браузере.',
-      'home-settings-modal',
-      () => { if (avSyncCalibration) cancelAvSyncCalibration(); }
+      'home-settings-modal'
     );
     const sections = document.createElement('div');
     sections.className = 'home-settings-sections';
@@ -81534,14 +81346,7 @@ toggleTimeAndBeats();
     instrumentTab.setAttribute('role', 'tab');
     instrumentTab.setAttribute('aria-controls', 'homeSettingsPanelInstrument');
     instrumentTab.textContent = 'Инструменты';
-    const avSyncTab = document.createElement('button');
-    avSyncTab.type = 'button';
-    avSyncTab.className = 'home-settings-tab';
-    avSyncTab.id = 'homeSettingsTabAvSync';
-    avSyncTab.setAttribute('role', 'tab');
-    avSyncTab.setAttribute('aria-controls', 'homeSettingsPanelAvSync');
-    avSyncTab.textContent = 'Синхронизация';
-    tabs.append(visualTab, instrumentTab, avSyncTab);
+    tabs.append(visualTab, instrumentTab);
 
     const visualPanel = document.createElement('section');
     visualPanel.className = 'home-settings-panel';
@@ -81557,39 +81362,9 @@ toggleTimeAndBeats();
     instrumentPanel.setAttribute('aria-labelledby', instrumentTab.id);
     instrumentPanel.tabIndex = 0;
 
-    const avSyncPanel = document.createElement('section');
-    avSyncPanel.className = 'home-settings-panel';
-    avSyncPanel.id = 'homeSettingsPanelAvSync';
-    avSyncPanel.setAttribute('role', 'tabpanel');
-    avSyncPanel.setAttribute('aria-labelledby', avSyncTab.id);
-    avSyncPanel.tabIndex = 0;
-    avSyncPanel.innerHTML = `
-      <section class="home-settings-section">
-        <h3>Калибровка аудио и визуала</h3>
-        <p class="home-av-sync-help">Метроном играет ровно 100 BPM. Слушайте щелчки и нажимайте TAP в такт; первые два нажатия нужны для разогрева. После измерения поправка применяется к подсветке, ленте и плейхеду при включённой автосинхронизации.</p>
-        <div class="home-av-sync-controls">
-          <span class="home-av-sync-beat" id="homeAvSyncBeat" aria-hidden="true"></span>
-          <button class="home-scale-control" id="homeAvSyncStart" type="button" onclick="startAvSyncCalibration()">Начать калибровку</button>
-          <button class="home-scale-control" id="homeAvSyncTap" type="button" onclick="tapAvSyncCalibration()" disabled>TAP</button>
-          <button class="home-scale-control" id="homeAvSyncCancel" type="button" onclick="cancelAvSyncCalibration()" disabled>Отмена</button>
-        </div>
-        <output class="home-av-sync-status" id="homeAvSyncStatus" aria-live="polite">Калибровка не запущена.</output>
-        <label class="home-av-sync-toggle"><input id="homeAvSyncEnabled" type="checkbox"><span><strong>Автосинхронизация при воспроизведении</strong><small>Использовать сохранённую поправку для визуальных индикаторов.</small></span></label>
-        <label class="home-av-sync-offset"><span>Поправка вручную <output id="homeAvSyncOffsetValue">0 мс</output></span><input id="homeAvSyncOffset" type="range" min="-250" max="250" step="5" value="0"></label>
-        <small class="home-av-sync-note">Тапы включают и вашу реакцию на кнопку, поэтому результат приблизительный. Для точной подстройки используйте ползунок; положительное значение задерживает визуал.</small>
-      </section>`;
-    avSyncPanel.querySelector('#homeAvSyncEnabled').addEventListener('change', (event) => {
-      avSyncSettings.enabled = event.target.checked;
-      saveAvSyncSettings();
-    });
-    avSyncPanel.querySelector('#homeAvSyncOffset').addEventListener('input', (event) => {
-      avSyncSettings.offsetMs = Number(event.target.value) || 0;
-      saveAvSyncSettings();
-    });
     const settingsTabs = [
       { button: visualTab, panel: visualPanel },
       { button: instrumentTab, panel: instrumentPanel },
-      { button: avSyncTab, panel: avSyncPanel },
     ];
     let activeTabIndex = 0;
     const selectSettingsTab = (index, focus = false) => {
@@ -81748,9 +81523,8 @@ toggleTimeAndBeats();
     soundSourcesSection.appendChild(soundSources);
     instrumentPanel.append(defaultSection, soundSourcesSection, instrumentOptionsSection, readableNamesSection);
 
-    sections.append(tabs, visualPanel, instrumentPanel, avSyncPanel);
+    sections.append(tabs, visualPanel, instrumentPanel);
     dialog.content.appendChild(sections);
-    syncAvSyncControls();
     dialog.actions.appendChild(createHomeActionButton('Готово', 'primary', dialog.close));
     selectSettingsTab(0);
     syncHomeSettingsControls();
@@ -88125,8 +87899,7 @@ function gpExportModal(title, bodyHtml, label) {
       if (mediaLen > 0 && virtualWidth > 0) {
         const viewStart = (viewport.scrollLeft / virtualWidth) * mediaLen;
         const viewDuration = mediaLen / waveZoom;
-        const syncDelay = avSyncSettings.enabled ? (avSyncSettings.offsetMs / 1000) * (Number(meta.speed) || 1) : 0;
-        const displayTime = audibleBackingTime() - syncDelay + (Number(meta.trackOffset) || 0);
+        const displayTime = audibleBackingTime() + (Number(meta.trackOffset) || 0);
         const x = ((displayTime - viewStart) / viewDuration) * waveViewportWidth();
         cursor.style.left = `${x}px`;
         cursor.style.height = `${viewport.clientHeight || canvasCssHeight}px`;
@@ -88156,8 +87929,7 @@ function gpExportModal(title, bodyHtml, label) {
   }
   function updatePreviewStatus() {
     const output = $('btPlayhead');
-    const syncDelay = avSyncSettings.enabled ? (avSyncSettings.offsetMs / 1000) * (Number(meta && meta.speed) || 1) : 0;
-    if (output) output.textContent = secText(audio && Number.isFinite(audio.currentTime) ? Math.max(0, audibleBackingTime() - syncDelay) : 0);
+    if (output) output.textContent = secText(audio && Number.isFinite(audio.currentTime) ? Math.max(0, audibleBackingTime()) : 0);
     const button = $('btDrawer') && $('btDrawer').querySelector('[data-bt-action="preview"]');
     if (button) {
       button.textContent = audio && !audio.paused ? 'Пауза MP3' : '▶ Прослушать MP3';
