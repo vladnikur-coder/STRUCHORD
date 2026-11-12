@@ -1,3 +1,7 @@
+## 0.821 · 2026-11-08
+
+**Playback rhythm step feedback · Safari timing / short audio gaps.** Step-on and step-off visuals now use the shared audible-output clock instead of one-shot timers against `AudioContext.currentTime`; an early Safari wake is rechecked and rescheduled rather than skipping a short pulse. The playback scheduler look-ahead is extended from 250 ms to 500 ms to give slower main threads more time to queue audio before attacks. Checks: syntax/version and B-122/B-123/metronome regressions pass; playback browser suite passes 14/14 on the default fixture, while the Oasis fixture passes the editor/ribbon rhythm-animation and next-chord-preview checks but finishes 14/15 on the sandbox-sensitive ribbon cadence threshold. Safari 17.6 remains pending user verification, so this is a candidate fix, not a confirmed Safari resolution.
+
 ## 0.820 · 2026-11-08
 
 **Превью аккорда в редакторе · окно «ПРЕВЬЮ» больше не исчезает в момент старта.** Во время воспроизведения в редакторе ожидается плавающая аппликатура следующего аккорда (с его рисунком), а в Ленте — карточки «Сейчас / Дальше». Найдена гонка: подсказка следующего аккорда появлялась в планировщике до старта, затем `clearActiveHighlight()` скрывал её на слышимом старте текущего аккорда. Показ и скрытие теперь синхронизированы с началом события и упорядочены после очистки старого тултипа. На браузерной регрессии превью следующего аккорда оставалось видимым весь контрольный интервал 1,2 с.
