@@ -15805,7 +15805,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.821</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.820</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -20357,7 +20357,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
 let ringingVoices = [];
 const fingeringCache = new Map();
 const userFingerings = new Map();
-const PLAYBACK_SCHEDULER_LOOKAHEAD_MS = 500;
+const PLAYBACK_SCHEDULER_LOOKAHEAD_MS = 250;
 let playbackStartTime = 0,
   nextEventTime = 0,
   isProgrammaticKeyChange = false;
@@ -46655,7 +46655,7 @@ function scheduleNextEvent(ctx) {
 
   // === РАБОТА С ПРЕВЬЮ ===
   // A preview belongs to the interval in which its chord is NEXT. Do not
-  // show it during the scheduler's 500 ms look-ahead and then clear it at
+  // show it during the scheduler's 250 ms look-ahead and then clear it at
   // the audible start; both clearing the old tooltip and showing the new
   // next-chord preview are synchronized to evStart below.
 
@@ -46731,9 +46731,9 @@ function scheduleNextEvent(ctx) {
   }
 
   nextEventTime += dur;
-  // Держим очередь звука на 500 мс впереди: на Safari старые устройства
-  // могут дольше задерживать main thread на растеризации ленты/GC, и
-  // короткий запас оставлял планировщик впритык к атаке. Web Audio всё равно
+  // Держим очередь звука на 250 мс впереди: задержки main thread из-за
+  // растеризации длинной ленты или GC больше не должны оставлять
+  // планировщик проснувшимся впритык к атаке. Web Audio всё равно
   // воспроизводит ноты по точным AudioContext-часам; запас влияет только
   // на отзывчивость при правках/смене темпа, а Stop немедленно отменяет
   // уже запланированные голоса.
@@ -51606,15 +51606,12 @@ function clearStrumStepHighlightTimers() {
 function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, restDir, cls) {
   if (!els) return;
   const activeClass = cls || 'strum-step-active';
+  const delayMs = Math.max(0, (t - ctx.currentTime) * 1000);
   const onMs = Math.max(70, Math.min(stepDurSeconds * 1000 * 0.85, 400));
-  // Route both edges through the shared audio-output clock. Safari can wake a
-  // plain setTimeout against currentTime before the corresponding output is
-  // audible; schedulePlaybackVisualAt rechecks the output timestamp and
-  // reschedules early wakes instead of dropping a short rhythm pulse.
-  schedulePlaybackVisualAt(ctx, t, () => {
+  const onId = setTimeout(() => {
     // Playback visuals may rebuild their preview DOM at the event's audible
     // start (rather than when its audio is queued). Resolve the element list
-    // at highlight time so callbacks never target detached, pre-render nodes.
+    // at highlight time so timers never target detached, pre-render nodes.
     const target = typeof els === 'function' ? els(stepIndex) : { els, stepIndex };
     const targetEls = Array.isArray(target) ? target : target && target.els;
     const targetIndex = Array.isArray(target) || !target || !Number.isInteger(target.stepIndex)
@@ -51627,10 +51624,10 @@ function scheduleStrumStepHighlight(ctx, els, stepIndex, t, stepDurSeconds, rest
       el.classList.add(restDir);
     }
     el.classList.add(activeClass);
-    schedulePlaybackVisualAt(ctx, t + onMs / 1000, () => {
-      el.classList.remove(activeClass);
-    });
-  });
+    const offId = setTimeout(() => el.classList.remove(activeClass), onMs);
+    playbackState.strumHighlightTimers.push(offId);
+  }, delayMs);
+  playbackState.strumHighlightTimers.push(onId);
 }
 
 b39BootModule('accomp');

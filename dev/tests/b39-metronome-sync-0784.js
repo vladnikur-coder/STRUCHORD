@@ -155,7 +155,7 @@ function makeClock() {
     playbackStartTime: 0, globalTimeSig: '4/4', ctx,
     metronomeFrameId: null,
     metronomeScheduledOscillators: new Set(),
-    PLAYBACK_SCHEDULER_LOOKAHEAD_MS: 500,
+    PLAYBACK_SCHEDULER_LOOKAHEAD_MS: 250,
     requestAnimationFrame(fn) { pending = fn; return ++frameId; },
     cancelAnimationFrame(id) { if (id === frameId) pending = null; },
     scheduleClick(c, t, acc, mid) { clicks.push({ t, acc: !!acc, mid: !!mid, at: c.currentTime }); }
