@@ -1,3 +1,7 @@
+## 0.822 · 2026-11-08
+
+**Удалена неработающая A/V-синхронизация.** Убраны кнопка A/V в транспорте, вкладка калибровки/поправки в настройках, их сохранённая пользовательская логика и применение смещения к визуальным индикаторам и playhead фоновой дорожки. Обычная синхронизация визуала с часами аудиовыхода сохранена. Регрессия подтверждает отсутствие удалённых controls/API и наличие базового аудиовизуального тайминга.
+
 ## 0.821 · 2026-11-08
 
 **Playback rhythm step feedback · Safari timing / short audio gaps.** Step-on and step-off visuals now use the shared audible-output clock instead of one-shot timers against `AudioContext.currentTime`; an early Safari wake is rechecked and rescheduled rather than skipping a short pulse. The playback scheduler look-ahead is extended from 250 ms to 500 ms to give slower main threads more time to queue audio before attacks. Checks: syntax/version and B-122/B-123/metronome regressions pass; playback browser suite passes 14/14 on the default fixture, while the Oasis fixture passes the editor/ribbon rhythm-animation and next-chord-preview checks but finishes 14/15 on the sandbox-sensitive ribbon cadence threshold. Safari 17.6 remains pending user verification, so this is a candidate fix, not a confirmed Safari resolution.
