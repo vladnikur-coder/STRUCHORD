@@ -15775,7 +15775,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.823</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.822</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -49632,56 +49632,6 @@ function stopAllAudio() {
   activeOscillators.clear();
   ringingVoices = [];
 }
-// 0.823 (B-122): «песня подстраивается под запись».
-//
-// Решение владельца (R8, 2026-11-12): при крупном разъезде фоновую запись
-// НЕ трогаем — она звучит цельно, — а сетка, подсветка и метроном один раз
-// подстраиваются под неё. Раньше было наоборот: запись переставлялась
-// `currentTime = expected`, и это слышалось рывком каждые пять секунд.
-//
-// Уже поставленные в Web Audio голоса погасить выборочно нельзя, поэтому
-// для крупного сдвига (cut) они гасятся целиком: аккорды «подождут» запись,
-// зато дальше идут с ней в ногу. Мелкий сдвиг (< 90 мс) сюда не попадает —
-// его снимает тихий догон скоростью без единого разрыва.
-function stopScheduledSongVoices() {
-  if (window.StruChordAudio) window.StruChordAudio.stopAll();
-  for (const o of activeOscillators) {
-    try { o.stop(); } catch (e) {}
-  }
-  activeOscillators.clear();
-  ringingVoices = [];
-}
-function shiftPlaybackGrid(delta, opts) {
-  if (!playbackState.isPlaying) return;
-  const shift = Number(delta);
-  if (!Number.isFinite(shift) || Math.abs(shift) < 0.001) return;
-  const ctx = getAudioContext();
-  if (!ctx) return;
-  const cut = !!(opts && opts.cut);
-  playbackStartTime += shift;
-  nextEventTime += shift;
-  if (Number.isFinite(playbackState.cellStart)) playbackState.cellStart += shift;
-  if (Number.isFinite(playbackState.squareAnchorTime)) playbackState.squareAnchorTime += shift;
-  // Клики метронома перевешиваем на новую сетку: ключ обнуляем, следующее
-  // же событие пересоберёт их от фактического времени.
-  metronomeGridKey = null;
-  clearPlaybackVisualUpdates();
-  if (cut) {
-    stopScheduledSongVoices();
-    stopMetronomeScheduler();
-  }
-  clearTimeout(playbackState.schedulerTimer);
-  const wait = Math.max(0, (nextEventTime - ctx.currentTime) * 1000 - PLAYBACK_SCHEDULER_LOOKAHEAD_MS);
-  playbackState.schedulerTimer = setTimeout(() => scheduleNextEvent(ctx), wait);
-  try {
-    recordAudioDiagnostic('playback-grid-shift', {
-      shift: Math.round(shift * 1000) / 1000,
-      reason: (opts && opts.reason) || 'backing',
-      cut
-    });
-  } catch (e) {}
-}
-window.StruChordShiftPlaybackGrid = shiftPlaybackGrid;
 // 0.784: метроном должен жить на тех же часах, что и pad. Ключ НЕ содержит
 // якорь квадрата: тот пересчитывается на каждом событии и дрожит на
 // последних знаках, а сетку надо перевешивать только при реальной смене
@@ -87756,30 +87706,6 @@ function gpExportModal(title, bodyHtml, label) {
   let waveZoom = 1;
   let canvasCssWidth = 600;
   let canvasCssHeight = 108;
-  // 0.823 (B-122): «одни часы» для записи на скорости 100 %.
-  //
-  // Раскодированный звук уже существовал — он нужен был для волны, — но его
-  // выбрасывали. Теперь он остаётся, и запись играет тем же AudioContext,
-  // что гитара, клавиши и метроном: дрейфа нет по построению, а не «по
-  // догону», и переставлять запись во время игры не приходится вовсе.
-  //
-  // Предел памяти: запись длиннее ~5 минут (стерео 44,1 кГц) остаётся на
-  // элементе <audio>, как раньше. Пиковый расход не растёт: этот же буфер
-  // всё равно создавался при построении волны.
-  const BUFFER_MEMORY_LIMIT = 96 * 1024 * 1024;
-  let audioBuffer = null;
-  let bufferBytes = 0;
-  let bufferSource = null;
-  let bufferGain = null;
-  let bufferCtx = null;
-  let playbackPath = 'none';      // 'buffer' | 'element' | 'none'
-  let anchorProbeTimer = 0;
-  let anchorSamples = [];
-  let driftSamples = [];
-  let driftStableSince = 0;
-  let lastNudgeAt = 0;
-  let lastReanchorAt = 0;
-  let rateApplied = 1;
   const $ = (id) => document.getElementById(id);
   const clamp = (n, lo, hi) => Math.max(lo, Math.min(hi, n));
   const toast = (text) => { try { showToast(text); } catch (_) {} };
@@ -87953,15 +87879,6 @@ function gpExportModal(title, bodyHtml, label) {
   function captureEdit() { syncPointMapCache=null;cachedAudioTailBar=null; try { if (window.captureHistorySnapshot) window.captureHistorySnapshot(); } catch (_) {} }
   function setMeta(next) { meta=cleanMeta(next); syncPointMapCache=null;cachedAudioTailBar=null; renderDrawer(); syncMixerUi(); }
   function audibleBackingTime() {
-    // 0.823: в режиме «одних часов» элемент <audio> не играет вовсе, его
-    // currentTime замирает. Позицию берём из модели Web Audio — она же и
-    // есть звук, поэтому playhead физически не может уехать от записи.
-    try {
-      if (playbackPath === 'buffer' && audioZeroCtxTime !== null && meta) {
-        const clockCtx = playbackState.isPlaying && typeof getAudioContext === 'function' ? getAudioContext() : audioCtx;
-        if (clockCtx) return Math.max(0, (audibleAudioContextTime(clockCtx) - audioZeroCtxTime) * meta.speed);
-      }
-    } catch (_) {}
     if (!audio) return 0;
     const mediaTime = Math.max(0, Number(audio.currentTime) || 0);
     const ctx = playbackState.isPlaying && typeof getAudioContext === 'function' ? getAudioContext() : audioCtx;
@@ -87976,7 +87893,7 @@ function gpExportModal(title, bodyHtml, label) {
   }
   function updatePlayheadCursor() {
     const cursor = $('btPlayheadCursor'), viewport = $('btWaveViewport');
-    const running = !!(meta && backingRunning());
+    const running = !!(audio && !audio.paused && meta && !audioStartTimer);
     if (cursor && viewport && running) {
       const mediaLen = waveDuration(), virtualWidth = waveVirtualWidth();
       if (mediaLen > 0 && virtualWidth > 0) {
@@ -87993,22 +87910,15 @@ function gpExportModal(title, bodyHtml, label) {
   function playheadAnimationFrame() {
     playheadRaf = 0;
     const drawer = $('btDrawer');
-    if (!drawer || drawer.hidden || !backingRunning()) { updatePlayheadCursor(); return; }
+    if (!drawer || drawer.hidden || !audio || audio.paused) { updatePlayheadCursor(); return; }
     updatePlayheadCursor();
-    // У источника Web Audio нет события timeupdate: секунды обновляем в
-    // этом же кадре, иначе подпись стоит на месте, пока звук идёт.
-    const output = $('btPlayhead');
-    if (output) {
-      const shown = secText(Math.max(0, audibleBackingTime()));
-      if (output.textContent !== shown) output.textContent = shown;
-    }
     playheadRaf = requestAnimationFrame(playheadAnimationFrame);
   }
   function syncPlayheadAnimation() {
     const drawer = $('btDrawer');
-    const playbackActive = !!(playbackState.isPlaying || backingRunning());
+    const playbackActive = !!(playbackState.isPlaying || (audio && !audio.paused));
     if (drawer) drawer.classList.toggle('is-playback-active', playbackActive);
-    if (!drawer || drawer.hidden || !backingRunning()) {
+    if (!drawer || drawer.hidden || !audio || audio.paused) {
       if (playheadRaf) cancelAnimationFrame(playheadRaf);
       playheadRaf = 0;
       updatePlayheadCursor();
@@ -88068,10 +87978,6 @@ function gpExportModal(title, bodyHtml, label) {
   }
   async function decodePeaks(blob, token) {
     let nextPeaks = [];
-    // 0.823: тот же буфер, что нужен для волны, теперь годится и для
-    // воспроизведения «одними часами» — второй раз файл не декодируется.
-    let nextBuffer = null;
-    let nextBufferBytes = 0;
     let nextPeakMax = 0;
     let nextDuration = 0;
     const yieldToBrowser = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -88084,8 +87990,6 @@ function gpExportModal(title, bodyHtml, label) {
           if (typeof ctx.decodeAudioData === 'function') {
             const buffer = await ctx.decodeAudioData(bytes.slice(0));
             nextDuration = buffer.duration;
-            nextBuffer = buffer;
-            nextBufferBytes = (Number(buffer.length) || 0) * (Number(buffer.numberOfChannels) || 1) * 4;
             const data = buffer.getChannelData(0);
             const count = Math.min(500000, Math.max(1, data.length));
             const bins = new Float32Array(count);
@@ -88165,15 +88069,6 @@ function gpExportModal(title, bodyHtml, label) {
       nextDuration = 0;
     }
     if (token !== blobLoadToken) return;
-    // 0.823: держим буфер только в пределах лимита памяти; иначе — прежний
-    // путь через элемент <audio>, звук и сохранение песни не меняются.
-    if (nextBuffer && nextBufferBytes > 0 && nextBufferBytes <= BUFFER_MEMORY_LIMIT) {
-      audioBuffer = nextBuffer;
-      bufferBytes = nextBufferBytes;
-    } else {
-      audioBuffer = null;
-      bufferBytes = 0;
-    }
     peaks = nextPeaks;
     peakMax = nextPeakMax;
     duration = nextDuration;
@@ -88289,14 +88184,13 @@ function gpExportModal(title, bodyHtml, label) {
     drawer.querySelector('[data-bt-action="preview"]').onclick=toggleAudioPreview;
     drawer.querySelectorAll('[data-point-time]').forEach(input=>input.onchange=()=>editPointTime(input));
     updatePreviewStatus();
-    const speed=drawer.querySelector('#btSpeed');speed.oninput=()=>{meta.speed=Number(speed.value)/100;speed.nextElementSibling.value=speed.value+'%';if(playbackState.isPlaying)restartBackingForSpeed();else{applyBackingVolume();if(audio)audio.playbackRate=meta.speed;}drawWave();};speed.onchange=captureEdit;
-    drawer.querySelector('#btVolume').oninput=e=>{meta.volume=Number(e.target.value);applyBackingVolume();syncMixerUi();};drawer.querySelector('#btVolume').onchange=captureEdit;
+    const speed=drawer.querySelector('#btSpeed');speed.oninput=()=>{meta.speed=Number(speed.value)/100;speed.nextElementSibling.value=speed.value+'%';if(audio)audio.playbackRate=meta.speed;drawWave();};speed.onchange=captureEdit;
+    drawer.querySelector('#btVolume').oninput=e=>{meta.volume=Number(e.target.value);if(audio)audio.volume=audioAllowed()?meta.volume/100:0;syncMixerUi();};drawer.querySelector('#btVolume').onchange=captureEdit;
     drawer.querySelector('[data-bt-action="addpoint"]').onclick=()=>{const b=Math.max(0,(Number(drawer.querySelector('#btBarInput').value)||1)-1);const t=audio?audio.currentTime:Math.max(0,tAtQ(qAtBar(b))),at=meta.points.findIndex(x=>x.bar>b),next=at<0?null:meta.points[at],prev=at<0?meta.points[meta.points.length-1]:meta.points[at-1];if(meta.points.some(x=>x.bar===b)){toast('На этом такте уже есть точка синхронизации');return;}if(prev&&t<=prev.time||next&&t>=next.time){toast('Время новой точки должно идти между соседними точками — запустите MP3 или выберите позицию на волне');return;}meta.points=normalizePoints([...meta.points,{bar:b,time:Math.max(0,t)}]);captureEdit();renderDrawer();};
     drawer.querySelector('[data-bt-action="delpoint"]').onclick=()=>{if(selectedPoint>=0&&selectedPoint<meta.points.length){meta.points.splice(selectedPoint,1);selectedPoint=-1;captureEdit();renderDrawer();}};
     drawer.querySelectorAll('[data-point]').forEach(b=>b.onclick=()=>{selectedPoint=Number(b.dataset.point);drawer.querySelectorAll('[data-point]').forEach(x=>x.classList.toggle('is-selected',x===b));});
     const canvas=$('btWaveCanvas'),viewport=$('btWaveViewport'),space=$('btWaveSpace');space.style.width=(waveZoom*100)+'%';resizeWaveCanvas();const zoom=drawer.querySelector('#btZoom');zoom.oninput=()=>applyWaveZoom(Number(zoom.value)/100);canvas.addEventListener('pointerdown',wavePointerDown);canvas.addEventListener('pointermove',wavePointerMove);canvas.addEventListener('pointerup',wavePointerUp);canvas.addEventListener('pointercancel',wavePointerUp);canvas.addEventListener('wheel',waveWheelZoom,{passive:false});canvas.addEventListener('click',waveSeek);viewport.addEventListener('scroll',()=>{drawWave();updatePlayheadCursor();},{passive:true});drawWave();
-    applyBackingVolume();
-    if(audio&&playbackPath!=='buffer')audio.playbackRate=meta.speed;
+    if(audio){audio.volume=audioAllowed()?meta.volume/100:0;audio.playbackRate=meta.speed;}
     syncPlayheadAnimation();
   }
   let selectedPoint=-1;
@@ -88398,321 +88292,21 @@ function gpExportModal(title, bodyHtml, label) {
   }
   function positionForQ(q){const grid=getBarGrid();let found=grid.events[0];for(const x of grid.events){if(x.q<=q)found=x;else break;}return found?{sectionIndex:found.si,squareIndex:found.qi,eventIndex:found.ei,sectionRepeatCount:{['sec_'+found.si]:found.sp},squareRepeatCount:{['sq_'+found.si+'_'+found.qi]:found.qp}}:null;}
   async function chooseFile(){const input=document.createElement('input');input.type='file';input.accept='audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac,.webm';input.style.position='fixed';input.style.left='-9999px';input.style.opacity='0';document.body.appendChild(input);input.onchange=async()=>{const file=input.files&&input.files[0];input.remove();if(!file)return;const ext=String(file.name||'').split('.').pop().toLowerCase();if(!(String(file.type||'').startsWith('audio/')||['mp3','wav','m4a','ogg','flac','aac','webm'].includes(ext))){toast('Выберите MP3, WAV, M4A, OGG, FLAC, AAC или WEBM');return;}if(file.size>LIMIT){toast('Аудиофайл больше лимита 25 МБ');return;}const id='bt-'+(window.crypto&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));const token=++loadToken;blobLoadToken++;const points=meta?meta.points:[{bar:0,time:0}];const next=cleanMeta({id,name:file.name,type:file.type,size:file.size,points,speed:meta&&meta.speed,volume:meta&&meta.volume,mute:meta&&meta.mute,solo:meta&&meta.solo});await dbPut(id,file);if(token!==loadToken)return;setMeta(next);await loadBlob(file);if(token===loadToken)captureEdit();};input.addEventListener('cancel',()=>input.remove(),{once:true});window.addEventListener('focus',()=>setTimeout(()=>input.remove(),1000),{once:true});input.click();}
-  async function loadBlob(blob){
-    if(!blob)return;
-    const token=++blobLoadToken;
-    missingAudio=false;
-    // 0.823: источник прошлого файла не должен дожить до нового.
-    stopBackingOutput();
-    audioBuffer=null;bufferBytes=0;
-    await decodePeaks(blob,token);
-    if(token!==blobLoadToken)return;
-    const el=ensureAudio();
-    if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}
-    audioUrl=URL.createObjectURL(blob);
-    el.src=audioUrl;el.load();renderDrawer();
-  }
-  async function removeTrack(){loadToken++;blobLoadToken++;pendingAudioStartFromZero=false;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';setMeta(null);captureEdit();}
+  async function loadBlob(blob){if(!blob)return;const token=++blobLoadToken;missingAudio=false;await decodePeaks(blob,token);if(token!==blobLoadToken)return;const el=ensureAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl=URL.createObjectURL(blob);el.src=audioUrl;el.load();renderDrawer();}
+  async function removeTrack(){loadToken++;blobLoadToken++;pendingAudioStartFromZero=false;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';setMeta(null);captureEdit();}
   async function deleteAudio(id){if(id)await dbDelete(String(id));}
   function toggleDrawer(force){const d=$('btDrawer'),b=$('btTransportBtn');if(!d)return;const open=force===undefined?d.hidden:!!force;d.hidden=!open;if(b){b.setAttribute('aria-expanded',String(open));b.classList.toggle('is-active',open);}if(open)renderDrawer();else syncPlayheadAnimation();}
-  function syncMixerUi(){const block=$('btMixerBlock'),btn=$('btTransportBtn');if(block){block.innerHTML=meta?`<div class="bt-mixer-row ${missingAudio?'is-missing':''}"><span class="bt-mixer-name">♫ ${escapeHtml(meta.name)}</span><input aria-label="Громкость фонового аудио" type="range" min="0" max="100" value="${meta.volume}" data-bt-volume><button type="button" class="bt-mixer-toggle ${meta.mute?'is-on':''}" data-bt-mute aria-label="Mute фонового аудио">M</button><button type="button" class="bt-mixer-toggle ${meta.solo?'is-on':''}" data-bt-solo aria-label="Solo фонового аудио">S</button><button type="button" class="bt-button" data-bt-open>Волна</button></div>`:'<div class="bt-mixer-row"><span class="bt-mixer-name">Фоновое аудио</span><button type="button" class="bt-button" data-bt-open>Добавить аудио</button></div>';const v=block.querySelector('[data-bt-volume]');if(v)v.oninput=e=>{if(meta){meta.volume=Number(e.target.value);applyBackingVolume();}};if(v)v.onchange=captureEdit;const m=block.querySelector('[data-bt-mute]');if(m)m.onclick=()=>{meta.mute=!meta.mute;applyBackingVolume();syncMixerUi();captureEdit();};const s=block.querySelector('[data-bt-solo]');if(s)s.onclick=()=>{meta.solo=!meta.solo;syncMixerUi();captureEdit();};const o=block.querySelector('[data-bt-open]');if(o)o.onclick=()=>toggleDrawer(true);}
-    if(btn){btn.hidden=!meta;btn.classList.toggle('is-missing',!!missingAudio);}applyBackingVolume();
+  function syncMixerUi(){const block=$('btMixerBlock'),btn=$('btTransportBtn');if(block){block.innerHTML=meta?`<div class="bt-mixer-row ${missingAudio?'is-missing':''}"><span class="bt-mixer-name">♫ ${escapeHtml(meta.name)}</span><input aria-label="Громкость фонового аудио" type="range" min="0" max="100" value="${meta.volume}" data-bt-volume><button type="button" class="bt-mixer-toggle ${meta.mute?'is-on':''}" data-bt-mute aria-label="Mute фонового аудио">M</button><button type="button" class="bt-mixer-toggle ${meta.solo?'is-on':''}" data-bt-solo aria-label="Solo фонового аудио">S</button><button type="button" class="bt-button" data-bt-open>Волна</button></div>`:'<div class="bt-mixer-row"><span class="bt-mixer-name">Фоновое аудио</span><button type="button" class="bt-button" data-bt-open>Добавить аудио</button></div>';const v=block.querySelector('[data-bt-volume]');if(v)v.oninput=e=>{if(meta){meta.volume=Number(e.target.value);if(audio)audio.volume=audioAllowed()?meta.volume/100:0;}};if(v)v.onchange=captureEdit;const m=block.querySelector('[data-bt-mute]');if(m)m.onclick=()=>{meta.mute=!meta.mute;if(audio)audio.volume=audioAllowed()?meta.volume/100:0;syncMixerUi();captureEdit();};const s=block.querySelector('[data-bt-solo]');if(s)s.onclick=()=>{meta.solo=!meta.solo;syncMixerUi();captureEdit();};const o=block.querySelector('[data-bt-open]');if(o)o.onclick=()=>toggleDrawer(true);}
+    if(btn){btn.hidden=!meta;btn.classList.toggle('is-missing',!!missingAudio);}if(audio)audio.volume=audioAllowed()?meta.volume/100:0;
   }
   function isSolo(){return !!(meta&&meta.solo);}
   function hasOtherSolo(){try{const tracks=window.StruChordTracks&&window.StruChordTracks.state().tracks||[];return tracks.some(t=>t&&t.solo);}catch(_){return false;}}
   function mainTrackAllowed(){try{const st=window.StruChordTracks&&window.StruChordTracks.state();if(!st||!st.tracks)return !(meta&&meta.solo);const anySolo=!!(meta&&meta.solo)||st.tracks.some(t=>t.solo);if(!st.tracks.length)return !anySolo;const main=st.tracks.find(t=>t.id===st.mainTrackId);if(!main)return !anySolo;return !main.mute&&(!anySolo||!!main.solo);}catch(_){return !(meta&&meta.solo);}}
   function mainAudible(){return !!meta&&!meta.mute&&meta.volume>0&&(!hasOtherSolo()||meta.solo);}
   function audioAllowed(){return mainAudible()&&!missingAudio;}
-  // ── 0.823 (B-122): воспроизведение записи ────────────────────────────
-  // Три помощника, общих для обоих путей:
-  //  * stopBackingOutput — выключатель звука записи (элемент и Web Audio),
-  //    метаданные и волну не трогает;
-  //  * applyBackingVolume — единственная точка громкости/мьюта, чтобы
-  //    микшер и источник не расходились;
-  //  * recordBacking — запись в существующий аудиожурнал (dev-панель
-  //    «Audio log»), без новой отладочной обвязки.
-  function round3(n) { return Math.round((Number(n) || 0) * 1000) / 1000; }
-  // 0.823: «запись звучит» больше не значит «элемент играет». На 100 % звук
-  // идёт источником Web Audio, а элемент стоит на паузе — если проверять
-  // только элемент, картинка в панели замирает при живом звуке.
-  function backingRunning() {
-    if (playbackPath === 'buffer') return !!bufferSource;
-    return !!(audio && !audio.paused && !audioStartTimer);
-  }
-  function recordBacking(type, details) {
-    try { if (typeof recordAudioDiagnostic === 'function') recordAudioDiagnostic(type, details || {}); } catch (_) {}
-  }
-  function stopBackingOutput() {
-    if (anchorProbeTimer) { clearTimeout(anchorProbeTimer); anchorProbeTimer = 0; }
-    anchorSamples = [];
-    driftSamples = [];
-    driftStableSince = 0;
-    const src = bufferSource, gain = bufferGain, ctx = bufferCtx;
-    bufferSource = null; bufferGain = null; bufferCtx = null;
-    if (!src) return;
-    try {
-      // 20 мс на спад: обрыв буфера на середине волны слышен щелчком.
-      if (gain && ctx) {
-        gain.gain.cancelScheduledValues(ctx.currentTime);
-        gain.gain.setValueAtTime(gain.gain.value, ctx.currentTime);
-        gain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.02);
-      }
-    } catch (_) {}
-    try { if (ctx) src.stop(ctx.currentTime + 0.03); else src.stop(); } catch (_) {}
-    try {
-      src.onended = () => {
-        try { src.disconnect(); } catch (_) {}
-        if (gain) try { gain.disconnect(); } catch (_) {}
-      };
-    } catch (_) {}
-  }
-  function applyBackingVolume() {
-    const level = meta && audioAllowed() ? meta.volume / 100 : 0;
-    if (audio && playbackPath !== 'buffer') {
-      try { audio.volume = level; } catch (_) {}
-    }
-    if (bufferGain && bufferCtx) {
-      try {
-        bufferGain.gain.cancelScheduledValues(bufferCtx.currentTime);
-        bufferGain.gain.setTargetAtTime(level, bufferCtx.currentTime, 0.02);
-      } catch (_) {}
-    }
-  }
-  function backingPathInfo() {
-    // Позиция в модели — для журнала и тестов: в режиме «одних часов»
-    // элемент молчит, и другого способа увидеть, где идёт запись, нет.
-    return {
-      path: playbackPath,
-      hasBuffer: !!audioBuffer,
-      bufferBytes: bufferBytes,
-      zero: audioZeroCtxTime,
-      backingTime: playbackPath === 'none' ? 0 : (Number(round3(audibleBackingTime())) || 0)
-    };
-  }
-  function bufferPathAvailable(ctx, speed) {
-    return !!audioBuffer && !!ctx && typeof ctx.createBufferSource === 'function' && Math.abs(speed - 1) < 0.001;
-  }
-  // «Одни часы»: запись — обычный источник Web Audio. start() точен до
-  // сэмпла, поэтому никакого догона здесь не нужно в принципе.
-  function startBufferPath(ctx, when, target, speed) {
-    stopBackingOutput();
-    // Переход со скорости ≠ 100 % на 100 %: элемент обязан замолчать, иначе
-    // запись зазвучит дважды — элементом и источником.
-    if (audio && !audio.paused) { try { audio.pause(); } catch (_) {} }
-    const total = Math.max(0, Number(audioBuffer.duration) || duration || 0);
-    let offset = clamp(Number(target) || 0, 0, Math.max(0, total - 0.001));
-    let startAt = Number(when) || ctx.currentTime;
-    // start() в прошлом Web Audio понимает как «сейчас». Без этой поправки
-    // запись отставала бы ровно на опоздание вызывающего кода.
-    if (startAt < ctx.currentTime) {
-      offset += (ctx.currentTime - startAt) * speed;
-      startAt = ctx.currentTime;
-    }
-    const src = ctx.createBufferSource();
-    src.buffer = audioBuffer;
-    let gain = null;
-    try {
-      src.playbackRate.value = speed;
-      gain = ctx.createGain();
-      src.connect(gain);
-      gain.connect(ctx.destination);
-      src.start(startAt, offset);
-    } catch (error) {
-      try { src.disconnect(); } catch (_) {}
-      if (gain) try { gain.disconnect(); } catch (_) {}
-      return false;
-    }
-    // 8 мс на вход вместо щелчка; на точность начала не влияет.
-    try {
-      const level = audioAllowed() ? meta.volume / 100 : 0;
-      gain.gain.setValueAtTime(0, startAt);
-      gain.gain.linearRampToValueAtTime(level, startAt + 0.008);
-    } catch (_) {}
-    bufferSource = src; bufferGain = gain; bufferCtx = ctx;
-    playbackPath = 'buffer';
-    audioZeroCtxTime = startAt - offset / speed;
-    recordBacking('backing-buffer-start', { offset: round3(offset), at: round3(startAt), zero: round3(audioZeroCtxTime) });
-    // Событий элемента здесь не будет — картинку панели запускаем сами.
-    try { syncPlayheadAnimation(); } catch (_) {}
-    return true;
-  }
-  // Элемент <audio> — только для скорости 50–150 % (Web Audio не умеет
-  // менять темп без смены высоты). Секунду ставим ДО play(): поиск внутри
-  // уже играющего элемента — отдельная операция браузера, на Safari она
-  // слышна рывком. Ноль модели потом уточняется измерением.
-  function startElementPath(ctx, when, target, speed) {
-    stopBackingOutput();
-    const el = ensureAudio();
-    const total = Math.max(0, Number(duration) || Number(el.duration) || 0);
-    const seekTo = clamp(Number(target) || 0, 0, Math.max(0, total - 0.02));
-    let startAt = Number(when) || ctx.currentTime;
-    if (startAt < ctx.currentTime) startAt = ctx.currentTime;
-    try { el.pause(); } catch (_) {}
-    // Громкость в ноль ДО разблокировки: иначе «пустой» play() на секунду
-    // выпускает запись на полной громкости из прошлого запуска.
-    el.volume = 0;
-    // Разблокировка autoplay: Safari/iOS разрешают отложенный play() только
-    // после удачного play() в жесте пользователя. Звука не даём — сразу пауза.
-    try { const warm = el.play(); if (warm && warm.catch) warm.catch(() => {}); el.pause(); } catch (_) {}
-    el.playbackRate = speed; rateApplied = speed;
-    try { el.currentTime = seekTo; } catch (_) {}
-    if (audioStartTimer) clearTimeout(audioStartTimer);
-    audioStartTimer = window.setTimeout(() => {
-      audioStartTimer = 0;
-      try {
-        el.volume = audioAllowed() ? meta.volume / 100 : 0;
-        const playing = el.play();
-        if (playing && playing.catch) playing.catch(() => {});
-      } catch (_) {}
-      probeElementAnchor(ctx, seekTo);
-    }, Math.max(0, startAt - ctx.currentTime) * 1000);
-    audioZeroCtxTime = startAt - seekTo / speed;
-    playbackPath = 'element';
-    recordBacking('backing-element-start', { target: round3(seekTo), at: round3(startAt) });
-    startDriftControl();
-  }
-  // Измерение фактического старта элемента: три-пять проб пары
-  // (часы контекста, позиция записи). Медиана — ноль модели.
-  function probeElementAnchor(ctx, target) {
-    if (anchorProbeTimer) clearTimeout(anchorProbeTimer);
-    anchorSamples = [];
-    let tries = 0;
-    const step = () => {
-      anchorProbeTimer = 0;
-      if (!meta || playbackPath !== 'element' || !audio) return;
-      const speed = Number(meta.speed) || 1;
-      const pos = Number(audio.currentTime) || 0;
-      if (pos > target + 0.06) anchorSamples.push(ctx.currentTime - pos / speed);
-      tries++;
-      if (anchorSamples.length >= 5 || tries >= 24) { applyElementAnchor(); return; }
-      anchorProbeTimer = window.setTimeout(step, 80);
-    };
-    anchorProbeTimer = window.setTimeout(step, 80);
-  }
-  function applyElementAnchor() {
-    if (!anchorSamples.length || !meta || audioZeroCtxTime === null) return;
-    const sorted = anchorSamples.slice().sort((a, b) => a - b);
-    const measured = sorted[Math.floor(sorted.length / 2)];
-    const delta = measured - audioZeroCtxTime;
-    audioZeroCtxTime = measured;
-    // Опоздание в десятки мс сетку не трогаем — его снимает тихий догон.
-    // Крупное опоздание означает, что Safari собирал запись долго: тогда
-    // по решению владельца песня один раз ждёт запись.
-    if (Math.abs(delta) >= 0.09) shiftPlaybackGridFromBacking(delta, false);
-    recordBacking('backing-anchor', { delta: round3(delta), samples: anchorSamples.length });
-  }
-  function shiftPlaybackGridFromBacking(delta, cut) {
-    try {
-      if (typeof window.StruChordShiftPlaybackGrid === 'function') {
-        window.StruChordShiftPlaybackGrid(delta, { reason: 'backing', cut: !!cut });
-      }
-    } catch (_) {}
-  }
-  // Тихий догон. Отличия от прежнего: пробы 250 мс с медианой (Safari
-  // отдаёт позицию записи грубо), мёртвая зона 90 мс, шаг ±0,8 % не чаще
-  // раза в 2,5 с и НИ ОДНОЙ периодической перестановки currentTime.
-  function startDriftControl() {
-    if (driftTimer) clearInterval(driftTimer);
-    driftSamples = [];
-    driftStableSince = 0;
-    lastNudgeAt = 0;
-    lastReanchorAt = 0;
-    driftTimer = setInterval(() => {
-      if (!meta || playbackPath !== 'element' || !audio || audio.paused || audioZeroCtxTime === null) return;
-      const ctx = typeof getAudioContext === 'function' ? getAudioContext() : null;
-      if (!ctx) return;
-      const speed = Number(meta.speed) || 1;
-      const expected = Math.max(0, (ctx.currentTime - audioZeroCtxTime) * speed);
-      const drift = expected - (Number(audio.currentTime) || 0);
-      driftSamples.push(drift);
-      if (driftSamples.length > 8) driftSamples.shift();
-      if (driftSamples.length < 4) return;
-      const sorted = driftSamples.slice().sort((a, b) => a - b);
-      const median = sorted[Math.floor(sorted.length / 2)];
-      const now = performance.now();
-      if (Math.abs(median) < 0.09) {
-        driftStableSince = 0;
-        // В норме элемент играет ровно на скорости ползунка. Раньше он
-        // получал новую скорость каждую секунду — Safari пересобирал
-        // сохранение высоты тона и слышимо спотыкался.
-        if (Math.abs(rateApplied - speed) > 1e-4) {
-          try { audio.playbackRate = speed; } catch (_) {}
-          rateApplied = speed;
-        }
-        return;
-      }
-      if (!driftStableSince) { driftStableSince = now; return; }
-      if (now - driftStableSince < 1200) return;
-      if (median > 0.35 && now - lastReanchorAt > 8000) {
-        // Крупный разъезд: запись не трогаем, песня один раз её ждёт.
-        lastReanchorAt = now;
-        const shift = median / speed;
-        audioZeroCtxTime += shift;
-        shiftPlaybackGridFromBacking(shift, true);
-        driftSamples = []; driftStableSince = 0;
-        recordBacking('backing-reanchor', { drift: round3(median), shift: round3(shift) });
-        return;
-      }
-      if (now - lastNudgeAt > 2500) {
-        lastNudgeAt = now;
-        const rate = driftPlaybackRate(median, speed);
-        if (Math.abs(rate - speed) > 1e-4) {
-          try { audio.playbackRate = rate; } catch (_) {}
-          rateApplied = rate;
-        }
-        recordBacking('backing-nudge', { drift: round3(median), rate: Math.round(rate * 10000) / 10000 });
-      }
-    }, 250);
-  }
-  // Скорость меняется на ходу: путь переключается, но ОПОРА СЕТКИ стоит на
-  // месте — точку выводим из неё же, поэтому песня продолжается с того же
-  // места, а запись встаёт на нужную секунду.
-  function restartBackingForSpeed() {
-    const ctx = typeof getAudioContext === 'function' ? getAudioContext() : null;
-    if (!ctx || !meta || !audioAllowed()) { applyBackingVolume(); return; }
-    const speed = Number(meta.speed) || 1;
-    const wantBuffer = Math.abs(speed - 1) < 0.001;
-    // Текущий путь уже умеет эту скорость — перезапуск не нужен. Без этой
-    // проверки каждое движение ползунка обрывало бы запись.
-    if (wantBuffer && playbackPath === 'buffer') return;
-    if (!wantBuffer && playbackPath === 'element') {
-      if (Math.abs(rateApplied - speed) > 1e-4) {
-        try { audio.playbackRate = speed; } catch (_) {}
-        rateApplied = speed;
-      }
-      return;
-    }
-    const when = ctx.currentTime + 0.03;
-    const target = audioZeroCtxTime === null ? audibleBackingTime() : Math.max(0, (when - audioZeroCtxTime) * speed);
-    if (bufferPathAvailable(ctx, speed)) startBufferPath(ctx, when, target, speed);
-    else startElementPath(ctx, when, target, speed);
-  }
-  function stopAudio(){
-    if(audioStartTimer){clearTimeout(audioStartTimer);audioStartTimer=0;}
-    if(driftTimer){clearInterval(driftTimer);driftTimer=0;}
-    stopBackingOutput();
-    driftSamples=[];driftStableSince=0;lastNudgeAt=0;lastReanchorAt=0;
-    if(audio){
-      try{audio.pause();}catch(_){}
-      audio.playbackRate=meta?meta.speed:1;
-      rateApplied=audio.playbackRate;
-      audio.volume=meta&&meta.mute?0:(meta?meta.volume/100:0);
-    }
-    audioZeroCtxTime=null;
-    playbackPath='none';
-  }
-  function driftPlaybackRate(drift,base){const error=Number(drift)||0,speed=clamp(Number(base)||1,.5,1.5);if(Math.abs(error)<=.09)return speed;return clamp(speed*(1+(error>0?.008:-.008)),.5,1.5);}
-  function scheduleAudio(ctx, q, launchAt, targetOverride){
-    if(!audioAllowed())return;
-    const speed=Number(meta&&meta.speed)||1;
-    const target=Math.max(0,targetOverride===undefined?tAtQ(q):targetOverride);
-    const when=Number(launchAt)||ctx.currentTime;
-    if(bufferPathAvailable(ctx,speed)&&startBufferPath(ctx,when,target,speed))return;
-    // Буфер не завёлся (контекст закрыт и т. п.) — без звука не остаёмся.
-    startElementPath(ctx,when,target,speed);
-  }
-
-
+  function stopAudio(){if(audioStartTimer){clearTimeout(audioStartTimer);audioStartTimer=0;}if(driftTimer){clearInterval(driftTimer);driftTimer=0;}if(audio){try{audio.pause();}catch(_){}audio.playbackRate=meta?meta.speed:1;audio.volume=meta&&meta.mute?0:(meta?meta.volume/100:0);audioZeroCtxTime=null;}}
+  function driftPlaybackRate(drift,base){const error=Number(drift)||0,speed=clamp(Number(base)||1,.5,1.5);if(Math.abs(error)<=.06)return speed;return clamp(speed*(1+clamp(error*.06,-.015,.015)),.5,1.5);}
+  function scheduleAudio(ctx, q, launchAt, targetOverride){if(!audioAllowed())return;const el=ensureAudio();el.volume=0;el.playbackRate=meta.speed;const target=Math.max(0,targetOverride===undefined?tAtQ(q):targetOverride),when=launchAt||ctx.currentTime,delay=Math.max(0,when-ctx.currentTime)*1000;if(audioStartTimer)clearTimeout(audioStartTimer);try{const warm=el.play();if(warm&&warm.catch)warm.catch(()=>{});}catch(_){}audioStartTimer=window.setTimeout(()=>{audioStartTimer=0;try{el.currentTime=clamp(target,0,Math.max(0,(duration||el.duration||target)-.02));el.volume=meta.mute?0:meta.volume/100;const p=el.play();if(p&&p.catch)p.catch(()=>{});}catch(_){}},delay);audioZeroCtxTime=when-target/meta.speed;lastDriftCorrectionAt=0;if(driftTimer)clearInterval(driftTimer);driftTimer=setInterval(()=>{if(!audio||audio.paused||audioZeroCtxTime===null||!meta)return;const now=performance.now(),expected=Math.max(0,(ctx.currentTime-audioZeroCtxTime)*meta.speed),drift=expected-audio.currentTime;if(Math.abs(drift)>1.25&&now-lastDriftCorrectionAt>5000){lastDriftCorrectionAt=now;try{audio.currentTime=expected;}catch(_){}audio.playbackRate=meta.speed;}else audio.playbackRate=driftPlaybackRate(drift,meta.speed);},1000);}
   function preparePlaybackStart(ctx, state, launchBase, songStart, startAtAudioZero){if(!meta)return songStart;const pos={sectionIndex:state.currentSectionIndex,squareIndex:state.currentSquareIndex,eventIndex:state.currentEventIndex,sectionRepeatCount:state._sectionRepeatCount,squareRepeatCount:state._squareRepeatCount};const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);if(startAtAudioZero){scheduleAudio(ctx,q,launchBase,0);return songStart;}const audioT=tAtQ(q), countIn=Math.max(0,songStart-launchBase), pickup=audioT-countIn*meta.speed;const audioStart=pickup>=0?launchBase:launchBase+Math.max(0,countIn-audioT/meta.speed);const target=pickup>=0?pickup:0;scheduleAudio(ctx,q,audioStart,target);return songStart;}
   function resolveScheduledEvent(ctx,si,qi,ei,sp,qp,evStart,span,ts,fallbackBpm){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp), sig=parseTimeSig(ts||globalTimeSig||'4/4'), quarters=Number(span||1)*(4/sig.denominator), native=tAtQ(q+quarters)-tAtQ(q), dur=native/meta.speed, bpm=dur>0?Math.round((60*quarters/dur)*10000)/10000:fallbackBpm;return {bpm,dur};}
   function getCountInBpm(state){if(!meta)return 0;return bpmAtQ(eventQuarter(state.currentSectionIndex,state.currentSquareIndex,state.currentEventIndex,(state._sectionRepeatCount||{})['sec_'+state.currentSectionIndex],(state._squareRepeatCount||{})['sq_'+state.currentSectionIndex+'_'+state.currentSquareIndex]),1)*meta.speed;}
@@ -88721,7 +88315,7 @@ function gpExportModal(title, bodyHtml, label) {
   function syncPreviewToPosition(pos){if(!meta||!audio||playbackState.isPlaying)return;try{audio.currentTime=clamp(pointTimeForPosition(pos),0,Math.max(0,(duration||audio.duration||0)-.02));}catch(_){} }
   function seekDuringPlayback(pos,targetOverride){if(!meta||!pos)return;const ctx=typeof getAudioContext==='function'?getAudioContext():null;if(!ctx)return;const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);stopAudio();scheduleAudio(ctx,q,Math.max(ctx.currentTime+.02,Number(nextEventTime)||ctx.currentTime+.02),targetOverride);}
   function invalidateGrid(){cachedBarGrid=null;syncPointMapCache=null;cachedAudioTailBar=null;if(!meta)return;meta.points=normalizePoints(meta.points);drawWave();}
-  async function loadSong(song){const token=++loadToken;blobLoadToken++;pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
+  async function loadSong(song){const token=++loadToken;blobLoadToken++;pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
   async function exportSong(song, embed){if(!meta)return song;const out={...song,backingTrack:stateForSave()};return exportStoredSong(out,embed);}
   async function exportStoredSong(song,embed){const out={...song};const bt=cleanMeta(song&&song.backingTrack);if(!bt)return out;out.backingTrack=bt;if(embed){const blob=await dbGet(bt.id);if(blob){const buf=await blob.arrayBuffer();out.backingTrack={...bt,embedded:arrayBufferToBase64(buf)};}else toast('Аудиофайл недоступен; экспортирована только разметка синхронизации.');}return out;}
   function arrayBufferToBase64(buf){let s='';const b=new Uint8Array(buf);for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode(...b.subarray(i,i+0x8000));return btoa(s);}
@@ -88751,7 +88345,7 @@ function gpExportModal(title, bodyHtml, label) {
   function getBpmForBar(bar){const q=qAtBar(bar);const b=qAtBar(bar+1);return bpmAtQ(q,b-q||1);}
   function getBpmForEvent(si,qi,ei,sp,qp,span,ts){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp),sig=parseTimeSig(ts||globalTimeSig||'4/4'),dq=Number(span||1)*(4/sig.denominator);return bpmAtQ(q,dq);}
   function getFirstPassBpmForBar(bar){let q=0,b=0;for(const sec of sections||[]){const sig=parseTimeSig(sec.timeSig||globalTimeSig||'4/4'),quarters=sig.numerator*(4/sig.denominator);let sectionQ=0;for(let qi=0;qi<(sec.squares||[]).length;qi++){const count=Math.max(1,Number(sec.squares[qi].repeat)||1);for(let r=0;r<count;r++){if(b===bar)return bpmAtQ(q+sectionQ,quarters);b++;sectionQ+=quarters;}}q+=sectionQ*Math.max(1,Number(sec.repeat)||1);}return getBpmForBar(bar);}
-  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
+  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
   window.StruChordBackingTrack=api;
   const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();});};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready();
