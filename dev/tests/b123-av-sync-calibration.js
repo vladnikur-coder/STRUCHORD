@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// B-123 removal guard: the unsupported A/V correction and calibration UI
-// must stay removed; normal audible-output timing remains in playback.
+// B-123 · user-calibrated audio/visual offset and transport auto-sync control.
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
@@ -25,30 +24,59 @@ const check = (name, fn) => {
   catch (error) { console.error('FAIL ' + name + '\n' + (error.stack || error)); process.exitCode = 1; }
 };
 
-setTimeout(() => {
+setTimeout(async () => {
   try {
-    check('transport no longer exposes the nonfunctional A/V toggle', () => {
-      assert.strictEqual(w.document.getElementById('btnAvSync'), null);
-      assert.strictEqual(typeof w.toggleAvSync, 'undefined');
+    check('transport exposes a persistent auto-sync toggle', () => {
+      const button = w.document.getElementById('btnAvSync');
+      assert(button);
+      assert.strictEqual(button.getAttribute('aria-pressed'), 'false');
+      button.click();
+      assert.strictEqual(button.getAttribute('aria-pressed'), 'true');
+      assert.strictEqual(JSON.parse(w.localStorage.getItem('struchord-av-sync-v1')).enabled, true);
     });
-    check('settings contain only the supported Visual and Instruments tabs', () => {
+    check('settings provide a 100 BPM tap-calibration workflow and manual fine adjustment', () => {
       w.openHomeSettings();
-      const tabs = Array.from(w.document.querySelectorAll('.home-settings-tab')).map(tab => tab.textContent.trim());
-      assert.deepStrictEqual(tabs, ['Визуал', 'Инструменты']);
-      assert.strictEqual(w.document.getElementById('homeSettingsTabAvSync'), null);
-      assert.strictEqual(w.document.getElementById('homeSettingsPanelAvSync'), null);
-      assert.strictEqual(w.document.getElementById('homeAvSyncStart'), null);
+      w.document.getElementById('homeSettingsTabAvSync').click();
+      assert.strictEqual(w.document.getElementById('homeSettingsPanelAvSync').hidden, false);
+      assert.match(w.document.getElementById('homeAvSyncPanel')?.textContent || w.document.getElementById('homeSettingsPanelAvSync').textContent, /100 BPM/);
+      assert(w.document.getElementById('homeAvSyncStart'));
+      assert(w.document.getElementById('homeAvSyncTap').disabled);
+      assert.strictEqual(w.document.getElementById('homeAvSyncOffset').min, '-250');
+      assert.strictEqual(w.document.getElementById('homeAvSyncOffset').max, '250');
     });
-    check('A/V correction persistence and calibration APIs are removed', () => {
-      for (const name of ['avSyncSettings', 'AV_SYNC_STORAGE_KEY', 'startAvSyncCalibration', 'tapAvSyncCalibration', 'cancelAvSyncCalibration', 'struchord-av-sync-v1']) {
-        assert(!html.includes(name), `unexpected remaining reference: ${name}`);
-      }
+    check('slider persists milliseconds and synchronizes settings with the transport button', () => {
+      const range = w.document.getElementById('homeAvSyncOffset');
+      range.value = '85';
+      range.dispatchEvent(new w.Event('input', { bubbles: true }));
+      const saved = JSON.parse(w.localStorage.getItem('struchord-av-sync-v1'));
+      assert.strictEqual(saved.offsetMs, 85);
+      assert.strictEqual(w.document.getElementById('homeAvSyncOffsetValue').textContent, '+85 мс');
+      assert.match(w.document.getElementById('btnAvSync').title, /\+85 мс/);
+      const enabled = w.document.getElementById('homeAvSyncEnabled');
+      enabled.checked = false;
+      enabled.dispatchEvent(new w.Event('change', { bubbles: true }));
+      assert.strictEqual(w.document.getElementById('btnAvSync').getAttribute('aria-pressed'), 'false');
+      assert.strictEqual(JSON.parse(w.localStorage.getItem('struchord-av-sync-v1')).offsetMs, 85);
     });
-    check('normal audible-output visual clock remains available without user offset', () => {
-      assert.match(html, /function visualAudioContextTime\(ctx\)\s*\{\s*return audibleAudioContextTime\(ctx\);\s*\}/);
-      assert.match(html, /function schedulePlaybackVisualAt\(ctx, contextTime, callback\)\s*\{\s*const visualTime = contextTime;/);
+    const visualDelay = await w.eval(`new Promise((resolve) => {
+      const basePerf = performance.now();
+      const ctx = {
+        get currentTime() { return 10 + (performance.now() - basePerf) / 1000; },
+        getOutputTimestamp() { return { contextTime: this.currentTime, performanceTime: performance.now() }; },
+      };
+      avSyncSettings.enabled = true;
+      avSyncSettings.offsetMs = 80;
+      playbackState.isPlaying = true;
+      const started = performance.now();
+      schedulePlaybackVisualAt(ctx, ctx.currentTime + 0.06, () => {
+        playbackState.isPlaying = false;
+        resolve(performance.now() - started);
+      });
+    })`);
+    check('воспроизведение применяет поправку к визуальному времени, не сдвигая звук', () => {
+      assert(visualDelay >= 120 && visualDelay < 260, `${visualDelay.toFixed(1)} ms`);
     });
-    console.log(`\nB-123 removal checks completed: ${pass} passed.`);
+    console.log(`\nB-123 checks completed: ${pass} passed.`);
   } catch (error) {
     console.error(error);
     process.exitCode = 1;
