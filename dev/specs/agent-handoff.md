@@ -4,7 +4,53 @@
 уже стоило времени: где легко наступить на те же грабли. Проверять по дате —
 если запись устарела, правьте её, а не обходите.
 
-Обновлено: 2026-11-05, версия 0.794.
+Обновлено: 2026-11-12, версия 0.824.
+
+---
+
+## B-123 · 0.824: Safari Web Audio requires playback Audio Session
+
+- Владелец: Safari 17.6 / macOS, HTMLAudio слышно, Web Audio — нет. Его отчёт:
+  контекст `running`, `resume-resolved`, тестовый осциллятор `scheduled` → `ended`,
+  ошибок нет; `navigator.audioSession.type` всюду `auto`. Пересоздание контекста
+  (generation 2/3) тоже не помогло.
+- Для Safari Web Audio-only документа одной `AudioContext.state === 'running'`
+  недостаточно для активации playback media session. На явном пользовательском
+  audio-preflight выставлять `navigator.audioSession.type = 'playback'`, затем
+  повторно выставлять при managed resume и rebuild. Feature detect; без API — no-op.
+- Тест `dev/tests/b123-safari-audio-session-0824.js` имитирует API в Chromium:
+  gesture → playback, reset → resume reassert, reset → context rebuild reassert.
+  **Не считать Safari починенным до того, как владелец подтвердит слухом после патча.**
+- Спека/отчёт: пока не созданы; сначала дождаться результата Safari.
+
+---
+
+## B-122 · 0.823: запись и песня на одних часах
+
+- **Дубли функции побеждают молча.** В патч добавлялись новые `driftPlaybackRate()` и
+  `scheduleAudio()`, а старые однострочные объявления тех же имён оставались ниже в
+  файле. Объявления функций поднимаются (hoisting), последнее выигрывает: приложение
+  выглядело пропатченным, а работал старый код, и тест «падал непонятно». Любой патч,
+  который **переопределяет** функцию, обязан удалить старую строку объявления
+  (в патче — отдельные `replace(..., '')` перед вставкой).
+- **jsdom 20:** у `Blob` нет `arrayBuffer()`. Тестам нужен свой `Blob`-мок или обход.
+- **Песня без байтов в хранилище** даёт `getPathInfo().path === 'none'`
+  (`mainTrackAllowed() === false`). Сначала `bt.importEmbedded({backingTrack:{…, embedded: base64}})`,
+  потом `bt.loadSong({backingTrack: meta})`.
+- **Ползунок скорости в тесте.** Ветка перезапуска в `#btSpeed.oninput` работает только
+  при `playbackState.isPlaying === true`; при ручном `preparePlaybackStart()` флаг нужно
+  поставить самому, иначе проверка молча идёт по другой ветке.
+- **Буфер из временного `AudioContext`** (так строятся пики волны) рабочий контекст
+  принимает — проверено в реальном Chromium 149
+  (`dev/tests/b122-audio-sync-browser-0823.js`). Опыт полезен и вне B-122.
+- **Кадры в puppeteer:** `page.setViewport({isMobile:true})` перезагружает документ
+  (со `waitUntil` можно получить таймаут). Надёжнее — новая страница под каждый размер.
+  `await` внутри `page.evaluate` с длинной цепочкой промисов ловит
+  `Promise was collected`; запускать работу «выстрелил и забыл» и ждать флаг из Node.
+- **Кадры панели волны** могут уйти ниже сгиба (ландшафт телефона) — перед снимком
+  `scrollIntoView({block:'center'})`, иначе на кадре нет предмета проверки.
+- **Отчёт и правила:** спека `dev/specs/b122-audio-sync-0823.md`,
+  отчёт `dev/bench/results/b122-audio-0.823/REPORT.md`.
 
 ---
 
