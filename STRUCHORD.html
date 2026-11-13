@@ -15775,7 +15775,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.825</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.826</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -46651,7 +46651,9 @@ function audioDiagnosticReport() {
       blurMs: Math.round(audioLastBlurDurationMs || 0),
       context: audioDiagnosticContextSnapshot(audioCtx)
     },
-    events: audioDiagnosticLog
+    events: audioDiagnosticLog,
+    syncTiming: window.StruChordBackingTrack && typeof window.StruChordBackingTrack.getSyncTimingDiagnostics === 'function'
+      ? window.StruChordBackingTrack.getSyncTimingDiagnostics() : null
   }, null, 2);
 }
 function clearAudioDiagnosticLog() {
@@ -87766,6 +87768,7 @@ function gpExportModal(title, bodyHtml, label) {
   let playheadRaf = 0;
   let drag = null;
   let audioZeroCtxTime = null;
+  let syncTimingLog = [];
   let cachedBarGrid = null;
   let cachedAudioTailBar = null;
   let syncPointMapCache = null;
@@ -88782,14 +88785,38 @@ function gpExportModal(title, bodyHtml, label) {
 
 
   function preparePlaybackStart(ctx, state, launchBase, songStart, startAtAudioZero){if(!meta)return songStart;const pos={sectionIndex:state.currentSectionIndex,squareIndex:state.currentSquareIndex,eventIndex:state.currentEventIndex,sectionRepeatCount:state._sectionRepeatCount,squareRepeatCount:state._squareRepeatCount};const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);if(startAtAudioZero){scheduleAudio(ctx,q,launchBase,0);return songStart;}const audioT=tAtQ(q), countIn=Math.max(0,songStart-launchBase), pickup=audioT-countIn*meta.speed;const audioStart=pickup>=0?launchBase:launchBase+Math.max(0,countIn-audioT/meta.speed);const target=pickup>=0?pickup:0;scheduleAudio(ctx,q,audioStart,target);return songStart;}
-  function resolveScheduledEvent(ctx,si,qi,ei,sp,qp,evStart,span,ts,fallbackBpm){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp), sig=parseTimeSig(ts||globalTimeSig||'4/4'), quarters=Number(span||1)*(4/sig.denominator), native=tAtQ(q+quarters)-tAtQ(q), dur=native/meta.speed, bpm=dur>0?Math.round((60*quarters/dur)*10000)/10000:fallbackBpm;return {bpm,dur};}
+  function resolveScheduledEvent(ctx,si,qi,ei,sp,qp,evStart,span,ts,fallbackBpm){
+    if(!meta)return null;
+    const q=eventQuarter(si,qi,ei,sp,qp), sig=parseTimeSig(ts||globalTimeSig||'4/4');
+    const quarters=Number(span||1)*(4/sig.denominator), expectedStart=tAtQ(q), expectedEnd=tAtQ(q+quarters);
+    const native=expectedEnd-expectedStart, dur=native/meta.speed;
+    const bpm=dur>0?Math.round((60*quarters/dur)*10000)/10000:fallbackBpm;
+    const predictedStart=audioZeroCtxTime===null||!Number.isFinite(Number(evStart))?null:Math.max(0,(Number(evStart)-audioZeroCtxTime)*meta.speed);
+    syncTimingLog.push({
+      pos:[si,qi,ei,sp||0,qp||0], q:round3(q), spanQ:round3(quarters),
+      fallbackBpm:Number(fallbackBpm)||null, syncBpm:Number(bpm)||null,
+      duration:round3(dur), plannedCtxStart:round3(evStart),
+      backingStart:round3(expectedStart), backingEnd:round3(expectedEnd),
+      predictedBackingStart:predictedStart===null?null:round3(predictedStart),
+      startDelta:predictedStart===null?null:round3(predictedStart-expectedStart),
+      audioPath:playbackPath, speed:meta.speed
+    });
+    if(syncTimingLog.length>200)syncTimingLog.splice(0,syncTimingLog.length-200);
+    return {bpm,dur};
+  }
+  function getSyncTimingDiagnostics(){return {
+    path:playbackPath, speed:meta?meta.speed:null, trackOffset:meta?round3(meta.trackOffset):null,
+    zero:audioZeroCtxTime===null?null:round3(audioZeroCtxTime),
+    syncPoints:meta?(meta.points||[]).map(p=>({bar:p.bar,time:round3(p.time)})):[],
+    recent:syncTimingLog.slice()
+  };}
   function getCountInBpm(state){if(!meta)return 0;return bpmAtQ(eventQuarter(state.currentSectionIndex,state.currentSquareIndex,state.currentEventIndex,(state._sectionRepeatCount||{})['sec_'+state.currentSectionIndex],(state._squareRepeatCount||{})['sq_'+state.currentSectionIndex+'_'+state.currentSquareIndex]),1)*meta.speed;}
   function consumePendingStartPosition(){const p=pendingStart;pendingStart=null;return p;}
   function consumePendingAudioStartFromZero(){const value=pendingAudioStartFromZero;pendingAudioStartFromZero=false;return value;}
   function syncPreviewToPosition(pos){if(!meta||!audio||playbackState.isPlaying)return;try{audio.currentTime=clamp(pointTimeForPosition(pos),0,Math.max(0,(duration||audio.duration||0)-.02));}catch(_){} }
   function seekDuringPlayback(pos,targetOverride){if(!meta||!pos)return;const ctx=typeof getAudioContext==='function'?getAudioContext():null;if(!ctx)return;const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);stopAudio();scheduleAudio(ctx,q,Math.max(ctx.currentTime+.02,Number(nextEventTime)||ctx.currentTime+.02),targetOverride);}
   function invalidateGrid(){cachedBarGrid=null;syncPointMapCache=null;cachedAudioTailBar=null;if(!meta)return;meta.points=normalizePoints(meta.points);drawWave();}
-  async function loadSong(song){const token=++loadToken;blobLoadToken++;pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
+  async function loadSong(song){const token=++loadToken;blobLoadToken++;pendingAudioStartFromZero=false;syncTimingLog=[];cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
   async function exportSong(song, embed){if(!meta)return song;const out={...song,backingTrack:stateForSave()};return exportStoredSong(out,embed);}
   async function exportStoredSong(song,embed){const out={...song};const bt=cleanMeta(song&&song.backingTrack);if(!bt)return out;out.backingTrack=bt;if(embed){const blob=await dbGet(bt.id);if(blob){const buf=await blob.arrayBuffer();out.backingTrack={...bt,embedded:arrayBufferToBase64(buf)};}else toast('Аудиофайл недоступен; экспортирована только разметка синхронизации.');}return out;}
   function arrayBufferToBase64(buf){let s='';const b=new Uint8Array(buf);for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode(...b.subarray(i,i+0x8000));return btoa(s);}
@@ -88819,7 +88846,7 @@ function gpExportModal(title, bodyHtml, label) {
   function getBpmForBar(bar){const q=qAtBar(bar);const b=qAtBar(bar+1);return bpmAtQ(q,b-q||1);}
   function getBpmForEvent(si,qi,ei,sp,qp,span,ts){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp),sig=parseTimeSig(ts||globalTimeSig||'4/4'),dq=Number(span||1)*(4/sig.denominator);return bpmAtQ(q,dq);}
   function getFirstPassBpmForBar(bar){let q=0,b=0;for(const sec of sections||[]){const sig=parseTimeSig(sec.timeSig||globalTimeSig||'4/4'),quarters=sig.numerator*(4/sig.denominator);let sectionQ=0;for(let qi=0;qi<(sec.squares||[]).length;qi++){const count=Math.max(1,Number(sec.squares[qi].repeat)||1);for(let r=0;r<count;r++){if(b===bar)return bpmAtQ(q+sectionQ,quarters);b++;sectionQ+=quarters;}}q+=sectionQ*Math.max(1,Number(sec.repeat)||1);}return getBpmForBar(bar);}
-  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
+  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, getSyncTimingDiagnostics, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
   window.StruChordBackingTrack=api;
   const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();});};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready();

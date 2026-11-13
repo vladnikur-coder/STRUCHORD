@@ -204,6 +204,17 @@ setTimeout(async () => {
       assert(multiDurations.every((d, i) => Math.abs(d - [2, 3, 2, 2][i]) < 1e-6),
         `event durations ${multiDurations.join(', ')} instead of 2, 3, 2, 2`);
     });
+    check('BPM audit captures fallback vs Sync Point timing without changing playback', () => {
+      const audit = bt.getSyncTimingDiagnostics();
+      assert(audit && audit.recent.length >= 4);
+      assert.deepStrictEqual(Array.from(audit.recent.slice(-4), x => x.q), [0, 4, 8, 12]);
+      assert.strictEqual(audit.recent[audit.recent.length - 1].fallbackBpm, 120);
+      assert.strictEqual(audit.recent[audit.recent.length - 1].syncBpm, 120);
+      assert.strictEqual(audit.recent[audit.recent.length - 1].audioPath, 'none');
+      const report = JSON.parse(w.audioDiagnosticReport());
+      assert(report.syncTiming && report.syncTiming.recent.length >= 4,
+        'audio-report must include the timing audit');
+    });
     scoreGlobals();
 
     // ── 1. Скорость 100 %: «одни часы» ────────────────────────────────────

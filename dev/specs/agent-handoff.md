@@ -4,7 +4,26 @@
 уже стоило времени: где легко наступить на те же грабли. Проверять по дате —
 если запись устарела, правьте её, а не обходите.
 
-Обновлено: 2026-11-13, версия 0.825.
+Обновлено: 2026-11-12, версия 0.826.
+
+---
+
+## B-125 · 0.826: in-memory sync timing audit (diagnostic only)
+
+- Owner verified 0.825, reports intro in sync, then guitar and highlight gradually
+  run ahead through the song, including all checked Sync Points. This contradicts
+  local calculation; don't infer another patch from simulation alone.
+- For uploaded Oasis score, the 0.825 model resolves all 170 scheduled events;
+  cumulative event starts match anchors 0,2,4,7,18,32,89 within floating point
+  error. Derived Sync-Point BPM is ~82.7–82.9 vs project BPM 81; `scheduleNextEvent`
+  should override fallback BPM and duration before guitar/highlight scheduling.
+- Audio is ~100 bars by anchor slope, while score spans 96 bars; this is a separate
+  ~11.2 s tail mismatch and does not explain drift beginning in verse one.
+- 0.826 changes no timing. `audio-report.syncTiming.recent` collects up to 200
+  in-memory event records: position, repeat counters, q/span, fallback vs resolved
+  BPM, duration, planned context start, expected backing media start/end, predicted
+  media position derived from playback zero, and active audio path. Capture after
+  reproducing from intro in Safari. It resets when another song loads.
 
 ---
 

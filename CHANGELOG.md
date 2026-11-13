@@ -1,4 +1,10 @@
-## 0.825 · 2026-11-13
+## 0.826 · 2026-11-12 · diagnostic build
+
+**No playback-timing changes.** The owner confirmed version 0.825 still sounds progressively ahead from the first verse and at all checked Sync Points, contradicting the local timing calculation. To locate the runtime discrepancy, `audio-report` now includes the last 200 scheduled-event audits: position/repeat counters, quarter coordinate and span, fallback BPM vs Sync-Point BPM, event duration, planned AudioContext start, mapped backing-media start/end, and predicted backing position from the actual playback zero. The audit is in memory only; it does not write on every event or alter scheduling. It resets when a new song is loaded. Please reproduce from the intro and capture the report before closing the page.
+
+R7: version/cache `0.826` / `struchord-v826`.
+
+## 0.825 · 2026-11-12
 
 **B-124 · Sync Points пересчитаны по реальной длительности событий, а не по числу квадратов.** Проверен приложенный Oasis-проект: 7 точек сохранены, скорость 100 %, 4/4, вложенная запись 289,59 с. Партитура содержит 32 повторяемых квадрата, но суммы `span` событий дают 384 четверти = 96 тактов. Ошибка была в `getBarGrid()`: он двигал музыкальные часы ровно на один такт за квадрат; при переходе между многотактовыми квадратами q-позиции событий повторялись/откатывались (например, после четырёхтактового Intro следующий квадрат начинался с q=4 вместо q=16). Из-за этого синт-гитара попадала в неверный интервал между Sync Points, и расхождение нарастало. Теперь сетка накапливает фактические длительности событий, создаёт границы тактов по размеру и считает позицию события через все повторы. Регрессия с неравномерными Sync Point интервалами подтверждает ожидаемые длительности событий внутри многотактовых квадратов; B-122 unit/browser и release checks проходят. Код не меняет аудиофайл и точки проекта.
 
