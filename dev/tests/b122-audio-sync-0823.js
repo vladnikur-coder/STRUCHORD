@@ -173,6 +173,25 @@ setTimeout(async () => {
     const ctx = w.getAudioContext();
     assert(ctx, 'аудиоконтекст приложения доступен');
 
+    // A 4:49 stereo/44.1 kHz PCM buffer is ~97.44 MiB. It used to exceed
+    // the 96 MiB cap and silently fall back to an independent HTMLAudio clock.
+    w.__decoded = fakeBuffer({ length: 12771072, channels: 2, duration: 289.593 });
+    await loadBacking(bt, {
+      id: 'long-buffer-0826', name: 'long.mp3', type: 'audio/mpeg', size: 4096,
+      duration: 289.593, speed: 1, volume: 80, mute: false, solo: true,
+      points: [{ bar: 0, time: 0 }, { bar: 2, time: 5.8 }],
+    });
+    bt.preparePlaybackStart(ctx, playbackState(), ctx.currentTime + 0.12, ctx.currentTime + 0.12, true);
+    check('4:49 stereo track stays in the shared AudioContext, not HTMLAudio', () => {
+      const info = bt.getPathInfo();
+      assert.strictEqual(info.hasBuffer, true, 'decoded buffer should fit the 104 MiB cap');
+      assert(info.bufferBytes > 96 * 1024 * 1024 && info.bufferBytes < 104 * 1024 * 1024,
+        `unexpected PCM size ${info.bufferBytes}`);
+      assert.strictEqual(info.path, 'buffer', '100% backing must use same AudioContext clock');
+    });
+    bt.stopAudio();
+    w.__decoded = fakeBuffer();
+
     // Regression: squares may span multiple measures. A prior B-122 grid
     // advanced one measure per square even when its events occupied several,
     // causing later events to reuse earlier Sync Point intervals.

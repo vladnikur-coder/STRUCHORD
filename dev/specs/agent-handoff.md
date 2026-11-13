@@ -4,7 +4,26 @@
 уже стоило времени: где легко наступить на те же грабли. Проверять по дате —
 если запись устарела, правьте её, а не обходите.
 
-Обновлено: 2026-11-12, версия 0.826.
+Обновлено: 2026-11-12, версия 0.827.
+
+---
+
+## B-126 · 0.827: Safari report proves HTMLAudio fallback at 100%
+
+- User supplied 0.826 report (Safari 17.6/macOS 10.15.7). `syncTiming.recent`
+  entries show `audioPath: element`, speed 1.0, Sync BPM ~82.7–82.9 vs fallback
+  score BPM 81. Backing anchor/drift log includes repeated nudges/grid reanchors.
+- Oasis embedded media: 289.593 s, Safari decoder 44.1 kHz stereo; decoded buffer
+  size is 12,771,072 frames * 2 * 4 = 102,168,576 bytes = 97.44 MiB, just over
+  old `BUFFER_MEMORY_LIMIT = 96 MiB`. Decode succeeded (wave peaks built), but
+  `audioBuffer` was discarded, so the `<audio>` element ran on its own media clock
+  while guitar/highlights used AudioContext timing. This directly confirms user
+  hypothesis; do not interpret the audio report as a BPM-calculation failure.
+- 0.827 raises cap to 104 MiB; this 4:49 track should now run through shared
+  AudioBufferSourceNode at speed 1.0. Longer files and speed ≠100% still use the
+  element path. Test in B-122 unit checks a 97.44 MiB decoded buffer selects
+  `buffer`. Ask owner to verify version 0.827 and share new audio-report; expected
+  `syncTiming.recent[].audioPath === 'buffer'` and no repeated element drift events.
 
 ---
 
