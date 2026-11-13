@@ -4,7 +4,28 @@
 уже стоило времени: где легко наступить на те же грабли. Проверять по дате —
 если запись устарела, правьте её, а не обходите.
 
-Обновлено: 2026-11-12, версия 0.824.
+Обновлено: 2026-11-13, версия 0.825.
+
+---
+
+## B-124 · 0.825: Sync Points and multi-measure squares
+
+- Latest user upload: `/tmp/arena-coding-uploads/Oasis - Don't Look Back in Anger.json`.
+  It embeds its 11.59 MB MP3; 7 anchors are present at bars 0, 2, 4, 7, 18, 32,
+  89. Speed 1.0, global 81 BPM / 4/4, offset -0.262 s.
+- Data diagnosis: the score has 32 square occurrences, but event spans add to
+  384 quarter notes = 96 bars. The old `getBarGrid()` added one 4/4 measure per
+  square regardless of actual event spans. Event q positions reset/overlapped
+  between squares; sync anchors used chronological bar q positions, but guitar
+  durations were resolved at those bad event q positions. This explains growing
+  drift with points correctly present.
+- 0.825 fixes grid construction: accumulate real event quarter spans; add bar
+  boundaries according to time signature; preserve section/square repeat counts;
+  fallback position calculation also sums real square spans. Regression in
+  `dev/tests/b122-audio-sync-0823.js` checks 2-bar squares under uneven anchor
+  intervals (expected 2, 3, 2, 2 seconds); keep audio and point data untouched.
+- Browser/Safari audition on the uploaded Oasis score is still required from owner;
+  sandbox verifies calculations, not their physical listening result.
 
 ---
 

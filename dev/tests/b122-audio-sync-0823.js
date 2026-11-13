@@ -173,6 +173,39 @@ setTimeout(async () => {
     const ctx = w.getAudioContext();
     assert(ctx, 'аудиоконтекст приложения доступен');
 
+    // Regression: squares may span multiple measures. A prior B-122 grid
+    // advanced one measure per square even when its events occupied several,
+    // causing later events to reuse earlier Sync Point intervals.
+    w.eval(`
+      globalTimeSig = '4/4';
+      sections = [{ id: 1, type: 'Verse', repeat: 1, timeSig: '4/4', squares: [
+        { id: 1, repeat: 1, events: [{ chord: 'C', span: 4 }, { chord: 'F', span: 4 }] },
+        { id: 2, repeat: 1, events: [{ chord: 'G', span: 4 }, { chord: 'Am', span: 4 }] },
+      ] }];
+    `);
+    await loadBacking(bt, {
+      id: 'multibar-sync-0825', name: 'multibar.mp3', type: 'audio/mpeg', size: 4096,
+      duration: 30, speed: 1, volume: 80, mute: false, solo: true,
+      points: [
+        { bar: 0, time: 0 }, { bar: 1, time: 2 }, { bar: 2, time: 5 },
+        { bar: 3, time: 7 }, { bar: 4, time: 9 },
+      ],
+    });
+    const grid = bt.getBarGrid();
+    const multiDurations = [
+      bt.resolveScheduledEvent(ctx, 0, 0, 0, 0, 0, 0, 4, '4/4', 120).dur,
+      bt.resolveScheduledEvent(ctx, 0, 0, 1, 0, 0, 0, 4, '4/4', 120).dur,
+      bt.resolveScheduledEvent(ctx, 0, 1, 0, 0, 0, 0, 4, '4/4', 120).dur,
+      bt.resolveScheduledEvent(ctx, 0, 1, 1, 0, 0, 0, 4, '4/4', 120).dur,
+    ];
+    check('multi-measure squares preserve a monotonic 16-quarter event grid', () => {
+      assert.strictEqual(grid.bars, 4, `bar count ${grid.bars} instead of 4`);
+      assert.strictEqual(grid.totalQ, 16, `quarter count ${grid.totalQ} instead of 16`);
+      assert(multiDurations.every((d, i) => Math.abs(d - [2, 3, 2, 2][i]) < 1e-6),
+        `event durations ${multiDurations.join(', ')} instead of 2, 3, 2, 2`);
+    });
+    scoreGlobals();
+
     // ── 1. Скорость 100 %: «одни часы» ────────────────────────────────────
     await loadBacking(bt, {
       id: 'sync-0823', name: 'take.mp3', type: 'audio/mpeg', size: 4096,

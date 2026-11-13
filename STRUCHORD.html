@@ -15775,7 +15775,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.824</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.825</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -87856,29 +87856,58 @@ function gpExportModal(title, bodyHtml, label) {
     const id = songIdentity();
     if (id !== lastSongKey) { lastSongKey = id; meta = null; audioZeroCtxTime = null; cachedBarGrid = null; syncPointMapCache = null; }
   }
+  function squareQuarterSpan(sq, ts, unit) {
+    const events = typeof getSquarePlaybackEvents === 'function'
+      ? getSquarePlaybackEvents(sq, ts) : ((sq && sq.events) || []);
+    const eventUnits = events.reduce((sum, ev) => sum + Math.max(1/64,
+      typeof getEventSpanInParentUnits === 'function'
+        ? getEventSpanInParentUnits(ev, ts) : (Number(ev && ev.span) || 1)), 0);
+    if (eventUnits > 0) return eventUnits * unit;
+    const squareUnits = typeof getSquareBeats === 'function' ? Number(getSquareBeats(sq, ts)) : 0;
+    return (Number.isFinite(squareUnits) && squareUnits > 0 ? squareUnits : parseTimeSig(ts).numerator) * unit;
+  }
   function getBarGrid() {
     if (cachedBarGrid) return cachedBarGrid;
     const out = []; let q = 0, bar = 0;
     (sections || []).forEach((sec, si) => {
       const ts = sec.timeSig || globalTimeSig || '4/4';
-      const sig = parseTimeSig(ts), quarters = sig.numerator * (4 / sig.denominator);
+      const sig = parseTimeSig(ts), unit = 4 / sig.denominator;
+      const quarters = sig.numerator * unit;
       const sectionRepeats = Math.max(1, Number(sec.repeat) || 1);
       for (let sp=0; sp<sectionRepeats; sp++) {
+        let nextBoundaryQ = q + quarters;
+        let lastBoundaryQ = q;
         (sec.squares || []).forEach((sq, qi) => {
           const repeats = Math.max(1, Number(sq.repeat) || 1);
           for (let qp=0; qp<repeats; qp++) {
             const events = typeof getSquarePlaybackEvents === 'function' ? getSquarePlaybackEvents(sq, ts) : (sq.events || []);
             let local = 0;
-            const unit = 4 / sig.denominator;
             events.forEach((ev, ei) => {
               const span = Math.max(1/64, typeof getEventSpanInParentUnits === 'function' ? getEventSpanInParentUnits(ev, ts) : (Number(ev.span) || 1)) * unit;
-              out.push({si, qi, ei, sp, qp, bar, q: q + local, span, section: sec, square: sq, event: ev});
+              out.push({si, qi, ei, sp, qp, bar: bar + Math.floor(local / quarters), q: q + local, span, section: sec, square: sq, event: ev});
               local += span;
             });
-            out.push({boundary: true, bar: bar + 1, q: q + quarters, si, qi, sp, qp, section: sec});
-            q += quarters; bar++;
+            // A square may contain several measures (or a partial measure).
+            // Advance by its real event duration; incrementing one measure per
+            // square made event positions overlap and drift away from Sync Points.
+            if (local <= 0) local = squareQuarterSpan(sq, ts, unit);
+            const endQ = q + local;
+            const epsilon = 1e-7;
+            while (nextBoundaryQ <= endQ + epsilon) {
+              bar++;
+              out.push({boundary: true, bar, q: nextBoundaryQ, si, qi, sp, qp, section: sec});
+              lastBoundaryQ = nextBoundaryQ;
+              nextBoundaryQ += quarters;
+            }
+            q = endQ;
           }
         });
+        // Close a partial final measure at the section-pass boundary. The next
+        // section starts a fresh measure, potentially with a different meter.
+        if (q > lastBoundaryQ + 1e-7) {
+          bar++;
+          out.push({boundary: true, bar, q, si, sp, section: sec});
+        }
       }
     });
     const events = out.filter(x => !x.boundary), boundaries = out.filter(x => x.boundary);
@@ -87902,16 +87931,30 @@ function gpExportModal(title, bodyHtml, label) {
     const grid = getBarGrid();
     const found = grid.eventByPosition.get(positionKey(si, qi, ei, secPass, sqPass));
     if (found) return found.q;
-    const sec = sections[si], sq = sec && sec.squares[qi], events = sq && (typeof getSquarePlaybackEvents === 'function' ? getSquarePlaybackEvents(sq, sec.timeSig || globalTimeSig) : sq.events);
+    const sec = sections[si], sq = sec && sec.squares[qi];
     if (!sec || !sq) return 0;
-    const sig=parseTimeSig(sec.timeSig || globalTimeSig || '4/4'), unit=4/sig.denominator;
-    let q=0;
-    for (let s=0;s<si;s++) { const a=sections[s], sg=parseTimeSig(a.timeSig||globalTimeSig||'4/4'), unit=sg.numerator*(4/sg.denominator), bars=(a.squares||[]).reduce((n,x)=>n+Math.max(1,Number(x.repeat)||1),0); q += Math.max(1,bars)*Math.max(1,Number(a.repeat)||1)*unit; }
-    const baseBars=Math.max(1,(sec.squares||[]).reduce((n,x)=>n+Math.max(1,Number(x.repeat)||1),0));
-    q += (Number(secPass)||0)*baseBars*sig.numerator*unit;
-    for (let j=0;j<qi;j++) q += Math.max(1,Number(sec.squares[j].repeat)||1)*sig.numerator*unit;
-    q += (Number(sqPass)||0)*sig.numerator*unit;
-    for(let j=0;j<(Number(ei)||0);j++) q += Math.max(1/64, typeof getEventSpanInParentUnits === 'function' ? getEventSpanInParentUnits(events[j], sec.timeSig || globalTimeSig) : (Number(events && events[j] && events[j].span)||1))*unit;
+    let q = 0;
+    for (let s=0; s<si; s++) {
+      const prior = sections[s], ts = prior.timeSig || globalTimeSig || '4/4';
+      const unit = 4 / parseTimeSig(ts).denominator;
+      const repeats = Math.max(1, Number(prior.repeat) || 1);
+      for (let sp=0; sp<repeats; sp++) for (const square of prior.squares || []) {
+        q += Math.max(1, Number(square.repeat) || 1) * squareQuarterSpan(square, ts, unit);
+      }
+    }
+    const ts = sec.timeSig || globalTimeSig || '4/4', unit = 4 / parseTimeSig(ts).denominator;
+    const sectionRepeats = Math.max(1, Number(sec.repeat) || 1);
+    const priorSquareSpan = (square) => Math.max(1, Number(square.repeat) || 1) * squareQuarterSpan(square, ts, unit);
+    for (let sp=0; sp<Math.min(sectionRepeats, Number(secPass)||0); sp++) {
+      for (const square of sec.squares || []) q += priorSquareSpan(square);
+    }
+    for (let j=0; j<qi; j++) q += priorSquareSpan(sec.squares[j]);
+    for (let qp=0; qp<Math.min(Math.max(1, Number(sq.repeat)||1), Number(sqPass)||0); qp++) q += squareQuarterSpan(sq, ts, unit);
+    const events = typeof getSquarePlaybackEvents === 'function' ? getSquarePlaybackEvents(sq, ts) : (sq.events || []);
+    for (let j=0; j<(Number(ei)||0); j++) {
+      q += Math.max(1/64, typeof getEventSpanInParentUnits === 'function'
+        ? getEventSpanInParentUnits(events[j], ts) : (Number(events[j] && events[j].span)||1)) * unit;
+    }
     return q;
   }
   function qAtBar(bar) { const grid=getBarGrid(), b=Math.max(0,Math.floor(Number(bar)||0)); if (b>=grid.bars) { const tail=sections&&sections.length?sections[sections.length-1]:null, sig=parseTimeSig((tail&&tail.timeSig)||globalTimeSig||'4/4'), one=sig.numerator*(4/sig.denominator); return grid.totalQ+Math.max(0,b-grid.bars)*one; } const hit=grid.boundaryByBar.get(b); return hit ? hit.q : 0; }
