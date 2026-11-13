@@ -299,6 +299,42 @@ setTimeout(async () => {
       assert(Math.abs((bt.state.points[1].time - bt.state.points[0].time) - 4) < 0.001, 'relative sync interval is unchanged');
       assert(Math.abs(bt.state.trackOffset - 0.8) < 0.001, 'waveform offset records the visible track movement');
     });
+    await bt.loadSong({ backingTrack: { id: 'track-drag-outside-grid-test', name: 'edge.wav', type: 'audio/wav', size: 512, duration: 8, speed: 1, volume: 80, mute: false, solo: false, points: [{ bar: 0, time: 0 }, { bar: 2, time: 4 }] } });
+    check('Option+drag shifts the whole recording past grid/audio zero without clamping sync points', () => {
+      bt.toggleDrawer(true);
+      const canvas = w.document.getElementById('btWaveCanvas');
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      const pointer = (type, x) => {
+        const event = new w.Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, { pointerType: { value: 'mouse' }, pointerId: { value: 22 }, clientX: { value: x }, clientY: { value: 52 }, altKey: { value: true } });
+        return event;
+      };
+      canvas.dispatchEvent(pointer('pointerdown', 200));
+      canvas.dispatchEvent(pointer('pointermove', 260));
+      canvas.dispatchEvent(pointer('pointerup', 260));
+      assert(Math.abs(bt.state.points[0].time + 0.8) < 0.001, 'first sync anchor is allowed before audio/grid zero');
+      assert(Math.abs(bt.state.points[1].time - 3.2) < 0.001, 'all sync anchors receive the same translation');
+      assert(Math.abs((bt.state.points[1].time - bt.state.points[0].time) - 4) < 0.001, 'sync interval remains unchanged beyond the boundary');
+      assert(Math.abs(bt.state.trackOffset - 0.8) < 0.001, 'the recording shifts while the score grid stays fixed');
+    });
+    await bt.loadSong({ backingTrack: { id: 'track-drag-past-end-test', name: 'edge-end.wav', type: 'audio/wav', size: 512, duration: 8, speed: 1, volume: 80, mute: false, solo: false, points: [{ bar: 0, time: 3 }, { bar: 2, time: 7.5 }] } });
+    check('Option+drag also shifts the recording beyond the clip/grid end', () => {
+      bt.toggleDrawer(true);
+      const canvas = w.document.getElementById('btWaveCanvas');
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      const pointer = (type, x) => {
+        const event = new w.Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, { pointerType: { value: 'mouse' }, pointerId: { value: 23 }, clientX: { value: x }, clientY: { value: 52 }, altKey: { value: true } });
+        return event;
+      };
+      canvas.dispatchEvent(pointer('pointerdown', 200));
+      canvas.dispatchEvent(pointer('pointermove', 140));
+      canvas.dispatchEvent(pointer('pointerup', 140));
+      assert(Math.abs(bt.state.points[0].time - 3.8) < 0.001, 'both anchors receive the same leftward translation');
+      assert(Math.abs(bt.state.points[1].time - 8.3) < 0.001, 'last anchor is allowed beyond audio duration');
+      assert(Math.abs((bt.state.points[1].time - bt.state.points[0].time) - 4.5) < 0.001, 'interval remains unchanged past clip end');
+      assert(Math.abs(bt.state.trackOffset + 0.8) < 0.001, 'track offset records the leftward shift');
+    });
     await bt.loadSong({ backingTrack: { id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 512, duration: 8, speed: 0.5, volume: 80, mute: false, solo: true, points: [{ bar: 0, time: 0 }, { bar: 2, time: 6 }] } });
     check('50 percent speed scales scheduler BPM and duration without pitch shifting', () => {
       const slow = bt.resolveScheduledEvent(null, 0, 0, 0, 0, 0, 10, 4, '4/4', 120);

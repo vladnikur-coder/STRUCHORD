@@ -15775,7 +15775,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.827</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.828</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -87838,7 +87838,10 @@ function gpExportModal(title, bodyHtml, label) {
   }
   function normalizePoints(points) {
     if (!Array.isArray(points)) return [];
-    return points.filter(p => p && Number.isInteger(Number(p.bar)) && Number(p.bar) >= 0 && Number.isFinite(Number(p.time)) && Number(p.time) >= 0)
+    // Whole-track Option/Alt-drag may place a sync anchor before audio time
+    // zero or after the clip end. Keep its signed time so the global shift is
+    // lossless and the intervals between anchors never get squeezed.
+    return points.filter(p => p && Number.isInteger(Number(p.bar)) && Number(p.bar) >= 0 && Number.isFinite(Number(p.time)))
       .map(p => ({ bar: Math.floor(Number(p.bar)), time: Number(p.time) }))
       .sort((a,b) => a.bar-b.bar || a.time-b.time)
       .filter((p,i,a) => !i || (p.bar > a[i-1].bar && p.time > a[i-1].time));
@@ -88126,8 +88129,8 @@ function gpExportModal(title, bodyHtml, label) {
     const i = Number(input && input.dataset.pointTime);
     if (!meta || !Number.isInteger(i) || i < 0 || i >= meta.points.length) return;
     const point = meta.points[i], value = Number(input.value);
-    const min = i ? meta.points[i - 1].time + 0.001 : 0;
-    const max = i + 1 < meta.points.length ? meta.points[i + 1].time - 0.001 : (duration || Infinity);
+    const min = i ? meta.points[i - 1].time + 0.001 : -Infinity;
+    const max = i + 1 < meta.points.length ? meta.points[i + 1].time - 0.001 : Infinity;
     if (!Number.isFinite(value) || value < min || value > max) {
       input.value = point.time.toFixed(3);
       toast('Время точки должно быть между соседними точками синхронизации');
@@ -88356,7 +88359,7 @@ function gpExportModal(title, bodyHtml, label) {
   function renderDrawer() {
     const drawer=$('btDrawer'); if(!drawer)return;
     if(!meta){drawer.innerHTML='<div class="bt-empty"><strong>Фоновое аудио</strong><p>Загрузите аудиозапись, затем поставьте точки синхронизации на границах тактов.</p><button type="button" class="bt-button" data-bt-action="load">Выбрать аудио</button></div>';drawer.querySelector('[data-bt-action="load"]').onclick=chooseFile;return;}
-    drawer.innerHTML=`<div class="bt-toolbar"><strong class="bt-title">${escapeHtml(meta.name)}</strong><span class="bt-size">${(meta.size/1048576).toFixed(1)} МБ</span><button type="button" class="bt-button" data-bt-action="replace">Заменить</button><button type="button" class="bt-button" data-bt-action="remove">Удалить</button><button type="button" class="bt-button" data-bt-action="close" aria-label="Свернуть">Свернуть</button></div>${missingAudio?'<div class="bt-missing-banner"><span>Аудиофайл не найден в этом браузере.</span><button type="button" class="bt-button" data-bt-action="replace">Связать файл</button></div>':''}<div class="bt-wave-viewport" id="btWaveViewport"><div class="bt-wave-space" id="btWaveSpace"><canvas id="btWaveCanvas" class="bt-wave-canvas" aria-label="Звуковая волна, тактовая сетка и точки синхронизации"></canvas></div><div class="bt-wave-playhead-overlay" aria-hidden="true"><div class="bt-wave-playhead" id="btPlayheadCursor"></div></div></div><div class="bt-hint"><span>Перетащите верхний маркер такта, чтобы поставить/сдвинуть Sync Point. Сдвиг записи: Option/Alt + перетаскивание; масштаб: щипок или Ctrl+колесо.</span></div><div class="bt-controls"><button type="button" class="bt-button" data-bt-action="preview" ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>${audio&&!audio.paused?'Пауза MP3':'▶ Прослушать MP3'}</button><output id="btPlayhead" class="bt-status" aria-live="off">${secText(audio&&audio.currentTime||0)}</output><label>Скорость <input id="btSpeed" type="range" min="50" max="150" value="${Math.round(meta.speed*100)}"><output>${Math.round(meta.speed*100)}%</output></label><label>Громкость <input id="btVolume" type="range" min="0" max="100" value="${meta.volume}"></label><label>Точка: такт <input id="btBarInput" type="number" min="1" value="1"></label><label>Масштаб <input id="btZoom" type="range" min="50" max="10000" value="${Math.round(waveZoom*100)}"></label><button type="button" class="bt-button" data-bt-action="addpoint">Добавить точку</button><button type="button" class="bt-button" data-bt-action="delpoint">Удалить выбранную</button><span class="bt-status"></span></div><div class="bt-point-list">${meta.points.map((p,i)=>`<label class="bt-point-edit"><button type="button" class="bt-point${selectedPoint===i?' is-selected':''}" data-point="${i}">Такт ${p.bar+1}</button><input class="bt-point-time" type="number" min="0" max="${duration||''}" step="0.001" value="${p.time.toFixed(3)}" data-point-time="${i}" aria-label="Время точки такта ${p.bar+1}, секунды"></label>`).join('')}</div>`;
+    drawer.innerHTML=`<div class="bt-toolbar"><strong class="bt-title">${escapeHtml(meta.name)}</strong><span class="bt-size">${(meta.size/1048576).toFixed(1)} МБ</span><button type="button" class="bt-button" data-bt-action="replace">Заменить</button><button type="button" class="bt-button" data-bt-action="remove">Удалить</button><button type="button" class="bt-button" data-bt-action="close" aria-label="Свернуть">Свернуть</button></div>${missingAudio?'<div class="bt-missing-banner"><span>Аудиофайл не найден в этом браузере.</span><button type="button" class="bt-button" data-bt-action="replace">Связать файл</button></div>':''}<div class="bt-wave-viewport" id="btWaveViewport"><div class="bt-wave-space" id="btWaveSpace"><canvas id="btWaveCanvas" class="bt-wave-canvas" aria-label="Звуковая волна, тактовая сетка и точки синхронизации"></canvas></div><div class="bt-wave-playhead-overlay" aria-hidden="true"><div class="bt-wave-playhead" id="btPlayheadCursor"></div></div></div><div class="bt-hint"><span>Перетащите верхний маркер такта, чтобы поставить/сдвинуть Sync Point. Сдвиг записи за края сетки: Option/Alt + перетаскивание; масштаб: щипок или Ctrl+колесо.</span></div><div class="bt-controls"><button type="button" class="bt-button" data-bt-action="preview" ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>${audio&&!audio.paused?'Пауза MP3':'▶ Прослушать MP3'}</button><output id="btPlayhead" class="bt-status" aria-live="off">${secText(audio&&audio.currentTime||0)}</output><label>Скорость <input id="btSpeed" type="range" min="50" max="150" value="${Math.round(meta.speed*100)}"><output>${Math.round(meta.speed*100)}%</output></label><label>Громкость <input id="btVolume" type="range" min="0" max="100" value="${meta.volume}"></label><label>Точка: такт <input id="btBarInput" type="number" min="1" value="1"></label><label>Масштаб <input id="btZoom" type="range" min="50" max="10000" value="${Math.round(waveZoom*100)}"></label><button type="button" class="bt-button" data-bt-action="addpoint">Добавить точку</button><button type="button" class="bt-button" data-bt-action="delpoint">Удалить выбранную</button><span class="bt-status"></span></div><div class="bt-point-list">${meta.points.map((p,i)=>`<label class="bt-point-edit"><button type="button" class="bt-point${selectedPoint===i?' is-selected':''}" data-point="${i}">Такт ${p.bar+1}</button><input class="bt-point-time" type="number" step="0.001" value="${p.time.toFixed(3)}" data-point-time="${i}" aria-label="Время точки такта ${p.bar+1}, секунды"></label>`).join('')}</div>`;
     drawer.querySelector('[data-bt-action="replace"]').onclick=chooseFile; drawer.querySelector('[data-bt-action="remove"]').onclick=removeTrack; drawer.querySelector('[data-bt-action="close"]').onclick=()=>toggleDrawer(false);
     drawer.querySelector('[data-bt-action="preview"]').onclick=toggleAudioPreview;
     drawer.querySelectorAll('[data-point-time]').forEach(input=>input.onchange=()=>editPointTime(input));
@@ -88438,13 +88441,13 @@ function gpExportModal(title, bodyHtml, label) {
   function wavePointerMove(e){
     if(e.pointerType==='touch'&&activeWavePointers.has(e.pointerId))activeWavePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
     if(pinchStart){const a=activeWavePointers.get(pinchStart.ids[0]),b=activeWavePointers.get(pinchStart.ids[1]);if(a&&b){applyWaveZoom(pinchStart.zoom*Math.hypot(a.x-b.x,a.y-b.y)/pinchStart.distance,(a.x+b.x)/2);e.preventDefault();}return;}
-    if(wholeTrackDrag){const d=wholeTrackDrag,media=d.mediaDuration||waveDuration()||0,requested=(e.clientX-d.startX)/waveVirtualWidth()*media,first=d.points[0],last=d.points[d.points.length-1],minVisual=media>0?last.time-media:-3600,maxVisual=first.time;d.visualDelta=clamp(requested,minVisual,maxVisual);e.preventDefault();if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});return;}
+    if(wholeTrackDrag){const d=wholeTrackDrag,media=d.mediaDuration||waveDuration()||0,requested=(e.clientX-d.startX)/waveVirtualWidth()*media,minVisual=-3600-d.startOffset,maxVisual=3600-d.startOffset;d.visualDelta=clamp(requested,minVisual,maxVisual);e.preventDefault();if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});return;}
     if(!drag){e.currentTarget.style.cursor=gridBarAtTopPointer(e)>=0?'ew-resize':'crosshair';return;}drag.time=clamp(waveTimeAtClientX(e.clientX),drag.minTime,drag.maxTime);cachedAudioTailBar=null;if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});
   }
   let suppressWaveClick=false;
   function wavePointerUp(e){
     if(e&&e.pointerType==='touch'){activeWavePointers.delete(e.pointerId);if(activeWavePointers.size<2)pinchStart=null;if(!activeWavePointers.size)setTimeout(()=>{suppressWaveClick=false;},0);}
-    if(wholeTrackDrag){const d=wholeTrackDrag;wholeTrackDrag=null;if(e&&e.type==='pointercancel'){drawWave();return;}const modelDelta=-d.visualDelta;if(Math.abs(modelDelta)>.0005){meta.points=d.points.map(p=>({...p,time:Math.max(0,p.time+modelDelta)}));meta.trackOffset=clamp(d.startOffset+d.visualDelta,-3600,3600);syncPointMapCache=null;captureEdit();renderDrawer();}suppressWaveClick=true;setTimeout(()=>{suppressWaveClick=false;},0);return;}
+    if(wholeTrackDrag){const d=wholeTrackDrag;wholeTrackDrag=null;if(e&&e.type==='pointercancel'){drawWave();return;}const modelDelta=-d.visualDelta;if(Math.abs(modelDelta)>.0005){meta.points=d.points.map(p=>({...p,time:p.time+modelDelta}));meta.trackOffset=clamp(d.startOffset+d.visualDelta,-3600,3600);syncPointMapCache=null;captureEdit();renderDrawer();}suppressWaveClick=true;setTimeout(()=>{suppressWaveClick=false;},0);return;}
     if(!drag)return;
     const moved=drag;drag=null;
     if(e&&e.type==='pointercancel'){cachedAudioTailBar=null;drawWave();return;}

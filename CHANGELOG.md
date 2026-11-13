@@ -1,3 +1,9 @@
+## 0.828 · 2026-11-12 · Option/Alt track shift beyond grid edges
+
+**B-127 · Option/Alt-drag shifts the backing recording without a grid-boundary stop.** The previous drag limit stopped when the first/last Sync Point reached audio time 0 or the media duration; committing also clamped each point to 0 and could collapse anchor spacing. The gesture now permits shifting until the existing ±3600 s track-offset safety limit, stores signed Sync Point times when an anchor moves outside the clip/grid, and translates every point by the same amount so relative spacing is preserved. The waveform itself is shifted; no playback seek is triggered. The precise Sync Point time editor accepts signed/out-of-clip values for these cases. Regression covers moving anchors past both clip edges (−0.8 s and 8.3 s for an eight-second clip) while preserving their intervals. B-122 unit, browser and release checks pass.
+
+R7: version/cache `0.828` / `struchord-v828`.
+
 ## 0.827 · 2026-11-12 · Safari sync fix
 
 **B-126 · Confirmed independent backing clock.** The owner's Safari 17.6 report shows 0.826 `syncTiming.recent` entries using `audioPath: "element"` at speed 1.0. The 4:49 track decodes at 44.1 kHz stereo to about 97.44 MiB PCM, just above the 96 MiB retention cap, so the backing track fell back to HTMLAudio's independent media clock while guitar events were scheduled against the Sync Point/AudioContext timeline. Report also shows actual element-clock corrections (nudges and grid reanchors). This directly supports the owner's hypothesis. Raise the decoded-buffer limit to 104 MiB so this file uses the shared AudioContext buffer path at 100%; longer tracks and non-100% rates retain the existing HTMLAudio fallback. Regression checks a 97.44 MiB buffer chooses `path: "buffer"`; B-122 unit/browser, audio-session and release checks pass. **Safari must confirm 0.827 now reports `audioPath: "buffer"` and that the drift is gone.**

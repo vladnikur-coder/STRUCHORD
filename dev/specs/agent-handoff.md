@@ -4,7 +4,23 @@
 уже стоило времени: где легко наступить на те же грабли. Проверять по дате —
 если запись устарела, правьте её, а не обходите.
 
-Обновлено: 2026-11-12, версия 0.827.
+Обновлено: 2026-11-12, версия 0.828.
+
+---
+
+## B-127 · 0.828: Option/Alt-drag may shift track beyond clip/grid edges
+
+- User clarified: Option/Alt-drag must still only shift the recording, not seek
+  playback, but should not stop at the grid/audio boundaries.
+- Whole-track drag now clamps only to `trackOffset`'s existing ±3600 s limit.
+  Sync Point times receive the exact common translation, including negative or
+  post-clip times. This avoids previous `Math.max(0, ...)` anchor-spacing damage.
+  Normalization and time editor preserve signed values. Individual point drag
+  still stays within its existing audio/neighbor constraints.
+- Regression in `dev/tests/b122-audio-track-sync-0811.js`: shift [0,4]
+  by +0.8 s => [-0.8,3.2], and [3,7.5] by −0.8 s => [3.8,8.3] on an
+  eight-second clip. Both anchor intervals remain unchanged. B-122 browser and
+  release checks should continue to be run.
 
 ---
 
