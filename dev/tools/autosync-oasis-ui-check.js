@@ -71,7 +71,7 @@ function staticServer() {
     assert.deepStrictEqual(preview.points, oldPoints, 'preview must not mutate existing points');
     assert.strictEqual(preview.disabled, false);
     assert(preview.rows.length >= 2 && preview.rows.length <= 3, preview.rows.join(' | '));
-    const match = preview.summary.match(/([\d.]+) BPM.*Первый удар ([\d.]+) с.*Уверенность (\d+)%/);
+    const match = preview.summary.match(/([\d.]+) BPM.*Начало такта 1 ([\d.]+) с.*Уверенность (\d+)%/);
     assert(match, preview.summary);
     const bpm=Number(match[1]), firstBeat=Number(match[2]), confidence=Number(match[3]);
     assert(bpm>=81.35&&bpm<=81.45,String(bpm));
@@ -92,8 +92,47 @@ function staticServer() {
     await new Promise(resolve=>setTimeout(resolve,100));
     const undone = await page.evaluate(()=>StruChordBackingTrack.serialize().points);
     assert.deepStrictEqual(undone,oldPoints,'Undo must restore the original points in one step');
+
+    // A low-confidence result must hand the downbeat decision to the user,
+    // remain responsive at phone width, and unlock only after explicit input.
+    await page.evaluate(async () => {
+      StruChordAutoSyncAnalyzer.analyze=async()=>({
+        mode:'steady',tempo:{bpm:81.4},firstBeat:.4,
+        points:[{bar:0,time:.4,bpmToNext:81.4},{bar:96,time:283.47,bpmToNext:null}],
+        candidates:[{startTime:.4,harmonyScore:.2,points:[{bar:0,time:.4,bpmToNext:81.4},{bar:96,time:283.47,bpmToNext:null}]}],
+        ambiguousStart:false,confidence:{overall:.2,low:true,reasons:['Гармония не определила начало.']},
+        mismatches:{regions:[]},shouldApply:false
+      });
+      document.querySelector('[data-bt-action="autosync"]').click();
+    });
+    await page.waitForSelector('[data-autosync-run]:not([disabled])',{timeout:120000});
+    await page.evaluate(()=>document.querySelector('[data-autosync-run]').click());
+    await page.waitForSelector('[data-autosync-first-bar-time]',{timeout:120000});
+    const manualBefore = await page.evaluate(() => ({
+      disabled:document.querySelector('[data-autosync-apply]').disabled,
+      hasWaveButton:!!document.querySelector('[data-autosync-pick-first]'),
+      hasPlayheadButton:!!document.querySelector('[data-autosync-use-playhead]'),
+    }));
+    assert(manualBefore.disabled&&manualBefore.hasWaveButton&&manualBefore.hasPlayheadButton,JSON.stringify(manualBefore));
+    await page.evaluate(() => {
+      document.querySelector('[data-autosync-pick-first]').click();
+      const canvas=document.querySelector('#btWaveCanvas'),rect=canvas.getBoundingClientRect();
+      canvas.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,pointerType:'mouse',button:0,clientX:rect.left+rect.width*.1,clientY:rect.top+Math.min(40,rect.height*.5)}));
+    });
+    const manualFallback = await page.evaluate(() => {
+      const panel=document.querySelector('.bt-autosync-panel'),rect=panel.getBoundingClientRect();
+      return {
+        enabled:!document.querySelector('[data-autosync-apply]').disabled,
+        status:document.querySelector('.bt-autosync-manual-status')?.textContent||'',
+        bodyWidth:document.documentElement.scrollWidth,viewport:innerWidth,panelLeft:rect.left,panelRight:rect.right,
+      };
+    });
+    assert(manualFallback.enabled&&manualFallback.status.includes('вручную'),JSON.stringify(manualFallback));
+    assert(manualFallback.bodyWidth<=manualFallback.viewport+1,JSON.stringify(manualFallback));
+    assert(manualFallback.panelLeft>=-1&&manualFallback.panelRight<=manualFallback.viewport+1,JSON.stringify(manualFallback));
+    assert.deepStrictEqual(await page.evaluate(()=>StruChordBackingTrack.serialize().points),oldPoints,'manual preview must not mutate existing points');
     assert.deepStrictEqual(pageErrors,[],'browser page errors');
-    console.log(JSON.stringify({bpm,firstBeat,confidence,previewPoints:preview.rows,mobile,applied,undoRestored:true},null,2));
+    console.log(JSON.stringify({bpm,firstBeat,confidence,previewPoints:preview.rows,mobile,manualFallback,applied,undoRestored:true},null,2));
   } finally {
     await browser.close();
     await new Promise(resolve=>server.close(resolve));

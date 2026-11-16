@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// B-122 / 0.829 · Auto-Sync preview, range-safe Apply, and Undo.
+// B-122 / 0.829+ · Auto-Sync preview, manual first bar, range-safe Apply, and Undo.
 const fs = require('fs');
 const path = require('path');
 const assert = require('assert');
@@ -98,19 +98,51 @@ setTimeout(async () => {
       assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),original);
     });
 
-    // Low confidence must remain preview-only and disable Apply.
+    // Low confidence stays preview-only until the user explicitly places bar 1.
     bt.toggleDrawer(true);
     w.StruChordAutoSyncAnalyzer.analyze = async () => ({
-      mode:'steady',tempo:{bpm:0},firstBeat:0,points:[],candidates:[],ambiguousStart:false,
+      mode:'steady',tempo:{bpm:80},firstBeat:.4,
+      points:[{bar:0,time:.4,bpmToNext:80},{bar:1,time:3.4,bpmToNext:null}],
+      candidates:[{startTime:.4,harmonyScore:.2,points:[{bar:0,time:.4,bpmToNext:80},{bar:1,time:3.4,bpmToNext:null}]}],
+      ambiguousStart:false,
       confidence:{overall:.2,low:true,reasons:['Нет чётких ударов.']},mismatches:{regions:[]},shouldApply:false
     });
     w.document.querySelector('[data-bt-action="autosync"]').onclick();
     w.document.querySelector('[data-autosync-run]').onclick();
     await delay(20);
-    check('low confidence explains the failure, disables Apply, and changes nothing', () => {
+    check('low confidence explains the failure, offers manual bar 1, and initially disables Apply', () => {
       const apply=w.document.querySelector('[data-autosync-apply]');
       assert(apply && apply.disabled);
+      assert(w.document.querySelector('[data-autosync-first-bar-time]'));
+      assert(w.document.querySelector('[data-autosync-pick-first]'));
+      assert(w.document.querySelector('[data-autosync-use-playhead]'));
       assert(w.document.querySelector('#btAutoSyncHost').textContent.includes('Нет чётких ударов'));
+      assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),original);
+    });
+    w.document.querySelector('[data-autosync-pick-first]').onclick();
+    const wave=w.document.querySelector('#btWaveCanvas');
+    wave.dispatchEvent(new w.MouseEvent('pointerdown',{bubbles:true,cancelable:true,clientX:150,clientY:40,button:0}));
+    check('armed waveform click places bar 1 directly and exits placement mode', () => {
+      assert(w.document.querySelector('.bt-autosync-manual-status').textContent.includes('1.000 с'));
+      assert(!w.document.querySelector('#btWaveCanvas').classList.contains('is-autosync-first-bar-pick'));
+    });
+    w.document.querySelector('[data-autosync-clear-manual]').onclick();
+    const manualFirst=w.document.querySelector('[data-autosync-first-bar-time]');
+    manualFirst.value='.750';manualFirst.onchange();
+    check('manual bar 1 shifts the proposal and explicitly unlocks low-confidence Apply', () => {
+      const apply=w.document.querySelector('[data-autosync-apply]');
+      assert(apply && !apply.disabled);
+      assert(w.document.querySelector('.bt-autosync-manual-status').textContent.includes('0.750 с'));
+      assert.deepStrictEqual(Array.from(w.document.querySelectorAll('.bt-autosync-table tbody tr td:nth-child(2)')).map(td=>td.textContent),['0.750 с','3.750 с']);
+      assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),original);
+    });
+    w.document.querySelector('[data-autosync-apply]').onclick();
+    check('manual bar 1 applies the computed tempo while preserving points outside the selected range', () => {
+      assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),[{bar:0,time:.75},{bar:1,time:3.75},{bar:2,time:6.2}]);
+    });
+    if (w.undoEdit) w.undoEdit();
+    await delay(20);
+    check('manual low-confidence Apply is still one atomic Undo step', () => {
       assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),original);
     });
     console.log(`\nAuto-Sync integration checks completed: ${checks.length}.`);
