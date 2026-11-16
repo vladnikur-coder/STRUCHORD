@@ -15803,7 +15803,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.829</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.830</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -46401,6 +46401,19 @@ function scheduleNextEvent(ctx) {
     updatePlaybackPosition(next.sectionIndex, next.squareIndex, next.eventIndex);
   });
 
+  // Ритм анимируется одним независимым проходом на событие. Кандидатом
+  // может быть главная или дополнительная гитара; слышимость дорожки сюда
+  // намеренно не входит — mute/solo управляют только аудиопроходами ниже.
+  let rhythmVisualScheduled = false;
+  const scheduleRhythmVisual = (chord, posCtx, pattern, exact) => {
+    if (rhythmVisualScheduled || !chord || !pattern) return;
+    timelinePassHint = tlPass;
+    schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts,
+      next.square, next.eventIndex, next.event.span || 1, exact, next.section,
+      { audio: false, visuals: true });
+    rhythmVisualScheduled = true;
+  };
+
   if (next.event.chord && next.event.chord.trim() !== '') {
     const oldKey = globalKey;
     if (next.section.key) globalKey = next.section.key;
@@ -46435,14 +46448,21 @@ function scheduleNextEvent(ctx) {
     // Главная дорожка хранит аккорд в ev.chord; клавиши уже запланированы выше.
     const trackState = window.StruChordTracks ? window.StruChordTracks.state() : null;
     const mainTrack = trackState && trackState.tracks.find(t => t.id === trackState.mainTrackId);
+    const mainHasRecordedNotes = Array.isArray(next.event.notes) && next.event.notes.length;
+    const mainUsesGuitarPattern = (!trackState || (mainTrack && mainTrack.instrument === 'guitar'))
+      && !mainHasRecordedNotes;
+    if (mainUsesGuitarPattern) {
+      scheduleRhythmVisual(next.event.chord, posCtx, strumPattern, !!ownEventPattern);
+    }
     const mainGain = !trackState ? 1 : (mainTrack && mainTrack.instrument === 'guitar' ? b39TrackGain(trackState, mainTrack) : 0);
     if (mainGain > 0) b39WithTrackTuning(mainTrack ? mainTrack.id : null, () => b39WithGuitarGain(mainGain, () => {
-      if (Array.isArray(next.event.notes) && next.event.notes.length) {
+      if (mainHasRecordedNotes) {
         scheduleAccompNotes(next.event.notes, evStart, bpm, ts, next.event.chord, effectiveKey);
       } else if (strumPattern) {
         timelinePassHint = tlPass;
         schedulePatternForEvent(next.event.chord, evStart, dur, posCtx, strumPattern, bpm, ts,
-          next.square, next.eventIndex, next.event.span || 1, !!ownEventPattern, next.section);
+          next.square, next.eventIndex, next.event.span || 1, !!ownEventPattern, next.section,
+          { audio: true, visuals: false });
       } else {
         playChordScheduled(next.event.chord, evStart, dur, posCtx);
       }
@@ -46468,16 +46488,21 @@ function scheduleNextEvent(ctx) {
     state.tracks.forEach(track => {
       if (track.id === state.mainTrackId || track.instrument !== 'guitar') return;
       const recNotes = typeof T.recordedNotes === 'function' ? T.recordedNotes(track.id, cell) : null;
-      const chord = T.trackChord(track.id, cell, next.event), gain = b39TrackGain(state, track);
+      const chord = T.trackChord(track.id, cell, next.event);
+      const trackPos = { ...pos, trackId: track.id };
+      if (chord && !(recNotes && recNotes.length)) {
+        scheduleRhythmVisual(chord, trackPos, pattern, !!own);
+      }
+      const gain = b39TrackGain(state, track);
       if ((!chord && !(recNotes && recNotes.length)) || gain <= 0) return;
       b39WithTrackTuning(track.id, () => b39WithGuitarGain(gain, () => {
-        const trackPos={...pos,trackId:track.id};
         if (recNotes && recNotes.length) {
           scheduleAccompNotes(recNotes, evStart, bpm, ts, chord || '', key);
         } else if (pattern) {
           timelinePassHint = tlPass;
           schedulePatternForEvent(chord, evStart, dur, trackPos, pattern, bpm, ts,
-            next.square, next.eventIndex, next.event.span || 1, !!own, next.section);
+            next.square, next.eventIndex, next.event.span || 1, !!own, next.section,
+            { audio: true, visuals: false });
         } else {
           playChordScheduled(chord, evStart, dur, trackPos);
         }
@@ -52547,21 +52572,29 @@ return module.exports;})();window.__keyModules={bridge,draft,renderer};})();
   HOST.StruChordAuto=Object.freeze({open:open,close:close,makePattern:makePattern,refreshSection:refreshSection,addSection:addSection,cloneSection:cloneSection,removeSection:removeSection});
 })(window);
 
-function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, square, eventIndex, span, exact, sec) {
+function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, square, eventIndex, span, exact, sec, scheduleOptions) {
   const ctx = getAudioContext();
   if (!ctx) return;
+  // Ритмическая индикация — часть транспорта, а не аудиосигнала дорожки.
+  // Планировщик вызывает эту функцию один раз только для картинки, а затем
+  // отдельно для каждого слышимого гитарного голоса. Так mute/solo не гасят
+  // шаги боя/перебора и при этом не создают даже беззвучные Web Audio-узлы.
+  const scheduleAudio = !scheduleOptions || scheduleOptions.audio !== false;
+  const scheduleVisuals = !scheduleOptions || scheduleOptions.visuals !== false;
+  if (!scheduleAudio && !scheduleVisuals) return;
   try {
-    const { shape, key } = resolveShapeForScheduledChord(chord, posCtx);
+    const resolved = scheduleAudio ? resolveShapeForScheduledChord(chord, posCtx) : { shape: null, key: null };
+    const { shape, key } = resolved;
     const sub = Math.max(1, pattern.subdivision || 1);
     const stepsInEvent = Math.max(1, Math.round((span || 1) * sub));
     // B-12.5.3: у боя и перебора звучание проверяется на каждом шаге — если
     // переключение тембра попало внутрь события, оно слышно ровно там.
-    const soundWin = sec && square ? partEventWindowUnits(sec, square, eventIndex) : null;
+    const soundWin = scheduleAudio && sec && square ? partEventWindowUnits(sec, square, eventIndex) : null;
 
     let totalSteps, startStepInBar;
     if (exact) {
       if (!Array.isArray(pattern.steps) || !pattern.steps.length) {
-        playChordScheduled(chord, evStart, dur, posCtx);
+        if (scheduleAudio) playChordScheduled(chord, evStart, dur, posCtx);
         return;
       }
       totalSteps = pattern.steps.length;
@@ -52575,7 +52608,7 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
       // квадрата, поэтому длинный рисунок разворачивается через границу
       // такта корректно.
       if (!Array.isArray(pattern.steps) || !pattern.steps.length) {
-        playChordScheduled(chord, evStart, dur, posCtx);
+        if (scheduleAudio) playChordScheduled(chord, evStart, dur, posCtx);
         return;
       }
       const patternUnits = pattern.steps.length / sub;
@@ -52597,7 +52630,9 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
     const stepSeconds = unitSeconds / sub;
     const swingOn = patternHasSwing(pattern);
     // B-39 STAGE5: клавишные дорожки видят ту же сетку и тот же свинг.
-    if (window.StruChordAccomp) window.StruChordAccomp.adoptRhythm(
+    // Обновляем её из единственного визуального прохода: аудиопроходов может
+    // быть несколько (по числу гитар), а при mute их может не быть вовсе.
+    if (scheduleVisuals && window.StruChordAccomp) window.StruChordAccomp.adoptRhythm(
       pattern, ts, bpm, sec, square, eventIndex, evStart, dur);
     // B-63: свинг считается по АБСОЛЮТНОЙ сетке квадрата. Узел первого
     // удара ячейки = (её смещение + фаза) * sub; дальше идут подряд.
@@ -52680,15 +52715,22 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
       // паузу не качаем.
       const restDir = sub % 3 === 0 ? null : (stepIdx % 2 === 0 ? 'rest-down' : 'rest-up');
 
-      if (timelineMode) {
-        if (timelineEls) {
-          // Свой класс: у дорожки другая типографика и другая амплитуда
-          // движения, чем у мелких превью в бейджах.
-          scheduleStrumStepHighlight(ctx, timelineEls, i, t, thisStepSeconds, restDir, 'tl-hit-on');
+      if (scheduleVisuals) {
+        if (timelineMode) {
+          if (timelineEls) {
+            // Свой класс: у дорожки другая типографика и другая амплитуда
+            // движения, чем у мелких превью в бейджах.
+            scheduleStrumStepHighlight(ctx, timelineEls, i, t, thisStepSeconds, restDir, 'tl-hit-on');
+          }
+        } else {
+          scheduleStrumStepHighlight(ctx, resolveEditorHighlight, i, t, thisStepSeconds, restDir);
         }
-      } else {
-        scheduleStrumStepHighlight(ctx, resolveEditorHighlight, i, t, thisStepSeconds, restDir);
       }
+
+      // Визуальный проход намеренно заканчивается до синтеза. Mute/solo
+      // продолжает двигать ритм, но не создаёт голосов с нулевым gain и не
+      // может погасить уже звенящие струны шагом X.
+      if (!scheduleAudio) continue;
 
       // Смешанная лента (волна-5, решение mode_step): режим привязан к
       // шагу — массив/число щипаем перебором, знаки D/U/X/«_» играем
