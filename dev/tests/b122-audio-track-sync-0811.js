@@ -16,7 +16,7 @@ const dom = new JSDOM(html, {
   pretendToBeVisual: true,
   beforeParse(win) {
     win.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
-    win.HTMLCanvasElement.prototype.getContext = function () { const canvas = this; return { font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() { if (canvas.id === 'btWaveCanvas') { win.__btWaveXs = []; win.__btWaveHeights = []; } }, fillRect(x, y, width, height) { if (canvas.id === 'btWaveCanvas') (win.__btWaveHeights ||= []).push(height); }, beginPath() {}, moveTo(x, y) { if (canvas.id === 'btWaveCanvas' && y === 0) (win.__btWaveXs ||= []).push(x); }, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) }; };
+    win.HTMLCanvasElement.prototype.getContext = function () { const canvas = this; return { font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() { if (canvas.id === 'btWaveCanvas') { win.__btWaveXs = []; win.__btWaveHeights = []; win.__btWaveBars = []; } }, fillRect(x, y, width, height) { if (canvas.id === 'btWaveCanvas') { (win.__btWaveHeights ||= []).push(height); (win.__btWaveBars ||= []).push({ x, height }); } }, beginPath() {}, moveTo(x, y) { if (canvas.id === 'btWaveCanvas' && y === 0) (win.__btWaveXs ||= []).push(x); }, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) }; };
     win.__audioInstances = [];
     win.Audio = function () { this.paused = true; this.currentTime = 0; this.volume = 1; this.playbackRate = 1; this.addEventListener = () => {}; this.setAttribute = () => {}; this.load = () => {}; this.pause = () => { this.paused = true; }; this.play = () => { this.paused = false; return Promise.resolve(); }; win.__audioInstances.push(this); };
     win.Blob = Blob;
@@ -82,6 +82,13 @@ setTimeout(async () => {
       const preview = w.document.querySelector('#btDrawer [data-bt-action="preview"]');
       assert(preview, 'preview button exists');
       assert(w.document.getElementById('btPlayhead'), 'playhead time is visible');
+      const intervalBpm = w.document.querySelector('[data-point-bpm="0"]');
+      assert(intervalBpm, 'each non-final Sync Point shows the tempo to the next point');
+      assert.strictEqual(intervalBpm.textContent, '80.0 BPM');
+      const speed = w.document.getElementById('btSpeed');
+      speed.value = '80'; speed.dispatchEvent(new w.Event('input', { bubbles: true }));
+      assert.strictEqual(intervalBpm.textContent, '80.0 → 64.0 BPM', 'tempo label reflects the selected playback rate');
+      speed.value = '100'; speed.dispatchEvent(new w.Event('input', { bubbles: true }));
       preview.click();
       assert.strictEqual(w.document.querySelector('#btDrawer [data-bt-action="preview"]').textContent, 'Пауза MP3');
       assert(w.document.getElementById('btPlayheadCursor').classList.contains('is-visible'), 'playhead appears at the running audio position');
@@ -299,6 +306,42 @@ setTimeout(async () => {
       assert(Math.abs((bt.state.points[1].time - bt.state.points[0].time) - 4) < 0.001, 'relative sync interval is unchanged');
       assert(Math.abs(bt.state.trackOffset - 0.8) < 0.001, 'waveform offset records the visible track movement');
     });
+    await bt.loadSong({ backingTrack: { id: 'track-drag-outside-grid-test', name: 'edge.wav', type: 'audio/wav', size: 512, duration: 8, speed: 1, volume: 80, mute: false, solo: false, points: [{ bar: 0, time: 0 }, { bar: 2, time: 4 }] } });
+    check('Option+drag shifts the whole recording past grid/audio zero without clamping sync points', () => {
+      bt.toggleDrawer(true);
+      const canvas = w.document.getElementById('btWaveCanvas');
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      const pointer = (type, x) => {
+        const event = new w.Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, { pointerType: { value: 'mouse' }, pointerId: { value: 22 }, clientX: { value: x }, clientY: { value: 52 }, altKey: { value: true } });
+        return event;
+      };
+      canvas.dispatchEvent(pointer('pointerdown', 200));
+      canvas.dispatchEvent(pointer('pointermove', 260));
+      canvas.dispatchEvent(pointer('pointerup', 260));
+      assert(Math.abs(bt.state.points[0].time + 0.8) < 0.001, 'first sync anchor is allowed before audio/grid zero');
+      assert(Math.abs(bt.state.points[1].time - 3.2) < 0.001, 'all sync anchors receive the same translation');
+      assert(Math.abs((bt.state.points[1].time - bt.state.points[0].time) - 4) < 0.001, 'sync interval remains unchanged beyond the boundary');
+      assert(Math.abs(bt.state.trackOffset - 0.8) < 0.001, 'the recording shifts while the score grid stays fixed');
+    });
+    await bt.loadSong({ backingTrack: { id: 'track-drag-past-end-test', name: 'edge-end.wav', type: 'audio/wav', size: 512, duration: 8, speed: 1, volume: 80, mute: false, solo: false, points: [{ bar: 0, time: 3 }, { bar: 2, time: 7.5 }] } });
+    check('Option+drag also shifts the recording beyond the clip/grid end', () => {
+      bt.toggleDrawer(true);
+      const canvas = w.document.getElementById('btWaveCanvas');
+      canvas.getBoundingClientRect = () => ({ left: 0, top: 0, right: 600, bottom: 108, width: 600, height: 108 });
+      const pointer = (type, x) => {
+        const event = new w.Event(type, { bubbles: true, cancelable: true });
+        Object.defineProperties(event, { pointerType: { value: 'mouse' }, pointerId: { value: 23 }, clientX: { value: x }, clientY: { value: 52 }, altKey: { value: true } });
+        return event;
+      };
+      canvas.dispatchEvent(pointer('pointerdown', 200));
+      canvas.dispatchEvent(pointer('pointermove', 140));
+      canvas.dispatchEvent(pointer('pointerup', 140));
+      assert(Math.abs(bt.state.points[0].time - 3.8) < 0.001, 'both anchors receive the same leftward translation');
+      assert(Math.abs(bt.state.points[1].time - 8.3) < 0.001, 'last anchor is allowed beyond audio duration');
+      assert(Math.abs((bt.state.points[1].time - bt.state.points[0].time) - 4.5) < 0.001, 'interval remains unchanged past clip end');
+      assert(Math.abs(bt.state.trackOffset + 0.8) < 0.001, 'track offset records the leftward shift');
+    });
     await bt.loadSong({ backingTrack: { id: 'b122-test-audio', name: 'test.wav', type: 'audio/wav', size: 512, duration: 8, speed: 0.5, volume: 80, mute: false, solo: true, points: [{ bar: 0, time: 0 }, { bar: 2, time: 6 }] } });
     check('50 percent speed scales scheduler BPM and duration without pitch shifting', () => {
       const slow = bt.resolveScheduledEvent(null, 0, 0, 0, 0, 0, 10, 4, '4/4', 120);
@@ -340,6 +383,50 @@ setTimeout(async () => {
       assert(bt.peakCount > 1800, `expected high-resolution peaks, received ${bt.peakCount}`);
       assert(Math.max(...w.__btWaveHeights) > 90, 'quiet source is auto-scaled to a clearly visible waveform height');
     });
+
+    const longTotal = 1000003, longRate = 1000;
+    const longWav = Buffer.alloc(44 + longTotal * 2);
+    longWav.write('RIFF', 0); longWav.writeUInt32LE(longWav.length - 8, 4); longWav.write('WAVE', 8);
+    longWav.write('fmt ', 12); longWav.writeUInt32LE(16, 16); longWav.writeUInt16LE(1, 20); longWav.writeUInt16LE(1, 22);
+    longWav.writeUInt32LE(longRate, 24); longWav.writeUInt32LE(longRate * 2, 28); longWav.writeUInt16LE(2, 32); longWav.writeUInt16LE(16, 34);
+    longWav.write('data', 36); longWav.writeUInt32LE(longWav.length - 44, 40);
+    longWav.writeInt16LE(20000, 44 + 700000 * 2);
+    longWav.writeInt16LE(30000, 44 + (longTotal - 1) * 2);
+    await bt.importEmbedded({ backingTrack: { id: 'wav-long-tail', name: 'long-fallback.wav', type: 'audio/wav', size: longWav.length, points: [], embedded: longWav.toString('base64') } });
+    await bt.loadSong({ backingTrack: { id: 'wav-long-tail', name: 'long-fallback.wav', type: 'audio/wav', size: longWav.length, points: [] } });
+    check('WAV fallback keeps only real peak bins and maps late peaks to their sample times', () => {
+      assert.strictEqual(bt.state.duration, longTotal / longRate);
+      assert.strictEqual(bt.peakCount, Math.ceil(longTotal / Math.ceil(longTotal / 500000)));
+      const strongBars = w.__btWaveBars.filter(bar => bar.height > 60).map(bar => bar.x);
+      assert(strongBars.some(x => Math.abs(x - 420) <= 1), `700-second peak should draw at x≈420, got ${strongBars}`);
+      assert(strongBars.includes(599), `last-sample peak should reach the final pixel, got ${strongBars}`);
+    });
+    const zoom = w.document.getElementById('btZoom');
+    zoom.value = '200'; zoom.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    check('waveform peak time mapping remains correct when zoomed and scrolled', () => {
+      const strongBars = w.__btWaveBars.filter(bar => bar.height > 60).map(bar => bar.x);
+      assert(strongBars.some(x => Math.abs(x - 540) <= 1), `700-second peak should draw at x≈540 at 2x zoom, got ${strongBars}`);
+    });
+
+    zoom.value = '100'; zoom.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const decodedData = new Float32Array(longTotal);
+    decodedData[700000] = 0.75; decodedData[longTotal - 1] = 1;
+    w.AudioContext.prototype.decodeAudioData = () => Promise.resolve({
+      duration: longTotal / longRate, length: longTotal, numberOfChannels: 1, sampleRate: longRate,
+      getChannelData: () => decodedData,
+    });
+    const fakeCompressed = Buffer.from('decoder-path-regression');
+    await bt.importEmbedded({ backingTrack: { id: 'decoded-long-tail', name: 'long-decoded.mp3', type: 'audio/mpeg', size: fakeCompressed.length, points: [], embedded: fakeCompressed.toString('base64') } });
+    await bt.loadSong({ backingTrack: { id: 'decoded-long-tail', name: 'long-decoded.mp3', type: 'audio/mpeg', size: fakeCompressed.length, points: [] } });
+    check('AudioBuffer decode uses exact count and sample-time mapping through the last bin', () => {
+      assert.strictEqual(bt.peakCount, Math.ceil(longTotal / Math.ceil(longTotal / 500000)));
+      const strongBars = w.__btWaveBars.filter(bar => bar.height > 60).map(bar => bar.x);
+      assert(strongBars.some(x => Math.abs(x - 420) <= 1), `decoded 700-second peak should draw at x≈420, got ${strongBars}`);
+      assert(strongBars.includes(599), `decoded final-sample peak should reach the final pixel, got ${strongBars}`);
+    });
+    delete w.AudioContext.prototype.decodeAudioData;
     console.log('\nB-122 checks completed.');
   } finally {
     w.close();
