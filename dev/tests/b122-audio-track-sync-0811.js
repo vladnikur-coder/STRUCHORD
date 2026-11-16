@@ -16,7 +16,7 @@ const dom = new JSDOM(html, {
   pretendToBeVisual: true,
   beforeParse(win) {
     win.matchMedia = () => ({ matches: false, addListener() {}, removeListener() {}, addEventListener() {}, removeEventListener() {} });
-    win.HTMLCanvasElement.prototype.getContext = function () { const canvas = this; return { font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() { if (canvas.id === 'btWaveCanvas') { win.__btWaveXs = []; win.__btWaveHeights = []; } }, fillRect(x, y, width, height) { if (canvas.id === 'btWaveCanvas') (win.__btWaveHeights ||= []).push(height); }, beginPath() {}, moveTo(x, y) { if (canvas.id === 'btWaveCanvas' && y === 0) (win.__btWaveXs ||= []).push(x); }, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) }; };
+    win.HTMLCanvasElement.prototype.getContext = function () { const canvas = this; return { font: '', measureText: text => ({ width: String(text || '').length * 8 }), clearRect() { if (canvas.id === 'btWaveCanvas') { win.__btWaveXs = []; win.__btWaveHeights = []; win.__btWaveBars = []; } }, fillRect(x, y, width, height) { if (canvas.id === 'btWaveCanvas') { (win.__btWaveHeights ||= []).push(height); (win.__btWaveBars ||= []).push({ x, height }); } }, beginPath() {}, moveTo(x, y) { if (canvas.id === 'btWaveCanvas' && y === 0) (win.__btWaveXs ||= []).push(x); }, lineTo() {}, stroke() {}, arc() {}, fill() {}, closePath() {}, save() {}, restore() {}, translate() {}, rotate() {}, fillText() {}, strokeText() {}, setTransform() {}, scale() {}, createLinearGradient: () => ({ addColorStop() {} }) }; };
     win.__audioInstances = [];
     win.Audio = function () { this.paused = true; this.currentTime = 0; this.volume = 1; this.playbackRate = 1; this.addEventListener = () => {}; this.setAttribute = () => {}; this.load = () => {}; this.pause = () => { this.paused = true; }; this.play = () => { this.paused = false; return Promise.resolve(); }; win.__audioInstances.push(this); };
     win.Blob = Blob;
@@ -82,6 +82,13 @@ setTimeout(async () => {
       const preview = w.document.querySelector('#btDrawer [data-bt-action="preview"]');
       assert(preview, 'preview button exists');
       assert(w.document.getElementById('btPlayhead'), 'playhead time is visible');
+      const intervalBpm = w.document.querySelector('[data-point-bpm="0"]');
+      assert(intervalBpm, 'each non-final Sync Point shows the tempo to the next point');
+      assert.strictEqual(intervalBpm.textContent, '80.0 BPM');
+      const speed = w.document.getElementById('btSpeed');
+      speed.value = '80'; speed.dispatchEvent(new w.Event('input', { bubbles: true }));
+      assert.strictEqual(intervalBpm.textContent, '80.0 → 64.0 BPM', 'tempo label reflects the selected playback rate');
+      speed.value = '100'; speed.dispatchEvent(new w.Event('input', { bubbles: true }));
       preview.click();
       assert.strictEqual(w.document.querySelector('#btDrawer [data-bt-action="preview"]').textContent, 'Пауза MP3');
       assert(w.document.getElementById('btPlayheadCursor').classList.contains('is-visible'), 'playhead appears at the running audio position');
@@ -376,6 +383,50 @@ setTimeout(async () => {
       assert(bt.peakCount > 1800, `expected high-resolution peaks, received ${bt.peakCount}`);
       assert(Math.max(...w.__btWaveHeights) > 90, 'quiet source is auto-scaled to a clearly visible waveform height');
     });
+
+    const longTotal = 1000003, longRate = 1000;
+    const longWav = Buffer.alloc(44 + longTotal * 2);
+    longWav.write('RIFF', 0); longWav.writeUInt32LE(longWav.length - 8, 4); longWav.write('WAVE', 8);
+    longWav.write('fmt ', 12); longWav.writeUInt32LE(16, 16); longWav.writeUInt16LE(1, 20); longWav.writeUInt16LE(1, 22);
+    longWav.writeUInt32LE(longRate, 24); longWav.writeUInt32LE(longRate * 2, 28); longWav.writeUInt16LE(2, 32); longWav.writeUInt16LE(16, 34);
+    longWav.write('data', 36); longWav.writeUInt32LE(longWav.length - 44, 40);
+    longWav.writeInt16LE(20000, 44 + 700000 * 2);
+    longWav.writeInt16LE(30000, 44 + (longTotal - 1) * 2);
+    await bt.importEmbedded({ backingTrack: { id: 'wav-long-tail', name: 'long-fallback.wav', type: 'audio/wav', size: longWav.length, points: [], embedded: longWav.toString('base64') } });
+    await bt.loadSong({ backingTrack: { id: 'wav-long-tail', name: 'long-fallback.wav', type: 'audio/wav', size: longWav.length, points: [] } });
+    check('WAV fallback keeps only real peak bins and maps late peaks to their sample times', () => {
+      assert.strictEqual(bt.state.duration, longTotal / longRate);
+      assert.strictEqual(bt.peakCount, Math.ceil(longTotal / Math.ceil(longTotal / 500000)));
+      const strongBars = w.__btWaveBars.filter(bar => bar.height > 60).map(bar => bar.x);
+      assert(strongBars.some(x => Math.abs(x - 420) <= 1), `700-second peak should draw at x≈420, got ${strongBars}`);
+      assert(strongBars.includes(599), `last-sample peak should reach the final pixel, got ${strongBars}`);
+    });
+    const zoom = w.document.getElementById('btZoom');
+    zoom.value = '200'; zoom.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    check('waveform peak time mapping remains correct when zoomed and scrolled', () => {
+      const strongBars = w.__btWaveBars.filter(bar => bar.height > 60).map(bar => bar.x);
+      assert(strongBars.some(x => Math.abs(x - 540) <= 1), `700-second peak should draw at x≈540 at 2x zoom, got ${strongBars}`);
+    });
+
+    zoom.value = '100'; zoom.dispatchEvent(new w.Event('input', { bubbles: true }));
+    await new Promise(resolve => setTimeout(resolve, 20));
+    const decodedData = new Float32Array(longTotal);
+    decodedData[700000] = 0.75; decodedData[longTotal - 1] = 1;
+    w.AudioContext.prototype.decodeAudioData = () => Promise.resolve({
+      duration: longTotal / longRate, length: longTotal, numberOfChannels: 1, sampleRate: longRate,
+      getChannelData: () => decodedData,
+    });
+    const fakeCompressed = Buffer.from('decoder-path-regression');
+    await bt.importEmbedded({ backingTrack: { id: 'decoded-long-tail', name: 'long-decoded.mp3', type: 'audio/mpeg', size: fakeCompressed.length, points: [], embedded: fakeCompressed.toString('base64') } });
+    await bt.loadSong({ backingTrack: { id: 'decoded-long-tail', name: 'long-decoded.mp3', type: 'audio/mpeg', size: fakeCompressed.length, points: [] } });
+    check('AudioBuffer decode uses exact count and sample-time mapping through the last bin', () => {
+      assert.strictEqual(bt.peakCount, Math.ceil(longTotal / Math.ceil(longTotal / 500000)));
+      const strongBars = w.__btWaveBars.filter(bar => bar.height > 60).map(bar => bar.x);
+      assert(strongBars.some(x => Math.abs(x - 420) <= 1), `decoded 700-second peak should draw at x≈420, got ${strongBars}`);
+      assert(strongBars.includes(599), `decoded final-sample peak should reach the final pixel, got ${strongBars}`);
+    });
+    delete w.AudioContext.prototype.decodeAudioData;
     console.log('\nB-122 checks completed.');
   } finally {
     w.close();

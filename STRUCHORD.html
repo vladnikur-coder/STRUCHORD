@@ -15630,6 +15630,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       .bt-controls input[type='number'] { width: 3.4rem; padding: 0.2rem; border: 0.0625rem solid var(--color-border-medium, #c9cdd4); border-radius: 0.35rem; font: inherit; }
       .bt-point-list { display: flex; flex-wrap: wrap; gap: 0.35rem; margin-top: 0.45rem; }
       .bt-point-edit { display: inline-flex; align-items: center; gap: 0.25rem; padding: 0.15rem 0.3rem; border: 0.0625rem solid var(--color-border-light, #ddd); border-radius: 0.45rem; }
+      .bt-point-bpm { padding: 0 0.2rem; color: var(--color-text-secondary, #666); font-size: 0.63rem; white-space: nowrap; }
       .bt-point-time { width: 4.6rem; padding: 0.15rem 0.2rem; border: 0.0625rem solid var(--color-border-medium, #c9cdd4); border-radius: 0.3rem; font: inherit; font-size: 0.68rem; }
       .bt-point { border: 0; padding: 0.1rem 0.2rem; background: transparent; color: inherit; font: inherit; font-size: 0.68rem; cursor: pointer; }
       .bt-mixer-toggle { width: 1.65rem; height: 1.65rem; border: 0.0625rem solid var(--color-border-medium, #c9cdd4); border-radius: 0.35rem; background: var(--color-surface, #fff); color: inherit; font: inherit; font-size: 0.68rem; cursor: pointer; }
@@ -87763,6 +87764,7 @@ function gpExportModal(title, bodyHtml, label) {
   let audioUrl = '';
   let peaks = [];
   let peakMax = 0;
+  let peakBinSeconds = 0;
   let duration = 0;
   let raf = 0;
   let playheadRaf = 0;
@@ -88148,6 +88150,7 @@ function gpExportModal(title, bodyHtml, label) {
     let nextBuffer = null;
     let nextBufferBytes = 0;
     let nextPeakMax = 0;
+    let nextPeakBinSeconds = 0;
     let nextDuration = 0;
     const yieldToBrowser = () => new Promise((resolve) => setTimeout(resolve, 0));
     try {
@@ -88162,9 +88165,12 @@ function gpExportModal(title, bodyHtml, label) {
             nextBuffer = buffer;
             nextBufferBytes = (Number(buffer.length) || 0) * (Number(buffer.numberOfChannels) || 1) * 4;
             const data = buffer.getChannelData(0);
-            const count = Math.min(500000, Math.max(1, data.length));
+            const targetCount = Math.min(500000, Math.max(1, data.length));
+            const step = Math.max(1, Math.ceil(data.length / targetCount));
+            const count = Math.max(1, Math.ceil(data.length / step));
+            const sampleRate = Number(buffer.sampleRate) || (nextDuration > 0 ? data.length / nextDuration : 1);
+            nextPeakBinSeconds = step / sampleRate;
             const bins = new Float32Array(count);
-            const step = Math.max(1, Math.ceil(data.length / count));
             let samplesSinceYield = 0;
             for (let i = 0; i < count; i++) {
               let max = 0;
@@ -88184,6 +88190,7 @@ function gpExportModal(title, bodyHtml, label) {
         } catch (_) {
           nextPeaks = [];
           nextPeakMax = 0;
+          nextPeakBinSeconds = 0;
           nextDuration = 0;
         } finally {
           if (ctx.close) try { await ctx.close(); } catch (_) {}
@@ -88208,7 +88215,10 @@ function gpExportModal(title, bodyHtml, label) {
             const frameBytes = fmt.channels * bytesPer;
             const total = Math.floor(dataLen / frameBytes);
             nextDuration = total / fmt.rate;
-            const count = Math.min(500000, Math.max(1, total)), step = Math.max(1, Math.ceil(total / count));
+            const targetCount = Math.min(500000, Math.max(1, total));
+            const step = Math.max(1, Math.ceil(total / targetCount));
+            const count = Math.max(1, Math.ceil(total / step));
+            nextPeakBinSeconds = step / fmt.rate;
             const bins = new Float32Array(count);
             let samplesSinceYield = 0;
             for (let i = 0; i < count; i++) {
@@ -88251,6 +88261,7 @@ function gpExportModal(title, bodyHtml, label) {
     }
     peaks = nextPeaks;
     peakMax = nextPeakMax;
+    peakBinSeconds = nextPeaks.length ? nextPeakBinSeconds : 0;
     duration = nextDuration;
     if (meta && duration > 0) meta.duration = duration;
   }
@@ -88289,8 +88300,11 @@ function gpExportModal(title, bodyHtml, label) {
       const audioStart = viewStart + (x / w) * viewDuration - visualOffset;
       const audioEnd = viewStart + ((x + 1) / w) * viewDuration - visualOffset;
       if (audioEnd <= 0 || audioStart >= mediaLen || !n) continue;
-      const first = Math.max(0, Math.floor(audioStart / mediaLen * n));
-      const after = Math.min(n, Math.max(first + 1, Math.ceil(audioEnd / mediaLen * n)));
+      // Peak bins are spaced by the exact sample stride used during decode;
+      // the final bin may be shorter, so never stretch all bins over duration.
+      const binSeconds = peakBinSeconds > 0 ? peakBinSeconds : mediaLen / n;
+      const first = Math.max(0, Math.floor(audioStart / binSeconds));
+      const after = Math.min(n, Math.max(first + 1, Math.ceil(audioEnd / binSeconds)));
       let peak = 0;
       for (let i = first; i < after; i++) if (peaks[i] > peak) peak = peaks[i];
       const amplitude = Math.min(1, peak * gain);
@@ -88356,15 +88370,50 @@ function gpExportModal(title, bodyHtml, label) {
     });
   }
   function secText(s) { const whole=Math.max(0,Number(s)||0);return `${Math.floor(whole/60)}:${String(Math.floor(whole%60)).padStart(2,'0')}.${String(Math.floor(whole*1000)%1000).padStart(3,'0')}`; }
+  function pointIntervalTempo(index) {
+    if (!meta || !Array.isArray(meta.points)) return null;
+    const point = meta.points[index], next = meta.points[index + 1];
+    if (!point || !next) return null;
+    const quarterSpan = qAtBar(next.bar) - qAtBar(point.bar);
+    const mediaSeconds = next.time - point.time;
+    if (!(quarterSpan > 0) || !(mediaSeconds > 0)) return null;
+    const sourceBpm = 60 * quarterSpan / mediaSeconds;
+    const speed = clamp(Number(meta.speed) || 1, .5, 1.5);
+    return { sourceBpm, playbackBpm: sourceBpm * speed, speed, fromBar: point.bar + 1, toBar: next.bar + 1 };
+  }
+  function pointTempoText(tempo) {
+    if (!tempo) return '';
+    const source = tempo.sourceBpm.toFixed(1), played = tempo.playbackBpm.toFixed(1);
+    return Math.abs(tempo.speed - 1) < .0005 ? `${source} BPM` : `${source} → ${played} BPM`;
+  }
+  function pointTempoTitle(tempo) {
+    if (!tempo) return '';
+    const source = tempo.sourceBpm.toFixed(1), played = tempo.playbackBpm.toFixed(1);
+    return `Средний темп между Sync Points на тактах ${tempo.fromBar} и ${tempo.toBar}: ${source} BPM в записи; ${played} BPM при скорости ${Math.round(tempo.speed * 100)}%.`;
+  }
+  function refreshPointTempoLabels() {
+    const drawer = $('btDrawer');
+    if (!drawer) return;
+    drawer.querySelectorAll('[data-point-bpm]').forEach((label) => {
+      const tempo = pointIntervalTempo(Number(label.dataset.pointBpm));
+      label.textContent = pointTempoText(tempo);
+      label.title = pointTempoTitle(tempo);
+    });
+  }
+  function pointTempoMarkup(index) {
+    const tempo = pointIntervalTempo(index);
+    if (!tempo) return '';
+    return `<span class="bt-point-bpm" data-point-bpm="${index}" title="${pointTempoTitle(tempo)}">${pointTempoText(tempo)}</span>`;
+  }
   function renderDrawer() {
     const drawer=$('btDrawer'); if(!drawer)return;
     if(!meta){drawer.innerHTML='<div class="bt-empty"><strong>Фоновое аудио</strong><p>Загрузите аудиозапись, затем поставьте точки синхронизации на границах тактов.</p><button type="button" class="bt-button" data-bt-action="load">Выбрать аудио</button></div>';drawer.querySelector('[data-bt-action="load"]').onclick=chooseFile;return;}
-    drawer.innerHTML=`<div class="bt-toolbar"><strong class="bt-title">${escapeHtml(meta.name)}</strong><span class="bt-size">${(meta.size/1048576).toFixed(1)} МБ</span><button type="button" class="bt-button" data-bt-action="replace">Заменить</button><button type="button" class="bt-button" data-bt-action="remove">Удалить</button><button type="button" class="bt-button" data-bt-action="close" aria-label="Свернуть">Свернуть</button></div>${missingAudio?'<div class="bt-missing-banner"><span>Аудиофайл не найден в этом браузере.</span><button type="button" class="bt-button" data-bt-action="replace">Связать файл</button></div>':''}<div class="bt-wave-viewport" id="btWaveViewport"><div class="bt-wave-space" id="btWaveSpace"><canvas id="btWaveCanvas" class="bt-wave-canvas" aria-label="Звуковая волна, тактовая сетка и точки синхронизации"></canvas></div><div class="bt-wave-playhead-overlay" aria-hidden="true"><div class="bt-wave-playhead" id="btPlayheadCursor"></div></div></div><div class="bt-hint"><span>Перетащите верхний маркер такта, чтобы поставить/сдвинуть Sync Point. Сдвиг записи за края сетки: Option/Alt + перетаскивание; масштаб: щипок или Ctrl+колесо.</span></div><div class="bt-controls"><button type="button" class="bt-button" data-bt-action="preview" ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>${audio&&!audio.paused?'Пауза MP3':'▶ Прослушать MP3'}</button><output id="btPlayhead" class="bt-status" aria-live="off">${secText(audio&&audio.currentTime||0)}</output><label>Скорость <input id="btSpeed" type="range" min="50" max="150" value="${Math.round(meta.speed*100)}"><output>${Math.round(meta.speed*100)}%</output></label><label>Громкость <input id="btVolume" type="range" min="0" max="100" value="${meta.volume}"></label><label>Точка: такт <input id="btBarInput" type="number" min="1" value="1"></label><label>Масштаб <input id="btZoom" type="range" min="50" max="10000" value="${Math.round(waveZoom*100)}"></label><button type="button" class="bt-button" data-bt-action="addpoint">Добавить точку</button><button type="button" class="bt-button" data-bt-action="delpoint">Удалить выбранную</button><span class="bt-status"></span></div><div class="bt-point-list">${meta.points.map((p,i)=>`<label class="bt-point-edit"><button type="button" class="bt-point${selectedPoint===i?' is-selected':''}" data-point="${i}">Такт ${p.bar+1}</button><input class="bt-point-time" type="number" step="0.001" value="${p.time.toFixed(3)}" data-point-time="${i}" aria-label="Время точки такта ${p.bar+1}, секунды"></label>`).join('')}</div>`;
+    drawer.innerHTML=`<div class="bt-toolbar"><strong class="bt-title">${escapeHtml(meta.name)}</strong><span class="bt-size">${(meta.size/1048576).toFixed(1)} МБ</span><button type="button" class="bt-button" data-bt-action="replace">Заменить</button><button type="button" class="bt-button" data-bt-action="remove">Удалить</button><button type="button" class="bt-button" data-bt-action="close" aria-label="Свернуть">Свернуть</button></div>${missingAudio?'<div class="bt-missing-banner"><span>Аудиофайл не найден в этом браузере.</span><button type="button" class="bt-button" data-bt-action="replace">Связать файл</button></div>':''}<div class="bt-wave-viewport" id="btWaveViewport"><div class="bt-wave-space" id="btWaveSpace"><canvas id="btWaveCanvas" class="bt-wave-canvas" aria-label="Звуковая волна, тактовая сетка и точки синхронизации"></canvas></div><div class="bt-wave-playhead-overlay" aria-hidden="true"><div class="bt-wave-playhead" id="btPlayheadCursor"></div></div></div><div class="bt-hint"><span>Перетащите верхний маркер такта, чтобы поставить/сдвинуть Sync Point. Сдвиг записи за края сетки: Option/Alt + перетаскивание; масштаб: щипок или Ctrl+колесо.</span></div><div class="bt-controls"><button type="button" class="bt-button" data-bt-action="preview" ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>${audio&&!audio.paused?'Пауза MP3':'▶ Прослушать MP3'}</button><output id="btPlayhead" class="bt-status" aria-live="off">${secText(audio&&audio.currentTime||0)}</output><label>Скорость <input id="btSpeed" type="range" min="50" max="150" value="${Math.round(meta.speed*100)}"><output>${Math.round(meta.speed*100)}%</output></label><label>Громкость <input id="btVolume" type="range" min="0" max="100" value="${meta.volume}"></label><label>Точка: такт <input id="btBarInput" type="number" min="1" value="1"></label><label>Масштаб <input id="btZoom" type="range" min="50" max="10000" value="${Math.round(waveZoom*100)}"></label><button type="button" class="bt-button" data-bt-action="addpoint">Добавить точку</button><button type="button" class="bt-button" data-bt-action="delpoint">Удалить выбранную</button><span class="bt-status"></span></div><div class="bt-point-list">${meta.points.map((p,i)=>`<label class="bt-point-edit"><button type="button" class="bt-point${selectedPoint===i?' is-selected':''}" data-point="${i}">Такт ${p.bar+1}</button><input class="bt-point-time" type="number" step="0.001" value="${p.time.toFixed(3)}" data-point-time="${i}" aria-label="Время точки такта ${p.bar+1}, секунды">${pointTempoMarkup(i)}</label>`).join('')}</div>`;
     drawer.querySelector('[data-bt-action="replace"]').onclick=chooseFile; drawer.querySelector('[data-bt-action="remove"]').onclick=removeTrack; drawer.querySelector('[data-bt-action="close"]').onclick=()=>toggleDrawer(false);
     drawer.querySelector('[data-bt-action="preview"]').onclick=toggleAudioPreview;
     drawer.querySelectorAll('[data-point-time]').forEach(input=>input.onchange=()=>editPointTime(input));
     updatePreviewStatus();
-    const speed=drawer.querySelector('#btSpeed');speed.oninput=()=>{meta.speed=Number(speed.value)/100;speed.nextElementSibling.value=speed.value+'%';if(playbackState.isPlaying)restartBackingForSpeed();else{applyBackingVolume();if(audio)audio.playbackRate=meta.speed;}drawWave();};speed.onchange=captureEdit;
+    const speed=drawer.querySelector('#btSpeed');speed.oninput=()=>{meta.speed=Number(speed.value)/100;speed.nextElementSibling.value=speed.value+'%';refreshPointTempoLabels();if(playbackState.isPlaying)restartBackingForSpeed();else{applyBackingVolume();if(audio)audio.playbackRate=meta.speed;}drawWave();};speed.onchange=captureEdit;
     drawer.querySelector('#btVolume').oninput=e=>{meta.volume=Number(e.target.value);applyBackingVolume();syncMixerUi();};drawer.querySelector('#btVolume').onchange=captureEdit;
     drawer.querySelector('[data-bt-action="addpoint"]').onclick=()=>{const b=Math.max(0,(Number(drawer.querySelector('#btBarInput').value)||1)-1);const t=audio?audio.currentTime:Math.max(0,tAtQ(qAtBar(b))),at=meta.points.findIndex(x=>x.bar>b),next=at<0?null:meta.points[at],prev=at<0?meta.points[meta.points.length-1]:meta.points[at-1];if(meta.points.some(x=>x.bar===b)){toast('На этом такте уже есть точка синхронизации');return;}if(prev&&t<=prev.time||next&&t>=next.time){toast('Время новой точки должно идти между соседними точками — запустите MP3 или выберите позицию на волне');return;}meta.points=normalizePoints([...meta.points,{bar:b,time:Math.max(0,t)}]);captureEdit();renderDrawer();};
     drawer.querySelector('[data-bt-action="delpoint"]').onclick=()=>{if(selectedPoint>=0&&selectedPoint<meta.points.length){meta.points.splice(selectedPoint,1);selectedPoint=-1;captureEdit();renderDrawer();}};
@@ -88487,7 +88536,7 @@ function gpExportModal(title, bodyHtml, label) {
     audioUrl=URL.createObjectURL(blob);
     el.src=audioUrl;el.load();renderDrawer();
   }
-  async function removeTrack(){loadToken++;blobLoadToken++;pendingAudioStartFromZero=false;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';setMeta(null);captureEdit();}
+  async function removeTrack(){loadToken++;blobLoadToken++;pendingAudioStartFromZero=false;peaks=[];peakBinSeconds=0;duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';setMeta(null);captureEdit();}
   async function deleteAudio(id){if(id)await dbDelete(String(id));}
   function toggleDrawer(force){const d=$('btDrawer'),b=$('btTransportBtn');if(!d)return;const open=force===undefined?d.hidden:!!force;d.hidden=!open;if(b){b.setAttribute('aria-expanded',String(open));b.classList.toggle('is-active',open);}if(open)renderDrawer();else syncPlayheadAnimation();}
   function syncMixerUi(){const block=$('btMixerBlock'),btn=$('btTransportBtn');if(block){block.innerHTML=meta?`<div class="bt-mixer-row ${missingAudio?'is-missing':''}"><span class="bt-mixer-name">♫ ${escapeHtml(meta.name)}</span><input aria-label="Громкость фонового аудио" type="range" min="0" max="100" value="${meta.volume}" data-bt-volume><button type="button" class="bt-mixer-toggle ${meta.mute?'is-on':''}" data-bt-mute aria-label="Mute фонового аудио">M</button><button type="button" class="bt-mixer-toggle ${meta.solo?'is-on':''}" data-bt-solo aria-label="Solo фонового аудио">S</button><button type="button" class="bt-button" data-bt-open>Волна</button></div>`:'<div class="bt-mixer-row"><span class="bt-mixer-name">Фоновое аудио</span><button type="button" class="bt-button" data-bt-open>Добавить аудио</button></div>';const v=block.querySelector('[data-bt-volume]');if(v)v.oninput=e=>{if(meta){meta.volume=Number(e.target.value);applyBackingVolume();}};if(v)v.onchange=captureEdit;const m=block.querySelector('[data-bt-mute]');if(m)m.onclick=()=>{meta.mute=!meta.mute;applyBackingVolume();syncMixerUi();captureEdit();};const s=block.querySelector('[data-bt-solo]');if(s)s.onclick=()=>{meta.solo=!meta.solo;syncMixerUi();captureEdit();};const o=block.querySelector('[data-bt-open]');if(o)o.onclick=()=>toggleDrawer(true);}
@@ -88820,7 +88869,7 @@ function gpExportModal(title, bodyHtml, label) {
   function syncPreviewToPosition(pos){if(!meta||!audio||playbackState.isPlaying)return;try{audio.currentTime=clamp(pointTimeForPosition(pos),0,Math.max(0,(duration||audio.duration||0)-.02));}catch(_){} }
   function seekDuringPlayback(pos,targetOverride){if(!meta||!pos)return;const ctx=typeof getAudioContext==='function'?getAudioContext():null;if(!ctx)return;const q=eventQuarter(pos.sectionIndex,pos.squareIndex,pos.eventIndex,(pos.sectionRepeatCount||{})['sec_'+pos.sectionIndex],(pos.squareRepeatCount||{})['sq_'+pos.sectionIndex+'_'+pos.squareIndex]);stopAudio();scheduleAudio(ctx,q,Math.max(ctx.currentTime+.02,Number(nextEventTime)||ctx.currentTime+.02),targetOverride);}
   function invalidateGrid(){cachedBarGrid=null;syncPointMapCache=null;cachedAudioTailBar=null;if(!meta)return;meta.points=normalizePoints(meta.points);drawWave();}
-  async function loadSong(song){const token=++loadToken;blobLoadToken++;pendingAudioStartFromZero=false;syncTimingLog=[];cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
+  async function loadSong(song){const token=++loadToken;blobLoadToken++;pendingAudioStartFromZero=false;syncTimingLog=[];cachedBarGrid=null;syncPointMapCache=null;peaks=[];peakBinSeconds=0;duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=cleanMeta(song&&song.backingTrack);lastSongKey=songIdentity();missingAudio=false;if(!meta){renderDrawer();syncMixerUi();return;}const id=meta.id,loadedMeta=meta;const blob=await dbGet(id);if(token!==loadToken)return;if(blob)await loadBlob(blob);else{missingAudio=true;duration=loadedMeta.duration||0;renderDrawer();syncMixerUi();toast('Фоновое аудио не найдено — свяжите исходный файл.');}}
   async function exportSong(song, embed){if(!meta)return song;const out={...song,backingTrack:stateForSave()};return exportStoredSong(out,embed);}
   async function exportStoredSong(song,embed){const out={...song};const bt=cleanMeta(song&&song.backingTrack);if(!bt)return out;out.backingTrack=bt;if(embed){const blob=await dbGet(bt.id);if(blob){const buf=await blob.arrayBuffer();out.backingTrack={...bt,embedded:arrayBufferToBase64(buf)};}else toast('Аудиофайл недоступен; экспортирована только разметка синхронизации.');}return out;}
   function arrayBufferToBase64(buf){let s='';const b=new Uint8Array(buf);for(let i=0;i<b.length;i+=0x8000)s+=String.fromCharCode(...b.subarray(i,i+0x8000));return btoa(s);}
@@ -88850,7 +88899,7 @@ function gpExportModal(title, bodyHtml, label) {
   function getBpmForBar(bar){const q=qAtBar(bar);const b=qAtBar(bar+1);return bpmAtQ(q,b-q||1);}
   function getBpmForEvent(si,qi,ei,sp,qp,span,ts){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp),sig=parseTimeSig(ts||globalTimeSig||'4/4'),dq=Number(span||1)*(4/sig.denominator);return bpmAtQ(q,dq);}
   function getFirstPassBpmForBar(bar){let q=0,b=0;for(const sec of sections||[]){const sig=parseTimeSig(sec.timeSig||globalTimeSig||'4/4'),quarters=sig.numerator*(4/sig.denominator);let sectionQ=0;for(let qi=0;qi<(sec.squares||[]).length;qi++){const count=Math.max(1,Number(sec.squares[qi].repeat)||1);for(let r=0;r<count;r++){if(b===bar)return bpmAtQ(q+sectionQ,quarters);b++;sectionQ+=quarters;}}q+=sectionQ*Math.max(1,Number(sec.repeat)||1);}return getBpmForBar(bar);}
-  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, getSyncTimingDiagnostics, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
+  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, getSyncTimingDiagnostics, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];peakBinSeconds=0;duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
   window.StruChordBackingTrack=api;
   const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();});};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready();
