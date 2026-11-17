@@ -15807,7 +15807,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.837</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.838</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -22125,7 +22125,15 @@ window.songStore = songStore;
     vol.type = 'range'; vol.min = '0'; vol.max = '100'; vol.step = '1';
     vol.value = String(track.volume);
     vol.setAttribute('aria-label', 'Громкость ' + track.name);
-    vol.addEventListener('change', function () { var t = T(); if (t) t.setVolume(track.id, vol.value); });
+    // 0.838: протяжка — звук идёт сразу (модель не трогаем до отпускания:
+    // правило 60 fps и одна запись в историю на жест).
+    vol.addEventListener('input', function () {
+      if (typeof HOST.b39SetTrackLiveVolume === 'function') HOST.b39SetTrackLiveVolume(track.id, vol.value);
+    });
+    vol.addEventListener('change', function () {
+      if (typeof HOST.b39SetTrackLiveVolume === 'function') HOST.b39SetTrackLiveVolume(track.id, null);
+      var t = T(); if (t) t.setVolume(track.id, vol.value);
+    });
 
     var ms = el('div', 'b39-ms');
     var m = el('button', '', 'M');
@@ -22135,6 +22143,7 @@ window.songStore = songStore;
       var t = T(); if (!t) return;
       var cur = t.track(track.id);
       t.setMute(track.id, !(cur && cur.mute));
+      if (typeof HOST.applyLiveTrackMix === 'function') HOST.applyLiveTrackMix();
     });
     var s = el('button', '', 'S');
     s.type = 'button'; s.setAttribute('aria-label', 'Соло ' + track.name);
@@ -22143,6 +22152,7 @@ window.songStore = songStore;
       var t = T(); if (!t) return;
       var cur = t.track(track.id);
       t.setSolo(track.id, !(cur && cur.solo));
+      if (typeof HOST.applyLiveTrackMix === 'function') HOST.applyLiveTrackMix();
     });
     ms.appendChild(m); ms.appendChild(s);
 
@@ -46460,6 +46470,7 @@ function scheduleNextEvent(ctx) {
     }
     const mainGain = !trackState ? 1 : (mainTrack && mainTrack.instrument === 'guitar' ? b39TrackGain(trackState, mainTrack) : 0);
     if (mainGain > 0) b39WithTrackTuning(mainTrack ? mainTrack.id : null, () => b39WithGuitarGain(mainGain, () => {
+      // 0.838: id дорожки — чтобы голос играл через её узел громкости.
       if (mainHasRecordedNotes) {
         scheduleAccompNotes(next.event.notes, evStart, bpm, ts, next.event.chord, effectiveKey);
       } else if (strumPattern) {
@@ -46470,7 +46481,7 @@ function scheduleNextEvent(ctx) {
       } else {
         playChordScheduled(next.event.chord, evStart, dur, posCtx);
       }
-    }));
+    }, mainTrack ? mainTrack.id : null));
     globalKey = oldKey;
   } else if (!timelineMode) {
     // Пауза (в ячейке нет аккорда) — сбрасываем визуальные маркеры в момент,
@@ -46510,7 +46521,7 @@ function scheduleNextEvent(ctx) {
         } else {
           playChordScheduled(chord, evStart, dur, trackPos);
         }
-      }));
+      }, track.id));
     });
   }
 
@@ -49188,16 +49199,165 @@ function partRateCurve(startTime, stopAt, decayEnd, opts) {
 // грифе) -> сухая шина + шина деки (конволюция).
 // Синхронный масштаб одного планируемого гитарного голоса дорожки.
 let b39GuitarGain = 1;
+// 0.838 · мгновенная громкость дорожек.
+//
+// Раньше громкость, Mute и Solo дорожки запекались в каждый голос в момент
+// его планирования (b39GuitarGain), а клавишные дорожки обновляли свою шину
+// только при планировании следующего аккорда. Поэтому ползунок, M или S
+// меняли звук лишь со следующей ноты, а уже звучащие и запланированные
+// вперёд (look-ahead) голоса продолжали играть по-старому.
+//
+// Теперь у дорожки есть собственный узел в графе (b39TrackBus): голос играет
+// через него, а громкость дорожки живёт ТОЛЬКО в этом узле. Любое изменение
+// M/S/громкости (и Solo фоновой записи) применяется к узлу сразу, поэтому
+// слышно в ту же миллисекунду — у уже звучащих голосов и у тех, что
+// запланированы вперёд.
+const LIVE_MIX_RAMP = 0.012; // 12 мс: мгновенно на слух, но без щелчка
+let b39GuitarTrackId = null; // дорожка, в которую планируется текущий голос
+const b39TrackBus = new Map(); // trackId → { ctx, channel, node }
+// Громкость на время протяжки ползунка: модель не трогаем (правило 60 fps),
+// но звук ведём уже по новому значению.
+const b39TrackLive = new Map(); // trackId → 0…100
+
+function backingSoloActive() {
+  return !!(window.StruChordBackingTrack && typeof window.StruChordBackingTrack.isSolo === 'function'
+    && window.StruChordBackingTrack.isSolo());
+}
+
 function b39TrackGain(state, track) {
-  const btSolo = !!(window.StruChordBackingTrack && typeof window.StruChordBackingTrack.isSolo === 'function' && window.StruChordBackingTrack.isSolo());
+  const btSolo = backingSoloActive();
   if (!track || track.mute || ((btSolo || state.tracks.some(t => t.solo)) && !track.solo)) return 0;
   return Math.max(0, Math.min(100, Number.isFinite(Number(track.volume)) ? Number(track.volume) : 100)) / 100;
 }
-function b39WithGuitarGain(gain, work) {
-  const previous = b39GuitarGain;
-  b39GuitarGain = gain;
-  try { return work(); } finally { b39GuitarGain = previous; }
+
+// Громкость дорожки прямо сейчас: протяжка ползунка перекрывает модель.
+function b39TrackLiveVolume(trackId) {
+  const raw = b39TrackLive.get(trackId);
+  return raw === undefined ? null : Math.max(0, Math.min(100, Number(raw) || 0));
 }
+function b39TrackLiveVolumeFor(trackId) {
+  return b39TrackLiveVolume(trackId);
+}
+
+// Что должна звучать дорожка в данный момент (0…1).
+function b39TrackNodeGain(trackId) {
+  const T = window.StruChordTracks;
+  const state = T ? T.state() : null;
+  const track = state ? state.tracks.find((t) => t.id === trackId) : null;
+  if (!state || !track) return 0;
+  const live = b39TrackLiveVolume(trackId);
+  if (live !== null) {
+    const anySolo = backingSoloActive() || state.tracks.some((t) => t.solo);
+    if (track.mute || (anySolo && !track.solo)) return 0;
+    return live / 100;
+  }
+  return b39TrackGain(state, track);
+}
+
+// Плавная (но мгновенная на слух) установка параметра громкости.
+function b39RampGain(param, value, ctx) {
+  if (!param) return;
+  try {
+    const now = ctx && typeof ctx.currentTime === 'number' ? ctx.currentTime : 0;
+    if (typeof param.setTargetAtTime === 'function' && typeof param.cancelScheduledValues === 'function') {
+      param.cancelScheduledValues(now);
+      param.setTargetAtTime(value, now, LIVE_MIX_RAMP);
+      return;
+    }
+    param.value = value;
+  } catch (_) {
+    try { param.value = value; } catch (__) {}
+  }
+}
+
+// Узел дорожки: создаётся лениво, при первом голосе этой дорожки.
+function b39TrackBusFor(ctx, trackId, channel) {
+  if (!ctx || trackId === null || trackId === undefined) return null;
+  ensureLiveMixSubscription();
+  const existing = b39TrackBus.get(trackId);
+  if (existing && existing.ctx === ctx && existing.channel === channel) {
+    // Узел переживает паузы и перезапуски: перед новым голосом подтягиваем
+    // громкость — за время паузы M/S могли измениться.
+    b39RampGain(existing.node.gain, b39TrackNodeGain(trackId), ctx);
+    return existing.node;
+  }
+  let node = null;
+  try { node = ctx.createGain(); } catch (_) { return null; }
+  const entry = { ctx, channel, node };
+  try {
+    node.gain.value = b39TrackNodeGain(trackId);
+  } catch (_) {}
+  try {
+    if (channel && channel.dry) node.connect(channel.dry);
+    else if (channel && channel.input) node.connect(channel.input);
+    else if (channel) node.connect(channel);
+  } catch (_) {}
+  b39TrackBus.set(trackId, entry);
+  return node;
+}
+
+// Единая точка «пересчитать слышимое сейчас»: гитарные узлы дорожек,
+// клавишные шины модуля, громкость фоновой записи и общий микшер.
+function applyLiveTrackMix() {
+  ensureLiveMixSubscription();
+  b39TrackBus.forEach((entry, trackId) => {
+    b39RampGain(entry.node.gain, b39TrackNodeGain(trackId), entry.ctx);
+  });
+  // Клавишные дорожки: свои шины внутри модуля звуков (b39:keys:<id>).
+  try {
+    if (window.StruChordAudio && typeof window.StruChordAudio.applyTrackMix === 'function') {
+      window.StruChordAudio.applyTrackMix();
+    }
+  } catch (_) {}
+  // Фоновая запись: её слышимость зависит от Solo дорожек, и наоборот.
+  try {
+    const bt = window.StruChordBackingTrack;
+    if (bt && typeof bt.applyBackingVolume === 'function') bt.applyBackingVolume();
+  } catch (_) {}
+  try { applyMixerValues(); } catch (_) {}
+}
+
+// Модель — единственный источник правды о том, ЧТО играть; признак «слышно
+// прямо сейчас» не должен оставаться в подписчиках одного окна, поэтому
+// подписываемся на Store: так M/S/громкость применяются из любого места
+// (панель дорожек, микшер, аккомпанемент, горячие клавиши).
+let liveMixSubscribed = false;
+const LIVE_MIX_COMMAND = /^(?:b39\/(?:track-(?:mute|solo|volume|timbre|instrument|tuning)|track-add|track-remove|reorder|set-active|set-main|keyboard-size)|mix\/(?:volume|pan|mute|solo|eq))$/;
+function ensureLiveMixSubscription() {
+  if (liveMixSubscribed) return;
+  const store = typeof window !== 'undefined' ? window.songStore : null;
+  if (!store || typeof store.subscribe !== 'function') return;
+  liveMixSubscribed = true;
+  try {
+    store.subscribe((command) => {
+      if (command && LIVE_MIX_COMMAND.test(String(command.label || ''))) applyLiveTrackMix();
+    });
+  } catch (_) {}
+}
+
+function b39WithGuitarGain(gain, work, trackId) {
+  const previous = b39GuitarGain;
+  const previousTrack = b39GuitarTrackId;
+  b39GuitarGain = gain;
+  if (trackId !== undefined) b39GuitarTrackId = trackId;
+  try { return work(); } finally { b39GuitarGain = previous; b39GuitarTrackId = previousTrack; }
+}
+
+// Протяжка ползунка громкости дорожки: value === null — жест закончен
+// (значение уходит в модель), иначе звук ведём по переданному числу.
+function b39SetTrackLiveVolume(trackId, value) {
+  if (value === null || value === undefined || value === '') b39TrackLive.delete(trackId);
+  else b39TrackLive.set(trackId, Math.max(0, Math.min(100, Number(value) || 0)));
+  applyLiveTrackMix();
+}
+
+// Модули звука (клавишные дорожки, фоновая запись) берут эти точки по имени
+// с window: они загружаются отдельными файлами и не видны в замыкании.
+try {
+  window.applyLiveTrackMix = applyLiveTrackMix;
+  window.b39TrackLiveVolumeFor = b39TrackLiveVolumeFor;
+  window.b39SetTrackLiveVolume = b39SetTrackLiveVolume;
+} catch (_) {}
 function pluckString(ctx, opts) {
   const { freq, startTime, pan } = opts;
   if (!freq) return;
@@ -49208,7 +49368,14 @@ function pluckString(ctx, opts) {
   // («приближаем своим тембром», RSE не делаем).
   const soundInstrument = opts.instrument === 'bass' ? 'bass' : 'guitar';
   const preset = soundPresetById(opts.sound || songSoundNow, soundInstrument);
-  const gain = (Number(opts.gain) || 0) * preset.gain * b39GuitarGain;
+  // Канал микшера ОБЩИЙ для всех дорожек (главная и остальные играют в
+  // «Песню»), поэтому громкость дорожки в него запекать нельзя: она
+  // перестала бы меняться после планирования. Голос дорожки идёт через свой
+  // узел (b39TrackBusFor), и громкость дорожки живёт только там — тогда M/S
+  // и ползунок слышны сразу, даже у уже звучащих голосов.
+  const channel = mixerChannelForVoice(ctx, opts.channel);
+  const trackBusNode = b39GuitarTrackId != null ? b39TrackBusFor(ctx, b39GuitarTrackId, channel) : null;
+  const gain = (Number(opts.gain) || 0) * preset.gain * (trackBusNode ? 1 : b39GuitarGain);
   const duration = Math.min(6, (Number(opts.duration) || 0) * preset.ring);
   const brightness = Math.max(0.05, Math.min(1, (Number(opts.brightness) || 0) + preset.bright));
 
@@ -49304,13 +49471,16 @@ function pluckString(ctx, opts) {
   voiceHead.connect(env);
   // B-12.5.1: голос играет в свой КАНАЛ микшера (песня/партия) — громкость,
   // панорама и mute берутся из него, а не из общих шин.
-  const channel = mixerChannelForVoice(ctx, opts.channel);
-  outNode.connect(channel.dry);
+  // 0.838: у дорожки поверх канала свой узел громкости — чтобы M/S и ползунок
+  // дорожки применялись мгновенно, а не со следующего голоса.
+  const busOut = trackBusNode || outNode;
+  if (trackBusNode) outNode.connect(trackBusNode);
+  busOut.connect(channel.dry);
   // Доля корпуса — свойство пресета: эмбиент шлёт в ревер больше, чистый и
   // перегруз — меньше (в GP это тоже часть «звука» дорожки).
   const send = ctx.createGain();
   send.gain.value = preset.wet;
-  outNode.connect(send);
+  busOut.connect(send);
   send.connect(channel.convolver);
 
   src.start(startTime, skipAttack);
@@ -49647,6 +49817,14 @@ function setMetronomeAccent(a) {
 }
 function setMetronomeMuted(m) {
   metronomeMuted = m;
+  // 0.838: щелчки, уже ушедшие в окно планирования, гаснут сразу — иначе
+  // выключенный метроном ещё добивал бы аккорд вперёд.
+  if (m) {
+    (metronomeScheduledOscillators || []).forEach((entry) => {
+      try { if (entry && entry.osc) entry.osc.stop(); } catch (_) {}
+    });
+    if (metronomeScheduledOscillators) metronomeScheduledOscillators.clear();
+  }
 }
 function stopAllAudio() {
   // B-39 STAGE3: у клавишных голосов свои источники Web Audio.
@@ -89873,7 +90051,7 @@ function gpExportModal(title, bodyHtml, label) {
   async function removeTrack(){resetAutoSyncState(true);loadToken++;blobLoadToken++;pendingAudioStartFromZero=false;peaks=[];peakBinSeconds=0;duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';setMeta(null);captureEdit();}
   async function deleteAudio(id){if(id)await dbDelete(String(id));}
   function toggleDrawer(force){const d=$('btDrawer'),b=$('btTransportBtn');if(!d)return;const open=force===undefined?d.hidden:!!force;d.hidden=!open;if(b){b.setAttribute('aria-expanded',String(open));b.classList.toggle('is-active',open);}if(open)renderDrawer();else syncPlayheadAnimation();}
-  function syncMixerUi(){const block=$('btMixerBlock'),btn=$('btTransportBtn');if(block){block.innerHTML=meta?`<div class="bt-mixer-row ${missingAudio?'is-missing':''}"><span class="bt-mixer-name">♫ ${escapeHtml(meta.name)}</span><input aria-label="Громкость фонового аудио" type="range" min="0" max="100" value="${meta.volume}" data-bt-volume><button type="button" class="bt-mixer-toggle ${meta.mute?'is-on':''}" data-bt-mute aria-label="Mute фонового аудио">M</button><button type="button" class="bt-mixer-toggle ${meta.solo?'is-on':''}" data-bt-solo aria-label="Solo фонового аудио">S</button><button type="button" class="bt-button" data-bt-open>Волна</button></div>`:'<div class="bt-mixer-row"><span class="bt-mixer-name">Фоновое аудио</span><button type="button" class="bt-button" data-bt-open>Добавить аудио</button></div>';const v=block.querySelector('[data-bt-volume]');if(v)v.oninput=e=>{if(meta){meta.volume=Number(e.target.value);applyBackingVolume();}};if(v)v.onchange=captureEdit;const m=block.querySelector('[data-bt-mute]');if(m)m.onclick=()=>{meta.mute=!meta.mute;applyBackingVolume();syncMixerUi();captureEdit();};const s=block.querySelector('[data-bt-solo]');if(s)s.onclick=()=>{meta.solo=!meta.solo;syncMixerUi();captureEdit();};const o=block.querySelector('[data-bt-open]');if(o)o.onclick=()=>toggleDrawer(true);}
+  function syncMixerUi(){const block=$('btMixerBlock'),btn=$('btTransportBtn');if(block){block.innerHTML=meta?`<div class="bt-mixer-row ${missingAudio?'is-missing':''}"><span class="bt-mixer-name">♫ ${escapeHtml(meta.name)}</span><input aria-label="Громкость фонового аудио" type="range" min="0" max="100" value="${meta.volume}" data-bt-volume><button type="button" class="bt-mixer-toggle ${meta.mute?'is-on':''}" data-bt-mute aria-label="Mute фонового аудио">M</button><button type="button" class="bt-mixer-toggle ${meta.solo?'is-on':''}" data-bt-solo aria-label="Solo фонового аудио">S</button><button type="button" class="bt-button" data-bt-open>Волна</button></div>`:'<div class="bt-mixer-row"><span class="bt-mixer-name">Фоновое аудио</span><button type="button" class="bt-button" data-bt-open>Добавить аудио</button></div>';const v=block.querySelector('[data-bt-volume]');if(v)v.oninput=e=>{if(meta){meta.volume=Number(e.target.value);applyBackingVolume();}};if(v)v.onchange=captureEdit;const m=block.querySelector('[data-bt-mute]');if(m)m.onclick=()=>{meta.mute=!meta.mute;applyBackingVolume();syncMixerUi();captureEdit();};const s=block.querySelector('[data-bt-solo]');if(s)s.onclick=()=>{meta.solo=!meta.solo;applyBackingVolume();if(typeof applyLiveTrackMix==='function')applyLiveTrackMix();syncMixerUi();captureEdit();};const o=block.querySelector('[data-bt-open]');if(o)o.onclick=()=>toggleDrawer(true);}
     if(btn){btn.hidden=!meta;btn.classList.toggle('is-missing',!!missingAudio);}applyBackingVolume();
   }
   function isSolo(){return !!(meta&&meta.solo);}
@@ -90238,7 +90416,7 @@ function gpExportModal(title, bodyHtml, label) {
       if (command && gridTimingCommand(command.label)) invalidateGrid();
     });
   }
-  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, getSyncTimingDiagnostics, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{resetAutoSyncState(true);loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];peakBinSeconds=0;duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
+  const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, getSyncTimingDiagnostics, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{resetAutoSyncState(true);loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];peakBinSeconds=0;duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition,applyBackingVolume};
   window.StruChordBackingTrack=api;
   const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();});};
   if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ready,{once:true});else ready();

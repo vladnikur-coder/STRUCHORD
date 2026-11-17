@@ -282,7 +282,35 @@
       if (anySolo && !track.solo) return 0;
       var v = Number(track.volume);
       if (!Number.isFinite(v)) v = 100;
+      // 0.838: протяжка ползунка — звук идёт по новому значению, модель ещё
+      // не тронута (её запишет change).
+      if (typeof HOST.b39TrackLiveVolumeFor === 'function') {
+        var live = HOST.b39TrackLiveVolumeFor(track.id);
+        if (live !== null && live !== undefined) v = live;
+      }
       return Math.max(0, Math.min(100, v)) / 100;
+    }
+
+    // 0.838: применить M/S/громкость к уже звучащим голосам, не дожидаясь
+    // следующего аккорда. Шина дорожки — общая для всех её нот, поэтому
+    // достаточно подвинуть её громкость.
+    function applyTrackMix() {
+      var T = tracks(), state = T ? T.state() : null;
+      if (!state) return;
+      var now = ctxRef && typeof ctxRef.currentTime === 'number' ? ctxRef.currentTime : 0;
+      channels.forEach(function (ch, trackId) {
+        if (!ch || !ch.input) return;
+        var track = T.track(trackId);
+        var gain = track ? effectiveGain(state, track) : 0;
+        try {
+          if (typeof ch.input.gain.setTargetAtTime === 'function') {
+            ch.input.gain.cancelScheduledValues(now);
+            ch.input.gain.setTargetAtTime(gain, now, 0.012);
+          } else {
+            ch.input.gain.value = gain;
+          }
+        } catch (e) { try { ch.input.gain.value = gain; } catch (_) {} }
+      });
     }
 
     // ---------- Голосоведение (базовая версия; часть 5 добавит варианты) ----------
@@ -1014,6 +1042,7 @@
     // офлайн-рендером (тест b39-timbre-voice-0776).
     renderSample:function(ctx,target,mode,midi,start,dur,level,expression,trackId){return playSample(ctx,target,mode,midi,start,dur,level,expression,trackId);},
       voicingFor: voicingFor, effectiveGain: effectiveGain, frequencyOf: frequencyOf,
+      applyTrackMix: applyTrackMix,
       setMode: function (m) { if (['simple','piano','acoustic','rhodes','organ','pad'].indexOf(m)>=0) MODE = m; return MODE; },
       getMode: function () { return MODE; },
       setPedal: function (on) { PEDAL = !!on; return PEDAL; },
