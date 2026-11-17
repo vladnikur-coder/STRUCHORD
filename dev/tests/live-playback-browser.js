@@ -159,7 +159,7 @@ async function launchBrowser() {
     check('editor playback visibly animates the current strum or picking step',
       !hasStrumPattern || (editorRhythm.previews > 0 && editorRhythm.peak > 0),
       hasStrumPattern ? JSON.stringify(editorRhythm) : 'skipped: fixture has no stored strum/picking pattern');
-    const nextChordPreview = await page.evaluate(async () => {
+    const floatingPreview = await page.evaluate(async () => {
       let visibleMs = 0, chord = '';
       let previous = performance.now();
       const until = previous + 1200;
@@ -175,9 +175,20 @@ async function launchBrowser() {
       }
       return { visibleMs: Math.round(visibleMs), chord };
     });
-    check('editor keeps the next chord fingering preview visible during playback',
-      !hasStrumPattern || (nextChordPreview.visibleMs >= 200 && !!nextChordPreview.chord),
-      hasStrumPattern ? JSON.stringify(nextChordPreview) : 'skipped: fixture has no starting rhythm pattern');
+    check('editor playback keeps the floating next-chord preview hidden',
+      floatingPreview.visibleMs === 0 && !floatingPreview.chord,
+      JSON.stringify(floatingPreview));
+    const pinned = await page.evaluate(() => pinFingeringFromTooltip({ skipAppear:true }));
+    await wait(250);
+    const pinnedPreview = await page.evaluate(() => ({
+      pinned: isFingeringPinned(),
+      shown: document.getElementById('pinnedNext').style.display === 'block',
+      chord: document.querySelector('#pinnedNext .fingering-chord-name')?.textContent.trim() || '',
+      floating: document.getElementById('preview-tooltip').style.display,
+    }));
+    check('next-chord preview appears only in the explicitly pinned fingering row',
+      pinned && pinnedPreview.pinned && pinnedPreview.shown && !!pinnedPreview.chord && pinnedPreview.floating !== 'block',
+      JSON.stringify(pinnedPreview));
     const stopButtonReceivesHit = await page.evaluate(() => {
       const button = document.getElementById('btnPlay');
       const rect = button.getBoundingClientRect();
@@ -189,6 +200,7 @@ async function launchBrowser() {
     await wait(200);
     check('real Play button stops editor playback',
       !(await page.evaluate(() => playbackState.isPlaying)));
+    await page.evaluate(() => unpinFingering());
 
     await page.evaluate(() => openStrumPatternEditor('section', sections[0].id));
     if (!(await page.$('#patternGrid .pattern-step-btn.filled'))) {

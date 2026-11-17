@@ -15807,7 +15807,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.834</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.835</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -46524,16 +46524,10 @@ function scheduleNextEvent(ctx) {
     });
   }
 
-  // === РАБОТА С ПРЕВЬЮ ===
-  // A preview belongs to the interval in which its chord is NEXT. Do not
-  // show it during the scheduler's 500 ms look-ahead and then clear it at
-  // the audible start; both clearing the old tooltip and showing the new
-  // next-chord preview are synchronized to evStart below.
-
+  // === ПРЕВЬЮ ЗАКРЕПЛЁННОЙ АППЛИКАТУРЫ ===
   // 0.783: previewEvent и padNext посчитаны выше, до планирования
-  // клавишных. Тем же значением пользуются закреплённый гриф и подсказка
-  // следующего аккорда; второй раз findNextEvent не вызываем, чтобы
-  // счётчики повторов не удваивались.
+  // клавишных. Тем же значением пользуется закреплённый гриф; второй раз
+  // findNextEvent не вызываем, чтобы счётчики повторов не удваивались.
   // Закреплённый гриф ведём за игрой: слева аккорд, который звучит
   // сейчас, справа — следующий.
   if (isFingeringPinned()) schedulePlaybackVisualAt(ctx, evStart, () => {
@@ -46547,59 +46541,10 @@ function scheduleNextEvent(ctx) {
     syncPinnedFingeringWithPlayback('', next.section.id, next.square.id, next.eventIndex, nextPos);
   });
 
-  const previewActiveChord = previewEvent
-    ? pinnedTrackContext({
-        secId: previewEvent.section.id,
-        squareId: previewEvent.square.id,
-        eventIndex: previewEvent.eventIndex,
-      }).chord
-    : '';
-  if (!timelineMode && previewEvent && previewActiveChord) {
-    const previewWrapper = document.querySelector(
-      `.chord-wrapper[data-sec="${previewEvent.section.id}"][data-square="${previewEvent.square.id}"][data-ei="${previewEvent.eventIndex}"]`
-    );
-    if (previewWrapper) {
-      const previewChord = previewActiveChord;
-      const isCurrentLast = isLastEventInSquare(
-        previewEvent.section.id,
-        previewEvent.square.id,
-        previewEvent.eventIndex
-      );
-      schedulePlaybackVisualAt(ctx, evStart, () => {
-        if (!playbackState.isPlaying || timelineMode || !previewWrapper.isConnected) return;
-        const showFingering = document.getElementById('showFingering')?.checked;
-        if (showFingering) showFingeringTooltip(previewChord, previewWrapper, true, isCurrentLast);
-        else hideFingeringTooltip(true);
-
-        const mainTooltip = document.getElementById('fingering-tooltip');
-        const previewEl = document.getElementById('preview-tooltip');
-        if (mainTooltip && previewEl && previewEl.style.display === 'block') {
-          positionPreviewTooltip(mainTooltip, previewEl, previewWrapper);
-          requestAnimationFrame(() => {
-            if (!playbackState.isPlaying || timelineMode) return;
-            positionPreviewTooltip(mainTooltip, previewEl, previewWrapper);
-          });
-          setTimeout(() => {
-            if (!playbackState.isPlaying || timelineMode) return;
-            positionPreviewTooltip(mainTooltip, previewEl, previewWrapper);
-          }, 100);
-        }
-      });
-    } else {
-      schedulePlaybackVisualAt(ctx, evStart, () => hideFingeringTooltip(true));
-    }
-  } else {
-    schedulePlaybackVisualAt(ctx, evStart, () => hideFingeringTooltip(true));
-  }
-
-  // === ОБНОВЛЕНИЕ ПОЗИЦИИ ПРЕВЬЮ (синхронно) ===
-  if (!timelineMode) {
-    const mainTooltip = document.getElementById('fingering-tooltip');
-    const previewEl = document.getElementById('preview-tooltip');
-    if (mainTooltip && previewEl && previewEl.style.display === 'block') {
-      positionPreviewTooltip(mainTooltip, previewEl, null);
-    }
-  }
+  // The floating next-chord preview made editor playback unnecessarily busy.
+  // It now belongs exclusively to the pinned fingering row handled above;
+  // ordinary editor playback keeps only the current fingering tooltip.
+  schedulePlaybackVisualAt(ctx, evStart, () => hideFingeringTooltip(true));
 
   nextEventTime += dur;
   // Держим очередь звука на 500 мс впереди: на Safari старые устройства
