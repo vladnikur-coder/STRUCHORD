@@ -235,6 +235,15 @@ async function launchBrowser() {
       scroll: document.getElementById('timelineViewport').scrollLeft,
       ctx: getAudioContext() && getAudioContext().currentTime,
     }));
+    await page.evaluate(() => {
+      window.__tlTimerProgress = [];
+      const timer = document.getElementById('tlNextTimer');
+      window.__tlTimerObserver = new MutationObserver(() => {
+        const value = parseFloat(timer.style.getPropertyValue('--tl-next-progress'));
+        if (Number.isFinite(value)) window.__tlTimerProgress.push(value);
+      });
+      window.__tlTimerObserver.observe(timer, { attributes:true, attributeFilter:['style'] });
+    });
     await page.click('#btnPlay');
     await wait(3200);
     const after = await page.evaluate((withBackingAudio) => ({
@@ -248,6 +257,22 @@ async function launchBrowser() {
     check('real Play click advances the ribbon and highlights its current cell',
       after.playing && after.time > before.ctx + 2.7 && after.scroll > before.scroll + 40 && after.active && after.backingPlaying,
       JSON.stringify({ before, after }));
+    const timelineTimer = await page.evaluate(() => {
+      window.__tlTimerObserver?.disconnect();
+      const samples = window.__tlTimerProgress || [];
+      const completedPeaks = [];
+      for (let i = 1; i < samples.length; i++) {
+        if (samples[i] < 0.1 && samples[i - 1] - samples[i] > 0.25) completedPeaks.push(samples[i - 1]);
+      }
+      return {
+        samples: samples.length,
+        completedPeaks,
+        minimumPeak: completedPeaks.length ? Math.min(...completedPeaks) : 0,
+      };
+    });
+    check('ribbon next-chord timer reaches the end before starting its next cycle',
+      timelineTimer.completedPeaks.length > 0 && timelineTimer.minimumPeak >= 0.94,
+      JSON.stringify(timelineTimer));
     const ribbonRhythm = await page.evaluate(async () => {
       let peak = 0, hits = 0;
       const until = performance.now() + 1200;
