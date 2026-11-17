@@ -15807,7 +15807,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.832</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.833</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -87827,12 +87827,12 @@ function gpExportModal(title, bodyHtml, label) {
 };
 
 /*
- * STRUCHORD Auto-Sync analysis engine.
+ * STRUCHORD Auto-Sync DSP feature engine.
  *
  * Deliberately independent from STRUCHORD.html: this module accepts an already
- * decoded AudioBuffer plus a plain song object and returns proposed ordinary
- * Sync Points. It has no decoder and no external dependencies. Long loops yield
- * to the event loop so the same implementation can later run in the editor.
+ * This base module extracts onset/chroma features and flattens a score. The
+ * joint tempo/downbeat layer loaded immediately after it performs all ranking.
+ * There is no decoder or external dependency, and long loops yield to the UI.
  */
 (function attachAutoSync(root, factory) {
   const api = factory();
@@ -87843,23 +87843,6 @@ function gpExportModal(title, bodyHtml, label) {
 
   const TAU = Math.PI * 2;
   const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
-  const lerp = (a, b, t) => a + (b - a) * t;
-  const median = (values) => {
-    if (!values.length) return 0;
-    const sorted = values.slice().sort((a, b) => a - b);
-    const mid = sorted.length >> 1;
-    return sorted.length & 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
-  };
-  const percentile = (values, fraction) => {
-    if (!values.length) return 0;
-    const sorted = values.slice().sort((a, b) => a - b);
-    const at = clamp(fraction, 0, 1) * (sorted.length - 1);
-    const lo = Math.floor(at), hi = Math.ceil(at);
-    return lerp(sorted[lo], sorted[hi], at - lo);
-  };
-  const mean = (values) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
-  const stddev = (values, center = mean(values)) => values.length
-    ? Math.sqrt(values.reduce((sum, value) => sum + (value - center) ** 2, 0) / values.length) : 0;
 
   function createWorkScheduler(options, progress) {
     const budgetMs = Math.max(4, Number(options.workBudgetMs) || 12);
@@ -88016,136 +87999,6 @@ function gpExportModal(title, bodyHtml, label) {
     return { values: smooth, hopSeconds, duration: length / sampleRate };
   }
 
-  function sampleCurve(curve, time) {
-    const at = time / curve.hopSeconds - 0.5;
-    if (at < 0 || at >= curve.values.length - 1) return 0;
-    const lo = Math.floor(at), fraction = at - lo;
-    return lerp(curve.values[lo], curve.values[lo + 1], fraction);
-  }
-
-  function localPeak(curve, center, radiusSeconds) {
-    const from = Math.max(0, Math.floor((center - radiusSeconds) / curve.hopSeconds));
-    const to = Math.min(curve.values.length - 1, Math.ceil((center + radiusSeconds) / curve.hopSeconds));
-    let bestIndex = from, bestValue = -Infinity;
-    for (let i = from; i <= to; i++) {
-      if (curve.values[i] > bestValue) { bestValue = curve.values[i]; bestIndex = i; }
-    }
-    return { time: (bestIndex + 0.5) * curve.hopSeconds, strength: Math.max(0, bestValue) };
-  }
-
-  async function estimatePulse(curve, referenceBpm, scheduler, options) {
-    const hop = curve.hopSeconds;
-    const reference = clamp(Number(referenceBpm) || 100, 35, 240);
-    const minBpm = clamp(Number(options.minBpm) || reference * 0.70, 35, 220);
-    const maxBpm = clamp(Number(options.maxBpm) || reference * 1.38, minBpm + 1, 260);
-    const minLag = Math.max(2, Math.floor(60 / maxBpm / hop));
-    const maxLag = Math.min(curve.values.length - 2, Math.ceil(60 / minBpm / hop));
-    const correlations = new Float64Array(maxLag + 1);
-    const energyPrefix = new Float64Array(curve.values.length + 1);
-    for (let i = 0; i < curve.values.length; i++) energyPrefix[i + 1] = energyPrefix[i] + curve.values[i] ** 2;
-    let bestLag = minLag, bestRank = -Infinity;
-    for (let lag = minLag; lag <= maxLag; lag++) {
-      let product = 0;
-      for (let i = lag; i < curve.values.length; i++) product += curve.values[i] * curve.values[i - lag];
-      const leftEnergy = energyPrefix[curve.values.length - lag] - energyPrefix[0];
-      const rightEnergy = energyPrefix[curve.values.length] - energyPrefix[lag];
-      const correlation = product / Math.sqrt(Math.max(1e-12, leftEnergy * rightEnergy));
-      correlations[lag] = correlation;
-      const bpm = 60 / (lag * hop);
-      // The score BPM is only an octave/range prior; audio determines the exact value.
-      const prior = Math.exp(-Math.abs(Math.log(bpm / reference)) * 0.75);
-      const rank = correlation * prior;
-      if (rank > bestRank) { bestRank = rank; bestLag = lag; }
-      if (!(lag % 12)) await scheduler('tempo', (lag - minLag) / Math.max(1, maxLag - minLag));
-    }
-    const y0 = correlations[Math.max(minLag, bestLag - 1)];
-    const y1 = correlations[bestLag];
-    const y2 = correlations[Math.min(maxLag, bestLag + 1)];
-    const denominator = y0 - 2 * y1 + y2;
-    const lagOffset = Math.abs(denominator) > 1e-12 ? clamp(0.5 * (y0 - y2) / denominator, -0.5, 0.5) : 0;
-    let period = (bestLag + lagOffset) * hop;
-
-    // Find the strongest phase for that pulse, then repeatedly snap expected
-    // beats to nearby attacks and robustly fit one straight line.
-    let phase = 0, phaseScore = -Infinity;
-    const phaseStep = hop / 2;
-    const phaseScores = [];
-    for (let candidate = 0; candidate < period; candidate += phaseStep) {
-      let sum = 0, count = 0;
-      for (let time = candidate; time < curve.duration; time += period) {
-        const hit = localPeak(curve, time, Math.min(0.028, period * 0.06));
-        sum += Math.log1p(hit.strength);
-        count++;
-      }
-      const score = count ? sum / count : 0;
-      phaseScores.push(score);
-      if (score > phaseScore) { phaseScore = score; phase = candidate; }
-    }
-
-    let observations = [];
-    for (let iteration = 0; iteration < 4; iteration++) {
-      observations = [];
-      let beatIndex = 0;
-      for (let predicted = phase; predicted < curve.duration; predicted += period, beatIndex++) {
-        const hit = localPeak(curve, predicted, Math.min(0.075, period * 0.12));
-        observations.push({ k: beatIndex, predicted, time: hit.time, strength: hit.strength, residual: hit.time - predicted });
-      }
-      const strengthFloor = percentile(observations.map((item) => item.strength), 0.42);
-      const residualCenter = median(observations.filter((item) => item.strength >= strengthFloor).map((item) => item.residual));
-      const usable = observations.filter((item) => item.strength >= strengthFloor && Math.abs(item.residual - residualCenter) <= 0.055);
-      let sw = 0, sk = 0, st = 0, skk = 0, skt = 0;
-      for (const item of usable) {
-        const weight = Math.min(8, 0.25 + item.strength);
-        sw += weight; sk += weight * item.k; st += weight * item.time;
-        skk += weight * item.k * item.k; skt += weight * item.k * item.time;
-      }
-      const divisor = sw * skk - sk * sk;
-      if (usable.length >= 12 && Math.abs(divisor) > 1e-9) {
-        const nextPeriod = (sw * skt - sk * st) / divisor;
-        const nextPhase = (st - nextPeriod * sk) / sw;
-        if (nextPeriod > period * 0.985 && nextPeriod < period * 1.015) period = nextPeriod;
-        phase = nextPhase;
-      }
-      while (phase < 0) phase += period;
-      while (phase >= period) phase -= period;
-      await scheduler('beat-grid', (iteration + 1) / 4);
-    }
-
-    // Re-sample observations against the final line.
-    observations = [];
-    for (let k = 0, predicted = phase; predicted < curve.duration; k++, predicted = phase + k * period) {
-      const hit = localPeak(curve, predicted, Math.min(0.075, period * 0.12));
-      observations.push({ k, predicted, time: hit.time, strength: hit.strength, residual: hit.time - predicted });
-    }
-
-    const localTempos = [];
-    const halfWindow = Math.max(8, Number(options.tempoWindowSeconds) || 30) / 2;
-    for (let center = halfWindow; center < curve.duration; center += halfWindow) {
-      const subset = observations.filter((item) => item.predicted >= center - halfWindow && item.predicted <= center + halfWindow);
-      if (subset.length < 8) continue;
-      const residualMedian = median(subset.map((item) => item.residual));
-      const filtered = subset.filter((item) => Math.abs(item.residual - residualMedian) <= 0.055);
-      let sk = 0, st = 0, skk = 0, skt = 0, n = 0;
-      for (const item of filtered) { n++; sk += item.k; st += item.time; skk += item.k ** 2; skt += item.k * item.time; }
-      const divisor = n * skk - sk * sk;
-      if (n >= 8 && Math.abs(divisor) > 1e-9) {
-        const slope = (n * skt - sk * st) / divisor;
-        localTempos.push({ center, bpm: 60 / slope, beats: n });
-      }
-    }
-
-    const randomMean = mean(phaseScores), randomStd = stddev(phaseScores, randomMean) || 1;
-    const phaseZ = (phaseScore - randomMean) / randomStd;
-    const bpm = 60 / period;
-    const localBpms = localTempos.map((item) => item.bpm).filter((value) => Math.abs(value - bpm) < bpm * 0.08);
-    const localBpmStd = stddev(localBpms, mean(localBpms));
-    await scheduler('beat-grid', 1);
-    return {
-      bpm, period, phase, observations, localTempos,
-      phaseZ, autocorrelation: correlations[bestLag], localBpmStd,
-    };
-  }
-
   async function downsampleAudio(audioBuffer, targetRate, scheduler) {
     const sourceRate = audioBuffer.sampleRate;
     const channels = Math.max(1, audioBuffer.numberOfChannels || 1);
@@ -88247,335 +88100,549 @@ function gpExportModal(title, bodyHtml, label) {
     return vector;
   }
 
-  function eventChroma(chroma, fromTime, toTime) {
-    const vector = new Float64Array(12);
-    let count = 0;
+  return {
+    flattenScore, chordTemplate,
+    _prototypeInternals: { extractOnsetCurve, extractChroma },
+  };
+});
+
+/*
+ * Joint tempo/downbeat search for STRUCHORD Auto-Sync.
+ *
+ * This layer reuses the dependency-free DSP feature extractors, accepts an
+ * already decoded AudioBuffer, and has no decoder or external libraries. It is
+ * loaded after the DSP module and becomes the application's public analyzer.
+ */
+(function attachJointPrototype(root, factory) {
+  const base = root && root.StruChordAutoSyncAnalyzer;
+  const api = factory(base);
+  if (typeof module === 'object' && module.exports) module.exports = api;
+  if (root) {
+    root.StruChordJointAutoSyncPrototype = api;
+    root.StruChordAutoSyncAnalyzer = api;
+  }
+})(typeof globalThis !== 'undefined' ? globalThis : this, function jointPrototypeFactory(base) {
+  'use strict';
+
+  if (!base || !base._prototypeInternals) throw new Error('Load autosync-analyzer.js before the joint prototype.');
+  const internals = base._prototypeInternals;
+  const clamp = (value, lo, hi) => Math.max(lo, Math.min(hi, value));
+  const lerp = (a, b, t) => a + (b - a) * t;
+  const mean = (values) => values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
+  const median = (values) => {
+    if (!values.length) return 0;
+    const sorted = values.slice().sort((a, b) => a - b);
+    const mid = sorted.length >> 1;
+    return sorted.length & 1 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+  };
+  const percentile = (values, fraction) => {
+    if (!values.length) return 0;
+    const sorted = values.slice().sort((a, b) => a - b);
+    const at = clamp(fraction, 0, 1) * (sorted.length - 1);
+    const lo = Math.floor(at), hi = Math.ceil(at);
+    return lerp(sorted[lo], sorted[hi], at - lo);
+  };
+
+  function makeScheduler(options) {
+    const budget = Math.max(4, Number(options && options.workBudgetMs) || 12);
+    const progress = options && typeof options.onProgress === 'function' ? options.onProgress : null;
+    let lastYield = performance.now();
+    return async (stage, fraction) => {
+      if (options && typeof options.isCancelled === 'function' && options.isCancelled()) {
+        const error = new Error('Joint Auto-Sync cancelled'); error.name = 'AbortError'; throw error;
+      }
+      if (progress) progress({ stage, fraction: clamp(Number(fraction) || 0, 0, 1) });
+      if (performance.now() - lastYield >= budget) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        lastYield = performance.now();
+      }
+    };
+  }
+
+  function buildChromaPrefix(chroma) {
+    const prefix = new Float64Array((chroma.frameCount + 1) * 12);
+    for (let frame = 0; frame < chroma.frameCount; frame++) {
+      const before = frame * 12, after = (frame + 1) * 12;
+      for (let pitch = 0; pitch < 12; pitch++) prefix[after + pitch] = prefix[before + pitch] + chroma.frames[before + pitch];
+    }
+    return prefix;
+  }
+
+  function normalizedChroma(prepared, fromTime, toTime) {
+    const chroma = prepared.chroma;
     const first = Math.max(0, Math.ceil((fromTime - chroma.windowSeconds / 2) / chroma.hopSeconds));
     const after = Math.min(chroma.frameCount, Math.floor((toTime - chroma.windowSeconds / 2) / chroma.hopSeconds) + 1);
-    for (let frame = first; frame < after; frame++) {
-      for (let pitch = 0; pitch < 12; pitch++) vector[pitch] += chroma.frames[frame * 12 + pitch];
-      count++;
+    const count = after - first;
+    if (count <= 0) return null;
+    const vector = new Float64Array(12);
+    let floor = Infinity;
+    for (let pitch = 0; pitch < 12; pitch++) {
+      vector[pitch] = (prepared.chromaPrefix[after * 12 + pitch] - prepared.chromaPrefix[first * 12 + pitch]) / count;
+      floor = Math.min(floor, vector[pitch]);
     }
-    if (!count) return null;
-    const floor = Math.min(...vector) / count;
-    // Remove the broadband floor before cosine matching. Without this step a
-    // dense mix looks almost uniform in chroma space and all chords score alike.
-    for (let pitch = 0; pitch < 12; pitch++) vector[pitch] = Math.max(0, vector[pitch] / count - floor);
-    const norm = Math.sqrt(vector.reduce((sum, value) => sum + value * value, 0)) || 1;
+    let norm = 0;
+    for (let pitch = 0; pitch < 12; pitch++) { vector[pitch] = Math.max(0, vector[pitch] - floor); norm += vector[pitch] ** 2; }
+    norm = Math.sqrt(norm) || 1;
     for (let pitch = 0; pitch < 12; pitch++) vector[pitch] /= norm;
     return vector;
   }
 
-  function scoreHarmonyCandidate(score, chroma, startTime, period, audioDuration, withWindows) {
-    let weightedScore = 0, totalWeight = 0;
-    const windowStats = new Map();
-    for (const event of score.events) {
-      const template = chordTemplate(event.chord);
-      if (!template) continue;
+  function cosine(a, b) {
+    if (!a || !b) return 0;
+    let value = 0;
+    for (let pitch = 0; pitch < 12; pitch++) value += a[pitch] * b[pitch];
+    return value;
+  }
+
+  function sampleEvents(events, limit) {
+    if (events.length <= limit) return events;
+    const result = [], used = new Set();
+    for (let index = 0; index < limit; index++) {
+      const at = Math.round(index * (events.length - 1) / (limit - 1));
+      if (!used.has(at)) { used.add(at); result.push(events[at]); }
+    }
+    return result;
+  }
+
+  function harmonyScore(prepared, bpm, startTime, subset) {
+    const period = 60 / bpm;
+    const events = subset || prepared.chordEvents;
+    let weighted = 0, includedWeight = 0, possibleWeight = 0;
+    for (const item of events) {
+      const event = item.event;
+      const baseWeight = Math.min(4, event.span);
+      possibleWeight += baseWeight;
       const eventStart = startTime + event.q * period;
       const eventEnd = startTime + (event.q + event.span) * period;
-      // Ignore the first quarter of each event as a harmonic transition.
       const analysisStart = eventStart + (eventEnd - eventStart) * 0.25;
-      if (analysisStart < 0 || eventEnd > audioDuration || eventEnd <= analysisStart) continue;
-      const vector = eventChroma(chroma, analysisStart, eventEnd);
+      if (analysisStart < 0 || eventEnd > prepared.duration || eventEnd <= analysisStart) continue;
+      const vector = normalizedChroma(prepared, analysisStart, eventEnd);
       if (!vector) continue;
-      let similarity = 0;
-      for (let pitch = 0; pitch < 12; pitch++) similarity += vector[pitch] * template[pitch];
-      const weight = Math.min(4, event.span) * Math.max(0.2, Math.min(1, (eventEnd - analysisStart) / 1.2));
-      weightedScore += similarity * weight;
-      totalWeight += weight;
-      if (withWindows) {
-        const windowIndex = Math.floor(event.bar / 8);
-        const stat = windowStats.get(windowIndex) || { fromBar: windowIndex * 8, toBar: windowIndex * 8 + 8, score: 0, weight: 0 };
-        stat.score += similarity * weight; stat.weight += weight;
-        windowStats.set(windowIndex, stat);
-      }
+      const durationWeight = Math.max(0.25, Math.min(1, (eventEnd - analysisStart) / 1.15));
+      const weight = baseWeight * durationWeight;
+      weighted += cosine(vector, item.template) * weight;
+      includedWeight += weight;
     }
-    return {
-      score: totalWeight ? weightedScore / totalWeight : 0,
-      coverage: score.events.length ? totalWeight / score.events.length : 0,
-      windows: withWindows ? Array.from(windowStats.values()).map((item) => ({ ...item, score: item.weight ? item.score / item.weight : 0 })) : [],
-    };
+    const harmony = includedWeight ? weighted / includedWeight : 0;
+    const coverage = possibleWeight ? Math.min(1, includedWeight / possibleWeight) : 0;
+    const schemeEnd = startTime + prepared.score.totalQ * period;
+    const durationRatio = schemeEnd / Math.max(0.1, prepared.duration);
+    const durationPenalty = Math.abs(Math.log(Math.max(0.05, durationRatio)));
+    return { harmony, coverage, durationRatio, rank: harmony * (0.72 + 0.28 * coverage) - 0.085 * durationPenalty };
   }
 
-  async function alignScoreByHarmony(score, chroma, pulse, audioDuration, scheduler, options) {
-    const before = Math.max(2, Number(options.candidateBeatsBefore) || 6);
-    const after = Math.max(8, Number(options.candidateBeatsAfter) || 20);
-    const candidates = [];
-    for (let beatOffset = -before; beatOffset <= after; beatOffset++) {
-      const startTime = pulse.phase + beatOffset * pulse.period;
-      // A negative candidate silently discards the beginning of the score and
-      // can look harmonically plausible in a repeating progression. The first
-      // score beat must be an audible beat in the recording; manual offset can
-      // still move it before zero later if that is genuinely intended.
-      if (startTime < -0.05 || startTime > Math.min(15, audioDuration / 4)) continue;
-      const harmonic = scoreHarmonyCandidate(score, chroma, startTime, pulse.period, audioDuration, false);
-      candidates.push({ beatOffset, startTime, harmonyScore: harmonic.score, coverage: harmonic.coverage });
-      await scheduler('harmony-alignment', (beatOffset + before) / (before + after + 1));
-    }
-    candidates.sort((a, b) => b.harmonyScore - a.harmonyScore);
-    const best = candidates[0] || { beatOffset: 0, startTime: pulse.phase, harmonyScore: 0, coverage: 0 };
-    const detailed = scoreHarmonyCandidate(score, chroma, best.startTime, pulse.period, audioDuration, true);
-    best.windows = detailed.windows;
-    const alternatives = candidates.slice(0, 3);
-    const margin = alternatives.length > 1 ? alternatives[0].harmonyScore - alternatives[1].harmonyScore : alternatives[0] ? alternatives[0].harmonyScore : 0;
-    await scheduler('harmony-alignment', 1);
-    return { best, alternatives, margin, ambiguous: margin < (Number(options.harmonyMargin) || 0.035) };
+  function onsetStrength(prepared, time) {
+    const curve = prepared.curve;
+    const center = Math.round(time / curve.hopSeconds - 0.5);
+    const radius = Math.max(1, Math.round(0.035 / curve.hopSeconds));
+    let peak = 0;
+    for (let index = Math.max(0, center - radius); index <= Math.min(curve.values.length - 1, center + radius); index++) peak = Math.max(peak, curve.values[index]);
+    return clamp(Math.log1p(peak) / prepared.onsetLogScale, 0, 1.5) / 1.5;
   }
 
-  function scoreEventAttacks(curve, score, startTime, bpm) {
+  function transitionStrength(prepared, time, beforeTemplate, afterTemplate, period) {
+    const outer = clamp(period * 0.48, 0.20, 0.38);
+    const gap = clamp(period * 0.09, 0.025, 0.055);
+    const before = normalizedChroma(prepared, time - outer, time - gap);
+    const after = normalizedChroma(prepared, time + gap, time + outer);
+    if (!before || !after) return { change: 0, fit: 0 };
+    const rawChange = clamp(1 - cosine(before, after), 0, 1);
+    const change = clamp(rawChange / prepared.chromaChangeScale, 0, 1.5) / 1.5;
+    const fit = beforeTemplate ? (cosine(before, beforeTemplate) + cosine(after, afterTemplate)) / 2 : cosine(after, afterTemplate);
+    return { change, fit };
+  }
+
+  function boundaryScore(prepared, bpm, startTime) {
     const period = 60 / bpm;
-    let sum = 0, weightSum = 0;
-    for (const event of score.events) {
-      const time = startTime + event.q * period;
-      if (time < 0 || time >= curve.duration) continue;
-      let strength = 0;
-      const radius = 0.012;
-      for (let offset = -radius; offset <= radius + 1e-9; offset += curve.hopSeconds / 2) {
-        strength = Math.max(strength, sampleCurve(curve, time + offset));
-      }
-      const weight = Math.min(2, event.span);
-      sum += Math.log1p(strength) * weight;
-      weightSum += weight;
+    let weighted = 0, totalWeight = 0;
+    for (const boundary of prepared.boundaries) {
+      const time = startTime + boundary.q * period;
+      if (time < 0.1 || time > prepared.duration - 0.4) continue;
+      const onset = onsetStrength(prepared, time);
+      const transition = transitionStrength(prepared, time, boundary.beforeTemplate, boundary.afterTemplate, period);
+      const value = boundary.first
+        ? 0.58 * onset + 0.42 * transition.fit
+        : 0.30 * onset + 0.38 * transition.change + 0.32 * transition.fit;
+      const weight = boundary.first ? 1.2 : 1;
+      weighted += value * weight; totalWeight += weight;
     }
-    return weightSum ? sum / weightSum : 0;
+    return totalWeight ? weighted / totalWeight : 0;
   }
 
-  async function refineScoreGrid(curve, score, pulse, alignment, chroma, scheduler) {
-    // The global beat fit is deliberately phase-agnostic and may centre the
-    // line tens of milliseconds away from the first transient. Snap the chosen
-    // harmonic candidate to the strongest nearby attack, then estimate the
-    // straight-line tempo from all score-event attacks while holding that first
-    // beat fixed. On Oasis this distinguishes 81.4 from the old 82.85 mapping.
-    const coarseStart = alignment.best.startTime;
-    const firstAttack = localPeak(curve, coarseStart, Math.min(0.12, pulse.period * 0.20));
-    const localBpms = pulse.localTempos.map((item) => item.bpm)
-      .filter((value) => Number.isFinite(value) && Math.abs(value - pulse.bpm) < pulse.bpm * 0.08)
-      .sort((a, b) => a - b);
-    const trim = Math.floor(localBpms.length * 0.10);
-    const centralBpms = localBpms.slice(trim, Math.max(trim + 1, localBpms.length - trim));
-    const seedBpm = centralBpms.length ? mean(centralBpms) : pulse.bpm;
-    let bestBpm = seedBpm, bestAttackScore = -Infinity;
-    const fromBpm = Math.max(35, seedBpm - 0.8), toBpm = Math.min(260, seedBpm + 0.8);
-    for (let bpm = fromBpm; bpm <= toBpm + 1e-9; bpm += 0.002) {
-      const scoreValue = scoreEventAttacks(curve, score, firstAttack.time, bpm);
-      if (scoreValue > bestAttackScore) { bestAttackScore = scoreValue; bestBpm = bpm; }
-      if (!(Math.round((bpm - fromBpm) * 500) % 40)) await scheduler('grid-refinement', (bpm - fromBpm) / (toBpm - fromBpm));
-    }
-    pulse.bpm = bestBpm;
-    pulse.period = 60 / bestBpm;
-    pulse.phase = firstAttack.time;
-
-    // Recompute the few preview candidates at the refined tempo. Each candidate
-    // is independently snapped to a nearby attack so their audition starts are
-    // useful if harmonic confidence is tied.
-    const refinedCandidates = alignment.alternatives.map((candidate) => {
-      const snapped = localPeak(curve, candidate.startTime, Math.min(0.12, pulse.period * 0.20));
-      const harmonic = scoreHarmonyCandidate(score, chroma, snapped.time, pulse.period, curve.duration, false);
-      return { ...candidate, startTime: snapped.time, harmonyScore: harmonic.score, coverage: harmonic.coverage };
-    }).sort((a, b) => b.harmonyScore - a.harmonyScore);
-    alignment.alternatives = refinedCandidates;
-    alignment.best = refinedCandidates[0] || { ...alignment.best, startTime: firstAttack.time };
-    const detailed = scoreHarmonyCandidate(score, chroma, alignment.best.startTime, pulse.period, curve.duration, true);
-    alignment.best.harmonyScore = detailed.score;
-    alignment.best.coverage = detailed.coverage;
-    alignment.best.windows = detailed.windows;
-    alignment.margin = refinedCandidates.length > 1 ? refinedCandidates[0].harmonyScore - refinedCandidates[1].harmonyScore : alignment.best.harmonyScore;
-    alignment.ambiguous = alignment.margin < 0.035;
-
-    pulse.observations = [];
-    for (let k = 0, predicted = alignment.best.startTime; predicted < curve.duration; k++, predicted = alignment.best.startTime + k * pulse.period) {
-      const hit = localPeak(curve, predicted, Math.min(0.075, pulse.period * 0.12));
-      pulse.observations.push({ k, predicted, time: hit.time, strength: hit.strength, residual: hit.time - predicted });
-    }
-    await scheduler('grid-refinement', 1);
-    return { coarseStart, snappedStart: alignment.best.startTime, attackScore: bestAttackScore, seedBpm };
-  }
-
-  function buildFollowBeatTimes(pulse) {
-    const observed = pulse.observations;
-    const corrections = observed.map((item, index) => {
-      let sum = 0, weight = 0;
-      const from = Math.max(0, index - 8), to = Math.min(observed.length - 1, index + 8);
-      for (let j = from; j <= to; j++) {
-        const distance = Math.abs(j - index);
-        const w = (9 - distance) * Math.min(5, 0.2 + observed[j].strength);
-        if (Math.abs(observed[j].residual) <= 0.09) { sum += observed[j].residual * w; weight += w; }
+  function sectionOffsetReport(prepared, bpm, startTime) {
+    const period = 60 / bpm;
+    const observations = prepared.boundaries.filter((boundary) => !boundary.first).map((boundary) => {
+      const predicted = startTime + boundary.q * period;
+      const curve = prepared.curve;
+      const from = Math.max(0, Math.floor((predicted - 0.12) / curve.hopSeconds));
+      const to = Math.min(curve.values.length - 1, Math.ceil((predicted + 0.12) / curve.hopSeconds));
+      let bestIndex = from, bestValue = -Infinity;
+      for (let index = from; index <= to; index++) {
+        const time = (index + 0.5) * curve.hopSeconds;
+        const onset = clamp(Math.log1p(curve.values[index]) / prepared.onsetLogScale, 0, 1.5) / 1.5;
+        // Chroma validates that this is a harmonic boundary; onset timing gives
+        // the millisecond-scale offset that the coarse chroma hop cannot.
+        const transition = transitionStrength(prepared, time, boundary.beforeTemplate, boundary.afterTemplate, period);
+        const value = 0.64 * onset + 0.20 * transition.change + 0.16 * transition.fit;
+        if (value > bestValue) { bestValue = value; bestIndex = index; }
       }
-      return weight ? clamp(sum / weight, -0.12, 0.12) : 0;
+      const time = (bestIndex + 0.5) * curve.hopSeconds;
+      return { ...boundary, predicted, time, offset: time - predicted, strength: bestValue };
     });
-    // Limit acceleration so a single fill cannot kink the tempo map.
-    for (let pass = 0; pass < 3; pass++) {
-      for (let i = 1; i + 1 < corrections.length; i++) {
-        const smooth = (corrections[i - 1] + 2 * corrections[i] + corrections[i + 1]) / 4;
-        corrections[i] = lerp(corrections[i], smooth, 0.65);
-      }
+
+    const reports = prepared.sections.map((section, sectionIndex) => {
+      const hits = observations.filter((item) => item.q >= section.startQ && item.q < section.endQ);
+      const floor = percentile(hits.map((item) => item.strength), 0.30);
+      const reliable = hits.filter((item) => item.strength >= floor);
+      const offsets = reliable.map((item) => item.offset);
+      const center = median(offsets);
+      const deviations = offsets.map((value) => Math.abs(value - center));
+      const mad = median(deviations);
+      const support = offsets.length ? offsets.filter((value) => Math.abs(value - center) <= 0.050).length / offsets.length : 0;
+      return {
+        ...section, sectionIndex, observations: offsets.length, offset: center, mad,
+        support, stable: offsets.length >= 3 && mad <= 0.040 && support >= 0.67,
+      };
+    });
+
+    // A three-section weighted smoother rejects a fill or a single noisy
+    // section. A tempo bend is considered confirmed only when an adjacent
+    // section has a stable offset on the same side of the straight grid.
+    for (let index = 0; index < reports.length; index++) {
+      const nearby = reports.slice(Math.max(0, index - 1), Math.min(reports.length, index + 2)).filter((item) => item.stable);
+      reports[index].smoothedOffset = nearby.length ? median(nearby.map((item) => item.offset)) : reports[index].offset;
+      reports[index].confirmed = reports[index].stable && nearby.some((item) => item !== reports[index]
+        && Math.sign(item.offset) === Math.sign(reports[index].offset)
+        && Math.abs(item.offset) > 0.035);
     }
-    return corrections;
+    return reports;
   }
 
-  function rdpIndices(points, tolerance) {
-    if (points.length <= 2) return points.map((_, index) => index);
-    const keep = new Set([0, points.length - 1]);
-    const stack = [[0, points.length - 1]];
-    while (stack.length) {
-      const [from, to] = stack.pop();
-      const a = points[from], b = points[to];
-      let bestIndex = -1, bestError = tolerance;
-      for (let i = from + 1; i < to; i++) {
-        const fraction = (points[i].q - a.q) / Math.max(1e-9, b.q - a.q);
-        const predicted = lerp(a.time, b.time, fraction);
-        const error = Math.abs(points[i].time - predicted);
-        if (error > bestError) { bestError = error; bestIndex = i; }
-      }
-      if (bestIndex >= 0) { keep.add(bestIndex); stack.push([from, bestIndex], [bestIndex, to]); }
-    }
-    return Array.from(keep).sort((a, b) => a - b);
+  function proposeStablePoints(prepared, bpm, startTime) {
+    const period = 60 / bpm;
+    const sectionOffsets = sectionOffsetReport(prepared, bpm, startTime);
+    const sustained = sectionOffsets
+      .filter((item) => item.bar > 0 && item.bar < prepared.score.totalBars && item.confirmed && Math.abs(item.smoothedOffset) > 0.050)
+      .sort((a, b) => a.bar - b.bar)
+      // One point starts a sustained run; another point with essentially the
+      // same correction would create a visually redundant BPM segment.
+      .filter((item, index, rows) => !index || Math.abs(item.smoothedOffset - rows[index - 1].smoothedOffset) >= 0.030);
+    const internal = sustained
+      .sort((a, b) => Math.abs(b.smoothedOffset) - Math.abs(a.smoothedOffset))
+      .slice(0, 2)
+      .sort((a, b) => a.bar - b.bar)
+      .map((item) => ({ bar: item.bar, q: item.startQ, time: startTime + item.startQ * period + item.smoothedOffset }));
+    const lastStable = sectionOffsets.slice().reverse().find((item) => item.stable && item.confirmed);
+    const endCorrection = lastStable && Math.abs(lastStable.smoothedOffset) > 0.050 ? lastStable.smoothedOffset : 0;
+    const raw = [
+      { bar: 0, q: 0, time: startTime },
+      ...internal,
+      { bar: prepared.score.totalBars, q: prepared.score.totalQ, time: startTime + prepared.score.totalQ * period + endCorrection },
+    ];
+    const points = raw.map((point, index) => {
+      const next = raw[index + 1];
+      return { bar: point.bar, q: point.q, time: point.time, bpmToNext: next ? 60 * (next.q - point.q) / (next.time - point.time) : null };
+    });
+    return { points, sections: sectionOffsets };
   }
 
-  function proposeSyncPoints(score, pulse, alignment, options) {
-    const mode = options.mode === 'follow' ? 'follow' : 'steady';
-    const fromBar = clamp(Math.floor(Number(options.fromBar) || 0), 0, score.totalBars);
-    const toBar = clamp(Number.isFinite(Number(options.toBar)) ? Math.floor(Number(options.toBar)) : score.totalBars, fromBar, score.totalBars);
-    const barSlice = score.bars.filter((item) => item.bar >= fromBar && item.bar <= toBar);
-    const corrections = mode === 'follow' ? buildFollowBeatTimes(pulse) : null;
-    const mapQuarter = (q) => {
-      const base = alignment.best.startTime + q * pulse.period;
-      if (!corrections || !corrections.length) return base;
-      const beat = Math.max(0, q + alignment.best.beatOffset);
-      const lo = clamp(Math.floor(beat), 0, corrections.length - 1);
-      const hi = clamp(lo + 1, 0, corrections.length - 1);
-      return base + lerp(corrections[lo], corrections[hi], beat - Math.floor(beat));
+  function restrictPointsToRange(score, points, fromBar, toBar) {
+    const from = clamp(Math.floor(Number(fromBar) || 0), 0, score.totalBars);
+    const to = clamp(Number.isFinite(Number(toBar)) ? Math.floor(Number(toBar)) : score.totalBars, from, score.totalBars);
+    if (from === 0 && to === score.totalBars) return points;
+    const qForBar = (bar) => {
+      const exact = score.bars.find((item) => item.bar === bar);
+      if (exact) return exact.q;
+      return score.totalBars ? score.totalQ * bar / score.totalBars : 0;
     };
-    const mapped = barSlice.map((item) => ({ bar: item.bar, q: item.q, time: mapQuarter(item.q) }));
-    const selected = rdpIndices(mapped, Math.max(0.005, Number(options.pointToleranceSeconds) || 0.020)).map((index) => mapped[index]);
-    const points = selected.map((point, index) => {
+    const timeAtQ = (q) => {
+      if (q <= points[0].q) return points[0].time;
+      for (let index = 0; index + 1 < points.length; index++) {
+        const a = points[index], b = points[index + 1];
+        if (q <= b.q) return a.time + (q - a.q) * (b.time - a.time) / Math.max(1e-9, b.q - a.q);
+      }
+      return points[points.length - 1].time;
+    };
+    const fromQ = qForBar(from), toQ = qForBar(to);
+    const selected = [
+      { bar: from, q: fromQ, time: timeAtQ(fromQ) },
+      ...points.filter((point) => point.bar > from && point.bar < to),
+      { bar: to, q: toQ, time: timeAtQ(toQ) },
+    ].filter((point, index, rows) => !index || point.bar !== rows[index - 1].bar);
+    return selected.map((point, index) => {
       const next = selected[index + 1];
-      const bpmToNext = next ? 60 * (next.q - point.q) / (next.time - point.time) : null;
-      return { bar: point.bar, time: point.time, bpmToNext };
+      return { ...point, bpmToNext: next ? 60 * (next.q - point.q) / (next.time - point.time) : null };
     });
-    return { points, mapQuarter, fromBar, toBar };
   }
 
-  function confidenceReport(curve, pulse, alignment) {
-    const phaseConfidence = clamp((pulse.phaseZ - 1) / 4, 0, 1);
-    const tempoConfidence = clamp(Math.exp(-pulse.localBpmStd / 1.2), 0, 1);
-    const harmonyConfidence = clamp((alignment.best.harmonyScore - 0.42) / 0.35, 0, 1);
-    const marginConfidence = clamp(alignment.margin / 0.08, 0, 1);
-    const overall = 0.31 * phaseConfidence + 0.25 * tempoConfidence + 0.31 * harmonyConfidence + 0.13 * marginConfidence;
-    return {
-      overall,
-      attacks: phaseConfidence,
-      tempoStability: tempoConfidence,
-      harmony: harmonyConfidence,
-      candidateMargin: marginConfidence,
-      low: overall < 0.55 || phaseConfidence < 0.25 || harmonyConfidence < 0.25,
-      reasons: [
-        ...(phaseConfidence < 0.25 ? ['Атаки не образуют надёжную сетку четвертей.'] : []),
-        ...(tempoConfidence < 0.35 ? ['Локальная оценка темпа нестабильна.'] : []),
-        ...(harmonyConfidence < 0.25 ? ['Гармония записи слабо совпадает с аккордами схемы.'] : []),
-        ...(alignment.ambiguous ? ['Несколько вариантов начала имеют близкую гармоническую оценку.'] : []),
-      ],
-    };
-  }
-
-  function eventAttackReport(curve, score, pulse, alignment) {
-    const hits = [];
-    for (const event of score.events) {
-      const predicted = alignment.best.startTime + event.q * pulse.period;
-      if (predicted < 0 || predicted >= curve.duration) continue;
-      const hit = localPeak(curve, predicted, Math.min(0.075, pulse.period * 0.12));
-      hits.push({ residual: hit.time - predicted, strength: hit.strength });
-    }
-    const strengthFloor = percentile(hits.map((item) => item.strength), 0.35);
-    const reliable = hits.filter((item) => item.strength >= strengthFloor);
-    const errors = reliable.map((item) => Math.abs(item.residual)).sort((a, b) => a - b);
-    return {
-      reliableChanges: reliable.length,
-      within30ms: reliable.length ? reliable.filter((item) => Math.abs(item.residual) <= 0.030).length / reliable.length : 0,
-      medianMs: percentile(errors, 0.50) * 1000,
-      p90Ms: percentile(errors, 0.90) * 1000,
-    };
-  }
-
-  function mismatchReport(score, pulse, alignment) {
-    const mismatches = [];
-    const scores = alignment.best.windows || [];
-    const typical = median(scores.map((item) => item.score));
-    for (const item of scores) {
-      if (item.weight > 0 && item.score < Math.max(0.38, typical - 0.13)) {
-        mismatches.push({ fromBar: item.fromBar, toBar: Math.min(score.totalBars, item.toBar), kind: 'harmony', score: item.score });
+  function zeroMeanAutocorrelation(curve, minBpm, maxBpm) {
+    const values = curve.values, hop = curve.hopSeconds;
+    const center = mean(Array.from(values));
+    const minLag = Math.max(2, Math.floor(60 / maxBpm / hop));
+    const maxLag = Math.min(values.length - 2, Math.ceil(60 / minBpm / hop));
+    let best = { bpm: 0, correlation: -Infinity, lag: 0 };
+    const rows = [];
+    for (let lag = minLag; lag <= maxLag; lag++) {
+      let product = 0, left = 0, right = 0;
+      for (let index = lag; index < values.length; index++) {
+        const a = values[index] - center, b = values[index - lag] - center;
+        product += a * b; left += a * a; right += b * b;
       }
+      const correlation = product / Math.sqrt(Math.max(1e-12, left * right));
+      const row = { bpm: 60 / (lag * hop), correlation, lag };
+      rows.push(row);
+      if (correlation > best.correlation) best = row;
     }
-    const residuals = pulse.observations.filter((item) => item.strength > 0).map((item) => Math.abs(item.residual));
-    const residualP90 = percentile(residuals, 0.90);
-    return { regions: mismatches, beatResidualP90Ms: residualP90 * 1000 };
+    rows.sort((a, b) => b.correlation - a.correlation);
+    return { best, alternatives: rows.slice(0, 8) };
   }
 
-  async function analyze(audioBuffer, song, inputOptions = {}) {
-    if (!audioBuffer || typeof audioBuffer.getChannelData !== 'function') throw new TypeError('Auto-Sync expects an already decoded AudioBuffer.');
-    const options = {
-      mode: inputOptions.mode === 'follow' ? 'follow' : 'steady',
-      tempoWindowSeconds: 30,
-      pointToleranceSeconds: 0.020,
-      workBudgetMs: 12,
-      ...inputOptions,
-    };
-    const scheduler = createWorkScheduler(options, typeof options.onProgress === 'function' ? options.onProgress : null);
-    const score = flattenScore(song || {});
-    if (!score.events.length || !score.totalQ) throw new Error('В схеме нет событий для синхронизации.');
-    const curve = await extractOnsetCurve(audioBuffer, scheduler);
-    const pulse = await estimatePulse(curve, Number(song && song.bpm) || 100, scheduler, options);
-    const chroma = await extractChroma(audioBuffer, scheduler);
-    const alignment = await alignScoreByHarmony(score, chroma, pulse, curve.duration, scheduler, options);
-    const refinement = await refineScoreGrid(curve, score, pulse, alignment, chroma, scheduler);
-    const proposal = proposeSyncPoints(score, pulse, alignment, options);
-    const candidatePreviews = alignment.alternatives.map((candidate) => ({
-      ...candidate,
-      points: proposeSyncPoints(score, pulse, { best: candidate }, options).points,
-    }));
-    const confidence = confidenceReport(curve, pulse, alignment);
-    const mismatches = mismatchReport(score, pulse, alignment);
-    const eventAttacks = eventAttackReport(curve, score, pulse, alignment);
-    const shouldApply = !confidence.low;
+  function distinctTempoSeeds(rows, count, separation) {
+    const result = [];
+    for (const row of rows.slice().sort((a, b) => b.rank - a.rank)) {
+      if (result.every((item) => Math.abs(item.bpm - row.bpm) >= separation)) result.push(row);
+      if (result.length >= count) break;
+    }
+    return result;
+  }
+
+  function pulseOnlyFallback(prepared, minBpm, maxBpm, options) {
+    const choices = prepared.autocorrelation.alternatives.filter((item) => item.bpm >= minBpm && item.bpm <= maxBpm);
+    const tempo = choices[0] || prepared.autocorrelation.best;
+    const bpm = tempo.bpm, period = 60 / bpm, curve = prepared.curve;
+    let phase = Number.isFinite(Number(options && options.fixedStart)) ? clamp(Number(options.fixedStart), 0, Math.min(15, prepared.duration)) : 0;
+    let phaseScore = -Infinity;
+    const phaseFrom = Number.isFinite(Number(options && options.fixedStart)) ? phase : 0;
+    const phaseTo = Number.isFinite(Number(options && options.fixedStart)) ? phase + curve.hopSeconds / 2 : period;
+    for (let candidate = phaseFrom; candidate < phaseTo; candidate += curve.hopSeconds) {
+      let sum = 0, count = 0;
+      for (let time = candidate; time < prepared.duration; time += period) { sum += onsetStrength(prepared, time); count++; }
+      const value = count ? sum / count : 0;
+      if (value > phaseScore) { phaseScore = value; phase = candidate; }
+    }
+    const fullPoints = [
+      { bar: 0, q: 0, time: phase, bpmToNext: bpm },
+      { bar: prepared.score.totalBars, q: prepared.score.totalQ, time: phase + prepared.score.totalQ * period, bpmToNext: null },
+    ];
+    const points = restrictPointsToRange(prepared.score, fullPoints, options && options.fromBar, options && options.toBar);
     return {
-      mode: options.mode,
-      duration: curve.duration,
-      score: { bars: score.totalBars, quarters: score.totalQ, events: score.events.length },
-      tempo: {
-        bpm: pulse.bpm,
-        periodSeconds: pulse.period,
-        local: pulse.localTempos,
-        localStdBpm: pulse.localBpmStd,
-      },
-      firstBeat: alignment.best.startTime,
-      points: proposal.points,
-      candidates: candidatePreviews,
-      ambiguousStart: alignment.ambiguous,
-      confidence,
-      mismatches,
-      eventAttacks,
-      shouldApply,
+      mode: options && options.mode || 'steady', duration: prepared.duration,
+      score: { bars: prepared.score.totalBars, quarters: prepared.score.totalQ, events: prepared.score.events.length },
+      bpm, firstBar: phase, firstBeat: phase, points,
+      tempo: { bpm, periodSeconds: period, local: [], localStdBpm: null },
+      confidence: { overall: 0.28, harmony: 0, tempoMargin: 0, boundary: phaseScore, low: true, note: 'Проверьте на слух', reasons: ['Аккорды схемы не распознаны; темп оценён только по атакам. Проверьте на слух.'] },
+      competitor: choices[1] ? { bpm: choices[1].bpm, firstBar: phase, score: choices[1].correlation, gap: tempo.correlation - choices[1].correlation } : null,
+      alternatives: choices.slice(0, 5).map((item) => ({ bpm: item.bpm, startTime: phase, harmony: 0, boundary: phaseScore, score: item.correlation })),
+      candidates: [{ startTime: phase, harmonyScore: 0, coverage: 0, points }],
+      ambiguousStart: true, mismatches: { regions: [], beatResidualP90Ms: null },
+      eventAttacks: { reliableChanges: 0, within30ms: 0, medianMs: null, p90Ms: null },
+      shouldApply: true,
       diagnostics: {
-        onsetHopMs: curve.hopSeconds * 1000,
-        pulsePhase: pulse.phase,
-        coarsePulsePhase: refinement.coarseStart,
-        eventAttackScore: refinement.attackScore,
-        tempoSeedBpm: refinement.seedBpm,
-        phaseZ: pulse.phaseZ,
-        autocorrelation: pulse.autocorrelation,
-        harmonicScore: alignment.best.harmonyScore,
-        harmonicMargin: alignment.margin,
+        score: tempo.correlation, harmony: 0, coverage: 0, boundary: phaseScore,
+        relativeTempoMargin: 0, autocorrelationHint: tempo, fallback: 'zero-mean-autocorrelation-no-recognized-chords',
+        searched: { minBpm, maxBpm, startFrom: 0, startTo: Math.min(15, prepared.duration), projectBpmUsedAsPrior: false },
       },
     };
   }
 
-  return {
-    analyze, flattenScore, chordTemplate,
-    // Exposed only so the standalone acceptance harness can audit intermediate
-    // DSP stages without coupling them to the application.
-    _prototypeInternals: { extractOnsetCurve, estimatePulse, extractChroma, eventChroma, scoreHarmonyCandidate },
-  };
+  async function prepare(audioBuffer, song, inputOptions = {}) {
+    if (!audioBuffer || typeof audioBuffer.getChannelData !== 'function') throw new TypeError('Auto-Sync expects an already decoded AudioBuffer.');
+    const scheduler = makeScheduler(inputOptions);
+    const score = base.flattenScore(song || {});
+    if (!score.events.length || !(score.totalQ > 0)) throw new Error('В схеме нет событий для совместного поиска.');
+    const curve = await internals.extractOnsetCurve(audioBuffer, scheduler);
+    const chroma = await internals.extractChroma(audioBuffer, scheduler);
+    const chordEvents = score.events.map((event) => ({ event, template: base.chordTemplate(event.chord) })).filter((item) => item.template);
+    const boundaries = [];
+    const sections = [];
+    let previous = null, currentSection = null;
+    for (const item of chordEvents) {
+      if (!currentSection || item.event.section !== currentSection.name) {
+        if (currentSection) currentSection.endQ = item.event.q;
+        currentSection = { name: item.event.section, startQ: item.event.q, endQ: score.totalQ, bar: item.event.bar };
+        sections.push(currentSection);
+      }
+      if (!previous) boundaries.push({ q: item.event.q, first: true, beforeTemplate: null, afterTemplate: item.template, section: item.event.section, bar: item.event.bar });
+      else if (item.event.chord !== previous.event.chord) boundaries.push({ q: item.event.q, first: false, beforeTemplate: previous.template, afterTemplate: item.template, section: item.event.section, bar: item.event.bar });
+      previous = item;
+    }
+    const onsetLogs = [];
+    for (let index = 0; index < curve.values.length; index += 5) onsetLogs.push(Math.log1p(curve.values[index]));
+    const changes = [];
+    for (let frame = 1; frame < chroma.frameCount; frame++) {
+      let dot = 0;
+      for (let pitch = 0; pitch < 12; pitch++) dot += chroma.frames[(frame - 1) * 12 + pitch] * chroma.frames[frame * 12 + pitch];
+      changes.push(clamp(1 - dot, 0, 1));
+    }
+    const prepared = {
+      score, curve, chroma, duration: Number(audioBuffer.duration) || curve.duration,
+      chromaPrefix: buildChromaPrefix(chroma), chordEvents, boundaries, sections,
+      coarseEvents: sampleEvents(chordEvents, 48),
+      onsetLogScale: Math.max(0.05, percentile(onsetLogs, 0.92)),
+      chromaChangeScale: Math.max(0.04, percentile(changes, 0.85)),
+    };
+    prepared.autocorrelation = zeroMeanAutocorrelation(curve, 45, 220);
+    return prepared;
+  }
+
+  async function search(prepared, inputOptions = {}) {
+    const scheduler = makeScheduler(inputOptions);
+    const minBpm = clamp(Number(inputOptions.minBpm) || 45, 35, 260);
+    const maxBpm = clamp(Number(inputOptions.maxBpm) || 220, minBpm + 1, 280);
+    const maxStart = Math.min(15, Math.max(0, prepared.duration - 1));
+    const fixedStart = Number.isFinite(Number(inputOptions.fixedStart)) ? clamp(Number(inputOptions.fixedStart), 0, maxStart) : null;
+    if (!prepared.chordEvents.length) return pulseOnlyFallback(prepared, minBpm, maxBpm, inputOptions);
+    const coarseRows = [];
+    const bpmStep = 0.5, startStep = fixedStart == null ? 0.20 : 1;
+    const bpmCount = Math.floor((maxBpm - minBpm) / bpmStep) + 1;
+    for (let bi = 0; bi < bpmCount; bi++) {
+      const bpm = minBpm + bi * bpmStep;
+      let best = null;
+      const starts = fixedStart == null ? Math.floor(maxStart / startStep) + 1 : 1;
+      for (let si = 0; si < starts; si++) {
+        const startTime = fixedStart == null ? si * startStep : fixedStart;
+        const scored = harmonyScore(prepared, bpm, startTime, prepared.coarseEvents);
+        const row = { bpm, startTime, ...scored };
+        if (!best || row.rank > best.rank) best = row;
+      }
+      coarseRows.push(best);
+      if (!(bi % 8)) await scheduler('joint-coarse', bi / bpmCount);
+    }
+
+    const seeds = distinctTempoSeeds(coarseRows, 18, 1.0);
+    const refined = [];
+    const seen = new Set();
+    for (let seedIndex = 0; seedIndex < seeds.length; seedIndex++) {
+      const seed = seeds[seedIndex];
+      for (let bpm = seed.bpm - 1; bpm <= seed.bpm + 1 + 1e-9; bpm += 0.05) {
+        if (bpm < minBpm || bpm > maxBpm) continue;
+        const fromStart = fixedStart == null ? Math.max(0, seed.startTime - 0.45) : fixedStart;
+        const toStart = fixedStart == null ? Math.min(maxStart, seed.startTime + 0.45) : fixedStart;
+        for (let startTime = fromStart; startTime <= toStart + 1e-9; startTime += fixedStart == null ? 0.025 : 1) {
+          const key = `${bpm.toFixed(3)}:${startTime.toFixed(3)}`;
+          if (seen.has(key)) continue;
+          seen.add(key);
+          const scored = harmonyScore(prepared, bpm, startTime);
+          refined.push({ bpm, startTime, ...scored });
+        }
+      }
+      await scheduler('joint-refine', (seedIndex + 1) / seeds.length);
+    }
+
+    const phaseSeeds = distinctTempoSeeds(refined, 10, 0.55);
+    const finalRows = [];
+    const finalSeen = new Set();
+    for (let seedIndex = 0; seedIndex < phaseSeeds.length; seedIndex++) {
+      const seed = phaseSeeds[seedIndex];
+      for (let bpm = seed.bpm - 0.18; bpm <= seed.bpm + 0.18 + 1e-9; bpm += 0.01) {
+        if (bpm < minBpm || bpm > maxBpm) continue;
+        const radius = fixedStart == null ? Math.max(0.12, 60 / bpm * 1.1) : 0;
+        const fromStart = fixedStart == null ? Math.max(0, seed.startTime - radius) : fixedStart;
+        const toStart = fixedStart == null ? Math.min(maxStart, seed.startTime + radius) : fixedStart;
+        for (let startTime = fromStart; startTime <= toStart + 1e-9; startTime += fixedStart == null ? 0.01 : 1) {
+          const key = `${bpm.toFixed(3)}:${startTime.toFixed(3)}`;
+          if (finalSeen.has(key)) continue;
+          finalSeen.add(key);
+          const harmonic = harmonyScore(prepared, bpm, startTime);
+          const boundary = boundaryScore(prepared, bpm, startTime);
+          finalRows.push({ bpm, startTime, ...harmonic, boundary, rank: harmonic.rank + 0.14 * boundary });
+        }
+      }
+      await scheduler('joint-phase', (seedIndex + 1) / phaseSeeds.length);
+    }
+    finalRows.sort((a, b) => b.rank - a.rank);
+    const best = finalRows[0] || refined.sort((a, b) => b.rank - a.rank)[0];
+    if (!best) throw new Error('Совместный поиск не дал кандидатов.');
+
+    // A competing tempo must be genuinely different, not an adjacent sample of
+    // the same peak. Keep distant harmonic peaks in this comparison even when
+    // they did not make the small final phase-refinement set.
+    const distant = finalRows.filter((row) => Math.abs(row.bpm - best.bpm) / best.bpm > 0.03);
+    const distantRefined = refined
+      .filter((row) => Math.abs(row.bpm - best.bpm) / best.bpm > 0.03)
+      .sort((a, b) => b.rank - a.rank)
+      .slice(0, 12)
+      .map((row) => {
+        const boundary = boundaryScore(prepared, row.bpm, row.startTime);
+        return { ...row, boundary, rank: row.rank + 0.14 * boundary };
+      });
+    const competitor = distant.concat(distantRefined).sort((a, b) => b.rank - a.rank)[0] || null;
+    const tempoMargin = competitor ? Math.max(0, best.rank - competitor.rank) : 0;
+    const relativeMargin = tempoMargin / Math.max(0.05, Math.abs(best.rank));
+    const harmonyConfidence = clamp((best.harmony - 0.42) / 0.30, 0, 1);
+    const marginConfidence = clamp(relativeMargin / 0.08, 0, 1);
+    const boundaryConfidence = clamp((best.boundary - 0.30) / 0.35, 0, 1);
+    const confidence = clamp(0.58 * harmonyConfidence + 0.30 * marginConfidence + 0.12 * boundaryConfidence, 0, 1);
+
+    const proposal = proposeStablePoints(prepared, best.bpm, best.startTime);
+    const points = restrictPointsToRange(prepared.score, proposal.points, inputOptions.fromBar, inputOptions.toBar);
+    const alternativeRows = distinctTempoSeeds(competitor ? finalRows.concat([competitor]) : finalRows, 5, Math.max(1.5, best.bpm * 0.031));
+    const alternatives = alternativeRows.map((row) => ({
+      bpm: row.bpm, startTime: row.startTime, harmony: row.harmony, boundary: row.boundary, score: row.rank,
+    }));
+    const candidates = alternativeRows.map((row, index) => {
+      const candidateProposal = index === 0 ? proposal : proposeStablePoints(prepared, row.bpm, row.startTime);
+      return {
+        bpm: row.bpm, startTime: row.startTime, harmonyScore: row.harmony, coverage: row.coverage,
+        points: restrictPointsToRange(prepared.score, candidateProposal.points, inputOptions.fromBar, inputOptions.toBar),
+      };
+    });
+    const lowConfidence = confidence < 0.52;
+    const reasons = [
+      ...(harmonyConfidence < 0.35 ? ['Гармония записи слабо совпадает с аккордами схемы.'] : []),
+      ...(marginConfidence < 0.35 ? ['У конкурирующего темпа близкая оценка.'] : []),
+      ...(boundaryConfidence < 0.30 ? ['Атаки на сменах аккордов выражены слабо.'] : []),
+      ...(lowConfidence ? ['Проверьте результат на слух.'] : []),
+    ];
+    const sectionErrors = proposal.sections.filter((item) => item.stable).map((item) => Math.abs(item.offset));
+    return {
+      mode: inputOptions.mode === 'follow' ? 'follow' : 'steady',
+      duration: prepared.duration,
+      score: { bars: prepared.score.totalBars, quarters: prepared.score.totalQ, events: prepared.score.events.length },
+      bpm: best.bpm,
+      firstBar: best.startTime,
+      firstBeat: best.startTime,
+      points,
+      tempo: { bpm: best.bpm, periodSeconds: 60 / best.bpm, local: points.slice(0, -1).map((point) => ({ bar: point.bar, bpm: point.bpmToNext })), localStdBpm: 0 },
+      confidence: {
+        overall: confidence, harmony: harmonyConfidence, tempoMargin: marginConfidence,
+        candidateMargin: marginConfidence, boundary: boundaryConfidence, attacks: boundaryConfidence,
+        tempoStability: 1, low: lowConfidence, note: lowConfidence ? 'Проверьте на слух' : '', reasons,
+      },
+      competitor: competitor && { bpm: competitor.bpm, firstBar: competitor.startTime, score: competitor.rank, gap: tempoMargin },
+      alternatives,
+      candidates,
+      ambiguousStart: marginConfidence < 0.35,
+      mismatches: { regions: [], beatResidualP90Ms: percentile(sectionErrors, 0.90) * 1000 },
+      eventAttacks: {
+        reliableChanges: proposal.sections.reduce((sum, item) => sum + item.observations, 0),
+        within30ms: sectionErrors.length ? sectionErrors.filter((value) => value <= 0.030).length / sectionErrors.length : 0,
+        medianMs: percentile(sectionErrors, 0.50) * 1000, p90Ms: percentile(sectionErrors, 0.90) * 1000,
+      },
+      // Low confidence is a warning, not a refusal. The best candidate remains
+      // applicable and the draggable first-bar handle is always available.
+      shouldApply: true,
+      diagnostics: {
+        score: best.rank, harmony: best.harmony, coverage: best.coverage, durationRatio: best.durationRatio,
+        boundary: best.boundary, relativeTempoMargin: relativeMargin,
+        sectionOffsets: proposal.sections.map((item) => ({
+          name: item.name, bar: item.bar, observations: item.observations,
+          offsetMs: item.offset * 1000, smoothedOffsetMs: item.smoothedOffset * 1000,
+          madMs: item.mad * 1000, support: item.support, stable: item.stable, confirmed: item.confirmed,
+        })),
+        autocorrelationHint: prepared.autocorrelation.best,
+        searched: { minBpm, maxBpm, startFrom: fixedStart == null ? 0 : fixedStart, startTo: fixedStart == null ? maxStart : fixedStart, projectBpmUsedAsPrior: false },
+      },
+    };
+  }
+
+  async function analyze(audioBuffer, song, options = {}) {
+    const prepared = await prepare(audioBuffer, song, options);
+    if (typeof options.onPrepared === 'function') options.onPrepared(prepared);
+    return search(prepared, options);
+  }
+
+  return { prepare, search, analyze };
 });
 
 // B-122 backing-audio module. This source is inlined into STRUCHORD.html at build/edit time.
@@ -88636,11 +88703,15 @@ function gpExportModal(title, bodyHtml, label) {
   let autoSyncToBar = null;
   let autoSyncProgress = { stage: '', fraction: 0 };
   let autoSyncResult = null;
+  let autoSyncBaseResult = null;
+  let autoSyncPrepared = null;
+  let autoSyncSong = null;
+  let autoSyncOptions = null;
   let autoSyncCandidateIndex = 0;
   let autoSyncShiftMs = 0;
-  // Explicit user override for the downbeat at the start of bar 1. It is kept
-  // separate from the small relative nudge: setting it is the confirmation
-  // that may unlock a low-confidence analysis for Apply.
+  // Explicit user override for the downbeat at the start of bar 1. During a
+  // drag it previews a shift; on release the retained audio features are used
+  // to recalculate tempo and every proposed point for that fixed start.
   let autoSyncManualFirstBarTime = null;
   let autoSyncFirstBarDrag = null;
   let autoSyncError = '';
@@ -89293,20 +89364,23 @@ function gpExportModal(title, bodyHtml, label) {
   }
 
   const AUTO_SYNC_STAGE_LABELS = {
-    onsets: 'Ищу атаки записи…', tempo: 'Оцениваю темп в окнах по 30 секунд…',
-    'beat-grid': 'Строю сетку ударов…', 'chroma-downsample': 'Готовлю гармонический анализ…',
-    chroma: 'Сравниваю хрому с аккордами схемы…', 'harmony-alignment': 'Определяю первый такт…',
-    'grid-refinement': 'Уточняю точки и проверяю расхождения…'
+    onsets: 'Ищу атаки записи…', 'chroma-downsample': 'Готовлю гармонический анализ…',
+    chroma: 'Строю хромограмму записи…', 'joint-coarse': 'Совместно ищу темп и начало…',
+    'joint-refine': 'Уточняю гармоническое совпадение…', 'joint-phase': 'Сверяю атаки смен аккордов…'
   };
   const AUTO_SYNC_STAGE_RANGES = {
-    onsets: [0, .32], tempo: [.32, .42], 'beat-grid': [.42, .48], 'chroma-downsample': [.48, .58],
-    chroma: [.58, .83], 'harmony-alignment': [.83, .93], 'grid-refinement': [.93, 1]
+    onsets: [0, .20], 'chroma-downsample': [.20, .30], chroma: [.30, .48],
+    'joint-coarse': [.48, .70], 'joint-refine': [.70, .88], 'joint-phase': [.88, 1]
   };
   function resetAutoSyncState(close) {
     autoSyncRunToken++;
     autoSyncRunning = false;
     autoSyncProgress = { stage: '', fraction: 0 };
     autoSyncResult = null;
+    autoSyncBaseResult = null;
+    autoSyncPrepared = null;
+    autoSyncSong = null;
+    autoSyncOptions = null;
     autoSyncCandidateIndex = 0;
     autoSyncShiftMs = 0;
     autoSyncManualFirstBarTime = null;
@@ -89344,17 +89418,52 @@ function gpExportModal(title, bodyHtml, label) {
     return source.map((point) => ({ bar: Number(point.bar), time: Number(point.time) + shift, bpmToNext: point.bpmToNext == null ? null : Number(point.bpmToNext) }));
   }
   function autoSyncCanApply() {
-    if (!autoSyncResult || currentAutoSyncPoints().length < 2) return false;
-    const automatic = !!autoSyncResult.shouldApply && !(autoSyncResult.confidence && autoSyncResult.confidence.low);
-    return automatic || Number.isFinite(autoSyncManualFirstBarTime);
+    return !!autoSyncResult && currentAutoSyncPoints().length >= 2;
   }
-  function setAutoSyncManualFirstBar(time) {
+  async function setAutoSyncManualFirstBar(time) {
     const value = Number(time), mediaLen = waveDuration();
     if (!Number.isFinite(value)) return;
-    autoSyncManualFirstBarTime = Math.round(clamp(value, 0, Math.max(0, mediaLen || value)) * 1000) / 1000;
+    const fixedStart = Math.round(clamp(value, 0, Math.min(15, Math.max(0, mediaLen || value))) * 1000) / 1000;
+    autoSyncManualFirstBarTime = fixedStart;
+    autoSyncShiftMs = 0;
     autoSyncFirstBarDrag = null;
     autoSyncError = '';
+    const analyzer = window.StruChordAutoSyncAnalyzer;
+    if (!autoSyncPrepared || !analyzer || typeof analyzer.search !== 'function' || !autoSyncOptions) {
+      refreshAutoSyncPanel();
+      return;
+    }
+    const token = ++autoSyncRunToken;
+    autoSyncRunning = true;
+    autoSyncProgress = { stage: 'joint-coarse', fraction: 0 };
     refreshAutoSyncPanel();
+    let lastPaint = 0;
+    try {
+      const options = {
+        ...autoSyncOptions, fixedStart,
+        isCancelled: () => token !== autoSyncRunToken,
+        onProgress(update) {
+          if (token !== autoSyncRunToken) return;
+          autoSyncProgress = update;
+          const now = performance.now();
+          if (now - lastPaint > 80) { lastPaint = now; requestAnimationFrame(updateAutoSyncProgressDom); }
+        }
+      };
+      const result = await analyzer.search(autoSyncPrepared, options);
+      if (token !== autoSyncRunToken) return;
+      result.range = autoSyncOptions.range;
+      autoSyncResult = result;
+      autoSyncRunning = false;
+      autoSyncCandidateIndex = 0;
+      autoSyncError = result.confidence && result.confidence.low ? 'Лучший вариант рассчитан — проверьте его на слух.' : '';
+      refreshAutoSyncPanel();
+      if (result.confidence && result.confidence.low) requestAnimationFrame(revealAutoSyncFirstBar);
+    } catch (error) {
+      if (token !== autoSyncRunToken || error && error.name === 'AbortError') return;
+      autoSyncRunning = false;
+      autoSyncError = `Пересчёт не завершён: ${error && error.message ? error.message : 'неизвестная ошибка'}`;
+      refreshAutoSyncPanel();
+    }
   }
   function autoSyncTimeAtBar(bar) {
     const points = currentAutoSyncPoints();
@@ -89403,20 +89512,22 @@ function gpExportModal(title, bodyHtml, label) {
     const manualFirstBarReady = Number.isFinite(autoSyncManualFirstBarTime);
     const firstBeat = currentAutoSyncFirstBarTime();
     const points = currentAutoSyncPoints();
+    const selectedCandidate = currentAutoSyncCandidate();
+    const detectedBpm = Number(selectedCandidate && selectedCandidate.bpm || result.tempo && result.tempo.bpm || 0);
     const candidateList = Array.isArray(result.candidates) ? result.candidates : [];
     const warnings = [];
-    if (lowConfidence) warnings.push(...(result.confidence.reasons || ['Низкая уверенность анализа.']));
+    if (lowConfidence) warnings.push(...(result.confidence.reasons || ['Низкая уверенность анализа — проверьте на слух.']));
     if (result.ambiguousStart) warnings.push('Начало неоднозначно: прослушайте варианты и выберите правильный.');
     const mismatchRegions = result.mismatches && result.mismatches.regions || [];
     if (mismatchRegions.length) warnings.push(`Схема может не совпадать с записью в диапазонах: ${mismatchRegions.map(r=>`${r.fromBar+1}–${r.toBar}`).join(', ')}. Эти места подсвечены на волне.`);
     const candidates = result.ambiguousStart ? `<div class="bt-autosync-candidates"><strong>Варианты первого такта</strong>${candidateList.slice(0,3).map((item,index)=>`<div class="bt-autosync-candidate ${index===autoSyncCandidateIndex?'is-selected':''}"><label><input type="radio" name="btAutoSyncCandidate" value="${index}" ${index===autoSyncCandidateIndex?'checked':''}> ${(Number(item.startTime)+autoSyncShiftMs/1000).toFixed(3)} с</label><span>совпадение ${(Number(item.harmonyScore)*100).toFixed(1)}%</span><button type="button" class="bt-button" data-autosync-audition="${index}">▶ Прослушать</button></div>`).join('')}</div>` : '';
-    const manualFirstBar = lowConfidence ? `<div class="bt-autosync-manual">
-      <strong>Перетащите оранжевый маркер «Такт 1» на волне</strong>
-      <p>Поставьте его на начало первого такта. Вся рассчитанная сетка поедет вместе с маркером, а найденный темп не изменится.</p>
-      ${manualFirstBarReady?`<div class="bt-autosync-manual-controls"><button type="button" class="bt-button" data-autosync-audition-manual>▶ Проверить</button><button type="button" class="bt-button" data-autosync-clear-manual>Вернуть автопозицию</button></div><span class="bt-autosync-manual-status">Такт 1: ${firstBeat.toFixed(3)} с · поставлен вручную</span>`:`<span>Сейчас показана автопозиция ${firstBeat.toFixed(3)} с. Потяните маркер, чтобы подтвердить или исправить её.</span>`}
+    const manualFirstBar = lowConfidence || manualFirstBarReady ? `<div class="bt-autosync-manual">
+      <strong>${manualFirstBarReady?'Первый такт задан вручную':'Перетащите оранжевый маркер «Такт 1» на волне'}</strong>
+      <p>${manualFirstBarReady?'Темп и все точки заново рассчитаны для выбранного начала.':'Во время перетаскивания виден предварительный сдвиг. После отпускания темп и все точки рассчитываются заново для выбранного начала.'}</p>
+      ${manualFirstBarReady?`<div class="bt-autosync-manual-controls"><button type="button" class="bt-button" data-autosync-audition-manual>▶ Проверить</button><button type="button" class="bt-button" data-autosync-clear-manual>Вернуть автопозицию</button></div><span class="bt-autosync-manual-status">Такт 1: ${firstBeat.toFixed(3)} с · темп пересчитан</span>`:`<span>Сейчас показана автопозиция ${firstBeat.toFixed(3)} с. Потяните маркер, чтобы подтвердить или исправить её.</span>`}
     </div>` : '';
     return `<div class="bt-autosync-summary">
-      <span class="bt-autosync-metric"><strong>${Number(result.tempo && result.tempo.bpm || 0).toFixed(3)} BPM</strong></span>
+      <span class="bt-autosync-metric"><strong>${detectedBpm.toFixed(3)} BPM</strong></span>
       <span class="bt-autosync-metric">Начало такта 1 <strong>${firstBeat.toFixed(3)} с${manualFirstBarReady?' · вручную':''}</strong></span>
       <span class="bt-autosync-metric bt-autosync-confidence ${autoSyncConfidenceClass(confidence)}">Уверенность ${(confidence*100).toFixed(0)}%</span>
       <span class="bt-autosync-metric">Точек ${points.length}</span>
@@ -89424,7 +89535,7 @@ function gpExportModal(title, bodyHtml, label) {
     ${warnings.map(text=>`<div class="bt-autosync-warning">${escapeHtml(text)}</div>`).join('')}
     ${candidates}
     ${manualFirstBar}
-    ${manualFirstBarReady?'':`<label class="bt-autosync-shift">Ручной сдвиг первого удара <input type="number" min="-2000" max="2000" step="1" value="${Math.round(autoSyncShiftMs)}" data-autosync-shift> мс</label>`}
+    ${manualFirstBarReady?'':`<label class="bt-autosync-shift">Сместить первый такт и пересчитать <input type="number" min="-2000" max="2000" step="1" value="${Math.round(autoSyncShiftMs)}" data-autosync-shift> мс</label>`}
     <table class="bt-autosync-table"><thead><tr><th>Такт</th><th>Время</th><th>BPM до следующей</th></tr></thead><tbody>${points.map(point=>`<tr><td>${syncPointBarText(point.bar)}</td><td>${point.time.toFixed(3)} с</td><td>${autoSyncBpmText(point)}</td></tr>`).join('')}</tbody></table>
     <div class="bt-autosync-actions">
       <button type="button" class="bt-button bt-autosync-apply" data-autosync-apply ${autoSyncCanApply()?'':'disabled'}>Применить точки</button>
@@ -89460,7 +89571,7 @@ function gpExportModal(title, bodyHtml, label) {
     const fromBar = autoSyncRangeEnabled ? clamp(autoSyncFromBar, 0, bars - 1) : 0;
     const toBar = autoSyncRangeEnabled ? clamp(autoSyncToBar == null ? bars : autoSyncToBar, fromBar + 1, bars) : bars;
     const token = ++autoSyncRunToken;
-    autoSyncRunning = true; autoSyncResult = null; autoSyncError = ''; autoSyncCandidateIndex = 0; autoSyncShiftMs = 0; autoSyncManualFirstBarTime = null; autoSyncFirstBarDrag = null;
+    autoSyncRunning = true; autoSyncResult = null; autoSyncBaseResult = null; autoSyncPrepared = null; autoSyncSong = null; autoSyncOptions = null; autoSyncError = ''; autoSyncCandidateIndex = 0; autoSyncShiftMs = 0; autoSyncManualFirstBarTime = null; autoSyncFirstBarDrag = null;
     autoSyncProgress = { stage: 'onsets', fraction: 0 };
     refreshAutoSyncPanel();
     let lastPaint = 0;
@@ -89472,9 +89583,13 @@ function gpExportModal(title, bodyHtml, label) {
         totalQ:liveGrid.totalQ,totalBars:liveGrid.bars
       };
       const song = { bpm: Number(DOM.bpmInput && DOM.bpmInput.value) || 120, globalTimeSig: globalTimeSig || '4/4', sections: JSON.parse(JSON.stringify(sections || [])), autoSyncGrid };
+      const range = { enabled: autoSyncRangeEnabled, fromBar, toBar };
+      autoSyncSong = song;
+      autoSyncOptions = { mode: autoSyncMode, fromBar, toBar, minBpm: 45, maxBpm: 220, workBudgetMs: 10, range };
       const result = await window.StruChordAutoSyncAnalyzer.analyze(audioBuffer, song, {
-        mode: autoSyncMode, fromBar, toBar, tempoWindowSeconds: 30, pointToleranceSeconds: .020, workBudgetMs: 10,
+        ...autoSyncOptions,
         isCancelled: () => token !== autoSyncRunToken,
+        onPrepared(prepared) { if (token === autoSyncRunToken) autoSyncPrepared = prepared; },
         onProgress(update) {
           if (token !== autoSyncRunToken) return;
           autoSyncProgress = update;
@@ -89483,11 +89598,12 @@ function gpExportModal(title, bodyHtml, label) {
         }
       });
       if (token !== autoSyncRunToken) return;
-      result.range = { enabled: autoSyncRangeEnabled, fromBar, toBar };
+      result.range = range;
       autoSyncResult = result;
+      autoSyncBaseResult = result;
       autoSyncRunning = false;
       autoSyncCandidateIndex = 0;
-      if (result.confidence && result.confidence.low) autoSyncError = 'Авто-синхронизация не уверена в начале — перетащите маркер «Такт 1» на волне. Существующие точки пока не изменены.';
+      if (result.confidence && result.confidence.low) autoSyncError = 'Показан лучший вариант с низкой уверенностью — проверьте на слух или перетащите маркер «Такт 1». Существующие точки пока не изменены.';
       refreshAutoSyncPanel();
       if (result.confidence && result.confidence.low) requestAnimationFrame(revealAutoSyncFirstBar);
     } catch (error) {
@@ -89545,6 +89661,10 @@ function gpExportModal(title, bodyHtml, label) {
     selectedPoint = -1;
     autoSyncOpen = false;
     autoSyncResult = null;
+    autoSyncBaseResult = null;
+    autoSyncPrepared = null;
+    autoSyncSong = null;
+    autoSyncOptions = null;
     autoSyncShiftMs = 0;
     autoSyncManualFirstBarTime = null;
     autoSyncFirstBarDrag = null;
@@ -89561,11 +89681,11 @@ function gpExportModal(title, bodyHtml, label) {
     const to = host.querySelector('[data-autosync-to]'); if(to)to.onchange=()=>{autoSyncToBar=Math.max(autoSyncFromBar+1,Number(to.value)||getBarGrid().bars);refreshAutoSyncPanel();};
     const run = host.querySelector('[data-autosync-run]'); if(run)run.onclick=runAutoSync;
     const cancel = host.querySelector('[data-autosync-cancel]'); if(cancel)cancel.onclick=cancelAutoSync;
-    const rerun = host.querySelector('[data-autosync-rerun]'); if(rerun)rerun.onclick=()=>{autoSyncResult=null;autoSyncError='';autoSyncManualFirstBarTime=null;autoSyncFirstBarDrag=null;refreshAutoSyncPanel();};
+    const rerun = host.querySelector('[data-autosync-rerun]'); if(rerun)rerun.onclick=()=>{autoSyncResult=null;autoSyncBaseResult=null;autoSyncPrepared=null;autoSyncSong=null;autoSyncOptions=null;autoSyncError='';autoSyncManualFirstBarTime=null;autoSyncFirstBarDrag=null;refreshAutoSyncPanel();};
     const apply = host.querySelector('[data-autosync-apply]'); if(apply)apply.onclick=applyAutoSync;
-    const shift = host.querySelector('[data-autosync-shift]'); if(shift)shift.onchange=()=>{autoSyncShiftMs=clamp(Number(shift.value)||0,-2000,2000);autoSyncManualFirstBarTime=null;autoSyncFirstBarDrag=null;refreshAutoSyncPanel();};
+    const shift = host.querySelector('[data-autosync-shift]'); if(shift)shift.onchange=()=>{const delta=clamp(Number(shift.value)||0,-2000,2000)/1000;setAutoSyncManualFirstBar(autoSyncCandidateStartTime()+delta);};
     const auditionManual = host.querySelector('[data-autosync-audition-manual]'); if(auditionManual)auditionManual.onclick=()=>auditionAutoSyncTime(currentAutoSyncFirstBarTime());
-    const clearManual = host.querySelector('[data-autosync-clear-manual]'); if(clearManual)clearManual.onclick=()=>{autoSyncManualFirstBarTime=null;autoSyncFirstBarDrag=null;autoSyncError=autoSyncResult&&autoSyncResult.confidence&&autoSyncResult.confidence.low?'Надёжную синхронизацию построить не удалось — перетащите маркер «Такт 1» на волне.':'';refreshAutoSyncPanel();};
+    const clearManual = host.querySelector('[data-autosync-clear-manual]'); if(clearManual)clearManual.onclick=()=>{autoSyncResult=autoSyncBaseResult||autoSyncResult;autoSyncManualFirstBarTime=null;autoSyncShiftMs=0;autoSyncFirstBarDrag=null;autoSyncCandidateIndex=0;autoSyncError=autoSyncResult&&autoSyncResult.confidence&&autoSyncResult.confidence.low?'Показан лучший вариант с низкой уверенностью — проверьте на слух.':'';refreshAutoSyncPanel();};
     host.querySelectorAll('input[name="btAutoSyncCandidate"]').forEach(input=>input.onchange=()=>{autoSyncCandidateIndex=Number(input.value)||0;autoSyncManualFirstBarTime=null;autoSyncFirstBarDrag=null;refreshAutoSyncPanel();});
     host.querySelectorAll('[data-autosync-audition]').forEach(button=>button.onclick=()=>auditionAutoSyncCandidate(Number(button.dataset.autosyncAudition)||0));
   }

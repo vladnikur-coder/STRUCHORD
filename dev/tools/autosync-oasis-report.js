@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 'use strict';
 
-// Real-audio acceptance harness for dev/autosync-analyzer.js. This is not app
+// Real-audio acceptance harness for the DSP + joint Auto-Sync engine. This is not app
 // code: Chromium is used only to decode the embedded MP3 into the AudioBuffer
 // that the dependency-free analyzer expects in production.
 const fs = require('fs');
@@ -37,6 +37,7 @@ const mode = process.argv.includes('--follow') ? 'follow' : 'steady';
     });
     await page.goto('about:blank');
     await page.addScriptTag({ path: path.join(ROOT, 'dev', 'autosync-analyzer.js') });
+    await page.addScriptTag({ path: path.join(ROOT, 'dev', 'autosync-joint-prototype.js') });
     const result = await page.evaluate(async (song, selectedMode) => {
       const encoded = song.backingTrack && song.backingTrack.embedded;
       if (!encoded) throw new Error('The project has no embedded backing audio.');

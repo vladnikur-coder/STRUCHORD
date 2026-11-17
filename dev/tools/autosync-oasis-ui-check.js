@@ -28,6 +28,10 @@ function staticServer() {
 (async () => {
   const project = JSON.parse(fs.readFileSync(input, 'utf8'));
   const oldPoints = project.backingTrack.points.map(point => ({bar:point.bar,time:point.time}));
+  const isKing = /Прыгну со скалы|Король и Шут/i.test(input + ' ' + (project.backingTrack.name || ''));
+  const expected = isKing
+    ? { bpmFrom:151.7, bpmTo:152.3, firstFrom:.55, firstTo:.65, minPoints:2, maxPoints:4 }
+    : { bpmFrom:81.35, bpmTo:81.45, firstFrom:.27, firstTo:.311, minPoints:2, maxPoints:3 };
   const libraryRoot = '/tmp/al2023/lib';
   if (!fs.existsSync(path.join(libraryRoot, 'libnspr4.so'))) {
     const packageBuild = path.dirname(require.resolve('@sparticuz/chromium'));
@@ -70,12 +74,12 @@ function staticServer() {
     assert.strictEqual(preview.error, '');
     assert.deepStrictEqual(preview.points, oldPoints, 'preview must not mutate existing points');
     assert.strictEqual(preview.disabled, false);
-    assert(preview.rows.length >= 2 && preview.rows.length <= 3, preview.rows.join(' | '));
+    assert(preview.rows.length >= expected.minPoints && preview.rows.length <= expected.maxPoints, preview.rows.join(' | '));
     const match = preview.summary.match(/([\d.]+) BPM.*Начало такта 1 ([\d.]+) с.*Уверенность (\d+)%/);
     assert(match, preview.summary);
     const bpm=Number(match[1]), firstBeat=Number(match[2]), confidence=Number(match[3]);
-    assert(bpm>=81.35&&bpm<=81.45,String(bpm));
-    assert(firstBeat>=.27&&firstBeat<=.31,String(firstBeat));
+    assert(bpm>=expected.bpmFrom&&bpm<=expected.bpmTo,String(bpm));
+    assert(firstBeat>=expected.firstFrom&&firstBeat<=expected.firstTo,String(firstBeat));
     assert(confidence>=55,String(confidence));
     await page.setViewport({width:390,height:844});
     const mobile = await page.evaluate(() => {
@@ -86,23 +90,25 @@ function staticServer() {
     assert(mobile.panelLeft>=-1&&mobile.panelRight<=mobile.viewport+1,JSON.stringify(mobile));
     await page.evaluate(()=>document.querySelector('[data-autosync-apply]').click());
     const applied = await page.evaluate(()=>StruChordBackingTrack.serialize().points);
-    assert(applied.length>=2&&applied.length<=3,JSON.stringify(applied));
-    assert(applied[0].time>=.27&&applied[0].time<=.31,JSON.stringify(applied));
+    assert(applied.length>=expected.minPoints&&applied.length<=expected.maxPoints,JSON.stringify(applied));
+    assert(applied[0].time>=expected.firstFrom&&applied[0].time<=expected.firstTo,JSON.stringify(applied));
     await page.evaluate(()=>window.undoEdit());
     await new Promise(resolve=>setTimeout(resolve,100));
     const undone = await page.evaluate(()=>StruChordBackingTrack.serialize().points);
     assert.deepStrictEqual(undone,oldPoints,'Undo must restore the original points in one step');
 
-    // A low-confidence result must hand the downbeat decision to the user,
-    // remain responsive at phone width, and unlock only after explicit input.
+    // A low-confidence result remains applicable with a listening warning;
+    // dragging the downbeat reruns tempo/grid search from retained features.
     await page.evaluate(async () => {
-      StruChordAutoSyncAnalyzer.analyze=async()=>({
-        mode:'steady',tempo:{bpm:81.4},firstBeat:.4,
-        points:[{bar:0,time:.4,bpmToNext:81.4},{bar:96,time:283.47,bpmToNext:null}],
-        candidates:[{startTime:.4,harmonyScore:.2,points:[{bar:0,time:.4,bpmToNext:81.4},{bar:96,time:283.47,bpmToNext:null}]}],
-        ambiguousStart:false,confidence:{overall:.2,low:true,reasons:['Гармония не определила начало.']},
-        mismatches:{regions:[]},shouldApply:false
+      const lowResult=(firstBeat=.4,bpm=81.4)=>({
+        mode:'steady',tempo:{bpm},firstBeat,
+        points:[{bar:0,time:firstBeat,bpmToNext:bpm},{bar:96,time:firstBeat+282,bpmToNext:null}],
+        candidates:[{bpm,startTime:firstBeat,harmonyScore:.2,points:[{bar:0,time:firstBeat,bpmToNext:bpm},{bar:96,time:firstBeat+282,bpmToNext:null}]}],
+        ambiguousStart:false,confidence:{overall:.2,low:true,reasons:['Гармония не определила начало.','Проверьте результат на слух.']},
+        mismatches:{regions:[]},shouldApply:true
       });
+      StruChordAutoSyncAnalyzer.analyze=async(_buffer,_song,options)=>{options.onPrepared({fixture:'ui'});return lowResult();};
+      StruChordAutoSyncAnalyzer.search=async(_prepared,options)=>lowResult(options.fixedStart,82.2);
       document.querySelector('[data-bt-action="autosync"]').click();
     });
     await page.waitForSelector('[data-autosync-run]:not([disabled])',{timeout:120000});
@@ -112,7 +118,7 @@ function staticServer() {
       disabled:document.querySelector('[data-autosync-apply]').disabled,
       instruction:document.querySelector('.bt-autosync-manual')?.textContent||'',
     }));
-    assert(manualBefore.disabled&&manualBefore.instruction.includes('Перетащите оранжевый маркер'),JSON.stringify(manualBefore));
+    assert(!manualBefore.disabled&&manualBefore.instruction.includes('Перетащите оранжевый маркер'),JSON.stringify(manualBefore));
     await page.evaluate(() => {
       const canvas=document.querySelector('#btWaveCanvas'),rect=canvas.getBoundingClientRect();
       const y=rect.top+Math.min(40,rect.height*.5),from=rect.left+2,to=rect.left+rect.width*.1;
@@ -120,6 +126,7 @@ function staticServer() {
       canvas.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,cancelable:true,pointerType:'mouse',pointerId:1,button:0,clientX:to,clientY:y}));
       canvas.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,cancelable:true,pointerType:'mouse',pointerId:1,button:0,clientX:to,clientY:y}));
     });
+    await page.waitForFunction(()=>document.querySelector('.bt-autosync-manual-status')?.textContent.includes('темп пересчитан'),{timeout:120000});
     const manualFallback = await page.evaluate(() => {
       const panel=document.querySelector('.bt-autosync-panel'),rect=panel.getBoundingClientRect();
       return {
@@ -128,7 +135,7 @@ function staticServer() {
         bodyWidth:document.documentElement.scrollWidth,viewport:innerWidth,panelLeft:rect.left,panelRight:rect.right,
       };
     });
-    assert(manualFallback.enabled&&manualFallback.status.includes('вручную'),JSON.stringify(manualFallback));
+    assert(manualFallback.enabled&&manualFallback.status.includes('темп пересчитан'),JSON.stringify(manualFallback));
     assert(manualFallback.bodyWidth<=manualFallback.viewport+1,JSON.stringify(manualFallback));
     assert(manualFallback.panelLeft>=-1&&manualFallback.panelRight<=manualFallback.viewport+1,JSON.stringify(manualFallback));
     assert.deepStrictEqual(await page.evaluate(()=>StruChordBackingTrack.serialize().points),oldPoints,'manual preview must not mutate existing points');

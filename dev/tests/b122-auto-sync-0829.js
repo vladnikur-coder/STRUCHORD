@@ -8,8 +8,10 @@ const assert = require('assert');
 const { JSDOM } = require('jsdom');
 const ROOT = path.resolve(__dirname, '..', '..');
 const analyzerSource = fs.readFileSync(path.join(ROOT, 'dev', 'autosync-analyzer.js'), 'utf8').trim();
+const jointAnalyzerSource = fs.readFileSync(path.join(ROOT, 'dev', 'autosync-joint-prototype.js'), 'utf8').trim();
 const source = fs.readFileSync(path.join(ROOT, 'STRUCHORD.html'), 'utf8');
-assert(source.includes(analyzerSource), 'the dependency-free analyzer is inlined verbatim into the one-file app');
+assert(source.includes(analyzerSource), 'the dependency-free DSP analyzer is inlined verbatim into the one-file app');
+assert(source.includes(jointAnalyzerSource), 'the joint tempo/downbeat analyzer is inlined verbatim into the one-file app');
 const html = source
   .replace('<script src="./keyboard-audio.js"></script>', `<script>${fs.readFileSync(path.join(ROOT, 'keyboard-audio.js'), 'utf8')}</script>`)
   .replace('<script src="./keyboard-accompaniment.js"></script>', `<script>${fs.readFileSync(path.join(ROOT, 'keyboard-accompaniment.js'), 'utf8')}</script>`);
@@ -100,21 +102,31 @@ setTimeout(async () => {
 
     // Low confidence stays preview-only until the user explicitly places bar 1.
     bt.toggleDrawer(true);
-    w.StruChordAutoSyncAnalyzer.analyze = async () => ({
-      mode:'steady',tempo:{bpm:80},firstBeat:.4,
-      points:[{bar:0,time:.4,bpmToNext:80},{bar:1,time:3.4,bpmToNext:null}],
-      candidates:[{startTime:.4,harmonyScore:.2,points:[{bar:0,time:.4,bpmToNext:80},{bar:1,time:3.4,bpmToNext:null}]}],
+    const lowResult = (firstBeat=.4,bpm=80) => ({
+      mode:'steady',tempo:{bpm},firstBeat,
+      points:[{bar:0,time:firstBeat,bpmToNext:bpm},{bar:1,time:firstBeat+2.8,bpmToNext:null}],
+      candidates:[{bpm,startTime:firstBeat,harmonyScore:.2,points:[{bar:0,time:firstBeat,bpmToNext:bpm},{bar:1,time:firstBeat+2.8,bpmToNext:null}]}],
       ambiguousStart:false,
-      confidence:{overall:.2,low:true,reasons:['Нет чётких ударов.']},mismatches:{regions:[]},shouldApply:false
+      confidence:{overall:.2,low:true,reasons:['Нет чётких ударов.','Проверьте результат на слух.']},mismatches:{regions:[]},shouldApply:true
     });
+    w.StruChordAutoSyncAnalyzer.analyze = async (_buffer,_song,options) => {
+      options.onPrepared({fixture:'retained-features'});
+      return lowResult();
+    };
+    let manualSearchCall = null;
+    w.StruChordAutoSyncAnalyzer.search = async (prepared,options) => {
+      manualSearchCall={prepared,options};
+      options.onProgress({stage:'joint-refine',fraction:.5});
+      return lowResult(options.fixedStart,84);
+    };
     w.document.querySelector('[data-bt-action="autosync"]').onclick();
     w.document.querySelector('[data-autosync-run]').onclick();
     await delay(20);
-    check('low confidence explains the failure, shows the drag instruction, and initially disables Apply', () => {
+    check('low confidence shows the best applicable result with an explicit listening warning', () => {
       const apply=w.document.querySelector('[data-autosync-apply]');
-      assert(apply && apply.disabled);
+      assert(apply && !apply.disabled);
       assert(w.document.querySelector('#btAutoSyncHost').textContent.includes('Перетащите оранжевый маркер'));
-      assert(w.document.querySelector('#btAutoSyncHost').textContent.includes('Нет чётких ударов'));
+      assert(w.document.querySelector('#btAutoSyncHost').textContent.includes('Проверьте результат на слух'));
       assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),original);
     });
     const wave=w.document.querySelector('#btWaveCanvas');
@@ -122,29 +134,34 @@ setTimeout(async () => {
     wave.dispatchEvent(new w.MouseEvent('pointerdown',{bubbles:true,cancelable:true,clientX:60,clientY:40,button:0}));
     wave.dispatchEvent(new w.MouseEvent('pointermove',{bubbles:true,cancelable:true,clientX:150,clientY:40,button:0}));
     wave.dispatchEvent(new w.MouseEvent('pointerup',{bubbles:true,cancelable:true,clientX:150,clientY:40,button:0}));
-    check('dragging the visible bar-1 marker confirms the manual position', () => {
+    await delay(20);
+    check('dragging bar 1 jointly recalculates tempo and the point grid from retained features', () => {
+      assert.strictEqual(manualSearchCall.prepared.fixture,'retained-features');
+      assert.strictEqual(manualSearchCall.options.fixedStart,1);
       assert(w.document.querySelector('.bt-autosync-manual-status').textContent.includes('1.000 с'));
+      assert(w.document.querySelector('.bt-autosync-summary').textContent.includes('84.000 BPM'));
       assert(!w.document.querySelector('[data-autosync-apply]').disabled);
     });
     // Drag the now-confirmed marker from 1 s to .75 s for the Apply contract.
     wave.dispatchEvent(new w.MouseEvent('pointerdown',{bubbles:true,cancelable:true,clientX:150,clientY:40,button:0}));
     wave.dispatchEvent(new w.MouseEvent('pointermove',{bubbles:true,cancelable:true,clientX:112.5,clientY:40,button:0}));
     wave.dispatchEvent(new w.MouseEvent('pointerup',{bubbles:true,cancelable:true,clientX:112.5,clientY:40,button:0}));
+    await delay(20);
     let draggedFirst=0;
-    check('manual bar 1 shifts the proposal and explicitly unlocks low-confidence Apply', () => {
+    check('manual bar 1 keeps low-confidence Apply available and uses the recalculated grid', () => {
       const apply=w.document.querySelector('[data-autosync-apply]');
       assert(apply && !apply.disabled);
       const match=w.document.querySelector('.bt-autosync-manual-status').textContent.match(/([\d.]+) с/);
       draggedFirst=match?Number(match[1]):NaN;
       assert(Number.isFinite(draggedFirst)&&Math.abs(draggedFirst-.75)<.01,String(draggedFirst));
       const times=Array.from(w.document.querySelectorAll('.bt-autosync-table tbody tr td:nth-child(2)')).map(td=>parseFloat(td.textContent));
-      assert(Math.abs(times[0]-draggedFirst)<.001&&Math.abs(times[1]-draggedFirst-3)<.001,JSON.stringify(times));
+      assert(Math.abs(times[0]-draggedFirst)<.001&&Math.abs(times[1]-draggedFirst-2.8)<.001,JSON.stringify(times));
       assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),original);
     });
     w.document.querySelector('[data-autosync-apply]').onclick();
     check('manual bar 1 applies the computed tempo while preserving points outside the selected range', () => {
       const saved=JSON.parse(JSON.stringify(bt.serialize().points));
-      assert(Math.abs(saved[0].time-draggedFirst)<.001&&Math.abs(saved[1].time-draggedFirst-3)<.001,JSON.stringify(saved));
+      assert(Math.abs(saved[0].time-draggedFirst)<.001&&Math.abs(saved[1].time-draggedFirst-2.8)<.001,JSON.stringify(saved));
       assert.deepStrictEqual(saved[2],{bar:2,time:6.2});
     });
     if (w.undoEdit) w.undoEdit();
