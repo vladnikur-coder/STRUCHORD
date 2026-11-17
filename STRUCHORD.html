@@ -15807,7 +15807,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.833</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.834</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -52587,7 +52587,10 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
   const scheduleVisuals = !scheduleOptions || scheduleOptions.visuals !== false;
   if (!scheduleAudio && !scheduleVisuals) return;
   try {
-    const resolved = scheduleAudio ? resolveShapeForScheduledChord(chord, posCtx) : { shape: null, key: null };
+    // The visuals-only pass also needs the fingering: string vibration is a
+    // transport visual and must survive mute/solo just like the step marker.
+    // Shape resolution is pure model work and creates no Web Audio nodes.
+    const resolved = resolveShapeForScheduledChord(chord, posCtx);
     const { shape, key } = resolved;
     const sub = Math.max(1, pattern.subdivision || 1);
     const stepsInEvent = Math.max(1, Math.round((span || 1) * sub));
@@ -52729,6 +52732,19 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
         } else {
           scheduleStrumStepHighlight(ctx, resolveEditorHighlight, i, t, thisStepSeconds, restDir);
         }
+        // String motion belongs to the same visuals-only transport pass. In
+        // 0.830 only the rhythm badge was moved here, while vibration remained
+        // below the audio gate; a muted guitar therefore still looked frozen.
+        if (pattern.mode === 'pick' || (pattern.mode === 'mixed' && (Array.isArray(symbol) || typeof symbol === 'number'))) {
+          const visualStrings = resolvePickStepStrings(symbol, shape, chord);
+          vibrateFingeringStrings(ctx, visualStrings.map((n) => 6 - n), t, thisStepSeconds, 0);
+        } else if ((symbol === 'D' || symbol === 'U') && shape) {
+          const up = symbol === 'U';
+          const visualIndexes = shapeToPluckNotes(shape)
+            .map((n) => n.stringIndex)
+            .sort((a, b) => (up ? b - a : a - b));
+          vibrateFingeringStrings(ctx, visualIndexes, t, thisStepSeconds, up ? 0.01 : 0.014);
+        }
       }
 
       // Визуальный проход намеренно заканчивается до синтеза. Mute/solo
@@ -52743,10 +52759,8 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
         // Басовые токены разворачиваем здесь, по аппликатуре ИМЕННО
         // этого аккорда — так один перебор секции ведёт бас за гармонией.
         const strings = resolvePickStepStrings(symbol, shape, chord);
-        // Дрожание на грифе: перебор щипает струны одновременно, поэтому
-        // разброса по времени нет. Номера струн (1 — тонкая) переводим в
-        // индексы аппликатуры (0 — толстая, слева на схеме).
-        vibrateFingeringStrings(ctx, strings.map((n) => 6 - n), t, thisStepSeconds, 0);
+        // String vibration was already scheduled by the independent visual
+        // pass above; this branch is audio-only to avoid duplicate animation.
         // ВАЖНО: время звучания щипка НЕ привязываем к stepSeconds/темпу.
         // На настоящей гитаре нота звенит примерно одинаковое физическое
         // время независимо от того, насколько быстро играют — она просто
@@ -52766,17 +52780,8 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
         // (восьмые/шестнадцатые) огибающая снова гасла почти мгновенно.
         const strokeDur = STRUM_RING_SECONDS;
         strumChordDirectional(ctx, shape, chord, key, t, strokeDur, 0.34, symbol === 'U' ? 'up' : 'down');
-        // Дрожат ВСЕ звучащие струны формы, по очереди — как настоящий
-        // взмах. Порядок и задержки те же, что у звука
-        // (см. strumChordDirectional): вниз — от толстой к тонкой,
-        // вверх — наоборот.
-        if (shape) {
-          const up = symbol === 'U';
-          const idx = shapeToPluckNotes(shape)
-            .map((n) => n.stringIndex)
-            .sort((a, b) => (up ? b - a : a - b));
-          vibrateFingeringStrings(ctx, idx, t, thisStepSeconds, up ? 0.01 : 0.014);
-        }
+        // String vibration was already scheduled by the independent visual
+        // pass above; this branch is audio-only to avoid duplicate animation.
       }
     }
   } catch (e) {
