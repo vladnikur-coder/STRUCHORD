@@ -15807,7 +15807,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.836</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.837</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -49925,11 +49925,11 @@ function playAll() {
   // Откуда начинать. В режиме ленты — с того места, куда пользователь
   // отмотал указатель (или где поставил паузу). В редакторе — с начала песни
   // либо с позиции клика по волне фонового аудио (B-122).
-  const from = timelineMode
+  const from = resolveStartPosition(timelineMode
     ? consumeTimelineStartPosition()
     : (window.StruChordBackingTrack && typeof window.StruChordBackingTrack.consumePendingStartPosition === 'function'
       ? window.StruChordBackingTrack.consumePendingStartPosition()
-      : null);
+      : null));
   const backingTrackStartsAtZero = !!(window.StruChordBackingTrack &&
     typeof window.StruChordBackingTrack.consumePendingAudioStartFromZero === 'function' &&
     window.StruChordBackingTrack.consumePendingAudioStartFromZero());
@@ -50130,6 +50130,48 @@ function consumeTimelineStartPosition() {
   return pos;
 }
 
+// Позиция старта хранится индексами, а структура между перемоткой и Play
+// могла измениться (квадрат вставлен/удалён/переставлен). Поэтому позиция
+// несёт стабильные id секции и квадрата, а к моменту старта индексы
+// пересчитываются по текущей модели: Play не начинает со старого места,
+// которое после правки указывает уже на другой материал.
+function resolveStartPosition(pos) {
+  if (!pos || !sections.length) return null;
+  const oldSi = Math.max(0, Number(pos.sectionIndex) || 0);
+  const oldSqi = Math.max(0, Number(pos.squareIndex) || 0);
+  const secPass = Math.max(0, Number((pos.sectionRepeatCount || {})[`sec_${oldSi}`]) || 0);
+  const sqPass = Math.max(0, Number((pos.squareRepeatCount || {})[`sq_${oldSi}_${oldSqi}`]) || 0);
+  let si = oldSi;
+  if (pos.sectionId != null) {
+    const found = sections.findIndex((s) => s && s.id === pos.sectionId);
+    if (found >= 0) si = found;
+  }
+  si = Math.min(si, sections.length - 1);
+  const sec = sections[si];
+  if (!sec || !sec.squares.length) return { sectionIndex: si, squareIndex: 0, eventIndex: 0,
+    sectionRepeatCount: {}, squareRepeatCount: {}, structureWalk: pos.structureWalk || null };
+  let sqi = oldSqi;
+  if (pos.squareId != null) {
+    const found = sec.squares.findIndex((q) => q && q.id === pos.squareId);
+    if (found >= 0) sqi = found;
+  }
+  sqi = Math.min(sqi, sec.squares.length - 1);
+  const sq = sec.squares[sqi];
+  const eventCount = typeof getSquarePlaybackEvents === 'function'
+    ? getSquarePlaybackEvents(sq, sec.timeSig || globalTimeSig).length
+    : (sq.events || []).length;
+  const ei = Math.min(Math.max(0, Number(pos.eventIndex) || 0), Math.max(0, eventCount - 1));
+  const sectionRepeatCount = {};
+  const squareRepeatCount = {};
+  const secRepeat = Math.max(1, Number(sec.repeat) || 1);
+  const sqRepeat = Math.max(1, Number(sq.repeat) || 1);
+  if (secPass > 0 && secPass < secRepeat) sectionRepeatCount[`sec_${si}`] = secPass;
+  if (sqPass > 0 && sqPass < sqRepeat) squareRepeatCount[`sq_${si}_${sqi}`] = sqPass;
+  return { sectionIndex: si, squareIndex: sqi, eventIndex: ei,
+    sectionId: sec.id, squareId: sq.id,
+    sectionRepeatCount, squareRepeatCount, structureWalk: pos.structureWalk || null };
+}
+
 // Пауза: останавливаем звук, но запоминаем, где стояли.
 //
 // Отдельная функция, а не флаг внутри stopPlayback: та вызывается из
@@ -50137,9 +50179,13 @@ function consumeTimelineStartPosition() {
 // туда ветку «а вдруг это пауза» значило бы менять поведение редактора.
 function pausePlayback() {
   if (!playbackState.isPlaying) return;
+  const pausedSec = sections[playbackState.currentSectionIndex];
+  const pausedSq = pausedSec && pausedSec.squares[playbackState.currentSquareIndex];
   timelineStartPosition = {
     sectionIndex: playbackState.currentSectionIndex,
     squareIndex: playbackState.currentSquareIndex,
+    sectionId: pausedSec ? pausedSec.id : null,
+    squareId: pausedSq ? pausedSq.id : null,
     // currentEventIndex уже указывает на СЛЕДУЮЩЕЕ событие, а
     // продолжить надо с того, что звучало: планировщик увеличивает
     // индекс сразу после планирования.
@@ -50314,7 +50360,7 @@ function timelinePositionFromCell(key) {
   const squareRepeatCount = {};
   if (secPass > 0) sectionRepeatCount[`sec_${sectionIndex}`] = secPass;
   if (sqPass > 0) squareRepeatCount[`sq_${sectionIndex}_${squareIndex}`] = sqPass;
-  return { sectionIndex, squareIndex, eventIndex: ei, sectionRepeatCount, squareRepeatCount };
+  return { sectionIndex, squareIndex, eventIndex: ei, sectionId: secId, squareId: sqId, sectionRepeatCount, squareRepeatCount };
 }
 
 // Пользователь отмотал ленту руками — запоминаем новую точку старта.
@@ -64936,10 +64982,13 @@ function updateTimelineSectionNav() {
               ] || 0,
       }
     : timelineStartPosition
-    ? {
-        sectionIndex: timelineStartPosition.sectionIndex,
-        secPass: currentTimelinePassesFrom(timelineStartPosition).secPass,
-      }
+    ? (() => {
+        const resolved = resolveStartPosition(timelineStartPosition) || timelineStartPosition;
+        return {
+          sectionIndex: resolved.sectionIndex,
+          secPass: currentTimelinePassesFrom(resolved).secPass,
+        };
+      })()
     : null;
 
   let currentEl = null;
@@ -88737,6 +88786,16 @@ function gpExportModal(title, bodyHtml, label) {
     const id = songIdentity();
     if (id !== lastSongKey) { lastSongKey = id; meta = null; audioZeroCtxTime = null; cachedBarGrid = null; syncPointMapCache = null; }
   }
+  // Fast structural editor paths redraw only one section and deliberately skip
+  // the full renderDependentLayers() pass. The backing grid used to remain
+  // cached in those paths, so waveform/timeline seeking still addressed the
+  // pre-edit section order, repeats and cell spans until some unrelated full
+  // render happened. Invalidate synchronously from the model command instead
+  // of relying on a particular rendering path.
+  const GRID_TIMING_COMMAND = /^(?:bar\/(?:delete|insert)|cell\/(?:add|remove|span|timesig)|gp\/import-overlay|section\/(?:add|add-custom|bpm|clone|insert-after|make-range|remove|reorder-field|reorder-songmap|repeat|split|tempo|timesig)|song\/(?:clear|load|timesig)|songmap\/paste-move|square\/(?:add|beats|clone|remove|repeat|resize-reslice|resize-spans|tab-clone|tab-discard|tab-insert|tab-move)|tab\/(?:editor-apply|set-beats))$/;
+  function gridTimingCommand(label) {
+    return GRID_TIMING_COMMAND.test(String(label || ''));
+  }
   function squareQuarterSpan(sq, ts, unit) {
     const events = typeof getSquarePlaybackEvents === 'function'
       ? getSquarePlaybackEvents(sq, ts) : ((sq && sq.events) || []);
@@ -89794,7 +89853,7 @@ function gpExportModal(title, bodyHtml, label) {
     if(playbackState.isPlaying&&pos){playbackState.currentSectionIndex=pos.sectionIndex;playbackState.currentSquareIndex=pos.squareIndex;playbackState.currentEventIndex=pos.eventIndex;playbackState._sectionRepeatCount=pos.sectionRepeatCount;playbackState._squareRepeatCount=pos.squareRepeatCount;seekDuringPlayback(pos,t);}
     else if(!playbackState.isPlaying)toast(outside?'Позиция вне партитуры выбрана — Play начнёт запись с начала':'Позиция выбрана — нажмите Play');
   }
-  function positionForQ(q){const grid=getBarGrid();let found=grid.events[0];for(const x of grid.events){if(x.q<=q)found=x;else break;}return found?{sectionIndex:found.si,squareIndex:found.qi,eventIndex:found.ei,sectionRepeatCount:{['sec_'+found.si]:found.sp},squareRepeatCount:{['sq_'+found.si+'_'+found.qi]:found.qp}}:null;}
+  function positionForQ(q){const grid=getBarGrid();let found=grid.events[0];for(const x of grid.events){if(x.q<=q)found=x;else break;}return found?{sectionIndex:found.si,squareIndex:found.qi,eventIndex:found.ei,sectionId:found.section?found.section.id:null,squareId:found.square?found.square.id:null,sectionRepeatCount:{['sec_'+found.si]:found.sp},squareRepeatCount:{['sq_'+found.si+'_'+found.qi]:found.qp}}:null;}
   async function chooseFile(){const input=document.createElement('input');input.type='file';input.accept='audio/*,.mp3,.wav,.m4a,.ogg,.flac,.aac,.webm';input.style.position='fixed';input.style.left='-9999px';input.style.opacity='0';document.body.appendChild(input);input.onchange=async()=>{const file=input.files&&input.files[0];input.remove();if(!file)return;const ext=String(file.name||'').split('.').pop().toLowerCase();if(!(String(file.type||'').startsWith('audio/')||['mp3','wav','m4a','ogg','flac','aac','webm'].includes(ext))){toast('Выберите MP3, WAV, M4A, OGG, FLAC, AAC или WEBM');return;}if(file.size>LIMIT){toast('Аудиофайл больше лимита 25 МБ');return;}const id='bt-'+(window.crypto&&crypto.randomUUID?crypto.randomUUID():Date.now().toString(36)+Math.random().toString(36).slice(2));const token=++loadToken;blobLoadToken++;const points=meta?meta.points:[{bar:0,time:0}];const next=cleanMeta({id,name:file.name,type:file.type,size:file.size,points,speed:meta&&meta.speed,volume:meta&&meta.volume,mute:meta&&meta.mute,solo:meta&&meta.solo});await dbPut(id,file);if(token!==loadToken)return;setMeta(next);await loadBlob(file);if(token===loadToken)captureEdit();};input.addEventListener('cancel',()=>input.remove(),{once:true});window.addEventListener('focus',()=>setTimeout(()=>input.remove(),1000),{once:true});input.click();}
   async function loadBlob(blob){
     if(!blob)return;
@@ -90174,6 +90233,11 @@ function gpExportModal(title, bodyHtml, label) {
   function getBpmForBar(bar){const q=qAtBar(bar);const b=qAtBar(bar+1);return bpmAtQ(q,b-q||1);}
   function getBpmForEvent(si,qi,ei,sp,qp,span,ts){if(!meta)return null;const q=eventQuarter(si,qi,ei,sp,qp),sig=parseTimeSig(ts||globalTimeSig||'4/4'),dq=Number(span||1)*(4/sig.denominator);return bpmAtQ(q,dq);}
   function getFirstPassBpmForBar(bar){let q=0,b=0;for(const sec of sections||[]){const sig=parseTimeSig(sec.timeSig||globalTimeSig||'4/4'),quarters=sig.numerator*(4/sig.denominator);let sectionQ=0;for(let qi=0;qi<(sec.squares||[]).length;qi++){const count=Math.max(1,Number(sec.squares[qi].repeat)||1);for(let r=0;r<count;r++){if(b===bar)return bpmAtQ(q+sectionQ,quarters);b++;sectionQ+=quarters;}}q+=sectionQ*Math.max(1,Number(sec.repeat)||1);}return getBpmForBar(bar);}
+  if (window.songStore && typeof window.songStore.subscribe === 'function') {
+    window.songStore.subscribe(command => {
+      if (command && gridTimingCommand(command.label)) invalidateGrid();
+    });
+  }
   const api={limit:LIMIT, deleteAudio, sanitize:cleanMeta, get state(){return gridPayload();}, getSyncTimingDiagnostics, get peakCount(){return peaks.length;}, getDriftPlaybackRate:driftPlaybackRate, getPathInfo:backingPathInfo, isSolo, mainAudible, mainTrackAllowed, syncMixerUi, syncPlaybackUi:syncPlayheadAnimation, toggleDrawer, stopAudio, preparePlaybackStart,resolveScheduledEvent,getCountInBpm,consumePendingStartPosition,consumePendingAudioStartFromZero,syncPreviewToPosition,invalidateGrid,resetForNewSong:()=>{resetAutoSyncState(true);loadToken++;blobLoadToken++;stopBackingOutput();pendingAudioStartFromZero=false;cachedBarGrid=null;syncPointMapCache=null;peaks=[];peakBinSeconds=0;duration=0;audioBuffer=null;bufferBytes=0;stopAudio();if(audioUrl)try{URL.revokeObjectURL(audioUrl);}catch(_){}audioUrl='';if(audio)try{audio.removeAttribute('src');}catch(_){}meta=null;pendingStart=null;missingAudio=false;renderDrawer();syncMixerUi();},seekDuringPlayback,serialize:stateForSave,loadSong,importEmbedded,exportSong,exportStoredSong,getBpmForBar,getFirstPassBpmForBar,getBpmForEvent,getBarGrid,pointTimeForPosition};
   window.StruChordBackingTrack=api;
   const ready=()=>{syncSongMeta();renderDrawer();syncMixerUi();window.addEventListener('resize',()=>{measureCanvas();drawWave();});};

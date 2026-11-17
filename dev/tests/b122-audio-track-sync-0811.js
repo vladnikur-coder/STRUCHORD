@@ -114,19 +114,52 @@ setTimeout(async () => {
       assert.strictEqual(embeddedExport.backingTrack.embedded, w.btoa('RIFF'));
     });
     await bt.deleteAudio('embed-test');
-    check('sync grid is cached across event lookups and retains an out-of-grid GP bar anchor', () => {
+    check('sync grid stays cached for metadata but invalidates immediately after structural edits', () => {
       w.document.getElementById('songTitle').value = 'Renamed while audio is attached';
       const cachedGrid = bt.getBarGrid();
       assert.strictEqual(bt.getBarGrid(), cachedGrid);
       assert.strictEqual(cachedGrid.bars, 2);
-      w.eval('sections[0].repeat = 2');
-      bt.invalidateGrid();
+      w.eval(`songStore.dispatch('section/repeat', () => { sections[0].repeat = 2; }, { quiet: true })`);
+      assert.notStrictEqual(bt.getBarGrid(), cachedGrid, 'a quiet fast-path structure command invalidates the old object');
       assert.strictEqual(bt.getBarGrid().bars, 4);
-      w.eval('sections[0].repeat = 1');
-      bt.invalidateGrid();
+      assert.strictEqual(bt.pointTimeForPosition({ sectionIndex: 0, squareIndex: 0, eventIndex: 0,
+        sectionRepeatCount: { sec_0: 1 }, squareRepeatCount: {} }), 6);
+      w.eval(`songStore.dispatch('section/repeat', () => { sections[0].repeat = 1; }, { quiet: true })`);
       assert.strictEqual(bt.getBarGrid().bars, 2);
       assert.deepStrictEqual(Array.from(bt.state.points, p => p.bar), [0, 4]);
       assert.strictEqual(bt.state.id, 'b122-test-audio');
+    });
+    check('seeking uses the rebuilt audio grid after adding a square', () => {
+      w.eval(`songStore.dispatch('square/add', () => {
+        sections[0].squares.unshift({ id: 99, repeat: 1, events: [{ chord: 'Am', span: 4 }] });
+      }, { quiet: true })`);
+      assert.strictEqual(bt.getBarGrid().bars, 3);
+      const movedOriginal = { sectionIndex: 0, squareIndex: 2, eventIndex: 0,
+        sectionRepeatCount: {}, squareRepeatCount: {} };
+      assert.strictEqual(bt.pointTimeForPosition(movedOriginal), 6);
+      w.__audioInstances[w.__audioInstances.length - 1].duration = 12;
+      bt.syncPreviewToPosition(movedOriginal);
+      assert.strictEqual(w.__audioInstances[w.__audioInstances.length - 1].currentTime, 6,
+        'waveform preview seeks to the post-edit position, not the cached pre-edit square');
+      w.eval(`songStore.dispatch('square/remove', () => { sections[0].squares.shift(); }, { quiet: true })`);
+      assert.strictEqual(bt.getBarGrid().bars, 2);
+    });
+    check('saved start position follows its square after structural edits', () => {
+      const seekPos = { sectionIndex: 0, squareIndex: 1, eventIndex: 0, sectionId: 1, squareId: 2,
+        sectionRepeatCount: {}, squareRepeatCount: {} };
+      const before = w.eval(`resolveStartPosition(${JSON.stringify(seekPos)})`);
+      assert.strictEqual(before.squareIndex, 1);
+      assert.strictEqual(before.squareId, 2);
+      w.eval(`songStore.dispatch('square/add', () => {
+        sections[0].squares.unshift({ id: 99, repeat: 1, events: [{ chord: 'Am', span: 4 }] });
+      }, { quiet: true })`);
+      const afterInsert = w.eval(`resolveStartPosition(${JSON.stringify(seekPos)})`);
+      assert.strictEqual(afterInsert.squareIndex, 2, 'same square id, shifted by the inserted square');
+      assert.strictEqual(afterInsert.squareId, 2);
+      w.eval(`songStore.dispatch('square/remove', () => { sections[0].squares.shift(); }, { quiet: true })`);
+      const afterRemove = w.eval(`resolveStartPosition(${JSON.stringify(seekPos)})`);
+      assert.strictEqual(afterRemove.squareIndex, 1);
+      assert.strictEqual(afterRemove.squareId, 2);
     });
     check('piecewise sync points derive 80 BPM at native speed', () => {
       assert.strictEqual(bt.getBpmForBar(0), 80);
