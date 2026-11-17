@@ -110,35 +110,42 @@ setTimeout(async () => {
     w.document.querySelector('[data-bt-action="autosync"]').onclick();
     w.document.querySelector('[data-autosync-run]').onclick();
     await delay(20);
-    check('low confidence explains the failure, offers manual bar 1, and initially disables Apply', () => {
+    check('low confidence explains the failure, shows the drag instruction, and initially disables Apply', () => {
       const apply=w.document.querySelector('[data-autosync-apply]');
       assert(apply && apply.disabled);
-      assert(w.document.querySelector('[data-autosync-first-bar-time]'));
-      assert(w.document.querySelector('[data-autosync-pick-first]'));
-      assert(w.document.querySelector('[data-autosync-use-playhead]'));
+      assert(w.document.querySelector('#btAutoSyncHost').textContent.includes('Перетащите оранжевый маркер'));
       assert(w.document.querySelector('#btAutoSyncHost').textContent.includes('Нет чётких ударов'));
       assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),original);
     });
-    w.document.querySelector('[data-autosync-pick-first]').onclick();
     const wave=w.document.querySelector('#btWaveCanvas');
-    wave.dispatchEvent(new w.MouseEvent('pointerdown',{bubbles:true,cancelable:true,clientX:150,clientY:40,button:0}));
-    check('armed waveform click places bar 1 directly and exits placement mode', () => {
+    // Candidate .4 s is at x=60 on the 600 px / 4 s fixture. Drag to 1 s.
+    wave.dispatchEvent(new w.MouseEvent('pointerdown',{bubbles:true,cancelable:true,clientX:60,clientY:40,button:0}));
+    wave.dispatchEvent(new w.MouseEvent('pointermove',{bubbles:true,cancelable:true,clientX:150,clientY:40,button:0}));
+    wave.dispatchEvent(new w.MouseEvent('pointerup',{bubbles:true,cancelable:true,clientX:150,clientY:40,button:0}));
+    check('dragging the visible bar-1 marker confirms the manual position', () => {
       assert(w.document.querySelector('.bt-autosync-manual-status').textContent.includes('1.000 с'));
-      assert(!w.document.querySelector('#btWaveCanvas').classList.contains('is-autosync-first-bar-pick'));
+      assert(!w.document.querySelector('[data-autosync-apply]').disabled);
     });
-    w.document.querySelector('[data-autosync-clear-manual]').onclick();
-    const manualFirst=w.document.querySelector('[data-autosync-first-bar-time]');
-    manualFirst.value='.750';manualFirst.onchange();
+    // Drag the now-confirmed marker from 1 s to .75 s for the Apply contract.
+    wave.dispatchEvent(new w.MouseEvent('pointerdown',{bubbles:true,cancelable:true,clientX:150,clientY:40,button:0}));
+    wave.dispatchEvent(new w.MouseEvent('pointermove',{bubbles:true,cancelable:true,clientX:112.5,clientY:40,button:0}));
+    wave.dispatchEvent(new w.MouseEvent('pointerup',{bubbles:true,cancelable:true,clientX:112.5,clientY:40,button:0}));
+    let draggedFirst=0;
     check('manual bar 1 shifts the proposal and explicitly unlocks low-confidence Apply', () => {
       const apply=w.document.querySelector('[data-autosync-apply]');
       assert(apply && !apply.disabled);
-      assert(w.document.querySelector('.bt-autosync-manual-status').textContent.includes('0.750 с'));
-      assert.deepStrictEqual(Array.from(w.document.querySelectorAll('.bt-autosync-table tbody tr td:nth-child(2)')).map(td=>td.textContent),['0.750 с','3.750 с']);
+      const match=w.document.querySelector('.bt-autosync-manual-status').textContent.match(/([\d.]+) с/);
+      draggedFirst=match?Number(match[1]):NaN;
+      assert(Number.isFinite(draggedFirst)&&Math.abs(draggedFirst-.75)<.01,String(draggedFirst));
+      const times=Array.from(w.document.querySelectorAll('.bt-autosync-table tbody tr td:nth-child(2)')).map(td=>parseFloat(td.textContent));
+      assert(Math.abs(times[0]-draggedFirst)<.001&&Math.abs(times[1]-draggedFirst-3)<.001,JSON.stringify(times));
       assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),original);
     });
     w.document.querySelector('[data-autosync-apply]').onclick();
     check('manual bar 1 applies the computed tempo while preserving points outside the selected range', () => {
-      assert.deepStrictEqual(JSON.parse(JSON.stringify(bt.serialize().points)),[{bar:0,time:.75},{bar:1,time:3.75},{bar:2,time:6.2}]);
+      const saved=JSON.parse(JSON.stringify(bt.serialize().points));
+      assert(Math.abs(saved[0].time-draggedFirst)<.001&&Math.abs(saved[1].time-draggedFirst-3)<.001,JSON.stringify(saved));
+      assert.deepStrictEqual(saved[2],{bar:2,time:6.2});
     });
     if (w.undoEdit) w.undoEdit();
     await delay(20);

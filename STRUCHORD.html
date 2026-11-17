@@ -15641,7 +15641,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       .bt-autosync-mode { display: inline-flex; align-items: center; gap: 0.3rem; padding: 0.35rem 0.45rem; border: 0.0625rem solid var(--color-border-light, #ddd); border-radius: 0.45rem; cursor: pointer; }
       .bt-autosync-mode:has(input:checked) { border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 12%, transparent); }
       .bt-autosync-range { margin: 0.5rem 0; }
-      .bt-autosync-range input[type='number'], .bt-autosync-shift input, .bt-autosync-manual input[type='number'] { width: 4.5rem; padding: 0.22rem; border: 0.0625rem solid var(--color-border-medium, #c9cdd4); border-radius: 0.35rem; font: inherit; }
+      .bt-autosync-range input[type='number'], .bt-autosync-shift input { width: 4.5rem; padding: 0.22rem; border: 0.0625rem solid var(--color-border-medium, #c9cdd4); border-radius: 0.35rem; font: inherit; }
       .bt-autosync-progress { width: 100%; height: 0.65rem; accent-color: var(--color-accent); }
       .bt-autosync-stage { margin: 0.3rem 0; color: var(--color-text-secondary, #666); }
       .bt-autosync-summary { margin: 0.35rem 0 0.5rem; }
@@ -15659,9 +15659,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       .bt-autosync-manual { display: grid; gap: 0.4rem; margin: 0.5rem 0; padding: 0.55rem; border: 0.0625rem solid color-mix(in srgb, #d58a17 65%, var(--color-border-light, #ddd)); border-radius: 0.5rem; background: color-mix(in srgb, #d58a17 8%, transparent); }
       .bt-autosync-manual p { margin: 0; color: var(--color-text-secondary, #666); }
       .bt-autosync-manual-controls { display: flex; align-items: center; flex-wrap: wrap; gap: 0.4rem; }
-      .bt-autosync-manual.is-armed { border-color: var(--color-accent); box-shadow: inset 0 0 0 0.0625rem var(--color-accent); }
       .bt-autosync-manual-status { font-weight: 700; color: #16845b; }
-      .bt-wave-canvas.is-autosync-first-bar-pick { cursor: crosshair !important; outline: 0.125rem solid color-mix(in srgb, var(--color-accent) 70%, transparent); outline-offset: -0.125rem; }
       .bt-autosync-error { color: #c43e4f; margin: 0.35rem 0; }
       .bt-autosync-shift { display: inline-flex; align-items: center; gap: 0.3rem; }
       .bt-autosync-actions { margin-top: 0.5rem; }
@@ -15809,7 +15807,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.831</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.832</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -88644,7 +88642,7 @@ function gpExportModal(title, bodyHtml, label) {
   // separate from the small relative nudge: setting it is the confirmation
   // that may unlock a low-confidence analysis for Apply.
   let autoSyncManualFirstBarTime = null;
-  let autoSyncPickFirstBar = false;
+  let autoSyncFirstBarDrag = null;
   let autoSyncError = '';
   let autoSyncAuditionTimer = 0;
   let bufferSource = null;
@@ -89236,6 +89234,21 @@ function gpExportModal(title, bodyHtml, label) {
         c.beginPath();c.arc(x,11*dpr,4.5*dpr,0,Math.PI*2);c.fillStyle='#55e6ff';c.fill();
       });
       if (typeof c.setLineDash === 'function') c.setLineDash([]);
+      // When harmony cannot identify the downbeat confidently, the suggested
+      // first bar becomes a large draggable handle instead of another form
+      // control. Dragging it shifts the whole cyan proposal without changing
+      // its tempo or interval shape.
+      if (autoSyncResult.confidence && autoSyncResult.confidence.low) {
+        const firstTime=currentAutoSyncFirstBarTime(),x=((firstTime+displayOffset-viewStart)/viewDuration)*w;
+        if(x>=0&&x<=w){
+          c.strokeStyle='#ff9f1c';c.lineWidth=3*dpr;c.beginPath();c.moveTo(x,0);c.lineTo(x,h);c.stroke();
+          c.beginPath();c.arc(x,12*dpr,7*dpr,0,Math.PI*2);c.fillStyle='#ff9f1c';c.fill();
+          const label='Такт 1';c.font=`700 ${10*dpr}px system-ui, sans-serif`;
+          const labelW=(c.measureText(label).width||34*dpr)+10*dpr,labelX=clamp(x+8*dpr,2*dpr,w-labelW-2*dpr);
+          c.fillStyle='rgba(20,24,30,.9)';c.fillRect(labelX,3*dpr,labelW,17*dpr);
+          c.fillStyle='#fff';c.fillText(label,labelX+5*dpr,15*dpr);
+        }
+      }
     }
   }
   function secText(s) { const whole=Math.max(0,Number(s)||0);return `${Math.floor(whole/60)}:${String(Math.floor(whole%60)).padStart(2,'0')}.${String(Math.floor(whole*1000)%1000).padStart(3,'0')}`; }
@@ -89297,7 +89310,7 @@ function gpExportModal(title, bodyHtml, label) {
     autoSyncCandidateIndex = 0;
     autoSyncShiftMs = 0;
     autoSyncManualFirstBarTime = null;
-    autoSyncPickFirstBar = false;
+    autoSyncFirstBarDrag = null;
     autoSyncError = '';
     if (close) autoSyncOpen = false;
     if (autoSyncAuditionTimer) {
@@ -89318,6 +89331,7 @@ function gpExportModal(title, bodyHtml, label) {
     return Number.isFinite(value) ? value : 0;
   }
   function currentAutoSyncFirstBarTime() {
+    if (autoSyncFirstBarDrag && Number.isFinite(autoSyncFirstBarDrag.time)) return autoSyncFirstBarDrag.time;
     return Number.isFinite(autoSyncManualFirstBarTime)
       ? autoSyncManualFirstBarTime
       : autoSyncCandidateStartTime() + autoSyncShiftMs / 1000;
@@ -89338,7 +89352,7 @@ function gpExportModal(title, bodyHtml, label) {
     const value = Number(time), mediaLen = waveDuration();
     if (!Number.isFinite(value)) return;
     autoSyncManualFirstBarTime = Math.round(clamp(value, 0, Math.max(0, mediaLen || value)) * 1000) / 1000;
-    autoSyncPickFirstBar = false;
+    autoSyncFirstBarDrag = null;
     autoSyncError = '';
     refreshAutoSyncPanel();
   }
@@ -89396,16 +89410,10 @@ function gpExportModal(title, bodyHtml, label) {
     const mismatchRegions = result.mismatches && result.mismatches.regions || [];
     if (mismatchRegions.length) warnings.push(`Схема может не совпадать с записью в диапазонах: ${mismatchRegions.map(r=>`${r.fromBar+1}–${r.toBar}`).join(', ')}. Эти места подсвечены на волне.`);
     const candidates = result.ambiguousStart ? `<div class="bt-autosync-candidates"><strong>Варианты первого такта</strong>${candidateList.slice(0,3).map((item,index)=>`<div class="bt-autosync-candidate ${index===autoSyncCandidateIndex?'is-selected':''}"><label><input type="radio" name="btAutoSyncCandidate" value="${index}" ${index===autoSyncCandidateIndex?'checked':''}> ${(Number(item.startTime)+autoSyncShiftMs/1000).toFixed(3)} с</label><span>совпадение ${(Number(item.harmonyScore)*100).toFixed(1)}%</span><button type="button" class="bt-button" data-autosync-audition="${index}">▶ Прослушать</button></div>`).join('')}</div>` : '';
-    const manualFirstBar = lowConfidence ? `<div class="bt-autosync-manual ${autoSyncPickFirstBar?'is-armed':''}">
-      <strong>Укажите начало первого такта вручную</strong>
-      <p>Темп и остальные точки уже рассчитаны. Поставьте только начало такта 1 — после этого результат можно применить несмотря на низкую уверенность.</p>
-      <div class="bt-autosync-manual-controls">
-        <label>Такт 1 <input type="number" min="0" max="${Math.max(0,waveDuration()).toFixed(3)}" step="0.001" value="${firstBeat.toFixed(3)}" data-autosync-first-bar-time> с</label>
-        <button type="button" class="bt-button" data-autosync-pick-first aria-pressed="${autoSyncPickFirstBar?'true':'false'}">${autoSyncPickFirstBar?'Нажмите место на волне…':'Поставить на волне'}</button>
-        <button type="button" class="bt-button" data-autosync-use-playhead ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>Взять позицию MP3</button>
-        ${manualFirstBarReady?'<button type="button" class="bt-button" data-autosync-audition-manual>▶ Проверить</button><button type="button" class="bt-button" data-autosync-clear-manual>Вернуться к авто</button>':''}
-      </div>
-      ${manualFirstBarReady?`<span class="bt-autosync-manual-status">Начало такта 1 поставлено вручную: ${firstBeat.toFixed(3)} с</span>`:'<span>Можно ввести секунды, нажать место на волне или взять текущую позицию MP3.</span>'}
+    const manualFirstBar = lowConfidence ? `<div class="bt-autosync-manual">
+      <strong>Перетащите оранжевый маркер «Такт 1» на волне</strong>
+      <p>Поставьте его на начало первого такта. Вся рассчитанная сетка поедет вместе с маркером, а найденный темп не изменится.</p>
+      ${manualFirstBarReady?`<div class="bt-autosync-manual-controls"><button type="button" class="bt-button" data-autosync-audition-manual>▶ Проверить</button><button type="button" class="bt-button" data-autosync-clear-manual>Вернуть автопозицию</button></div><span class="bt-autosync-manual-status">Такт 1: ${firstBeat.toFixed(3)} с · поставлен вручную</span>`:`<span>Сейчас показана автопозиция ${firstBeat.toFixed(3)} с. Потяните маркер, чтобы подтвердить или исправить её.</span>`}
     </div>` : '';
     return `<div class="bt-autosync-summary">
       <span class="bt-autosync-metric"><strong>${Number(result.tempo && result.tempo.bpm || 0).toFixed(3)} BPM</strong></span>
@@ -89435,8 +89443,6 @@ function gpExportModal(title, bodyHtml, label) {
     if (!host) return;
     host.innerHTML = autoSyncPanelMarkup();
     bindAutoSyncPanel();
-    const canvas = $('btWaveCanvas');
-    if (canvas) canvas.classList.toggle('is-autosync-first-bar-pick', autoSyncPickFirstBar);
     drawWave();
   }
   function updateAutoSyncProgressDom() {
@@ -89454,7 +89460,7 @@ function gpExportModal(title, bodyHtml, label) {
     const fromBar = autoSyncRangeEnabled ? clamp(autoSyncFromBar, 0, bars - 1) : 0;
     const toBar = autoSyncRangeEnabled ? clamp(autoSyncToBar == null ? bars : autoSyncToBar, fromBar + 1, bars) : bars;
     const token = ++autoSyncRunToken;
-    autoSyncRunning = true; autoSyncResult = null; autoSyncError = ''; autoSyncCandidateIndex = 0; autoSyncShiftMs = 0; autoSyncManualFirstBarTime = null; autoSyncPickFirstBar = false;
+    autoSyncRunning = true; autoSyncResult = null; autoSyncError = ''; autoSyncCandidateIndex = 0; autoSyncShiftMs = 0; autoSyncManualFirstBarTime = null; autoSyncFirstBarDrag = null;
     autoSyncProgress = { stage: 'onsets', fraction: 0 };
     refreshAutoSyncPanel();
     let lastPaint = 0;
@@ -89481,8 +89487,9 @@ function gpExportModal(title, bodyHtml, label) {
       autoSyncResult = result;
       autoSyncRunning = false;
       autoSyncCandidateIndex = 0;
-      if (result.confidence && result.confidence.low) autoSyncError = 'Авто-синхронизация не уверена в начале — укажите начало первого такта вручную. Существующие точки пока не изменены.';
+      if (result.confidence && result.confidence.low) autoSyncError = 'Авто-синхронизация не уверена в начале — перетащите маркер «Такт 1» на волне. Существующие точки пока не изменены.';
       refreshAutoSyncPanel();
+      if (result.confidence && result.confidence.low) requestAnimationFrame(revealAutoSyncFirstBar);
     } catch (error) {
       if (token !== autoSyncRunToken || error && error.name === 'AbortError') return;
       autoSyncRunning = false;
@@ -89495,7 +89502,7 @@ function gpExportModal(title, bodyHtml, label) {
     autoSyncRunning = false;
     autoSyncProgress = { stage: '', fraction: 0 };
     autoSyncManualFirstBarTime = null;
-    autoSyncPickFirstBar = false;
+    autoSyncFirstBarDrag = null;
     autoSyncError = 'Расчёт отменён; точки не изменены.';
     refreshAutoSyncPanel();
   }
@@ -89517,7 +89524,7 @@ function gpExportModal(title, bodyHtml, label) {
     if (!candidate) return;
     autoSyncCandidateIndex = index;
     autoSyncManualFirstBarTime = null;
-    autoSyncPickFirstBar = false;
+    autoSyncFirstBarDrag = null;
     auditionAutoSyncTime(Number(candidate.startTime) + autoSyncShiftMs / 1000);
   }
   function applyAutoSync() {
@@ -89540,7 +89547,7 @@ function gpExportModal(title, bodyHtml, label) {
     autoSyncResult = null;
     autoSyncShiftMs = 0;
     autoSyncManualFirstBarTime = null;
-    autoSyncPickFirstBar = false;
+    autoSyncFirstBarDrag = null;
     captureEdit();
     renderDrawer();
     toast(`Авто-синхронизация: применено точек — ${proposed.length}`);
@@ -89554,15 +89561,12 @@ function gpExportModal(title, bodyHtml, label) {
     const to = host.querySelector('[data-autosync-to]'); if(to)to.onchange=()=>{autoSyncToBar=Math.max(autoSyncFromBar+1,Number(to.value)||getBarGrid().bars);refreshAutoSyncPanel();};
     const run = host.querySelector('[data-autosync-run]'); if(run)run.onclick=runAutoSync;
     const cancel = host.querySelector('[data-autosync-cancel]'); if(cancel)cancel.onclick=cancelAutoSync;
-    const rerun = host.querySelector('[data-autosync-rerun]'); if(rerun)rerun.onclick=()=>{autoSyncResult=null;autoSyncError='';autoSyncManualFirstBarTime=null;autoSyncPickFirstBar=false;refreshAutoSyncPanel();};
+    const rerun = host.querySelector('[data-autosync-rerun]'); if(rerun)rerun.onclick=()=>{autoSyncResult=null;autoSyncError='';autoSyncManualFirstBarTime=null;autoSyncFirstBarDrag=null;refreshAutoSyncPanel();};
     const apply = host.querySelector('[data-autosync-apply]'); if(apply)apply.onclick=applyAutoSync;
-    const shift = host.querySelector('[data-autosync-shift]'); if(shift)shift.onchange=()=>{autoSyncShiftMs=clamp(Number(shift.value)||0,-2000,2000);autoSyncManualFirstBarTime=null;autoSyncPickFirstBar=false;refreshAutoSyncPanel();};
-    const manualTime = host.querySelector('[data-autosync-first-bar-time]'); if(manualTime)manualTime.onchange=()=>setAutoSyncManualFirstBar(manualTime.value);
-    const pickFirst = host.querySelector('[data-autosync-pick-first]'); if(pickFirst)pickFirst.onclick=()=>{autoSyncPickFirstBar=!autoSyncPickFirstBar;refreshAutoSyncPanel();};
-    const usePlayhead = host.querySelector('[data-autosync-use-playhead]'); if(usePlayhead)usePlayhead.onclick=()=>{if(audio)setAutoSyncManualFirstBar(audio.currentTime);};
+    const shift = host.querySelector('[data-autosync-shift]'); if(shift)shift.onchange=()=>{autoSyncShiftMs=clamp(Number(shift.value)||0,-2000,2000);autoSyncManualFirstBarTime=null;autoSyncFirstBarDrag=null;refreshAutoSyncPanel();};
     const auditionManual = host.querySelector('[data-autosync-audition-manual]'); if(auditionManual)auditionManual.onclick=()=>auditionAutoSyncTime(currentAutoSyncFirstBarTime());
-    const clearManual = host.querySelector('[data-autosync-clear-manual]'); if(clearManual)clearManual.onclick=()=>{autoSyncManualFirstBarTime=null;autoSyncPickFirstBar=false;autoSyncError=autoSyncResult&&autoSyncResult.confidence&&autoSyncResult.confidence.low?'Надёжную синхронизацию построить не удалось — укажите начало первого такта вручную.':'';refreshAutoSyncPanel();};
-    host.querySelectorAll('input[name="btAutoSyncCandidate"]').forEach(input=>input.onchange=()=>{autoSyncCandidateIndex=Number(input.value)||0;autoSyncManualFirstBarTime=null;autoSyncPickFirstBar=false;refreshAutoSyncPanel();});
+    const clearManual = host.querySelector('[data-autosync-clear-manual]'); if(clearManual)clearManual.onclick=()=>{autoSyncManualFirstBarTime=null;autoSyncFirstBarDrag=null;autoSyncError=autoSyncResult&&autoSyncResult.confidence&&autoSyncResult.confidence.low?'Надёжную синхронизацию построить не удалось — перетащите маркер «Такт 1» на волне.':'';refreshAutoSyncPanel();};
+    host.querySelectorAll('input[name="btAutoSyncCandidate"]').forEach(input=>input.onchange=()=>{autoSyncCandidateIndex=Number(input.value)||0;autoSyncManualFirstBarTime=null;autoSyncFirstBarDrag=null;refreshAutoSyncPanel();});
     host.querySelectorAll('[data-autosync-audition]').forEach(button=>button.onclick=()=>auditionAutoSyncCandidate(Number(button.dataset.autosyncAudition)||0));
   }
   function renderDrawer() {
@@ -89571,7 +89575,7 @@ function gpExportModal(title, bodyHtml, label) {
     drawer.innerHTML=`<div class="bt-toolbar"><strong class="bt-title">${escapeHtml(meta.name)}</strong><span class="bt-size">${(meta.size/1048576).toFixed(1)} МБ</span><button type="button" class="bt-button" data-bt-action="replace">Заменить</button><button type="button" class="bt-button" data-bt-action="remove">Удалить</button><button type="button" class="bt-button" data-bt-action="close" aria-label="Свернуть">Свернуть</button></div>${missingAudio?'<div class="bt-missing-banner"><span>Аудиофайл не найден в этом браузере.</span><button type="button" class="bt-button" data-bt-action="replace">Связать файл</button></div>':''}<div class="bt-wave-viewport" id="btWaveViewport"><div class="bt-wave-space" id="btWaveSpace"><canvas id="btWaveCanvas" class="bt-wave-canvas" aria-label="Звуковая волна, тактовая сетка и точки синхронизации"></canvas></div><div class="bt-wave-playhead-overlay" aria-hidden="true"><div class="bt-wave-playhead" id="btPlayheadCursor"></div></div></div><div class="bt-hint"><span>Перетащите верхний маркер такта, чтобы поставить/сдвинуть Sync Point. Сдвиг записи за края сетки: Option/Alt + перетаскивание; масштаб: щипок или Ctrl+колесо.</span></div><div class="bt-controls"><button type="button" class="bt-button" data-bt-action="preview" ${!audio||missingAudio||playbackState.isPlaying?'disabled':''}>${audio&&!audio.paused?'Пауза MP3':'▶ Прослушать MP3'}</button><output id="btPlayhead" class="bt-status" aria-live="off">${secText(audio&&audio.currentTime||0)}</output><label>Скорость <input id="btSpeed" type="range" min="50" max="150" value="${Math.round(meta.speed*100)}"><output>${Math.round(meta.speed*100)}%</output></label><label>Громкость <input id="btVolume" type="range" min="0" max="100" value="${meta.volume}"></label><label>Точка: такт <input id="btBarInput" type="number" min="1" value="1"></label><label>Масштаб <input id="btZoom" type="range" min="50" max="10000" value="${Math.round(waveZoom*100)}"></label><button type="button" class="bt-button" data-bt-action="addpoint">Добавить точку</button><button type="button" class="bt-button" data-bt-action="delpoint">Удалить выбранную</button><button type="button" class="bt-button" data-bt-action="autosync">Авто-синхронизация</button><span class="bt-status"></span></div><div id="btAutoSyncHost">${autoSyncPanelMarkup()}</div><div class="bt-point-list">${meta.points.map((p,i)=>`<label class="bt-point-edit"><button type="button" class="bt-point${selectedPoint===i?' is-selected':''}" data-point="${i}">${syncPointBarText(p.bar)}</button><input class="bt-point-time" type="number" step="0.001" value="${p.time.toFixed(3)}" data-point-time="${i}" aria-label="Время точки ${syncPointBarText(p.bar)}, секунды">${pointTempoMarkup(i)}</label>`).join('')}</div>`;
     drawer.querySelector('[data-bt-action="replace"]').onclick=chooseFile; drawer.querySelector('[data-bt-action="remove"]').onclick=removeTrack; drawer.querySelector('[data-bt-action="close"]').onclick=()=>toggleDrawer(false);
     drawer.querySelector('[data-bt-action="preview"]').onclick=toggleAudioPreview;
-    drawer.querySelector('[data-bt-action="autosync"]').onclick=()=>{autoSyncOpen=!autoSyncOpen;if(autoSyncOpen){autoSyncError='';autoSyncToBar=autoSyncToBar==null?getBarGrid().bars:autoSyncToBar;}else autoSyncPickFirstBar=false;refreshAutoSyncPanel();};
+    drawer.querySelector('[data-bt-action="autosync"]').onclick=()=>{autoSyncOpen=!autoSyncOpen;if(autoSyncOpen){autoSyncError='';autoSyncToBar=autoSyncToBar==null?getBarGrid().bars:autoSyncToBar;}else autoSyncFirstBarDrag=null;refreshAutoSyncPanel();};
     bindAutoSyncPanel();
     drawer.querySelectorAll('[data-point-time]').forEach(input=>input.onchange=()=>editPointTime(input));
     updatePreviewStatus();
@@ -89580,7 +89584,7 @@ function gpExportModal(title, bodyHtml, label) {
     drawer.querySelector('[data-bt-action="addpoint"]').onclick=()=>{const b=Math.max(0,(Number(drawer.querySelector('#btBarInput').value)||1)-1);const t=audio?audio.currentTime:Math.max(0,tAtQ(qAtBar(b))),at=meta.points.findIndex(x=>x.bar>b),next=at<0?null:meta.points[at],prev=at<0?meta.points[meta.points.length-1]:meta.points[at-1];if(meta.points.some(x=>x.bar===b)){toast('На этом такте уже есть точка синхронизации');return;}if(prev&&t<=prev.time||next&&t>=next.time){toast('Время новой точки должно идти между соседними точками — запустите MP3 или выберите позицию на волне');return;}meta.points=normalizePoints([...meta.points,{bar:b,time:Math.max(0,t)}]);captureEdit();renderDrawer();};
     drawer.querySelector('[data-bt-action="delpoint"]').onclick=()=>{if(selectedPoint>=0&&selectedPoint<meta.points.length){meta.points.splice(selectedPoint,1);selectedPoint=-1;captureEdit();renderDrawer();}};
     drawer.querySelectorAll('[data-point]').forEach(b=>b.onclick=()=>{selectedPoint=Number(b.dataset.point);drawer.querySelectorAll('[data-point]').forEach(x=>x.classList.toggle('is-selected',x===b));});
-    const canvas=$('btWaveCanvas'),viewport=$('btWaveViewport'),space=$('btWaveSpace');canvas.classList.toggle('is-autosync-first-bar-pick',autoSyncPickFirstBar);space.style.width=(waveZoom*100)+'%';resizeWaveCanvas();const zoom=drawer.querySelector('#btZoom');zoom.oninput=()=>applyWaveZoom(Number(zoom.value)/100);canvas.addEventListener('pointerdown',wavePointerDown);canvas.addEventListener('pointermove',wavePointerMove);canvas.addEventListener('pointerup',wavePointerUp);canvas.addEventListener('pointercancel',wavePointerUp);canvas.addEventListener('wheel',waveWheelZoom,{passive:false});canvas.addEventListener('click',waveSeek);viewport.addEventListener('scroll',()=>{drawWave();updatePlayheadCursor();},{passive:true});drawWave();
+    const canvas=$('btWaveCanvas'),viewport=$('btWaveViewport'),space=$('btWaveSpace');space.style.width=(waveZoom*100)+'%';resizeWaveCanvas();const zoom=drawer.querySelector('#btZoom');zoom.oninput=()=>applyWaveZoom(Number(zoom.value)/100);canvas.addEventListener('pointerdown',wavePointerDown);canvas.addEventListener('pointermove',wavePointerMove);canvas.addEventListener('pointerup',wavePointerUp);canvas.addEventListener('pointercancel',wavePointerUp);canvas.addEventListener('wheel',waveWheelZoom,{passive:false});canvas.addEventListener('click',waveSeek);viewport.addEventListener('scroll',()=>{drawWave();updatePlayheadCursor();},{passive:true});drawWave();
     applyBackingVolume();
     if(audio&&playbackPath!=='buffer')audio.playbackRate=meta.speed;
     syncPlayheadAnimation();
@@ -89602,6 +89606,26 @@ function gpExportModal(title, bodyHtml, label) {
   function waveDuration(){return duration||Number(meta&&meta.duration)||Number(audio&&audio.duration)||0;}
   function canvasX(e){const viewport=$('btWaveViewport'),r=viewport.getBoundingClientRect(),width=waveVirtualWidth();return clamp((viewport.scrollLeft+e.clientX-r.left)/width,0,1);}
   function waveTimeAtClientX(clientX){return canvasX({clientX})*waveDuration()-(Number(meta&&meta.trackOffset)||0);}
+  function autoSyncNeedsManualFirstBar(){return !!(autoSyncResult&&autoSyncResult.confidence&&autoSyncResult.confidence.low);}
+  function revealAutoSyncFirstBar(){
+    if(!autoSyncNeedsManualFirstBar())return;
+    const viewport=$('btWaveViewport'),mediaLen=waveDuration();if(!viewport||!(mediaLen>0))return;
+    const width=waveViewportWidth(),virtualWidth=waveVirtualWidth();
+    const target=((currentAutoSyncFirstBarTime()+(Number(meta&&meta.trackOffset)||0))/mediaLen)*virtualWidth;
+    if(target<viewport.scrollLeft+24||target>viewport.scrollLeft+width-24){
+      viewport.scrollLeft=clamp(target-width*.25,0,Math.max(0,virtualWidth-width));
+      drawWave();
+    }
+  }
+  function autoSyncFirstBarHandleHit(e){
+    if(!autoSyncNeedsManualFirstBar())return false;
+    const viewport=$('btWaveViewport'),rect=viewport&&viewport.getBoundingClientRect(),mediaLen=waveDuration();
+    if(!viewport||!rect||!(mediaLen>0))return false;
+    const target=((currentAutoSyncFirstBarTime()+(Number(meta&&meta.trackOffset)||0))/mediaLen)*waveVirtualWidth();
+    const pointer=viewport.scrollLeft+e.clientX-rect.left;
+    // Include the «Такт 1» badge itself, not only the three-pixel line.
+    return Math.abs(pointer-target)<=64;
+  }
   function gridBarAtTopPointer(e) {
     const canvas = $('btWaveCanvas'), rect = canvas && canvas.getBoundingClientRect(), mediaLen = waveDuration();
     if (!rect || !mediaLen || e.clientY - rect.top > 20) return -1;
@@ -89615,14 +89639,14 @@ function gpExportModal(title, bodyHtml, label) {
     return bestDistance <= 12 ? bestBar : -1;
   }
   function wavePointerDown(e){
-    // Low-confidence Auto-Sync can hand the downbeat decision to the user.
-    // While armed, one pointer press places bar 1 instead of seeking the song
-    // or dragging an existing Sync Point.
-    if(autoSyncPickFirstBar&&autoSyncResult&&!(e.pointerType==='mouse'&&e.button!==0)){
+    // In the low-confidence fallback the orange bar-1 marker is a real drag
+    // handle. It wins hit-testing over ordinary Sync Points, seeking and the
+    // grid handles, but the rest of the waveform keeps all existing gestures.
+    if(autoSyncFirstBarHandleHit(e)&&!(e.pointerType==='mouse'&&e.button!==0)){
+      autoSyncFirstBarDrag={time:currentAutoSyncFirstBarTime()};
       suppressWaveClick=true;
-      setAutoSyncManualFirstBar(waveTimeAtClientX(e.clientX));
+      e.currentTarget.setPointerCapture&&e.currentTarget.setPointerCapture(e.pointerId);
       e.preventDefault();
-      setTimeout(()=>{suppressWaveClick=false;},0);
       return;
     }
     if(e.pointerType==='touch'){
@@ -89661,12 +89685,14 @@ function gpExportModal(title, bodyHtml, label) {
   }
   function wavePointerMove(e){
     if(e.pointerType==='touch'&&activeWavePointers.has(e.pointerId))activeWavePointers.set(e.pointerId,{x:e.clientX,y:e.clientY});
+    if(autoSyncFirstBarDrag){autoSyncFirstBarDrag.time=clamp(waveTimeAtClientX(e.clientX),0,Math.max(0,waveDuration()));e.preventDefault();if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});return;}
     if(pinchStart){const a=activeWavePointers.get(pinchStart.ids[0]),b=activeWavePointers.get(pinchStart.ids[1]);if(a&&b){applyWaveZoom(pinchStart.zoom*Math.hypot(a.x-b.x,a.y-b.y)/pinchStart.distance,(a.x+b.x)/2);e.preventDefault();}return;}
     if(wholeTrackDrag){const d=wholeTrackDrag,media=d.mediaDuration||waveDuration()||0,requested=(e.clientX-d.startX)/waveVirtualWidth()*media,minVisual=-3600-d.startOffset,maxVisual=3600-d.startOffset;d.visualDelta=clamp(requested,minVisual,maxVisual);e.preventDefault();if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});return;}
-    if(!drag){e.currentTarget.style.cursor=autoSyncPickFirstBar?'crosshair':(gridBarAtTopPointer(e)>=0?'ew-resize':'crosshair');return;}drag.time=clamp(waveTimeAtClientX(e.clientX),drag.minTime,drag.maxTime);cachedAudioTailBar=null;if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});
+    if(!drag){e.currentTarget.style.cursor=autoSyncFirstBarHandleHit(e)?'ew-resize':(gridBarAtTopPointer(e)>=0?'ew-resize':'crosshair');return;}drag.time=clamp(waveTimeAtClientX(e.clientX),drag.minTime,drag.maxTime);cachedAudioTailBar=null;if(!raf)raf=requestAnimationFrame(()=>{raf=0;drawWave();});
   }
   let suppressWaveClick=false;
   function wavePointerUp(e){
+    if(autoSyncFirstBarDrag){const moved=autoSyncFirstBarDrag;autoSyncFirstBarDrag=null;if(e&&e.type==='pointercancel'){suppressWaveClick=false;drawWave();return;}setAutoSyncManualFirstBar(moved.time);setTimeout(()=>{suppressWaveClick=false;},0);return;}
     if(e&&e.pointerType==='touch'){activeWavePointers.delete(e.pointerId);if(activeWavePointers.size<2)pinchStart=null;if(!activeWavePointers.size)setTimeout(()=>{suppressWaveClick=false;},0);}
     if(wholeTrackDrag){const d=wholeTrackDrag;wholeTrackDrag=null;if(e&&e.type==='pointercancel'){drawWave();return;}const modelDelta=-d.visualDelta;if(Math.abs(modelDelta)>.0005){meta.points=d.points.map(p=>({...p,time:p.time+modelDelta}));meta.trackOffset=clamp(d.startOffset+d.visualDelta,-3600,3600);syncPointMapCache=null;captureEdit();renderDrawer();}suppressWaveClick=true;setTimeout(()=>{suppressWaveClick=false;},0);return;}
     if(!drag)return;

@@ -107,17 +107,18 @@ function staticServer() {
     });
     await page.waitForSelector('[data-autosync-run]:not([disabled])',{timeout:120000});
     await page.evaluate(()=>document.querySelector('[data-autosync-run]').click());
-    await page.waitForSelector('[data-autosync-first-bar-time]',{timeout:120000});
+    await page.waitForSelector('.bt-autosync-manual',{timeout:120000});
     const manualBefore = await page.evaluate(() => ({
       disabled:document.querySelector('[data-autosync-apply]').disabled,
-      hasWaveButton:!!document.querySelector('[data-autosync-pick-first]'),
-      hasPlayheadButton:!!document.querySelector('[data-autosync-use-playhead]'),
+      instruction:document.querySelector('.bt-autosync-manual')?.textContent||'',
     }));
-    assert(manualBefore.disabled&&manualBefore.hasWaveButton&&manualBefore.hasPlayheadButton,JSON.stringify(manualBefore));
+    assert(manualBefore.disabled&&manualBefore.instruction.includes('Перетащите оранжевый маркер'),JSON.stringify(manualBefore));
     await page.evaluate(() => {
-      document.querySelector('[data-autosync-pick-first]').click();
       const canvas=document.querySelector('#btWaveCanvas'),rect=canvas.getBoundingClientRect();
-      canvas.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,pointerType:'mouse',button:0,clientX:rect.left+rect.width*.1,clientY:rect.top+Math.min(40,rect.height*.5)}));
+      const y=rect.top+Math.min(40,rect.height*.5),from=rect.left+2,to=rect.left+rect.width*.1;
+      canvas.dispatchEvent(new PointerEvent('pointerdown',{bubbles:true,cancelable:true,pointerType:'mouse',pointerId:1,button:0,clientX:from,clientY:y}));
+      canvas.dispatchEvent(new PointerEvent('pointermove',{bubbles:true,cancelable:true,pointerType:'mouse',pointerId:1,button:0,clientX:to,clientY:y}));
+      canvas.dispatchEvent(new PointerEvent('pointerup',{bubbles:true,cancelable:true,pointerType:'mouse',pointerId:1,button:0,clientX:to,clientY:y}));
     });
     const manualFallback = await page.evaluate(() => {
       const panel=document.querySelector('.bt-autosync-panel'),rect=panel.getBoundingClientRect();
