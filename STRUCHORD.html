@@ -60710,10 +60710,10 @@ function isSchemePopoverOpen() {
   const p = document.getElementById('schemePopover');
   return !!(p && p.classList.contains('is-open'));
 }
-function openSchemePopover() {
+function openSchemePopover(anchorBtn) {
   buildSchemePopoverItems();
   const p = document.getElementById('schemePopover');
-  const btn = document.getElementById('themeToggleBtn');
+  const btn = anchorBtn || document.getElementById('themeToggleBtn');
   if (!p || !btn || p.classList.contains('is-open')) return;
   // Схема могла поменяться из панели «Тык» — сверяем подсветку при
   // каждом открытии, специальной синхронизации между списками нет.
@@ -60736,66 +60736,63 @@ function openSchemePopover() {
 }
 function closeSchemePopover() {
   const p = document.getElementById('schemePopover');
-  const btn = document.getElementById('themeToggleBtn');
   if (!p) return;
   p.classList.remove('is-open');
   p.setAttribute('aria-hidden', 'true');
-  if (btn) btn.setAttribute('aria-expanded', 'false');
+  ['themeToggleBtn', 'homeThemeBtn'].forEach((id) => {
+    const b = document.getElementById(id);
+    if (b) b.setAttribute('aria-expanded', 'false');
+  });
 }
 function initThemeLongPress() {
-  const btn = document.getElementById('themeToggleBtn');
-  if (!btn) return;
-  btn.setAttribute('aria-haspopup', 'listbox');
-  let startX = 0;
-  let startY = 0;
-  const cancelTimer = () => {
-    if (_themeLpTimer) {
-      window.clearTimeout(_themeLpTimer);
-      _themeLpTimer = null;
-    }
-  };
-  btn.addEventListener('pointerdown', (e) => {
-    // Правую кнопку отдаёт contextmenu (там открытие), прочие кроме
-    // основной игнорируем.
-    if (e.pointerType === 'mouse' && e.button !== 0) return;
-    startX = e.clientX;
-    startY = e.clientY;
-    cancelTimer();
-    _themeLpTimer = window.setTimeout(() => {
-      _themeLpTimer = null;
-      _themeSuppressClick = true;
-      openSchemePopover();
-    }, THEME_LONGPRESS_MS);
-  });
-  // Сдвиг за порог — это скролл/драг, а не жест: таймер снимаем.
-  btn.addEventListener('pointermove', (e) => {
-    if (_themeLpTimer &&
-        (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10)) {
+  const bindBtn = (btn) => {
+    if (!btn) return;
+    btn.setAttribute('aria-haspopup', 'listbox');
+    let startX = 0;
+    let startY = 0;
+    const cancelTimer = () => {
+      if (_themeLpTimer) {
+        window.clearTimeout(_themeLpTimer);
+        _themeLpTimer = null;
+      }
+    };
+    btn.addEventListener('pointerdown', (e) => {
+      if (e.pointerType === 'mouse' && e.button !== 0) return;
+      startX = e.clientX;
+      startY = e.clientY;
       cancelTimer();
-    }
-  });
-  btn.addEventListener('pointerup', cancelTimer);
-  btn.addEventListener('pointercancel', cancelTimer);
-  btn.addEventListener('pointerleave', cancelTimer);
-  // Click после лонгпресса НЕ должен щёлкнуть тему. Capture-фаза идёт
-  // раньше inline-onclick toggleTheme(). Обычный тап флага не несёт и
-  // работает как раньше; открытый поповер при этом закрываем.
-  btn.addEventListener('click', (e) => {
-    if (_themeSuppressClick) {
-      _themeSuppressClick = false;
+      _themeLpTimer = window.setTimeout(() => {
+        _themeLpTimer = null;
+        _themeSuppressClick = true;
+        openSchemePopover(btn);
+      }, THEME_LONGPRESS_MS);
+    });
+    btn.addEventListener('pointermove', (e) => {
+      if (_themeLpTimer &&
+          (Math.abs(e.clientX - startX) > 10 || Math.abs(e.clientY - startY) > 10)) {
+        cancelTimer();
+      }
+    });
+    btn.addEventListener('pointerup', cancelTimer);
+    btn.addEventListener('pointercancel', cancelTimer);
+    btn.addEventListener('pointerleave', cancelTimer);
+    btn.addEventListener('click', (e) => {
+      if (_themeSuppressClick) {
+        _themeSuppressClick = false;
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
+        return;
+      }
+      if (isSchemePopoverOpen()) closeSchemePopover();
+    }, true);
+    btn.addEventListener('contextmenu', (e) => {
       e.preventDefault();
-      e.stopPropagation();
-      e.stopImmediatePropagation();
-      return;
-    }
-    if (isSchemePopoverOpen()) closeSchemePopover();
-  }, true);
-  // Десктопный правый клик открывает тот же список; системное меню на
-  // кнопке не нужно ни на какой платформе — глушим всегда.
-  btn.addEventListener('contextmenu', (e) => {
-    e.preventDefault();
-    openSchemePopover();
-  });
+      openSchemePopover(btn);
+    });
+  };
+  bindBtn(document.getElementById('themeToggleBtn'));
+  bindBtn(document.getElementById('homeThemeBtn'));
   // Клик мимо поповера — закрыть; кнопку-якорь исключаем (её путь выше).
   document.addEventListener('pointerdown', (e) => {
     if (!isSchemePopoverOpen()) return;
