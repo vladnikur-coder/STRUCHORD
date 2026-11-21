@@ -49132,6 +49132,16 @@ function ensureGuitarBus(ctx) {
     masterTail.connect(filter);
     masterTail = filter;
   });
+  if (ctx.createDynamicsCompressor) {
+    const limiter = ctx.createDynamicsCompressor();
+    limiter.threshold.value = -6;
+    limiter.knee.value = 6;
+    limiter.ratio.value = 16;
+    limiter.attack.value = 0.003;
+    limiter.release.value = 0.12;
+    masterTail.connect(limiter);
+    masterTail = limiter;
+  }
   if (guitarMasterPanner) {
     // Мастер-панорама уже подключена в ensureGuitarBus — переключаем хвост
     // цепочки на последний фильтр, сохраняя прежний порядок (громкость →
@@ -49436,7 +49446,7 @@ function backingSoloActive() {
 function b39TrackGain(state, track) {
   const btSolo = backingSoloActive();
   if (!track || track.mute || ((btSolo || state.tracks.some(t => t.solo)) && !track.solo)) return 0;
-  return (Math.max(0, Math.min(100, Number.isFinite(Number(track.volume)) ? Number(track.volume) : 100)) / 100) * 0.45;
+  return Math.max(0, Math.min(100, Number.isFinite(Number(track.volume)) ? Number(track.volume) : 100)) / 100;
 }
 
 // Громкость дорожки прямо сейчас: протяжка ползунка перекрывает модель.
@@ -49919,7 +49929,7 @@ function playChord(c, wrapper, pendingPreview) {
     } else {
       if (!shape) shape = resolveFingeringShape(c, key, null);
       b39WithGuitarGain(active ? b39TrackGain(state, active) : 1,
-        () => strumChord(ctx, shape, c, key, now, STRUM_RING_SECONDS, 0.42));
+        () => strumChord(ctx, shape, c, key, now, STRUM_RING_SECONDS, 0.22));
     }
   } catch (e) {
     console.warn(e);
@@ -49956,7 +49966,7 @@ function resolveShapeForScheduledChord(c, posCtx) {
 // длительность, равную длине ячейки: на span=1 при 160 BPM это 0.38 сек
 // вместо 1.4 — звук обрывался, отсюда стаккато. Теперь все пути (двойной
 // клик, превью, бой без паттерна, шаг паттерна D) звучат одинаково.
-const STRUM_RING_SECONDS = 1.5;
+const STRUM_RING_SECONDS = 0.85;
 
 function playChordScheduled(c, st, dur, posCtx) {
   const ctx = getAudioContext();
@@ -49976,7 +49986,7 @@ function playChordScheduled(c, st, dur, posCtx) {
     }
     const { shape, key } = resolveShapeForScheduledChord(c, posCtx);
     // dur (длина ячейки) задаёт РИТМ, но не время затухания струны.
-    strumChord(ctx, shape, c, key, st, STRUM_RING_SECONDS, 0.36);
+    strumChord(ctx, shape, c, key, st, STRUM_RING_SECONDS, 0.18);
   } catch (e) {}
 }
 // Мгновенное прослушивание только что вставленного аккорда (по любому из
