@@ -15987,7 +15987,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.858</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.859</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -35467,8 +35467,10 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     return;
   }
   const _curTip = !isPreview && document.getElementById('fingering-tooltip');
-  if (_curTip && _curTip.style.display === 'block' && _curTip.dataset.safeTri === '1' && wrapper !== currentTooltipWrapper) {
-    return;
+  if (_curTip && _curTip.style.display === 'block' && wrapper !== currentTooltipWrapper) {
+    if (_curTip.dataset.safeTri === '1' || (typeof window.__inTooltipSafeZone === 'function' && window.__inTooltipSafeZone())) {
+      return;
+    }
   }
   // В режиме ленты тултипы не показываем. Во-первых, аппликатура и так
   // нарисована прямо в ячейке — окно её дублировало бы. Во-вторых, оно
@@ -91085,6 +91087,22 @@ try { tabThumbInit(); } catch (_) {}
       }
     }
     // 2. Safe triangle для #fingering-tooltip
+    window.__inTooltipSafeZone = function () {
+      const t = document.getElementById('fingering-tooltip');
+      if (!t || t.style.display !== 'block' || !lastMousePt) return false;
+      const tr = t.getBoundingClientRect();
+      if (tr.width <= 0 || tr.height <= 0) return false;
+      if (inRect(lastMousePt.x, lastMousePt.y, tr, 6)) return true;
+      if (!tipLastPt || typeof pointInConvexHull !== 'function') return false;
+      const pad = 8;
+      return pointInConvexHull(lastMousePt.x, lastMousePt.y, [
+        tipLastPt,
+        { x: tr.left - pad, y: tr.top - pad },
+        { x: tr.right + pad, y: tr.top - pad },
+        { x: tr.right + pad, y: tr.bottom + pad },
+        { x: tr.left - pad, y: tr.bottom + pad },
+      ]);
+    };
     const tip = document.getElementById('fingering-tooltip');
     if (tip && tip.style.display === 'block' && typeof currentTooltipWrapper !== 'undefined' && currentTooltipWrapper && currentTooltipWrapper.isConnected) {
       const wRect = currentTooltipWrapper.getBoundingClientRect();
