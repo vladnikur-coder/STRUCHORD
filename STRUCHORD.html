@@ -8643,18 +8643,11 @@ html:not([data-theme='dark']) #btnPlay.active:hover {
 .chord-btn-del:hover {
   background: var(--color-danger);
 }
-.chord-wrapper.is-hover-locked .chord-actions,
-.chord-wrapper.is-hover-locked .chord-btn-strum,
 .square.is-hover-locked .square-actions,
 .section-header.is-hover-locked .section-actions {
   opacity: 1 !important;
   pointer-events: auto !important;
   visibility: visible !important;
-}
-body.has-hover-lock .chord-wrapper:not(.is-hover-locked) .chord-actions,
-body.has-hover-lock .chord-wrapper:not(.is-hover-locked) .chord-btn-strum {
-  opacity: 0 !important;
-  pointer-events: none !important;
 }
 .chord-btn-strum {
   width: auto;
@@ -15994,7 +15987,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.851</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.852</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -63077,27 +63070,65 @@ function mouseEventToLayoutXY(e) {
   };
 }
 
+let armedLastPt = null;
+let armedSwitchTimer = null;
+let armedPendingTarget = null;
+
+function cancelArmedSwitch() {
+  if (armedSwitchTimer) {
+    clearTimeout(armedSwitchTimer);
+    armedSwitchTimer = null;
+  }
+  armedPendingTarget = null;
+}
+
+function pointInConvexHull(px, py, pts) {
+  if (pts.length < 3) return false;
+  // Monotone chain (Andrew's algorithm) для 5 точек
+  const sorted = pts.slice().sort((a, b) => a.x - b.x || a.y - b.y);
+  const cross = (o, a, b) => (a.x - o.x) * (b.y - o.y) - (a.y - o.y) * (b.x - o.x);
+  const lower = [];
+  for (const p of sorted) {
+    while (lower.length >= 2 && cross(lower[lower.length - 2], lower[lower.length - 1], p) <= 0) lower.pop();
+    lower.push(p);
+  }
+  const upper = [];
+  for (let i = sorted.length - 1; i >= 0; i--) {
+    const p = sorted[i];
+    while (upper.length >= 2 && cross(upper[upper.length - 2], upper[upper.length - 1], p) <= 0) upper.pop();
+    upper.push(p);
+  }
+  lower.pop();
+  upper.pop();
+  const hull = lower.concat(upper);
+  if (hull.length < 3) return false;
+  for (let i = 0; i < hull.length; i++) {
+    const a = hull[i];
+    const b = hull[(i + 1) % hull.length];
+    if (cross(a, b, { x: px, y: py }) < -1e-6) return false;
+  }
+  return true;
+}
+
 function setArmedChordWrapper(wrapperEl) {
+  cancelArmedSwitch();
   if (armedChordWrapper === wrapperEl) return;
   if (armedChordWrapper) armedChordWrapper.classList.remove('is-buttons-armed');
   armedChordWrapper = wrapperEl;
   if (armedChordWrapper) armedChordWrapper.classList.add('is-buttons-armed');
+  armedLastPt = null;
 }
 
 document.addEventListener('mousemove', (e) => {
-  // Координаты могли устареть с прошлого движения — обновляем лениво.
   ensureChordWrapperRects();
   if (!chordWrapperRectCache.length) return;
-  // Мышь — в layout-пространстве rects (см. mouseEventToLayoutXY):
-  // при pinch-жесте clientX/Y живут в visual-viewport координатах.
   const { x, y } = mouseEventToLayoutXY(e);
 
-  // Вооружённая ячейка могла быть удалена перерисовкой (или сам кэш
-  // пересобран) — тогда класс висит на «мёртвом» узле, а новая ячейка на
-  // её месте не вооружается. Снимаем вооружение сразу.
   if (armedChordWrapper && !armedChordWrapper.isConnected) {
     armedChordWrapper.classList.remove('is-buttons-armed');
     armedChordWrapper = null;
+    armedLastPt = null;
+    cancelArmedSwitch();
   }
 
   let ownerEntry = null;
@@ -63113,23 +63144,59 @@ document.addEventListener('mousemove', (e) => {
     return;
   }
 
+  if (armedChordWrapper && armedChordWrapper === ownerEntry.el) {
+    cancelArmedSwitch();
+    armedLastPt = { x, y };
+    return;
+  }
+
   if (armedChordWrapper && armedChordWrapper !== ownerEntry.el) {
-    // Ещё внутри кнопок ранее вооружённой ячейки — не переключаемся,
-    // даём докликать по ним, даже если геометрически это территория соседа.
-    // ВАЖНО: кнопки учитываем, только когда они реально видимы; у
-    // невооружённой ячейки они прозрачны и некликабельны, а их
-    // прямоугольник всё равно ненулевой — раньше это подвешивало
-    // вооружение на соседе и «съедало» наведение на текущую ячейку.
     const armedButtons = armedChordWrapper.classList.contains('is-buttons-armed')
       ? armedChordWrapper.querySelector('.chord-buttons')
       : null;
     if (armedButtons) {
-      const btnRect = armedButtons.getBoundingClientRect();
-      if (btnRect.width > 0 && btnRect.height > 0 && pointInRect(x, y, btnRect)) return;
+      const b = armedButtons.getBoundingClientRect();
+      if (b.width > 0 && b.height > 0) {
+        const pad = 5;
+        const expanded = { left: b.left - pad, right: b.right + pad, top: b.top - pad, bottom: b.bottom + pad };
+        if (pointInRect(x, y, expanded)) {
+          cancelArmedSwitch();
+          armedLastPt = { x, y };
+          return;
+        }
+        if (armedLastPt) {
+          const hullPts = [
+            armedLastPt,
+            { x: expanded.left, y: expanded.top },
+            { x: expanded.right, y: expanded.top },
+            { x: expanded.right, y: expanded.bottom },
+            { x: expanded.left, y: expanded.bottom },
+          ];
+          if (pointInConvexHull(x, y, hullPts)) {
+            cancelArmedSwitch();
+            return;
+          }
+        }
+      }
     }
+    // Вышел из оболочки: короткая задержка 180 мс (если вернётся в оболочку/кнопки — отменится).
+    armedPendingTarget = ownerEntry.el;
+    if (!armedSwitchTimer) {
+      armedSwitchTimer = setTimeout(() => {
+        armedSwitchTimer = null;
+        const next = armedPendingTarget;
+        armedPendingTarget = null;
+        if (next && next.isConnected) {
+          setArmedChordWrapper(next);
+          armedLastPt = { x, y };
+        }
+      }, 180);
+    }
+    return;
   }
 
   setArmedChordWrapper(ownerEntry.el);
+  armedLastPt = { x, y };
 });
 document.addEventListener('mouseleave', () => setArmedChordWrapper(null));
 
@@ -90899,14 +90966,12 @@ try { tabThumbInit(); } catch (_) {}
   }
   function getTargetEl(el) {
     if (!el) return null;
-    if (el.classList.contains('chord-wrapper')) return el.querySelector('.chord-actions') || el.querySelector('.chord-btn-strum');
     if (el.classList.contains('square')) return el.querySelector('.square-actions');
     if (el.classList.contains('section-header')) return el.querySelector('.section-actions');
     return null;
   }
   function unlock() {
     if (locked) locked.classList.remove('is-hover-locked');
-    document.body.classList.remove('has-hover-lock');
     locked = null;
     lastPt = null;
   }
@@ -90929,14 +90994,13 @@ try { tabThumbInit(); } catch (_) {}
     return false;
   }
   document.addEventListener('pointerenter', function (e) {
-    const el = e.target && e.target.closest ? e.target.closest('.chord-wrapper, .square, .section-header') : null;
+    const el = e.target && e.target.closest ? e.target.closest('.square, .section-header') : null;
     if (!el || el === locked) return;
     if (!getTargetEl(el)) return;
     if (locked && isInLockedSafeZone(e.clientX, e.clientY)) return;
     unlock();
     locked = el;
     locked.classList.add('is-hover-locked');
-    document.body.classList.add('has-hover-lock');
     lastPt = { x: e.clientX, y: e.clientY };
   }, true);
   document.addEventListener('pointermove', function (e) {
