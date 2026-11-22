@@ -15987,7 +15987,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.860</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.861</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -35466,6 +35466,42 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
     hideFingeringTooltip(isPreview);
     return;
   }
+  if (!isPreview) {
+    const _curTip = document.getElementById('fingering-tooltip');
+    const _ev = typeof window !== 'undefined' ? window.event : null;
+    const _cx = _ev && typeof _ev.clientX === 'number' ? _ev.clientX : undefined;
+    const _cy = _ev && typeof _ev.clientY === 'number' ? _ev.clientY : undefined;
+    if (_curTip && _curTip.style.display === 'block' && wrapper !== currentTooltipWrapper &&
+        typeof window.__inTooltipSafeZone === 'function' && window.__inTooltipSafeZone(_cx, _cy)) {
+      window.__pendingTooltipTarget = { chordName, wrapper, isCurrentLast, at: Date.now() };
+      if (!window.__pendingTooltipTimer) {
+        window.__pendingTooltipTimer = setInterval(() => {
+          const pend = window.__pendingTooltipTarget;
+          if (!pend || !pend.wrapper || !pend.wrapper.isConnected) {
+            clearInterval(window.__pendingTooltipTimer);
+            window.__pendingTooltipTimer = null;
+            window.__pendingTooltipTarget = null;
+            return;
+          }
+          const elapsed = Date.now() - pend.at;
+          if (elapsed >= 250 || !window.__inTooltipSafeZone()) {
+            clearInterval(window.__pendingTooltipTimer);
+            window.__pendingTooltipTimer = null;
+            window.__pendingTooltipTarget = null;
+            const t = document.getElementById('fingering-tooltip');
+            if (t) delete t.dataset.safeTri;
+            showFingeringTooltip(pend.chordName, pend.wrapper, false, pend.isCurrentLast);
+          }
+        }, 60);
+      }
+      return;
+    }
+    if (window.__pendingTooltipTimer) {
+      clearInterval(window.__pendingTooltipTimer);
+      window.__pendingTooltipTimer = null;
+      window.__pendingTooltipTarget = null;
+    }
+  }
 
   // В режиме ленты тултипы не показываем. Во-первых, аппликатура и так
   // нарисована прямо в ячейке — окно её дублировало бы. Во-вторых, оно
@@ -36798,7 +36834,7 @@ function attachPinDrag() {
 }
 attachPinDrag();
 
-function hideFingeringTooltip(isPreview = false) {
+function hideFingeringTooltip(isPreview = false, force = false) {
   // Пока тултип тащат в панель, прятать его нельзя: курсор уходит с
   // ячейки, и обычный автоскрыв оборвал бы жест на полпути.
   if (pinDragState && !isPreview) return;
@@ -36813,7 +36849,7 @@ function hideFingeringTooltip(isPreview = false) {
     ? document.getElementById('preview-tooltip')
     : document.getElementById('fingering-tooltip');
   if (!tooltipEl) return;
-  if (!isPreview && tooltipEl.dataset.safeTri === '1') return;
+  if (!isPreview && !force && tooltipEl.dataset.safeTri === '1') return;
   if (tooltipTimeout) {
     clearTimeout(tooltipTimeout);
     tooltipTimeout = null;
@@ -91082,15 +91118,16 @@ try { tabThumbInit(); } catch (_) {}
       }
     }
     // 2. Safe triangle для #fingering-tooltip
-    window.__inTooltipSafeZone = function () {
+    window.__inTooltipSafeZone = function (qx, qy) {
       const t = document.getElementById('fingering-tooltip');
-      if (!t || t.style.display !== 'block' || !lastMousePt) return false;
+      const pt = (typeof qx === 'number' && typeof qy === 'number') ? { x: qx, y: qy } : lastMousePt;
+      if (!t || t.style.display !== 'block' || !pt) return false;
       const tr = t.getBoundingClientRect();
       if (tr.width <= 0 || tr.height <= 0) return false;
-      if (inRect(lastMousePt.x, lastMousePt.y, tr, 6)) return true;
+      if (inRect(pt.x, pt.y, tr, 6)) return true;
       if (!tipLastPt || typeof pointInConvexHull !== 'function') return false;
       const pad = 8;
-      return pointInConvexHull(lastMousePt.x, lastMousePt.y, [
+      return pointInConvexHull(pt.x, pt.y, [
         tipLastPt,
         { x: tr.left - pad, y: tr.top - pad },
         { x: tr.right + pad, y: tr.top - pad },
@@ -91129,7 +91166,23 @@ try { tabThumbInit(); } catch (_) {}
     } else {
       tipLastPt = null;
     }
+    clearTimeout(window.__safeTriWatchdog);
+    window.__safeTriWatchdog = setTimeout(() => {
+      const t = document.getElementById('fingering-tooltip');
+      if (t) delete t.dataset.safeTri;
+      tipLastPt = null;
+    }, 1500);
   }, { passive: true });
+  function clearSafeTriAll(hideNow) {
+    const t = document.getElementById('fingering-tooltip');
+    if (t) delete t.dataset.safeTri;
+    tipLastPt = null;
+    if (hideNow && typeof hideFingeringTooltip === 'function') hideFingeringTooltip(false, true);
+  }
+  document.addEventListener('mouseleave', () => clearSafeTriAll(true));
+  window.addEventListener('blur', () => clearSafeTriAll(true));
+  document.addEventListener('visibilitychange', () => { if (document.hidden) clearSafeTriAll(true); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape') clearSafeTriAll(true); });
 })();
 </script>
 </body>
