@@ -8644,7 +8644,9 @@ html:not([data-theme='dark']) #btnPlay.active:hover {
   background: var(--color-danger);
 }
 .chord-wrapper.is-hover-locked .chord-actions,
-.chord-wrapper.is-hover-locked .chord-btn-strum {
+.chord-wrapper.is-hover-locked .chord-btn-strum,
+.square.is-hover-locked .square-actions,
+.section-header.is-hover-locked .section-actions {
   opacity: 1 !important;
   pointer-events: auto !important;
   visibility: visible !important;
@@ -15987,7 +15989,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.847</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.848</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -90872,9 +90874,10 @@ try { tabThumbInit(); } catch (_) {}
     </div>
     <div id="wheelHarmonyHoverTooltip" class="wheel-harmony-hover-tooltip" role="tooltip" aria-hidden="true" hidden></div>
 <script>
-(function initChordSafeTriangle() {
+(function initSafeTriangles() {
   let locked = null;
   let lastPt = null;
+  let tipLastPt = null;
   function inRect(x, y, r, pad) {
     return x >= r.left - pad && x <= r.right + pad && y >= r.top - pad && y <= r.bottom + pad;
   }
@@ -90889,41 +90892,72 @@ try { tabThumbInit(); } catch (_) {}
     const hasPos = (d1 > 0) || (d2 > 0) || (d3 > 0);
     return !(hasNeg && hasPos);
   }
+  function getTargetEl(el) {
+    if (!el) return null;
+    if (el.classList.contains('chord-wrapper')) return el.querySelector('.chord-actions') || el.querySelector('.chord-btn-strum');
+    if (el.classList.contains('square')) return el.querySelector('.square-actions');
+    if (el.classList.contains('section-header')) return el.querySelector('.section-actions');
+    return null;
+  }
   function unlock() {
     if (locked) locked.classList.remove('is-hover-locked');
     locked = null;
     lastPt = null;
   }
   document.addEventListener('pointerenter', function (e) {
-    const cw = e.target && e.target.closest ? e.target.closest('.chord-wrapper') : null;
-    if (!cw || cw === locked) return;
-    if (!cw.querySelector('.chord-btn-strum, .chord-actions')) return;
+    const el = e.target && e.target.closest ? e.target.closest('.chord-wrapper, .square, .section-header') : null;
+    if (!el || el === locked) return;
+    if (!getTargetEl(el)) return;
     unlock();
-    locked = cw;
+    locked = el;
     locked.classList.add('is-hover-locked');
     lastPt = { x: e.clientX, y: e.clientY };
   }, true);
   document.addEventListener('pointermove', function (e) {
-    if (!locked) return;
-    if (!locked.isConnected) { unlock(); return; }
     const x = e.clientX, y = e.clientY;
-    const cwRect = locked.getBoundingClientRect();
-    const targetEl = locked.querySelector('.chord-actions') || locked.querySelector('.chord-btn-strum');
-    if (!targetEl) { unlock(); return; }
-    const actRect = targetEl.getBoundingClientRect();
-    if (inRect(x, y, cwRect, 2) || inRect(x, y, actRect, 4)) {
-      lastPt = { x, y };
-      return;
+    // 1. Safe triangle для .chord-wrapper / .square / .section-header -> их кнопок
+    if (locked) {
+      if (!locked.isConnected) { unlock(); }
+      else {
+        const cwRect = locked.getBoundingClientRect();
+        const targetEl = getTargetEl(locked);
+        if (!targetEl) { unlock(); }
+        else {
+          const actRect = targetEl.getBoundingClientRect();
+          if (inRect(x, y, cwRect, 2) || inRect(x, y, actRect, 4)) {
+            lastPt = { x, y };
+          } else if (lastPt && actRect.width > 0 && actRect.height > 0) {
+            const above = actRect.bottom <= cwRect.top + 4;
+            const bx = actRect.left - 6, cx = actRect.right + 6;
+            const by = above ? actRect.top : actRect.bottom;
+            if (!inTriangle(x, y, lastPt.x, lastPt.y, bx, by, cx, by)) unlock();
+          } else {
+            unlock();
+          }
+        }
+      }
     }
-    if (lastPt && actRect.width > 0 && actRect.height > 0) {
-      const above = actRect.bottom <= cwRect.top + 4;
-      const ax = lastPt.x, ay = lastPt.y;
-      const bx = actRect.left - 6, cx = actRect.right + 6;
-      const by = above ? actRect.top : actRect.bottom;
-      const cy = by;
-      if (inTriangle(x, y, ax, ay, bx, by, cx, cy)) return;
+    // 2. Safe triangle для #fingering-tooltip
+    const tip = document.getElementById('fingering-tooltip');
+    if (tip && tip.style.display === 'block' && typeof currentTooltipWrapper !== 'undefined' && currentTooltipWrapper && currentTooltipWrapper.isConnected) {
+      const wRect = currentTooltipWrapper.getBoundingClientRect();
+      const tRect = tip.getBoundingClientRect();
+      if (inRect(x, y, wRect, 2) || inRect(x, y, tRect, 6)) {
+        tipLastPt = { x, y };
+      } else if (tipLastPt && tRect.width > 0 && tRect.height > 0) {
+        const above = tRect.bottom <= wRect.top + 8;
+        const bx = tRect.left - 8, cx = tRect.right + 8;
+        const by = above ? tRect.top : tRect.bottom;
+        if (inTriangle(x, y, tipLastPt.x, tipLastPt.y, bx, by, cx, by)) {
+          tip.dataset.safeTri = '1';
+        } else {
+          delete tip.dataset.safeTri;
+          tipLastPt = null;
+        }
+      }
+    } else {
+      tipLastPt = null;
     }
-    unlock();
   }, { passive: true });
 })();
 </script>
