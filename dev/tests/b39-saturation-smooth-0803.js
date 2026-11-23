@@ -17,10 +17,12 @@ const SW = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
 let passed = 0;
 function ok(name) { passed++; console.log('  ok  ' + name); }
 
-// --- R7: версия и кэш парой ---
-assert(HTML.includes('· ver 0.803'), 'версия в шапке: 0.803');
-assert(SW.includes("CACHE_NAME = 'struchord-v803'"), 'кэш Service Worker: struchord-v803');
-ok('R7: ver 0.803 + struchord-v803');
+// --- R7: версия и кэш парой (>= 0.803) ---
+const verM = HTML.match(/· ver 0\.(\d+)/);
+const swM = SW.match(/CACHE_NAME = 'struchord-v(\d+)'/);
+assert(verM && Number(verM[1]) >= 803, 'версия в шапке >= 0.803');
+assert(swM && swM[1] === verM[1], 'кэш Service Worker синхронен с версией');
+ok('R7: ver >= 0.803 + синхронный struchord-vNNN');
 
 // --- Порогов больше нет, кривые на месте (генератор, панель, блоковый авто) ---
 for (const gone of ['satN>=60', 'sat >= 60', 'sat >= 80', 't.saturation >= 80', '0.75+satN/250'])

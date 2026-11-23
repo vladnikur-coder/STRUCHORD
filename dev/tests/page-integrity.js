@@ -100,6 +100,19 @@ dom.window.addEventListener('load', () => {
   const sw = fs.readFileSync(path.join(ROOT, 'sw.js'), 'utf8');
   ok('CACHE_NAME синхронен с версией (R7)', mVer ? sw.includes(`struchord-v${mVer.replace(/^0\./, '')}`) : false);
 
+  // --- 7. Иконочный шрифт tabler-icons ---
+  console.log('=== 7. tabler-icons subset ===');
+  const definedTi = new Set();
+  for (const m of html.matchAll(/\.ti-([a-z0-9-]+):before\b/g)) definedTi.add(m[1]);
+  const missingTi = new Set();
+  for (const el of d.querySelectorAll('[class*="ti-"]')) {
+    for (const cls of el.classList) {
+      if (cls.startsWith('ti-') && !definedTi.has(cls.slice(3))) missingTi.add(cls);
+    }
+  }
+  ok('все ti-* классы в DOM есть в subset-шрифте', missingTi.size === 0,
+    missingTi.size ? Array.from(missingTi).join(', ') : '');
+
   console.log(`\n${bad ? 'СБОЕВ: ' + bad : 'ALL OK — страница целостна'}`);
   process.exit(bad ? 1 : 0);
 });

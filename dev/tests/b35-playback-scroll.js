@@ -162,7 +162,7 @@ w.addEventListener('load', async () => {
     const app = fs.readFileSync(__dirname + '/../../STRUCHORD.html', 'utf8');
     const fn = app.slice(app.indexOf('function ensurePlaybackSquaresVisible'), app.indexOf('function findNextEvent'));
     ok('в ensurePlaybackSquaresVisible нет scrollIntoView', !fn.includes('.scrollIntoView('));
-    ok('вызов в планировщике', app.includes('if (!timelineMode) ensurePlaybackSquaresVisible(newWrapper);'));
+    ok('вызов в планировщике', /if\s*\(!timelineMode\)\s*\{\s*ensurePlaybackSquaresVisible\(newWrapper\);/.test(app));
   }
 
   console.log('=== 7. 0.150: ручной скролл — страница у пользователя ===');

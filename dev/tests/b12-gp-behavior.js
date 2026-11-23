@@ -167,9 +167,9 @@ w.addEventListener('load', () => {
     w.document.querySelector('#ptDynGroup [data-dyn="ff"]').click();
     check('динамика ff ставит velocity ноте', w.eval('partCursorNote() && partCursorNote().velocity') === 124,
       String(w.eval('partCursorNote() && partCursorNote().velocity')));
-    // вольта палитры на такте курсора
-    w.document.querySelector('#ptBarGroup [data-bar="volta"]').click();
-    check('вольта из палитры ставится квадрату', w.eval('partsCursorSquare() && partsCursorSquare().volta') === 1, w.eval('partsCursor ? partsCursor.secId + "@" + partsCursor.pos : "нет курсора"'));
+    // реприза палитры на такте курсора (0.804: ручные вольты/прыжки убраны, осталась авто-реприза)
+    w.document.querySelector('#ptBarGroup [data-bar="repeat"]').click();
+    check('реприза из палитры включает повтор квадрата', w.eval('partsCursorSquare() && partsCursorSquare().repeat') === 2, w.eval('partsCursor ? partsCursor.secId + "@" + partsCursor.pos : "нет курсора"'));
     // T — текст над долей
     w.prompt = () => 'Припев громче';
     key('t', { code: 'KeyT' });

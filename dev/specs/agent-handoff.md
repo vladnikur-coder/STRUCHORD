@@ -4,7 +4,128 @@
 уже стоило времени: где легко наступить на те же грабли. Проверять по дате —
 если запись устарела, правьте её, а не обходите.
 
-Обновлено: 2026-11-05, версия 0.794.
+Обновлено: 2026-11-12, версия 0.828.
+
+---
+
+## B-127 · 0.828: Option/Alt-drag may shift track beyond clip/grid edges
+
+- User clarified: Option/Alt-drag must still only shift the recording, not seek
+  playback, but should not stop at the grid/audio boundaries.
+- Whole-track drag now clamps only to `trackOffset`'s existing ±3600 s limit.
+  Sync Point times receive the exact common translation, including negative or
+  post-clip times. This avoids previous `Math.max(0, ...)` anchor-spacing damage.
+  Normalization and time editor preserve signed values. Individual point drag
+  still stays within its existing audio/neighbor constraints.
+- Regression in `dev/tests/b122-audio-track-sync-0811.js`: shift [0,4]
+  by +0.8 s => [-0.8,3.2], and [3,7.5] by −0.8 s => [3.8,8.3] on an
+  eight-second clip. Both anchor intervals remain unchanged. B-122 browser and
+  release checks should continue to be run.
+
+---
+
+## B-126 · 0.827: Safari report proves HTMLAudio fallback at 100%
+
+- User supplied 0.826 report (Safari 17.6/macOS 10.15.7). `syncTiming.recent`
+  entries show `audioPath: element`, speed 1.0, Sync BPM ~82.7–82.9 vs fallback
+  score BPM 81. Backing anchor/drift log includes repeated nudges/grid reanchors.
+- Oasis embedded media: 289.593 s, Safari decoder 44.1 kHz stereo; decoded buffer
+  size is 12,771,072 frames * 2 * 4 = 102,168,576 bytes = 97.44 MiB, just over
+  old `BUFFER_MEMORY_LIMIT = 96 MiB`. Decode succeeded (wave peaks built), but
+  `audioBuffer` was discarded, so the `<audio>` element ran on its own media clock
+  while guitar/highlights used AudioContext timing. This directly confirms user
+  hypothesis; do not interpret the audio report as a BPM-calculation failure.
+- 0.827 raises cap to 104 MiB; this 4:49 track should now run through shared
+  AudioBufferSourceNode at speed 1.0. Longer files and speed ≠100% still use the
+  element path. Test in B-122 unit checks a 97.44 MiB decoded buffer selects
+  `buffer`. Ask owner to verify version 0.827 and share new audio-report; expected
+  `syncTiming.recent[].audioPath === 'buffer'` and no repeated element drift events.
+
+---
+
+## B-125 · 0.826: in-memory sync timing audit (diagnostic only)
+
+- Owner verified 0.825, reports intro in sync, then guitar and highlight gradually
+  run ahead through the song, including all checked Sync Points. This contradicts
+  local calculation; don't infer another patch from simulation alone.
+- For uploaded Oasis score, the 0.825 model resolves all 170 scheduled events;
+  cumulative event starts match anchors 0,2,4,7,18,32,89 within floating point
+  error. Derived Sync-Point BPM is ~82.7–82.9 vs project BPM 81; `scheduleNextEvent`
+  should override fallback BPM and duration before guitar/highlight scheduling.
+- Audio is ~100 bars by anchor slope, while score spans 96 bars; this is a separate
+  ~11.2 s tail mismatch and does not explain drift beginning in verse one.
+- 0.826 changes no timing. `audio-report.syncTiming.recent` collects up to 200
+  in-memory event records: position, repeat counters, q/span, fallback vs resolved
+  BPM, duration, planned context start, expected backing media start/end, predicted
+  media position derived from playback zero, and active audio path. Capture after
+  reproducing from intro in Safari. It resets when another song loads.
+
+---
+
+## B-124 · 0.825: Sync Points and multi-measure squares
+
+- Latest user upload: `/tmp/arena-coding-uploads/Oasis - Don't Look Back in Anger.json`.
+  It embeds its 11.59 MB MP3; 7 anchors are present at bars 0, 2, 4, 7, 18, 32,
+  89. Speed 1.0, global 81 BPM / 4/4, offset -0.262 s.
+- Data diagnosis: the score has 32 square occurrences, but event spans add to
+  384 quarter notes = 96 bars. The old `getBarGrid()` added one 4/4 measure per
+  square regardless of actual event spans. Event q positions reset/overlapped
+  between squares; sync anchors used chronological bar q positions, but guitar
+  durations were resolved at those bad event q positions. This explains growing
+  drift with points correctly present.
+- 0.825 fixes grid construction: accumulate real event quarter spans; add bar
+  boundaries according to time signature; preserve section/square repeat counts;
+  fallback position calculation also sums real square spans. Regression in
+  `dev/tests/b122-audio-sync-0823.js` checks 2-bar squares under uneven anchor
+  intervals (expected 2, 3, 2, 2 seconds); keep audio and point data untouched.
+- Browser/Safari audition on the uploaded Oasis score is still required from owner;
+  sandbox verifies calculations, not their physical listening result.
+
+---
+
+## B-123 · 0.824: Safari Web Audio requires playback Audio Session
+
+- Владелец: Safari 17.6 / macOS, HTMLAudio слышно, Web Audio — нет. Его отчёт:
+  контекст `running`, `resume-resolved`, тестовый осциллятор `scheduled` → `ended`,
+  ошибок нет; `navigator.audioSession.type` всюду `auto`. Пересоздание контекста
+  (generation 2/3) тоже не помогло.
+- Для Safari Web Audio-only документа одной `AudioContext.state === 'running'`
+  недостаточно для активации playback media session. На явном пользовательском
+  audio-preflight выставлять `navigator.audioSession.type = 'playback'`, затем
+  повторно выставлять при managed resume и rebuild. Feature detect; без API — no-op.
+- Тест `dev/tests/b123-safari-audio-session-0824.js` имитирует API в Chromium:
+  gesture → playback, reset → resume reassert, reset → context rebuild reassert.
+  **Не считать Safari починенным до того, как владелец подтвердит слухом после патча.**
+- Спека/отчёт: пока не созданы; сначала дождаться результата Safari.
+
+---
+
+## B-122 · 0.823: запись и песня на одних часах
+
+- **Дубли функции побеждают молча.** В патч добавлялись новые `driftPlaybackRate()` и
+  `scheduleAudio()`, а старые однострочные объявления тех же имён оставались ниже в
+  файле. Объявления функций поднимаются (hoisting), последнее выигрывает: приложение
+  выглядело пропатченным, а работал старый код, и тест «падал непонятно». Любой патч,
+  который **переопределяет** функцию, обязан удалить старую строку объявления
+  (в патче — отдельные `replace(..., '')` перед вставкой).
+- **jsdom 20:** у `Blob` нет `arrayBuffer()`. Тестам нужен свой `Blob`-мок или обход.
+- **Песня без байтов в хранилище** даёт `getPathInfo().path === 'none'`
+  (`mainTrackAllowed() === false`). Сначала `bt.importEmbedded({backingTrack:{…, embedded: base64}})`,
+  потом `bt.loadSong({backingTrack: meta})`.
+- **Ползунок скорости в тесте.** Ветка перезапуска в `#btSpeed.oninput` работает только
+  при `playbackState.isPlaying === true`; при ручном `preparePlaybackStart()` флаг нужно
+  поставить самому, иначе проверка молча идёт по другой ветке.
+- **Буфер из временного `AudioContext`** (так строятся пики волны) рабочий контекст
+  принимает — проверено в реальном Chromium 149
+  (`dev/tests/b122-audio-sync-browser-0823.js`). Опыт полезен и вне B-122.
+- **Кадры в puppeteer:** `page.setViewport({isMobile:true})` перезагружает документ
+  (со `waitUntil` можно получить таймаут). Надёжнее — новая страница под каждый размер.
+  `await` внутри `page.evaluate` с длинной цепочкой промисов ловит
+  `Promise was collected`; запускать работу «выстрелил и забыл» и ждать флаг из Node.
+- **Кадры панели волны** могут уйти ниже сгиба (ландшафт телефона) — перед снимком
+  `scrollIntoView({block:'center'})`, иначе на кадре нет предмета проверки.
+- **Отчёт и правила:** спека `dev/specs/b122-audio-sync-0823.md`,
+  отчёт `dev/bench/results/b122-audio-0.823/REPORT.md`.
 
 ---
 

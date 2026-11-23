@@ -9,11 +9,14 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
  const id=await p.evaluate(({cell})=>{let T=StruChordTracks,e=sections[0].squares[0].events[0];e.fingering='0,0,0,0,0,0';e.fingeringTuning=tuningKeySuffix();let id=T.addTrack('guitar');T.setTrackChord(id,cell,'D');T.setGuitarShape(id,cell,'D',[0,0,0,0,0,0],[],null);sections[0].strumPattern={mode:'pick',subdivision:1,steps:[[6],[6],[6],[6]]};return id},setup);
  async function pitches(){let raw=await p.evaluate(()=>midiExportBytes().bytes);return parseMidi(raw).tracks.slice(1).map(t=>t.find(e=>e.type==='noteOn'&&e.velocity)?.noteNumber);}
  async function sound(){return p.evaluate(async()=>{let ctx=getAudioContext();await ctx.resume();let heard=[],old=pluckString;pluckString=(c,o)=>heard.push(Math.round(69+12*Math.log2(o.freq/440)));try{playbackState.isPlaying=true;playbackState.currentSectionIndex=0;playbackState.currentSquareIndex=0;playbackState.currentEventIndex=0;playbackState._sectionRepeatCount={};playbackState._squareRepeatCount={};playbackState._structureWalk=null;nextEventTime=ctx.currentTime+.3;scheduleNextEvent(ctx);return heard}finally{stopPlayback();pluckString=old}});}
- await wait(100);assert.match(await p.$eval('#tuningPillName',e=>e.textContent),/E Standard/,'при добавлении показывается строй новой дорожки');
+ await wait(100);assert.match(await p.$eval('#tuningPillName',e=>e.textContent),/Drop D/,'0.806 (copy_full): при добавлении гитары от активной гитары копируется её строй и аппликатуры');
+ assert.deepStrictEqual(await pitches(),[38,38],'новая гитара унаследовала Drop D и аппликатуру источника');
+ await p.click('#tuningPill');await p.click('#tuningPickerList [data-id="e-std"]');
+ await p.evaluate(({id,cell})=>{StruChordTracks.setGuitarShape(id,cell,'D',[0,0,0,0,0,0],[],null);},{...setup,id});
+ assert.match(await p.$eval('#tuningPillName',e=>e.textContent),/E Standard/,'строй второй дорожки меняется независимо');
  // Двойное прослушивание использует только активную гитару и её строй.
  const preview=await p.evaluate(async()=>{let ctx=getAudioContext();await ctx.resume();let seen=[],old=pluckString;pluckString=(c,o)=>seen.push(Math.round(69+12*Math.log2(o.freq/440)));try{playChord('D',document.querySelector('.chord-wrapper'),false);return seen}finally{pluckString=old}});assert.deepStrictEqual(preview,[40,45,50,55,59,64],'прослушивание не добавляет главную гитару');
- // По согласованному правилу новая гитара — E Standard, старая — Drop D.
- assert.deepStrictEqual(await pitches(),[38,40],'новая гитара получает стандартный строй');
+ assert.deepStrictEqual(await pitches(),[38,40],'вторая гитара звучит в E Standard, первая остаётся в Drop D');
  assert.deepStrictEqual(await sound(),[38,38,38,38,40,40,40,40],'две гитары одновременно звучат в своих строях');
  await p.evaluate(()=>StruChordTracks.setActive(1));await wait(100);assert.match(await p.$eval('#tuningPillName',e=>e.textContent),/Drop D/);
  assert.deepStrictEqual(await pitches(),[38,40],'выбор активной дорожки не меняет экспорт');assert.deepStrictEqual(await sound(),[38,38,38,38,40,40,40,40],'переключение активной дорожки не меняет звук');
@@ -27,11 +30,11 @@ const wait=ms=>new Promise(r=>setTimeout(r,ms));
  for(const score of [readScore(files.gp5),readScore(gpifZip(xml))]){
    const got=Array.from(score.tracks,t=>notes(score,t.name)[0].pitch);assert.deepStrictEqual(got,[38,36],'разные строи сохраняются в реальном GP');
  }
- // Старый пользовательский строй наследуют существовавшие гитары, но не новая.
+ // Старый пользовательский строй наследуют существовавшие гитары; копия от неё тоже копирует строй, а можно переключить на E Standard.
  await p.evaluate(async()=>{const f=await exportStruchordFile();f.tuning='drop-d';f.tuningNotes=['C#2','A2','D3','G3','B3','E4'];for(const t of f.tracks)delete t.trackTuning;localStorage.setItem('struchord_songs',JSON.stringify([f]));loadSong(0)});await wait(150);
  assert.deepStrictEqual(await pitches(),[37,37],'старый ручной строй наследуется обеими дорожками');
- const third=await p.evaluate(({cell})=>{let T=StruChordTracks,id=T.addTrack('guitar');T.setTrackChord(id,cell,'D');T.setGuitarShape(id,cell,'D',[0,0,0,0,0,0],[],null);return id},setup);
- assert.deepStrictEqual(await pitches(),[37,37,40],'новая дорожка после старого файла получает стандарт');
+ const third=await p.evaluate(({cell})=>{let T=StruChordTracks,id=T.addTrack('guitar');T.setTuning(id,{id:'e-std',notes:null});T.setTrackChord(id,cell,'D');T.setGuitarShape(id,cell,'D',[0,0,0,0,0,0],[],null);return id},setup);
+ assert.deepStrictEqual(await pitches(),[37,37,40],'третья дорожка независимо переведена в стандарт');
  await p.evaluate(()=>setSongCapo(2));assert.deepStrictEqual(await pitches(),[39,39,42],'общий каподастр применяется к каждой гитаре');
  await p.evaluate(id=>StruChordTracks.setSolo(id,true),third);assert.deepStrictEqual(await pitches(),[42],'solo не меняет строй');await p.evaluate(id=>StruChordTracks.setSolo(id,false),third);
  await p.evaluate(()=>{captureHistorySnapshot();});await p.click('#tuningPill');await p.click('#tuningPickerList [data-id="drop-d"]');await wait(150);assert.deepStrictEqual(await pitches(),[39,39,40]);await p.click('#btnUndo');await wait(200);assert.deepStrictEqual(await pitches(),[39,39,42],'undo восстанавливает строй одной дорожки');
