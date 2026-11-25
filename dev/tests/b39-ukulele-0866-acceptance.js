@@ -135,16 +135,22 @@ function createSandbox() {
 }
 
 // =====================================================================
-// 1. Статические инварианты версии, SW, CSS и скрытия TAB-UI (Этап 1)
+// 1. Статические инварианты версии, SW, CSS и видимости TAB-UI (Этапы 1 и 3)
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.869'), 'STRUCHORD.html header is ver 0.869');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v869';"), 'sw.js CACHE_NAME is struchord-v869');
+  assert(HTML.includes('ver 0.870'), 'STRUCHORD.html header is ver 0.870');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v870';"), 'sw.js CACHE_NAME is struchord-v870');
+  // 0.870 (Этап 3, волна 1): скрытие снято — на укулеле «Таб» работает и
+  // создаёт 4-струнную вставку, а вставка чужого инструмента остаётся в песне
+  // видимой, но серой и без клика.
   assert(
-    HTML.includes('html.b39-ukulele-mode .tab-btn') &&
-    HTML.includes('html.b39-ukulele-mode .add-tab-btn') &&
-    HTML.includes('html.b39-ukulele-mode .chord-wrapper--tab'),
-    'CSS hides guitar TAB-insert controls under html.b39-ukulele-mode'
+    !HTML.includes('html.b39-ukulele-mode .tab-btn') &&
+    !HTML.includes('html.b39-ukulele-mode .add-tab-btn'),
+    'CSS no longer hides TAB-insert controls under html.b39-ukulele-mode (0.870)'
+  );
+  assert(
+    HTML.includes('.tab-insert.is-foreign { opacity: 0.55; cursor: default; pointer-events: none; }'),
+    'foreign TAB insert is grey and read-only instead of hidden (0.870)'
   );
   assert(
     ACCOMP.includes("root.classList.toggle('b39-ukulele-mode', ukeOn);"),

@@ -15989,7 +15989,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.869</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.870</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -24256,14 +24256,18 @@ function tabTechPerformance(notes, total) {
       };
     });
 }
-function tabTechSoundOptions(event, unit, freqs, start, sound) {
+function tabTechSoundOptions(event, unit, freqs, start, sound, domain) {
   const n = event.note,
     open = freqs[n.string];
   if (event.segments.some((s) => tabTechIssue(s.note))) return null;
   if (!open) return null;
   const written = event.duration * unit;
   // Используем тот же движок приёмов, что у скрытых партий, но тембр песни.
-  const v = partNoteSound(n, { gain: 0.5, bright: 0.5 }, written, written, event.room * unit);
+  // 0.870: у укулельной вставки тембр нейлона — тот же, что у 4-струнных «Партий».
+  const timbre = domain && domain.instrument === 'ukulele'
+    ? { gain: PART_TIMBRE.ukulele.gain, bright: PART_TIMBRE.ukulele.bright }
+    : { gain: 0.5, bright: 0.5 };
+  const v = partNoteSound(n, timbre, written, written, event.room * unit);
   if (n.harm) v.harm = tabTechHarmonicOffset(n);
   const freq = v.harm?.freq || open * Math.pow(2, (v.harm?.semitones ?? n.fret) / 12);
   let points = null;
@@ -25225,9 +25229,116 @@ function tabTechEvents(e) {
 }
 
 const TAB_INSERT_MAX_SAVE_FRET = 30;
+
+// 0.870 (B-39 Этап 3, волна 1): домен таб-вставки.
+//
+// Вставка принадлежит инструменту: у гитары шесть струн и строй песни, у
+// укулеле — четыре струны, лады 0..15 и строй дорожки. Поля `tabInstrument`
+// и `tabTuning` необязательные: если их нет, вставка читается и звучит ровно
+// как до 0.870 (гитара, строй песни), поэтому старые песни не меняются.
+function tabInsertDomainFrom(obj) {
+  const uke = !!(obj && obj.tabInstrument === 'ukulele');
+  if (!uke) return { instrument: 'guitar', tuning: null, strings: 6, maxFret: TAB_INSERT_MAX_SAVE_FRET };
+  const list = typeof PART_UKULELE_TUNINGS !== 'undefined' && Array.isArray(PART_UKULELE_TUNINGS) ? PART_UKULELE_TUNINGS : [];
+  const fallback = typeof PART_UKULELE_DEFAULT_TUNING === 'string' ? PART_UKULELE_DEFAULT_TUNING : 'uke-high-g';
+  const tuning = list.some((t) => t.id === obj.tabTuning) ? obj.tabTuning : fallback;
+  const maxFret = typeof PART_UKULELE_MAX_FRET === 'number' ? PART_UKULELE_MAX_FRET : 15;
+  return { instrument: 'ukulele', tuning, strings: 4, maxFret };
+}
+
+// Поля, которые надо записать во вставку. Гитара ничего не пишет: файлы
+// старых песен и обычных вставок остаются теми же.
+function tabInsertDomainPatch(domain) {
+  return domain && domain.instrument === 'ukulele'
+    ? { tabInstrument: 'ukulele', tabTuning: domain.tuning }
+    : {};
+}
+
+function tabInsertActiveTrackState() {
+  try {
+    const T = window.StruChordTracks;
+    const st = T && typeof T.state === 'function' ? T.state() : null;
+    if (!st || !Array.isArray(st.tracks)) return null;
+    return st.tracks.find((t) => t.id === st.activeTrackId) || null;
+  } catch (_) {
+    return null;
+  }
+}
+
+function tabInsertActiveInstrument() {
+  const trk = tabInsertActiveTrackState();
+  return trk && trk.instrument ? String(trk.instrument) : 'guitar';
+}
+
+// Строй дорожки в модели самой дорожки — короткий id (`high-g`), а пресеты
+// «Партий» называются `uke-high-g`. Переводим в один вид, чтобы файл песни
+// хранил id, который понимает панель строя.
+function tabInsertTuningFromTrack(trk) {
+  if (!trk) return null;
+  const tt = trk.trackTuning;
+  const id = tt && typeof tt === 'object' && typeof tt.id === 'string' ? tt.id
+    : (typeof trk.tuning === 'string' ? trk.tuning : null);
+  if (!id) return null;
+  const list = typeof PART_UKULELE_TUNINGS !== 'undefined' && Array.isArray(PART_UKULELE_TUNINGS) ? PART_UKULELE_TUNINGS : [];
+  const wanted = id.indexOf('uke-') === 0 ? id : 'uke-' + id;
+  return list.some((t) => t.id === wanted) ? wanted : null;
+}
+
+function tabInsertActiveTuning() {
+  const trk = tabInsertActiveTrackState();
+  const fromState = tabInsertTuningFromTrack(trk);
+  if (fromState) return fromState;
+  try {
+    const T = window.StruChordTracks;
+    if (T && typeof T.activeTuning === 'function') {
+      const val = T.activeTuning();
+      const id = typeof val === 'string' ? val : (val && typeof val.id === 'string' ? val.id : null);
+      return tabInsertTuningFromTrack({ trackTuning: { id } });
+    }
+  } catch (_) {}
+  return null;
+}
+
+function tabInsertDomainForActiveTrack() {
+  if (tabInsertActiveInstrument() !== 'ukulele') return tabInsertDomainFrom(null);
+  return tabInsertDomainFrom({ tabInstrument: 'ukulele', tabTuning: tabInsertActiveTuning() });
+}
+
+// Домен открытого редактора: в нём хранится домен цели, поэтому ввод не
+// зависит от того, какая дорожка активна сейчас.
+function tabInsertEditorDomain() {
+  const ed = tabInsertEditorState;
+  if (ed && ed.domain) return ed.domain;
+  return tabInsertDomainFrom(ed && ed.draft);
+}
+
+function tabAtStringsCount() {
+  return tabInsertEditorDomain().strings;
+}
+
+// Строй в порядке модели: индекс 0 — нижняя строка стана (4-я струна
+// укулеле, 6-я у гитары).
+function tabAtTuningNotesFor(domain) {
+  if (domain && domain.instrument === 'ukulele') {
+    const list = typeof PART_UKULELE_TUNINGS !== 'undefined' && Array.isArray(PART_UKULELE_TUNINGS) ? PART_UKULELE_TUNINGS : [];
+    const preset = list.find((t) => t.id === domain.tuning) || list[0];
+    if (preset && Array.isArray(preset.notes) && preset.notes.length) return preset.notes.slice(0, domain.strings);
+  }
+  return tabAtTuningNotes();
+}
+
+// Частоты открытых струн для звука вставки.
+function tabInsertStringFreqs(domain) {
+  if (!domain || domain.instrument !== 'ukulele') return songLegacyStringFreqs();
+  return tabAtTuningNotesFor(domain).map((n) => noteToFrequency(n));
+}
 const TAB_DRAFT_MIN_FRET = -36;
 const TAB_DRAFT_MAX_FRET = 60;
-function tabInsertCleanNotes(rawNotes, beats, parentTs) {
+function tabInsertCleanNotes(rawNotes, beats, parentTs, domain) {
+  // 0.870: домен сужает допустимое. Без домена — прежние гитарные границы,
+  // поэтому все исторические вызовы и старые файлы работают как раньше.
+  const maxString = domain && domain.strings ? domain.strings - 1 : 5;
+  const maxFret = domain && Number.isFinite(domain.maxFret) ? domain.maxFret : TAB_INSERT_MAX_SAVE_FRET;
   if (!Array.isArray(rawNotes)) return [];
   const denominator = parseTimeSig(parentTs).denominator;
   const allowed = [1, 2, 4, 8, 16, 32, 64].map(d => denominator / d);
@@ -25250,8 +25361,8 @@ function tabInsertCleanNotes(rawNotes, beats, parentTs) {
     note.start = Math.round(start * 1e9) / 1e9;
     if (raw.pause === true) note.pause = true;
     else {
-      if (!Number.isInteger(raw.string) || raw.string < 0 || raw.string > 5) return;
-      if (!Number.isInteger(raw.fret) || raw.fret < 0 || raw.fret > TAB_INSERT_MAX_SAVE_FRET) return;
+      if (!Number.isInteger(raw.string) || raw.string < 0 || raw.string > maxString) return;
+      if (!Number.isInteger(raw.fret) || raw.fret < 0 || raw.fret > maxFret) return;
       note.string = raw.string; note.fret = raw.fret; Object.assign(note, tabTechClean(raw));
     }
     candidates.push(note);
@@ -25340,19 +25451,26 @@ function tabThumbTimeSig(beats, ts) {
   return src;
 }
 
-function tabThumbSpecFrom(notes, beats, ts) {
+function tabThumbSpecFrom(notes, beats, ts, domain) {
   // 0.692: размер такта остаётся настоящим, а свободный хвост такта, как и в
   // редакторе, не дорисовывается паузой — `u` говорит, где кончилось содержимое.
   let used = 0;
   for (const n of notes) used = Math.max(used, (Number(n.start) || 0) + tabInsertNoteDuration(n));
   used = Math.round(used * 1e9) / 1e9;
-  return {
+  const spec = {
     n: notes,
     b: beats,
     u: used,
     t: tabThumbTimeSig(beats, ts),
     th: document.documentElement.dataset.theme || 'light',
   };
+  // 0.870: у укулельной вставки свой строй и четыре струны. Гитара полей не
+  // пишет — её спека и ключ кэша остаются прежними.
+  if (domain && domain.instrument === 'ukulele') {
+    spec.i = 'ukulele';
+    spec.g = domain.tuning;
+  }
+  return spec;
 }
 
 // Одна общая «мастерская» alphaTab: она живёт за экраном, рисует по одному
@@ -25473,7 +25591,8 @@ async function tabThumbRenderPayload(spec, width) {
   // половину места — поэтому для клеток они отключены.
   const scale = 1;
   const alphaTab = tabThumbEnsureApi(width);
-  const built = tabAtBuildScore(alphaTab, { notes: spec.n, beats: spec.b }, { timeSig: spec.t }, { tailPlaceholder: true });
+  const built = tabAtBuildScore(alphaTab, { notes: spec.n, beats: spec.b }, { timeSig: spec.t },
+    { tailPlaceholder: true, domain: tabInsertDomainFrom({ tabInstrument: spec.i, tabTuning: spec.g }) });
   tabThumbMarkOutFrets(alphaTab, built);
   if (tabThumbApi.settings) {
     tabThumbApi.settings.display.startBar = 1;
@@ -25752,7 +25871,7 @@ function tabThumbScan(root) {
     }
     const measured = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 320;
     const width = Math.max(120, Math.round(measured / 8) * 8);
-    const key = [spec.th, spec.b, spec.t, width, JSON.stringify(spec.n)].join('|');
+    const key = [spec.th, spec.b, spec.t, spec.i || '', spec.g || '', width, JSON.stringify(spec.n)].join('|');
     const cached = TAB_THUMB_CACHE.get(key);
     if (cached) {
       tabThumbApply(el, cached);
@@ -25842,7 +25961,12 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
   const effTs = isCell ? getEventOwnTimeSig(ev, parentTs) : parentTs;
   const beatsPerBar = getGridUnitsPerBar(effTs);
   const beats = isCell ? Math.max(1 / 16, Number(ev.span) || 1) : getTabInsertBeats(sq, parentTs);
-  const notes = tabInsertCleanNotes(isCell ? ev.tabNotes : sq.notes, beats, effTs);
+  // 0.870: домен вставки решает, сколько струн и какие лады допустимы, и
+  // показывать ли карточку как чужую (её инструмент не активная дорожка).
+  const domain = tabInsertDomainFrom(isCell ? ev : sq);
+  const foreignInsert = domain.instrument !== tabInsertActiveInstrument();
+  const canEdit = interactive && !foreignInsert;
+  const notes = tabInsertCleanNotes(isCell ? ev.tabNotes : sq.notes, beats, effTs, domain);
   const count = notes.filter(n => !n.pause).length;
   const bars = formatSquareBars(beats / beatsPerBar);
   const noteWord = count % 10 === 1 && count % 100 !== 11 ? 'нота'
@@ -25859,7 +25983,7 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
   // 0.692: таб в клетке рисует alphaTab — тот же движок, что и в редакторе.
   // Своих линий, цифр и чёрточек больше нет: клетка просит картинку у alphaTab.
   const outFret = notes.some(n => !n.pause && !n.dead && (n.fret < 0 || n.fret > 24));
-  const thumbSpec = notes.length ? encodeURIComponent(JSON.stringify(tabThumbSpecFrom(notes, beats, effTs))) : '';
+  const thumbSpec = notes.length ? encodeURIComponent(JSON.stringify(tabThumbSpecFrom(notes, beats, effTs, domain))) : '';
   // 0.869: своя линейка счёта — в строке редактора, в ячейке между аккордами
   // и в Ленте. Разметку строим заранее, а координаты чисел приходят вместе с
   // картинкой (tabThumbRender): равномерная сетка карточки не совпадала с
@@ -25870,14 +25994,14 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
       '<div class="chord-ticks-step" aria-hidden="true" data-tab-subticks></div>' +
       '<div class="chord-counts" aria-hidden="true" data-tab-counts></div>'
     : '';
-  const resizeHandle = (!isCell && interactive && !cellOpts?.inTimeline)
+  const resizeHandle = (!isCell && canEdit && !cellOpts?.inTimeline)
     ? `<div class="square-resize-handle" data-sec="${sec.id}" data-square="${sq.id}"></div>`
     : '';
   const openCall = isCell
     ? `openTabInsertEditor(${sec.id},${sq.id},{ei:${ei}})`
     : `openTabInsertEditor(${sec.id},${sq.id})`;
-  return `<div class="tab-insert${isCell ? ' tab-insert--cell' : ''}" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" ` +
-    (interactive ? `onclick="if(typeof isResizing==='undefined'||!isResizing){event.stopPropagation();${openCall}}" ` : '') + `title="${durationText}">` +
+  return `<div class="tab-insert${isCell ? ' tab-insert--cell' : ''}${domain.instrument === 'ukulele' ? ' tab-insert--uke' : ''}${foreignInsert ? ' is-foreign' : ''}" data-sec="${sec.id}" data-square="${sq.id}" data-ei="${ei}" ` +
+    (canEdit ? `onclick="if(typeof isResizing==='undefined'||!isResizing){event.stopPropagation();${openCall}}" ` : '') + `title="${durationText}${foreignInsert ? ' · ' + (domain.instrument === 'ukulele' ? 'укулеле' : 'гитара') + ': другая дорожка' : ''}">` +
     `<div class="tab-insert-heading"><strong class="tab-insert-label">TAB</strong><span class="tab-insert-count">${durationText}</span></div>` +
     `<div class="tab-insert-body"${thumbSpec ? ` data-tab-thumb="${thumbSpec}"${outFret ? ' data-tab-out-fret="1"' : ''}` : ''}>` +
     (thumbSpec
@@ -25938,7 +26062,9 @@ function tabInsertEditNotes(secId, sqId, label, mutate) {
   if (!target) return false;
   const { sec, sq, ev, isCell, editor } = target, ts = isCell ? getEventOwnTimeSig(ev, sec.timeSig || globalTimeSig) : (sec.timeSig || globalTimeSig);
   const source = editor ? editor.draft : (isCell ? { beats: Math.max(1 / 16, Number(ev.span) || 1), notes: ev.tabNotes || [] } : sq);
-  const next = { ...source, notes: tabInsertCleanNotes(source.notes, source.beats, ts) };
+  // 0.870: струны и лады проверяются по домену самой вставки.
+  const domain = editor ? tabInsertEditorDomain() : tabInsertDomainFrom(isCell ? ev : sq);
+  const next = { ...source, notes: tabInsertCleanNotes(source.notes, source.beats, ts, domain) };
   if (mutate(next, ts) === false) return false;
   const end = next.notes.reduce((max, n) => Math.max(max, n.start + tabInsertNoteDuration(n)), 0);
   if (end > next.beats + 1e-8) {
@@ -25949,7 +26075,7 @@ function tabInsertEditNotes(secId, sqId, label, mutate) {
     }
     next.beats = extended;
   }
-  const clean = tabInsertCleanNotes(next.notes, next.beats, ts);
+  const clean = tabInsertCleanNotes(next.notes, next.beats, ts, domain);
   if (clean.length !== next.notes.length) {
     showToast('Правка не применена: ноты пересекаются или выходят за допустимые границы'); return false;
   }
@@ -25966,7 +26092,9 @@ function tabInsertEditNotes(secId, sqId, label, mutate) {
 }
 function tabInsertSetString(secId, sqId, idx, val) {
   const string = Number(val);
-  if (!Number.isInteger(string) || string < 0 || string > 5) return false;
+  const target = tabInsertTarget(secId, sqId);
+  const domain = target ? (target.editor ? tabInsertEditorDomain() : tabInsertDomainFrom(target.ev || target.sq)) : tabInsertDomainFrom(null);
+  if (!Number.isInteger(string) || string < 0 || string >= domain.strings) return false;
   return tabInsertEditNotes(secId, sqId, 'tab/note-string', next => {
     if (!next.notes[idx] || next.notes[idx].pause) return false;
     next.notes[idx].string = string;
@@ -26402,7 +26530,7 @@ function tabGpSelectBars(e, dir) {
 function tabGpSetPoint(e, point, string = tabAtCursor.string, extend = false) {
   const old = { ...e.gpCursor },
     oldStr = tabAtCursor.string,
-    nextStr = Math.max(0, Math.min(5, string));
+    nextStr = Math.max(0, Math.min(Math.max(1, tabAtStringsCount()) - 1, string));
   const bar = Math.max(0, Math.min(e.gpBars.length - 1, point.bar)),
     groups = e.gpBars[bar],
     used = groups.reduce((s, g) => s + tabGpLength(g), 0),
@@ -27028,15 +27156,16 @@ function tabGpShiftStrings(e, delta) {
   e.gpNotice = null;
   const toastEl = document.getElementById('toast');
   if (toastEl && toastEl.textContent === REFUSE_MSG) toastEl.classList.remove('show');
-  const nextCursorStr = Math.max(0, Math.min(5, tabAtCursor.string + delta));
+  const nextCursorStr = Math.max(0, Math.min(Math.max(1, tabAtStringsCount()) - 1, tabAtCursor.string + delta));
   const ok = tabGpEdit(e, () => {
     for (const { note, nextStr, nextFret } of planned) {
       note.string = nextStr;
       note.fret = nextFret;
     }
     if (e.gpSelection?.stringScoped) {
-      e.gpSelection.anchorString = Math.max(0, Math.min(5, e.gpSelection.anchorString + delta));
-      e.gpSelection.focusString = Math.max(0, Math.min(5, e.gpSelection.focusString + delta));
+      const lastStr = Math.max(1, tabAtStringsCount()) - 1;
+      e.gpSelection.anchorString = Math.max(0, Math.min(lastStr, e.gpSelection.anchorString + delta));
+      e.gpSelection.focusString = Math.max(0, Math.min(lastStr, e.gpSelection.focusString + delta));
     }
     tabAtCursor = { ...tabAtCursor, string: nextCursorStr };
   });
@@ -27551,7 +27680,7 @@ function tabGpKey(e, event) {
   }
   if (key === 'ArrowUp' || key === 'ArrowDown') {
     const delta = key === 'ArrowUp' ? 1 : -1,
-      nextStr = Math.max(0, Math.min(5, tabAtCursor.string + delta));
+      nextStr = Math.max(0, Math.min(Math.max(1, tabAtStringsCount()) - 1, tabAtCursor.string + delta));
     if (shift) {
       const prev = e.gpSelection;
       e.gpSelection = {
@@ -27903,9 +28032,12 @@ function tabAtBuildScore(alphaTab, draft, sec, opts) {
   staff.showStandardNotation = false;
   staff.showTablature = true;
   staff.capo = songCapo;
-  const tuning = tabAtTuningNotes();
+  // 0.870: у укулельной вставки свой строй (4 струны), у гитарной — строй песни.
+  const domain = (opts && opts.domain) ||
+    (tabInsertEditorState && draft === tabInsertEditorState.draft ? tabInsertEditorDomain() : tabInsertDomainFrom(draft));
+  const tuning = tabAtTuningNotesFor(domain);
   try {
-    staff.stringTuning = new M.Tuning('Строй песни', tuning.map(partsAtNoteMidi).reverse(), false);
+    staff.stringTuning = new M.Tuning('Строй вставки', tuning.map(partsAtNoteMidi).reverse(), false);
   } catch (_) {}
   if (!track.staves.length) track.addStaff(staff);
   const barObjs = layout.bars.map(() => {
@@ -27938,7 +28070,7 @@ function tabAtBuildScore(alphaTab, draft, sec, opts) {
         bit.notes.forEach(spec => {
           const note = new M.Note();
           const rawFret = Number.isInteger(spec.fret) ? spec.fret : (Number(spec.fret) || 0);
-          note.string = Math.max(1, Math.min(6, spec.string));
+          note.string = Math.max(1, Math.min(domain.strings, spec.string));
           note.fret = rawFret < 0 ? Math.min(99, Math.abs(rawFret) + 10) : rawFret;
           noteMeta.set(note, { fret: rawFret, dead: !!spec.dead, ghost: !!spec.ghost });
           beat.addNote(note);
@@ -28153,7 +28285,11 @@ function tabAtStringGeometry(api, barIndex) {
         return { yAt: string => ref.yAt(string) + shift, gap: ref.gap, approx: true, shifted: shift };
       }
       const bounds = tabAtBarBounds(api, barIndex);
-      if (bounds) return { yAt: string => bounds.y + bounds.h * (6 - string) / 5, gap: bounds.h / 5 };
+      if (bounds) {
+        const strings = Math.max(1, tabAtStringsCount());
+        const step = strings > 1 ? bounds.h / (strings - 1) : bounds.h;
+        return { yAt: string => bounds.y + (strings - string) * step, gap: step };
+      }
       return null;
     }
   }
@@ -28174,7 +28310,7 @@ function tabAtCursorPosition(api) {
   if (!bounds || !host) return null;
 
   let x = null;
-  const atString = 1 + Math.max(0, Math.min(5, tabAtCursor.string));
+  const atString = 1 + Math.max(0, Math.min(Math.max(1, tabAtStringsCount()) - 1, tabAtCursor.string));
   let noteY = null, noteW = null, noteH = null, isOutFret = false;
   const beat = tabAtBeatBoundsAt(api, tabAtCursor.start);
   if (beat) {
@@ -28256,8 +28392,9 @@ function tabAtPlaceCursor() {
   dot.style.top = pos.y + 'px';
   const sign = `${tabAtInput.dots ? '·'.repeat(tabAtInput.dots) : ''}${tabAtInput.triplet ? '₃' : ''}`;
   const beatLabel = `${Math.floor(inBar + TAB_AT_EPS)}${inBar - Math.floor(inBar + TAB_AT_EPS) > TAB_AT_EPS ? ' и' : ''}`;
-  const text = `такт ${barNo}, доля ${beatLabel} · струна ${6 - tabAtCursor.string} · 1/${tabAtInput.dValue}${sign}`;
-  const headerText = `Такт ${barNo} · Доля ${beatLabel} · ${6 - tabAtCursor.string}-я струна · 1/${tabAtInput.dValue}${sign}`;
+  const stringsCount = Math.max(1, tabAtStringsCount());
+  const text = `такт ${barNo}, доля ${beatLabel} · струна ${stringsCount - tabAtCursor.string} · 1/${tabAtInput.dValue}${sign}`;
+  const headerText = `Такт ${barNo} · Доля ${beatLabel} · ${stringsCount - tabAtCursor.string}-я струна · 1/${tabAtInput.dValue}${sign}`;
   if (readout) {
     readout.textContent = text;
     readout.hidden = false;
@@ -28270,7 +28407,7 @@ function tabAtRefreshReadout() {
   const overlay = tabInsertEditorState && tabInsertEditorState.overlay;
   if (!overlay || !st) return;
   const stringEl = overlay.querySelector('[data-tab-current-string]');
-  const sNo = 6 - tabAtCursor.string;
+  const sNo = Math.max(1, tabAtStringsCount()) - tabAtCursor.string;
   if (stringEl) stringEl.textContent = `${sNo} (${sNo}-я)`;
   const durEl = overlay.querySelector('[data-tab-current-dur]');
   if (durEl) durEl.textContent = `1/${tabAtInput.dValue}${tabAtInput.dots === 1 ? '·' : tabAtInput.dots === 2 ? '··' : ''}${tabAtInput.triplet ? ' (3)' : ''}`;
@@ -28295,7 +28432,7 @@ function tabAtSetCursor(start, string) {
   tabAtLastDigit = null;
   tabAtCursor = {
     start: Math.round(Math.max(0, Math.min(st.beats - TAB_AT_EPS, start)) * 1e9) / 1e9,
-    string: Math.max(0, Math.min(5, Number.isInteger(string) ? string : tabAtCursor.string)),
+    string: Math.max(0, Math.min(Math.max(1, tabAtStringsCount()) - 1, Number.isInteger(string) ? string : tabAtCursor.string)),
   };
   tabAtPullInputAtCursor();
   tabAtPlaceCursor();
@@ -28564,7 +28701,9 @@ function tabAtHitTest(x, y) {
     start = Math.max(st.bars[barIndex]?.start ?? barIndex*st.unitsPerBar, Math.min(limit, start));
   }
   const geom = tabAtStringGeometry(api, barIndex);
-  const string = geom ? Math.max(0, Math.min(5, Math.round((y - geom.yAt(1)) / (geom.yAt(2) - geom.yAt(1))))) : tabAtCursor.string;
+  const string = geom
+    ? Math.max(0, Math.min(Math.max(1, tabAtStringsCount()) - 1, Math.round((y - geom.yAt(1)) / (geom.yAt(2) - geom.yAt(1)))))
+    : tabAtCursor.string;
   return { start: Math.round(start * 1e9) / 1e9, string };
 }
 
@@ -28898,9 +29037,11 @@ function tabDefaultInlineTargetForSection(sec, preferredMode) {
   return `cell:${firstChord.id}:before:0`;
 }
 
-function tabCommitInlineInsertion(destSq, mode, idx, tabSpan, cleanNotes, parentTs) {
+function tabCommitInlineInsertion(destSq, mode, idx, tabSpan, cleanNotes, parentTs, domain) {
   if (!destSq || !Array.isArray(destSq.events)) return;
-  const tabEv = { chord: '', span: tabSpan, timeSig: null, isTab: true, tabNotes: cleanNotes };
+  // 0.870: ячейка получает домен своей вставки (гитара полей не пишет).
+  const tabEv = { chord: '', span: tabSpan, timeSig: null, isTab: true, tabNotes: cleanNotes,
+    ...tabInsertDomainPatch(domain || tabInsertEditorDomain()) };
   const evs = destSq.events;
   const roundSpan = (v) => Math.round(v * 1e6) / 1e6;
   const totalBefore = getSquareBeats(destSq, parentTs);
@@ -28954,6 +29095,9 @@ function renderTabInsertEditor(editor) {
   const target = tabInsertTarget(editor.secId, editor.sqId);
   if (!target) return;
   const { sec } = target, ts = sec.timeSig || globalTimeSig, denominator = parseTimeSig(ts).denominator;
+  // 0.870: у укулеле четыре струны и лады 0..15 — резервный список и поле лада
+  // обязаны это знать, иначе ввод предложит пятую струну и лад 30.
+  const domain = tabInsertEditorDomain();
   const body = editor.overlay.querySelector('.tab-editor-body');
   if (!body) return;
   // Стан уже построен: пересобирать разметку нельзя — alphaTab потеряет
@@ -28983,8 +29127,8 @@ function renderTabInsertEditor(editor) {
   // (jsdom/старые браузеры). В обычном браузере его место занимает стан.
   const rows = editor.draft.notes.map((n, i) => `<div class="tab-note-row" data-index="${i}">
     <span class="tab-row-position">${Math.round(n.start * 100) / 100}</span>
-    <label><span class="tab-cell-label">Струна</span><select data-tab-field="string" aria-label="Струна"${n.pause ? ' disabled' : ''}>${options([0,1,2,3,4,5].map(s => [s, 6-s]), n.string)}</select></label>
-    <label><span class="tab-cell-label">Лад</span><input data-tab-field="fret" type="number" min="0" max="30" step="1" aria-label="Лад" value="${n.fret ?? 0}"${n.pause ? ' disabled' : ''}></label>
+    <label><span class="tab-cell-label">Струна</span><select data-tab-field="string" aria-label="Струна"${n.pause ? ' disabled' : ''}>${options(Array.from({ length: domain.strings }, (_, s) => [s, domain.strings - s]), n.string)}</select></label>
+    <label><span class="tab-cell-label">Лад</span><input data-tab-field="fret" type="number" min="0" max="${domain.maxFret}" step="1" aria-label="Лад" value="${n.fret ?? 0}"${n.pause ? ' disabled' : ''}></label>
     <label><span class="tab-cell-label">Длительность</span><select data-tab-field="dur" aria-label="Длительность">${options([1,2,4,8,16,32,64].map(d => [denominator/d, '1/'+d]), n.dur)}</select></label>
     <label class="tab-check"><input data-tab-field="dots" type="checkbox"${n.dots ? ' checked' : ''}><span>Точка</span></label>
     <label class="tab-check"><input data-tab-field="triplet" type="checkbox"${n.triplet ? ' checked' : ''}><span>Триоль</span></label>
@@ -29346,6 +29490,8 @@ function openTabInsertEditor(secId, sqId, options) {
     sqId,
     isCell,
     cellIndex,
+    // 0.870: домен фиксируется на входе — ввод не зависит от переключения дорожки.
+    domain: tabInsertDomainFrom(isCell ? target.ev : target.sq),
     subBarBeats,
     manualZoom: false,
     mobileTab: 'notes',
@@ -29360,7 +29506,7 @@ function openTabInsertEditor(secId, sqId, options) {
     draft: JSON.parse(JSON.stringify(entrySnapshot)),
     source: isCell ? target.ev : target.sq,
   };
-  editor.draft.notes = tabInsertCleanNotes(editor.draft.notes, editor.draft.beats, tabGpMeter(editor));
+  editor.draft.notes = tabInsertCleanNotes(editor.draft.notes, editor.draft.beats, tabGpMeter(editor), editor.domain);
   editor.initialDraftJson = JSON.stringify({ beats: editor.draft.beats, notes: editor.draft.notes });
   tabInsertEditorState = editor;
   if(tabAtSupported()){try{tabGpImport(editor);}catch(err){editor.gpError=err.message;editor.gpBars=null;}}
@@ -33601,10 +33747,15 @@ html.b39-keys-mode .sound-mark,
 html.b39-keys-mode .tab-btn,
 html.b39-keys-mode .add-tab-btn,
 html.b39-keys-mode .chord-wrapper--tab { display:none !important; }
-/* 0.866 (B-39 Укулеле, Этап 1): 6-струнный TAB-редактор скрыт на укулеле до Этапа 2 */
-html.b39-ukulele-mode .tab-btn,
-html.b39-ukulele-mode .add-tab-btn,
-html.b39-ukulele-mode .chord-wrapper--tab { display:none !important; }
+/* 0.870 (B-39 Этап 3, волна 1): вставка принадлежит инструменту.
+   Раньше на укулеле скрывался весь таб-инструментарий; теперь «Таб» работает
+   и там (создаёт 4-струнную вставку), а вставка чужого инструмента остаётся
+   видимой, но серой и без клика — видно, что она есть в песне. */
+.tab-insert.is-foreign { opacity: 0.55; cursor: default; pointer-events: none; }
+.tab-insert.is-foreign:hover { border-color: var(--color-border-medium); }
+html.b39-ukulele-mode .tab-insert--uke,
+html:not(.b39-ukulele-mode) .tab-insert--uke { pointer-events: auto; }
+.tab-insert--uke .tab-insert-label { letter-spacing: 0.06em; }
 /* Строй относится к струнным инструментам, а не активной клавишной дорожке. */
 html.b39-keys-mode #tuningPillLabel, html.b39-keys-mode #tuningPill,
 html.b39-keys-mode #tuningPickerList { display:none !important; }
@@ -42993,6 +43144,8 @@ function cloneSection(id) {
         type: 'tab',
         beats: sq.beats,
         notes: Array.isArray(sq.notes) ? JSON.parse(JSON.stringify(sq.notes)) : [],
+        // 0.870: копия секции остаётся вставкой того же инструмента.
+        ...tabInsertDomainPatch(tabInsertDomainFrom(sq)),
       } : {}),
       events: sq.events.map((e) => ({
         chord: e.chord,
@@ -43001,6 +43154,7 @@ function cloneSection(id) {
         ...(isInlineTabEvent(e) ? {
           isTab: true,
           tabNotes: Array.isArray(e.tabNotes) ? JSON.parse(JSON.stringify(e.tabNotes)) : [],
+          ...tabInsertDomainPatch(tabInsertDomainFrom(e)),
         } : {
           strumPattern: clonePlainData(e.strumPattern || null),
           fingering: e.fingering || null,
@@ -43298,6 +43452,8 @@ function addTabInsert(sid, beforeSqId) {
     notes: [],                 // [{ start, string, fret, dur, dots?, triplet?, pause? }]
     events: [],                // таб-вставка не использует события аккордов
     customBeats: null,
+    // 0.870: домен берётся у активной дорожки. Гитара полей не пишет.
+    ...tabInsertDomainPatch(tabInsertDomainForActiveTrack()),
   };
   songStore.dispatch('square/tab-insert', () => {
     nextId++;
@@ -43331,6 +43487,8 @@ function cloneTabSquare(sid, sqid) {
     notes: JSON.parse(JSON.stringify(src.notes || [])),
     events: [],
     customBeats: null,
+    // 0.870: копия остаётся вставкой того же инструмента.
+    ...(src.tabInstrument === 'ukulele' ? { tabInstrument: 'ukulele', tabTuning: src.tabTuning } : {}),
   };
   songStore.dispatch('square/tab-clone', () => {
     nextId++;
@@ -44359,6 +44517,7 @@ function cloneLastSquare(sid) {
       ...(isInlineTabEvent(e) ? {
         isTab: true,
         tabNotes: Array.isArray(e.tabNotes) ? JSON.parse(JSON.stringify(e.tabNotes)) : [],
+        ...tabInsertDomainPatch(tabInsertDomainFrom(e)),
       } : {
         strumPattern: clonePlainData(e.strumPattern || null),
         fingering: e.fingering || null,
@@ -44749,8 +44908,8 @@ function migrateEventsForTimeSig(events, oldParentTs, newParentTs) {
   const newBpb = getGridUnitsPerBar(newParentTs);
   const cloneInlineTabForMeter = (ev) => {
     const converted = tabInsertConvertEventMeter(ev, oldParentTs, newParentTs);
-    if (converted) return { chord: '', span: converted.span, timeSig: null, isTab: true, tabNotes: converted.tabNotes };
-    return { chord: '', span: ev.span, timeSig: null, isTab: true, tabNotes: Array.isArray(ev.tabNotes) ? JSON.parse(JSON.stringify(ev.tabNotes)) : [] };
+    if (converted) return { chord: '', span: converted.span, timeSig: null, isTab: true, tabNotes: converted.tabNotes, ...tabInsertDomainPatch(tabInsertDomainFrom(ev)) };
+    return { chord: '', span: ev.span, timeSig: null, isTab: true, tabNotes: Array.isArray(ev.tabNotes) ? JSON.parse(JSON.stringify(ev.tabNotes)) : [], ...tabInsertDomainPatch(tabInsertDomainFrom(ev)) };
   };
   if (oldBpb === newBpb && parseTimeSig(oldParentTs).denominator === parseTimeSig(newParentTs).denominator) {
     return events.map((e) => isInlineTabEvent(e) ? cloneInlineTabForMeter(e) : ({
@@ -50681,14 +50840,16 @@ function playTabNotesAt(sq, evStart, bpm, ts, section, inlineEv, eventIdx) {
   if (!ctx || !sq) return;
   const parentTs = section.timeSig || ts || globalTimeSig;
   const secondsPerUnit = getGridUnitDurationSeconds(bpm, parentTs);
-  const freqs = songLegacyStringFreqs();
   const sound = songSoundAtEvent(section, sq, Number.isInteger(eventIdx) ? eventIdx : 0);
   const isInline = isInlineTabEvent(inlineEv) && sq.type !== 'tab';
   const totalBeats = isInline ? Math.max(1 / 16, Number(inlineEv.span) || 1) : getTabInsertBeats(sq, parentTs);
   const rawNotes = isInline ? (inlineEv.tabNotes || []) : sq.notes;
-  const notes = tabInsertCleanNotes(rawNotes, totalBeats, parentTs);
+  // 0.870: струны и тембр — по домену вставки (4 струны укулеле / 6 гитары).
+  const domain = tabInsertDomainFrom(isInline ? inlineEv : sq);
+  const freqs = tabInsertStringFreqs(domain);
+  const notes = tabInsertCleanNotes(rawNotes, totalBeats, parentTs, domain);
   for (const event of tabTechPerformance(notes, totalBeats)) {
-    const options=tabTechSoundOptions(event,secondsPerUnit,freqs,evStart,sound);
+    const options=tabTechSoundOptions(event,secondsPerUnit,freqs,evStart,sound,domain);
     if(options)pluckString(ctx,options);
   }
 }
@@ -80115,7 +80276,7 @@ function attachSquareResizeHandlers() {
           timeSig: ev.timeSig || null,
           strumPattern: ev.strumPattern || null,
           fingering: ev.fingering || null,
-          ...(isInlineTabEvent(ev) ? { isTab: true, tabNotes: Array.isArray(ev.tabNotes) ? ev.tabNotes.map(n => ({ ...n })) : [] } : {}),
+          ...(isInlineTabEvent(ev) ? { isTab: true, tabNotes: Array.isArray(ev.tabNotes) ? ev.tabNotes.map(n => ({ ...n })) : [], ...tabInsertDomainPatch(tabInsertDomainFrom(ev)) } : {}),
         }));
 
         const sqRect = sqInner.getBoundingClientRect();
@@ -82073,10 +82234,14 @@ toggleTimeAndBeats();
           id: sq.id,
           repeat: sq.repeat || 1,
           customBeats: sq.customBeats ?? null,
-          ...(sq.type === 'tab' ? {
-            type: 'tab', beats: getTabInsertBeats(sq, sec.timeSig || globalTimeSig),
-            notes: tabInsertCleanNotes(sq.notes, getTabInsertBeats(sq, sec.timeSig || globalTimeSig), sec.timeSig || globalTimeSig),
-          } : {}),
+          ...(sq.type === 'tab' ? (() => {
+            const d = tabInsertDomainFrom(sq);
+            return {
+              type: 'tab', beats: getTabInsertBeats(sq, sec.timeSig || globalTimeSig),
+              notes: tabInsertCleanNotes(sq.notes, getTabInsertBeats(sq, sec.timeSig || globalTimeSig), sec.timeSig || globalTimeSig, d),
+              ...tabInsertDomainPatch(d),
+            };
+          })() : {}),
           // 0.804 (B-120): ручные знаки структуры убраны; репризы |: :|
           // строятся автоматически от repeat квадрата/секции, лишние поля не пишем.
           events: sq.events.map((e) => ({
@@ -82110,7 +82275,12 @@ toggleTimeAndBeats();
               ? { notes: accompCleanNotes(e.notes, e.span) }
               : {}),
             ...(isInlineTabEvent(e)
-              ? { isTab: true, tabNotes: tabInsertCleanNotes(e.tabNotes, Math.max(1 / 16, Number(e.span) || 1), sec.timeSig || globalTimeSig) }
+              ? (() => {
+                  // 0.870: домен пишется вместе с нотами — иначе вставка
+                  // укулеле при сохранении стала бы гитарной.
+                  const d = tabInsertDomainFrom(e);
+                  return { isTab: true, tabNotes: tabInsertCleanNotes(e.tabNotes, Math.max(1 / 16, Number(e.span) || 1), sec.timeSig || globalTimeSig, d), ...tabInsertDomainPatch(d) };
+                })()
               : {}),
           })),
         })),
@@ -83888,7 +84058,12 @@ toggleTimeAndBeats();
         if (isTab ? (rawSq.events.length !== 0 || !tabInsertValidBeats(rawSq.beats, parentTs)) : !rawSq.events.length) return null;
         const sq = {
           id: idFor(rawSq.id),
-          ...(isTab ? { type: 'tab', beats: rawSq.beats, notes: tabInsertCleanNotes(rawSq.notes, rawSq.beats, parentTs) } : {}),
+          ...(isTab ? (() => {
+            // 0.870: домен читается из файла и проверяется: мусор в полях
+            // означает гитару, как и вставка без полей.
+            const d = tabInsertDomainFrom(rawSq);
+            return { type: 'tab', beats: rawSq.beats, notes: tabInsertCleanNotes(rawSq.notes, rawSq.beats, parentTs, d), ...tabInsertDomainPatch(d) };
+          })() : {}),
           repeat: asSafeInt(rawSq.repeat, 1, 1, 99),
           // 0.804 (B-120): ручные знаки структуры (volta/mark/jump/repeatOpen/repeatClose)
           // отменены — старые поля при загрузке отбрасываются, а репризы |: :|
@@ -83907,10 +84082,10 @@ toggleTimeAndBeats();
             chord: rawEvent.isTab === true ? '' : asSafeText(rawEvent.chord, SONG_LIMITS.MAX_TEXT),
             span: evSpan,
             timeSig: rawEvent.timeSig == null ? null : asSafeTimeSig(rawEvent.timeSig, null),
-            ...(rawEvent.isTab === true ? {
-              isTab: true,
-              tabNotes: tabInsertCleanNotes(rawEvent.tabNotes, evSpan, evParentTs),
-            } : {}),
+            ...(rawEvent.isTab === true ? (() => {
+              const d = tabInsertDomainFrom(rawEvent);
+              return { isTab: true, tabNotes: tabInsertCleanNotes(rawEvent.tabNotes, evSpan, evParentTs, d), ...tabInsertDomainPatch(d) };
+            })() : {}),
             strumPattern: rawEvent.isTab === true ? null : cloneSafePattern(rawEvent.strumPattern,
               (rawEvent.timeSig == null ? null : asSafeTimeSig(rawEvent.timeSig, null))
               || sec.timeSig || globalTimeSig),
