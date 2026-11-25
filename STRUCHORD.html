@@ -15987,7 +15987,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.866</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.867</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -16662,6 +16662,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
             <span>Инструмент</span>
             <select id="ptInstrument" aria-label="Инструмент дорожки">
               <option value="guitar">Гитара</option>
+              <option value="ukulele">Укулеле</option>
               <option value="bass">Бас</option>
               <option value="drums">Ударные</option>
               <option value="keys">Клавиши</option>
@@ -68209,6 +68210,9 @@ function partNoteChoices() {
 // в том же порядке, что и частоты открытых струн. Мусор отбрасываем
 // поштучно: строй приходит из непроверенного файла.
 function partCustomStrings(part) {
+  // B-39 Этап 2: у укулеле четыре готовых строя и никакого «своего» —
+  // решение владельца для дорожек 0.866 действует и в «Партиях».
+  if (part && part.instrument === 'ukulele') return null;
   const list = part && Array.isArray(part.strings) ? part.strings : null;
   if (!list || !list.length) return null;
   const notes = [];
@@ -68248,6 +68252,8 @@ function partSongDefaultNotes(inst) {
   if (inst === 'bass') {
     return songTuningNotes().slice(0, PART_INSTRUMENTS.bass.strings).map((note) => bassOctaveDown(note));
   }
+  // У укулеле нет строя «как в песне»: только свои четыре пресета.
+  if (inst === 'ukulele') return PART_UKULELE_TUNINGS[0].notes.slice();
   if (inst !== 'guitar') return TUNER_TUNINGS.find((t) => t.id === 'e-std').notes.slice();
   return songTuningNotes().slice();
 }
@@ -68259,12 +68265,38 @@ const PART_BASS_TUNINGS = [
   { id: 'bass-drop-d', group: 'Бас', name: 'Бас: Drop D (D A D G)', notes: ['D1', 'A1', 'D2', 'G2'] },
   { id: 'bass-d-std', group: 'Бас', name: 'Бас: D G C F', notes: ['D1', 'G1', 'C2', 'F2'] },
 ];
+
+// B-39 Этап 2 (0.867): строи укулеле для «Партий» — те же четыре, что у
+// дорожек 0.866. Порядок струн — от 4-й к 1-й, как в модели. Своего строя
+// у укулеле нет: владелец выбрал фиксированный набор.
+const PART_UKULELE_TUNINGS = [
+  { id: 'uke-high-g', group: 'Укулеле', name: 'Укулеле: High G (стандартный)', notes: ['G4', 'C4', 'E4', 'A4'] },
+  { id: 'uke-low-g', group: 'Укулеле', name: 'Укулеле: Low G', notes: ['G3', 'C4', 'E4', 'A4'] },
+  { id: 'uke-baritone', group: 'Укулеле', name: 'Укулеле: Баритон (D G B E)', notes: ['D3', 'G3', 'B3', 'E4'] },
+  { id: 'uke-canadian', group: 'Укулеле', name: 'Укулеле: Canadian (A D F# B)', notes: ['A4', 'D4', 'F#4', 'B4'] },
+];
+const PART_UKULELE_DEFAULT_TUNING = 'uke-high-g';
+const PART_UKULELE_MAX_FRET = 15;
+
+// Таблица строёв роли: у баса и укулеле свои наборы, у остальных — гитарные.
+function partTuningTable(inst) {
+  if (inst === 'bass') return PART_BASS_TUNINGS;
+  if (inst === 'ukulele') return PART_UKULELE_TUNINGS;
+  return TUNER_TUNINGS;
+}
+
+// Потолок лада роли: у укулеле 15, у остальных исторические 24.
+function partFretLimit(part) {
+  return part && partInstrumentId(part) === 'ukulele' ? PART_UKULELE_MAX_FRET : PART_MAX_FRET;
+}
 // Тембр дорожки: отдельного синтеза на инструмент у нас нет (RSE не
 // делаем — решение пользователя), бас играет тем же голосом pluckString,
 // но темнее и плотнее — иначе он неотличим от гитары на слух.
 const PART_TIMBRE = {
   guitar: { gain: 0.42, bright: 0.45, spread: 0.5, ringCap: 3 },
   bass: { gain: 0.5, bright: 0.26, spread: 0.34, ringCap: 3.5 },
+  // B-39 Этап 2: укулеле — нейлон: тише гитары, светлее баса и короче звенит.
+  ukulele: { gain: 0.46, bright: 0.58, spread: 0.4, ringCap: 2.4 },
 };
 let partsMode = false;
 // B-12.11: режимов «Выбор/Ввод» нет — как в Guitar Pro, ввод всегда жив:
@@ -68343,7 +68375,9 @@ function partPitchRollFor(part, secId) {
 // и не удаляя данные другого домена.
 function partUsesPitchNotes(part) {
   const inst = partInstrumentId(part);
-  return inst !== 'guitar' && inst !== 'bass';
+  // B-39 Этап 2: укулеле, как гитара и бас, живёт в табулатурном домене —
+  // абсолютные MIDI-ноты ему не нужны.
+  return inst !== 'guitar' && inst !== 'bass' && inst !== 'ukulele';
 }
 
 function partActiveRollFor(part, secId) {
@@ -68362,7 +68396,7 @@ function partInstrumentId(part) {
 // Старым песням дефолт назначает роль, явный выбор хранится в песне.
 function partDefaultNotationView(part) {
   const inst = partInstrumentId(part);
-  return inst === 'guitar' || inst === 'bass' ? 'tab' : 'staff';
+  return inst === 'guitar' || inst === 'bass' || inst === 'ukulele' ? 'tab' : 'staff';
 }
 
 function partNotationViewMode(part) {
@@ -68390,7 +68424,7 @@ function partNotationFlags(part) {
     flags = { staff: !!part.notation.staff, tab: !!part.notation.tab, slash: !!part.notation.slash };
   } else {
     const inst = part ? partInstrumentId(part) : 'guitar';
-    if (inst === 'guitar' || inst === 'bass') flags = { staff: true, tab: true, slash: false };
+    if (inst === 'guitar' || inst === 'bass' || inst === 'ukulele') flags = { staff: true, tab: true, slash: false };
     else if (part && part.viewMode === 'tab') flags = { staff: false, tab: true, slash: false };
     else flags = { staff: true, tab: false, slash: false };
   }
@@ -68451,7 +68485,7 @@ function partPitchPositions(part, pitch) {
   return partTuningNotes(part).map((note, line) => {
     const open = tunerNoteToMidi(note);
     const fret = open === null ? -1 : Number(pitch) - open;
-    return Number.isInteger(fret) && fret >= 0 && fret <= PART_MAX_FRET ? { line, fret } : null;
+    return Number.isInteger(fret) && fret >= 0 && fret <= partFretLimit(part) ? { line, fret } : null;
   }).filter(Boolean);
 }
 
@@ -68505,10 +68539,10 @@ function partTuningNotes(part) {
   // B-12.9.1: свой строй важнее пресета и важнее «как в песне».
   const custom = partCustomStrings(part);
   if (custom) return custom.slice();
-  const table = inst === 'bass' ? PART_BASS_TUNINGS : TUNER_TUNINGS;
+  const table = partTuningTable(inst);
   const preset = part && part.tuning ? table.find((t) => t.id === part.tuning) : null;
   if (preset && preset.notes.length === partStringCount(part)) return preset.notes.slice();
-  if (inst === 'ukulele') return ['G4', 'C4', 'E4', 'A4'];
+  if (inst === 'ukulele') return PART_UKULELE_TUNINGS[0].notes.slice();
   if (inst === 'bass') {
     return songTuningNotes()
       .slice(0, PART_INSTRUMENTS.bass.strings)
@@ -68523,9 +68557,10 @@ function partTuningName(part) {
   if (inst === 'drums') return 'GM-ударные';
   const custom = partCustomStrings(part);
   if (custom) return `Свой строй: ${custom.join(' ')}`;
-  const table = inst === 'bass' ? PART_BASS_TUNINGS : TUNER_TUNINGS;
+  const table = partTuningTable(inst);
   const preset = part && part.tuning ? table.find((t) => t.id === part.tuning) : null;
   if (preset) return preset.name;
+  if (inst === 'ukulele') return 'High G (стандартный)';
   if (inst !== 'guitar' && inst !== 'bass') return 'E Standard';
   return inst === 'bass' ? 'Как в песне (октавой ниже)' : 'Как в песне';
 }
@@ -71974,7 +72009,7 @@ function buildPartTabScoreSvg(part, bar) {
       : pitchMode ? partPitchChipLabel(note.pitch, part, bar.sec) : String(note.fret);
     const unplayable = partInstrument !== 'drums' && (pitchMode
       ? partPitchPositions(part, note.pitch).length === 0
-      : note.string >= stringCount || !tuningNotes[note.string] || note.fret > PART_MAX_FRET);
+      : note.string >= stringCount || !tuningNotes[note.string] || note.fret > partFretLimit(part));
     const noteClasses = ['pt-note', 'pt-score-tab-note'];
     if (note.dead === true) noteClasses.push('is-dead');
     if (unplayable) noteClasses.push('is-unplayable');
@@ -72508,7 +72543,7 @@ function buildPartTabSvg(part, sec, parentTs) {
     const y = stringY(tabLine);
     const chipW = partChipWidth(note);
     const tuningNotes = partTuningNotes(part);
-    const unplayable = note.string >= stringCount || !tuningNotes[note.string] || note.fret > PART_MAX_FRET;
+    const unplayable = note.string >= stringCount || !tuningNotes[note.string] || note.fret > partFretLimit(part);
     const noteClasses = ['pt-note'];
     if (note.dead === true) noteClasses.push('is-dead');
     if (unplayable) noteClasses.push('is-unplayable');
@@ -72982,7 +73017,7 @@ function schedulePartsForEvent(ctx, sec, sq, ei, evStart, evDur) {
     notes.forEach((note, noteIndex) => {
       if (note.start < win.start || note.start >= win.end) return;
       if (note.string >= strings) return; // струна исчезла вместе с инструментом
-      if (!Number.isInteger(note.fret) || note.fret > PART_MAX_FRET) return; // сохранённые высокие лады пунктиром видны, но недоступны для звука
+      if (!Number.isInteger(note.fret) || note.fret > partFretLimit(part)) return; // сохранённые высокие лады пунктиром видны, но недоступны для звука
       const baseFreq = (openFreqs[note.string] || 0) * Math.pow(2, note.fret / 12);
       if (!baseFreq) return;
       const at = evStart + (note.start - win.start) * secondsPerUnit;
@@ -73613,7 +73648,8 @@ function placePartsCursorAtNewSection() {
     partId: part.id,
     secId: created.id,
     pass: 0,
-    string: PART_CURSOR_DEFAULT_STRING,
+    // B-39 Этап 2: у 4-струнного инструмента верхняя строка — 3, а не 5.
+    string: Math.min(PART_CURSOR_DEFAULT_STRING, partStringCount(part) - 1),
     pos: 0,
     pitch: null,
     staffPitch: null,
@@ -75154,7 +75190,7 @@ function syncPartsInstrumentView(part) {
   corner.className = 'pt-fretboard-row-label';
   corner.textContent = 'Струна';
   grid.appendChild(corner);
-  for (let fret = 0; fret <= PART_MAX_FRET; fret++) {
+  for (let fret = 0; fret <= partFretLimit(part); fret++) {
     const number = document.createElement('span');
     number.className = 'pt-fret-number';
     number.textContent = String(fret);
@@ -75166,7 +75202,7 @@ function syncPartsInstrumentView(part) {
     rowLabel.className = 'pt-fretboard-row-label';
     rowLabel.textContent = `Струна ${line + 1} · ${tuning[line]}`;
     grid.appendChild(rowLabel);
-    for (let fret = 0; fret <= PART_MAX_FRET; fret++) {
+    for (let fret = 0; fret <= partFretLimit(part); fret++) {
       const pitch = partFretPitch(part, line, fret);
       const button = document.createElement('button');
       button.type = 'button';
@@ -75224,7 +75260,7 @@ function syncPartsTrackBar() {
       songOpt.textContent = inst === 'bass' ? 'Как в песне (октавой ниже)' : 'Как в песне';
       tuneSel.appendChild(songOpt);
     }
-    const table = inst === 'bass' ? PART_BASS_TUNINGS : TUNER_TUNINGS;
+    const table = partTuningTable(inst);
     if (inst === 'bass') {
       table.forEach((t) => {
         const opt = document.createElement('option');
@@ -75601,7 +75637,7 @@ function partUnplayableNotes(part, instrument, tuning, strings) {
   // Абсолютные MIDI-ноты не зависят от грифа. Изменение строя у pitched-
   // дорожки только меняет подсказки гриф-пикера, не удаляет pitchRolls и не
   // просит «починить» спрятанные старые табы.
-  if (instrument !== 'guitar' && instrument !== 'bass') return [];
+  if (instrument !== 'guitar' && instrument !== 'bass' && instrument !== 'ukulele') return [];
   // strings: массив нот (свой строй) или null. Явно перебиваем поле part:
   // иначе при смене инструмента в зонд утёк бы прежний свой строй.
   const probe = { ...part, instrument, tuning, strings: strings || null };
@@ -75610,7 +75646,7 @@ function partUnplayableNotes(part, instrument, tuning, strings) {
   const bad = [];
   Object.keys(part.rolls || {}).forEach((key) => {
     (part.rolls[key] || []).forEach((note) => {
-      if (note.string >= stringCount || !open[note.string] || note.fret > PART_MAX_FRET) bad.push(note);
+      if (note.string >= stringCount || !open[note.string] || note.fret > partFretLimit({ instrument })) bad.push(note);
     });
   });
   return bad;
@@ -75625,7 +75661,7 @@ function prunePartNotes(part, instrument, tuning, strings) {
   }
   const playable = partStringCount({ instrument, strings: strings || null });
   const answer = window.confirm(
-    `У этой партии ${bad.length} нот на струнах, которых нет у выбранного инструмента или строя (у него ${playable} струн, лад до ${PART_MAX_FRET}). Убрать их?`
+    `У этой партии ${bad.length} нот на струнах, которых нет у выбранного инструмента или строя (у него ${playable} струн, лад до ${partFretLimit({ instrument })}). Убрать их?`
   );
   if (!answer) return -1;
   songStore.dispatch('part/prune-notes', () => {
@@ -75642,19 +75678,20 @@ function setPartInstrument(instrumentId) {
   const current = partInstrumentId(part);
   const next = PART_INSTRUMENTS[instrumentId] ? instrumentId : 'guitar';
   if (next === current) return;
-  const oldTab = current === 'guitar' || current === 'bass';
-  const nextTab = next === 'guitar' || next === 'bass';
+  const oldTab = current === 'guitar' || current === 'bass' || current === 'ukulele';
+  const nextTab = next === 'guitar' || next === 'bass' || next === 'ukulele';
   // Смена роли только выбирает видимый нотный домен. Не просим
   // «исправить» и не чистим tab-roll при переходе guitar↔bass: позиции,
   // которые не помещаются в новый гриф, остаются в модели и помечаются
   // при показе. pitchRolls при любом переходе остаётся нетронутым.
-  const currentTable = current === 'bass' ? PART_BASS_TUNINGS : TUNER_TUNINGS;
-  const nextTable = next === 'bass' ? PART_BASS_TUNINGS : TUNER_TUNINGS;
+  const currentTable = partTuningTable(current);
+  const nextTable = partTuningTable(next);
   let nextTuning = part.tuning || null;
+  const fixedDefault = next === 'ukulele' ? PART_UKULELE_DEFAULT_TUNING : 'e-std';
   if (next !== 'drums' && nextTuning && !nextTable.some((t) => t.id === nextTuning)) {
-    nextTuning = next === 'guitar' || next === 'bass' ? null : 'e-std';
+    nextTuning = next === 'guitar' || next === 'bass' ? null : fixedDefault;
   } else if (!nextTuning && next !== 'guitar' && next !== 'bass' && next !== 'drums') {
-    nextTuning = 'e-std';
+    nextTuning = fixedDefault;
   }
   songStore.dispatch('part/set-instrument', () => {
     part.instrument = next;
@@ -75674,7 +75711,7 @@ function setPartTuning(tuningId) {
   if (!part) return;
   const inst = partInstrumentId(part);
   if (inst === 'drums') return;
-  const table = inst === 'bass' ? PART_BASS_TUNINGS : TUNER_TUNINGS;
+  const table = partTuningTable(inst);
   const next = tuningId && table.some((t) => t.id === tuningId) ? tuningId : null;
   if (next === (part.tuning || null)) return;
   if (prunePartNotes(part, inst, next, null) < 0) {
@@ -75695,9 +75732,11 @@ function setPartTuning(tuningId) {
 // показывает имя, а не список из семи нот.
 function partStringsMatchPreset(part, notes) {
   const inst = partInstrumentId(part);
-  const table = inst === 'bass' ? PART_BASS_TUNINGS : TUNER_TUNINGS;
+  const table = partTuningTable(inst);
   const preset = table.find((t) => t.notes.join() === notes.join());
   if (preset) return { tuning: preset.id, strings: null };
+  // Укулеле живёт только на четырёх пресетах: произвольный строй отклоним.
+  if (inst === 'ukulele') return { tuning: null, strings: null, unsupported: true };
   if (notes.join() === partSongDefaultNotes(inst).join()) return { tuning: null, strings: null };
   return { tuning: null, strings: notes.slice() };
 }
@@ -75712,6 +75751,7 @@ function applyPartStrings(notes) {
   }
   const inst = partInstrumentId(part);
   const match = partStringsMatchPreset(part, clean);
+  if (match.unsupported) { showToast('Для укулеле доступны четыре готовых строя'); return; }
   if (prunePartNotes(part, inst, match.tuning, match.strings) < 0) return;
   songStore.dispatch('part/set-strings', () => {
     part.tuning = match.tuning;
@@ -75803,7 +75843,7 @@ function renderPartTuningDialog() {
   const presets = document.getElementById('ptTuningPresets');
   if (presets) {
     presets.innerHTML = '';
-    const table = inst === 'bass' ? PART_BASS_TUNINGS : TUNER_TUNINGS;
+    const table = partTuningTable(inst);
     table.forEach((t) => {
       const btn = document.createElement('button');
       btn.type = 'button';
@@ -75852,6 +75892,7 @@ function ensurePartsTuningHandlers() {
       const part = partActivePart();
       if (!part || partInstrumentId(part) === 'drums') return;
       const match = partStringsMatchPreset(part, notes);
+      if (match.unsupported) { showToast('Для укулеле доступны четыре готовых строя'); return; }
       if (prunePartNotes(part, partInstrumentId(part), match.tuning, match.strings) < 0) return;
       songStore.dispatch('part/set-strings', () => {
         part.tuning = match.tuning;
@@ -75911,7 +75952,7 @@ function previewPartNote(sec, string, fret, durUnits, note) {
   const part = partActivePart();
   if (!part) return;
   if (typeof resumeAudioContext === 'function') resumeAudioContext();
-  if (!Number.isInteger(fret) || fret < 0 || fret > PART_MAX_FRET) return;
+  if (!Number.isInteger(fret) || fret < 0 || fret > partFretLimit(part)) return;
   const openFreqs = partOpenFreqs(part);
   const open = openFreqs[string];
   if (!open) return;
@@ -76043,7 +76084,7 @@ function inputPartPitchFromFret(line, fret) {
   const st = partCursorState();
   if (!st || !partUsesPitchNotes(st.part) || partInstrumentId(st.part) === 'drums') return;
   if (!Number.isInteger(line) || line < 0 || line >= partStringCount(st.part) ||
-      !Number.isInteger(fret) || fret < 0 || fret > PART_MAX_FRET) return;
+      !Number.isInteger(fret) || fret < 0 || fret > partFretLimit(st.part)) return;
   setPartsCursorString(st.sec.id, st.pass, line, st.pos);
   const pitch = partFretPitch(st.part, line, fret);
   if (pitch === null) {
@@ -76094,7 +76135,7 @@ function inputPartFret(digit) {
     partLastDigit.string === string &&
     Math.abs(partLastDigit.pos - pos) < PART_POS_EPS;
   const combined = continues ? partLastDigit.fret * 10 + digit : null;
-  const fret = combined !== null && combined <= PART_MAX_FRET ? combined : digit;
+  const fret = combined !== null && combined <= partFretLimit(part) ? combined : digit;
 
   if (partUsesPitchNotes(part)) {
     const pitch = partFretPitch(part, string, fret);
@@ -83602,7 +83643,8 @@ toggleTimeAndBeats();
         const inst = ALLOWED_PART_INSTRUMENTS.has(rawPart.instrument) ? rawPart.instrument : 'guitar';
         // B-12.9.1: свой строй дорожки. Он задаёт число струн, поэтому
         // разбирается ДО нот: нота на 7-й струне законна, если струн семь.
-        const rawStrings = partStringsSanitize(rawPart.strings);
+        // Укулеле: только четыре готовых строя, свой строй не принимаем.
+        const rawStrings = inst === 'ukulele' ? null : partStringsSanitize(rawPart.strings);
         const instStrings = rawStrings ? rawStrings.length : PART_INSTRUMENTS[inst].strings;
         // После смены роли более короткий гриф может скрывать старые tab
         // линии. Маркер сохраняется только когда он нужен, иначе мусорный
@@ -83634,7 +83676,7 @@ toggleTimeAndBeats();
               // испорченную ноту (струна 9, лад 128) в другую, «правдоподобную» —
               // это выдуманные данные, а не лекарство.
               if (!Number.isInteger(string) || string < 0 || string >= rollStringLimit) return;
-              if (!Number.isInteger(fret) || fret < 0 || fret > SONG_LIMITS.MAX_PART_FRET) return;
+              if (!Number.isInteger(fret) || fret < 0 || fret > (inst === 'ukulele' ? PART_UKULELE_MAX_FRET : SONG_LIMITS.MAX_PART_FRET)) return;
               // Нота за последней долей секции не зазвучит и не нарисуется.
               if (sectionBeats > 0 && start >= sectionBeats) return;
               // B-12.2: знаки ноты (точка, триоль) — только пометки к
@@ -83815,7 +83857,7 @@ toggleTimeAndBeats();
           // значение из недоверенного файла не попадает в интерфейс.
           viewMode: rawPart.viewMode === 'staff' || rawPart.viewMode === 'tab'
             ? rawPart.viewMode
-            : (inst === 'guitar' || inst === 'bass' ? 'tab' : 'staff'),
+            : (inst === 'guitar' || inst === 'bass' || inst === 'ukulele' ? 'tab' : 'staff'),
           ...(rawPart.notation && typeof rawPart.notation === 'object'
             ? { notation: { staff: !!rawPart.notation.staff, tab: !!rawPart.notation.tab, slash: !!rawPart.notation.slash } }
             : {}),
@@ -83826,7 +83868,7 @@ toggleTimeAndBeats();
             ? presetForStrings.id
             : (tuningTable.some((t) => t.id === rawPart.tuning)
               ? rawPart.tuning
-              : (inst === 'keys' || inst === 'vocal' || inst === 'other' ? 'e-std' : null)),
+              : (inst === 'keys' || inst === 'vocal' || inst === 'other' ? 'e-std' : inst === 'ukulele' ? PART_UKULELE_DEFAULT_TUNING : null)),
           // B-12.9.1: свой строй — массивом нот, и только когда он НЕ
           // совпал ни с пресетом, ни со строем песни.
           ...(rawStrings && !presetForStrings && !stringsAreSongDefault ? { strings: rawStrings } : {}),
@@ -85197,7 +85239,7 @@ toggleTimeAndBeats();
         instrument,
         viewMode: partNotationViewMode(part),
         capo: Number(part.capo) || 0,
-        gmProgram: Number.isInteger(part.gmProgram) ? part.gmProgram : null,
+        gmProgram: Number.isInteger(part.gmProgram) ? part.gmProgram : instrument === 'ukulele' ? 24 : null,
         midiChannel: Number.isInteger(part.midiChannel) ? part.midiChannel : partIndex + 1,
         mix: null,
         lyrics: [],
@@ -85486,7 +85528,7 @@ toggleTimeAndBeats();
         instrument,
         viewMode: partNotationViewMode(part),
         capo: Number(part.capo) || 0,
-        gmProgram: Number.isInteger(part.gmProgram) ? part.gmProgram : null,
+        gmProgram: Number.isInteger(part.gmProgram) ? part.gmProgram : instrument === 'ukulele' ? 24 : null,
         midiChannel: Number.isInteger(part.midiChannel) ? part.midiChannel : partIndex + 1,
         mix: null,
         lyrics: [],
@@ -85790,7 +85832,7 @@ toggleTimeAndBeats();
     const partTracks = sourceParts.filter(p => audible(p.mix) && (!solo || p.mix && p.mix.solo)).map(p => {
       const inst = partInstrumentId(p);
       return makeTrack(p.name || 'Дорожка', inst, p.mix,
-        Number.isInteger(p.gmProgram) ? p.gmProgram : inst === 'bass' ? 32 : inst === 'guitar' ? gpExportSongProgram(p.sound) : 0,
+        Number.isInteger(p.gmProgram) ? p.gmProgram : inst === 'bass' ? 32 : inst === 'guitar' ? gpExportSongProgram(p.sound) : inst === 'ukulele' ? 24 : 0,
         partTuningNotes(p), p.capo, p);
     });
     if (tracks.filter(t => t.instrument !== 'drums').length > 15) {
