@@ -39,6 +39,8 @@
 
   const DEFAULT_TUNINGS = {
     guitar: [40, 45, 50, 55, 59, 64],
+    // 0.866 (B-39 Укулеле): High G (G4=67, C4=60, E4=64, A4=69) — re-entrant строй.
+    ukulele: [67, 60, 64, 69],
     bass: [28, 33, 38, 43],
     // Клавиши в GP5 хранятся как гриф: даём им шесть струн от E2, чтобы ноты
     // оставались играбельными и в табулатуре, и в нотах.
@@ -800,7 +802,7 @@
       };
     });
     for (const track of tracks) {
-      const defaultView = track.isDrums || (track.part.instrument !== 'guitar' && track.part.instrument !== 'bass')
+      const defaultView = track.isDrums || (track.part.instrument !== 'guitar' && track.part.instrument !== 'bass' && track.part.instrument !== 'ukulele')
         ? 'staff' : 'tab';
       if ((track.part.viewMode === 'staff' || track.part.viewMode === 'tab') && track.part.viewMode !== defaultView) {
         lossOf(losses, `Дорожка «${track.part.name || track.index + 1}»: выбранный вид нотации не переносится; GP5-writer записывает оба вида (staff и tab)`, 1);
@@ -1050,7 +1052,7 @@
       writer.i32(1); // порт
       writer.i32(channelOfTrack.get(track.index) || index + 1);
       writer.i32(channelOfTrack.get(track.index) || index + 1);
-      writer.i32(24); // ладов
+      writer.i32(track.part.instrument === 'ukulele' ? 15 : 24); // ладов (0.866: 15 для укулеле)
       writer.i32(clamp(Number(track.part.capo) || 0, 0, 12)); // капо
       writer.u8(track.color[0]);
       writer.u8(track.color[1]);

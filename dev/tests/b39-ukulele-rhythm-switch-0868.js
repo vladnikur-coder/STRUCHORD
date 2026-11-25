@@ -49,13 +49,13 @@ function extractConst(name, endMarker) {
 }
 
 // =====================================================================
-// 1. Статические инварианты 0.870
+// 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.870'), 'STRUCHORD.html header is ver 0.870');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v870';"), 'sw.js CACHE_NAME is struchord-v870');
-  assert(README.includes('`0.870`'), 'README header is 0.870');
-  assert(ROADMAP.includes('**0.870**'), 'ROADMAP header is 0.870');
+  assert(HTML.includes('ver 0.871'), 'STRUCHORD.html header is ver 0.871');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v871';"), 'sw.js CACHE_NAME is struchord-v871');
+  assert(README.includes('`0.871`'), 'README header is 0.871');
+  assert(ROADMAP.includes('**0.871**'), 'ROADMAP header is 0.871');
   assert(HTML.includes('function b39MigrateRhythmForUke(raw)'), 'rhythm migrator exists');
   assert(HTML.includes('function b39UkePickPresetFor(raw)'), 'nearest ukulele pick preset resolver exists');
   assert(
@@ -66,7 +66,7 @@ function extractConst(name, endMarker) {
     HTML.includes('migrateRhythmForUke: b39MigrateRhythmForUke, migrateSongRhythmsToUke: b39MigrateSongRhythmsToUke,'),
     'migrator is exposed on StruChordTracks'
   );
-  ok('Статические инварианты 0.870: версия, SW, перенос ритма в setInstrument и API');
+  ok('Статические инварианты 0.871: версия, SW, перенос ритма в setInstrument и API');
 }
 
 // =====================================================================
@@ -267,4 +267,4 @@ function makeSong(sectionPattern, cellPattern) {
   ok('Битый или пустой ритм не мешает смене инструмента и не рождает фантомных рисунков');
 }
 
-console.log(`\nB-39 Ukulele rhythm switch 0.868 (проверки версии 0.870): ${passed} groups passed, 0 failed.`);
+console.log(`\nB-39 Ukulele rhythm switch 0.868 (проверки версии 0.871): ${passed} groups passed, 0 failed.`);

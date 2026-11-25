@@ -15989,7 +15989,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.870</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.871</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -19354,6 +19354,13 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           out.push(`<Pitches>${pitches.join(' ')}<\/Pitches>`);
           out.push('<\/Property>');
         }
+      }
+      // 0.871 (B-39 Этап 3): укулеле — четыре струны и лады 0..15, как в
+      // приложении. Без явного FretCount Guitar Pro откроет гриф на 24 лада.
+      if (part.instrument === 'ukulele') {
+        out.push('<Property name="FretCount">');
+        out.push('<Fret>15<\/Fret>');
+        out.push('<\/Property>');
       }
       const capo = Number(part.capo) || 0;
       if (capo > 0 && capo <= 24) {
@@ -85616,18 +85623,51 @@ toggleTimeAndBeats();
     return model;
   }
 
-  function gpExportBuildTabPart(songData, plans, report, nativeRepeats = false) {
-    const part = {
-      name: 'Табы', instrument: 'guitar', viewMode: 'tab',
-      capo: Number(songData.capo) || 0, gmProgram: gpExportSongProgram(songData.sound),
-      tuning: gpExportSongTuning(songData), mix: songData.mix || null, lyrics: [], notes: [],
+  // 0.871 (B-39 Этап 3, волна 2): таб-вставки выгружаются по домену.
+  // Гитара — прежняя отдельная дорожка «Табы» (6 струн, строй песни, капо);
+  // укулеле — своя дорожка на 4 струны со строем вставки. Писатели GP5 и GPIF
+  // уже знают `instrument === 'ukulele'`: 15 ладов и GM 24 (Nylon).
+  function gpExportTabDomainKey(obj) {
+    const domain = tabInsertDomainFrom(obj);
+    return domain.instrument === 'ukulele' ? 'uke:' + domain.tuning : 'guitar';
+  }
+
+  function gpExportBuildTabParts(songData, plans, report, nativeRepeats = false) {
+    const buckets = new Map();
+    const bucketFor = (obj) => {
+      const key = gpExportTabDomainKey(obj);
+      if (buckets.has(key)) return buckets.get(key);
+      const domain = tabInsertDomainFrom(obj);
+      let part;
+      if (domain.instrument === 'ukulele') {
+        const list = typeof PART_UKULELE_TUNINGS !== 'undefined' && Array.isArray(PART_UKULELE_TUNINGS) ? PART_UKULELE_TUNINGS : [];
+        const preset = list.find((t) => t.id === domain.tuning) || list[0] || null;
+        const short = preset ? String(preset.name || '').replace(/^Укулеле:\s*/, '').split(' (')[0] : '';
+        const tuning = preset && Array.isArray(preset.notes) ? preset.notes.slice(0, domain.strings) : [];
+        part = {
+          name: 'Табы (укулеле' + (short ? ', ' + short : '') + ')',
+          instrument: 'ukulele', viewMode: 'tab', capo: 0, gmProgram: 24,
+          tuning, mix: null, lyrics: [], notes: [],
+        };
+        if (!tuning.length) gpExportLoss(report, 'Табы (укулеле): строй не найден, записан строй High G', 1);
+        else gpExportGain(report, 'Дорожка «Табы (укулеле)»: 4 струны, лады 0–15, GM 24', 1);
+      } else {
+        part = {
+          name: 'Табы', instrument: 'guitar', viewMode: 'tab',
+          capo: Number(songData.capo) || 0, gmProgram: gpExportSongProgram(songData.sound),
+          tuning: gpExportSongTuning(songData), mix: songData.mix || null, lyrics: [], notes: [],
+        };
+      }
+      const item = { key, domain, part, hadSource: false };
+      buckets.set(key, item);
+      return item;
     };
-    let hadSourceTabNotes = false;
-    const appendTabSegment = (plan, rawNotes, segBeats, baseOffset) => {
-      const raw = tabInsertCleanNotes(rawNotes, segBeats, plan.parentTimeSig), edges = tabTechEdges(raw);
-      if (raw.some((n) => !n.pause)) hadSourceTabNotes = true;
+    const appendTabSegment = (item, plan, rawNotes, segBeats, baseOffset) => {
+      const part = item.part;
+      const raw = tabInsertCleanNotes(rawNotes, segBeats, plan.parentTimeSig, item.domain), edges = tabTechEdges(raw);
+      if (raw.some((n) => !n.pause)) item.hadSource = true;
       for (const n of raw) {const issue=tabTechIssue(n,part.tuning,part.capo);if(issue)gpExportLoss(report,'TAB: '+issue+' — нота не экспортирована',1);}
-      for (const n of raw) for (const key of ['legato','slur',...(['legato','shift'].includes(n.slide)?['slide']:[])])
+      for (const n of raw) for (const key of ['legato','slur',...(['legato','shift'].includes(n.slide)?['slide']:[])] )
         if (n[key] && !edges.some(e=>e.from===n&&e.key===key)) gpExportLoss(report,'TAB: незавершённая связь H/P, фразировки или слайда без соседней ноты не экспортирована',1);
       const clean = tabTechExportNotes(raw, part.tuning, part.capo);
       for (let pass = 0; pass < (nativeRepeats ? 1 : plan.repeatCount); pass++) {
@@ -85638,7 +85678,7 @@ toggleTimeAndBeats();
           part.notes.push({ ...note, ...placed, voice: 1, string: note.string, fret: note.fret });
           if (nativeRepeats && note.harm?.type === 'artificial' && note.harmonicFret == null) gpExportLoss(report, 'GP5: искусственный флажолет вне поддержанных узлов записан октавным', 1);
           if (nativeRepeats && note.vibrato === "wide") gpExportLoss(report, "GP5: широкое вибрато записано обычным — амплитуда не кодируется", 1);
-          if (note.phraseOrigin && nativeRepeats) gpExportLoss(report, "GP5: отдельная фразировочная лига не кодируется; H/P и лиги длительности сохранены", 1);
+          if (nativeRepeats && note.phraseOrigin) gpExportLoss(report, "GP5: отдельная фразировочная лига не кодируется; H/P и лиги длительности сохранены", 1);
         }
       }
     };
@@ -85647,21 +85687,29 @@ toggleTimeAndBeats();
       for (const sq of plan.section.squares || []) {
         const length = getSquareBeats(sq, plan.parentTimeSig);
         if (sq.type === 'tab') {
-          appendTabSegment(plan, sq.notes, length, offset);
+          appendTabSegment(bucketFor(sq), plan, sq.notes, length, offset);
         } else if (Array.isArray(sq.events)) {
           let evOff = 0;
           for (const ev of sq.events) {
             const evSpan = getEventSpanInParentUnits(ev, plan.parentTimeSig);
-            if (isInlineTabEvent(ev)) appendTabSegment(plan, ev.tabNotes, Math.max(1 / 16, Number(ev.span) || 1), offset + evOff);
+            if (isInlineTabEvent(ev)) appendTabSegment(bucketFor(ev), plan, ev.tabNotes, Math.max(1 / 16, Number(ev.span) || 1), offset + evOff);
             evOff += evSpan;
           }
         }
         offset += length;
       }
     }
-    if (!part.notes.length && !hadSourceTabNotes) return null;
-    if (part.notes.length) gpExportGain(report, 'Ноты табулатуры (B-12.12)', part.notes.length);
-    return part;
+    const out = [];
+    for (const item of buckets.values()) {
+      if (!item.part.notes.length && !item.hadSource) continue;
+      if (item.part.notes.length) {
+        gpExportGain(report, item.domain.instrument === 'ukulele' ? 'Ноты табулатуры укулеле' : 'Ноты табулатуры (B-12.12)', item.part.notes.length);
+      }
+      out.push(item.part);
+    }
+    // Гитара идёт первой: у песен без укулеле порядок дорожек прежний.
+    out.sort((a, b) => (a.instrument === 'ukulele' ? 1 : 0) - (b.instrument === 'ukulele' ? 1 : 0));
+    return out;
   }
 
   function gpExportBuildModel(songData, report) {
@@ -85877,9 +85925,8 @@ toggleTimeAndBeats();
     if (songData.keyMode === 'manual') gpExportGain(report, 'Ручной ключ тональности', 1);
     gpExportLoss(report, 'BinaryStylesheet и конфигурации оформления Guitar Pro не переносятся — Guitar Pro соберёт их заново');
 
-    // Таб-вставки B-12.12 — отдельная дорожка
-    const tabPart = gpExportBuildTabPart(songData, plans, report);
-    if (tabPart) model.parts.push(tabPart);
+    // Таб-вставки B-12.12 — отдельные дорожки по домену (0.871)
+    for (const tabPart of gpExportBuildTabParts(songData, plans, report)) model.parts.push(tabPart);
     return model;
   }
 
@@ -86149,9 +86196,8 @@ toggleTimeAndBeats();
     gpExportLoss(report, 'Вложения Guitar Pro (звук, картинки) в бинарном GP5 не переносятся', (songData.gpAssets || []).length);
     gpExportLoss(report, 'Аппликатуры и раскладки пальцев в Guitar Pro не переносятся', (songData.userFingerings || []).length);
     gpExportLoss(report, 'Оформление, колонтитулы и конфигурации Guitar Pro 5 собираются приложением заново');
-    // Таб-вставки B-12.12 — отдельная дорожка
-    const tabPartGp5 = gpExportBuildTabPart(songData, plans, report, true);
-    if (tabPartGp5) model.parts.push(tabPartGp5);
+    // Таб-вставки B-12.12 — отдельные дорожки по домену (0.871)
+    for (const tabPartGp5 of gpExportBuildTabParts(songData, plans, report, true)) model.parts.push(tabPartGp5);
     return model;
   }
 
@@ -86322,6 +86368,22 @@ toggleTimeAndBeats();
     const hasTab=sections.some(sec=>(sec.squares||[]).some(sq=>sq.type==='tab'||(sq.events||[]).some(isInlineTabEvent)));
     const tabTrack=!songTrack && !solo && audible(songData.mix) && hasTab
       ? makeTrack('Таб-вставки','guitar',songData.mix,gpExportSongProgram(songData.sound),gpExportSongTuning(songData),songData.capo) : null;
+    // 0.871: укулельная вставка звучит на своих 4 струнах и в своём строе.
+    // Раньше высота считалась по 6-струнному строю песни — ноты уезжали.
+    const ukeTabTunings = [];
+    if (!solo && audible(songData.mix)) {
+      const noteUkeDomain = (obj) => {
+        const d = tabInsertDomainFrom(obj);
+        if (d.instrument !== 'ukulele' || ukeTabTunings.includes(d.tuning)) return;
+        ukeTabTunings.push(d.tuning);
+      };
+      sections.forEach((sec) => (sec.squares || []).forEach((sq) => {
+        if (sq.type === 'tab') noteUkeDomain(sq);
+        else (sq.events || []).forEach((ev) => { if (isInlineTabEvent(ev)) noteUkeDomain(ev); });
+      }));
+    }
+    const ukeTabTracks = new Map(ukeTabTunings.map((tuning) => [tuning, makeTrack('Табы (укулеле)', 'ukulele', songData.mix, 24,
+      tabAtTuningNotesFor(tabInsertDomainFrom({ tabInstrument: 'ukulele', tabTuning: tuning })), 0)]));
     const partTracks = sourceParts.filter(p => audible(p.mix) && (!solo || p.mix && p.mix.solo)).map(p => {
       const inst = partInstrumentId(p);
       return makeTrack(p.name || 'Дорожка', inst, p.mix,
@@ -86373,13 +86435,19 @@ toggleTimeAndBeats();
       }
       const win = partEventWindowUnits(sec, sq, next.eventIndex);
       const isTab=sq.type==='tab' || isInlineTabEvent(ev);
-      const legacyTrack=isTab ? (songTrack || tabTrack) : songTrack;
+      // 0.871: у каждой таб-вставки свой домен — и своя дорожка в MIDI.
+      const tabDomain=isTab ? tabInsertDomainFrom(sq.type==='tab' ? sq : ev) : null;
+      const legacyTrack=isTab
+        ? (tabDomain.instrument==='ukulele' ? (ukeTabTracks.get(tabDomain.tuning) || null) : (songTrack || tabTrack))
+        : songTrack;
       if (legacyTrack) {
         const program = gpExportSongProgram(songSoundAt(sec.id, win.start));
-        if (!legacyTrack.programs.length || legacyTrack.programs[legacyTrack.programs.length - 1].program !== program) legacyTrack.programs.push({ at, program });
+        // У укулельной дорожки тембр фиксирован — GM 24, автоматику не пишем.
+        if (tabDomain && tabDomain.instrument === 'ukulele') { /* GM 24 */ }
+        else if (!legacyTrack.programs.length || legacyTrack.programs[legacyTrack.programs.length - 1].program !== program) legacyTrack.programs.push({ at, program });
         if (isTab) {
           const tabSpan = sq.type === 'tab' ? getSquareBeats(sq, ts) : Math.max(1 / 16, Number(ev.span) || 1);
-          const notes = tabInsertCleanNotes(sq.type === 'tab' ? sq.notes : ev.tabNotes, tabSpan, ts);
+          const notes = tabInsertCleanNotes(sq.type === 'tab' ? sq.notes : ev.tabNotes, tabSpan, ts, tabDomain);
           for (const perfEv of tabTechPerformance(notes, tabSpan)) {
             const n = perfEv.note, seconds = getGridUnitDurationSeconds(bpm, ts);
             const issue = perfEv.segments.map(s => tabTechIssue(s.note)).find(Boolean);

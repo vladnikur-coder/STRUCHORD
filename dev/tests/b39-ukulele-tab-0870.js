@@ -82,20 +82,20 @@ function bootDomain() {
 const api = bootDomain();
 
 // =====================================================================
-// 1. Статические инварианты 0.870
+// 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.870'), 'STRUCHORD.html header is ver 0.870');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v870';"), 'sw.js CACHE_NAME is struchord-v870');
-  assert(README.includes('`0.870`'), 'README header is 0.870');
-  assert(ROADMAP.includes('**0.870**'), 'ROADMAP header is 0.870');
+  assert(HTML.includes('ver 0.871'), 'STRUCHORD.html header is ver 0.871');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v871';"), 'sw.js CACHE_NAME is struchord-v871');
+  assert(README.includes('`0.871`'), 'README header is 0.871');
+  assert(ROADMAP.includes('**0.871**'), 'ROADMAP header is 0.871');
 
   for (const fn of ['tabInsertDomainFrom', 'tabInsertDomainPatch', 'tabInsertActiveInstrument',
     'tabInsertDomainForActiveTrack', 'tabInsertTuningFromTrack', 'tabInsertEditorDomain',
     'tabAtStringsCount', 'tabAtTuningNotesFor', 'tabInsertStringFreqs']) {
     assert(HTML.includes('function ' + fn + '('), `domain helper ${fn} exists`);
   }
-  ok('Статические инварианты 0.870: версия, SW, README/ROADMAP и функции домена');
+  ok('Статические инварианты 0.871: версия, SW, README/ROADMAP и функции домена');
 }
 
 // =====================================================================

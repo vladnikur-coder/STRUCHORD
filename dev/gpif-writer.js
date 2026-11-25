@@ -104,6 +104,7 @@
   }
 
   function defaultTuning(instrument) {
+    if (instrument === 'ukulele') return ['G4', 'C4', 'E4', 'A4']; // 0.866: High G
     return instrument === 'bass'
       ? ['E1', 'A1', 'D2', 'G2']
       : ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
@@ -294,6 +295,9 @@
       for (let pass = 0; pass < repeat; pass++) {
         for (let index = 0; index < count && cursor < totalBars; index++) {
           const master = newMasterBar(pass === 0 && index === 0);
+          if (song.bars && song.bars[cursor] && Number(song.bars[cursor].bpm)) {
+            master.bpm = Number(song.bars[cursor].bpm);
+          }
           for (let track = 0; track < trackTotal; track++) {
             master.bars.push(cursor * trackTotal + track);
           }
@@ -324,7 +328,7 @@
     const tempoChanges = [];
     parts.forEach((part, partIndex) => {
       const instrument = part.instrument || 'guitar';
-      const isTab = instrument === 'guitar' || instrument === 'bass';
+      const isTab = instrument === 'guitar' || instrument === 'bass' || instrument === 'ukulele';
       const defaultView = isTab ? 'tab' : 'staff';
       if ((part.viewMode === 'staff' || part.viewMode === 'tab') && part.viewMode !== defaultView) {
         loss(`Дорожка «${part.name || partIndex + 1}»: выбранный вид ${part.viewMode} не кодируется текущим GPIF-писателем`, 1);
@@ -591,7 +595,7 @@
       out.push('<SystemsLayout></SystemsLayout>');
       out.push('<PlayingStyle>StringedPick</PlayingStyle>');
       out.push('<UseOneChannelPerString />');
-      out.push(`<Instrument ref="${track.isPercussion ? 'd-drums' : track.isTab ? 'e-gtr6' : 'p-no-voc'}" />`);
+      out.push(`<Instrument ref="${track.isPercussion ? 'd-drums' : track.part.instrument === 'ukulele' ? 'ukulele' : track.isTab ? 'e-gtr6' : 'p-no-voc'}" />`);
       out.push('<InstrumentSet>');
       out.push(`<Name>${cdata(track.part.name || 'Track')}</Name>`);
       out.push(`<Type>${track.isPercussion ? 'drumKit' : 'pitched'}</Type>`);
@@ -661,6 +665,13 @@
           out.push(`<Pitches>${pitches.join(' ')}</Pitches>`);
           out.push('</Property>');
         }
+      }
+      // 0.871 (B-39 Этап 3): укулеле — четыре струны и лады 0..15, как в
+      // приложении. Без явного FretCount Guitar Pro откроет гриф на 24 лада.
+      if (part.instrument === 'ukulele') {
+        out.push('<Property name="FretCount">');
+        out.push('<Fret>15</Fret>');
+        out.push('<\/Property>');
       }
       const capo = Number(part.capo) || 0;
       if (capo > 0 && capo <= 24) {

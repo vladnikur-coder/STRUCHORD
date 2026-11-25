@@ -43,13 +43,13 @@ function extractFn(name) {
 }
 
 // =====================================================================
-// 1. Статические инварианты 0.870
+// 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.870'), 'STRUCHORD.html header is ver 0.870');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v870';"), 'sw.js CACHE_NAME is struchord-v870');
-  assert(README.includes('`0.870`'), 'README header is 0.870');
-  assert(ROADMAP.includes('**0.870**'), 'ROADMAP header is 0.870');
+  assert(HTML.includes('ver 0.871'), 'STRUCHORD.html header is ver 0.871');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v871';"), 'sw.js CACHE_NAME is struchord-v871');
+  assert(README.includes('`0.871`'), 'README header is 0.871');
+  assert(ROADMAP.includes('**0.871**'), 'ROADMAP header is 0.871');
 
   // А: все такты в одной строке, картинка выбирается по площади.
   assert(
@@ -90,7 +90,7 @@ function extractFn(name) {
       /renderRhythmTrack[\s\S]{0,4000}if \(ev\.isTab\) return;/.test(HTML),
     'общий счёт ленты пропускает таб-клетку',
   );
-  ok('Статические инварианты 0.870: версия, SW, все такты, линейка по координатам, кадрирование, лента');
+  ok('Статические инварианты 0.871: версия, SW, все такты, линейка по координатам, кадрирование, лента');
 }
 
 // =====================================================================

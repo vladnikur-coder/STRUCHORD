@@ -138,8 +138,8 @@ function createSandbox() {
 // 1. Статические инварианты версии, SW, CSS и видимости TAB-UI (Этапы 1 и 3)
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.870'), 'STRUCHORD.html header is ver 0.870');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v870';"), 'sw.js CACHE_NAME is struchord-v870');
+  assert(HTML.includes('ver 0.871'), 'STRUCHORD.html header is ver 0.871');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v871';"), 'sw.js CACHE_NAME is struchord-v871');
   // 0.870 (Этап 3, волна 1): скрытие снято — на укулеле «Таб» работает и
   // создаёт 4-струнную вставку, а вставка чужого инструмента остаётся в песне
   // видимой, но серой и без клика.
