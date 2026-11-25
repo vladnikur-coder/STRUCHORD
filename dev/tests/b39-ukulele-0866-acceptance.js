@@ -138,8 +138,8 @@ function createSandbox() {
 // 1. Статические инварианты версии, SW, CSS и скрытия TAB-UI (Этап 1)
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.867'), 'STRUCHORD.html header is ver 0.867');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v867';"), 'sw.js CACHE_NAME is struchord-v867');
+  assert(HTML.includes('ver 0.868'), 'STRUCHORD.html header is ver 0.868');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v868';"), 'sw.js CACHE_NAME is struchord-v868');
   assert(
     HTML.includes('html.b39-ukulele-mode .tab-btn') &&
     HTML.includes('html.b39-ukulele-mode .add-tab-btn') &&
