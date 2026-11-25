@@ -52,10 +52,10 @@ function extractConst(name, endMarker) {
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.873'), 'STRUCHORD.html header is ver 0.873');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v873';"), 'sw.js CACHE_NAME is struchord-v873');
-  assert(README.includes('`0.873`'), 'README header is 0.873');
-  assert(ROADMAP.includes('**0.873**'), 'ROADMAP header is 0.873');
+  assert(HTML.includes('ver 0.874'), 'STRUCHORD.html header is ver 0.874');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v874';"), 'sw.js CACHE_NAME is struchord-v874');
+  assert(README.includes('`0.874`'), 'README header is 0.874');
+  assert(ROADMAP.includes('**0.874**'), 'ROADMAP header is 0.874');
   assert(HTML.includes('function b39MigrateRhythmForUke(raw)'), 'rhythm migrator exists');
   assert(HTML.includes('function b39UkePickPresetFor(raw)'), 'nearest ukulele pick preset resolver exists');
   assert(
@@ -267,4 +267,4 @@ function makeSong(sectionPattern, cellPattern) {
   ok('Битый или пустой ритм не мешает смене инструмента и не рождает фантомных рисунков');
 }
 
-console.log(`\nB-39 Ukulele rhythm switch 0.868 (проверки версии 0.873): ${passed} groups passed, 0 failed.`);
+console.log(`\nB-39 Ukulele rhythm switch 0.868 (проверки версии 0.874): ${passed} groups passed, 0 failed.`);
