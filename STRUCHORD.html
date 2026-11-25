@@ -5242,7 +5242,9 @@ body.is-resizing .tab-insert > .chord-ticks-step {
 .tab-insert-body.is-unavailable .tab-thumb-wait { opacity: 0.45; }
 .tab-insert--square-wrap { position: relative; grid-column: 1 / -1; width: 100%; }
 .tl-cell.tl-cell--tab { height: auto; min-height: 9.5rem; padding: 0; align-items: stretch; }
-.tl-cell--tab .tab-insert { border-radius: 0; padding-bottom: 0.5rem; }
+/* 0.869: в таб-клетке ленты появился свой счёт долей — под него нужна та же
+   нижняя полоса, что у карточки в редакторе (0.25rem под цифры + запас). */
+.tl-cell--tab .tab-insert { border-radius: 0; padding-bottom: 1.25rem; }
 
 /* ===== 0.695: перетаскивание таб-вставки (B-12.12) =====
    Жест — «зажать и потянуть», как у секций в «Структуре». До удержания
@@ -15987,7 +15989,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.868</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.869</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -25418,13 +25420,15 @@ function tabThumbDropTailPlaceholders(svgEl, built) {
   }
 }
 
-function tabThumbSvgForCell(svgEl, outFretList = '') {
+function tabThumbSvgForCell(svgEl, outFretList = '', offsetLeft = 0) {
   if (!svgEl) return '';
   const clone = svgEl.cloneNode(true);
   const w = parseFloat(svgEl.getAttribute('width')) || svgEl.getBoundingClientRect().width || 320;
   const h = parseFloat(svgEl.getAttribute('height')) || svgEl.getBoundingClientRect().height || 100;
   if (!(w > 0) || !(h > 0)) return '';
-  clone.setAttribute('viewBox', `0 0 ${w} ${h}`);
+  // 0.869: `offsetLeft` отрезает левую служебную зону — ключ TAB и размер.
+  const x0 = Math.max(0, Math.min(Number(offsetLeft) || 0, Math.max(0, w - 24)));
+  clone.setAttribute('viewBox', `${x0} 0 ${Math.max(1, w - x0)} ${h}`);
   clone.setAttribute('width', '100%');
   clone.setAttribute('height', '100%');
   clone.setAttribute('preserveAspectRatio', 'xMidYMid meet');
@@ -25463,7 +25467,7 @@ function tabThumbSvgForCell(svgEl, outFretList = '') {
   return clone.outerHTML;
 }
 
-async function tabThumbRender(spec, width) {
+async function tabThumbRenderPayload(spec, width) {
   // Печатаем в натуральную величину: alphaTab сам подгоняет такт под ширину
   // клетки, а поля по краям (35 px слева и справа) в маленькой клетке съедали
   // половину места — поэтому для клеток они отключены.
@@ -25474,6 +25478,11 @@ async function tabThumbRender(spec, width) {
   if (tabThumbApi.settings) {
     tabThumbApi.settings.display.startBar = 1;
     tabThumbApi.settings.display.barCount = built.barCount;
+    // 0.869: все такты вставки печатаются в ОДНУ строку. Иначе alphaTab
+    // переносил их на новые строки и отдавал каждую строку отдельным <svg>,
+    // а клетка брала первый — «8 нот · 3 такта» показывала 4 ноты.
+    tabThumbApi.settings.display.barsPerRow = built.barCount;
+    tabThumbApi.settings.display.barCountPerPartial = Math.max(10, built.barCount);
     tabThumbApi.settings.display.scale = scale;
     tabThumbApi.settings.display.padding = [2, 2];
     tabThumbApi.settings.display.systemPaddingTop = 0;
@@ -25483,6 +25492,9 @@ async function tabThumbRender(spec, width) {
     try { tabGpTheme(alphaTab, tabThumbApi.settings); } catch (_) {}
     try { tabThumbApi.updateSettings(); } catch (_) {}
   }
+  // 0.869: «мастерская» копит по <svg> на каждую часть рисунка, поэтому
+  // прежняя картинка от прошлой вставки доставалась следующей.
+  if (tabThumbHost) tabThumbHost.querySelectorAll('svg').forEach((el) => el.remove());
   await new Promise((resolve) => {
     tabThumbResolve = resolve;
     tabThumbApi.load(built.score);
@@ -25494,15 +25506,201 @@ async function tabThumbRender(spec, width) {
     }, 8000);
   });
   const outList = built.gpOutFrets || [];
-  const svgEl = tabThumbHost.querySelector('svg');
+  const svgEl = tabThumbBigSvg(tabThumbHost);
+  if (!svgEl) return null;
   tabThumbDropTailPlaceholders(svgEl, built);
-  return tabThumbSvgForCell(svgEl, encodeURIComponent(JSON.stringify(outList)));
+  // 0.869: ключ TAB и обозначение размера занимают слева 60–70 px — в узкой
+  // клетке это половина места, а в строке редактора первая нота уезжала под
+  // 2–3-ю долю. Кадрируем служебную зону: стан начинается с первой доли.
+  const anchors = tabThumbBeatAnchors(built);
+  let offsetLeft = 0;
+  if (anchors.length) {
+    let first = Infinity;
+    for (const a of anchors) if (a.x0 < first) first = a.x0;
+    if (Number.isFinite(first) && first > 8) offsetLeft = first - 6;
+  }
+  const svgWidth = parseFloat(svgEl.getAttribute('width')) || width;
+  const svg = tabThumbSvgForCell(svgEl, encodeURIComponent(JSON.stringify(outList)), offsetLeft);
+  if (!svg) return null;
+  const ruler = tabThumbRulerHtml(built, spec, svgWidth, offsetLeft);
+  return { svg, ticks: ruler.ticks, subticks: ruler.subticks, counts: ruler.counts };
 }
 
-function tabThumbApply(el, html) {
-  if (!el || !el.isConnected) return;
+// 0.869: где alphaTab нарисовал каждую долю. Линейка миниатюры считается по
+// этим координатам, а не по ширине карточки: только так нота и её счёт
+// оказываются на одной вертикали.
+function tabThumbBeatAnchors(built) {
+  const api = tabThumbApi, lb = api && api.boundsLookup;
+  const out = [];
+  if (!built || !built.beatInfo || !lb || !Array.isArray(lb.staffSystems)) return out;
+  const layout = built.layout || {};
+  const denom = Number(layout.denom) || parseTimeSig((layout && layout.timeSig) || globalTimeSig).denominator;
+  for (const sys of lb.staffSystems) {
+    for (const sb of (sys.bars || [])) {
+      for (const barBounds of (sb.bars || [])) {
+        for (const bb of (barBounds.beats || [])) {
+          const info = bb.beat && built.beatInfo.get(bb.beat);
+          const vb = bb.visualBounds;
+          if (!info || !vb || !(info.d > 0)) continue;
+          const dur = tabInsertNoteDuration({
+            dur: denom / info.d,
+            dots: info.dots || 0,
+            triplet: info.triplet === true,
+          });
+          if (!(dur > 1e-9)) continue;
+          out.push({
+            start: info.start,
+            dur,
+            x0: vb.x,
+            x1: vb.x + vb.w,
+            bar: info.bar,
+            placeholder: !!info.placeholder,
+          });
+        }
+      }
+    }
+  }
+  return out;
+}
+
+// Чистая арифметика линейки: узлы метрической сетки -> x в пикселях картинки.
+// Вынесена отдельно, чтобы проверяться тестом без DOM и без alphaTab.
+function tabThumbRulerMarks(anchors, totalBeats, stepsPerBeat, beatsPerBar) {
+  const list = (Array.isArray(anchors) ? anchors : [])
+    .filter((a) => a && a.dur > 1e-9 && Number.isFinite(a.x0) && Number.isFinite(a.x1))
+    .slice()
+    .sort((a, b) => a.start - b.start);
+  if (!list.length || !(totalBeats > 0)) return [];
+  // Полностью пустой такт (хвост вставки) не подписываем: целая пауза-заглушка
+  // занимает в раскладке в разы меньше места, чем настоящий такт, и четыре
+  // цифры встали бы в одну точку.
+  const bars = new Map();
+  list.forEach((a) => {
+    const prev = bars.get(a.bar);
+    bars.set(a.bar, prev === undefined ? !!a.placeholder : prev && !!a.placeholder);
+  });
+  const steps = Math.max(1, Math.round(stepsPerBeat || 1));
+  const step = 1 / steps;
+  const barBeats = Math.max(1, Math.round(beatsPerBar || 4));
+  const out = [];
+  for (let idx = 0; idx * step < totalBeats - 1e-9; idx++) {
+    const node = Math.round(idx * step * 1e9) / 1e9;
+    let anchor = null;
+    for (const a of list) {
+      if (node >= a.start - 1e-9 && node < a.start + a.dur - 1e-9) { anchor = a; break; }
+    }
+    if (!anchor || bars.get(anchor.bar)) continue;
+    const frac = Math.min(1, Math.max(0, (node - anchor.start) / anchor.dur));
+    const x = anchor.x0 + frac * (anchor.x1 - anchor.x0);
+    const sub = Math.round((node - Math.floor(node + 1e-6)) * steps) % steps;
+    out.push({
+      node,
+      sub,
+      x,
+      isBeat: sub === 0,
+      label: typeof countLabelFor === 'function'
+        ? countLabelFor(node, sub, steps, barBeats)
+        : (sub === 0 ? String((Math.round(node) % barBeats) + 1) : ''),
+    });
+  }
+  return out;
+}
+
+// Засечки строятся тем же linear-gradient'ом, что и у аккордовых ячеек, только
+// позиции берутся не из колонок грида, а в процентах от ширины картинки.
+function tabThumbRulerGradient(fracs, colorVar) {
+  const stops = [];
+  for (const f of fracs) {
+    if (!(f > 1e-6) || !(f < 1 - 1e-6)) continue;
+    const pos = `calc(${(f * 100).toFixed(4)}%)`;
+    stops.push(
+      `transparent calc(${pos} - 1px),` +
+        `var(${colorVar}) calc(${pos} - 1px),` +
+        `var(${colorVar}) calc(${pos} + 1px),` +
+        `transparent calc(${pos} + 1px)`,
+    );
+  }
+  if (!stops.length) return '';
+  return `background-image:linear-gradient(to right,transparent 0,${stops.join(',')},transparent 100%);`;
+}
+
+// Дробление счёта берём по самой мелкой доле вставки: восьмые подписываются
+// «1 и 2 и», шестнадцатые — «1 та и та», триоли — «1 та ти». Это тот же счёт,
+// что читает лента.
+function tabThumbRulerSteps(anchors) {
+  let minDur = 0;
+  for (const a of anchors) if (!minDur || a.dur < minDur) minDur = a.dur;
+  if (!(minDur > 1e-9)) return 1;
+  let steps = Math.max(1, Math.min(4, Math.round(1 / minDur)));
+  if (anchors.some((a) => a.dur * 3 > 1.999 && a.dur * 3 < 2.001)) steps = Math.max(steps, 3);
+  return steps;
+}
+
+function tabThumbRulerHtml(built, spec, width, offsetLeft) {
+  const anchors = tabThumbBeatAnchors(built);
+  const w = Number(width) > 0 ? Number(width) : 320;
+  // Картинка кадрируется слева (ключ TAB и размер), поэтому доли считаются
+  // в координатах уже обрезанного рисунка.
+  const off = Math.max(0, Math.min(Number(offsetLeft) || 0, Math.max(0, w - 24)));
+  const span = Math.max(1, w - off);
+  const sig = spec && spec.t ? spec.t : globalTimeSig;
+  const beatsPerBar = Math.max(1, Math.round(getGridUnitsPerBar(sig)));
+  const steps = tabThumbRulerSteps(anchors);
+  const totalBeats = Number(spec && spec.b) || 0;
+  const marks = tabThumbRulerMarks(anchors, totalBeats, steps, beatsPerBar)
+    .map((m) => Object.assign(m, { frac: Math.min(1, Math.max(0, (m.x - off) / span)) }));
+  const counts = marks
+    .filter((m) => m.label)
+    .map((m) => {
+      const cls = 'chord-count' + (m.isBeat ? ' is-beat' : '') +
+        (m.label === '1' ? ' is-downbeat' : '') + (m.x - off < 10 ? ' is-edge' : '');
+      return `<span class="${cls}" style="left:${(m.frac * 100).toFixed(4)}%">${m.label}</span>`;
+    })
+    .join('');
+  return {
+    ticks: tabThumbRulerGradient(marks.filter((m) => m.isBeat).map((m) => m.frac), '--color-tick-line'),
+    subticks: steps > 1
+      ? tabThumbRulerGradient(marks.filter((m) => !m.isBeat).map((m) => m.frac), '--color-tick-substep')
+      : '',
+    counts,
+  };
+}
+
+// alphaTab отдаёт по <svg> на каждую часть рисунка, рядом лежит служебная
+// подпись «Music engraving by alphaTab». Берём самый большой рисунок: в нём
+// стан со всеми тактами вставки.
+function tabThumbBigSvg(host) {
+  let best = null, bestArea = 0;
+  if (!host || !host.querySelectorAll) return best;
+  host.querySelectorAll('svg').forEach((svg) => {
+    const w = parseFloat(svg.getAttribute('width')) || 0;
+    const h = parseFloat(svg.getAttribute('height')) || 0;
+    if (w * h > bestArea) { best = svg; bestArea = w * h; }
+  });
+  return best;
+}
+
+// 0.869: прежняя точка входа отдаёт только картинку — на неё опираются
+// сторонние проверки (b12-tab-gp8-0692) и старый код очереди печати.
+async function tabThumbRender(spec, width) {
+  const payload = await tabThumbRenderPayload(spec, width);
+  return payload ? payload.svg : '';
+}
+
+function tabThumbApply(el, payload) {
+  if (!el || !el.isConnected || !payload || !payload.svg) return;
   el.dataset.thumbDone = '1';
-  el.innerHTML = `<div class="tab-thumb">${html}</div>`;
+  el.innerHTML = `<div class="tab-thumb">${payload.svg}</div>`;
+  // Линейка — сосед картинки внутри карточки, а не её часть: картинка
+  // перерисовывается целиком, линейка обновляется рядом.
+  const card = el.closest ? el.closest('.tab-insert') : null;
+  const root = card || el.parentElement || el;
+  const ticks = root.querySelector('[data-tab-ticks]');
+  if (ticks) ticks.setAttribute('style', payload.ticks || '');
+  const subticks = root.querySelector('[data-tab-subticks]');
+  if (subticks) subticks.setAttribute('style', payload.subticks || '');
+  const counts = root.querySelector('[data-tab-counts]');
+  if (counts) counts.innerHTML = payload.counts || '';
 }
 
 async function tabThumbFlush() {
@@ -25512,15 +25710,15 @@ async function tabThumbFlush() {
     while (TAB_THUMB_QUEUE.length) {
       const job = TAB_THUMB_QUEUE.shift();
       TAB_THUMB_PENDING.delete(job.key);
-      let html = '';
+      let payload = null;
       try {
-        html = await tabThumbRender(job.spec, job.width);
+        payload = await tabThumbRenderPayload(job.spec, job.width);
       } catch (_) {
-        html = '';
+        payload = null;
       }
-      if (html) {
-        TAB_THUMB_CACHE.set(job.key, html);
-        job.els.forEach((el) => tabThumbApply(el, html));
+      if (payload && payload.svg) {
+        TAB_THUMB_CACHE.set(job.key, payload);
+        job.els.forEach((el) => tabThumbApply(el, payload));
       } else {
         job.els.forEach((el) => {
           if (!el || !el.isConnected) return;
@@ -25595,6 +25793,15 @@ function tabThumbInvalidate() {
     } catch (_) {}
     delete el.dataset.thumbDone;
     el.classList.remove('is-unavailable');
+    const card = el.closest ? el.closest('.tab-insert') : null;
+    if (card) {
+      const ticks = card.querySelector('[data-tab-ticks]');
+      if (ticks) ticks.removeAttribute('style');
+      const subticks = card.querySelector('[data-tab-subticks]');
+      if (subticks) subticks.removeAttribute('style');
+      const counts = card.querySelector('[data-tab-counts]');
+      if (counts) counts.innerHTML = '';
+    }
     const word = notes.length === 1 ? 'нота' : notes.length >= 2 && notes.length <= 4 ? 'ноты' : 'нот';
     el.innerHTML = `<span class="tab-thumb-wait">TAB · ${notes.length} ${word}</span>`;
   });
@@ -25653,12 +25860,18 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
   // Своих линий, цифр и чёрточек больше нет: клетка просит картинку у alphaTab.
   const outFret = notes.some(n => !n.pause && !n.dead && (n.fret < 0 || n.fret > 24));
   const thumbSpec = notes.length ? encodeURIComponent(JSON.stringify(tabThumbSpecFrom(notes, beats, effTs))) : '';
-  const subdiv = Math.round(1 / (typeof getResizeStep === 'function' ? getResizeStep() : 1));
-  const fullRowRuler = (!isCell && interactive && !cellOpts?.inTimeline && typeof buildInnerTicks === 'function' && typeof buildInnerCounts === 'function')
-    ? `<div class="chord-ticks" aria-hidden="true" style="${buildInnerTicks(beats, 0, '--color-tick-line', 1, Math.max(1, Math.round(beats * 4)))}"></div>` +
-      `<div class="chord-ticks-step" aria-hidden="true" style="${buildInnerTicks(beats, 0, '--color-tick-substep', subdiv, Math.max(1, Math.round(beats * 4)))}"></div>` +
-      `<div class="chord-counts" aria-hidden="true">${buildInnerCounts(beats, 0, subdiv, Math.max(1, Math.round(beats * 4)), beatsPerBar)}</div>` +
-      `<div class="square-resize-handle" data-sec="${sec.id}" data-square="${sq.id}"></div>`
+  // 0.869: своя линейка счёта — в строке редактора, в ячейке между аккордами
+  // и в Ленте. Разметку строим заранее, а координаты чисел приходят вместе с
+  // картинкой (tabThumbRender): равномерная сетка карточки не совпадала с
+  // нотами, потому что ключ TAB и размер слева сдвигают стан на 60–70 px,
+  // а такты alphaTab растягивает неравномерно.
+  const tabRuler = thumbSpec
+    ? '<div class="chord-ticks" aria-hidden="true" data-tab-ticks></div>' +
+      '<div class="chord-ticks-step" aria-hidden="true" data-tab-subticks></div>' +
+      '<div class="chord-counts" aria-hidden="true" data-tab-counts></div>'
+    : '';
+  const resizeHandle = (!isCell && interactive && !cellOpts?.inTimeline)
+    ? `<div class="square-resize-handle" data-sec="${sec.id}" data-square="${sq.id}"></div>`
     : '';
   const openCall = isCell
     ? `openTabInsertEditor(${sec.id},${sq.id},{ei:${ei}})`
@@ -25671,7 +25884,7 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
       ? '<span class="tab-thumb-wait">TAB · ' + count + ' ' + noteWord + '</span>'
       : '<span class="tab-insert-empty">Нет нот</span>') +
     '</div>' +
-    fullRowRuler + '</div>';
+    tabRuler + resizeHandle + '</div>';
 }
 
 // Мини-редактор работает с входным снимком/черновиком. Отмена и Escape
@@ -65472,6 +65685,10 @@ function renderRhythmTrack() {
       }
     }
     const div = keysActive ? keysSubdiv : (pattern ? Math.max(1, pattern.subdivision || 1) : 1);
+    // 0.869: у таб-клетки свой счёт — он приходит вместе с картинкой alphaTab
+    // и стоит ровно под нотами. Равномерный счёт общей дорожки здесь только
+    // спорил с нотами, поэтому таб-клетку он пропускает.
+    if (ev.isTab) return;
     const beatsPerBar = getGridUnitsPerBar(parentTs);
     // ВИЗУАЛЬНОЕ смещение: счёт и черты обязаны совпадать с шириной
     // ячеек, иначе у ячеек со своим размером номера долей разъезжаются
