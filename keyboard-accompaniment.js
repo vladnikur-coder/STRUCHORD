@@ -1413,6 +1413,14 @@
       if (root && root.classList) {
         if (on) root.classList.add('b39-keys-mode');
         else root.classList.remove('b39-keys-mode');
+        var ukeOn = false;
+        try {
+          var T = HOST.StruChordTracks;
+          var st = T && T.state && T.state();
+          var act = st && st.tracks && st.tracks.find(function (tr) { return tr.id === st.activeTrackId; });
+          ukeOn = !!(act && act.instrument === 'ukulele');
+        } catch (e) {}
+        root.classList.toggle('b39-ukulele-mode', ukeOn);
       }
       // Не оставлять раскрытый гитарный строй при смене активной дорожки.
       var tuningList = doc.getElementById('tuningPickerList');

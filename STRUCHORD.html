@@ -15987,7 +15987,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.865</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.866</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -17543,6 +17543,8 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
 
   const DEFAULT_TUNINGS = {
     guitar: [40, 45, 50, 55, 59, 64],
+    // 0.866 (B-39 Укулеле): High G (G4=67, C4=60, E4=64, A4=69) — re-entrant строй.
+    ukulele: [67, 60, 64, 69],
     bass: [28, 33, 38, 43],
     // Клавиши в GP5 хранятся как гриф: даём им шесть струн от E2, чтобы ноты
     // оставались играбельными и в табулатуре, и в нотах.
@@ -18304,7 +18306,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       };
     });
     for (const track of tracks) {
-      const defaultView = track.isDrums || (track.part.instrument !== 'guitar' && track.part.instrument !== 'bass')
+      const defaultView = track.isDrums || (track.part.instrument !== 'guitar' && track.part.instrument !== 'bass' && track.part.instrument !== 'ukulele')
         ? 'staff' : 'tab';
       if ((track.part.viewMode === 'staff' || track.part.viewMode === 'tab') && track.part.viewMode !== defaultView) {
         lossOf(losses, `Дорожка «${track.part.name || track.index + 1}»: выбранный вид нотации не переносится; GP5-writer записывает оба вида (staff и tab)`, 1);
@@ -18554,7 +18556,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       writer.i32(1); // порт
       writer.i32(channelOfTrack.get(track.index) || index + 1);
       writer.i32(channelOfTrack.get(track.index) || index + 1);
-      writer.i32(24); // ладов
+      writer.i32(track.part.instrument === 'ukulele' ? 15 : 24); // ладов (0.866: 15 для укулеле)
       writer.i32(clamp(Number(track.part.capo) || 0, 0, 12)); // капо
       writer.u8(track.color[0]);
       writer.u8(track.color[1]);
@@ -18788,6 +18790,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
   }
 
   function defaultTuning(instrument) {
+    if (instrument === 'ukulele') return ['G4', 'C4', 'E4', 'A4']; // 0.866: High G
     return instrument === 'bass'
       ? ['E1', 'A1', 'D2', 'G2']
       : ['E2', 'A2', 'D3', 'G3', 'B3', 'E4'];
@@ -19011,7 +19014,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
     const tempoChanges = [];
     parts.forEach((part, partIndex) => {
       const instrument = part.instrument || 'guitar';
-      const isTab = instrument === 'guitar' || instrument === 'bass';
+      const isTab = instrument === 'guitar' || instrument === 'bass' || instrument === 'ukulele';
       const defaultView = isTab ? 'tab' : 'staff';
       if ((part.viewMode === 'staff' || part.viewMode === 'tab') && part.viewMode !== defaultView) {
         loss(`Дорожка «${part.name || partIndex + 1}»: выбранный вид ${part.viewMode} не кодируется текущим GPIF-писателем`, 1);
@@ -19278,7 +19281,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
       out.push('<SystemsLayout><\/SystemsLayout>');
       out.push('<PlayingStyle>StringedPick<\/PlayingStyle>');
       out.push('<UseOneChannelPerString />');
-      out.push(`<Instrument ref="${track.isPercussion ? 'd-drums' : track.isTab ? 'e-gtr6' : 'p-no-voc'}" />`);
+      out.push(`<Instrument ref="${track.isPercussion ? 'd-drums' : track.part.instrument === 'ukulele' ? 'ukulele' : track.isTab ? 'e-gtr6' : 'p-no-voc'}" />`);
       out.push('<InstrumentSet>');
       out.push(`<Name>${cdata(track.part.name || 'Track')}<\/Name>`);
       out.push(`<Type>${track.isPercussion ? 'drumKit' : 'pitched'}<\/Type>`);
@@ -20681,7 +20684,10 @@ let activeSectionKey = null;
 (function (HOST) {
   'use strict';
 
-  var B39_INSTRUMENTS = Object.freeze(['guitar', 'keys']);
+  // 0.866 (B-39 Укулеле): добавлен полноценный инструмент ukulele и 4 фиксированных строя.
+  var B39_INSTRUMENTS = Object.freeze(['guitar', 'keys', 'ukulele']);
+  var B39_UKULELE_TUNINGS = Object.freeze(['high-g', 'low-g', 'baritone', 'canadian']);
+  function b39IsStringInst(inst) { return inst === 'guitar' || inst === 'ukulele'; }
   var B39_KEYBOARD_SIZES = Object.freeze([25, 37, 49, 61, 76, 88]);
   var B39_KEY_RANGES = Object.freeze({
     25: { low: 48, high: 72, first: 'C3', last: 'C5' },
@@ -20712,11 +20718,12 @@ let activeSectionKey = null;
       // 0.780: новая клавишная дорожка сразу получает голосоведение.
       // У старых песен поля нет — они звучат как прежде, без миграции.
       ...(instrument === 'keys' ? {linkedVoicings:true, endAccent:false, voicingsVersion:2, saturation:50} : {}),   // 0.795 (№22): насыщенность по умолчанию; 0.793: endAccent выкл у новых; 0.794: voicingsVersion=2 — новый порядок вариантов
-      ...(instrument === 'guitar' ? {guitarShapesVersion:1,trackTuning:{id:'e-std',notes:null}} : {})
+      ...(instrument === 'guitar' ? {guitarShapesVersion:1,trackTuning:{id:'e-std',notes:null}} : {}),
+      ...(instrument === 'ukulele' ? {guitarShapesVersion:1,trackTuning:{id:'high-g',notes:null}} : {})   // 0.866: укулеле по умолчанию High G
     };
   }
   function b39DefaultName(inst, n) {
-    var base = inst === 'keys' ? 'Клавиши' : 'Гитара';
+    var base = inst === 'keys' ? 'Клавиши' : inst === 'ukulele' ? 'Укулеле' : 'Гитара';
     return n > 1 ? base + ' ' + n : base;
   }
   function b39DefaultState() {
@@ -20824,31 +20831,74 @@ let activeSectionKey = null;
     });
     return out;
   }
-  function cleanGuitarShape(v) {
-    if (!b39IsObj(v) || typeof v.chord !== 'string' || !/^[A-G][#b]?/.test(v.chord) || !Array.isArray(v.shape) || v.shape.length !== 6 || !v.shape.every(function(n){return n==='x' || (Number.isInteger(n) && n>=0 && n<=16);})) return null;
+  // 0.866: проверка формы с учётом инструмента (6 струн / 0..16 для гитары, 4 струны / 0..15 для укулеле).
+  // Битые значения отбрасываются целиком, никогда не обрезаются.
+  function cleanGuitarShape(v, inst) {
+    var isUke = inst === 'ukulele';
+    var nStr = isUke ? 4 : 6;
+    var maxFret = isUke ? 15 : 16;
+    if (!b39IsObj(v) || typeof v.chord !== 'string' || !/^[A-G][#b]?/.test(v.chord) || !Array.isArray(v.shape) || v.shape.length !== nStr || !v.shape.every(function(n){return n==='x' || (Number.isInteger(n) && n>=0 && n<=maxFret);})) return null;
     var result={chord:v.chord.slice(0,B39_LIMITS.MAX_CHORD),shape:v.shape.slice(),tuning:typeof v.tuning==='string'?v.tuning.slice(0,160):''};
-    if(Array.isArray(v.barreOff)) result.barreOff=v.barreOff.filter(function(n){return Number.isInteger(n)&&n>=1&&n<=24;}).slice(0,6);
-    if(Array.isArray(v.fingers) && v.fingers.length===6 && v.fingers.every(function(n){return n===null || n==='x' || /^[0-4]$/.test(String(n));})) result.fingers=v.fingers.slice();
+    if(Array.isArray(v.barreOff)) result.barreOff=v.barreOff.filter(function(n){return Number.isInteger(n)&&n>=1&&n<=(isUke?15:24);}).slice(0,nStr);
+    if(Array.isArray(v.fingers) && v.fingers.length===nStr && v.fingers.every(function(n){return n===null || n==='x' || /^[0-4]$/.test(String(n)) || (!isUke && String(n).toUpperCase()==='T');})) result.fingers=v.fingers.slice();
     return result;
   }
-  function guitarShapeFromEvent(ev) {
+  function guitarShapeFromEvent(ev, inst) {
     if(!ev || !ev.chord || !ev.fingering)return null;
     var shape=Array.isArray(ev.fingering)?ev.fingering:typeof ev.fingering==='string'?ev.fingering.split(',').map(function(v){return v.trim()==='x'?'x':Number(v);}):null;
-    return cleanGuitarShape({chord:ev.chord,shape:shape,tuning:ev.fingeringTuning||'',barreOff:ev.barreOff,fingers:ev.fingers});
+    var useInst = inst || (typeof ev.fingeringTuning === 'string' && ev.fingeringTuning.indexOf('@uke:') === 0 ? 'ukulele' : 'guitar');
+    return cleanGuitarShape({chord:ev.chord,shape:shape,tuning:ev.fingeringTuning||'',barreOff:ev.barreOff,fingers:ev.fingers}, useInst);
   }
-  function cleanTrackTuning(value, fallback) {
+  // 0.866: у укулеле строго 4 строя (без своего строя), неверный id -> 'high-g'.
+  function cleanTrackTuning(value, fallback, inst) {
+    if (inst === 'ukulele') {
+      var uBase = fallback && B39_UKULELE_TUNINGS.indexOf(fallback.id) >= 0 ? { id: fallback.id, notes: null } : { id: 'high-g', notes: null };
+      if (!b39IsObj(value) || typeof value.id !== 'string' || B39_UKULELE_TUNINGS.indexOf(value.id) < 0) return b39Clone(uBase);
+      return { id: value.id, notes: null };
+    }
     var base=fallback || {id:'e-std',notes:null};
     if(!b39IsObj(value) || typeof value.id!=='string' || !TUNER_TUNINGS.some(function(x){return x.id===value.id;}))return b39Clone(base);
     if(value.notes != null && (!Array.isArray(value.notes) || value.notes.length!==6 || !value.notes.every(function(n){return typeof n==='string' && /^[A-G][#b]?-?\d$/.test(n) && noteToFrequency(n);})))return b39Clone(base);
     return {id:value.id,notes:value.notes ? value.notes.slice() : null};
   }
   function legacyTrackTuning(song) {
-    return cleanTrackTuning({id:song && song.tuning,notes:song && song.tuningNotes},{id:'e-std',notes:null});
+    return cleanTrackTuning({id:song && song.tuning,notes:song && song.tuningNotes},{id:'e-std',notes:null},'guitar');
   }
-  function cleanShapeHistory(raw) {
+  function cleanShapeHistory(raw, inst) {
     if(!Array.isArray(raw))return null;
-    var list=raw.slice(-128).map(cleanGuitarShape).filter(Boolean);
+    var list=raw.slice(-128).map(function(item){return cleanGuitarShape(item, inst);}).filter(Boolean);
     return list.length?list:null;
+  }
+  // 0.866: валидатор подорожечных ритмов укулеле (бой/перебор на 4 струнах).
+  // Струны вне 1..4 отбрасывают паттерн целиком (без зажатия в границы).
+  function cleanUkePatternValue(raw) {
+    if (!b39IsObj(raw)) return null;
+    var mode = raw.mode === 'pick' ? 'pick' : raw.mode === 'strum' ? 'strum' : raw.mode === 'mixed' ? 'mixed' : null;
+    var sub = [1, 2, 3, 4].indexOf(Number(raw.subdivision)) >= 0 ? Number(raw.subdivision) : null;
+    if (!mode || !sub || !Array.isArray(raw.steps) || !raw.steps.length || raw.steps.length > 256) return null;
+    var steps = [];
+    for (var i = 0; i < raw.steps.length; i++) {
+      var st = raw.steps[i];
+      if (st === null || st === undefined || st === '' || st === '_') { steps.push(st === '_' && mode === 'mixed' ? '_' : null); continue; }
+      if (mode === 'strum') {
+        if (st === 'D' || st === 'U' || st === 'X') { steps.push(st); continue; }
+        return null;
+      }
+      if (mode === 'mixed' && (st === 'D' || st === 'U' || st === 'X')) { steps.push(st); continue; }
+      var items = Array.isArray(st) ? st : [st];
+      var safe = [];
+      for (var j = 0; j < items.length; j++) {
+        var it = items[j];
+        if (it === 'B' || it === 'A') { if (safe.indexOf(it) < 0) safe.push(it); continue; }
+        var sn = Number(it);
+        if (!Number.isInteger(sn) || sn < 1 || sn > 4) return null; // 5/6 струн на укулеле отбрасываем целиком
+        if (safe.indexOf(sn) < 0) safe.push(sn);
+      }
+      steps.push(safe.length ? safe : null);
+    }
+    var out = { mode: mode, subdivision: sub, steps: steps };
+    if (raw.swing === true && (sub === 2 || sub === 4)) out.swing = true;
+    return out;
   }
   function rememberShape(t,key,shape) {
     if(!t || !shape)return;
@@ -20932,9 +20982,9 @@ let activeSectionKey = null;
           }
           var n = Number(v); return Number.isInteger(n) && n >= 0 && n <= 99 ? n : null;
         }, true) : {},
-        patterns: inst === 'keys' ? sanitizeMap(raw.patterns, validKeys, patternValue, false, true) : {},
-        guitarShapes: inst === 'guitar' ? sanitizeMap(raw.guitarShapes, validKeys, cleanGuitarShape, false, false) : {},
-        guitarShapeHistory: inst === 'guitar' ? sanitizeMap(raw.guitarShapeHistory, validKeys, cleanShapeHistory, false, false) : {},
+        patterns: inst === 'keys' ? sanitizeMap(raw.patterns, validKeys, patternValue, false, true) : inst === 'ukulele' ? sanitizeMap(raw.patterns, validKeys, cleanUkePatternValue, false, true) : {},
+        guitarShapes: b39IsStringInst(inst) ? sanitizeMap(raw.guitarShapes, validKeys, function(v){return cleanGuitarShape(v, inst);}, false, false) : {},
+        guitarShapeHistory: b39IsStringInst(inst) ? sanitizeMap(raw.guitarShapeHistory, validKeys, function(v){return cleanShapeHistory(v, inst);}, false, false) : {},
         ...(inst === 'guitar' && Object.keys(recNotes).length ? {recordedNotes:recNotes} : {}),
         ...(inst === 'keys' && Object.keys(cleanBassRoles(raw.bassRoles, song.sections)).length ? {bassRoles:cleanBassRoles(raw.bassRoles, song.sections)} : {}),
         ...(inst === 'keys' && typeof raw.linkedVoicings==='boolean' ? {linkedVoicings:raw.linkedVoicings} : {}),   // 0.796 (№23): явное false не теряется
@@ -20943,7 +20993,7 @@ let activeSectionKey = null;
         ...(inst === 'keys' && raw.saturation !== undefined && raw.saturation !== null && Number.isInteger(satNum) && satNum >= 0 && satNum <= 100 ? {saturation:satNum} : {}),
         ...(inst==='keys' && B39_TIMBRES.includes(raw.timbre) ? {timbre:raw.timbre} : {}),
         ...(trackAuto ? {autoAccomp:trackAuto} : {}),
-        keyboardSize: size, ...(inst==='guitar' ? {guitarShapesVersion:raw.guitarShapesVersion===1?1:0,trackTuning:Object.prototype.hasOwnProperty.call(raw,'trackTuning')?cleanTrackTuning(raw.trackTuning):legacyTrackTuning(song)} : {})
+        keyboardSize: size, ...(inst==='guitar' ? {guitarShapesVersion:raw.guitarShapesVersion===1?1:0,trackTuning:Object.prototype.hasOwnProperty.call(raw,'trackTuning')?cleanTrackTuning(raw.trackTuning,null,'guitar'):legacyTrackTuning(song)} : inst==='ukulele' ? {guitarShapesVersion:1,trackTuning:cleanTrackTuning(raw.trackTuning,null,'ukulele')} : {})
       });
     });
     return out.length ? out : [b39MakeTrack(1, 'guitar', 'Гитара')];
@@ -21008,6 +21058,7 @@ let activeSectionKey = null;
       nextTrackId: p.nextTrackId
     };
     repairMain();
+    syncUkuleleModeClass();
     if(HOST.StruChordKeys && HOST.StruChordKeys.clearLinkedCache) HOST.StruChordKeys.clearLinkedCache();
     return snapshot();
   }
@@ -21061,13 +21112,22 @@ let activeSectionKey = null;
     });
     main.chords = {};
   }
+  function syncUkuleleModeClass() {
+    try {
+      var doc = HOST.document;
+      if (!doc || !doc.documentElement || !doc.documentElement.classList) return;
+      var active = findTrack(state.activeTrackId);
+      doc.documentElement.classList.toggle('b39-ukulele-mode', !!(active && active.instrument === 'ukulele'));
+    } catch (e) {}
+  }
   function normaliseState() {
-    if (!state.tracks.length) { state.activeTrackId = 0; return; }
+    if (!state.tracks.length) { state.activeTrackId = 0; syncUkuleleModeClass(); return; }
     if (!state.tracks.some(function (t) { return t.id === state.activeTrackId; })) {
       state.activeTrackId = state.tracks[0].id;
     }
     if (!B39_KEYBOARD_SIZES.includes(state.keyboardSize)) state.keyboardSize = B39_DEFAULT_KEYBOARD;
     if (!Number.isInteger(state.nextTrackId)) state.nextTrackId = 2;
+    syncUkuleleModeClass();
   }
   function afterMutation() { normaliseState(); }
 
@@ -21171,21 +21231,39 @@ let activeSectionKey = null;
       state.autoAccomp = effectiveAutoAccomp(state.tracks, state.activeTrackId);
       return true;
     });
+    if(typeof toggleTuningPicker==='function')toggleTuningPicker(false);
     if(typeof renderTuningPill==='function')renderTuningPill();
-    if(document.querySelector('.tuner-modal') && typeof tunerRenderTuning==='function')tunerRenderTuning();
+    var openTunerEl=document.querySelector('.tuner-modal');
+    if(openTunerEl){
+      var wantMode=(typeof b39IsUkuleleContext==='function' && b39IsUkuleleContext()) ? 'ukulele' : 'guitar';
+      if(openTunerEl.dataset && openTunerEl.dataset.tunerMode && openTunerEl.dataset.tunerMode!==wantMode && typeof openTuner==='function') openTuner();
+      else if(typeof tunerRenderTuning==='function') tunerRenderTuning();
+    }
     return result;
   }
-  function tuning(id) {var t=findTrack(id);return t && t.instrument==='guitar' ? b39Clone(t.trackTuning) : null;}
+  function tuning(id) {var t=findTrack(id);return t && b39IsStringInst(t.instrument) ? b39Clone(t.trackTuning) : null;}
   function setTuning(id,value) {
-    var t=findTrack(id);if(!t || t.instrument!=='guitar')return false;
-    var cleaned=cleanTrackTuning(value);if(window.captureHistorySnapshot)window.captureHistorySnapshot();
+    var t=findTrack(id);if(!t || !b39IsStringInst(t.instrument))return false;
+    var cleaned=cleanTrackTuning(value,null,t.instrument);if(window.captureHistorySnapshot)window.captureHistorySnapshot();
     var result=dispatch('b39/track-tuning',function(){
       var changed=JSON.stringify(t.trackTuning)!==JSON.stringify(cleaned);
-      if(changed && isMain(id))eachCell(null,function(sec,sq,ev,ei,key){rememberShape(t,key,guitarShapeFromEvent(ev));});
+      if(changed && isMain(id))eachCell(null,function(sec,sq,ev,ei,key){rememberShape(t,key,guitarShapeFromEvent(ev,t.instrument));});
       t.trackTuning=cleaned;
       if(changed && isMain(id)){
         var suffix=b39WithTrackTuning(id,function(){return tuningKeySuffix();});
         eachCell(null,function(sec,sq,ev,ei,key){applyEventShape(ev,recalledShape(t,key,ev.chord,suffix));});
+      }
+      if(changed && !isMain(id) && t.instrument==='ukulele'){
+        var suffix2=b39WithTrackTuning(id,function(){return tuningKeySuffix();});
+        eachCell(null,function(sec,sq,ev,ei,key){
+          if(t.guitarShapes[key])rememberShape(t,key,t.guitarShapes[key]);
+          var ch=t.chords[key];
+          if(!ch){delete t.guitarShapes[key];return;}
+          var rec=recalledShape(t,key,ch,suffix2);
+          if(rec){t.guitarShapes[key]=rec;return;}
+          var fresh=b39WithTrackTuning(id,function(){return defaultGuitarShape(ch,key,null,false,{sec:sec,sq:sq,ei:ei});});
+          if(fresh)t.guitarShapes[key]=fresh; else delete t.guitarShapes[key];
+        });
       }
       return true;
     });
@@ -21197,9 +21275,13 @@ let activeSectionKey = null;
     if (t.instrument === inst) return true;
     var ok = dispatch('b39/track-instrument', function () {
       t.instrument = inst;
-      if (inst === 'guitar') {
+      // 0.866 (clean_on_switch): смена инструмента очищает несовместимые данные старого инструмента.
+      if (b39IsStringInst(inst)) {
         t.voicings = {};
         t.patterns = {};
+        t.guitarShapes = {};
+        t.guitarShapeHistory = {};
+        delete t.recordedNotes;
         t.keyboardSize = null;
         delete t.bassRoles;
         delete t.linkedVoicings;
@@ -21209,11 +21291,16 @@ let activeSectionKey = null;
         delete t.saturation;
         delete t.autoAccomp;
         t.guitarShapesVersion = 1;
-        if (!t.trackTuning) t.trackTuning = { id: 'e-std', notes: null };
-        if (!isMain(id)) {
+        t.trackTuning = inst === 'ukulele' ? { id: 'high-g', notes: null } : { id: 'e-std', notes: null };
+        if (isMain(id)) {
+          eachCell(null, function (sec, sq, ev, ei) {
+            delete ev.fingering; delete ev.fingeringTuning; delete ev.barreOff; delete ev.fingers; delete ev.notes;
+            if (typeof HOST.dropPreferredFingeringsAt === 'function') HOST.dropPreferredFingeringsAt(sec.id, sq.id, ei);
+          });
+        } else {
           eachCell(null, function (sec, sq, ev, ei, key) {
             var ch = t.chords[key];
-            if (!ch || t.guitarShapes[key]) return;
+            if (!ch) return;
             var sh = b39WithTrackTuning(id, function () { return defaultGuitarShape(ch, key, null, false, { sec: sec, sq: sq, ei: ei }); });
             if (sh) t.guitarShapes[key] = sh;
           });
@@ -21221,6 +21308,7 @@ let activeSectionKey = null;
       } else {
         t.guitarShapes = {};
         t.guitarShapeHistory = {};
+        t.patterns = {};
         delete t.recordedNotes;
         delete t.guitarShapesVersion;
         delete t.trackTuning;
@@ -21237,12 +21325,13 @@ let activeSectionKey = null;
       }
       state.autoAccomp = effectiveAutoAccomp(state.tracks, state.activeTrackId);
       // Имя меняем только если оно было дефолтным: свой текст не трогаем.
-      if (/^(Гитара|Клавиши)( \d+)?$/.test(t.name)) t.name = b39DefaultName(inst, state.tracks.indexOf(t) + 1);
+      if (/^(Гитара|Клавиши|Укулеле)( \d+)?$/.test(t.name)) t.name = b39DefaultName(inst, state.tracks.indexOf(t) + 1);
       return true;
     });
+    if (typeof fingeringCache !== 'undefined') fingeringCache.clear();
     if (typeof renderTuningPill === 'function') renderTuningPill();
     if (document.querySelector('.tuner-modal') && typeof tunerRenderTuning === 'function') tunerRenderTuning();
-    if (ok && inst === 'guitar' && typeof scheduleWarmSongFingeringCache === 'function') {
+    if (ok && b39IsStringInst(inst) && typeof scheduleWarmSongFingeringCache === 'function') {
       scheduleWarmSongFingeringCache();
     }
     return ok;
@@ -21289,7 +21378,8 @@ let activeSectionKey = null;
     var target=legacy && ev && sameChord(ev.chord,chord) ? ev : undefined;
     var shape=HOST.resolveFingeringShape(chord,key,pos,target);
     var suffix=typeof tuningKeySuffix==='function'?tuningKeySuffix():'';
-    return shape ? cleanGuitarShape({chord:chord,shape:shape,tuning:suffix,barreOff:target && target.barreOff,fingers:target && target.fingers}) : null;
+    var shapeInst = Array.isArray(shape) && shape.length === 4 ? 'ukulele' : 'guitar';
+    return shape ? cleanGuitarShape({chord:chord,shape:shape,tuning:suffix,barreOff:target && target.barreOff,fingers:target && target.fingers}, shapeInst) : null;
   }
   function materializeLegacyGuitars() {
     state.tracks.forEach(function(t,i){
@@ -21318,7 +21408,7 @@ let activeSectionKey = null;
         f.ev.chord = cleaned || '';                // главная = существующее поле ячейки
       } else if (cleaned) {
         t.chords[key] = cleaned;                   // явный аккорд дорожки
-        if(t.instrument==='guitar' && !t.guitarShapes[key]){var choice=b39WithTrackTuning(id,function(){return defaultGuitarShape(cleaned,key,null,false);});if(choice)t.guitarShapes[key]=choice;}
+        if(b39IsStringInst(t.instrument) && !t.guitarShapes[key]){var choice=b39WithTrackTuning(id,function(){return defaultGuitarShape(cleaned,key,null,false);});if(choice)t.guitarShapes[key]=choice;}
       } else {
         delete t.chords[key];                       // пусто -> призрачная подсказка
       }
@@ -21385,8 +21475,8 @@ let activeSectionKey = null;
           t.chords[k] = respellChordForKey(movedC, secKey);
         });
       }
-      if (t.instrument === 'guitar' && !isMain(t.id)) {
-        if (delta && t.recordedNotes) {
+      if (b39IsStringInst(t.instrument) && !isMain(t.id)) {
+        if (delta && t.instrument === 'guitar' && t.recordedNotes) {
           Object.keys(t.recordedNotes).forEach(function (k) {
             if (!secIds.has(k.split(':')[0])) return;
             var shifted = t.recordedNotes[k]
@@ -21474,18 +21564,18 @@ let activeSectionKey = null;
   }
   function guitarShape(id, key, chord) {
     var t=findTrack(id), v=t && t.guitarShapes[key];
-    if(!t || t.instrument!=='guitar')return null;
+    if(!t || !b39IsStringInst(t.instrument))return null;
     var suffix=typeof tuningKeySuffix==='function'?b39WithTrackTuning(id,function(){return tuningKeySuffix();}):'';
     if(!v || !Array.isArray(v.shape) || !sameChord(v.chord,chord) || (v.tuning||'')!==suffix)v=recalledShape(t,key,chord,suffix);
     return v ? b39Clone(v) : null;
   }
   function activeGuitarInfo(cell,chord) {
-    var t=findTrack(state.activeTrackId), secondary=!!(t && t.instrument==='guitar' && !isMain(t.id));
+    var t=findTrack(state.activeTrackId), secondary=!!(t && b39IsStringInst(t.instrument) && !isMain(t.id));
     return secondary ? {id:t.id,shape:guitarShape(t.id,cell,chord)} : null;
   }
   function setGuitarShape(id,key,chord,shape,barreOff,fingers) {
-    var t=findTrack(id), val=cleanGuitarShape({chord:chord,shape:shape,tuning:typeof tuningKeySuffix==='function'?b39WithTrackTuning(id,function(){return tuningKeySuffix();}):'',barreOff:barreOff,fingers:fingers});
-    if(!t || t.instrument!=='guitar' || !/^\d+:\d+:\d+$/.test(String(key)) || !val || !sameChord(trackChord(id,key),chord))return false;
+    var t=findTrack(id), val=t ? cleanGuitarShape({chord:chord,shape:shape,tuning:typeof tuningKeySuffix==='function'?b39WithTrackTuning(id,function(){return tuningKeySuffix();}):'',barreOff:barreOff,fingers:fingers}, t.instrument) : null;
+    if(!t || !b39IsStringInst(t.instrument) || !/^\d+:\d+:\d+$/.test(String(key)) || !val || !sameChord(trackChord(id,key),chord))return false;
     return dispatch('b39/guitar-shape',function(){rememberShape(t,key,t.guitarShapes[key]);t.guitarShapes[key]=val;rememberShape(t,key,val);return true;});
   }
   function setVoicing(id, key, index) {
@@ -21494,9 +21584,11 @@ let activeSectionKey = null;
     return dispatch('b39/track-voicing', function () { t.voicings[key] = n; t.voicingsVersion = 2; return true; });   // 0.794: новая ручная запись — новый порядок вариантов (v2)
   }
   function setPattern(id, key, pattern) {
-    var t = findTrack(id), v = patternValue(pattern);
-    if (!t || !v) return false;
-    // Ключ либо ячейка '1:2:0', либо секция 's:1' (STAGE 5).
+    var t = findTrack(id);
+    if (!t) return false;
+    var v = t.instrument === 'ukulele' ? cleanUkePatternValue(pattern) : patternValue(pattern);
+    if (!v) return false;
+    // Ключ либо ячейка '1:2:0', либо секция 's:1' (STAGE 5 / 0.866 Укулеле).
     if (!/^(\d+:\d+:\d+|s:\d{1,9})$/.test(String(key))) return false;
     return dispatch('b39/track-pattern', function () { t.patterns[key] = v; return true; });
   }
@@ -21598,15 +21690,17 @@ let activeSectionKey = null;
     var src = copyFromActive === false ? mainTrack() : (findTrack(state.activeTrackId) || mainTrack());
     var copied = [], copiedShapes = [], copiedRec = {};
     var sameGuitar = !!(src && src.instrument === 'guitar' && inst === 'guitar');
+    var sameUke = !!(src && src.instrument === 'ukulele' && inst === 'ukulele');
+    var sameString = sameGuitar || sameUke;
     var sameKeys = !!(src && src.instrument === 'keys' && inst === 'keys');
     if (src) {
       eachCell(null, function (sec, sq, ev, ei, key) {
         var c = trackChord(src.id, key, ev);
         if (c) copied.push([key, c]);
-        if (sameGuitar && c) {
+        if (sameString && c) {
           var shape = b39WithTrackTuning(src.id, function () {
             return isMain(src.id)
-              ? (guitarShapeFromEvent(ev) || defaultGuitarShape(c, key, ev, true, { sec: sec, sq: sq, ei: ei }))
+              ? (guitarShapeFromEvent(ev, inst) || defaultGuitarShape(c, key, ev, true, { sec: sec, sq: sq, ei: ei }))
               : (guitarShape(src.id, key, c) || defaultGuitarShape(c, key, null, false, { sec: sec, sq: sq, ei: ei }));
           });
           if (shape) copiedShapes.push([key, shape]);
@@ -21623,14 +21717,15 @@ let activeSectionKey = null;
       var count = state.tracks.filter(function (t) { return t.instrument === inst; }).length;
       var t = b39MakeTrack(id, inst, b39DefaultName(inst, count + 1));
       copied.forEach(function (pair) { t.chords[pair[0]] = pair[1]; });
-      if (inst === 'guitar') {
-        if (sameGuitar) {
-          t.trackTuning = cleanTrackTuning(src.trackTuning);
+      if (b39IsStringInst(inst)) {
+        if (sameString) {
+          t.trackTuning = cleanTrackTuning(src.trackTuning, null, inst);
           copiedShapes.forEach(function (pair) { t.guitarShapes[pair[0]] = pair[1]; });
           if (src.guitarShapeHistory) t.guitarShapeHistory = b39Clone(src.guitarShapeHistory);
-          if (Object.keys(copiedRec).length) t.recordedNotes = copiedRec;
+          if (sameGuitar && Object.keys(copiedRec).length) t.recordedNotes = copiedRec;
+          if (sameUke && src.patterns) t.patterns = b39Clone(src.patterns); // 0.866 (copy_full): копируем ритм укулеле
         } else {
-          t.trackTuning = { id: 'e-std', notes: null };
+          t.trackTuning = inst === 'ukulele' ? { id: 'high-g', notes: null } : { id: 'e-std', notes: null };
         }
       } else if (sameKeys) {
         t.voicings = b39Clone(src.voicings || {});
@@ -21643,7 +21738,7 @@ let activeSectionKey = null;
         if (src.bassRoles) t.bassRoles = b39Clone(src.bassRoles);
       }
       state.tracks.push(t);
-      if (inst === 'guitar' && !sameGuitar) {
+      if (b39IsStringInst(inst) && !sameString) {
         b39WithTrackTuning(id, function () {
           eachCell(null, function (sec, sq, ev, ei, key) {
             var ch = t.chords[key];
@@ -21659,7 +21754,7 @@ let activeSectionKey = null;
       if(document.querySelector('.tuner-modal') && typeof tunerRenderTuning==='function')tunerRenderTuning();
       return true;
     });
-    if (inst === 'guitar' && typeof scheduleWarmSongFingeringCache === 'function') {
+    if (b39IsStringInst(inst) && typeof scheduleWarmSongFingeringCache === 'function') {
       scheduleWarmSongFingeringCache();
     }
     return id;
@@ -21718,9 +21813,9 @@ let activeSectionKey = null;
         } else if (ev.notes) {
           delete ev.notes;
         }
-        var prior=oldMain && oldMain.instrument==='guitar' ? b39WithTrackTuning(oldMain.id,function(){return guitarShapeFromEvent(ev)||defaultGuitarShape(ev.chord,key,ev,true,{sec:sec,sq:sq,ei:ei});}) : null;
+        var prior=oldMain && b39IsStringInst(oldMain.instrument) ? b39WithTrackTuning(oldMain.id,function(){return guitarShapeFromEvent(ev,oldMain.instrument)||defaultGuitarShape(ev.chord,key,ev,true,{sec:sec,sq:sq,ei:ei});}) : null;
         if(prior){oldMain.guitarShapes[key]=prior;rememberShape(oldMain,key,prior);}
-        var incoming=newMain.instrument==='guitar' ? guitarShape(newMain.id,key,newChords[key]) : null;
+        var incoming=b39IsStringInst(newMain.instrument) ? guitarShape(newMain.id,key,newChords[key]) : null;
         ev.chord = newChords[key] || '';
         delete ev.fingering; delete ev.fingeringTuning; delete ev.barreOff; delete ev.fingers;
         if (newMain.instrument === 'guitar' && newMain.recordedNotes && newMain.recordedNotes[key]) {
@@ -21761,9 +21856,12 @@ let activeSectionKey = null;
   // Новый документ получает выбранную в этом браузере первую дорожку.
   function resetForNewSong() {
     var instrument = 'guitar';
-    try { if ((HOST.getDefaultInstrument && HOST.getDefaultInstrument()) === 'keys') instrument = 'keys'; } catch (e) {}
+    try {
+      var pref = HOST.getDefaultInstrument && HOST.getDefaultInstrument();
+      if (B39_INSTRUMENTS.indexOf(pref) >= 0) instrument = pref;
+    } catch (e) {}
     return dispatch('b39/tracks-reset-new', function () {
-      state.tracks = [b39MakeTrack(1, instrument, instrument === 'keys' ? 'Клавиши' : 'Гитара')];
+      state.tracks = [b39MakeTrack(1, instrument, b39DefaultName(instrument, 1))];
       state.activeTrackId = 1;
       state.nextTrackId = 2;
       state.keyboardSize = B39_DEFAULT_KEYBOARD;
@@ -22109,7 +22207,7 @@ window.songStore = songStore;
     chooser.hidden = true;
     chooser.appendChild(el('div', 'b39-chooser-title', 'Инструмент новой дорожки'));
     var choices = el('div', 'b39-choices');
-    [['guitar', '🎸 Гитара'], ['keys', '🎹 Клавиши']].forEach(function (pair) {
+    [['guitar', '🎸 Гитара'], ['ukulele', '🪕 Укулеле'], ['keys', '🎹 Клавиши']].forEach(function (pair) {
       var b = el('button', 'b39-choice', pair[1]);
       b.type = 'button';
       b.addEventListener('click', function () { chooseInstrument(pair[0]); });
@@ -22122,7 +22220,7 @@ window.songStore = songStore;
     menu.hidden = true;
     menu.appendChild(el('div', 'b39-chooser-title', 'Инструмент дорожки'));
     var menuChoices = el('div', 'b39-choices');
-    [['guitar', '🎸 Гитара'], ['keys', '🎹 Клавиши']].forEach(function (pair) {
+    [['guitar', '🎸 Гитара'], ['ukulele', '🪕 Укулеле'], ['keys', '🎹 Клавиши']].forEach(function (pair) {
       var b = el('button', 'b39-choice', pair[1]);
       b.type = 'button';
       b.addEventListener('click', function () {
@@ -22328,7 +22426,7 @@ window.songStore = songStore;
     select.type = 'button';
     select.appendChild(el('span', 'b39-dot'));
     select.appendChild(el('span', 'b39-name', (track.id === st.mainTrackId ? '★ ' : '') + track.name));
-    select.appendChild(el('span', 'b39-badge', track.instrument === 'keys' ? 'Клавиши' : 'Гитара'));
+    select.appendChild(el('span', 'b39-badge', track.instrument === 'keys' ? 'Клавиши' : track.instrument === 'ukulele' ? 'Укулеле' : 'Гитара'));
     select.addEventListener('click', function () { var t = T(); if (t) t.setActive(track.id); });
 
     var vol = el('input', 'b39-vol');
@@ -29657,16 +29755,17 @@ const FINGERING_WEIGHTS = {
 // или null, если барре не подходит.
 function detectAllBarres(shape) {
   const out = [];
+  const nStr = Array.isArray(shape) ? shape.length : 6;
   let maxFret = 0;
-  for (let s = 0; s < 6; s++) {
+  for (let s = 0; s < nStr; s++) {
     const f = shape[s];
     if (f !== 'x' && f !== 0 && f > maxFret) maxFret = f;
   }
   for (let f = 1; f <= maxFret; f++) {
     let segStart = null;
-    for (let s = 0; s <= 6; s++) {
-      const val = s < 6 ? shape[s] : 'x';
-      const isValidOnFret = s < 6 && val !== 'x' && val !== 0 && val >= f;
+    for (let s = 0; s <= nStr; s++) {
+      const val = s < nStr ? shape[s] : 'x';
+      const isValidOnFret = s < nStr && val !== 'x' && val !== 0 && val >= f;
       if (isValidOnFret) {
         if (segStart === null) segStart = s;
       } else {
@@ -29871,7 +29970,55 @@ function solveFingerAssignment(barre, sourceRuns, shape) {
   return best;
 }
 
+// 0.866 (B-39 Укулеле): анатомический разбор 4-струнного хвата (4 пальца, без большого пальца сверху).
+function analyzeShapeGripUkulele(shape) {
+  const fretted = [];
+  const opens = [];
+  const mutes = [];
+  for (let s = 0; s < 4; s++) {
+    const f = shape[s];
+    if (f === 'x') mutes.push(s);
+    else if (f === 0) opens.push(s);
+    else fretted.push({ s, fret: Number(f) });
+  }
+  const grip = {
+    shape, fretted, opens, mutes,
+    minFret: fretted.length ? Math.min(...fretted.map((v) => v.fret)) : 0,
+    maxFret: fretted.length ? Math.max(...fretted.map((v) => v.fret)) : 0,
+    barreOptions: [], ban: null, chosen: null,
+  };
+  if (!fretted.length) {
+    grip.chosen = { b: null, runs: [], fingers: 0, usesThumb: false, assignment: { barre: null, runs: [], thumb: null, fingers: 0, usesThumb: false, cost: 0 } };
+    return grip;
+  }
+  grip.barreOptions = detectAllBarres(shape);
+  if (grip.maxFret - grip.minFret > 4) { grip.ban = 'spread'; return grip; }
+  // Без баррэ: до 4 зажатых струн ставится 4 пальцами (если нет невозможной растяжки).
+  let chosenBarre = null;
+  if (grip.barreOptions.length) {
+    const fullOrEdge = grip.barreOptions.find((b) => b.fret === grip.minFret && b.coveredStrings >= 3)
+      || (fretted.length >= 4 && grip.barreOptions.find((b) => b.fret === grip.minFret && b.last === 3 && b.coveredStrings >= 2))
+      || null;
+    // Баррэ используем когда оно реально упрощает (3+ струны на minFret или 4 зажатые струны с 2+ на minFret у края, напр. Bb = 3,2,1,1).
+    if (fullOrEdge) chosenBarre = Object.assign({}, fullOrEdge, { finger: 1 });
+  }
+  const covered = new Set(chosenBarre ? chosenBarre.strings : []);
+  const rem = fretted.filter((v) => !(chosenBarre && v.fret === chosenBarre.fret && covered.has(v.s)));
+  const fingersUsed = (chosenBarre ? 1 : 0) + rem.length;
+  if (fingersUsed > 4) { grip.ban = 'fingers'; return grip; }
+  const cost = (grip.maxFret - grip.minFret) * 1.2 + (chosenBarre ? 1.5 : 0) + fingersUsed * 0.5;
+  grip.chosen = {
+    b: chosenBarre,
+    runs: rem.map((v) => ({ fret: v.fret, strings: [v.s] })),
+    fingers: fingersUsed,
+    usesThumb: false,
+    assignment: { barre: chosenBarre, runs: rem, thumb: null, fingers: fingersUsed, usesThumb: false, cost },
+  };
+  return grip;
+}
+
 function analyzeShapeGrip(shape) {
+  if (Array.isArray(shape) && shape.length === 4) return analyzeShapeGripUkulele(shape);
   const fretted = [];
   const opens = [];
   const mutes = [];
@@ -31720,8 +31867,244 @@ function shapeMissingDefiningTones(shape, chordNotes, rootNote) {
 }
 window.shapeMissingDefiningTones = shapeMissingDefiningTones;
 
+// 0.866 (B-39 Укулеле): канонические формы для GCEA (High G / Low G) и генератор
+// для всех 4 строёв укулеле (High G, Low G, Баритон DGBE, Canadian ADF#B).
+const UKULELE_OPEN_GCEA = {
+  C: [[0,0,0,3]], Cm: [[0,3,3,3]], C7: [[0,0,0,1]], Cmaj7: [[0,0,0,2]], Cm7: [[3,3,3,3]],
+  Csus4: [[0,0,1,3]], Csus2: [[0,2,3,3]], Cdim: [[2,3,2,3]], Caug: [[1,0,0,3]],
+  'C#': [[1,1,1,4]], 'C#m': [[1,1,0,4],[6,4,4,4]], 'C#7': [[1,1,1,2]], 'C#m7': [[1,1,0,2]],
+  Db: [[1,1,1,4]], Dbm: [[1,1,0,4]], Db7: [[1,1,1,2]],
+  D: [[2,2,2,0]], Dm: [[2,2,1,0]], D7: [[2,2,2,3],[2,0,2,0]], Dmaj7: [[2,2,2,4]], Dm7: [[2,2,1,3]],
+  Dsus4: [[2,2,3,0]], Dsus2: [[2,2,0,0]], Ddim: [[1,2,1,2]],
+  Eb: [[0,3,3,1]], Ebm: [[3,3,2,1]], Eb7: [[3,3,3,4]], Ebmaj7: [[3,3,3,5]],
+  'D#': [[0,3,3,1]], 'D#m': [[3,3,2,1]],
+  E: [[1,4,0,2],[4,4,4,2]], Em: [[0,4,3,2]], E7: [[1,2,0,2]], Emaj7: [[1,3,0,2]], Em7: [[0,2,0,2]],
+  F: [[2,0,1,0]], Fm: [[1,0,1,3]], F7: [[2,3,1,0]], Fmaj7: [[2,4,1,3],[5,5,0,0]], Fm7: [[1,3,1,3]],
+  'F#': [[3,1,2,1]], 'F#m': [[2,1,2,0]], 'F#7': [[3,4,2,4]], 'F#m7': [[2,4,2,4]],
+  Gb: [[3,1,2,1]], Gbm: [[2,1,2,0]],
+  G: [[0,2,3,2]], Gm: [[0,2,3,1]], G7: [[0,2,1,2]], Gmaj7: [[0,2,2,2]], Gm7: [[0,2,1,1]], Gsus4: [[0,2,3,3]],
+  Ab: [[5,3,4,3]], Abm: [[1,3,4,2],[4,3,4,2]], Ab7: [[1,3,2,3]],
+  'G#': [[5,3,4,3]], 'G#m': [[1,3,4,2],[4,3,4,2]],
+  A: [[2,1,0,0]], Am: [[2,0,0,0]], A7: [[0,1,0,0]], Amaj7: [[1,1,0,0]], Am7: [[0,0,0,0]], Asus4: [[2,2,0,0]], Asus2: [[2,4,5,2]],
+  Bb: [[3,2,1,1]], Bbm: [[3,1,1,1]], Bb7: [[1,2,1,1]], Bbmaj7: [[3,2,1,0]], Bbm7: [[1,1,1,1]],
+  'A#': [[3,2,1,1]], 'A#m': [[3,1,1,1]],
+  B: [[4,3,2,2]], Bm: [[4,2,2,2]], B7: [[2,3,2,2]], Bmaj7: [[3,3,2,2]], Bm7: [[2,2,2,2]], Bdim: [[4,2,1,2]],
+};
+
+function generateUkuleleFingeringVariants(chordName, key, prevChordName) {
+  const cacheKey = buildFingeringChordKey(chordName, key) + (prevChordName ? '|' + prevChordName : '');
+  if (fingeringCache.has(cacheKey)) return fingeringCache.get(cacheKey);
+
+  const main = chordName.split('/')[0].trim();
+  const bassNote = chordName.includes('/') ? chordName.split('/')[1].trim() : null;
+  const ks = getKeyStyle(key);
+  const chordNotes = getChordNotes(main, ks) || [];
+  const rootMatch = main.match(/^([A-G][#b]?)/);
+  const rootNote = rootMatch ? rootMatch[1] : '';
+  const dimColor = dimColorPc(main);
+
+  const openNotes = b39GuitarTuningNotes(); // 4 ноты с октавами
+  const openMidis = openNotes.map((n) => tunerNoteToMidi(n));
+  const openPcs = openNotes.map((n) => CHROMATIC.indexOf(toSharpNote(n.replace(/-?\d+$/, ''))));
+  const targetPcs = new Set(chordNotes.map((n) => CHROMATIC.indexOf(toSharpNote(String(n).replace(/-?\d+$/, '')))));
+  if (Number.isInteger(dimColor)) targetPcs.add(dimColor);
+  const rootPc = rootNote ? CHROMATIC.indexOf(toSharpNote(rootNote)) : -1;
+  const bassPc = bassNote ? CHROMATIC.indexOf(toSharpNote(bassNote)) : -1;
+  if (bassPc >= 0) targetPcs.add(bassPc);
+  const essentialPcs = [];
+  chordNotes.forEach((n) => {
+    const pc = CHROMATIC.indexOf(toSharpNote(String(n).replace(/-?\d+$/, '')));
+    if (pc >= 0 && !essentialPcs.includes(pc)) essentialPcs.push(pc);
+  });
+  const fifthPc = rootPc >= 0 ? (rootPc + 7) % 12 : -1;
+
+  // Пользовательские формы текущего строя укулеле
+  const userEntries = (userFingerings.get(buildFingeringChordKey(chordName, key)) || [])
+    .map((entry) => {
+      const sh = ufEntryShape(entry);
+      return sh && sh.length === 4 ? { shape: sh, method: 'user', barreOff: ufEntryBarre(entry), fingers: ufEntryFingers(entry) } : null;
+    })
+    .filter(Boolean);
+
+  if (!chordNotes.length || openPcs.length !== 4 || openMidis.some((m) => m === null)) {
+    const res = {
+      shapes: userEntries.map((e) => e.shape),
+      methods: userEntries.map((e) => e.method),
+      barreOffs: userEntries.map((e) => e.barreOff || null),
+      fingers: userEntries.map((e) => e.fingers || null),
+    };
+    fingeringCache.set(cacheKey, res);
+    return res;
+  }
+
+  // Каноническая подсказка для строёв GCEA и перенос на Canadian (+2) / Baritone (DGBE)
+  const canonSet = new Set();
+  const ukeId = b39TunerId();
+  if (!bassNote) {
+    if (ukeId === 'high-g' || ukeId === 'low-g') {
+      const list = UKULELE_OPEN_GCEA[main];
+      if (list) list.forEach((sh) => canonSet.add(sh.join(',')));
+    } else if (ukeId === 'canadian' && typeof transposeChord === 'function') {
+      const shiftedName = transposeChord(main, -2);
+      const list = UKULELE_OPEN_GCEA[shiftedName];
+      if (list) list.forEach((sh) => canonSet.add(sh.join(',')));
+    }
+  }
+
+  // Для каждой из 4 струн находим допустимые лады 0..15, дающие тон аккорда
+  const fretsPerStr = openPcs.map((opc) => {
+    const arr = [];
+    for (let f = 0; f <= 15; f++) {
+      if (targetPcs.has((opc + f) % 12)) arr.push(f);
+    }
+    return arr;
+  });
+
+  const seen = new Set();
+  const candidates = [];
+
+  function evaluateShape(sh) {
+    const k = sh.join(',');
+    if (seen.has(k)) return;
+    seen.add(k);
+
+    const fretted = [];
+    const presentPcs = new Set();
+    let lowestMidi = 999;
+    let lowestPc = -1;
+    let muted = 0;
+    let openCount = 0;
+    for (let s = 0; s < 4; s++) {
+      const f = sh[s];
+      if (f === 'x') { muted++; continue; }
+      if (f === 0) openCount++; else fretted.push(f);
+      const midi = openMidis[s] + f;
+      const pc = (openPcs[s] + f) % 12;
+      presentPcs.add(pc);
+      if (midi < lowestMidi) { lowestMidi = midi; lowestPc = pc; }
+    }
+    if (4 - muted < 3) return;
+    if (fretted.length) {
+      const minF = Math.min(...fretted), maxF = Math.max(...fretted);
+      if (maxF - minF > 4) return;
+    }
+    // Проверяем присутствие обязательных тонов аккорда (на 4 струнах квинту можно опустить у 4+ тоновых аккордов)
+    if (rootPc >= 0 && !presentPcs.has(rootPc)) return;
+    if (bassPc >= 0 && lowestPc !== bassPc) return;
+    let missingNonFifth = 0;
+    let missingFifth = 0;
+    for (const pc of essentialPcs) {
+      if (!presentPcs.has(pc)) {
+        if (pc === fifthPc) missingFifth++;
+        else missingNonFifth++;
+      }
+    }
+    if (essentialPcs.length <= 3 && (missingNonFifth > 0 || missingFifth > 0)) {
+      // Для обычного трезвучия требуем все 3 тона (кроме dim, где возможна замена)
+      if (!Number.isInteger(dimColor) || missingNonFifth > 0) return;
+    } else if (essentialPcs.length === 4 && missingNonFifth > 0) {
+      return;
+    } else if (essentialPcs.length > 4 && missingNonFifth > 1) {
+      return;
+    }
+
+    const grip = analyzeShapeGripUkulele(sh);
+    if (grip.ban) return;
+
+    const maxF = fretted.length ? Math.max(...fretted) : 0;
+    const minF = fretted.length ? Math.min(...fretted) : 0;
+    const span = fretted.length ? maxF - minF : 0;
+    let score = 200;
+    const isCanon = canonSet.has(k);
+    if (isCanon) score += 120;
+    score -= maxF * 6;
+    score -= minF * 3;
+    score -= span * 8;
+    score += openCount * 14;
+    score -= muted * 65;
+    score -= missingFifth * 15;
+    score -= missingNonFifth * 40;
+    if (lowestPc === (bassPc >= 0 ? bassPc : rootPc)) score += 18;
+    if (grip.chosen && grip.chosen.b) score -= 12;
+    score -= (grip.chosen ? grip.chosen.fingers : 0) * 4;
+    // Бонус за 4 разные ноты у 4-тоновых аккордов
+    score += presentPcs.size * 10;
+
+    candidates.push({ shape: sh, method: isCanon ? 'open' : (maxF <= 5 ? 'caged' : 'auto'), score });
+  }
+
+  // Полный перебор в окнах по 4 лада + открытые струны (4^4 = очень быстро)
+  for (let winStart = 1; winStart <= 12; winStart++) {
+    const winEnd = Math.min(15, winStart + 3);
+    const opts = fretsPerStr.map((arr) => {
+      const sub = arr.filter((f) => f === 0 || (f >= winStart && f <= winEnd));
+      return sub;
+    });
+    if (opts.some((o) => !o.length)) continue;
+    for (const f0 of opts[0]) {
+      for (const f1 of opts[1]) {
+        for (const f2 of opts[2]) {
+          for (const f3 of opts[3]) {
+            evaluateShape([f0, f1, f2, f3]);
+          }
+        }
+      }
+    }
+  }
+  // Также проверяем явно канонические формы (если вдруг размах 4 лада)
+  canonSet.forEach((k) => {
+    const sh = k.split(',').map((v) => (v === 'x' ? 'x' : Number(v)));
+    if (sh.length === 4 && sh.every((f, s) => f === 'x' || targetPcs.has((openPcs[s] + f) % 12))) {
+      evaluateShape(sh);
+    }
+  });
+  // Если без заглушённых струн вариантов не нашлось (редкий slash или сложный аккорд), пробуем 1 заглушённую струну
+  if (!candidates.length) {
+    for (let muteStr = 0; muteStr < 4; muteStr++) {
+      for (let winStart = 1; winStart <= 11; winStart++) {
+        const winEnd = Math.min(15, winStart + 3);
+        const opts = fretsPerStr.map((arr, s) => s === muteStr ? ['x'] : arr.filter((f) => f === 0 || (f >= winStart && f <= winEnd)));
+        if (opts.some((o) => !o.length)) continue;
+        for (const f0 of opts[0]) for (const f1 of opts[1]) for (const f2 of opts[2]) for (const f3 of opts[3]) {
+          evaluateShape([f0, f1, f2, f3]);
+        }
+      }
+    }
+  }
+
+  candidates.sort((a, b) => (b.score - a.score) || a.shape.join(',').localeCompare(b.shape.join(',')));
+
+  // Объединяем пользовательские + лучшие найденные (до 16 разнообразных вариантов)
+  const finalEntries = [];
+  const usedIds = new Set();
+  userEntries.forEach((e) => {
+    const id = fingeringIdentity(e.shape, e.barreOff);
+    if (!usedIds.has(id)) { usedIds.add(id); finalEntries.push(e); }
+  });
+  for (const c of candidates) {
+    if (finalEntries.length >= 16) break;
+    const id = fingeringIdentity(c.shape, null);
+    if (!usedIds.has(id)) {
+      usedIds.add(id);
+      finalEntries.push({ shape: c.shape, method: c.method, barreOff: null, fingers: null });
+    }
+  }
+
+  const res = {
+    shapes: finalEntries.map((e) => e.shape),
+    methods: finalEntries.map((e) => e.method),
+    barreOffs: finalEntries.map((e) => e.barreOff || null),
+    fingers: finalEntries.map((e) => e.fingers || null),
+  };
+  fingeringCache.set(cacheKey, res);
+  return res;
+}
+
 function generateFingeringVariants(chordName, key, prevChordName = null) {
   if (!chordName) return [];
+  if (typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext()) {
+    return generateUkuleleFingeringVariants(chordName, key, prevChordName);
+  }
   // Строй входит в ключ: в Drop D у того же аккорда другой набор форм,
   // и общий кэш выдавал бы формы от чужих струн.
   const cacheKey =
@@ -32546,8 +32929,9 @@ function ufEntryFingers(entry) {
 }
 
 // B-41: проверка и очистка массива номеров пальцев (1..4, 'T', 0, 'x', null)
-function asSafeFingers(raw) {
-  if (!Array.isArray(raw) || raw.length !== 6) return null;
+function asSafeFingers(raw, expectedLen) {
+  if (!Array.isArray(raw)) return null;
+  if (expectedLen ? raw.length !== expectedLen : (raw.length !== 6 && raw.length !== 4)) return null;
   const out = [];
   let hasAny = false;
   for (const v of raw) {
@@ -32581,7 +32965,72 @@ function fingersForEventShape(ev, form) {
 
 // B-41: расчёт номеров пальцев (1..4, T) для формы ладов.
 // Если передан customFingers — кастомные назначения перекрывают авто-расчёт.
+// 0.866: анатомическая раскладка пальцев 1..4 для 4-струнной формы укулеле.
+function computeFingersForUkuleleShape(shape, customFingers, barreOff) {
+  const result = new Array(4).fill(null);
+  if (customFingers && Array.isArray(customFingers) && customFingers.length === 4) {
+    let hasCustom = false;
+    for (let s = 0; s < 4; s++) {
+      if (shape[s] === 'x') result[s] = 'x';
+      else if (shape[s] === 0 || shape[s] === '0') result[s] = 0;
+      else if (customFingers[s] != null && customFingers[s] !== 'x' && customFingers[s] !== 0 && customFingers[s] !== '0') {
+        result[s] = Number(customFingers[s]) || customFingers[s];
+        hasCustom = true;
+      }
+    }
+    if (hasCustom && result.every((v, s) => shape[s] === 'x' || shape[s] === 0 || shape[s] === '0' || v != null)) return result;
+  }
+  const fretted = [];
+  for (let s = 0; s < 4; s++) {
+    const f = shape[s];
+    if (f === 'x') result[s] = 'x';
+    else if (f === 0 || f === '0') result[s] = 0;
+    else fretted.push({ s, fret: Number(f) });
+  }
+  if (!fretted.length) return result;
+  const grip = analyzeShapeGripUkulele(shape);
+  if (grip.ban) return null;
+  const barre = grip.chosen ? grip.chosen.b : null;
+  const barreSuppressed = barre && barreOff && normalizeBarreOffSet(barreOff) && normalizeBarreOffSet(barreOff).has(barre.fret);
+  const barreStrings = (barre && !barreSuppressed) ? new Set(barre.strings) : new Set();
+  if (barre && !barreSuppressed) {
+    for (const s of barre.strings) {
+      if (Number(shape[s]) === Number(barre.fret)) result[s] = 1;
+    }
+  }
+  const rem = fretted.filter((v) => !(barre && !barreSuppressed && v.fret === barre.fret && barreStrings.has(v.s)));
+  if (!rem.length) return result;
+  const minF = grip.minFret;
+  // Сортируем по ладу, затем от 4-й струны к 1-й (естественное положение пальцев на укулеле)
+  rem.sort((a, b) => (a.fret - b.fret) || (a.s - b.s));
+  // Одиночная нота на 3-м ладу (C = 0,0,0,3) — традиционно безымянный (3), на 2-м — средний (2), на 1-м — указательный (1)
+  if (!barre && rem.length === 1 && rem[0].fret >= 1 && rem[0].fret <= 4) {
+    result[rem[0].s] = rem[0].fret;
+    return result;
+  }
+  let nextFinger = (barre && !barreSuppressed) ? 2 : 1;
+  // Если без баррэ, все лады начинаются с 2-го и размах <= 2 и открытые есть (например G = 0,2,3,2 -> 1,3,2),
+  // распределяем 1..4 по возрастанию лада.
+  for (let i = 0; i < rem.length; i++) {
+    const item = rem[i];
+    if (!barre && minF === 1 && rem.length <= 3) {
+      // Открытые позиции от 1-го лада: F (2,0,1,0) -> лад 1=1, лад 2=2; Dm (2,2,1,0) -> лад 1=1, лад 2=2,3
+      const sameBefore = rem.slice(0, i).filter((x) => x.fret === item.fret).length;
+      const desired = Math.min(4, Math.max(nextFinger, (item.fret - minF + 1) + sameBefore));
+      result[item.s] = desired;
+      nextFinger = Math.min(4, desired + 1);
+    } else {
+      result[item.s] = Math.min(4, nextFinger);
+      nextFinger = Math.min(4, nextFinger + 1);
+    }
+  }
+  return result;
+}
+
 function computeFingersForShape(shape, customFingers, barreOff) {
+  if (Array.isArray(shape) && shape.length === 4) {
+    return computeFingersForUkuleleShape(shape, customFingers, barreOff);
+  }
   if (customFingers && Array.isArray(customFingers) && customFingers.length === 6) {
     const out = new Array(6).fill(null);
     let hasCustom = false;
@@ -32837,6 +33286,10 @@ html.b39-keys-mode .sound-mark,
 html.b39-keys-mode .tab-btn,
 html.b39-keys-mode .add-tab-btn,
 html.b39-keys-mode .chord-wrapper--tab { display:none !important; }
+/* 0.866 (B-39 Укулеле, Этап 1): 6-струнный TAB-редактор скрыт на укулеле до Этапа 2 */
+html.b39-ukulele-mode .tab-btn,
+html.b39-ukulele-mode .add-tab-btn,
+html.b39-ukulele-mode .chord-wrapper--tab { display:none !important; }
 /* Строй относится к струнным инструментам, а не активной клавишной дорожке. */
 html.b39-keys-mode #tuningPillLabel, html.b39-keys-mode #tuningPill,
 html.b39-keys-mode #tuningPickerList { display:none !important; }
@@ -34491,9 +34944,9 @@ html:not([data-theme='dark']):not([data-scheme]) .b39-keys-svg rect[fill="var(--
 // <<< B-39 STAGE4 END (KEYS VOICING UI) <<<
 function renderFingeringSVG(fingers, bottomPad, opts) {
   const padTop = 25;
-  const stringSpacing = 18,
+  const strings = Array.isArray(fingers) && fingers.length === 4 ? 4 : 6;
+  const stringSpacing = strings === 4 ? 22 : 18,
     fretSpacing = 25,
-    strings = 6,
     frets = 5,
     dotRadius = 6;
   const fretWidth = (strings - 1) * stringSpacing;
@@ -34512,7 +34965,7 @@ function renderFingeringSVG(fingers, bottomPad, opts) {
 
   let minFret = 99,
     maxFret = 0;
-  for (let s = 0; s < 6; s++) {
+  for (let s = 0; s < strings; s++) {
     const val = fingers[s];
     if (val === 'x' || val === 0) continue;
     const fret = parseInt(val);
@@ -34640,7 +35093,7 @@ function renderFingeringSVG(fingers, bottomPad, opts) {
     }
   }
 
-  for (let s = 0; s < 6; s++) {
+  for (let s = 0; s < strings; s++) {
     const val = fingers[s];
     const x = padLeft + s * stringSpacing;
     if (val === 'x') {
@@ -35099,18 +35552,18 @@ function resolveFingeringShape(chordName, key, posKey, ev) {
   // — это положение пальцев на конкретных струнах, а не абстрактный
   // аккорд. В чужом строе он молчит (но сохраняется, см.
   // setPreferredFingering) и ячейка берёт подобранную заново форму.
+  const isUke = typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext();
+  const nStr = isUke ? 4 : 6;
+  const maxF = isUke ? 15 : 24;
+  const validShape = (arr) => Array.isArray(arr) && arr.length === nStr && arr.every((v) => v === 'x' || (Number.isInteger(v) && v >= 0 && v <= maxF));
   const suffix = typeof tuningKeySuffix === 'function' ? tuningKeySuffix() : '';
   const sameTuning = !target || (target.fingeringTuning || '') === suffix;
   const onEvent = sameTuning && target && target.fingering;
   if (onEvent) {
-    if (Array.isArray(onEvent) && onEvent.length === 6 && onEvent.every((v) => v === 'x' || Number.isFinite(v))) {
-      return onEvent;
-    }
+    if (validShape(onEvent)) return onEvent;
     if (typeof onEvent === 'string') {
       const parsed = onEvent.split(',').map((v) => (v.trim() === 'x' ? 'x' : Number(v)));
-      if (parsed.length === 6 && parsed.every((v) => v === 'x' || Number.isFinite(v))) {
-        return parsed;
-      }
+      if (validShape(parsed)) return parsed;
     }
   }
 
@@ -35124,14 +35577,10 @@ function resolveFingeringShape(chordName, key, posKey, ev) {
         const found = variants.find((v) => v.join(',') === preferred);
         if (found) return found;
       }
-      if (Array.isArray(preferred) && preferred.length === 6 && preferred.every((v) => v === 'x' || Number.isFinite(v))) {
-        return preferred;
-      }
+      if (validShape(preferred)) return preferred;
       if (typeof preferred === 'string') {
         const parsed = preferred.split(',').map((v) => (v.trim() === 'x' ? 'x' : Number(v)));
-        if (parsed.length === 6 && parsed.every((v) => v === 'x' || Number.isFinite(v))) {
-          return parsed;
-        }
+        if (validShape(parsed)) return parsed;
       }
     }
   }
@@ -35586,7 +36035,7 @@ function showFingeringTooltip(chordName, wrapper, isPreview = false, isCurrentLa
   const activeState=window.StruChordTracks && window.StruChordTracks.state();
   const activeGuitar=activeState && activeState.tracks.find(t=>t.id===activeState.activeTrackId);
   const isKeysMode=!!(activeGuitar && activeGuitar.instrument==='keys');
-  const ownTooltip=!!(activeGuitar && activeGuitar.instrument==='guitar' && activeGuitar.id!==activeState.mainTrackId);
+  const ownTooltip=!!(activeGuitar && (activeGuitar.instrument==='guitar' || activeGuitar.instrument==='ukulele') && activeGuitar.id!==activeState.mainTrackId);
   const ownCell=secId+':'+squareId+':'+eventIndex;
   // На неосновной дорожке ячейка без собственного аккорда (.b39-ghost) молчит — тултип для неё не показываем.
   if (activeState && activeState.mainTrackId !== null && activeState.activeTrackId !== activeState.mainTrackId &&
@@ -36233,7 +36682,7 @@ function renderPinnedFingering(chordName, shape, position) {
   }
   const key = info.sec && info.sec.key ? info.sec.key : globalKey;
   const posKey = buildFingeringPositionKey(name,key,pos.secId,pos.squareId,pos.eventIndex);
-  const own=info.track && info.track.instrument==='guitar' && info.track.id!==info.state.mainTrackId;
+  const own=info.track && (info.track.instrument==='guitar' || info.track.instrument==='ukulele') && info.track.id!==info.state.mainTrackId;
   const choice=own && info.T.guitarShape(info.track.id,info.cell,name);
   const keys=info.track && info.track.instrument==='keys';
   const form=keys ? null : (shape || (own ? (choice ? choice.shape : resolveFingeringShape(name,key,null)) : resolveFingeringShape(name,key,posKey,info.ev)));
@@ -36284,7 +36733,7 @@ function renderPinnedNext(pos) {
   if (!chord) { renderPinnedNext(null); return; }
   const key=info.sec && info.sec.key ? info.sec.key : globalKey;
   const posKey=buildFingeringPositionKey(chord,key,pos.secId,pos.squareId,pos.eventIndex);
-  const own=info.track && info.track.instrument==='guitar' && info.track.id!==info.state.mainTrackId;
+  const own=info.track && (info.track.instrument==='guitar' || info.track.instrument==='ukulele') && info.track.id!==info.state.mainTrackId;
   const choice=own && info.T.guitarShape(info.track.id,info.cell,chord);
   const keys=info.track && info.track.instrument==='keys';
   const form=keys ? null : own ? (choice ? choice.shape : resolveFingeringShape(chord,key,null)) : resolveFingeringShape(chord,key,posKey,info.ev);
@@ -36452,7 +36901,7 @@ function syncPinnedRowToHover(wrapper) {
   const content = document.getElementById('pinnedFingering');
   const host = content && content.querySelector('.fingering-content');
   const info=pinnedTrackContext({secId,squareId:+wrapper.dataset.square,eventIndex:+wrapper.dataset.ei});
-  const own=info.track && info.track.instrument==='guitar' && info.track.id!==info.state.mainTrackId;
+  const own=info.track && (info.track.instrument==='guitar' || info.track.instrument==='ukulele') && info.track.id!==info.state.mainTrackId;
   const choice=own && info.T.guitarShape(info.track.id,info.cell,chord);
   const keys=info.track && info.track.instrument==='keys';
   const bo=keys ? null : own ? (choice && choice.barreOff) : barreOffForEventShape(info.ev,form);
@@ -37092,19 +37541,25 @@ function analyzeFingeringShape(shape, context = {}) {
 }
 function analyzeFingeringShapeRaw(shape, context = {}) {
   // Разбор «что за аккорд нарисован на грифе» зависит от строя и контекста (B-81).
+  const nStr = Array.isArray(shape) ? shape.length : 6;
+  const fullNotes = b39GuitarTuningNotes();
   const stringNotes = songStringNotes();
-  const isClassicC6Shape = ['x', 3, 2, 2, 1, 0].every((v, i) => String(shape[i]) === String(v));
+  const isClassicC6Shape = nStr === 6 && ['x', 3, 2, 2, 1, 0].every((v, i) => String(shape[i]) === String(v));
   const chromatic = ['C', 'C#', 'D', 'D#', 'E', 'F', 'F#', 'G', 'G#', 'A', 'A#', 'B'];
 
   const notesWithStrings = [];
-  for (let s = 0; s < 6; s++) {
+  for (let s = 0; s < nStr; s++) {
     const val = shape[s];
     if (val === 'x') continue;
     const openNote = stringNotes[s];
     const openIdx = chromatic.indexOf(openNote);
-    const noteIdx = (openIdx + (val === 0 ? 0 : val)) % 12;
+    if (openIdx < 0) continue;
+    const fretNum = val === 0 ? 0 : Number(val);
+    const noteIdx = (openIdx + fretNum) % 12;
     const note = chromatic[noteIdx];
-    notesWithStrings.push({ string: s, fret: val, note });
+    const openMidi = fullNotes[s] ? tunerNoteToMidi(fullNotes[s]) : null;
+    const midi = openMidi !== null ? openMidi + fretNum : null;
+    notesWithStrings.push({ string: s, fret: val, note, midi });
   }
   if (notesWithStrings.length < 2) {
     return { chordName: '?', reason: 'too_few_notes', rootNote: null, intervals: null };
@@ -37116,7 +37571,17 @@ function analyzeFingeringShapeRaw(shape, context = {}) {
   }
 
   const candidates = [];
-  const bassNote = notesWithStrings[0].note;
+  // 0.866: в re-entrant строях укулеле (High G, Canadian) самая низкая звучащая нота —
+  // по минимальному MIDI (например C4 в C = 0,0,0,3), а не по индексу 0 (G4).
+  let bassEntry = notesWithStrings[0];
+  if (nStr === 4) {
+    notesWithStrings.forEach((entry) => {
+      if (entry.midi !== null && (bassEntry.midi === null || entry.midi < bassEntry.midi)) {
+        bassEntry = entry;
+      }
+    });
+  }
+  const bassNote = bassEntry.note;
 
   function scoreCandidate(chordName, rootNote, effectiveBassNote, notesArr, ctx) {
     let score = 0;
@@ -37622,14 +38087,12 @@ function buildChordName(root, intervals) {
 }
 
 function createInteractiveFretboard(initialShape, onChange, opts = {}) {
-  // B-78: гриф крупнее и «легче» прежнего (18→22 шаг струн, 25→28 шаг
-  // ладов, точки 6→7) — цели клика комфортнее, но без раздутости.
-  // Геометрия — единственное, что поменялось; логика окна ладов, баррэ,
-  // кликов и API идентичны прежним.
-  const strings = 6,
+  // B-78 / 0.866 (B-39 Укулеле): 4 струны (0..15 ладов) для укулеле, 6 для гитары.
+  const strings = Array.isArray(initialShape) && initialShape.length === 4 ? 4 : 6,
     frets = 5,
     dotRadius = 7;
-  const stringSpacing = 22,
+  const maxBoardFret = strings === 4 ? 15 : 16;
+  const stringSpacing = strings === 4 ? 26 : 22,
     fretSpacing = 28;
   const padLeft = 40,
     padTop = 34;
@@ -37640,7 +38103,7 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
 
   let minFret = 99,
     maxFret = 0;
-  for (let s = 0; s < 6; s++) {
+  for (let s = 0; s < strings; s++) {
     const val = initialShape[s];
     if (val !== 'x' && val !== 0) {
       const fret = parseInt(val);
@@ -37804,7 +38267,7 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
       }
     }
 
-    for (let s = 0; s < 6; s++) {
+    for (let s = 0; s < strings; s++) {
       const val = shape[s];
       const x = padLeft + s * stringSpacing;
       const markY = padTop - 10;
@@ -37882,7 +38345,7 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
       container.appendChild(btnUp);
     }
 
-    if (gridStartFret < 12) {
+    if (gridStartFret < maxBoardFret - frets + 1) {
       const btnDown = document.createElement('button');
       btnDown.type = 'button';
       btnDown.className = 'fe-shift';
@@ -37893,7 +38356,7 @@ function createInteractiveFretboard(initialShape, onChange, opts = {}) {
       btnDown.onclick = (e) => {
         e.stopPropagation();
         const newShape = shape.map((v) => (v !== 'x' && v !== 0 ? v + 1 : v));
-        if (newShape.some((v) => v !== 'x' && v !== 0 && v > 16)) return;
+        if (newShape.some((v) => v !== 'x' && v !== 0 && v > maxBoardFret)) return;
         shape = newShape;
         gridStartFret++;
         redraw();
@@ -38161,7 +38624,10 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
   const createMode = !!opts.createMode;
   const gt=window.StruChordTracks, gtState=gt && gt.state();
   const gtTrack=gtState && gtState.tracks.find(t=>t.id===gtState.activeTrackId);
-  const ownGuitar=!!(wrapper && gtTrack && gtTrack.instrument==='guitar' && gtTrack.id!==gtState.mainTrackId);
+  const isUkeEditor = !!(gtTrack && gtTrack.instrument === 'ukulele');
+  const editorStrings = isUkeEditor ? 4 : 6;
+  const editorMaxFret = isUkeEditor ? 15 : 24;
+  const ownGuitar=!!(wrapper && gtTrack && (gtTrack.instrument==='guitar' || gtTrack.instrument==='ukulele') && gtTrack.id!==gtState.mainTrackId);
   const ownCell=ownGuitar ? wrapper.dataset.sec+':'+wrapper.dataset.square+':'+wrapper.dataset.ei : null;
   let key = activeSectionKey || globalKey;
   if (wrapper) {
@@ -38213,27 +38679,28 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
   if (createMode) {
     // Аппликатура "с нуля": имя аккорда ещё не определено, поэтому
     // никаких вариантов не подгружаем — просто пустой гриф.
-    currentShape = Array(6).fill('x');
+    currentShape = Array(editorStrings).fill('x');
     cacheKey = null;
   } else {
-    // Строй входит в ключ: форма, собранная в Drop D, не должна
-    // подставляться в стандартном строе — там она звучит иначе.
+    // Строй входит в ключ: форма, собранная в Drop D или другом строе укулеле,
+    // не должна подставляться в чужом строе.
     cacheKey = buildFingeringChordKey(chordName, key);
     activeCacheKey = cacheKey;
     const result = window.getFingeringVariants ? window.getFingeringVariants(chordName, key) : null;
     const variants = result ? result.shapes : [];
-    if (entrySnapshot && entrySnapshot.fingering) {
+    const entrySuffix = typeof tuningKeySuffix === 'function' ? tuningKeySuffix() : '';
+    if (entrySnapshot && entrySnapshot.fingering && (entrySnapshot.fingeringTuning || '') === entrySuffix) {
       const raw = entrySnapshot.fingering;
       const parsed = Array.isArray(raw)
         ? raw
         : (typeof raw === 'string' ? raw.split(',').map((v) => (v.trim() === 'x' ? 'x' : Number(v))) : null);
-      if (parsed && parsed.length === 6 && parsed.every((v) => v === 'x' || Number.isFinite(v))) {
+      if (parsed && parsed.length === editorStrings && parsed.every((v) => v === 'x' || (Number.isInteger(v) && v >= 0 && v <= editorMaxFret))) {
         currentShape = [...parsed];
       }
     }
     if(ownGuitar) {
       const own=gt.guitarShape(gtTrack.id,ownCell,chordName);
-      if(own){currentShape=own.shape.slice();initialBarreOff=own.barreOff||null;initialFingers=own.fingers||null;}
+      if(own && own.shape && own.shape.length === editorStrings){currentShape=own.shape.slice();initialBarreOff=own.barreOff||null;initialFingers=own.fingers||null;}
     }
     if (!currentShape) {
       if (variants && variants[variantIndex]) {
@@ -38241,7 +38708,7 @@ function openFingeringEditor(chordName, variantIndex, wrapper, opts = {}) {
       } else if (variants && variants.length > 0) {
         currentShape = [...variants[0]];
       } else {
-        currentShape = Array(6).fill('x');
+        currentShape = Array(editorStrings).fill('x');
       }
     }
     if (!initialFingers) {
@@ -41988,7 +42455,7 @@ function resolveValidKey(k, valid) {
 function transposeFingeringShape(shapeStr, st) {
   if (!shapeStr || !st) return shapeStr || null;
   const parts = String(shapeStr).split(',');
-  if (parts.length !== 6) return null;
+  if (parts.length !== 6 && parts.length !== 4) return null;
   let hasOpen = false;
   const moved = parts.map((v) => {
     const t = v.trim();
@@ -45230,7 +45697,30 @@ function shiftSquareRhythmRefs(st, secId, sqId, fromIdx, delta) {
 // такте, либо ничего). На покрытых ячейках окно == фасаду (самопроверка
 // миграции на каждой загрузке + золотой слепок), поэтому переход слуха
 // не меняет — меняет источник истины: лента вместо кэша.
+// 0.866 (B-39 Укулеле): подорожечный ритм укулеле хранится в track.patterns
+// ('s:<secId>' для секции и '<secId>:<sqId>:<ei>' для ячейки), не конфликтуя с гитарой.
+function b39UkeTrackForRhythm() {
+  const tr = typeof b39ContextTrack === 'function' ? b39ContextTrack() : null;
+  return tr && tr.instrument === 'ukulele' ? tr : null;
+}
+function b39SectionStrumPattern(sec) {
+  const uke = b39UkeTrackForRhythm();
+  if (uke) return (uke.patterns && sec && uke.patterns['s:' + sec.id]) || null;
+  return (sec && sec.strumPattern) || null;
+}
+function b39EventOwnStrumPattern(sec, sq, ev, ei) {
+  const uke = b39UkeTrackForRhythm();
+  if (uke) {
+    if (!sec || !sq || ei == null) return null;
+    return (uke.patterns && uke.patterns[sec.id + ':' + sq.id + ':' + ei]) || null;
+  }
+  const rollWinCell = songRhythmRolls && sec && sq ? rhythmRollWindowFor(sec.id, sq, ei, songRhythmRolls) : null;
+  return rollWinCell || (ev && ev.strumPattern) || null;
+}
 function rhythmSoundingForEvent(sec, sq, ev, eventIndex) {
+  if (b39UkeTrackForRhythm()) {
+    return getSlicedPatternForEvent(sec, sq, ev, eventIndex);
+  }
   const win = songRhythmRolls && sec && sq
     ? rhythmRollWindowFor(sec.id, sq, eventIndex, songRhythmRolls)
     : null;
@@ -46712,41 +47202,48 @@ function scheduleNextEvent(ctx) {
     // от нуля по нужной длине, ветка exact это играет дословно. Источник
     // истины — лента; на покрытых ячейках окно == фасаду (самопроверка),
     // так что смена источника слуха не меняет.
-    const rollWin = songRhythmRolls
-      ? rhythmRollWindowFor(next.section.id, next.square, next.eventIndex, songRhythmRolls)
-      : null;
-    const ownEventPattern = rollWin || next.event.strumPattern || null;
-    const inheritedPattern = getEffectiveStrumPattern(null, next.square, next.section);
-    const strumPattern = ownEventPattern || inheritedPattern;
-    // 0.804 (B-120): в режиме Ленты карточки редактора скрыты — не тратим
-    // ~50 мс на пересборку скрытых превью боя в секции и ячейке на каждом аккорде.
+    const trackState = window.StruChordTracks ? window.StruChordTracks.state() : null;
+    const mainTrack = trackState && trackState.tracks.find(t => t.id === trackState.mainTrackId);
+    const activeTrack = trackState && trackState.tracks.find(t => t.id === trackState.activeTrackId);
+    const mainIsString = !trackState || (mainTrack && (mainTrack.instrument === 'guitar' || mainTrack.instrument === 'ukulele'));
+    const mainRhythm = b39WithTrackTuning(mainTrack ? mainTrack.id : null, () => {
+      const ownP = b39EventOwnStrumPattern(next.section, next.square, next.event, next.eventIndex);
+      const inhP = getEffectiveStrumPattern(null, next.square, next.section);
+      return { own: ownP, pat: ownP || inhP };
+    });
+    const activeRhythm = b39WithTrackTuning(activeTrack ? activeTrack.id : null, () => {
+      const ownP = b39EventOwnStrumPattern(next.section, next.square, next.event, next.eventIndex);
+      const inhP = getEffectiveStrumPattern(null, next.square, next.section);
+      const secDef = b39SectionStrumPattern(next.section);
+      return { own: ownP, pat: ownP || inhP, secDef };
+    });
+    // 0.804 (B-120) / 0.866: в редакторе подсвечиваем ритм активной струнной дорожки.
     if (!timelineMode) schedulePlaybackVisualAt(ctx, evStart, () => {
       if (!playbackState.isPlaying) return;
-      setSectionLiveStrumBadge(next.section, strumPattern);
-      setEventLiveStrumPreview(next.section.id, next.square.id, next.eventIndex, strumPattern, next.section.strumPattern || null);
+      setSectionLiveStrumBadge(next.section, activeRhythm.pat);
+      setEventLiveStrumPreview(next.section.id, next.square.id, next.eventIndex, activeRhythm.pat, activeRhythm.secDef || null);
     });
-    currentPlayingStrumPattern = strumPattern;
+    currentPlayingStrumPattern = activeRhythm.pat;
     // B-12.5.3: какое звучание аккомпанемента звучит на этой позиции —
     // точки автоматизации тембра перекрывают исходное звучание канала.
     songSoundNow = songSoundAtEvent(next.section, next.square, next.eventIndex);
     // Главная дорожка хранит аккорд в ev.chord; клавиши уже запланированы выше.
-    const trackState = window.StruChordTracks ? window.StruChordTracks.state() : null;
-    const mainTrack = trackState && trackState.tracks.find(t => t.id === trackState.mainTrackId);
-    const mainHasRecordedNotes = Array.isArray(next.event.notes) && next.event.notes.length;
-    const mainUsesGuitarPattern = (!trackState || (mainTrack && mainTrack.instrument === 'guitar'))
-      && !mainHasRecordedNotes;
-    if (mainUsesGuitarPattern) {
-      scheduleRhythmVisual(next.event.chord, posCtx, strumPattern, !!ownEventPattern);
+    const mainHasRecordedNotes = mainTrack && mainTrack.instrument === 'guitar' && Array.isArray(next.event.notes) && next.event.notes.length;
+    const mainUsesStringPattern = mainIsString && !mainHasRecordedNotes;
+    if (mainUsesStringPattern && (!activeTrack || activeTrack.id === (mainTrack && mainTrack.id))) {
+      b39WithTrackTuning(mainTrack ? mainTrack.id : null, () => {
+        scheduleRhythmVisual(next.event.chord, posCtx, mainRhythm.pat, !!mainRhythm.own);
+      });
     }
-    const mainGain = !trackState ? 1 : (mainTrack && mainTrack.instrument === 'guitar' ? b39TrackGain(trackState, mainTrack) : 0);
+    const mainGain = !trackState ? 1 : (mainTrack && (mainTrack.instrument === 'guitar' || mainTrack.instrument === 'ukulele') ? b39TrackGain(trackState, mainTrack) : 0);
     if (mainGain > 0) b39WithTrackTuning(mainTrack ? mainTrack.id : null, () => b39WithGuitarGain(mainGain, () => {
       // 0.838: id дорожки — чтобы голос играл через её узел громкости.
       if (mainHasRecordedNotes) {
         scheduleAccompNotes(next.event.notes, evStart, bpm, ts, next.event.chord, effectiveKey);
-      } else if (strumPattern) {
+      } else if (mainRhythm.pat) {
         timelinePassHint = tlPass;
-        schedulePatternForEvent(next.event.chord, evStart, dur, posCtx, strumPattern, bpm, ts,
-          next.square, next.eventIndex, next.event.span || 1, !!ownEventPattern, next.section,
+        schedulePatternForEvent(next.event.chord, evStart, dur, posCtx, mainRhythm.pat, bpm, ts,
+          next.square, next.eventIndex, next.event.span || 1, !!mainRhythm.own, next.section,
           { audio: true, visuals: false });
       } else {
         playChordScheduled(next.event.chord, evStart, dur, posCtx);
@@ -46761,37 +47258,38 @@ function scheduleNextEvent(ctx) {
     });
   }
 
-  // Другие гитары могут иметь собственный аккорд даже при пустой главной.
+  // Другие гитары и укулеле могут иметь собственный аккорд и свой ритм даже при пустой главной.
   if (window.StruChordTracks) {
     const T = window.StruChordTracks, state = T.state();
     const cell = T.cellKey(next.section, next.square, next.eventIndex);
     const key = next.section.key || globalKey;
     const pos = { secId: next.section.id, squareId: next.square.id, eventIndex: next.eventIndex, key };
-    const roll = songRhythmRolls ? rhythmRollWindowFor(next.section.id, next.square, next.eventIndex, songRhythmRolls) : null;
-    const own = roll || next.event.strumPattern || null;
-    const pattern = own || getEffectiveStrumPattern(null, next.square, next.section);
     state.tracks.forEach(track => {
-      if (track.id === state.mainTrackId || track.instrument !== 'guitar') return;
-      const recNotes = typeof T.recordedNotes === 'function' ? T.recordedNotes(track.id, cell) : null;
+      if (track.id === state.mainTrackId || (track.instrument !== 'guitar' && track.instrument !== 'ukulele')) return;
+      const recNotes = track.instrument === 'guitar' && typeof T.recordedNotes === 'function' ? T.recordedNotes(track.id, cell) : null;
       const chord = T.trackChord(track.id, cell, next.event);
       const trackPos = { ...pos, trackId: track.id };
-      if (chord && !(recNotes && recNotes.length)) {
-        scheduleRhythmVisual(chord, trackPos, pattern, !!own);
-      }
-      const gain = b39TrackGain(state, track);
-      if ((!chord && !(recNotes && recNotes.length)) || gain <= 0) return;
-      b39WithTrackTuning(track.id, () => b39WithGuitarGain(gain, () => {
-        if (recNotes && recNotes.length) {
-          scheduleAccompNotes(recNotes, evStart, bpm, ts, chord || '', key);
-        } else if (pattern) {
-          timelinePassHint = tlPass;
-          schedulePatternForEvent(chord, evStart, dur, trackPos, pattern, bpm, ts,
-            next.square, next.eventIndex, next.event.span || 1, !!own, next.section,
-            { audio: true, visuals: false });
-        } else {
-          playChordScheduled(chord, evStart, dur, trackPos);
+      b39WithTrackTuning(track.id, () => {
+        const own = b39EventOwnStrumPattern(next.section, next.square, next.event, next.eventIndex);
+        const pattern = own || getEffectiveStrumPattern(null, next.square, next.section);
+        if (chord && !(recNotes && recNotes.length) && (track.id === state.activeTrackId || !rhythmVisualScheduled)) {
+          scheduleRhythmVisual(chord, trackPos, pattern, !!own);
         }
-      }, track.id));
+        const gain = b39TrackGain(state, track);
+        if ((!chord && !(recNotes && recNotes.length)) || gain <= 0) return;
+        b39WithGuitarGain(gain, () => {
+          if (recNotes && recNotes.length) {
+            scheduleAccompNotes(recNotes, evStart, bpm, ts, chord || '', key);
+          } else if (pattern) {
+            timelinePassHint = tlPass;
+            schedulePatternForEvent(chord, evStart, dur, trackPos, pattern, bpm, ts,
+              next.square, next.eventIndex, next.event.span || 1, !!own, next.section,
+              { audio: true, visuals: false });
+          } else {
+            playChordScheduled(chord, evStart, dur, trackPos);
+          }
+        }, track.id);
+      });
     });
   }
 
@@ -47387,10 +47885,40 @@ const TUNER_TUNINGS = [
 // — не выбирать его заново на каждом уроке.
 let tunerTuningId = 'e-std';
 
+// 0.866 (B-39 Укулеле): строго 4 фиксированных строя укулеле с единой таблицей MIDI.
+const UKULELE_TUNINGS = Object.freeze([
+  { id: 'high-g', group: 'Укулеле', name: 'High G', label: 'High G (стандартный)', notes: ['G4', 'C4', 'E4', 'A4'], midi: [67, 60, 64, 69], reentrant: true },
+  { id: 'low-g', group: 'Укулеле', name: 'Low G', label: 'Low G', notes: ['G3', 'C4', 'E4', 'A4'], midi: [55, 60, 64, 69], reentrant: false },
+  { id: 'baritone', group: 'Укулеле', name: 'Баритон', label: 'Баритон (DGBE)', notes: ['D3', 'G3', 'B3', 'E4'], midi: [50, 55, 59, 64], reentrant: false },
+  { id: 'canadian', group: 'Укулеле', name: 'Canadian', label: 'Canadian (ADF#B)', notes: ['A4', 'D4', 'F#4', 'B4'], midi: [69, 62, 66, 71], reentrant: true },
+]);
+window.UKULELE_TUNINGS = UKULELE_TUNINGS;
+
 let b39TuningContext = null;
 function b39WithTrackTuning(id, work) {
   const previous=b39TuningContext;b39TuningContext=id;
   try{return work();}finally{b39TuningContext=previous;}
+}
+function b39ContextTrack() {
+  const T = window.StruChordTracks;
+  if (!T || b39TuningContext === 'legacy' || b39TuningContext === 'standard') return null;
+  if (typeof b39TuningContext === 'number') return T.track(b39TuningContext);
+  const st = T.state && T.state();
+  if (!st || !Array.isArray(st.tracks)) return null;
+  return st.tracks.find((x) => x.id === st.activeTrackId) || null;
+}
+function b39CurrentTrackInstrument() {
+  const tr = b39ContextTrack();
+  return tr ? tr.instrument : 'guitar';
+}
+function b39IsUkuleleContext() {
+  return b39CurrentTrackInstrument() === 'ukulele';
+}
+function b39ActiveStringCount() {
+  return b39IsUkuleleContext() ? 4 : 6;
+}
+function b39UkuleleTuningById(id) {
+  return UKULELE_TUNINGS.find((t) => t.id === id) || UKULELE_TUNINGS[0];
 }
 function b39SelectedTuning() {
   const T=window.StruChordTracks;
@@ -47399,18 +47927,28 @@ function b39SelectedTuning() {
   return typeof b39TuningContext==='number' ? T.tuning(b39TuningContext) : T.activeTuning();
 }
 function b39GuitarTuningNotes() {
+  if (b39IsUkuleleContext()) {
+    const val = b39SelectedTuning();
+    return b39UkuleleTuningById(val && val.id).notes;
+  }
   const value=b39SelectedTuning();
   if(!value)return tunerCustomNotes || (TUNER_TUNINGS.find(t=>t.id===tunerTuningId)||TUNER_TUNINGS[0]).notes;
   return value.notes || (TUNER_TUNINGS.find(t=>t.id===value.id)||TUNER_TUNINGS[0]).notes;
 }
-function b39TunerId() {const value=b39SelectedTuning();return value?value.id:tunerTuningId;}
+function b39TunerId() {
+  const value=b39SelectedTuning();
+  if (b39IsUkuleleContext()) return b39UkuleleTuningById(value && value.id).id;
+  return value?value.id:tunerTuningId;
+}
 function b39ChangeTuning(id,notes) {
   const T=window.StruChordTracks, st=T && T.state(), t=st && st.tracks.find(x=>x.id===st.activeTrackId);
+  if(t && t.instrument==='ukulele')return T.setTuning(t.id,{id,notes:null});
   if(t && t.instrument==='guitar')return T.setTuning(t.id,{id,notes});
   if(t)return false;
   tunerTuningId=id;tunerCustomNotes=notes;return true;
 }
 function tunerCurrentTuning() {
+  if (b39IsUkuleleContext()) return b39UkuleleTuningById(b39TunerId());
   return TUNER_TUNINGS.find((t) => t.id === b39TunerId()) || TUNER_TUNINGS[0];
 }
 
@@ -47455,6 +47993,7 @@ function songStringFreqs() {
 // Нужна там, где логика опирается на ТАБЛИЦЫ готовых форм: они записаны
 // ладами для EADGBE и в другом строе означают другой аккорд.
 function isStandardTuning() {
+  if (b39IsUkuleleContext()) return false;
   return songStringNotes().join(',') === 'E,A,D,G,B,E';
 }
 
@@ -47488,10 +48027,11 @@ function dimColorPc(chordName) {
 function shapeMatchesChord(shape, chordNotes, bassNote, extraPc) {
   if (!shape || !chordNotes || !chordNotes.length) return true;
   const sn = songStringNotes();
+  const nStr = Math.min(shape.length, sn.length);
   const target = new Set(chordNotes.map((n) => toSharpNote(String(n).replace(/-?\d+$/, ''))));
   if (Number.isInteger(extraPc)) target.add(CHROMATIC[extraPc]);
   let lowest = -1;
-  for (let i = 0; i < 6; i++) {
+  for (let i = 0; i < nStr; i++) {
     const f = shape[i];
     if (f === 'x' || f === undefined || f === null) continue;
     const fret = typeof f === 'number' ? f : parseInt(f, 10);
@@ -47537,6 +48077,7 @@ function tuningSemitoneDrops() {
 // ключи расходятся, и формы, собранные для EADGBE, не подставляются
 // туда, где они звучали бы другим аккордом.
 function tuningKeySuffix() {
+  if (b39IsUkuleleContext()) return '@uke:' + b39TunerId();
   return isStandardTuning() ? '' : '@' + b39GuitarTuningNotes().join('');
 }
 
@@ -47980,12 +48521,16 @@ function toggleTuningPicker(force) {
   const btn = document.getElementById('tuningPill');
   if (!list || !btn) return;
   const show = force === undefined ? list.hidden : force;
+  const isUke = b39IsUkuleleContext();
+  const modeKey = isUke ? 'ukulele' : 'guitar';
 
-  if (show && !list.children.length) {
-    // Собираем при первом открытии: те же группы и тот же вид, что в
-    // окне тюнера — список один и тот же, разводить их нельзя.
+  if (show && (!list.children.length || list.dataset.tuningMode !== modeKey)) {
+    list.innerHTML = '';
+    list.dataset.tuningMode = modeKey;
+    // 0.866: на укулеле показываем строго 4 строя (без «Свой»).
+    const sourceList = isUke ? UKULELE_TUNINGS : TUNER_TUNINGS;
     let lastGroup = null;
-    TUNER_TUNINGS.forEach((t) => {
+    sourceList.forEach((t) => {
       if (t.group !== lastGroup) {
         lastGroup = t.group;
         const head = document.createElement('div');
@@ -48004,33 +48549,27 @@ function toggleTuningPicker(force) {
       item.onclick = () => {
         b39ChangeTuning(t.id,null);
         renderTuningPill();
-        // Если окно тюнера открыто, оно должно показать то же самое.
         if (document.querySelector('.tuner-modal')) tunerRenderTuning();
         toggleTuningPicker(false);
-        // Пересобрать аппликатуры под новый строй.
         onSongTuningChanged();
       };
       list.appendChild(item);
     });
 
-    // «Свой» — не строй, а ДЕЙСТВИЕ: открывает тюнер, где строй
-    // собирают стрелками у каждой струны. Своего набора нот у пункта
-    // нет, поэтому он отделён чертой и подписан иначе, чем остальные.
-    const own = document.createElement('button');
-    own.type = 'button';
-    own.className = 'tuner-tuning-item tuner-tuning-own';
-    own.setAttribute('role', 'option');
-    own.innerHTML =
-      '<span>Свой</span>' +
-      '<span class="tuner-tuning-notes">настроить вручную</span>';
-    own.onclick = () => {
-      toggleTuningPicker(false);
-      // Тюнер здесь открываем намеренно: в нём и живут стрелки
-      // подстройки. Текущий строй берётся как основа — человек правит
-      // то, что уже стоит, а не начинает с пустого места.
-      openTuner();
-    };
-    list.appendChild(own);
+    if (!isUke) {
+      const own = document.createElement('button');
+      own.type = 'button';
+      own.className = 'tuner-tuning-item tuner-tuning-own';
+      own.setAttribute('role', 'option');
+      own.innerHTML =
+        '<span>Свой</span>' +
+        '<span class="tuner-tuning-notes">настроить вручную</span>';
+      own.onclick = () => {
+        toggleTuningPicker(false);
+        openTuner();
+      };
+      list.appendChild(own);
+    }
   }
 
   list.hidden = !show;
@@ -48245,6 +48784,7 @@ window.openTuner = function () {
 
   const modal = document.createElement('div');
   modal.className = 'strum-modal-content tuner-modal';
+  modal.dataset.tunerMode = b39IsUkuleleContext() ? 'ukulele' : 'guitar';
   modal.setAttribute('role', 'dialog');
   modal.setAttribute('aria-modal', 'true');
   modal.setAttribute('aria-label', 'Тюнер');
@@ -48299,8 +48839,9 @@ window.openTuner = function () {
   const tuningList = modal.querySelector('#tunerTunings');
   // Список с заголовками групп: 25 строёв сплошной лентой читаются как
   // свалка, а по группам глаз находит нужное за один взгляд.
+  const tunerListSource = b39IsUkuleleContext() ? UKULELE_TUNINGS : TUNER_TUNINGS;
   let lastGroup = null;
-  TUNER_TUNINGS.forEach((t) => {
+  tunerListSource.forEach((t) => {
     if (t.group !== lastGroup) {
       lastGroup = t.group;
       const head = document.createElement('div');
@@ -48315,7 +48856,7 @@ window.openTuner = function () {
     item.setAttribute('role', 'option');
     item.innerHTML =
       `<span>${t.name}</span><span class="tuner-tuning-notes">` +
-      `${t.notes.map((n) => n.replace(/\d/, '')).join(' ')}</span>`;
+      `${t.notes.map((n) => n.replace(/-?\d+$/, '')).join(' ')}</span>`;
     item.onclick = () => {
       b39ChangeTuning(t.id,null);
       tunerRenderTuning();
@@ -48387,6 +48928,7 @@ function tunerActiveNotes() {
 // если пришли к нему стрелками. Человек подкрутил шестую с E на D и
 // видит «Drop D» — это подсказка, а не просто «Свой строй».
 function tunerActiveTuningName() {
+  if (b39IsUkuleleContext()) return b39UkuleleTuningById(b39TunerId()).name;
   const notes = tunerActiveNotes();
   const same = TUNER_TUNINGS.find((t) => t.notes.join() === notes.join());
   return same ? same.name : 'Свой строй';
@@ -48440,31 +48982,25 @@ function tunerRenderTuning() {
   const box = document.getElementById('tunerStrings');
   if (!box) return;
   box.innerHTML = '';
-  tunerActiveNotes().forEach((note, i) => {
+  const isUke = b39IsUkuleleContext();
+  const activeNotes = tunerActiveNotes();
+  const totalStrings = activeNotes.length;
+  activeNotes.forEach((note, i) => {
     const freq = noteToFrequency(note);
-    // Ячейка: стрелка вверх, кнопка ноты, стрелка вниз. Стрелки лежат в
-    // потоке и всегда занимают место, а по наведению лишь проявляются —
-    // если бы они появлялись из ниоткуда, ряд подпрыгивал бы под
-    // курсором и попасть по кнопке стало бы труднее.
+    const stringNo = totalStrings - i;
     const cell = document.createElement('div');
     cell.className = 'tuner-string-cell';
 
-    // Класс иконки — ПОЛНЫМ ЛИТЕРАЛОМ, а не подстановкой `ti-${...}`:
-    // subset-icons.py ищет имена регуляркой по тексту файла и
-    // собранное из переменной не находит. Замер: chevron-up не попал в
-    // сабсет, кнопка была пустой (иконка 0x0, глиф none), и снаружи
-    // выглядело так, будто верхней стрелки нет вовсе.
     const mk = (dir, title) => {
       const a = document.createElement('button');
       a.type = 'button';
       a.className = 'tuner-string-arrow';
       a.title = title;
-      a.setAttribute('aria-label', `${title}: струна ${6 - i}`);
+      a.setAttribute('aria-label', `${title}: струна ${stringNo}`);
       a.innerHTML = dir > 0
         ? '<i class="ti ti-chevron-up"></i>'
         : '<i class="ti ti-chevron-down"></i>';
       a.onclick = (e) => {
-        // Иначе клик дойдёт до кнопки ноты и сыграет старую высоту.
         e.stopPropagation();
         tunerShiftString(i, dir);
       };
@@ -48474,17 +49010,16 @@ function tunerRenderTuning() {
     const btn = document.createElement('button');
     btn.type = 'button';
     btn.className = 'tuner-string-btn';
-    // Номер струны сверху мелким, нота крупным: на кнопку смотрят
-    // мельком, и ищут на ней ноту, а не порядковый номер.
     btn.innerHTML =
-      `<span class="tuner-string-num">${6 - i}</span>` +
+      `<span class="tuner-string-num">${stringNo}</span>` +
       `<span class="tuner-string-label">${note.replace(/-?\d+$/, '')}</span>`;
     btn.title = `${note} · ${freq.toFixed(2)} Гц`;
     btn.onclick = () => tunerPlayReference({ note, freq }, btn);
 
-    cell.appendChild(mk(1, 'Выше на полутон'));
+    // 0.866: на укулеле строго 4 готовых строя — без ручного сдвига отдельных струн.
+    if (!isUke) cell.appendChild(mk(1, 'Выше на полутон'));
     cell.appendChild(btn);
-    cell.appendChild(mk(-1, 'Ниже на полутон'));
+    if (!isUke) cell.appendChild(mk(-1, 'Ниже на полутон'));
     box.appendChild(cell);
   });
 }
@@ -49646,8 +50181,11 @@ function pluckString(ctx, opts) {
   // яркость, сустейн (звон) и долю корпуса; перегруз добавляет волновой
   // шейпер и фильтр кабинета. Голос при этом один — как и было решено
   // («приближаем своим тембром», RSE не делаем).
+  const isUkeVoice = opts.instrument === 'ukulele' || (!opts.instrument && typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext());
   const soundInstrument = opts.instrument === 'bass' ? 'bass' : 'guitar';
-  const preset = soundPresetById(opts.sound || songSoundNow, soundInstrument);
+  const preset = isUkeVoice
+    ? { gain: 0.96, ring: 0.62, bright: 0.22, drive: 0, cab: 4200 } // 0.866: яркий короткий нейлоновый щипок укулеле
+    : soundPresetById(opts.sound || songSoundNow, soundInstrument);
   // Канал микшера ОБЩИЙ для всех дорожек (главная и остальные играют в
   // «Песню»), поэтому громкость дорожки в него запекать нельзя: она
   // перестала бы меняться после планирования. Голос дорожки идёт через свой
@@ -49656,7 +50194,7 @@ function pluckString(ctx, opts) {
   const channel = mixerChannelForVoice(ctx, opts.channel);
   const trackBusNode = b39GuitarTrackId != null ? b39TrackBusFor(ctx, b39GuitarTrackId, channel) : null;
   const gain = (Number(opts.gain) || 0) * preset.gain * (trackBusNode ? 1 : b39GuitarGain);
-  const duration = Math.min(6, (Number(opts.duration) || 0) * preset.ring);
+  const duration = Math.min(isUkeVoice ? 2.6 : 6, (Number(opts.duration) || 0) * preset.ring);
   const brightness = Math.max(0.05, Math.min(1, (Number(opts.brightness) || 0) + preset.bright));
 
   // B-12.6.1: необязательные «приёмочные» параметры голоса. Все они нужны
@@ -49682,11 +50220,26 @@ function pluckString(ctx, opts) {
 
   const toneFilter = ctx.createBiquadFilter();
   toneFilter.type = 'lowpass';
-  toneFilter.frequency.value = 1000 + brightness * 3400;
-  toneFilter.Q.value = 0.4;
+  toneFilter.frequency.value = isUkeVoice ? (1600 + brightness * 3800) : (1000 + brightness * 3400);
+  toneFilter.Q.value = isUkeVoice ? 0.55 : 0.4;
   // Перегруженный тракт: шейпер «сажает» пики, кабинет срезает верх, трим
   // возвращает громкость — иначе перегруз звучал бы просто громче.
   let voiceHead = toneFilter;
+  if (isUkeVoice) {
+    // 0.866: резонанс маленького нейлонового корпуса укулеле (без низкого гитарного гула).
+    const ukeHp = ctx.createBiquadFilter();
+    ukeHp.type = 'highpass';
+    ukeHp.frequency.value = 210;
+    ukeHp.Q.value = 0.6;
+    const ukeBody = ctx.createBiquadFilter();
+    ukeBody.type = 'peaking';
+    ukeBody.frequency.value = 920;
+    ukeBody.Q.value = 1.3;
+    ukeBody.gain.value = 3.2;
+    toneFilter.connect(ukeHp);
+    ukeHp.connect(ukeBody);
+    voiceHead = ukeBody;
+  }
   if (preset.drive > 0 && typeof ctx.createWaveShaper === 'function') {
     const shaper = ctx.createWaveShaper();
     shaper.curve = soundDriveCurve(preset.drive);
@@ -49912,11 +50465,14 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
 
   notes.sort((a, b) => a.stringIndex - b.stringIndex);
 
-  const strumSpacing = 0.014;
+  const isUke = typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext();
+  const maxIdx = isUke ? 3 : 5;
+  const strumSpacing = isUke ? 0.011 : 0.014;
   notes.forEach((note, i) => {
     const stringIndex = note.stringIndex;
-    const brightness = 0.45 + (stringIndex / 5) * 0.5;
-    const pan = -0.28 + (stringIndex / 5) * 0.56;
+    const norm = Math.min(1, Math.max(0, stringIndex / maxIdx));
+    const brightness = (isUke ? 0.62 : 0.45) + norm * (isUke ? 0.34 : 0.5);
+    const pan = (isUke ? -0.2 : -0.28) + norm * (isUke ? 0.4 : 0.56);
     const levelJitter = 0.9 + Math.random() * 0.2;
     const gain = baseGain * levelJitter * (i === 0 ? 1.1 : 1);
     pluckString(ctx, {
@@ -49926,6 +50482,7 @@ function strumChord(ctx, shape, chordName, key, startTime, duration, baseGain) {
       gain,
       pan,
       brightness,
+      instrument: isUke ? 'ukulele' : 'guitar',
     });
   });
 }
@@ -49979,7 +50536,7 @@ function playChord(c, wrapper, pendingPreview) {
       key = sec && sec.key ? sec.key : globalKey;
       if (!Number.isNaN(secId) && !Number.isNaN(squareId) && !Number.isNaN(eventIndex)) {
         const posKey = buildFingeringPositionKey(c, key, secId, squareId, eventIndex);
-        if(active && active.instrument==='guitar' && active.id!==state.mainTrackId){
+        if(active && (active.instrument==='guitar' || active.instrument==='ukulele') && active.id!==state.mainTrackId){
           const own=T.guitarShape(active.id,secId+':'+squareId+':'+eventIndex,c);
           shape=own ? own.shape : resolveFingeringShape(c,key,null);
         } else shape = resolveFingeringShape(c, key, posKey);
@@ -49988,9 +50545,12 @@ function playChord(c, wrapper, pendingPreview) {
     if (active && active.instrument === 'keys') {
       if (window.StruChordAudio) window.StruChordAudio.preview(c, ctx, now, wrapper, key);
     } else {
-      if (!shape) shape = resolveFingeringShape(c, key, null);
-      b39WithGuitarGain(active ? b39TrackGain(state, active) : 1,
-        () => strumChord(ctx, shape, c, key, now, STRUM_RING_SECONDS, 0.22));
+      const tid = active ? active.id : null;
+      b39WithTrackTuning(tid, () => {
+        if (!shape) shape = resolveFingeringShape(c, key, null);
+        b39WithGuitarGain(active ? b39TrackGain(state, active) : 1,
+          () => strumChord(ctx, shape, c, key, now, STRUM_RING_SECONDS, 0.22), tid);
+      });
     }
   } catch (e) {
     console.warn(e);
@@ -50285,7 +50845,7 @@ function collectSongGuitarChordJobs() {
   const tracks = st && Array.isArray(st.tracks) ? st.tracks : null;
   const mainTrack = tracks ? tracks.find((t) => t.id === st.mainTrackId) : null;
   const activeTrack = tracks ? tracks.find((t) => t.id === st.activeTrackId) : null;
-  const mainIsGuitar = !tracks || (mainTrack && mainTrack.instrument === 'guitar');
+  const mainIsGuitar = !tracks || (mainTrack && (mainTrack.instrument === 'guitar' || mainTrack.instrument === 'ukulele'));
   const mainTrackId = mainTrack ? mainTrack.id : null;
 
   const pushJob = (trackId, chord, effKey) => {
@@ -50307,7 +50867,7 @@ function collectSongGuitarChordJobs() {
         if (mainIsGuitar) {
           pushJob(mainTrackId, ev.chord, effKey);
           // fillTimelinePanel и редактор читают также активный строй (null -> activeTuning)
-          if (activeTrack && activeTrack.instrument === 'guitar') {
+          if (activeTrack && (activeTrack.instrument === 'guitar' || activeTrack.instrument === 'ukulele')) {
             pushJob(null, ev.chord, effKey);
           }
         }
@@ -50860,7 +51420,7 @@ function showPausedFingering(cell) {
   const active=timelineActiveTrack();
   const chord=timelineChord(sec,sq,ev,ei,active);
   fillTimelinePanel('now', chord, {
-    trackId:active && !active.main && active.instrument==='guitar' ? active.id : undefined,
+    trackId:active && !active.main && (active.instrument==='guitar' || active.instrument==='ukulele') ? active.id : undefined,
     secId,
     squareId: sqId,
     eventIndex: ei,
@@ -50888,7 +51448,7 @@ function updatePausedFingeringControls(pos) {
   const ev = sq && sq.events[pos.ei];
   const T=window.StruChordTracks, state=T && T.state(), active=state && state.tracks.find(t=>t.id===state.activeTrackId);
   if(active && active.instrument==='keys'){if(bar)bar.remove();return;}
-  const own=active && active.instrument==='guitar' && active.id!==state.mainTrackId;
+  const own=active && (active.instrument==='guitar' || active.instrument==='ukulele') && active.id!==state.mainTrackId;
   const ownCell=pos.secId+':'+pos.sqId+':'+pos.ei;
   const chord=own ? (T.trackChord(active.id,ownCell,ev)||'') : ev ? (ev.chord || '').trim() : '';
   if (!chord) {
@@ -51101,7 +51661,15 @@ function restartPlaybackFromCurrentPosition() {
 // (sanitizeSongData), в сейв не пишется. Параметр sq оставлен ради
 // сигнатуры вызовов — на результат он не влияет.
 
-function getEffectiveStrumPattern(event, sq, sec) {
+function getEffectiveStrumPattern(event, sq, sec, eventIndex) {
+  const uke = b39UkeTrackForRhythm();
+  if (uke) {
+    if (event && sec && sq && eventIndex != null) {
+      const cellPat = uke.patterns && uke.patterns[sec.id + ':' + sq.id + ':' + eventIndex];
+      if (cellPat) return cellPat;
+    }
+    return (uke.patterns && sec && uke.patterns['s:' + sec.id]) || null;
+  }
   if (event && event.strumPattern) return event.strumPattern;
   if (sec && sec.strumPattern) return sec.strumPattern;
   return null;
@@ -51116,9 +51684,11 @@ function getEffectiveStrumPattern(event, sq, sec) {
 // секции.
 function getSlicedPatternForEvent(sec, sq, ev, eventIndex) {
   if (!sec || !sq || !ev) return null;
-  const pattern = getEffectiveStrumPattern(ev, sq, sec);
+  const uke = b39UkeTrackForRhythm();
+  const ownUkePat = uke && uke.patterns ? uke.patterns[sec.id + ':' + sq.id + ':' + eventIndex] : null;
+  const pattern = uke ? (ownUkePat || (uke.patterns && uke.patterns['s:' + sec.id]) || null) : getEffectiveStrumPattern(ev, sq, sec);
   if (!pattern) return null;
-  if (ev.strumPattern) {
+  if (uke ? !!ownUkePat : !!ev.strumPattern) {
     if (!Array.isArray(pattern.steps) || !pattern.steps.length) return null;
     // Раньше здесь стоял `return pattern` с пометкой «уже ровно под
     // длину этой ячейки». Это верно только пока длину не трогали.
@@ -51243,9 +51813,15 @@ function normalizePickStep(symbol) {
 // стоят и токен, и та же струна явно, щипок прозвучал бы дважды громче.
 function resolvePickStepStrings(symbol, shape, chordName) {
   const items = normalizePickStep(symbol);
-  if (!items.some(isPickBassToken)) return items;
+  const isUke = (Array.isArray(shape) && shape.length === 4) || (typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext());
+  const maxStr = isUke ? 4 : 6;
+  if (!items.some(isPickBassToken)) {
+    return items.filter((v) => typeof v === 'number' && v >= 1 && v <= maxStr);
+  }
   const { bass, alt } = getBassStringsForShape(shape, chordName);
-  const nums = items.map((v) => (v === PICK_BASS_TOKEN ? bass : v === PICK_ALT_BASS_TOKEN ? alt : v));
+  const nums = items
+    .map((v) => (v === PICK_BASS_TOKEN ? bass : v === PICK_ALT_BASS_TOKEN ? alt : v))
+    .filter((v) => typeof v === 'number' && v >= 1 && v <= maxStr);
   return Array.from(new Set(nums));
 }
 
@@ -51279,7 +51855,7 @@ function inheritedFacadeSliceForPreview(sec, sq, ei) {
   // Только ЯВНЫЙ бой секции — как в демоции B-20 (patternOverride):
   // эффективный дефолт по размеру фасадом не считается, иначе срезы
   // мелькали бы в каждой песне без заданного боя.
-  const secPat = sec.strumPattern;
+  const secPat = b39SectionStrumPattern(sec);
   if (!secPat || !Array.isArray(secPat.steps) || !secPat.steps.length) return null;
   const slice = facadeSlicePattern(sec, sq, ev, ei, null, secPat);
   if (!slice || !Array.isArray(slice.steps) || !slice.steps.length) return null;
@@ -51313,8 +51889,7 @@ function renderEventStrumPreviews(container) {
     const ev = sq && sq.events[ei];
     // Волна-3/4: превью читает окно рулона, когда ячейка покрыта пулом
     // (волна-4: кэша нет вообще — окно и есть единственное хранимое).
-    const rollWinCell = songRhythmRolls ? rhythmRollWindowFor(secId, sq, ei, songRhythmRolls) : null;
-    const ownPattern = rollWinCell || (ev && ev.strumPattern) || null;
+    const ownPattern = b39EventOwnStrumPattern(sec, sq, ev, ei);
     // B-30: своего ритма нет — показываем фактический СРЕЗ боя секции,
     // если он не сводится к целому повтору рисунка. НО не во время живой
     // подсказки ресайза (B-15): в жесте срез и так виден полосой в оверлее.
@@ -51660,8 +52235,9 @@ function restoreSectionStrumBadge(sectionId) {
   strumPreviewStepEls.delete(sectionId);
   if (!badgesDiv) return;
   let wrap = badgesDiv.querySelector('.strum-badge-wrap');
-  // B-92: тишина — не повод рисовать бейдж (та же проверка, что в render).
-  if (!sec || !sec.strumPattern || isSilentPattern(sec.strumPattern)) {
+  // B-92 / 0.866: тишина — не повод рисовать бейдж; на укулеле читаем ритм дорожки.
+  const secStrumPat = b39SectionStrumPattern(sec);
+  if (!sec || !secStrumPat || isSilentPattern(secStrumPat)) {
     if (wrap) wrap.remove();
     return;
   }
@@ -51677,7 +52253,7 @@ function restoreSectionStrumBadge(sectionId) {
   wrap.title = 'Бой/перебор секции (по умолчанию для всех её квадратов) — нажмите, чтобы изменить';
   wrap.innerHTML = '';
   const refSq = getReferenceSquareForBadge(sec);
-  const { modeBadge, preview } = buildStrumPreviewEls(sec.strumPattern, {
+  const { modeBadge, preview } = buildStrumPreviewEls(secStrumPat, {
     chordChangeUnits: getChordChangeUnits(refSq, sec.timeSig || globalTimeSig),
   });
   wrap.appendChild(modeBadge);
@@ -51769,8 +52345,7 @@ function restoreEventStrumPreview(key) {
   const ev = sq && sq.events[ei];
   // Волна-4: как и renderEventStrumPreviews — превью читает окно рулона;
   // встроенного кэша у ячейки нет, встроенный байт — легаси-вкрапление.
-  const rollWinCell = sq && songRhythmRolls ? rhythmRollWindowFor(secId, sq, ei, songRhythmRolls) : null;
-  const ownPattern = rollWinCell || (ev && ev.strumPattern) || null;
+  const ownPattern = b39EventOwnStrumPattern(sec, sq, ev, ei);
   // B-30: своего нет — возвращаем фактический срез боя секции (как в
   // renderEventStrumPreviews, включая метку is-inherited-slice).
   const inheritedSlice = ownPattern ? null : inheritedFacadeSliceForPreview(sec, sq, ei);
@@ -51875,11 +52450,14 @@ function strumChordDirectional(ctx, shape, chordName, key, startTime, duration, 
 
   notes.sort((a, b) => (direction === 'up' ? b.stringIndex - a.stringIndex : a.stringIndex - b.stringIndex));
 
-  const strumSpacing = direction === 'up' ? 0.01 : 0.014;
+  const isUke = typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext();
+  const maxIdx = isUke ? 3 : 5;
+  const strumSpacing = direction === 'up' ? (isUke ? 0.008 : 0.01) : (isUke ? 0.011 : 0.014);
   notes.forEach((note, i) => {
     const stringIndex = note.stringIndex;
-    const brightness = 0.45 + (stringIndex / 5) * 0.5;
-    const pan = -0.28 + (stringIndex / 5) * 0.56;
+    const norm = Math.min(1, Math.max(0, stringIndex / maxIdx));
+    const brightness = (isUke ? 0.62 : 0.45) + norm * (isUke ? 0.34 : 0.5);
+    const pan = (isUke ? -0.2 : -0.28) + norm * (isUke ? 0.4 : 0.56);
     const levelJitter = 0.9 + Math.random() * 0.2;
     const directionGain = direction === 'up' ? 0.82 : 1; // апстрок традиционно чуть тише даунстрока
     const gain = baseGain * levelJitter * directionGain * (i === 0 ? 1.05 : 1);
@@ -51890,6 +52468,7 @@ function strumChordDirectional(ctx, shape, chordName, key, startTime, duration, 
       gain,
       pan,
       brightness,
+      instrument: isUke ? 'ukulele' : 'guitar',
     });
   });
 }
@@ -51943,19 +52522,21 @@ function strumMute(ctx, shape, chordName, key, startTime, baseGain) {
 // STRING_OPEN_FREQ/shape индексу stringIndex = 6 - stringNumber).
 function pluckSingleGuitarString(ctx, shape, chordName, key, stringNumber, startTime, duration, baseGain) {
   ensureGuitarBus(ctx);
-  const stringIndex = 6 - stringNumber;
-  if (stringIndex < 0 || stringIndex > 5) return;
-  // Открытые частоты — из строя песни (см. songStringFreqs).
   const openFreqs = songStringFreqs();
+  const isUke = (Array.isArray(shape) && shape.length === 4) || openFreqs.length === 4 || (typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext());
+  const nStr = isUke ? 4 : 6;
+  const stringIndex = nStr - stringNumber;
+  if (stringIndex < 0 || stringIndex >= nStr) return;
   let freq = null;
   if (shape && shape[stringIndex] !== undefined && shape[stringIndex] !== 'x' && shape[stringIndex] !== null) {
     const fret = typeof shape[stringIndex] === 'number' ? shape[stringIndex] : parseInt(shape[stringIndex], 10);
     if (Number.isFinite(fret)) freq = openFreqs[stringIndex] * Math.pow(2, fret / 12);
   }
   if (!freq) freq = openFreqs[stringIndex]; // струна заглушена/неизвестна — берём открытую как приближение
-  const brightness = 0.45 + (stringIndex / 5) * 0.5;
-  const pan = -0.28 + (stringIndex / 5) * 0.56;
-  pluckString(ctx, { freq, startTime, duration, gain: baseGain, pan, brightness });
+  const norm = stringIndex / Math.max(1, nStr - 1);
+  const brightness = (isUke ? 0.62 : 0.45) + norm * (isUke ? 0.34 : 0.5);
+  const pan = (isUke ? -0.2 : -0.28) + norm * (isUke ? 0.4 : 0.56);
+  pluckString(ctx, { freq, startTime, duration, gain: baseGain, pan, brightness, instrument: isUke ? 'ukulele' : 'guitar' });
 }
 
 // Разыгрывает один шаг паттерна за другим внутри длительности текущего
@@ -53186,7 +53767,8 @@ function schedulePatternForEvent(chord, evStart, dur, posCtx, pattern, bpm, ts, 
         // below the audio gate; a muted guitar therefore still looked frozen.
         if (pattern.mode === 'pick' || (pattern.mode === 'mixed' && (Array.isArray(symbol) || typeof symbol === 'number'))) {
           const visualStrings = resolvePickStepStrings(symbol, shape, chord);
-          vibrateFingeringStrings(ctx, visualStrings.map((n) => 6 - n), t, thisStepSeconds, 0);
+          const nVibStr = (Array.isArray(shape) && shape.length === 4) || (typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext()) ? 4 : 6;
+          vibrateFingeringStrings(ctx, visualStrings.map((n) => nVibStr - n), t, thisStepSeconds, 0);
         } else if ((symbol === 'D' || symbol === 'U') && shape) {
           const up = symbol === 'U';
           const visualIndexes = shapeToPluckNotes(shape)
@@ -53515,6 +54097,7 @@ const STRUM_PRESETS = [
     name: 'Четвёрка',
     hint: 'Ой-ё-ри-я-ри-ё',
     mode: 'pick',
+    instruments: ['guitar'],
     base: 4,
     subdivision: 1,
     steps: [['B'], [3], [1, 2], [3]],
@@ -53524,6 +54107,7 @@ const STRUM_PRESETS = [
     name: 'Шестёрка',
     hint: 'С причала рыбачил апостол Андрей',
     mode: 'pick',
+    instruments: ['guitar'],
     base: 3,
     subdivision: 2,
     steps: [['B'], [3], [2], [1], [2], [3]],
@@ -53533,6 +54117,7 @@ const STRUM_PRESETS = [
     name: 'Восьмёрка',
     hint: 'Звонкой пеленой наполнил небо...',
     mode: 'pick',
+    instruments: ['guitar'],
     base: 4,
     subdivision: 2,
     steps: [['B'], [3], [2], [3], [1], [3], [2], [3]],
@@ -53542,11 +54127,53 @@ const STRUM_PRESETS = [
     name: 'Романс',
     hint: 'Как здорово, что все мы здесь...',
     mode: 'pick',
+    instruments: ['guitar'],
     // 0.257: вальсовая метрика 3/4 (правка пользователя) — «Как здорово…»
     // трёхдольная; было base 2 / sub 3 (6/8-триольная развёртка).
     base: 3,
     subdivision: 2,
     steps: [['B'], [1, 2, 3], [1, 2, 3], ['A'], [1, 2, 3], [1, 2, 3]],
+  },
+  // 0.866 (B-39 Укулеле): 4 стартовых пресета перебора на 4 струнах (явные струны 4, 3, 2, 1).
+  {
+    id: 'uke-pick-four',
+    name: 'Четвёрка',
+    hint: 'Классический перебор на 4 струнах: 4 — 3 — (2+1) — 3',
+    mode: 'pick',
+    instruments: ['ukulele'],
+    base: 4,
+    subdivision: 1,
+    steps: [[4], [3], [1, 2], [3]],
+  },
+  {
+    id: 'uke-pick-six',
+    name: 'Шестёрка 3/4',
+    hint: 'Плавный арпеджио-перебор для размера 3/4: 4 — 3 — 2 — 1 — 2 — 3',
+    mode: 'pick',
+    instruments: ['ukulele'],
+    base: 3,
+    subdivision: 2,
+    steps: [[4], [3], [2], [1], [2], [3]],
+  },
+  {
+    id: 'uke-pick-eight',
+    name: 'Восьмёрка',
+    hint: 'Ровный перебор восьмыми: 4 — 3 — 2 — 3 — 1 — 3 — 2 — 3',
+    mode: 'pick',
+    instruments: ['ukulele'],
+    base: 4,
+    subdivision: 2,
+    steps: [[4], [3], [2], [3], [1], [3], [2], [3]],
+  },
+  {
+    id: 'uke-pick-bass-chord',
+    name: 'Бас-щипок',
+    hint: 'Чередование 4-й и 3-й струны с щипком аккорда (1+2+3)',
+    mode: 'pick',
+    instruments: ['ukulele'],
+    base: 4,
+    subdivision: 1,
+    steps: [[4], [1, 2, 3], [3], [1, 2, 3]],
   },
 ];
 
@@ -53568,6 +54195,7 @@ function getPatternUnits(pattern) {
 
 function collectSongPatterns() {
   const found = [];
+  const ukeTrackForCollect = b39UkeTrackForRhythm();
   // Одинаковые ритмы из разных мест — это один пункт списка с ×N, иначе
   // при типовой песне получим десять одинаковых чипов подряд.
   const add = (pattern, label) => {
@@ -53585,6 +54213,17 @@ function collectSongPatterns() {
 
   (sections || []).forEach((sec) => {
     const secName = sec.type === 'Custom' ? sec.customName || 'Custom' : LABEL_RU[sec.type] || sec.type;
+    if (ukeTrackForCollect) {
+      add(ukeTrackForCollect.patterns && ukeTrackForCollect.patterns['s:' + sec.id], secName);
+      (sec.squares || []).forEach((sq, sqi) => {
+        (sq.events || []).forEach((ev, ei) => {
+          const chord = ev.chord && ev.chord.trim();
+          const cPat = ukeTrackForCollect.patterns && ukeTrackForCollect.patterns[sec.id + ':' + sq.id + ':' + ei];
+          add(cPat, chord ? `${secName} · ${chord}` : secName);
+        });
+      });
+      return;
+    }
     add(sec.strumPattern, secName);
     (sec.squares || []).forEach((sq, sqi) => {
       (sq.events || []).forEach((ev, ei) => {
@@ -53696,6 +54335,30 @@ function validateStrumPresets() {
 // тону аккорда. Вызывается на каждом шаге воспроизведения, поэтому здесь
 // нет ничего тяжёлого (shape уже посчитан выше по стеку).
 function getBassStringsForShape(shape, chordName) {
+  const isUke = (Array.isArray(shape) && shape.length === 4) || (typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext());
+  if (isUke) {
+    // 0.866 (B-39 Укулеле): токен «Б» берёт самую низкую по высоте (MIDI) звучащую струну аккорда.
+    // В High G для C=[0,0,0,3] это 3-я струна (C4=60 < G4=67), в Low G и Баритоне — 4-я струна.
+    const openNotes = b39GuitarTuningNotes();
+    const sounding = [];
+    const arr = Array.isArray(shape) && shape.length === 4 ? shape : [0, 0, 0, 0];
+    for (let idx = 0; idx < 4; idx++) {
+      const v = arr[idx];
+      if (v === 'x' || v === null || v === undefined) continue;
+      const fret = typeof v === 'number' ? v : parseInt(v, 10);
+      if (!Number.isFinite(fret)) continue;
+      const openMidi = openNotes[idx] ? tunerNoteToMidi(openNotes[idx]) : null;
+      if (openMidi === null) continue;
+      sounding.push({ stringNum: 4 - idx, midi: openMidi + fret });
+    }
+    if (sounding.length) {
+      sounding.sort((a, b) => a.midi - b.midi || b.stringNum - a.stringNum);
+      const bass = sounding[0].stringNum;
+      const alt = sounding.length > 1 ? sounding[1].stringNum : (bass === 4 ? 3 : 4);
+      return { bass, alt };
+    }
+    return { bass: 3, alt: 4 };
+  }
   let bass = null;
   if (Array.isArray(shape)) {
     for (let idx = 0; idx < shape.length; idx++) {
@@ -53751,6 +54414,13 @@ function getPresetBassStrings(chordName, key) {
 function isPresetCompatible(preset, ts, gridUnits) {
   const base = preset && preset.base;
   if (!gridUnits || !base || gridUnits % base !== 0) return false;
+  const curInst = (typeof b39IsUkuleleContext === 'function' && b39IsUkuleleContext()) ? 'ukulele' : 'guitar';
+  if (Array.isArray(preset.instruments)) {
+    if (!preset.instruments.includes(curInst)) return false;
+  } else if (curInst === 'ukulele' && preset.mode === 'pick') {
+    // 0.866: гитарные переборы рассчитаны на 6 струн — на укулеле показываем только 4-струнные пресеты.
+    return false;
+  }
   // B-58: триольные пресеты не предлагаем в простых чётных размерах —
   // кнопки «3» там нет, и такой ритм было бы нечем отредактировать.
   if ((preset.subdivision || 1) === 3 && !timeSigAllowsTriplets(ts)) return false;
@@ -53810,12 +54480,16 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   // 2 доли и получить его дважды за такт.
   let gridUnits = fullUnits;
 
-  // Волна-4: «свой» рисунок ячейки читаем окном на рулон (кэша нет);
-  // встроенный байт — легаси-вкрапление (выливка при смене размера).
-  const ownEventWin = scope === 'event' && songRhythmRolls
+  const ukeTrackEditor = b39UkeTrackForRhythm();
+  // Волна-4 / 0.866: для укулеле читаем подорожечный ритм из track.patterns.
+  const ownEventWin = !ukeTrackEditor && scope === 'event' && songRhythmRolls
     ? rhythmRollWindowFor(sectionId, sq, eventIndex, songRhythmRolls)
     : null;
-  const ownExisting = scope === 'event' ? (ownEventWin || evt.strumPattern) : sec.strumPattern;
+  const ownExisting = ukeTrackEditor
+    ? (scope === 'event'
+      ? (ukeTrackEditor.patterns && ukeTrackEditor.patterns[sectionId + ':' + squareId + ':' + eventIndex]) || null
+      : (ukeTrackEditor.patterns && ukeTrackEditor.patterns['s:' + sectionId]) || null)
+    : (scope === 'event' ? (ownEventWin || evt.strumPattern) : sec.strumPattern);
   const inherited =
     scope === 'event' ? getEffectiveStrumPattern(null, sq, sec) : null;
   const seed = ownExisting || inherited || getDefaultStrumPattern('strum', ts, scope === 'event' ? gridUnits : null);
@@ -54229,10 +54903,13 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
       { value: PICK_BASS_TOKEN, title: `Бас аккорда — сейчас это ${previewBass}-я струна (меняется вслед за аккордом)` },
       { value: PICK_ALT_BASS_TOKEN, title: `Альтернирующий бас — сейчас ${previewAlt}-я струна (для «бас-щипка»)` },
     ];
-    for (let num = 6; num >= 1; num--) {
+    const maxPickStr = ukeTrackEditor ? 4 : 6;
+    for (let num = maxPickStr; num >= 1; num--) {
       options.push({
         value: num,
-        title: num === 6 ? 'Самая толстая (низкая E)' : num === 1 ? 'Самая тонкая (высокая e)' : `Струна ${num}`,
+        title: ukeTrackEditor
+          ? (num === 4 ? '4-я струна (верхняя)' : num === 1 ? '1-я струна (нижняя)' : `Струна ${num}`)
+          : (num === 6 ? 'Самая толстая (низкая E)' : num === 1 ? 'Самая тонкая (высокая e)' : `Струна ${num}`),
       });
     }
     options.forEach((opt) => {
@@ -54410,7 +55087,7 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   // Ритмы, уже применённые в песне. Тот слот, который сейчас редактируем,
   // из списка убираем: предлагать «примени то, что тут и так стоит» —
   // бессмысленный пункт (он и так виден в сетке).
-  const editedOwnPattern = scope === 'event' ? evt.strumPattern : sec.strumPattern;
+  const editedOwnPattern = ownExisting;
   const songPatterns = collectSongPatterns().filter(
     (entry) => !(editedOwnPattern && entry.count === 1 && patternsEqual(entry.pattern, editedOwnPattern))
   );
@@ -54627,7 +55304,30 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
         return Array.isArray(v) ? v.slice() : v ?? null;
       });
     }
-    if (scope === 'section') {
+    if (ukeTrackEditor && window.StruChordTracks) {
+      // 0.866: сохраняем ритм в дорожку укулеле через songStore (Undo/Redo).
+      if (scope === 'section') {
+        const targets =
+          allScope === 'all'
+            ? sections.slice()
+            : allScope === 'type'
+              ? sections.filter((s) => s.type === sec.type &&
+                  (s.type !== 'Custom' || (s.customName || '') === (sec.customName || '')))
+              : [sec];
+        targets.forEach((target) => {
+          window.StruChordTracks.setPattern(ukeTrackEditor.id, 's:' + target.id, JSON.parse(JSON.stringify(saved)));
+        });
+        savedToCount = targets.length;
+      } else {
+        const secPat = window.StruChordTracks.patternFor(ukeTrackEditor.id, 's:' + sectionId);
+        const cellKey = sectionId + ':' + squareId + ':' + eventIndex;
+        if (secPat && patternsEqual(saved, secPat)) {
+          window.StruChordTracks.clearPattern(ukeTrackEditor.id, cellKey);
+        } else {
+          window.StruChordTracks.setPattern(ukeTrackEditor.id, cellKey, saved);
+        }
+      }
+    } else if (scope === 'section') {
       // B-92: адресаты правки. Без allScope — только эта секция
       // (прежнее поведение). 'type' — все секции того же типа,
       // 'all' — вся песня.
@@ -54741,7 +55441,10 @@ function openStrumPatternEditor(scope, sectionId, squareId, eventIndex) {
   }
 
   modal.querySelector('#reset-pattern').onclick = () => {
-    if (scope === 'section') {
+    if (ukeTrackEditor && window.StruChordTracks) {
+      const clearKey = scope === 'section' ? ('s:' + sectionId) : (sectionId + ':' + squareId + ':' + eventIndex);
+      window.StruChordTracks.clearPattern(ukeTrackEditor.id, clearKey);
+    } else if (scope === 'section') {
       sec.strumPattern = null;
       setSectionRhythmRoll(sec, null);
       // B-06: общего боя больше нет — пины-тишины, глушившие его, стали
@@ -65705,7 +66408,7 @@ function updateTimelinePanels(next) {
   updateTimelineSectionNav();
   const displayTrack=timelineActiveTrack();
   fillTimelinePanel('now', timelineChord(next.section,next.square,next.event,next.eventIndex,displayTrack), {
-    trackId:displayTrack && !displayTrack.main && displayTrack.instrument==='guitar' ? displayTrack.id : undefined,
+    trackId:displayTrack && !displayTrack.main && (displayTrack.instrument==='guitar' || displayTrack.instrument==='ukulele') ? displayTrack.id : undefined,
     secId: next.section.id,
     squareId: next.square.id,
     eventIndex: next.eventIndex,
@@ -65735,7 +66438,7 @@ function updateTimelinePanels(next) {
   }
   if (after) {
     fillTimelinePanel('next', timelineChord(after.section,after.square,after.event,after.eventIndex,displayTrack), {
-      trackId:displayTrack && !displayTrack.main && displayTrack.instrument==='guitar' ? displayTrack.id : undefined,
+      trackId:displayTrack && !displayTrack.main && (displayTrack.instrument==='guitar' || displayTrack.instrument==='ukulele') ? displayTrack.id : undefined,
       secId: after.section.id,
       squareId: after.square.id,
       eventIndex: after.eventIndex,
@@ -67477,6 +68180,7 @@ const PART_GM_DRUMS = [
 const PART_GM_DRUM_BY_PITCH = new Map(PART_GM_DRUMS.map((drum) => [drum.pitch, drum]));
 const PART_INSTRUMENTS = {
   guitar: { strings: 6, label: 'Гитара' },
+  ukulele: { strings: 4, label: 'Укулеле' }, // 0.866 (B-39 Укулеле)
   bass: { strings: 4, label: 'Бас' },
   drums: { strings: PART_DRUM_LANES.length, label: 'Ударные' },
   keys: { strings: 6, label: 'Клавиши' },
@@ -67804,6 +68508,7 @@ function partTuningNotes(part) {
   const table = inst === 'bass' ? PART_BASS_TUNINGS : TUNER_TUNINGS;
   const preset = part && part.tuning ? table.find((t) => t.id === part.tuning) : null;
   if (preset && preset.notes.length === partStringCount(part)) return preset.notes.slice();
+  if (inst === 'ukulele') return ['G4', 'C4', 'E4', 'A4'];
   if (inst === 'bass') {
     return songTuningNotes()
       .slice(0, PART_INSTRUMENTS.bass.strings)
@@ -76697,7 +77402,8 @@ function renderSectionsGrid() {
     // --- бейдж боя/перебора секции (задаёт умолчание для всех её квадратов) ---
     // B-92: записанная тишина бейджа не получает — «пустой» ритм и
     // «свой ритм» это разные вещи (см. isSilentPattern).
-    if (sec.strumPattern && !isSilentPattern(sec.strumPattern)) {
+    const secStrumPatRender = b39SectionStrumPattern(sec);
+    if (secStrumPatRender && !isSilentPattern(secStrumPatRender)) {
       const strumWrap = document.createElement('span');
       strumWrap.className = 'strum-badge-wrap';
       strumWrap.title = 'Бой/перебор секции (по умолчанию для всех её квадратов) — нажмите, чтобы изменить';
@@ -76706,7 +77412,7 @@ function renderSectionsGrid() {
         openStrumPatternEditor('section', sec.id);
       };
       const refSq = getReferenceSquareForBadge(sec);
-      const { modeBadge, preview } = buildStrumPreviewEls(sec.strumPattern, {
+      const { modeBadge, preview } = buildStrumPreviewEls(secStrumPatRender, {
         chordChangeUnits: getChordChangeUnits(refSq, sec.timeSig || globalTimeSig),
       });
       strumWrap.appendChild(modeBadge);
@@ -78106,7 +78812,8 @@ function syncSectionHeaderDom(sec) {
   // B-92: и на быстром пути B-25 тишина бейджа не получает — иначе
   // после сохранения пустой сетки плашка «_ _ _ _» оставалась висеть до
   // ближайшей полной перерисовки (замер это и поймал).
-  if (sec.strumPattern && !isSilentPattern(sec.strumPattern)) {
+  const secStrumPatSync = b39SectionStrumPattern(sec);
+  if (secStrumPatSync && !isSilentPattern(secStrumPatSync)) {
     const wrap = document.createElement('span');
     wrap.className = 'strum-badge-wrap';
     wrap.title = 'Бой/перебор секции (по умолчанию для всех её квадратов) — нажмите, чтобы изменить';
@@ -78115,7 +78822,7 @@ function syncSectionHeaderDom(sec) {
       openStrumPatternEditor('section', sec.id);
     };
     const refSq = getReferenceSquareForBadge(sec);
-    const { modeBadge, preview } = buildStrumPreviewEls(sec.strumPattern, {
+    const { modeBadge, preview } = buildStrumPreviewEls(secStrumPatSync, {
       chordChangeUnits: getChordChangeUnits(refSq, sec.timeSig || globalTimeSig),
     });
     wrap.appendChild(modeBadge);
@@ -82027,7 +82734,7 @@ toggleTimeAndBeats();
   const DEFAULT_INSTRUMENT_KEY = 'struchord-default-instrument';
   let sessionInstrument = null;
   function defaultInstrument() {
-    try { const value = localStorage.getItem(DEFAULT_INSTRUMENT_KEY); if (value === 'guitar' || value === 'keys') return value; } catch (e) {}
+    try { const value = localStorage.getItem(DEFAULT_INSTRUMENT_KEY); if (value === 'guitar' || value === 'keys' || value === 'ukulele') return value; } catch (e) {}
     return sessionInstrument;
   }
   window.getDefaultInstrument = defaultInstrument;
@@ -82047,7 +82754,7 @@ toggleTimeAndBeats();
     items.forEach(([id, label, art]) => {
       const button = document.createElement('button');
       button.type = 'button'; button.className = 'instrument-choice'; button.dataset.instrument = id;
-      button.disabled = id === 'ukulele' || id === 'bass';
+      button.disabled = id === 'bass';
       button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true">' + art + '</svg><span><strong>' + label + '</strong><small>' + (button.disabled ? 'Пока недоступно' : 'Для новых песен') + '</small></span>';
       if (!button.disabled) {
         button.setAttribute('aria-pressed', String(defaultInstrument() === id));
@@ -82531,7 +83238,7 @@ toggleTimeAndBeats();
       const parts = Array.isArray(song.parts)
         ? song.parts.map((part) => {
             if (!part || typeof part !== 'object') return part;
-            const roleDefault = part.instrument === 'guitar' || part.instrument === 'bass' ? 'tab' : 'staff';
+            const roleDefault = part.instrument === 'guitar' || part.instrument === 'bass' || part.instrument === 'ukulele' ? 'tab' : 'staff';
             return {
               ...part,
               viewMode: part.viewMode === 'staff' || part.viewMode === 'tab' ? part.viewMode : roleDefault,
@@ -82620,7 +83327,7 @@ toggleTimeAndBeats();
   // B-12.9.2: устойчивые роли дорожек. Данные неизвестной роли безопасно
   // читаются как guitar (старое поведение), а валидные роли не смешивают
   // tab-roll и абсолютные MIDI pitchRolls.
-  const ALLOWED_PART_INSTRUMENTS = new Set(['guitar', 'bass', 'drums', 'keys', 'vocal', 'other']);
+  const ALLOWED_PART_INSTRUMENTS = new Set(['guitar', 'ukulele', 'bass', 'drums', 'keys', 'vocal', 'other']);
 
   function asSafeInt(value, fallback, min, max) {
     const n = Number(value);
@@ -82645,15 +83352,17 @@ toggleTimeAndBeats();
   // позиций, каждая «x» либо лад 0..24. Всё остальное отбрасываем:
   // файл мог прийти извне, а битая форма молча сломала бы отрисовку
   // грифа.
-  function asSafeFingering(value) {
+  function asSafeFingering(value, isUkeTuning) {
     if (typeof value !== 'string') return null;
     const parts = value.split(',');
-    if (parts.length !== 6) return null;
+    const expectedLen = isUkeTuning ? 4 : 6;
+    const maxF = isUkeTuning ? 15 : 24;
+    if (parts.length !== expectedLen) return null;
     for (const raw of parts) {
       const v = raw.trim();
       if (v === 'x') continue;
       const n = Number(v);
-      if (!Number.isInteger(n) || n < 0 || n > 24) return null;
+      if (!Number.isInteger(n) || n < 0 || n > maxF) return null;
     }
     return parts.map((v) => v.trim()).join(',');
   }
@@ -82711,14 +83420,16 @@ toggleTimeAndBeats();
     if (!STRUCTURE_JUMP_TYPES[raw.type]) return null;
     return { type: raw.type, target: STRUCTURE_JUMP_TARGETS[raw.target] ? raw.target : 'end' };
   }
-  function cloneSafeShape(shape) {
-    if (!Array.isArray(shape) || shape.length !== 6) return null;
+  function cloneSafeShape(shape, isUke) {
+    const expectedLen = isUke ? 4 : 6;
+    const maxF = isUke ? 15 : 16;
+    if (!Array.isArray(shape) || shape.length !== expectedLen) return null;
     const out = [];
     for (const value of shape) {
       if (value === 'x') out.push('x');
       else {
         const fret = Number(value);
-        if (!Number.isInteger(fret) || fret < 0 || fret > 16) return null;
+        if (!Number.isInteger(fret) || fret < 0 || fret > maxF) return null;
         out.push(fret);
       }
     }
@@ -82848,20 +83559,17 @@ toggleTimeAndBeats();
             // остальное содержимое файла: шесть позиций, каждая — «x»
             // или число лада. Битую строку молча отбрасываем, аккорд
             // покажет вариант по умолчанию.
-            fingering: asSafeFingering(rawEvent.fingering),
-            // Подпись строя — служебная строка вида «@D2A2D3G3B3E4».
-            // Всё, что не похоже, отбрасываем.
-            fingeringTuning:
-              typeof rawEvent.fingeringTuning === 'string' &&
-              /^@([A-G][#b]?-?\d){6}$/.test(rawEvent.fingeringTuning)
-                ? rawEvent.fingeringTuning
-                : null,
-            // B-74: разжатое баррэ. Старые файлы поля не имеют → null →
-            // баррэ авто. Чистим так же строго, как остальное.
-            barreOff: asSafeBarreOff(rawEvent.barreOff),
-            // B-41: кастомные пальцы. Старые файлы поля не имеют → null →
-            // расчёт на лету.
-            fingers: asSafeFingers(rawEvent.fingers),
+            ...(() => {
+              const rawFt = typeof rawEvent.fingeringTuning === 'string' ? rawEvent.fingeringTuning : null;
+              const isUkeFt = !!(rawFt && /^@uke:(high-g|low-g|baritone|canadian)$/.test(rawFt));
+              const validFt = isUkeFt || (rawFt && /^@([A-G][#b]?-?\d){6}$/.test(rawFt)) ? rawFt : null;
+              return {
+                fingering: asSafeFingering(rawEvent.fingering, isUkeFt),
+                fingeringTuning: validFt,
+                barreOff: asSafeBarreOff(rawEvent.barreOff),
+                fingers: asSafeFingers(rawEvent.fingers, isUkeFt ? 4 : 6),
+              };
+            })(),
           });
         }
         sec.squares.push(sq);
@@ -83146,21 +83854,22 @@ toggleTimeAndBeats();
         // B-75: элемент списка — либо голый массив ладов (старый формат),
         // либо {shape, barreOff, fingers}. Санитайзим; форму-мусор
         // отбрасываем, битый barreOff / fingers вычищаем.
+        const isUkeKey = /@uke:(high-g|low-g|baritone|canadian)$/.test(entry[0]);
         const shapes = entry[1]
           .slice(0, 100)
           .map((raw) => {
             if (Array.isArray(raw)) {
-              const s = cloneSafeShape(raw);
+              const s = cloneSafeShape(raw, isUkeKey);
               return s ? { shape: s, barreOff: null } : null;
             }
             if (raw && typeof raw === 'object') {
-              const s = cloneSafeShape(raw.shape);
+              const s = cloneSafeShape(raw.shape, isUkeKey);
               if (!s) return null;
               const res = {
                 shape: s,
                 barreOff: asSafeBarreOff(raw.barreOff),
               };
-              const fg = asSafeFingers(raw.fingers);
+              const fg = asSafeFingers(raw.fingers, isUkeKey ? 4 : 6);
               if (fg) res.fingers = fg;
               return res;
             }
@@ -83177,7 +83886,8 @@ toggleTimeAndBeats();
     if (Array.isArray(rawSong.preferredFingerings)) {
       rawSong.preferredFingerings.slice(0, 2000).forEach((entry) => {
         if (!Array.isArray(entry) || typeof entry[0] !== 'string' || typeof entry[1] !== 'string') return;
-        if (cloneSafeShape(entry[1].split(',').map((v) => (v === 'x' ? 'x' : Number(v))))) preferredFingerings.push([entry[0].slice(0, SONG_LIMITS.MAX_TEXT), entry[1].slice(0, SONG_LIMITS.MAX_TEXT)]);
+        const isUkePref = /@uke:(high-g|low-g|baritone|canadian)$/.test(entry[0]);
+        if (cloneSafeShape(entry[1].split(',').map((v) => (v === 'x' ? 'x' : Number(v))), isUkePref)) preferredFingerings.push([entry[0].slice(0, SONG_LIMITS.MAX_TEXT), entry[1].slice(0, SONG_LIMITS.MAX_TEXT)]);
       });
     }
     // Строй из файла — недоверенный ввод, как и всё остальное.
@@ -83689,7 +84399,7 @@ toggleTimeAndBeats();
   // нотной позиции (tuningOctaveShift срабатывает только ниже 35).
   var WIDE_MIDI = [36, 48, 60, 72, 84, 96, 108];
   var WIDE_NAMES = ['C2', 'C3', 'C4', 'C5', 'C6', 'C7', 'C8'];
-  var GM_PROGRAM = { keys: 0, guitar: 25 };
+  var GM_PROGRAM = { keys: 0, guitar: 25, ukulele: 24 }; // 0.866: GM 24 = Nylon Guitar (0-based)
   var MAX_NOTES = 20000;
 
   var stats = { parts: 0, notes: 0, skippedGhost: 0, skippedRecorded: 0,
@@ -83901,12 +84611,16 @@ toggleTimeAndBeats();
         start:round4(win.start+n.start*scale),dur:round4(n.dur*scale),velocity:velocityOf(track)
       });});
     }
+    var expectedStrings = track.instrument === 'ukulele' ? 4 : 6;
     var ctx={secId:sec.id,squareId:sq.id,eventIndex:ei,key:sec.key||globalKey,trackId:track.id};
     var shape=resolveShapeForScheduledChord(chord,ctx).shape;
-    if(!Array.isArray(shape) || shape.length!==6){stats.guitarMissingShape++;return [];}
-    var roll=typeof songRhythmRolls!=='undefined' && songRhythmRolls ? rhythmRollWindowFor(sec.id,sq,ei,songRhythmRolls) : null;
-    var own=roll || ev.strumPattern || null;
-    var pattern=own || getEffectiveStrumPattern(null,sq,sec);
+    if(!Array.isArray(shape) || shape.length!==expectedStrings){stats.guitarMissingShape++;return [];}
+    var own = track.instrument === 'ukulele'
+      ? (track.patterns && track.patterns[cellKey]) || null
+      : ((typeof songRhythmRolls!=='undefined' && songRhythmRolls ? rhythmRollWindowFor(sec.id,sq,ei,songRhythmRolls) : null) || ev.strumPattern || null);
+    var pattern = own || (track.instrument === 'ukulele'
+      ? (track.patterns && track.patterns['s:' + sec.id]) || null
+      : getEffectiveStrumPattern(null,sq,sec));
     var sub=pattern ? Math.max(1,pattern.subdivision||1) : 1;
     var valid=pattern && Array.isArray(pattern.steps) && pattern.steps.length;
     if(valid && !own && (!Number.isInteger(pattern.steps.length/sub) || pattern.steps.length/sub<1))valid=false;
@@ -83930,7 +84644,7 @@ toggleTimeAndBeats();
         var at=Math.max(0,rel)*scale;
         if(pattern.mode==='pick' || (pattern.mode==='mixed' && (Array.isArray(symbol) || typeof symbol==='number'))) {
           var strings=resolvePickStepStrings(symbol,shape,chord);
-          strings.forEach(function(num){var line=6-Number(num), fret=shape[line];
+          strings.forEach(function(num){var line=expectedStrings-Number(num), fret=shape[line];
             add(line,fret==='x'||fret===null||fret===undefined ? 0 : Number(fret),at,false,null);});
         } else if(symbol==='D' || symbol==='U') {stats.guitarBrush++;strum(at,false,symbol==='D'?'down':'up');}
         else if(symbol==='X') {stats.guitarDead++;strum(at,true,null);}
@@ -84032,13 +84746,13 @@ toggleTimeAndBeats();
         name: String(track.name || ('Дорожка ' + track.id)),
         viewMode: 'staff',
         capo: 0,
-        gmProgram: isKeys ? ({rhodes:4,organ:16,pad:89}[track.timbre] ?? GM_PROGRAM.keys) : GM_PROGRAM.guitar,
+        gmProgram: isKeys ? ({rhodes:4,organ:16,pad:89}[track.timbre] ?? GM_PROGRAM.keys) : (track.instrument === 'ukulele' ? GM_PROGRAM.ukulele : GM_PROGRAM.guitar),
         mix: { volume: clamp(track.volume, 0, 100), pan: 0 },
         b39TrackId: track.id,
         b39Instrument: track.instrument
       };
       if (!isKeys) {
-        out.push(Object.assign({},base,{instrument:'guitar',viewMode:'tab',strings:b39WithTrackTuning(track.id,function(){return b39GuitarTuningNotes().slice();}),
+        out.push(Object.assign({},base,{instrument: track.instrument === 'ukulele' ? 'ukulele' : 'guitar',viewMode:'tab',strings:b39WithTrackTuning(track.id,function(){return b39GuitarTuningNotes().slice();}),
           capo:Number(songData.capo)||0,rolls:rolls,pitchRolls:{}}));
       } else if (gp5) {
         // GP5-писатель умеет только струны: даём ему виртуальный строй
@@ -84476,7 +85190,7 @@ toggleTimeAndBeats();
     let pitchNotes = 0;
     parts.forEach((part, partIndex) => {
       const instrument = partInstrumentId(part);
-      const isTab = instrument === 'guitar' || instrument === 'bass';
+      const isTab = instrument === 'guitar' || instrument === 'bass' || instrument === 'ukulele';
       const partName = String(part.name || `Дорожка ${partIndex + 1}`);
       const exportPart = {
         name: partName,
@@ -84765,7 +85479,7 @@ toggleTimeAndBeats();
 
     parts.forEach((part, partIndex) => {
       const instrument = partInstrumentId(part);
-      const isTab = instrument === 'guitar' || instrument === 'bass';
+      const isTab = instrument === 'guitar' || instrument === 'bass' || instrument === 'ukulele';
       const partName = String(part.name || `Дорожка ${partIndex + 1}`);
       const exportPart = {
         name: partName,
