@@ -43,23 +43,24 @@ function cssBlock(selector) {
 // 1. CSS-инварианты раскладки
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.874'), 'STRUCHORD.html header is ver 0.874');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v874';"), 'sw.js CACHE_NAME is struchord-v874');
-  assert(README.includes('`0.874`'), 'README header is 0.874');
-  assert(ROADMAP.includes('**0.874**'), 'ROADMAP header is 0.874');
+  assert(HTML.includes('ver 0.875'), 'STRUCHORD.html header is ver 0.875');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v875';"), 'sw.js CACHE_NAME is struchord-v875');
+  assert(README.includes('`0.875`'), 'README header is 0.875');
+  assert(ROADMAP.includes('**0.875**'), 'ROADMAP header is 0.875');
 
-  const vars = cssBlock('.tab-insert-editor {\n  --tab-staff-min');
-  assert(vars.includes('--tab-staff-max: clamp('), 'высота стана задана переменной с клампом');
+  // 0.875: минимум стана поднят до 220 px, потолка больше нет — стан растёт.
+  const vars = cssBlock('.tab-insert-editor {');
+  assert(vars.includes('--tab-staff-min: clamp(13.75rem, 32vh, 34rem);'), 'минимум стана задан клампом от 220 px');
   assert(vars.includes('--tab-status-slot:'), 'высота строки статуса задана переменной');
 
   const host = cssBlock('.tab-at-host {');
-  assert(host.includes('max-height: var(--tab-staff-max);'), 'стан ограничен по высоте');
   assert(host.includes('overflow-y: auto;'), 'стан прокручивается сам');
+  assert(host.includes('flex: 1 1 auto;'), 'стан растёт по свободному месту');
   assert(host.includes('min-height: var(--tab-staff-min);'), 'стан не схлопывается в ноль');
 
   const surface = cssBlock('.tab-editor-surface {');
-  assert(surface.includes('flex: 0 1 auto;'), 'поверхность стана уступает место панелям');
-  assert(surface.includes('min-height: 5.5rem;'), 'у поверхности остался разумный минимум');
+  assert(surface.includes('flex: 1 1 auto;'), 'поверхность стана забирает свободное место');
+  assert(surface.includes('min-height: calc(var(--tab-staff-min) + 2rem);'), 'минимум поверхности считается от стана');
 
   for (const [selector, label] of [
     ['.tab-palette {', 'палитра'],
@@ -78,7 +79,7 @@ function cssBlock(selector) {
 
   assert(HTML.includes('@media (max-height: 760px) {'), 'есть компактный режим низких экранов');
   const compact = HTML.slice(HTML.indexOf('@media (max-height: 760px) {'));
-  assert(compact.includes('--tab-staff-max: clamp(4.5rem, 20vh, 9rem);'), 'в компактном режиме стан ещё ниже');
+  assert(!compact.includes('--tab-staff-min:'), 'в компактном режиме минимум стана не понижается');
   assert(compact.includes('.tab-insert-editor .tab-tool { min-width: 1.55rem; height: 1.6rem; }'),
     'в компактном режиме кнопки инструментов меньше');
 
@@ -268,7 +269,7 @@ async function main() {
     status.hidden = false;
     const before = slot.childElementCount;
     assert.strictEqual(before, 1, 'в слоте ровно одна строка статуса — высота места не меняется');
-    assert.strictEqual(slot.className, 'tab-status-slot', 'слот не перерисовывается вместе со статусом');
+    assert(slot.className.startsWith('tab-status-slot'), 'слот не перерисовывается вместе со статусом');
     ok('Строка статуса: постоянный слот, появление текста не меняет состав тела окна');
     ctx.dom.window.close();
   }

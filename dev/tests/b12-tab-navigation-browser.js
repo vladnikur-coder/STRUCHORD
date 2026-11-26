@@ -32,6 +32,17 @@ const note = (start, dur, fret = 3, string = 0, flags = {}) => ({ start, dur, st
       }
       async function key(k) { await page.$eval('.tab-at-host', e => e.focus()); await page.keyboard.press(k); await wait(70); }
       async function button(selector) {
+        // 0.875: на компьютере вторичные секции палитры свёрнуты — открываем
+        // секцию с нужной кнопкой, иначе её не нажать мышью.
+        const neededGroup = await page.$eval(selector, (e) => {
+          const g = e.closest('[data-tab-group]');
+          if (!g || g.getAttribute('data-open') !== 'false') return null;
+          return g.getAttribute('data-tab-group');
+        });
+        if (neededGroup) {
+          await page.$eval(`[data-tab-group-toggle="${neededGroup}"]`, (b) => b.click());
+          await wait(30);
+        }
         await page.$eval(selector, e => e.scrollIntoView({ block: 'center' })); await wait(40);
         if (touch) await page.tap(selector); else await page.click(selector); await wait(100);
       }

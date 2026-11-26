@@ -153,10 +153,10 @@ function loadPartModel(sb) {
 // 1. Статические инварианты 0.867 и точки интеграции
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.874'), 'STRUCHORD.html header is ver 0.874');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v874';"), 'sw.js CACHE_NAME is struchord-v874');
-  assert(README.includes('`0.874`'), 'README header is 0.874');
-  assert(ROADMAP.includes('**0.874**'), 'ROADMAP header is 0.874');
+  assert(HTML.includes('ver 0.875'), 'STRUCHORD.html header is ver 0.875');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v875';"), 'sw.js CACHE_NAME is struchord-v875');
+  assert(README.includes('`0.875`'), 'README header is 0.875');
+  assert(ROADMAP.includes('**0.875**'), 'ROADMAP header is 0.875');
 
   const table = extractConst('PART_UKULELE_TUNINGS', '\n];');
   ['uke-high-g', 'uke-low-g', 'uke-baritone', 'uke-canadian'].forEach((id) => {

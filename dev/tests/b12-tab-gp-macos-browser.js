@@ -94,6 +94,17 @@ function check(name, actual, expected = true) {
         await wait(25);
       }
       async function button(selector) {
+        // 0.875: на компьютере вторичные секции палитры свёрнуты — открываем ту,
+        // в которой лежит нужная кнопка, иначе её не нажать мышью.
+        const neededGroup = await page.$eval(selector, (e) => {
+          const g = e.closest('[data-tab-group]');
+          if (!g || g.getAttribute('data-open') !== 'false') return null;
+          return g.getAttribute('data-tab-group');
+        });
+        if (neededGroup) {
+          await page.$eval(`[data-tab-group-toggle="${neededGroup}"]`, (b) => b.click());
+          await wait(30);
+        }
         const neededTab = await page.$eval(selector, (e) => {
           const pane = e.closest('[data-mobile-pane]');
           if (!pane || getComputedStyle(pane).display !== 'none') return null;
