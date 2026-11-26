@@ -35,10 +35,10 @@ function ok(msg) {
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.875'), 'STRUCHORD.html header is ver 0.875');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v875';"), 'sw.js CACHE_NAME is struchord-v875');
-  assert(README.includes('`0.875`'), 'README header is 0.875');
-  assert(ROADMAP.includes('**0.875**'), 'ROADMAP header is 0.875');
+  assert(HTML.includes('ver 0.876'), 'STRUCHORD.html header is ver 0.876');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v876';"), 'sw.js CACHE_NAME is struchord-v876');
+  assert(README.includes('`0.876`'), 'README header is 0.876');
+  assert(ROADMAP.includes('**0.876**'), 'ROADMAP header is 0.876');
 
   assert(HTML.includes('function gpExportBuildTabParts(songData, plans, report, nativeRepeats = false) {'),
     'tab inserts are built per domain');

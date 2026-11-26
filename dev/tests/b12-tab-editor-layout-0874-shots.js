@@ -89,7 +89,6 @@ function measure(page) {
     const status = document.querySelector('[data-tab-gp-error]');
     const frets = document.querySelector('.tab-tools-row--frets');
     const toggle = document.querySelector('[data-tab-fret-toggle]');
-    const hint = document.querySelector('[data-tab-empty-hint]');
     const visible = (el) => !!el && getComputedStyle(el).display !== 'none' && r(el).height > 0;
     const slotBefore = r(slot).height;
     // Строка статуса появляется — окно не должно сдвинуться.
@@ -108,7 +107,6 @@ function measure(page) {
       actions: { bottom: r(actions).bottom, visible: visible(actions) },
       statusSlot: { height: slotBefore, heightAfterMessage: slotAfter, modalHeightAfterMessage: modalAfter, scrolls: getComputedStyle(slot).overflowY },
       frets: { visible: visible(frets), collapsed: frets && frets.getAttribute('data-collapsed'), keys: document.querySelectorAll('.tab-fret-pad [data-tab-digit]').length, toggleVisible: visible(toggle) },
-      hint: { present: !!hint, visible: !!hint && !hint.hidden, text: hint ? hint.textContent.trim() : '' },
       bars: (typeof tabInsertEditorState === 'object' && tabInsertEditorState.gpBars) ? tabInsertEditorState.gpBars.length : 0,
       theme: document.documentElement.dataset.theme || '',
     };
@@ -141,7 +139,6 @@ function measure(page) {
         check(`[${id}] стан ограничен по высоте`, m.staff.height <= m.staff.scrollHeight + 1 && parseFloat(m.staff.maxHeight) > 0, m.staff);
         check(`[${id}] строка статуса не двигает окно`, Math.abs(m.statusSlot.heightAfterMessage - m.statusSlot.height) < 1 && Math.abs(m.statusSlot.modalHeightAfterMessage - m.modal.height) < 1,
           { slot: m.statusSlot.height, slotWithMessage: m.statusSlot.heightAfterMessage, modal: m.modal.height, modalWithMessage: m.statusSlot.modalHeightAfterMessage });
-        check(`[${id}] подсказка пустого стана в разметке`, m.hint.present, m.hint);
         if (vp.width >= 1025 && !vp.touch) {
           check(`[${id}] панель ладов 0–9 на компьютере видна`, m.frets.visible && m.frets.keys === 10, m.frets);
           check(`[${id}] у панели ладов есть переключатель`, m.frets.toggleVisible, m.frets);

@@ -43,10 +43,10 @@ function cssBlock(selector) {
 // 1. CSS-инварианты раскладки
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.875'), 'STRUCHORD.html header is ver 0.875');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v875';"), 'sw.js CACHE_NAME is struchord-v875');
-  assert(README.includes('`0.875`'), 'README header is 0.875');
-  assert(ROADMAP.includes('**0.875**'), 'ROADMAP header is 0.875');
+  assert(HTML.includes('ver 0.876'), 'STRUCHORD.html header is ver 0.876');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v876';"), 'sw.js CACHE_NAME is struchord-v876');
+  assert(README.includes('`0.876`'), 'README header is 0.876');
+  assert(ROADMAP.includes('**0.876**'), 'ROADMAP header is 0.876');
 
   // 0.875: минимум стана поднят до 220 px, потолка больше нет — стан растёт.
   const vars = cssBlock('.tab-insert-editor {');
@@ -93,10 +93,11 @@ function cssBlock(selector) {
     'свёрнутая панель ладов скрывает клавиши');
   assert(desktop.includes('.tab-fret-toggle {'), 'у панели ладов есть переключатель');
 
-  const hint = cssBlock('.tab-at-empty-hint {');
-  assert(hint.includes('pointer-events: none;'), 'подсказка не перехватывает клики по стану');
-  assert(HTML.includes('Нажмите цифру на клавиатуре, чтобы поставить ноту'), 'текст подсказки пустого стана');
-  ok('CSS 0.874: стан с клампом и прокруткой, панели не сжимаются, слот статуса, компактный режим, панель ладов, подсказка');
+  // 0.876: подсказка «Нажмите цифру на клавиатуре…» убрана по просьбе владельца.
+  assert(!HTML.includes('tab-at-empty-hint'), 'разметки подсказки пустого стана нет');
+  assert(!HTML.includes('Нажмите цифру на клавиатуре, чтобы поставить ноту'), 'текста подсказки нет');
+  assert(!HTML.includes('tabSyncEmptyHint'), 'функции подсказки нет');
+  ok('CSS 0.874: стан с клампом и прокруткой, панели не сжимаются, слот статуса, компактный режим, панель ладов');
 }
 
 // =====================================================================
@@ -161,7 +162,6 @@ async function open(ctx, sqId = 102) {
   w.openTabInsertEditor(101, sqId);
   await sleep(350);
   ctx.editor = w.eval('tabInsertEditorState');
-  ctx.hint = () => ctx.doc.querySelector('[data-tab-empty-hint]');
   ctx.row = () => ctx.doc.querySelector('[data-tab-fret-row]');
   ctx.toggle = () => ctx.doc.querySelector('[data-tab-fret-toggle]');
 }
@@ -222,31 +222,18 @@ async function main() {
   }
 
   // -------------------------------------------------------------------
-  // 4. Подсказка пустого стана
+  // 4. Подсказки в пустом стане больше нет (0.876, просьба владельца)
   // -------------------------------------------------------------------
   {
     const ctx = await boot();
     await open(ctx);
     const { w } = ctx;
-    assert(ctx.hint(), 'подсказка есть в разметке');
-    assert.strictEqual(ctx.hint().hidden, false, 'в пустой вставке подсказка видна');
-    assert.strictEqual(ctx.hint().textContent.trim(), 'Нажмите цифру на клавиатуре, чтобы поставить ноту',
-      'текст подсказки дословно');
-
+    assert.strictEqual(ctx.doc.querySelector('[data-tab-empty-hint]'), null, 'узла подсказки в редакторе нет');
+    // Пустая вставка работает как раньше: цифра ставит ноту.
     w.tabGpPut(ctx.editor, 5);
     await sleep(150);
-    assert.strictEqual(ctx.hint().hidden, true, 'после первой ноты подсказка исчезает');
-
-    w.eval('tabAtUndoDraft()');
-    await sleep(150);
-    assert.strictEqual(ctx.hint().hidden, false, 'после отмены ноты подсказка вернулась');
-
-    // Вставка с нотой (второй квадрат) открывается без подсказки.
-    ctx.doc.querySelector('[data-tab-cancel]').dispatchEvent(new w.MouseEvent('click', { bubbles: true }));
-    await sleep(200);
-    await open(ctx, 103);
-    assert.strictEqual(ctx.hint().hidden, true, 'у непустой вставки подсказки нет');
-    ok('Подсказка пустого стана: видна в пустой вставке, гаснет от первой ноты и возвращается с отменой');
+    assert.strictEqual(ctx.editor.gpBars[0].flatMap((g) => g.notes).length, 1, 'ввод с клавиатуры не затронут');
+    ok('Пустой стан: подсказки-надписи нет, ввод ноты работает');
     ctx.dom.window.close();
   }
 

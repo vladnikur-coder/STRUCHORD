@@ -47,10 +47,10 @@ const px = (rem) => Math.round(parseFloat(rem) * 16);
 // 1. Высота стана
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.875'), 'STRUCHORD.html header is ver 0.875');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v875';"), 'sw.js CACHE_NAME is struchord-v875');
-  assert(README.includes('`0.875`'), 'README header is 0.875');
-  assert(ROADMAP.includes('**0.875**'), 'ROADMAP header is 0.875');
+  assert(HTML.includes('ver 0.876'), 'STRUCHORD.html header is ver 0.876');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v876';"), 'sw.js CACHE_NAME is struchord-v876');
+  assert(README.includes('`0.876`'), 'README header is 0.876');
+  assert(ROADMAP.includes('**0.876**'), 'ROADMAP header is 0.876');
 
   const vars = cssBlock('.tab-insert-editor {');
   const m = /--tab-staff-min: clamp\(([\d.]+)rem, ([\d.]+)vh, ([\d.]+)rem\);/.exec(vars);
