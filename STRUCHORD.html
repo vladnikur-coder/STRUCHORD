@@ -5365,6 +5365,13 @@ body.is-resizing .tab-insert > .chord-ticks-step {
   align-items: stretch;
   --tab-digit-halo: var(--tl-cell-bg, var(--color-background-secondary));
 }
+/* 0.882: цифры Ленты — как в 0.880: Arial обычного начертания, крупно.
+   В сетке редактора (.tab-insert--digits) остаётся моноширинный полужирный:
+   там стан живёт в маленькой клетке и цифры поджаты. */
+.tab-insert--lenta .tab-digits-digit {
+  font-family: Arial, Helvetica, sans-serif;
+  font-weight: 400;
+}
 .tab-insert--lenta .tab-insert-heading { display: none; }
 .tab-insert--lenta .tab-insert-body {
   height: 100%;
@@ -16344,7 +16351,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.881</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.882</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -26379,8 +26386,23 @@ const TAB_DIGITS_BLOCK_PAD_Y = 4;
 // линейка Ленты), поэтому поля по вертикали — ровно те 4 px, которые требует
 // отступ от края клетки, а цифры не мельче 11 px: мельче читать нельзя,
 // в этом случае стан просто ужимается вместе с клеткой.
-const TAB_DIGITS_LENTA_PAD_Y = 4;
-const TAB_DIGITS_LENTA_FONT_MIN = 11;
+// 0.882: в Ленте цифры снова как в 0.880 — крупные, Arial, обычного
+// начертания. Кегль 0.20 высоты клетки (98 px → 19.6 px), не мельче 12 px;
+// если цифра перестаёт помещаться между линиями (низкая клетка на телефоне),
+// берём вписанный кегль, чтобы цифры соседних струн не слипались.
+const TAB_DIGITS_LENTA_FONT_RATIO = 0.20;
+const TAB_DIGITS_LENTA_FONT_MIN = 12;
+const TAB_DIGITS_LENTA_FONT_MAX = 26;
+// Высота чернил цифры Arial — заглавная высота ≈ 0.72 кегля. По ней, а не по
+// кеглю целиком, считаются поля и подложка: цифра «9» занимает 14.1 px при
+// кегле 19.6, и отступ до края клетки — половина этого плюс 1 px воздуха.
+const TAB_DIGITS_LENTA_INK = 0.72;
+// Ширина цифры Arial ≈ 0.56 кегля (в моноширинной сетке — 0.62).
+const TAB_DIGITS_LENTA_ADVANCE = 0.56;
+// Микрозазор между чернилами цифры и краем клетки.
+const TAB_DIGITS_LENTA_AIR = 1;
+// Ниже этого кегля цифра нечитаема — дальше стан уменьшается пропорционально.
+const TAB_DIGITS_LENTA_READ_MIN = 11;
 const TAB_DIGITS_LENTA_FALLBACK_H = 98;
 
 // Сколько подписей счёта в одной доле: 1 — четверти, 2 — восьмые,
@@ -26443,7 +26465,8 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   //   • цифра прижата левым краем к своему моменту, а не центрирована;
   //   • нет линейки счёта внутри — вся высота отдана стану;
   //   • кегль подобран так, чтобы цифры не слипались между струнами и
-  //     всё влезло с отступом TAB_DIGITS_LENTA_PAD_Y сверху и снизу.
+  //     первая и последняя цифры целиком внутри клетки (поля считаются от
+  //     высоты чернил цифры, см. TAB_DIGITS_LENTA_INK).
   const isLenta = options.layout === 'lenta';
   const strings = Math.max(1, Math.round(Number(domain && domain.strings) || 6));
   const perBar = Math.max(1, Math.round(getGridUnitsPerBar(ts) || 4));
@@ -26482,7 +26505,7 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   // В клетке Ленты стан идёт от края до края: линии струн должны проходить
   // всю ширину, а не прятаться за полями.
   const padX = isLenta ? 0 : (isCell ? TAB_DIGITS_CELL_PAD_X : TAB_DIGITS_BLOCK_PAD_X);
-  const padY = isLenta ? TAB_DIGITS_LENTA_PAD_Y : (isCell ? TAB_DIGITS_CELL_PAD_Y : TAB_DIGITS_BLOCK_PAD_Y);
+  const padY = isLenta ? TAB_DIGITS_LENTA_AIR : (isCell ? TAB_DIGITS_CELL_PAD_Y : TAB_DIGITS_BLOCK_PAD_Y);
   const padTotalX = padX * 2;
   const width = Math.max(24, Math.round(Number(options.width) || (padTotalX + count * TAB_DIGITS_STEP_PREF)));
   const height = Math.max(24, Math.round(Number(options.height)
@@ -26496,7 +26519,6 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   const stripW = step * count;
   const firstX = padX + (boxW - stripW) / 2 + step / 2;
 
-  const usableH = Math.max(8, height - padY * 2);
   let font;
   let lineGap;
   let staffTop;
@@ -26505,16 +26527,20 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   let rulerTop = 0;
   let rulerBaseline = 0;
   if (isLenta) {
-    // Цифра по вертикали занимает ~0.9 кегля (заглавная высота + запас на
-    // подложку). Промежуток между линиями держим не меньше 0.92 кегля —
-    // тогда цифры соседних струн в аккорде не слипаются.
-    const snug = (0.92 * usableH) / (Math.max(1, strings - 1) + 0.828);
-    font = Math.max(6, Math.min(TAB_DIGITS_FONT_MAX, snug));
-    lineGap = Math.max(3, (usableH - font * 0.9) / Math.max(1, strings - 1));
-    // Поля 4 px уже гарантируют отступ; здесь только центрируем цифру на
-    // линии: её верх — на 0.45 кегля выше линии, низ — на 0.45 ниже.
-    staffTop = padY + font * 0.45;
-    staffBottom = staffTop + lineGap * (strings - 1);
+    // 0.882: вид 0.880 — линии по всей высоте клетки, цифры крупные.
+    // Кегль из высоты (0.20 → 19.6 px при 98 px), но не больше того, при
+    // котором чернила цифры ещё помещаются между линиями с зазором.
+    const byHeight = clampNumberValue(height * TAB_DIGITS_LENTA_FONT_RATIO,
+      TAB_DIGITS_LENTA_FONT_MIN, TAB_DIGITS_LENTA_FONT_MAX);
+    const span = Math.max(1, strings - 1);
+    const byGap = (height - 2 * TAB_DIGITS_LENTA_AIR) / (TAB_DIGITS_LENTA_INK + TAB_DIGITS_LENTA_INK * 1.05 * span);
+    font = Math.max(6, Math.min(byHeight, byGap));
+    // Поля сверху и снизу — половина высоты цифры плюс 1 px: первая и
+    // последняя цифры видны целиком, а не срезаны краем клетки.
+    const halfInk = (font * TAB_DIGITS_LENTA_INK) / 2;
+    lineGap = Math.max(3, (height - 2 * (halfInk + TAB_DIGITS_LENTA_AIR)) / span);
+    staffTop = TAB_DIGITS_LENTA_AIR + halfInk;
+    staffBottom = staffTop + lineGap * span;
   } else {
     // В сетке редактора нижние ~25 % высоты — линейка счёта.
     font = tabDigitsFontFor(height);
@@ -26568,8 +26594,10 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
       g.digits.forEach((d) => { m = Math.max(m, String(d.dead === true ? 'x' : d.fret).length); });
       return m;
     }, 1);
-    const needed = 0.62 * widest * TAB_DIGITS_LENTA_FONT_MIN;
-    if (needed > minRoom - 2) fontLenta = Math.max(6, (minRoom - 2) / (0.62 * widest));
+    const advance = TAB_DIGITS_LENTA_ADVANCE * widest;
+    if (advance * TAB_DIGITS_LENTA_READ_MIN > minRoom - 2) {
+      fontLenta = Math.max(6, (minRoom - 2) / advance);
+    }
   }
   const fontUsed = isLenta ? fontLenta : font;
 
@@ -26584,13 +26612,20 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
     // поджимаем кегль под расстояние между линиями; одиночная нота в доле
     // остаётся крупной.
     const stack = Math.max(1, group.digits.length);
-    const stackFit = stack > 1 ? Math.min(1, (lineGap * 0.92) / fontUsed) : 1;
+    // В аккорде цифры стоят на соседних струнах. В Ленте поджимаем по
+    // чернилам: при кегле 19.6 и шаге 16.4 они помещаются, аккорд остаётся
+    // крупным. В сетке редактора — прежнее правило 0.879 (0.92 промежутка).
+    const stackFit = stack > 1
+      ? (isLenta
+        ? Math.min(1, (lineGap - TAB_DIGITS_LENTA_AIR) / (fontUsed * TAB_DIGITS_LENTA_INK))
+        : Math.min(1, (lineGap * 0.92) / fontUsed))
+      : 1;
     const digits = group.digits.slice().sort((a, b) => b.string - a.string).map((d) => {
       // Двузначный лад («12») не должен налезать на соседа по горизонтали:
       // поджимаем кегль ровно под отведённое место, остальные цифры
       // остаются крупными. В Ленте кегль уже общий на весь стан (fontLenta),
       // поэтому здесь только вертикальная подгонка аккорда.
-      const need = 0.62 * Math.max(1, d.label.length);
+      const need = (isLenta ? TAB_DIGITS_LENTA_ADVANCE : 0.62) * Math.max(1, d.label.length);
       const fit = (room - 2) / need;
       // В Ленте сверху — кегль станции, снизу — сколько влезает в свой шаг
       // (двузначный «12» поджимается один, остальные цифры не мельчают).
@@ -26630,10 +26665,10 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
 
   const widest = positions.reduce((max, p) => Math.max(max, p.digits.reduce((m, d) => Math.max(m, d.label.length), 0)), 1);
   const haloW = Math.max(6, Math.min(step * 0.92, 0.62 * fontUsed * widest + 3));
-  // В Ленте подложка ниже: линии струн должны оставаться видны между
-  // цифрами, а цифра всё равно закрывает свою чернильную высоту.
+  // В Ленте подложка ровно по чернилам цифры плюс 1 px с каждой стороны —
+  // как в 0.880: линия разрывается вокруг цифры, но соседние линии целы.
   const haloH = isLenta
-    ? Math.max(5, Math.min(lineGap * 0.8, fontUsed * 1.05))
+    ? Math.max(5, Math.min(lineGap, fontUsed * TAB_DIGITS_LENTA_INK + 2))
     : Math.max(5, Math.min(lineGap * 0.95, fontUsed * 1.12));
   const pauseStep = isLenta && rooms.length ? Math.min(...rooms) : step;
   const pauseW = Math.max(4, Math.min(pauseStep * 0.6, fontUsed * 0.7));

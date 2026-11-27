@@ -1,25 +1,30 @@
 #!/usr/bin/env node
 'use strict';
-// 0.881 · таб-вставка в ЛЕНТЕ без искажений: свой стан вместо растянутого
-// alphaTab.
+// 0.882 · таб-вставка в ЛЕНТЕ: вид 0.880 (крупные цифры Arial) без искажений
+// и обрезки.
 //
-// Что забраковал владелец в 0.880 (замеры в Chromium, Oasis, вставка
-// 2 доли × 4 шестнадцатых, клетка 192×98):
-//   • preserveAspectRatio="none" растягивал картинку по X в 1.8 раза —
-//     цифры расплющены, а глиф уже не той формы;
-//   • содержимое alphaTab было 238 px по высоте при кадре 98 px — верхняя и
-//     нижняя струны с цифрами срезаны;
-//   • первая нота стояла в x=0, её цифру срезал край карточки.
+// История. 0.881 убрала искажение (`preserveAspectRatio="none"`) и обрезку,
+// но стан в Ленте стал мелким: цифры — моноширинные 14.2 px, шаг линий
+// 15.4 px, линии от y=10 до y=87. Владелец сравнил с 0.880, где цифры были
+// Arial 20.5 px, начертание 400, а линии шли почти по всей высоте клетки
+// (шаг ≈ 19 px), и попросил вернуть этот вид.
 //
-// Решение 0.881: в Ленте стан рисует тот же движок «Только цифры», что в
-// сетке редактора (0.877–0.879), но в режиме «lenta»:
-//   • x = начало вставки + доля × ширина клетки (время, а не номер ноты);
-//   • цифра прижата ЛЕВЫМ краем к своему моменту — так требует владелец;
-//   • своей линейки внутри нет, вся высота отдана стану, отступ ≥ 4 px;
-//   • SVG не масштабируется вообще (viewBox = размер клетки), поэтому
-//     пропорции глифа естественные по построению.
+// Что держит этот прогон:
+//   • кегль цифр Ленты = 0.20 высоты клетки (98 px → 19.6 px), не мельче
+//     12 px; шрифт Arial/sans-serif, начертание 400 — только в Ленте, сетка
+//     редактора (.tab-insert--digits) остаётся моноширинной полужирной;
+//   • шаг линий = (высота − 2 × (половина чернил + 1 px)) / (струны − 1):
+//     98 px → 16.4 px, замер приводится в выводе;
+//   • верхняя и нижняя цифры целиком внутри клетки: поля считаются от
+//     высоты ЧЕРНИЛ (0.72 кегля), а не от кегля целиком;
+//   • x нот = начало вставки + (доля / всего долей) × ширина (±2 px),
+//     цифра прижата ЛЕВЫМ краем (один вариант на все случаи);
+//   • двузначный «12» на шаге 24 px остаётся полного кегля (0.56 кегля на
+//     цифру у Arial), а на мелком масштабе поджимается, но не ниже 11 px;
+//   • аккорд: цифры на соседних струнах не налезают (чернила ≤ шаг);
+//   • масштаб «−»/«авто»/«+», паузы, счёт «1 та и та» — как в 0.880/0.881.
 //
-// Запуск: node dev/tests/b12-timeline-tab-0881.js
+// Запуск: node dev/tests/b12-timeline-tab-0882.js
 
 const fs = require('fs');
 const path = require('path');
@@ -48,14 +53,14 @@ function cssRule(selector) {
 }
 
 // =====================================================================
-// 1. Статические инварианты 0.881
+// 1. Статические инварианты 0.882
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.881'), 'STRUCHORD.html header is ver 0.881');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v881';"), 'sw.js CACHE_NAME is struchord-v881');
-  assert(README.includes('`0.881`'), 'README header is 0.881');
-  assert(ROADMAP.includes('**0.881**'), 'ROADMAP header is 0.881');
-  assert(CHANGELOG.includes('## 0.881'), 'CHANGELOG has 0.881 entry');
+  assert(HTML.includes('ver 0.882'), 'STRUCHORD.html header is ver 0.882');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v882';"), 'sw.js CACHE_NAME is struchord-v882');
+  assert(README.includes('`0.882`'), 'README header is 0.882');
+  assert(ROADMAP.includes('**0.882**'), 'ROADMAP header is 0.882');
+  assert(CHANGELOG.includes('## 0.882'), 'CHANGELOG has 0.882 entry');
 
   // А. Никакого неравномерного масштаба: в таб-станции «none» не осталось.
   //    (В других местах приложения оно законно — там растягивается декор,
@@ -127,7 +132,25 @@ function cssRule(selector) {
     'поля сетки редактора прежние — режим lenta их не меняет');
   assert(HTML.includes('const firstX = padX + (boxW - stripW) / 2 + step / 2;'),
     'центрированная сетка редактора не изменилась');
-  ok('Статика 0.881: «none» нет, Лента рисует свой стан, сетка 0.879 и высота 0.880 целы');
+
+  // Е. 0.882: вид 0.880 — крупные цифры Arial только в Ленте.
+  const lentaDigitRule = cssRule('.tab-insert--lenta .tab-digits-digit');
+  assert(/font-family:\s*Arial/.test(lentaDigitRule), 'цифры Ленты — Arial/sans-serif');
+  assert(/font-weight:\s*400/.test(lentaDigitRule), 'начертание цифр Ленты — 400, как в 0.880');
+  const gridDigitRule = cssRule('.tab-digits-digit');
+  assert(/font-family:\s*ui-monospace/.test(gridDigitRule) && /font-weight:\s*600/.test(gridDigitRule),
+    'сетка редактора осталась на моноширинном полужирном');
+  assert(!/Arial/.test(gridDigitRule), 'Arial в сетку не протёк');
+  assert(/TAB_DIGITS_LENTA_FONT_RATIO = 0\.20/.test(HTML), 'кегль цифр Ленты — 0.20 высоты клетки');
+  assert(/TAB_DIGITS_LENTA_FONT_MIN = 12/.test(HTML), 'минимальный кегль цифр Ленты — 12 px');
+  assert(/TAB_DIGITS_LENTA_INK = 0\.72/.test(HTML), 'высота чернил цифры — 0.72 кегля');
+  assert(/TAB_DIGITS_LENTA_ADVANCE = 0\.56/.test(HTML), 'ширина цифры Arial — 0.56 кегля');
+  assert(/TAB_DIGITS_LENTA_READ_MIN = 11/.test(HTML), 'читаемая граница на мелком масштабе — 11 px');
+  assert(HTML.includes('const byHeight = clampNumberValue(height * TAB_DIGITS_LENTA_FONT_RATIO'),
+    'кегль Ленты считается от высоты клетки');
+  assert(HTML.includes('lineGap = Math.max(3, (height - 2 * (halfInk + TAB_DIGITS_LENTA_AIR)) / span);'),
+    'шаг линий считается от высоты чернил цифры');
+  ok('Статика 0.882: «none» нет, Лента крупная Arial, сетка 0.879 и высота 0.880 целы');
 }
 
 // =====================================================================
@@ -224,6 +247,18 @@ async function runGeometry() {
         { start: 0.5, dur: 0.5, string: 0, fret: 12 },
         { start: 1, dur: 0.5, string: 1, fret: 10 },
       ], 2, '4/4', domain, { layout: 'lenta', width: 192, height: 98 });
+      // Низкая клетка телефона (78 px) — кегль подстраивается, цифры целы.
+      const low = tabDigitsLayout(notes, 2, '4/4', domain, { layout: 'lenta', width: 150, height: 78 });
+      // Аккорд: пять нот на одной доле, цифры на соседних струнах.
+      const chord = tabDigitsLayout([
+        { start: 0, dur: 0.5, string: 0, fret: 3 },
+        { start: 0, dur: 0.5, string: 1, fret: 1 },
+        { start: 0, dur: 0.5, string: 2, fret: 0 },
+        { start: 0, dur: 0.5, string: 3, fret: 2 },
+        { start: 0, dur: 0.5, string: 4, fret: 3 },
+        { start: 1, dur: 0.5, string: 0, fret: 12 },
+        { start: 1, dur: 0.5, string: 1, fret: 10 },
+      ], 2, '4/4', domain, { layout: 'lenta', width: 192, height: 98 });
       // Сетка редактора — не должна измениться.
       const cell = tabDigitsLayout(notes, 2, '4/4', domain, { layout: 'cell', width: 96, height: 78 });
       const strip = (L2) => ({
@@ -239,7 +274,7 @@ async function runGeometry() {
         ys: L2.positions.map((p) => p.digits.map((d) => d.y)),
       });
       return { lenta: strip(L), uke: strip(uke), dense: strip(D), narrow: strip(narrow),
-        narrowTwo: strip(narrowTwo), pauses: strip(pauses), cell: strip(cell) };
+        narrowTwo: strip(narrowTwo), pauses: strip(pauses), low: strip(low), chord: strip(chord), cell: strip(cell) };
     })()
   `);
 
@@ -250,30 +285,49 @@ async function runGeometry() {
   assert.deepStrictEqual(Array.from(geo.lenta.x).map(r3), [0, 24, 48, 72, 96, 120, 144, 168],
     'x = время × ширина клетки: 8 шестнадцатых на 2 доли в 192 px — шаг 24 px');
 
-  // --- В. Высота: цифры и линии внутри клетки с отступом ≥ 4 px ---
+  // --- В. Кегль и шаг струн: вид 0.880 ---
   const font = geo.lenta.font;
-  assert(font >= 14, `кегль цифры в Ленте ≥ 14 px (получено ${r3(font)})`);
-  const half = font * 0.45;
-  assert(geo.lenta.staffTop - half >= 4 - 1e-6,
-    `верхняя струна с цифрой внутри клетки с отступом ≥ 4 px (${r3(geo.lenta.staffTop - half)})`);
-  assert(geo.lenta.staffBottom + half <= 98 - 4 + 1e-6,
-    `нижняя струна с цифрой внутри клетки с отступом ≥ 4 px (${r3(98 - (geo.lenta.staffBottom + half))})`);
+  const INK = 0.72;   // высота чернил цифры Arial в долях кегля
+  assert(font >= 19, `кегль цифры в Ленте ≥ 19 px (получено ${r3(font)})`);
+  assert(Math.abs(font - 0.2 * 98) < 0.05, `кегль = 0.20 высоты клетки (${r3(font)} при 98 px)`);
+  assert(Math.abs(geo.lenta.lineGap - 16.38) < 0.05,
+    `шаг струн ≈ 17 px (получено ${r3(geo.lenta.lineGap)})`);
+  assert(geo.lenta.lineGap < 19 && geo.lenta.lineGap > 16,
+    'шаг струн близок к 0.880 (19 px), но с запасом на целые цифры');
+  // Верхняя и нижняя цифры целиком внутри клетки: считаем по ЧЕРНИЛАМ.
+  const inkHalf = (font * INK) / 2;
+  const inkTop = geo.lenta.staffTop - inkHalf;
+  const inkBottom = geo.lenta.staffBottom + inkHalf;
+  assert(inkTop >= 0.5, `верхняя цифра не срезана (чернила от ${r3(inkTop)} px)`);
+  assert(inkBottom <= 97.5, `нижняя цифра не срезана (чернила до ${r3(inkBottom)} px)`);
+  assert(Math.abs(inkTop - 1) < 0.05 && Math.abs(98 - inkBottom - 1) < 0.05,
+    'поля сверху и снизу = половина высоты цифры + 1 px воздуха');
   assert.strictEqual(geo.lenta.strings, 6, 'у гитары шесть линий');
   assert(geo.lenta.lineW >= 1, `линия струны не тоньше 1 px (${geo.lenta.lineW})`);
-  const ys = Array.from(geo.lenta.ys).flat();
-  assert(Math.max(...ys) <= 98 - 4 && Math.min(...ys) >= 4, 'все цифры по вертикали внутри безопасной зоны');
+  // Цифра не налезает на соседнюю линию: чернила меньше шага.
+  assert(font * INK < geo.lenta.lineGap, 'цифра ниже промежутка между линиями — линии не перекрываются');
 
-  // 4 струны: линии расходятся шире, но отступы те же.
+  // 4 струны: линии расходятся шире, цифры целы.
   assert.strictEqual(geo.uke.strings, 4, 'у укулеле четыре линии');
-  assert(geo.uke.staffBottom + geo.uke.font * 0.45 <= 94 + 1e-6, 'укулеле влезает по высоте');
-  assert(geo.uke.staffTop - geo.uke.font * 0.45 >= 4 - 1e-6, 'укулеле не прижимается к верхнему краю');
+  assert(geo.uke.staffTop - (geo.uke.font * INK) / 2 >= 0.5, 'укулеле: верхняя цифра цела');
+  assert(geo.uke.staffBottom + (geo.uke.font * INK) / 2 <= 97.5, 'укулеле: нижняя цифра цела');
+
+  // Низкая клетка телефона: кегль подстраивается, но цифры по-прежнему целы.
+  assert(geo.low.font > 12 && geo.low.font < font, `в клетке 78 px кегль меньше (${r3(geo.low.font)})`);
+  assert(geo.low.staffTop - (geo.low.font * INK) / 2 >= 0.5 && geo.low.staffBottom + (geo.low.font * INK) / 2 <= 77.5,
+    'в клетке 78 px цифры целиком внутри');
+
+  // Аккорд: цифры на соседних струнах не налезают (чернила ≤ шаг), кегль полный.
+  const chordSizes = Array.from(geo.chord.sizes).flat();
+  assert(chordSizes.every((sz) => Math.abs(sz - font) < 0.05),
+    'в аккорде кегль не поджимается — цифры того же размера');
+  assert(font * INK <= geo.chord.lineGap, 'в аккорде чернила цифр не налезают на соседнюю струну');
 
   // --- Е. Плотные случаи ---
   const dense = geo.dense;
   assert(Math.abs(dense.room[1] - 24) < 1e-6, 'у 16-х в 192 px шаг 24 px');
   const sizesFlat = Array.from(dense.sizes).flat();
-  const twoDigit = sizesFlat.filter((sz) => sz > 0);
-  assert(twoDigit.every((s) => s >= 11), 'ни одна цифра в плотном случае не мельче 11 px');
+  assert(sizesFlat.every((sz) => sz >= 19), 'в плотном случае кегль остаётся полным (≥ 19 px)');
   // Двузначный лад не налезает на соседа: ширина глифа ≤ своё место.
   const widths = Array.from(dense.w);
   assert(widths.every((row) => row.every((wd) => wd <= 24 + 1e-6)),
@@ -285,6 +339,8 @@ async function runGeometry() {
     'при «−» x = время × 96 px');
   assert(Array.from(geo.narrow.sizes).flat().every((sz) => sz >= 11),
     'при «−» однозначные цифры не мельче 11 px');
+  assert(Array.from(geo.narrow.sizes).flat().every((sz) => sz <= font + 1e-6),
+    'при «−» цифры не крупнее стана');
   const n2 = Array.from(geo.narrowTwo.sizes).flat();
   assert(n2.every((sz) => sz >= 8), 'при «−» с двузначным ладом кегль не ниже 8 px');
   assert(new Set(n2.map(r3)).size === 1, 'кегль в станции Ленты один на все цифры — стан не «пляшет»');
@@ -302,10 +358,10 @@ async function runGeometry() {
   assert(geo.cell.font < font, 'в сетке кегль считается от высоты стана, а не от клетки целиком');
   assert(geo.cell.labels > 0, 'в сетке подписи счёта на месте');
   console.log(
-    '      кегль Ленты: ' + r3(font) + ' px, линия ' + geo.lenta.lineW + ' px, ' +
-    'верх ' + r3(geo.lenta.staffTop) + ', низ ' + r3(geo.lenta.staffBottom),
+    '      кегль Ленты: ' + r3(font) + ' px (0.20 × 98), шаг струн ' + r3(geo.lenta.lineGap) +
+    ' px, линия ' + geo.lenta.lineW + ' px, чернила ' + r3(inkTop) + '…' + r3(inkBottom) + ' px',
   );
-  ok('Геометрия Ленты: x по времени, кегль ≥ 14 px, отступы ≥ 4 px, паузы, «−», сетка 0.879 цела');
+  ok('Геометрия Ленты: кегль 19.6 px, шаг струн 16.4 px, цифры целиком внутри, x по времени, аккорд и «−»');
   w.close();
 }
 
@@ -353,21 +409,44 @@ async function runMarkup() {
     assert(/^[0-9x]+$/.test(t.textContent), `цифра ${i + 1} — лад, а не служебный символ`);
     assert(t.getAttribute('text-anchor') === 'start', `цифра ${i + 1} прижата левым краем`);
     assert(!t.hasAttribute('transform'), `цифра ${i + 1} не трансформируется`);
-    assert(Number(t.getAttribute('font-size')) >= 14, `цифра ${i + 1} не мельче 14 px`);
+    assert(Number(t.getAttribute('font-size')) >= 19, `цифра ${i + 1} не мельче 19 px`);
     assert(!isNaN(Number(t.getAttribute('x'))), `у цифры ${i + 1} есть x`);
   });
   assert.deepStrictEqual(texts.map((t) => r3(Number(t.getAttribute('x')))), [0, 24, 48, 72, 96, 120, 144, 168],
     'x цифр в разметке = моменты звучания');
 
-  // Подложка под каждой цифрой — по её ширине, а не «квадрат на всё».
+  // Подложка под каждой цифрой — по её ширине, не «квадрат на всё», и по
+  // высоте чернил: линия разрывается вокруг цифры, как в 0.880.
   const halos = [...svg.querySelectorAll('rect.tab-digits-halo')];
   assert.strictEqual(halos.length, 8, 'подложка есть под каждой цифрой');
   halos.forEach((h, i) => {
     const x = Number(h.getAttribute('x'));
     const wd = Number(h.getAttribute('width'));
+    const hh = Number(h.getAttribute('height'));
     assert(Math.abs(x + 1 - Number(texts[i].getAttribute('x'))) < 0.01, `подложка ${i + 1} начинается у цифры`);
     assert(wd >= 6, `подложка ${i + 1} не вырождена`);
+    assert(hh >= 12 && hh <= 17, `подложка ${i + 1} по высоте чернил (${r3(hh)} px)`);
   });
+  // Цифры не растянуты: ширина глифа у Arial ≈ 0.56 кегля на знак.
+  const suiteWidths = [...svg.querySelectorAll('text.tab-digits-digit')].map((t) => {
+    const i = texts.indexOf(t);
+    return Number(halos[i].getAttribute('width')) - 2;
+  });
+  const fontSizes = texts.map((t) => Number(t.getAttribute('font-size')));
+  suiteWidths.forEach((wd, i) => {
+    const chars = texts[i].textContent.trim().length;
+    assert(Math.abs(wd - 0.56 * fontSizes[i] * chars) < 0.6,
+      `ширина цифры ${i + 1} = 0.56 кегля на знак (без растяжения)`);
+  });
+  // Шрифт и начертание — из CSS карточки Ленты (jsdom считает каскад).
+  const cardHost = w.document.createElement('div');
+  cardHost.className = 'tab-insert tab-insert--lenta';
+  cardHost.innerHTML = out.svg;
+  w.document.body.appendChild(cardHost);
+  const computed = w.getComputedStyle(cardHost.querySelector('text.tab-digits-digit'));
+  assert(/Arial/i.test(computed.fontFamily || ''), `font-family цифр Ленты — Arial (${computed.fontFamily})`);
+  assert(/^(400|normal)$/.test((computed.fontWeight || '').trim()), `font-weight цифр Ленты — 400 (${computed.fontWeight})`);
+  cardHost.remove();
 
   // Пауза — короткая чёрточка, цифры у неё нет.
   const pauseHost = w.document.createElement('div');
@@ -378,7 +457,7 @@ async function runMarkup() {
     'под паузой нет цифры — нота осталась одна');
   assert.strictEqual(pauseHost.querySelectorAll('text.tab-digits-count').length, 0,
     'счёт внутри стана Ленты не дублируется');
-  ok('Разметка: viewBox в пикселях клетки, левая привязка цифр, линии на всю ширину, пауза без цифры');
+  ok('Разметка: viewBox в пикселях клетки, цифры Arial 400 ≥ 19 px, линии на всю ширину, пауза без цифры');
   w.close();
 }
 

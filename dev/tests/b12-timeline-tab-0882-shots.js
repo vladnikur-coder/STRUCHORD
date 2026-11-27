@@ -1,6 +1,12 @@
 #!/usr/bin/env node
 /**
- * 0.881 · Приёмка таб-вставки в ЛЕНТЕ в реальном браузере (кадры «до» и «после»).
+ * 0.882 · Приёмка таб-вставки в ЛЕНТЕ в реальном браузере (кадры «до» и «после»).
+ *
+ * Что добавилось к проверкам 0.881 (вид 0.880): computed font-size цифр
+ * ≥ 19 px при клетке 98 px, font-family Arial/sans-serif, font-weight 400;
+ * шаг линий ≈ 16.4 px (в 0.880 было ≈19 px, но там крайние цифры срезались);
+ * чернила верхней и нижней цифры внутри клетки; ширина глифа ≈ 0.56 кегля
+ * на знак (пропорции не растянуты).
  *
  * Матрица: 390×844, 768×1024, 1280×900, 1920×1080 × светлая и тёмная тема
  * × три масштаба Ленты («−», «авто», «+»).
@@ -36,17 +42,19 @@
  *
  * Запуск (нужен Chromium и локальный сервер):
  *   python3 -m http.server 8000                       # из корня репозитория
- *   SHOTS_TAG=after node dev/tests/b12-timeline-tab-0881-shots.js
- *   # «до»: git show 33d499b:STRUCHORD.html > before.html   (это 0.880)
+ *   SHOTS_TAG=after node dev/tests/b12-timeline-tab-0882-shots.js
+ *   # «до»: git show e2b1544:STRUCHORD.html > before.html   (это 0.881)
+ *   # и/или  git show 33d499b:STRUCHORD.html > before880.html (это 0.880)
  *   SHOTS_TAG=before SHOTS_MODE=before STRUCHORD_URL=http://127.0.0.1:8000/before.html \
- *     node dev/tests/b12-timeline-tab-0881-shots.js
+ *     node dev/tests/b12-timeline-tab-0882-shots.js
  *
  * SHOTS_MODE=before снимает кадры и пишет замеры, но не проверяет инварианты
- * 0.881: в 0.880 стан рисовал alphaTab, и проверки «своего» стана к нему не
- * применимы — эти кадры нужны как «до».
+ * 0.882: в 0.881 стан Ленты был мелким и моноширинным, в 0.880 — картинкой
+ * alphaTab, поэтому проверки крупных цифр Arial к ним не применимы: эти кадры
+ * нужны как «до».
  *
  * Результат: PNG-кадры, audit.json и summary.txt в
- * dev/bench/results/tab-timeline-0.881-<TAG>/.
+ * dev/bench/results/tab-timeline-0.882-<TAG>/.
  *
  * ВАЖНО: в песочнице Chromium нет, этот прогон владелец запускает сам.
  */
@@ -59,7 +67,7 @@ const puppeteer = require('puppeteer');
 const URL = process.env.STRUCHORD_URL || 'http://127.0.0.1:8000/STRUCHORD.html';
 const TAG = process.env.SHOTS_TAG || 'after';
 const MODE = process.env.SHOTS_MODE || 'after';
-const OUT = path.join(__dirname, '..', 'bench', 'results', 'tab-timeline-0.881-' + TAG);
+const OUT = path.join(__dirname, '..', 'bench', 'results', 'tab-timeline-0.882-' + TAG);
 fs.mkdirSync(OUT, { recursive: true });
 
 const VIEWPORTS = [
@@ -190,6 +198,13 @@ function measure(page) {
       out.scaleY = vb[3] > 0 ? round(box.h / vb[3]) : null;
       out.preserveAspectRatio = svg.getAttribute('preserveAspectRatio');
       // Линии струн: цвет/толщина из раскладки, ширина — до краёв карточки.
+      out.lineYs = [...svg.querySelectorAll('line.tab-digits-line')].map((line) => {
+        const r = rect(line);
+        return round(r.top + r.height / 2);
+      }).sort((a, b) => a - b);
+      out.gapPx = out.lineYs.length > 1
+        ? round((out.lineYs[out.lineYs.length - 1] - out.lineYs[0]) / (out.lineYs.length - 1))
+        : null;
       out.lines = [...svg.querySelectorAll('line.tab-digits-line')].map((line) => {
         const r = rect(line);
         return {
@@ -204,9 +219,12 @@ function measure(page) {
       out.digits = [...svg.querySelectorAll('text.tab-digits-digit')].map((t) => {
         const r = rect(t);
         const b = (() => { try { return t.getBBox(); } catch (_) { return null; } })();
+        const cs = getComputedStyle(t);
         return {
           text: t.textContent.trim(),
-          fontSize: Number(t.getAttribute('font-size')),
+          fontSize: parseFloat(cs.fontSize) || Number(t.getAttribute('font-size')),
+          fontFamily: cs.fontFamily,
+          fontWeight: cs.fontWeight,
           anchor: t.getAttribute('text-anchor'),
           transform: t.getAttribute('transform'),
           inkW: b ? round(b.width) : null,
@@ -348,9 +366,25 @@ function expectedX(card, start, totalBeats) {
                   ? d.aspect >= 0.35 && d.aspect <= 1.15
                   : d.aspect >= 0.9 && d.aspect <= 2.3))),
               aspects);
-            check(`[${id}] кегль цифр ≥ 14 px в обычном масштабе`,
-              m.cards.every((c) => c.digits.every((d) => d.fontSize >= 11)),
-              m.cards.map((c) => c.digits.map((d) => round2(d.fontSize))));
+            // 0.882: вид 0.880 — крупные цифры Arial обычного начертания.
+            check(`[${id}] кегль цифр ≥ 19 px при клетке 98 px`,
+              m.cards.every((c) => c.digits.every((d) =>
+                (c.cellRect.h >= 90 ? d.fontSize >= 19 : d.fontSize >= 11))),
+              m.cards.map((c) => [Math.round(c.cellRect.h), c.digits.map((d) => round2(d.fontSize))]));
+            check(`[${id}] шрифт цифр Ленты — Arial/sans-serif, начертание 400`,
+              m.cards.every((c) => c.digits.every((d) =>
+                /Arial/i.test(d.fontFamily || '') && /^(400|normal)$/.test(String(d.fontWeight).trim()))),
+              m.cards.map((c) => (c.digits[0] ? [c.digits[0].fontFamily, c.digits[0].fontWeight] : null)));
+            check(`[${id}] ширина глифа ≈ 0.56 кегля на знак (пропорции не растянуты)`,
+              m.cards.every((c) => c.digits.every((d) =>
+                d.inkW === null || Math.abs(d.inkW - 0.56 * d.fontSize * d.text.length) <= 0.15 * d.fontSize * d.text.length)),
+              m.cards.map((c) => c.digits.map((d) => [d.text, d.inkW, round2(d.fontSize)])));
+            check(`[${id}] шаг линий ≈ 16 px (вид 0.880, но крайние цифры целы)`,
+              m.cards.every((c) => c.gapPx === null || (c.gapPx >= 15 && c.gapPx <= 18)),
+              m.cards.map((c) => c.gapPx));
+            console.log('     ' + id + ' кегль/шаг: ' +
+              m.cards.map((c) => `${c.digits.length ? round2(c.digits[0].fontSize) : '—'}/${c.gapPx === null ? '—' : c.gapPx}`).join(' · ') +
+              ' px, клетка ' + m.cards.map((c) => Math.round(c.cellRect.h)).join('/') + ' px');
 
             // 2. Линии струн: шесть, не тоньше 1 px, во всю ширину, видны.
             check(`[${id}] линий струн шесть`,
