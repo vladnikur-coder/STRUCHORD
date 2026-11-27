@@ -5288,22 +5288,26 @@ body.is-resizing .tab-insert > .chord-ticks-step {
   width: 100%;
   height: 100%;
 }
-.tab-digits-line { stroke: currentColor; stroke-width: 1; opacity: 0.4; }
+/* 0.879: линии струн видимы без прозрачности. Цвет — текст второго уровня:
+   контраст к фону клетки 7.6:1 в светлой теме и 5.7:1 в тёмной (норма 3:1).
+   Толщина приходит из раскладки (1.5 px), здесь — запасное значение. */
+.tab-digits-line { stroke: var(--color-text-secondary); stroke-width: 1.5; opacity: 1; }
 .tab-digits-halo { fill: var(--tab-digit-halo); }
 .tab-digits-digit {
-  fill: currentColor;
+  fill: var(--color-text-primary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
   font-weight: 600;
 }
 .tab-digits-digit.is-out { fill: var(--color-danger); }
-.tab-digits-stem,
-.tab-digits-beam { stroke: currentColor; stroke-width: 1.1; stroke-linecap: round; opacity: 0.85; }
-.tab-digits-rest { stroke: currentColor; stroke-width: 1.6; stroke-linecap: round; opacity: 0.6; }
-.tab-digits-beat {
+/* Пауза — короткая приглушённая чёрточка на средней линии. */
+.tab-digits-pause { stroke: var(--color-text-secondary); stroke-linecap: round; opacity: 0.6; }
+/* Линейка счёта под нотами: «и»/«та» — второго уровня, номер доли — крупнее. */
+.tab-digits-count {
   fill: var(--color-text-secondary);
   font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
-  font-weight: 600;
+  font-weight: 400;
 }
+.tab-digits-count.is-beat { fill: var(--color-text-primary); font-weight: 600; }
 .tab-insert--square-wrap { position: relative; grid-column: 1 / -1; width: 100%; }
 .tl-cell.tl-cell--tab { height: auto; min-height: 9.5rem; padding: 0; align-items: stretch; }
 /* 0.869: в таб-клетке ленты появился свой счёт долей — под него нужна та же
@@ -16266,7 +16270,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.878</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.879</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -26249,53 +26253,78 @@ function tabThumbInit() {
   tabDigitsScheduleFit();
 }
 
-// ===== 0.878: «Только цифры» — стан заполняет клетку, место в ряду не меняется =====
+// ===== 0.879: «Только цифры» — порядок струн, видимые линии, линейка счёта =====
 //
-// 0.877 рисовал стан в натуральных пикселях (24 px на позицию) и, когда
-// ширина не сходилась, уводил клетку на всю строку сетки («grid-column:
-// 1 / -1»). Владелец: вставка обязана остаться на своём месте в ряду
-// аккордов и никогда не занимать строку целиком.
+// 0.878 оставила вставку в ряду аккордов и сравняла высоту с аккордовой
+// клеткой — это не трогаем. Здесь доводим сам вид стана до привычного
+// Guitar Pro / alphaTab:
 //
-// Теперь стан считается под фактическую клетку и заполняет её целиком:
-// SVG рисуется в пикселях клетки (никакого letterbox), шаг между нотами
-// берётся из её ширины (не меньше 18 px), расстояние между струнами — из
-// высоты, кегль цифр 13–14 px в обычном случае и не меньше 11 px в низком
-// ряду. Порядок ячеек и их доли в колонках не меняются никогда: если 18 px
-// на позицию не помещаются, пиксельный размер получают ТОЛЬКО колонки самой
-// клетки (`repeat(span, minmax(0, Npx))`), а соседние fr-колонки забирают
-// остаток. Колонок в сетке по-прежнему столько же, сколько долей, — ряд не
-// переносится, серых пустых полос не остаётся, аккордам рядом гарантировано
-// не меньше 20 px на колонку (TAB_DIGITS_CELL_NEIGHBOR_MIN).
-//
-// Высота: клетка равна обычной аккордовой (ряд 4.5rem → тело стана 64 px),
-// поэтому кегль в клетке упирается в нижнюю границу 11 px; отдельная строка
-// таба с телом 96 px показывает обычные 13.5 px.
-//
-// Лента и окно редактора вставки по-прежнему на alphaTab (inTimeline /
-// engine: 'alphatab').
-const TAB_DIGITS_STEP_MIN = 18;      // уплотнённый шаг между нотами
+//   • струны считаются снизу вверх, как в модели и в редакторе
+//     (`tabAtLayout` передаёт alphaTab `string: n.string + 1`), поэтому
+//     ПЕРВАЯ (тонкая) струна — верхняя линия, ПОСЛЕДНЯЯ (толстая) — нижняя;
+//   • линии струн видны: цвет текста второго уровня, без прозрачности,
+//     1.5 px, контраст к фону клетки 7.6:1 в светлой теме и 5.7:1 в тёмной;
+//   • цифры ладов крупные и полужирные, кегль от высоты: 90 px → 16 px,
+//     не меньше 12 px; подложка под цифрой скрывает линию, но не соседние
+//     цифры (все подложки рисуются слоем ниже всех цифр);
+//   • ритм-палочек и перекладин нет совсем: ритм читается по линейке счёта,
+//     пауза — короткая приглушённая чёрточка на средней линии;
+//   • нижние ~25 % высоты занимает линейка счёта: под каждой нотой подпись
+//     её места в доле («и», «та»), начало доли — крупный номер. Слова и
+//     нумерация — из той же функции countLabelFor, что в Ленте.
+const TAB_DIGITS_STEP_MIN = 18;      // уплотнённый шаг между позициями
 const TAB_DIGITS_STEP_PREF = 24;     // обычный шаг
 const TAB_DIGITS_STEP_MAX = 120;     // на широкой строке шаг не раздувается бесконечно
-const TAB_DIGITS_FONT_MAX = 13.5;    // кегль цифр в обычном случае (13–14 px)
-const TAB_DIGITS_FONT_MIN = 11;      // меньше нельзя: цифры перестают читаться
+const TAB_DIGITS_FONT_MIN = 12;      // минимум кегля цифры при любом уплотнении
+const TAB_DIGITS_FONT_MAX = 20;      // выше — стан превращается в плакат
+const TAB_DIGITS_FONT_RATIO = 0.178; // кегль от высоты стана: 90 px → 16 px
+const TAB_DIGITS_COUNT_FONT_MIN = 11;
+const TAB_DIGITS_COUNT_FONT_MAX = 12;
+const TAB_DIGITS_BEAT_FONT = 13;     // номер доли в линейке счёта
+const TAB_DIGITS_RULER_RATIO = 0.25; // нижняя четверть высоты — линейка счёта
+const TAB_DIGITS_RULER_MIN = 14;
+const TAB_DIGITS_RULER_MAX = 36;
+const TAB_DIGITS_LINE_W = 1.5;       // толщина линии струны (≥ 1.25 px)
 const TAB_DIGITS_CELL_CHROME = 12;   // поля карточки (3+3) + поля стана (3+3): рамки у клетки нет
 const TAB_DIGITS_BLOCK_CHROME = 38;  // (поля блока 10 + рамка 1)×2 + поля стана 8×2
 const TAB_DIGITS_CELL_PAD_X = 3;
 const TAB_DIGITS_BLOCK_PAD_X = 8;
 const TAB_DIGITS_CELL_PAD_Y = 2;
 const TAB_DIGITS_BLOCK_PAD_Y = 4;
-const TAB_DIGITS_LINE_GAP_MAX = 26;  // шестилинейный стан не растягивается в гиганта
 
-// Уровень ритма: 0 — одиночная ножка (четверть и длиннее), 1 — восьмые,
-// 2 — шестнадцатые, 3 — тридцатьвторые. Длительность живёт в долях
-// родительского размера, поэтому восьмая в 4/4 — это 0.5.
-function tabDigitsBeamLevel(dur) {
-  const d = Number(dur);
-  if (!Number.isFinite(d) || d <= 0) return 1;
-  if (d >= 0.75 - 1e-9) return 0;
-  if (d > 0.25 + 1e-9) return 1;
-  if (d > 0.125 + 1e-9) return 2;
-  return 3;
+// Сколько подписей счёта в одной доле: 1 — четверти, 2 — восьмые,
+// 3 — триоли, 4 — шестнадцатые. Считаем по самой мелкой длительности
+// вставки: у 16-х подпись «1 та и та 2 та и та», у 8-х «1 и 2 и».
+function tabDigitsStepsPerBeat(groups) {
+  let minDur = 0;
+  (groups || []).forEach((g) => {
+    const d = Number(g && g.dur);
+    if (d > 0 && (!minDur || d < minDur)) minDur = d;
+  });
+  if (!(minDur > 0)) return 1;
+  const steps = Math.round(1 / minDur);
+  if (!Number.isFinite(steps) || steps < 1) return 1;
+  return Math.min(4, steps);
+}
+
+// Подпись под нотой: место внутри доли. Начало доли — номер (крупный),
+// остальное — «и»/«та» в тех же словах, что в Ленте (countLabelFor).
+// Дробления мельче 16-х словами не считают — подписываем номером доли,
+// чтобы подпись была под каждой нотой.
+function tabDigitsCount(absBeat, stepsPerBeat, perBar) {
+  const beat = Math.floor(absBeat + 1e-6);
+  const frac = Math.max(0, absBeat - beat);
+  const slotRaw = frac * stepsPerBeat;
+  const slot = Math.round(slotRaw);
+  const onGrid = Math.abs(slotRaw - slot) < 0.02 && slot < stepsPerBeat;
+  if (onGrid) {
+    const text = typeof countLabelFor === 'function'
+      ? countLabelFor(absBeat, slot, stepsPerBeat, perBar)
+      : '';
+    if (text) return { text, beat: slot === 0 };
+  }
+  const num = ((beat % Math.max(1, perBar)) + Math.max(1, perBar)) % Math.max(1, perBar) + 1;
+  return { text: String(num), beat: false };
 }
 
 // Сколько карточке нужно ширины: минимум (шаг 18 px) и комфорт (шаг 24 px).
@@ -26306,14 +26335,10 @@ function tabDigitsNeed(count, layout) {
   return { min: chrome + n * TAB_DIGITS_STEP_MIN, pref: chrome + n * TAB_DIGITS_STEP_PREF };
 }
 
-// Кегль цифр от высоты стана: держимся 13–14 px, в низком ряду спускаемся
-// до 11 px — ниже цифры читаются плохо. Расстояние между струнами потом
-// считается от этой же высоты, поэтому линии и цифры растут вместе.
-function tabDigitsFontFor(height, strings, padY) {
-  const free = Math.max(16, Number(height) - padY * 2 - 4);
-  const denom = 1.5 + 0.8 * Math.max(1, strings - 1);
-  const fit = free / denom;
-  return Math.max(TAB_DIGITS_FONT_MIN, Math.min(TAB_DIGITS_FONT_MAX, fit));
+// Кегль цифры от высоты стана: 90 px → 16 px, ниже 12 px не опускаемся.
+function tabDigitsFontFor(height) {
+  const h = Number(height) || 0;
+  return Math.max(TAB_DIGITS_FONT_MIN, Math.min(TAB_DIGITS_FONT_MAX, h * TAB_DIGITS_FONT_RATIO));
 }
 
 // Чистая раскладка стана: ноты → нотовые позиции, позиции → координаты.
@@ -26365,100 +26390,86 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   // Шаг из ширины: место между полями делим на позиции. Шире 24 — хорошо
   // (стан заполняет клетку), уже 18 — значит клетке не хватило места и её
   // должен был расширить tabDigitsCellPlan.
-  const span = Math.max(6, width - padTotalX);
-  const step = Math.max(4, Math.min(TAB_DIGITS_STEP_MAX, span / count));
+  const boxW = Math.max(6, width - padTotalX);
+  const step = Math.max(4, Math.min(TAB_DIGITS_STEP_MAX, boxW / count));
   const stripW = step * count;
-  const firstX = padX + (span - stripW) / 2 + step / 2;
+  const firstX = padX + (boxW - stripW) / 2 + step / 2;
 
-  const font = tabDigitsFontFor(height, strings, padY);
-  const labelFont = Math.max(9, Math.min(TAB_DIGITS_FONT_MAX, font * 0.95));
-  // Вертикаль: сверху нужен запас не меньше половины цифры — иначе цифра на
-  // первой струне обрезается краем клетки. Дальше стан, ритм-ножки и номера
-  // долей; остаток от высоты и есть расстояние между струнами, поэтому
-  // линии, чёрточки и номера масштабируются вместе с клеткой.
-  const topMargin = Math.max(padY, font * 0.62);
-  const rhythmH = Math.max(5, font * 0.5);
-  const labelH = Math.max(8, font * 0.9);
-  const staffSpace = Math.max((strings - 1) * 4, height - topMargin - padY - rhythmH - labelH);
-  const lineGap = Math.min(TAB_DIGITS_LINE_GAP_MAX, staffSpace / Math.max(1, strings - 1));
-  const staffH = lineGap * (strings - 1);
-  const staffTop = topMargin;
-  const staffBottom = staffTop + staffH;
-  const rhythmTop = staffBottom + Math.max(1.5, font * 0.12);
-  const stemLen = rhythmH;
-  const stemBottom = rhythmTop + stemLen;
-  const beamStep = Math.max(2, font * 0.25);
-  // Номер доли не должен свисать за нижний край: опускаем его не ниже,
-  // чем позволяет высота клетки.
-  const beatLabelY = Math.max(
-    stemBottom + 5,
-    Math.min(stemBottom + labelH * 0.78, height - padY - labelFont * 0.36),
-  );
-  const haloW = Math.max(6, Math.min(step * 0.86, font * 1.25));
-  const haloH = Math.max(5, Math.min(lineGap * 0.95, font * 1.15));
+  const font = tabDigitsFontFor(height);
+  const countFont = Math.max(TAB_DIGITS_COUNT_FONT_MIN, Math.min(TAB_DIGITS_COUNT_FONT_MAX, font * 0.72));
+  const beatFont = Math.max(TAB_DIGITS_BEAT_FONT, Math.min(TAB_DIGITS_FONT_MAX, countFont + 1.5));
+  // Верхние ~75 % — стан, нижние ~25 % — линейка счёта. Сверху и снизу
+  // оставляем по половине цифры: цифра на первой/последней струне не
+  // обрезается краем клетки.
+  const rulerH = Math.max(TAB_DIGITS_RULER_MIN, Math.min(TAB_DIGITS_RULER_MAX, height * TAB_DIGITS_RULER_RATIO));
+  const staffArea = Math.max(strings * 4, height - rulerH);
+  const margin = font * 0.5 + 1;
+  const lineGap = Math.max(4, (staffArea - margin * 2) / Math.max(1, strings - 1));
+  const staffTop = margin + Math.max(0, (staffArea - margin * 2 - lineGap * (strings - 1)) / 2);
+  const staffBottom = staffTop + lineGap * (strings - 1);
+  const rulerTop = staffArea;
+  // Базовая линия подписей — с запасом на выносные элементы: строка не
+  // должна вылезать за нижний край клетки.
+  const rulerBaseline = Math.min(height - countFont * 0.36 - 0.5, rulerTop + (height - rulerTop) * 0.74);
+  const stepsPerBeat = tabDigitsStepsPerBeat(groups);
+
+  // Струны считаются снизу вверх: модель 0 — низкая струна (нижняя линия),
+  // последняя — высокая (верхняя линия), как в Guitar Pro и alphaTab.
+  const stringY = (s) => {
+    const clamped = Math.max(0, Math.min(strings - 1, Number(s) || 0));
+    return staffTop + (strings - 1 - clamped) * lineGap;
+  };
 
   const positions = groups.map((group, index) => {
     const isPause = group.pause && group.digits.length === 0;
+    const x = firstX + index * step;
+    // Аккорд (две-три ноты на одной доле) — единственный случай, когда
+    // цифры стоят в соседних строках и могут налезть друг на друга. Там
+    // поджимаем кегль под расстояние между линиями; одиночная нота в доле
+    // остаётся крупной.
+    const stack = Math.max(1, group.digits.length);
+    const stackFit = stack > 1 ? Math.min(1, (lineGap * 0.92) / font) : 1;
+    const digits = group.digits.slice().sort((a, b) => b.string - a.string).map((d) => {
+      // Двузначный лад («12») не должен налезать на соседа по горизонтали:
+      // поджимаем кегль ровно под шаг, остальные цифры остаются крупными.
+      const fit = (step - 2) / (0.62 * Math.max(1, d.label.length));
+      const size = Math.max(9, Math.min(font * stackFit, fit));
+      return { ...d, y: stringY(d.string), font: size };
+    });
+    const countLabel = tabDigitsCount(group.start + beatOffset, stepsPerBeat, perBar);
     return {
       index,
       start: group.start,
-      x: firstX + index * step,
-      digits: group.digits.slice().sort((a, b) => a.string - b.string),
+      x,
+      digits,
       pause: isPause,
       dur: group.dur,
-      level: isPause ? 0 : tabDigitsBeamLevel(group.dur),
+      label: countLabel.text,
+      labelBeat: countLabel.beat,
     };
   });
 
-  // Перекладины — только ВНУТРИ доли: восьмые одной доли связаны, восьмые
-  // соседних долей нет. Так же считает и настоящая нотация.
-  const beams = [];
-  const byBeat = new Map();
-  positions.forEach((p) => {
-    if (p.pause || p.level < 1) return;
-    const beat = Math.floor(p.start + 1e-6);
-    if (!byBeat.has(beat)) byBeat.set(beat, []);
-    byBeat.get(beat).push(p);
-  });
-  [...byBeat.keys()].sort((a, b) => a - b).forEach((beat) => {
-    const list = byBeat.get(beat);
-    if (list.length < 2) return;
-    const maxLevel = Math.max.apply(null, list.map((p) => p.level));
-    for (let level = 1; level <= maxLevel; level += 1) {
-      let run = [];
-      const flush = () => {
-        if (run.length > 1) beams.push({ level, xs: run.slice() });
-        run = [];
-      };
-      list.forEach((p) => {
-        if (p.level >= level) run.push(p.x);
-        else flush();
-      });
-      flush();
-    }
-  });
+  // Подписи «и»/«та» уже, чем номер доли, но и у них есть предел: если
+  // стан сжали в узкой клетке, дробные подписи соседей налезли бы друг на
+  // друга — в этом случае оставляем только номера долей.
+  const labelRoom = countFont * 1.15;
+  const labels = positions
+    .filter((p) => p.label && (p.labelBeat || step >= labelRoom))
+    .map((p) => ({ x: p.x, text: p.label, beat: p.labelBeat }));
 
-  // Крупные номера долей: только начало доли, без «и/та». Номер считается
-  // внутри такта, поэтому у ячейки во второй половине такта будут «3», «4».
-  const beatLabels = [];
-  const labelMinGap = Math.max(10, labelFont * 1.1);
-  let lastLabelX = -1e9;
-  positions.forEach((p) => {
-    const inBar = p.start + beatOffset;
-    if (Math.abs(inBar - Math.round(inBar)) > 1e-6) return;
-    if (p.x - lastLabelX < labelMinGap) return;
-    lastLabelX = p.x;
-    beatLabels.push({ x: p.x, text: String(Math.round(inBar) % perBar + 1) });
-  });
+  const widest = positions.reduce((max, p) => Math.max(max, p.digits.reduce((m, d) => Math.max(m, d.label.length), 0)), 1);
+  const haloW = Math.max(6, Math.min(step * 0.92, 0.62 * font * widest + 3));
+  const haloH = Math.max(5, Math.min(lineGap * 0.95, font * 1.12));
+  const pauseW = Math.max(4, Math.min(step * 0.6, font * 0.7));
 
   return {
     layout: isCell ? 'cell' : 'block',
     strings,
     perBar,
     beatOffset,
+    stepsPerBeat,
     positions,
-    beams,
-    beatLabels,
+    labels,
     width,
     height,
     padX,
@@ -26466,17 +26477,18 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
     step,
     firstX,
     font,
-    labelFont,
+    countFont,
+    beatFont,
     lineGap,
+    lineW: TAB_DIGITS_LINE_W,
     staffTop,
     staffBottom,
-    rhythmTop,
-    stemLen,
-    stemBottom,
-    beamStep,
-    beatLabelY,
+    rulerTop,
+    rulerH,
+    rulerBaseline,
     haloW,
     haloH,
+    pauseW,
     minWidth: tabDigitsNeed(count, isCell ? 'cell' : 'block').min,
     prefWidth: tabDigitsNeed(count, isCell ? 'cell' : 'block').pref,
     empty: positions.length === 0,
@@ -26487,54 +26499,45 @@ function tabDigitsNum(v) {
   return Math.round(Number(v) * 100) / 100;
 }
 
-// Стан в SVG. Свои линии, цифры с подложкой (линия не пересекает цифру),
-// ножки и перекладины ритма, крупные номера долей. Ключа, размера и
-// хвостиков нет — они и съедали ширину у alphaTab. Размеры — в пикселях
-// клетки, поэтому SVG ничего не масштабирует: цифры ровно того кегля,
-// который посчитала раскладка.
+// Стан в SVG: линии струн на всю ширину, подложки (слоем ниже), цифры,
+// короткие метки пауз и линейка счёта под нотами. Ключа «TAB», размера и
+// ритм-палочек нет — они отнимали место, а ритм теперь читается по счёту.
+// Размеры — в пикселях клетки, поэтому SVG ничего не масштабирует: цифры
+// ровно того кегля, который посчитала раскладка.
 function tabDigitsSvgMarkup(layout) {
   if (!layout || layout.empty) return '';
   const L = layout;
   const w = tabDigitsNum(L.width);
   const h = tabDigitsNum(L.height);
-  const font = tabDigitsNum(L.font);
-  const labelFont = tabDigitsNum(L.labelFont);
   const parts = [];
   for (let i = 0; i < L.strings; i += 1) {
     const y = tabDigitsNum(L.staffTop + i * L.lineGap);
-    parts.push(`<line class="tab-digits-line" x1="1" y1="${y}" x2="${tabDigitsNum(w - 1)}" y2="${y}"></line>`);
+    parts.push(`<line class="tab-digits-line" stroke-width="${L.lineW}" x1="0.75" y1="${y}" x2="${tabDigitsNum(w - 0.75)}" y2="${y}"></line>`);
   }
+  // Подложки — отдельным слоем ниже всех цифр: подложка соседней струны не
+  // может подъесть цифру аккорда.
   L.positions.forEach((p) => {
-    if (p.pause) {
-      const y = tabDigitsNum(L.rhythmTop + L.stemLen / 2);
-      const arm = tabDigitsNum(Math.max(3, L.font * 0.4));
-      parts.push(`<line class="tab-digits-rest" x1="${tabDigitsNum(p.x - arm)}" y1="${y}" x2="${tabDigitsNum(p.x + arm)}" y2="${y}"></line>`);
-      return;
-    }
     p.digits.forEach((d) => {
-      const y = tabDigitsNum(L.staffTop + d.string * L.lineGap);
-      parts.push(`<rect class="tab-digits-halo" x="${tabDigitsNum(p.x - L.haloW / 2)}" y="${tabDigitsNum(y - L.haloH / 2)}" width="${tabDigitsNum(L.haloW)}" height="${tabDigitsNum(L.haloH)}" rx="1.5"></rect>`);
+      const size = Math.min(L.haloH, d.font * 1.12);
+      parts.push(`<rect class="tab-digits-halo" x="${tabDigitsNum(p.x - L.haloW / 2)}" y="${tabDigitsNum(d.y - size / 2)}" width="${tabDigitsNum(L.haloW)}" height="${tabDigitsNum(size)}" rx="1.5"></rect>`);
     });
   });
-  // Цифры — отдельным слоем поверх всех подложек: иначе подложка соседней
-  // струны подъедала бы цифру аккорда, стоящего ниже.
+  // Пауза — короткая приглушённая чёрточка на средней линии, без палочек.
+  const middleY = L.staffTop + ((L.strings - 1) / 2) * L.lineGap;
   L.positions.forEach((p) => {
-    if (p.pause) return;
+    if (!p.pause) return;
+    parts.push(`<line class="tab-digits-pause" stroke-width="1.8" x1="${tabDigitsNum(p.x - L.pauseW / 2)}" y1="${tabDigitsNum(middleY)}" x2="${tabDigitsNum(p.x + L.pauseW / 2)}" y2="${tabDigitsNum(middleY)}"></line>`);
+  });
+  L.positions.forEach((p) => {
     p.digits.forEach((d) => {
-      const y = tabDigitsNum(L.staffTop + d.string * L.lineGap);
-      parts.push(`<text class="tab-digits-digit${d.out ? ' is-out' : ''}" x="${tabDigitsNum(p.x)}" y="${y}" font-size="${font}" text-anchor="middle" dominant-baseline="central">${d.label}</text>`);
+      parts.push(`<text class="tab-digits-digit${d.out ? ' is-out' : ''}" x="${tabDigitsNum(p.x)}" y="${tabDigitsNum(d.y)}" font-size="${tabDigitsNum(d.font)}" text-anchor="middle" dominant-baseline="central">${d.label}</text>`);
     });
   });
+  // Линейка счёта: под каждой нотой её место в доле, начало доли крупнее.
   L.positions.forEach((p) => {
-    if (p.pause) return;
-    parts.push(`<line class="tab-digits-stem" x1="${tabDigitsNum(p.x)}" y1="${tabDigitsNum(L.rhythmTop)}" x2="${tabDigitsNum(p.x)}" y2="${tabDigitsNum(L.stemBottom)}"></line>`);
-  });
-  L.beams.forEach((beam) => {
-    const y = tabDigitsNum(L.rhythmTop + L.stemLen - (beam.level - 1) * L.beamStep);
-    parts.push(`<line class="tab-digits-beam" x1="${tabDigitsNum(beam.xs[0])}" y1="${y}" x2="${tabDigitsNum(beam.xs[beam.xs.length - 1])}" y2="${y}"></line>`);
-  });
-  L.beatLabels.forEach((b) => {
-    parts.push(`<text class="tab-digits-beat" x="${tabDigitsNum(b.x)}" y="${tabDigitsNum(L.beatLabelY)}" font-size="${labelFont}" text-anchor="middle">${b.text}</text>`);
+    if (!p.label) return;
+    const size = p.labelBeat ? L.beatFont : L.countFont;
+    parts.push(`<text class="tab-digits-count${p.labelBeat ? ' is-beat' : ''}" x="${tabDigitsNum(p.x)}" y="${tabDigitsNum(L.rulerBaseline)}" font-size="${tabDigitsNum(size)}" text-anchor="middle">${p.label}</text>`);
   });
   return `<svg class="tab-digits-svg" viewBox="0 0 ${w} ${h}" preserveAspectRatio="xMidYMid meet" aria-hidden="true" focusable="false">${parts.join('')}</svg>`;
 }

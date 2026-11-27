@@ -46,10 +46,10 @@ function extractFn(name) {
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.878'), 'STRUCHORD.html header is ver 0.878');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v878';"), 'sw.js CACHE_NAME is struchord-v878');
-  assert(README.includes('`0.878`'), 'README header is 0.878');
-  assert(ROADMAP.includes('**0.878**'), 'ROADMAP header is 0.878');
+  assert(HTML.includes('ver 0.879'), 'STRUCHORD.html header is ver 0.879');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v879';"), 'sw.js CACHE_NAME is struchord-v879');
+  assert(README.includes('`0.879`'), 'README header is 0.879');
+  assert(ROADMAP.includes('**0.879**'), 'ROADMAP header is 0.879');
 
   // А: все такты в одной строке, картинка выбирается по площади.
   assert(
