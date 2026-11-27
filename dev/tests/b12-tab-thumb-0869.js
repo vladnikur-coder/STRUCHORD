@@ -46,10 +46,10 @@ function extractFn(name) {
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.880'), 'STRUCHORD.html header is ver 0.880');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v880';"), 'sw.js CACHE_NAME is struchord-v880');
-  assert(README.includes('`0.880`'), 'README header is 0.879');
-  assert(ROADMAP.includes('**0.880**'), 'ROADMAP header is 0.879');
+  assert(HTML.includes('ver 0.881'), 'STRUCHORD.html header is ver 0.881');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v881';"), 'sw.js CACHE_NAME is struchord-v881');
+  assert(README.includes('`0.881`'), 'README header is 0.881');
+  assert(ROADMAP.includes('**0.881**'), 'ROADMAP header is 0.881');
 
   // А: все такты в одной строке, картинка выбирается по площади.
   assert(
@@ -81,17 +81,23 @@ function extractFn(name) {
   // 0.880: в клетке Ленты своя мини-линейка снята — счёт под вставкой
   // рисует общая линейка Ленты. Разметка под неё осталась там, где alphaTab
   // по-прежнему один: в окне редактора вставки (engine: 'alphatab').
+  // 0.881: в Ленте стан тоже свой (режим «lenta»), поэтому мини-линейка
+  // осталась только у alphaTab-картинки окна редактора вставки.
   assert(
-    HTML.includes('const tabRuler = !useDigits && !inTimeline && thumbSpec'),
-    'своя линейка карточки живёт вне Ленты (0.880)',
+    HTML.includes('const tabRuler = !useDigits && thumbSpec'),
+    'своя линейка карточки живёт только у alphaTab (0.881)',
   );
   assert(
     HTML.includes('const inTimeline = !!(cellOpts && cellOpts.inTimeline);'),
     'разметка знает, что карточка в Ленте',
   );
   assert(
-    HTML.includes("renderTabInsertHtml(sec, sq, parentTs, true, { inTimeline: true })"),
-    'Лента по-прежнему просит alphaTab',
+    HTML.includes("renderTabInsertHtml(sec, sq, parentTs, true, { isCell: true, ei, event: ev, inTimeline: true })"),
+    'Лента по-прежнему помечает карточку как «в Ленте»',
+  );
+  assert(
+    HTML.includes("(useDigits ? (inTimeline ? ' tab-insert--lenta' : ' tab-insert--digits') : '')"),
+    'карточка Ленты получает свой класс и свой стан (0.881)',
   );
 
   // Ключ TAB и размер слева кадрируются — иначе первая нота уезжает под 2–3-ю долю.

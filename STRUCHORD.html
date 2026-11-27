@@ -5341,6 +5341,43 @@ body.is-resizing .tab-insert > .chord-ticks-step {
 }
 .tl-cell--tab .tab-insert-body .tab-thumb,
 .tl-cell--tab .tab-insert-body .tab-thumb svg { width: 100%; height: 100%; display: block; }
+/* 0.881: в клетке Ленты стан рисуем сами, тем же движком, что в сетке
+   редактора («Только цифры», 0.877). alphaTab 0.880 тянули через
+   preserveAspectRatio="none" — цифры расплющивались, а строки стана
+   обрезались; здесь геометрия считается ровно в пикселях клетки, поэтому
+   масштабировать нечего: SVG ничего не растягивает.
+   • карточка прозрачна и без рамки — цвет даёт сама клетка Ленты;
+   • подложка под цифрой того же цвета, что фон клетки, иначе цифра тонула
+     бы в белой плашке на цветной клетке;
+   • горизонтальные поля нулевые: линии струн идут через всю ширину.
+   Скругление края ленты (1.125rem у первой и последней клетки песни)
+   срезало бы верхнюю линию и левую цифру, поэтому именно эти две клетки
+   отдают скруглению 0.5rem слева/справа. */
+.tab-insert--lenta {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  padding: 0;
+  gap: 0;
+  height: 100%;
+  min-height: 0;
+  overflow: hidden;
+  align-items: stretch;
+  --tab-digit-halo: var(--tl-cell-bg, var(--color-background-secondary));
+}
+.tab-insert--lenta .tab-insert-heading { display: none; }
+.tab-insert--lenta .tab-insert-body {
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 auto;
+  padding: 0;
+}
+.tl-section:first-child .tl-square:first-child .tl-cell:first-child .tab-insert--lenta {
+  padding-left: 0.5rem;
+}
+.tl-section:last-child .tl-square:last-child .tl-cell:last-child .tab-insert--lenta {
+  padding-right: 0.5rem;
+}
 
 /* ===== 0.695: перетаскивание таб-вставки (B-12.12) =====
    Жест — «зажать и потянуть», как у секций в «Структуре». До удержания
@@ -16307,7 +16344,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.880</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.881</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -25919,18 +25956,7 @@ function tabThumbSvgForCell(svgEl, outFretList = '', offsetLeft = 0) {
   return clone.outerHTML;
 }
 
-// 0.880: у клетки Ленты стан должен заполнить высоту соседней аккордовой,
-// а ноты — стоять ровно на своих долях. Натуральная высота рисунка зависит
-// от строя и числа струн, поэтому первый проход идёт как замер: по нему
-// подбирается scale, а ширина просится шире на служебную зону слева (ключ
-// и размер), чтобы после кадрирования стан занял ровно ширину клетки.
-const TAB_THUMB_MAX_SCALE = 3.5;
-const TAB_THUMB_MIN_SCALE = 0.7;
-// Только для стендов без раскладки (jsdom): в браузере высота всегда меряется.
-const TAB_THUMB_CELL_FALLBACK_H = 98;
-
-async function tabThumbRenderPayload(spec, width, opts = {}) {
-  const fitHeight = Math.max(0, Math.round(Number(opts && opts.fitHeight) || 0));
+async function tabThumbRenderPayload(spec, width) {
   // Печатаем в натуральную величину: alphaTab сам подгоняет такт под ширину
   // клетки, а поля по краям (35 px слева и справа) в маленькой клетке съедали
   // половину места — поэтому для клеток они отключены.
@@ -25938,181 +25964,59 @@ async function tabThumbRenderPayload(spec, width, opts = {}) {
   const built = tabAtBuildScore(alphaTab, { notes: spec.n, beats: spec.b }, { timeSig: spec.t },
     { tailPlaceholder: true, domain: tabInsertDomainFrom({ tabInstrument: spec.i, tabTuning: spec.g }) });
   tabThumbMarkOutFrets(alphaTab, built);
-  const paint = async (scale, hostWidth) => {
-    tabThumbEnsureApi(hostWidth);
-    if (tabThumbApi.settings) {
-      tabThumbApi.settings.display.startBar = 1;
-      tabThumbApi.settings.display.barCount = built.barCount;
-      // 0.869: все такты вставки печатаются в ОДНУ строку. Иначе alphaTab
-      // переносил их на новые строки и отдавал каждую строку отдельным <svg>,
-      // а клетка брала первый — «8 нот · 3 такта» показывала 4 ноты.
-      tabThumbApi.settings.display.barsPerRow = built.barCount;
-      tabThumbApi.settings.display.barCountPerPartial = Math.max(10, built.barCount);
-      tabThumbApi.settings.display.scale = scale;
-      tabThumbApi.settings.display.padding = [2, 2];
-      tabThumbApi.settings.display.systemPaddingTop = 0;
-      tabThumbApi.settings.display.systemPaddingBottom = 0;
-      tabThumbApi.settings.display.lastSystemPaddingBottom = 0;
-      // 0.880: у клетки Ленты длительности не рисуются — ни палочек, ни
-      // рёбер, ни флажков. В узкой клетке они читаются как мусор, а ритм и
-      // так несёт общий счёт под нотами. В окне редактора вставки (без
-      // fitHeight) вид прежний — с рёбрами. Ставим в обоих случаях:
-      // «мастерская» alphaTab одна на всех, и забытый Hidden испортил бы
-      // карточку редактора.
-      tabThumbApi.settings.notation.rhythmMode = fitHeight
-        ? alphaTab.TabRhythmMode.Hidden
-        : alphaTab.TabRhythmMode.ShowWithBeams;
-      // Цвета берём из текущей темы: при её смене картинка перерисовывается.
-      try { tabGpTheme(alphaTab, tabThumbApi.settings); } catch (_) {}
-      try { tabThumbApi.updateSettings(); } catch (_) {}
-    }
-    // 0.869: «мастерская» копит по <svg> на каждую часть рисунка, поэтому
-    // прежняя картинка от прошлой вставки доставалась следующей.
-    if (tabThumbHost) tabThumbHost.querySelectorAll('svg').forEach((el) => el.remove());
-    await new Promise((resolve) => {
-      tabThumbResolve = resolve;
-      tabThumbApi.load(built.score);
-      setTimeout(() => {
-        if (tabThumbResolve === resolve) {
-          tabThumbResolve = null;
-          resolve();
-        }
-      }, 8000);
-    });
-    return tabThumbBigSvg(tabThumbHost);
-  };
-
-  let svgEl = await paint(1, width);
-  let usedWidth = width;
-  if (svgEl && fitHeight) {
-    const naturalH = parseFloat(svgEl.getAttribute('height')) || 0;
-    if (naturalH > 8 && Math.abs(naturalH - fitHeight) > 2) {
-      const scale = Math.min(TAB_THUMB_MAX_SCALE, Math.max(TAB_THUMB_MIN_SCALE, fitHeight / naturalH));
-      // Служебная зона слева — та, что отрезается кадрированием. Просим
-      // рисунок шире ровно на неё: тогда после обрезки стан ляжет в ширину
-      // клетки без растяжения цифр.
-      const firstX = tabThumbFirstBeatX(built);
-      usedWidth = Math.round(Math.max(width, width + firstX * scale));
-      const second = await paint(scale, usedWidth);
-      if (second) svgEl = second;
-      else usedWidth = width;
-    }
+  if (tabThumbApi.settings) {
+    tabThumbApi.settings.display.startBar = 1;
+    tabThumbApi.settings.display.barCount = built.barCount;
+    // 0.869: все такты вставки печатаются в ОДНУ строку. Иначе alphaTab
+    // переносил их на новые строки и отдавал каждую строку отдельным <svg>,
+    // а клетка брала первый — «8 нот · 3 такта» показывала 4 ноты.
+    tabThumbApi.settings.display.barsPerRow = built.barCount;
+    tabThumbApi.settings.display.barCountPerPartial = Math.max(10, built.barCount);
+    tabThumbApi.settings.display.scale = 1;
+    tabThumbApi.settings.display.padding = [2, 2];
+    tabThumbApi.settings.display.systemPaddingTop = 0;
+    tabThumbApi.settings.display.systemPaddingBottom = 0;
+    tabThumbApi.settings.display.lastSystemPaddingBottom = 0;
+    // 0.881: в Ленте alphaTab больше не рисует (там свой стан), поэтому
+    // картинка всегда с рёбрами — прежний вид окна редактора вставки.
+    // Ставим явно: «мастерская» alphaTab одна на всех.
+    tabThumbApi.settings.notation.rhythmMode = alphaTab.TabRhythmMode.ShowWithBeams;
+    // Цвета берём из текущей темы: при её смене картинка перерисовывается.
+    try { tabGpTheme(alphaTab, tabThumbApi.settings); } catch (_) {}
+    try { tabThumbApi.updateSettings(); } catch (_) {}
   }
-  if (!svgEl) return null;
+  // 0.869: «мастерская» копит по <svg> на каждую часть рисунка, поэтому
+  // прежняя картинка от прошлой вставки доставалась следующей.
+  if (tabThumbHost) tabThumbHost.querySelectorAll('svg').forEach((el) => el.remove());
+  await new Promise((resolve) => {
+    tabThumbResolve = resolve;
+    tabThumbApi.load(built.score);
+    setTimeout(() => {
+      if (tabThumbResolve === resolve) {
+        tabThumbResolve = null;
+        resolve();
+      }
+    }, 8000);
+  });
   const outList = built.gpOutFrets || [];
+  const svgEl = tabThumbBigSvg(tabThumbHost);
+  if (!svgEl) return null;
   tabThumbDropTailPlaceholders(svgEl, built);
   // 0.869: ключ TAB и обозначение размера занимают слева 60–70 px — в узкой
-  // клетке это половина места. Поэтому картинку кадрируем.
+  // клетке это половина места, а в строке редактора первая нота уезжала под
+  // 2–3-ю долю. Кадрируем служебную зону: стан начинается с первой доли.
   const anchors = tabThumbBeatAnchors(built);
-  // 0.880: клетка Ленты собирается иначе — стан во всю клетку, ноты ровно на
-  // своих долях и без своей мини-линейки (её заменила общая линейка Ленты).
-  if (fitHeight) {
-    const svg = tabThumbTimelineSvg(svgEl, anchors, spec, built, outList);
-    return svg ? { svg, ticks: '', subticks: '', counts: '' } : null;
-  }
   let offsetLeft = 0;
   if (anchors.length) {
     let first = Infinity;
     for (const a of anchors) if (a.x0 < first) first = a.x0;
     if (Number.isFinite(first) && first > 8) offsetLeft = first - 6;
   }
-  const svgWidth = parseFloat(svgEl.getAttribute('width')) || usedWidth;
+  const svgWidth = parseFloat(svgEl.getAttribute('width')) || width;
   const svg = tabThumbSvgForCell(svgEl, encodeURIComponent(JSON.stringify(outList)), offsetLeft);
   if (!svg) return null;
   const ruler = tabThumbRulerHtml(built, spec, svgWidth, offsetLeft);
   return { svg, ticks: ruler.ticks, subticks: ruler.subticks, counts: ruler.counts };
-}
-
-// Левая служебная зона рисунка — до первой доли (ключ и размер).
-function tabThumbFirstBeatX(built) {
-  let first = Infinity;
-  for (const a of tabThumbBeatAnchors(built)) if (a.x0 < first) first = a.x0;
-  return Number.isFinite(first) ? first : 0;
-}
-
-// Сдвиг доли: alphaTab держит каждую долю группой `.b<id>` со своим
-// translate. Дописываем сдвиг ПЕРЕД ним — он применяется в координатах
-// рисунка, а сам рисунок потом кадрируется.
-function tabThumbShiftBeatGroup(root, beatId, dx) {
-  if (!root || !beatId || !Number.isFinite(dx) || Math.abs(dx) < 0.01) return false;
-  let el = null;
-  try {
-    el = root.querySelector('.b' + beatId);
-  } catch (_) {
-    el = null;
-  }
-  if (!el) return false;
-  const prev = el.getAttribute('transform') || '';
-  const shift = `translate(${dx.toFixed(2)} 0)`;
-  el.setAttribute('transform', (prev ? shift + ' ' + prev : shift).trim());
-  return true;
-}
-
-// 0.880: сборка картинки для клетки Ленты.
-//
-// Требование владельца: x ноты = начало клетки + (доля / всего долей) ×
-// ширина клетки. alphaTab расставляет доли по содержимому (лад из двух цифр
-// шире, пауза уже), поэтому одной обрезки слева мало: каждую долю двигаем
-// на её точную временную позицию. Сам стан при этом остаётся на месте и
-// занимает всю клетку — обрезаем только служебную зону слева.
-function tabThumbTimelineSvg(svgEl, anchors, spec, built, outList = []) {
-  if (!svgEl) return '';
-  const naturalW = parseFloat(svgEl.getAttribute('width')) || 0;
-  const naturalH = parseFloat(svgEl.getAttribute('height')) || 0;
-  if (!(naturalW > 0) || !(naturalH > 0)) return '';
-  const clone = svgEl.cloneNode(true);
-  const totalBeats = Number(spec && spec.b) || 0;
-  // Паузы-заглушки свободного хвоста такта в расчёт не идут: из рисунка они
-  // уже вырезаны (0.692), а их ширина иначе растянула бы кадр вправо и
-  // сжала бы настоящие ноты к левому краю.
-  const list = (Array.isArray(anchors) ? anchors : []).filter(
-    (a) => a && !a.placeholder && Number.isFinite(a.x0) && Number.isFinite(a.x1),
-  );
-  let x0 = 0;
-  let x1 = naturalW;
-  if (list.length) {
-    x0 = Infinity;
-    x1 = -Infinity;
-    for (const a of list) {
-      if (a.x0 < x0) x0 = a.x0;
-      if (a.x1 > x1) x1 = a.x1;
-    }
-  }
-  if (!(x1 - x0 > 8) || !(totalBeats > 0)) {
-    x0 = 0;
-    x1 = naturalW;
-  }
-  const span = Math.max(1, x1 - x0);
-  // Сдвиги — до кадрирования: координаты пока «натуральные».
-  if (totalBeats > 0 && list.length) {
-    for (const a of list) {
-      const target = x0 + (a.start / totalBeats) * span;
-      const actual = Number.isFinite(a.nx) ? a.nx : a.x0;
-      tabThumbShiftBeatGroup(clone, a.id, target - actual);
-    }
-  }
-  // Паузы не убираем совсем, а приглушаем: видно, что здесь молчание, но
-  // метка не спорит с цифрами ладов и не читается как нота.
-  if (built && built.beatInfo) {
-    for (const [beat, info] of built.beatInfo) {
-      if (!info || !info.rest || !beat) continue;
-      let g = null;
-      try {
-        g = clone.querySelector('.b' + beat.id);
-      } catch (_) {
-        g = null;
-      }
-      if (g) g.setAttribute('opacity', '0.42');
-    }
-  }
-  clone.setAttribute('viewBox', `${x0.toFixed(3)} 0 ${span.toFixed(3)} ${naturalH.toFixed(3)}`);
-  // Клетка уже выровнена по времени: тянем рисунок ровно в её прямоугольник,
-  // не оставляя полей сверху/снизу (стан занимает всю высоту).
-  clone.setAttribute('preserveAspectRatio', 'none');
-  clone.setAttribute('width', '100%');
-  clone.setAttribute('height', '100%');
-  tabThumbDecorate(clone, encodeURIComponent(JSON.stringify(outList || [])));
-  return clone.outerHTML;
 }
 
 // 0.869: где alphaTab нарисовал каждую долю. Линейка миниатюры считается по
@@ -26142,11 +26046,6 @@ function tabThumbBeatAnchors(built) {
             dur,
             x0: vb.x,
             x1: vb.x + vb.w,
-            // 0.880: id доли и x самой цифры — по ним доля ставится на своё
-            // место в клетке Ленты, а не «примерно».
-            id: bb.beat ? bb.beat.id : 0,
-            nx: tabThumbAnchorNoteX(bb, vb),
-            rest: !!info.rest,
             bar: info.bar,
             placeholder: !!info.placeholder,
           });
@@ -26155,20 +26054,6 @@ function tabThumbBeatAnchors(built) {
     }
   }
   return out;
-}
-
-// Левая граница цифры лада внутри доли. Если alphaTab не отдал границы нот,
-// берём границу самой доли — она начинается там же.
-function tabThumbAnchorNoteX(bb, vb) {
-  let best = NaN;
-  const notes = bb && Array.isArray(bb.notes) ? bb.notes : [];
-  for (const nb of notes) {
-    const head = nb && nb.noteHeadBounds;
-    if (!head || !Number.isFinite(head.x)) continue;
-    if (!Number.isFinite(best) || head.x < best) best = head.x;
-  }
-  if (Number.isFinite(best)) return best;
-  return vb && Number.isFinite(vb.x) ? vb.x : NaN;
 }
 
 // Чистая арифметика линейки: узлы метрической сетки -> x в пикселях картинки.
@@ -26320,7 +26205,7 @@ async function tabThumbFlush() {
       TAB_THUMB_PENDING.delete(job.key);
       let payload = null;
       try {
-        payload = await tabThumbRenderPayload(job.spec, job.width, { fitHeight: job.fitHeight });
+        payload = await tabThumbRenderPayload(job.spec, job.width);
       } catch (_) {
         payload = null;
       }
@@ -26363,17 +26248,7 @@ function tabThumbScan(root) {
     }
     const measured = el.clientWidth || (el.parentElement && el.parentElement.clientWidth) || 320;
     const width = Math.max(120, Math.round(measured / 8) * 8);
-    // 0.880: у клетки Ленты стан должен заполнить высоту соседней аккордовой.
-    // Высоту берём из раскладки, а не из числа: в браузере её даёт
-    // getBoundingClientRect, в стенде без раскладки — запасное значение.
-    const cellEl = el.closest ? el.closest('.tl-cell--tab') : null;
-    let fitHeight = 0;
-    if (cellEl) {
-      const rect = cellEl.getBoundingClientRect ? cellEl.getBoundingClientRect() : null;
-      fitHeight = Math.round((rect && rect.height) || cellEl.clientHeight || 0);
-      if (!(fitHeight > 24)) fitHeight = TAB_THUMB_CELL_FALLBACK_H;
-    }
-    const key = [spec.th, spec.b, spec.t, spec.i || '', spec.g || '', width, fitHeight, JSON.stringify(spec.n)].join('|');
+    const key = [spec.th, spec.b, spec.t, spec.i || '', spec.g || '', width, JSON.stringify(spec.n)].join('|');
     const cached = TAB_THUMB_CACHE.get(key);
     if (cached) {
       tabThumbApply(el, cached);
@@ -26381,7 +26256,7 @@ function tabThumbScan(root) {
     }
     let job = TAB_THUMB_PENDING.get(key);
     if (!job) {
-      job = { key, spec, width, fitHeight, els: [] };
+      job = { key, spec, width, els: [] };
       TAB_THUMB_PENDING.set(key, job);
       TAB_THUMB_QUEUE.push(job);
       bumped = true;
@@ -26500,6 +26375,13 @@ const TAB_DIGITS_CELL_PAD_X = 3;
 const TAB_DIGITS_BLOCK_PAD_X = 8;
 const TAB_DIGITS_CELL_PAD_Y = 2;
 const TAB_DIGITS_BLOCK_PAD_Y = 4;
+// 0.881: стан в клетке Ленты. Линейки счёта внутри нет (счёт рисует общая
+// линейка Ленты), поэтому поля по вертикали — ровно те 4 px, которые требует
+// отступ от края клетки, а цифры не мельче 11 px: мельче читать нельзя,
+// в этом случае стан просто ужимается вместе с клеткой.
+const TAB_DIGITS_LENTA_PAD_Y = 4;
+const TAB_DIGITS_LENTA_FONT_MIN = 11;
+const TAB_DIGITS_LENTA_FALLBACK_H = 98;
 
 // Сколько подписей счёта в одной доле: 1 — четверти, 2 — восьмые,
 // 3 — триоли, 4 — шестнадцатые. Считаем по самой мелкой длительности
@@ -26556,6 +26438,13 @@ function tabDigitsFontFor(height) {
 function tabDigitsLayout(notes, beats, ts, domain, opts) {
   const options = opts || {};
   const isCell = options.layout === 'cell';
+  // 0.881: «lenta» — стан клетки Ленты. Отличия от сетки редактора:
+  //   • x берётся по времени (начало + доля × ширина), а не по номеру ноты;
+  //   • цифра прижата левым краем к своему моменту, а не центрирована;
+  //   • нет линейки счёта внутри — вся высота отдана стану;
+  //   • кегль подобран так, чтобы цифры не слипались между струнами и
+  //     всё влезло с отступом TAB_DIGITS_LENTA_PAD_Y сверху и снизу.
+  const isLenta = options.layout === 'lenta';
   const strings = Math.max(1, Math.round(Number(domain && domain.strings) || 6));
   const perBar = Math.max(1, Math.round(getGridUnitsPerBar(ts) || 4));
   const beatOffset = Number(options.beatOffset) || 0;
@@ -26590,11 +26479,14 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   const groups = [...byStart.values()].sort((a, b) => a.start - b.start);
 
   const count = Math.max(1, groups.length);
-  const padX = isCell ? TAB_DIGITS_CELL_PAD_X : TAB_DIGITS_BLOCK_PAD_X;
-  const padY = isCell ? TAB_DIGITS_CELL_PAD_Y : TAB_DIGITS_BLOCK_PAD_Y;
+  // В клетке Ленты стан идёт от края до края: линии струн должны проходить
+  // всю ширину, а не прятаться за полями.
+  const padX = isLenta ? 0 : (isCell ? TAB_DIGITS_CELL_PAD_X : TAB_DIGITS_BLOCK_PAD_X);
+  const padY = isLenta ? TAB_DIGITS_LENTA_PAD_Y : (isCell ? TAB_DIGITS_CELL_PAD_Y : TAB_DIGITS_BLOCK_PAD_Y);
   const padTotalX = padX * 2;
   const width = Math.max(24, Math.round(Number(options.width) || (padTotalX + count * TAB_DIGITS_STEP_PREF)));
-  const height = Math.max(24, Math.round(Number(options.height) || (isCell ? 64 : 96)));
+  const height = Math.max(24, Math.round(Number(options.height)
+    || (isLenta ? TAB_DIGITS_LENTA_FALLBACK_H : (isCell ? 64 : 96))));
 
   // Шаг из ширины: место между полями делим на позиции. Шире 24 — хорошо
   // (стан заполняет клетку), уже 18 — значит клетке не хватило места и её
@@ -26604,22 +26496,41 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   const stripW = step * count;
   const firstX = padX + (boxW - stripW) / 2 + step / 2;
 
-  const font = tabDigitsFontFor(height);
+  const usableH = Math.max(8, height - padY * 2);
+  let font;
+  let lineGap;
+  let staffTop;
+  let staffBottom;
+  let rulerH = 0;
+  let rulerTop = 0;
+  let rulerBaseline = 0;
+  if (isLenta) {
+    // Цифра по вертикали занимает ~0.9 кегля (заглавная высота + запас на
+    // подложку). Промежуток между линиями держим не меньше 0.92 кегля —
+    // тогда цифры соседних струн в аккорде не слипаются.
+    const snug = (0.92 * usableH) / (Math.max(1, strings - 1) + 0.828);
+    font = Math.max(6, Math.min(TAB_DIGITS_FONT_MAX, snug));
+    lineGap = Math.max(3, (usableH - font * 0.9) / Math.max(1, strings - 1));
+    // Поля 4 px уже гарантируют отступ; здесь только центрируем цифру на
+    // линии: её верх — на 0.45 кегля выше линии, низ — на 0.45 ниже.
+    staffTop = padY + font * 0.45;
+    staffBottom = staffTop + lineGap * (strings - 1);
+  } else {
+    // В сетке редактора нижние ~25 % высоты — линейка счёта.
+    font = tabDigitsFontFor(height);
+    rulerH = Math.max(TAB_DIGITS_RULER_MIN, Math.min(TAB_DIGITS_RULER_MAX, height * TAB_DIGITS_RULER_RATIO));
+    const staffArea = Math.max(strings * 4, height - rulerH);
+    const margin = font * 0.5 + 1;
+    lineGap = Math.max(4, (staffArea - margin * 2) / Math.max(1, strings - 1));
+    staffTop = margin + Math.max(0, (staffArea - margin * 2 - lineGap * (strings - 1)) / 2);
+    staffBottom = staffTop + lineGap * (strings - 1);
+    rulerTop = staffArea;
+  }
   const countFont = Math.max(TAB_DIGITS_COUNT_FONT_MIN, Math.min(TAB_DIGITS_COUNT_FONT_MAX, font * 0.72));
   const beatFont = Math.max(TAB_DIGITS_BEAT_FONT, Math.min(TAB_DIGITS_FONT_MAX, countFont + 1.5));
-  // Верхние ~75 % — стан, нижние ~25 % — линейка счёта. Сверху и снизу
-  // оставляем по половине цифры: цифра на первой/последней струне не
-  // обрезается краем клетки.
-  const rulerH = Math.max(TAB_DIGITS_RULER_MIN, Math.min(TAB_DIGITS_RULER_MAX, height * TAB_DIGITS_RULER_RATIO));
-  const staffArea = Math.max(strings * 4, height - rulerH);
-  const margin = font * 0.5 + 1;
-  const lineGap = Math.max(4, (staffArea - margin * 2) / Math.max(1, strings - 1));
-  const staffTop = margin + Math.max(0, (staffArea - margin * 2 - lineGap * (strings - 1)) / 2);
-  const staffBottom = staffTop + lineGap * (strings - 1);
-  const rulerTop = staffArea;
   // Базовая линия подписей — с запасом на выносные элементы: строка не
   // должна вылезать за нижний край клетки.
-  const rulerBaseline = Math.min(height - countFont * 0.36 - 0.5, rulerTop + (height - rulerTop) * 0.74);
+  if (!isLenta) rulerBaseline = Math.min(height - countFont * 0.36 - 0.5, rulerTop + (height - rulerTop) * 0.74);
   const stepsPerBeat = tabDigitsStepsPerBeat(groups);
 
   // Струны считаются снизу вверх: модель 0 — низкая струна (нижняя линия),
@@ -26629,32 +26540,83 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
     return staffTop + (strings - 1 - clamped) * lineGap;
   };
 
+  // Сколько места по горизонтали у ноты: в сетке — шаг раскладки, в Ленте —
+  // своё время до следующей ноты (или до конца вставки). По этому месту
+  // поджимается двузначный лад, чтобы не налезть на соседа.
+  const spanBeats = Math.max(1e-6, Number(beats) || 0);
+  const timeX = (start) => clampNumberValue((Number(start) || 0) / spanBeats, 0, 1) * width;
+  const roomFor = (index) => {
+    if (!isLenta) return step;
+    const cur = groups[index];
+    const next = groups[index + 1];
+    const from = Number(cur.start) || 0;
+    const to = next ? (Number(next.start) || 0) : spanBeats;
+    return Math.max(1, ((to - from) / spanBeats) * width);
+  };
+
+  // 0.881: читаемая граница цифры в Ленте — 11 px (требование владельца).
+  // Пока самый широкий лад станции влезает в свой шаг при 11 px, кегль не
+  // трогаем: двузначная цифра при необходимости подожмётся одна, соседние
+  // останутся крупными. Если даже 11 px не влезает (очень плотная вставка на
+  // мелком масштабе), стан уменьшается пропорционально — все цифры одинаково,
+  // но не ниже 6 px.
+  const rooms = groups.map((_, i) => roomFor(i));
+  let fontLenta = font;
+  if (isLenta) {
+    const minRoom = rooms.length ? Math.min(...rooms) : width;
+    const widest = groups.reduce((m, g) => {
+      g.digits.forEach((d) => { m = Math.max(m, String(d.dead === true ? 'x' : d.fret).length); });
+      return m;
+    }, 1);
+    const needed = 0.62 * widest * TAB_DIGITS_LENTA_FONT_MIN;
+    if (needed > minRoom - 2) fontLenta = Math.max(6, (minRoom - 2) / (0.62 * widest));
+  }
+  const fontUsed = isLenta ? fontLenta : font;
+
   const positions = groups.map((group, index) => {
     const isPause = group.pause && group.digits.length === 0;
-    const x = firstX + index * step;
+    const room = roomFor(index);
+    // В Ленте цифра прижата левым краем к своему моменту звучания: глаз
+    // находит ноту по вертикали общей линейки, а не по центру клетки.
+    const x = isLenta ? timeX(group.start) : firstX + index * step;
     // Аккорд (две-три ноты на одной доле) — единственный случай, когда
     // цифры стоят в соседних строках и могут налезть друг на друга. Там
     // поджимаем кегль под расстояние между линиями; одиночная нота в доле
     // остаётся крупной.
     const stack = Math.max(1, group.digits.length);
-    const stackFit = stack > 1 ? Math.min(1, (lineGap * 0.92) / font) : 1;
+    const stackFit = stack > 1 ? Math.min(1, (lineGap * 0.92) / fontUsed) : 1;
     const digits = group.digits.slice().sort((a, b) => b.string - a.string).map((d) => {
       // Двузначный лад («12») не должен налезать на соседа по горизонтали:
-      // поджимаем кегль ровно под шаг, остальные цифры остаются крупными.
-      const fit = (step - 2) / (0.62 * Math.max(1, d.label.length));
-      const size = Math.max(9, Math.min(font * stackFit, fit));
-      return { ...d, y: stringY(d.string), font: size };
+      // поджимаем кегль ровно под отведённое место, остальные цифры
+      // остаются крупными. В Ленте кегль уже общий на весь стан (fontLenta),
+      // поэтому здесь только вертикальная подгонка аккорда.
+      const need = 0.62 * Math.max(1, d.label.length);
+      const fit = (room - 2) / need;
+      // В Ленте сверху — кегль станции, снизу — сколько влезает в свой шаг
+      // (двузначный «12» поджимается один, остальные цифры не мельчают).
+      const size = isLenta
+        ? Math.max(6, Math.min(fontUsed * stackFit, fit))
+        : Math.max(9, Math.min(font * stackFit, fit));
+      return { ...d, y: stringY(d.string), font: size, w: need * size };
     });
+    // У правого края клетки цифру подвигаем внутрь: иначе её срежет край
+    // карточки. Сдвиг появляется только там, где иначе была бы обрезка.
+    let dx = 0;
+    if (isLenta) {
+      const wide = digits.reduce((m, d) => Math.max(m, d.w), 0);
+      if (x + wide > width - 1) dx = Math.min(0, width - 1 - wide - x);
+    }
     const countLabel = tabDigitsCount(group.start + beatOffset, stepsPerBeat, perBar);
     return {
       index,
       start: group.start,
-      x,
+      x: x + dx,
       digits,
       pause: isPause,
       dur: group.dur,
-      label: countLabel.text,
-      labelBeat: countLabel.beat,
+      room,
+      label: isLenta ? '' : countLabel.text,
+      labelBeat: isLenta ? false : countLabel.beat,
     };
   });
 
@@ -26662,17 +26624,23 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   // стан сжали в узкой клетке, дробные подписи соседей налезли бы друг на
   // друга — в этом случае оставляем только номера долей.
   const labelRoom = countFont * 1.15;
-  const labels = positions
+  const labels = isLenta ? [] : positions
     .filter((p) => p.label && (p.labelBeat || step >= labelRoom))
     .map((p) => ({ x: p.x, text: p.label, beat: p.labelBeat }));
 
   const widest = positions.reduce((max, p) => Math.max(max, p.digits.reduce((m, d) => Math.max(m, d.label.length), 0)), 1);
-  const haloW = Math.max(6, Math.min(step * 0.92, 0.62 * font * widest + 3));
-  const haloH = Math.max(5, Math.min(lineGap * 0.95, font * 1.12));
-  const pauseW = Math.max(4, Math.min(step * 0.6, font * 0.7));
+  const haloW = Math.max(6, Math.min(step * 0.92, 0.62 * fontUsed * widest + 3));
+  // В Ленте подложка ниже: линии струн должны оставаться видны между
+  // цифрами, а цифра всё равно закрывает свою чернильную высоту.
+  const haloH = isLenta
+    ? Math.max(5, Math.min(lineGap * 0.8, fontUsed * 1.05))
+    : Math.max(5, Math.min(lineGap * 0.95, fontUsed * 1.12));
+  const pauseStep = isLenta && rooms.length ? Math.min(...rooms) : step;
+  const pauseW = Math.max(4, Math.min(pauseStep * 0.6, fontUsed * 0.7));
 
   return {
-    layout: isCell ? 'cell' : 'block',
+    layout: isLenta ? 'lenta' : (isCell ? 'cell' : 'block'),
+    anchor: isLenta ? 'start' : 'middle',
     strings,
     perBar,
     beatOffset,
@@ -26685,7 +26653,7 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
     padY,
     step,
     firstX,
-    font,
+    font: fontUsed,
     countFont,
     beatFont,
     lineGap,
@@ -26698,8 +26666,8 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
     haloW,
     haloH,
     pauseW,
-    minWidth: tabDigitsNeed(count, isCell ? 'cell' : 'block').min,
-    prefWidth: tabDigitsNeed(count, isCell ? 'cell' : 'block').pref,
+    minWidth: isLenta ? 0 : tabDigitsNeed(count, isCell ? 'cell' : 'block').min,
+    prefWidth: isLenta ? 0 : tabDigitsNeed(count, isCell ? 'cell' : 'block').pref,
     empty: positions.length === 0,
   };
 }
@@ -26723,23 +26691,29 @@ function tabDigitsSvgMarkup(layout) {
     const y = tabDigitsNum(L.staffTop + i * L.lineGap);
     parts.push(`<line class="tab-digits-line" stroke-width="${L.lineW}" x1="0.75" y1="${y}" x2="${tabDigitsNum(w - 0.75)}" y2="${y}"></line>`);
   }
+  // В Ленте цифра прижата левым краем к моменту звучания, в сетке —
+  // центрирована на шаге. От этого зависит и подложка под цифрой.
+  const atStart = L.anchor === 'start';
   // Подложки — отдельным слоем ниже всех цифр: подложка соседней струны не
   // может подъесть цифру аккорда.
   L.positions.forEach((p) => {
     p.digits.forEach((d) => {
       const size = Math.min(L.haloH, d.font * 1.12);
-      parts.push(`<rect class="tab-digits-halo" x="${tabDigitsNum(p.x - L.haloW / 2)}" y="${tabDigitsNum(d.y - size / 2)}" width="${tabDigitsNum(L.haloW)}" height="${tabDigitsNum(size)}" rx="1.5"></rect>`);
+      const hx = atStart ? p.x - 1 : p.x - L.haloW / 2;
+      const hw = atStart ? Math.max(6, (d.w || L.haloW) + 2) : L.haloW;
+      parts.push(`<rect class="tab-digits-halo" x="${tabDigitsNum(hx)}" y="${tabDigitsNum(d.y - size / 2)}" width="${tabDigitsNum(hw)}" height="${tabDigitsNum(size)}" rx="1.5"></rect>`);
     });
   });
   // Пауза — короткая приглушённая чёрточка на средней линии, без палочек.
   const middleY = L.staffTop + ((L.strings - 1) / 2) * L.lineGap;
   L.positions.forEach((p) => {
     if (!p.pause) return;
-    parts.push(`<line class="tab-digits-pause" stroke-width="1.8" x1="${tabDigitsNum(p.x - L.pauseW / 2)}" y1="${tabDigitsNum(middleY)}" x2="${tabDigitsNum(p.x + L.pauseW / 2)}" y2="${tabDigitsNum(middleY)}"></line>`);
+    const px0 = atStart ? p.x + 1 : p.x - L.pauseW / 2;
+    parts.push(`<line class="tab-digits-pause" stroke-width="1.8" x1="${tabDigitsNum(px0)}" y1="${tabDigitsNum(middleY)}" x2="${tabDigitsNum(px0 + L.pauseW)}" y2="${tabDigitsNum(middleY)}"></line>`);
   });
   L.positions.forEach((p) => {
     p.digits.forEach((d) => {
-      parts.push(`<text class="tab-digits-digit${d.out ? ' is-out' : ''}" x="${tabDigitsNum(p.x)}" y="${tabDigitsNum(d.y)}" font-size="${tabDigitsNum(d.font)}" text-anchor="middle" dominant-baseline="central">${d.label}</text>`);
+      parts.push(`<text class="tab-digits-digit${d.out ? ' is-out' : ''}" x="${tabDigitsNum(p.x)}" y="${tabDigitsNum(d.y)}" font-size="${tabDigitsNum(d.font)}" text-anchor="${atStart ? 'start' : 'middle'}" dominant-baseline="central">${d.label}</text>`);
     });
   });
   // Линейка счёта: под каждой нотой её место в доле, начало доли крупнее.
@@ -26834,7 +26808,9 @@ function tabDigitsGridColumns(tpl) {
 // того кегля, что задумано, а не «что останется от letterbox».
 function tabDigitsPaint(root) {
   const scope = root && root.querySelectorAll ? root : document;
-  const cards = scope.querySelectorAll('.tab-insert--digits[data-tab-positions]');
+  // 0.881: стан рисуют и карточки сетки редактора (--digits), и клетки
+  // Ленты (--lenta): геометрия у обеих считается от фактического размера.
+  const cards = scope.querySelectorAll('.tab-insert--digits[data-tab-positions], .tab-insert--lenta[data-tab-positions]');
   if (!cards || !cards.length) return;
   cards.forEach((card) => {
     const body = card.querySelector('.tab-insert-body--digits');
@@ -26858,7 +26834,8 @@ function tabDigitsPaint(root) {
       {
         width: w,
         height: h,
-        layout: card.classList.contains('tab-insert--cell') ? 'cell' : 'block',
+        layout: card.classList.contains('tab-insert--lenta') ? 'lenta'
+          : (card.classList.contains('tab-insert--cell') ? 'cell' : 'block'),
         beatOffset: Number(card.dataset.tabBeatOffset) || 0,
       },
     );
@@ -26981,15 +26958,20 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
     lenLabel = `${bars} ${sectionRangeCountWord(bars)}`;
   }
   const durationText = `${count} ${noteWord} · ${lenLabel}`;
-  // 0.877: в редакторе песни стан рисуем сами («Только цифры»). alphaTab
-  // остаётся в Ленте (там места хватает и нужны «и/та») и в окне редактора
-  // вставки — оно передаёт engine: 'alphatab'.
-  const useDigits = !(cellOpts && (cellOpts.inTimeline || cellOpts.engine === 'alphatab'));
+  // 0.881: свой стан рисуем везде, где рисует редактор песни, — в сетке
+  // редактора и в клетке Ленты. alphaTab остался только в окне редактора
+  // вставки: оно передаёт engine: 'alphatab' и ему нужны рёбра и ключ TAB.
+  // Почему alphaTab не годится для Ленты — в CHANGELOG 0.881: он не даёт
+  // независимо управлять расстоянием между линиями и кеглем цифр, а размер
+  // его <svg> не совпадает с содержимым (замер владельца: viewBox 98 px при
+  // содержимом 238 px), поэтому любая подгонка — угадывание.
+  const inTimeline = !!(cellOpts && cellOpts.inTimeline);
+  const useDigits = !(cellOpts && cellOpts.engine === 'alphatab');
   const beatOffset = (cellOpts && Number(cellOpts.beatOffset)) || 0;
   // 0.878: раскладка считается от размера клетки. Здесь — натуральный
   // размер (шаг 24 px): он же первый кадр, а точную геометрию под
   // фактический прямоугольник рисует tabDigitsPaint после раскладки.
-  const digitsLayout = isCell ? 'cell' : 'block';
+  const digitsLayout = inTimeline ? 'lenta' : (isCell ? 'cell' : 'block');
   const digits = useDigits ? tabDigitsLayout(notes, beats, effTs, domain, { beatOffset, layout: digitsLayout }) : null;
   const digitsSvg = digits ? tabDigitsSvgMarkup(digits) : '';
   const digitsCount = digits ? digits.positions.length : 0;
@@ -27006,9 +26988,9 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
   // а такты alphaTab растягивает неравномерно.
   // 0.880: в клетке Ленты своей мини-линейки больше нет — счёт под вставкой
   // рисует общая линейка Ленты (renderRhythmTrack), и он стоит ровно под
-  // нотами. В окне редактора вставки (engine: 'alphatab') линейка остаётся.
-  const inTimeline = !!(cellOpts && cellOpts.inTimeline);
-  const tabRuler = !useDigits && !inTimeline && thumbSpec
+  // нотами. 0.881: свой стан тоже не рисует мини-линейку; она осталась
+  // только у alphaTab-картинки в окне редактора вставки.
+  const tabRuler = !useDigits && thumbSpec
     ? '<div class="chord-ticks" aria-hidden="true" data-tab-ticks></div>' +
       '<div class="chord-ticks-step" aria-hidden="true" data-tab-subticks></div>' +
       '<div class="chord-counts" aria-hidden="true" data-tab-counts></div>'
@@ -27025,7 +27007,8 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
   const titleText = (useDigits ? spanText + ', ' + count + ' ' + noteWord : durationText) + foreignNote;
   const cardClass = 'tab-insert' + (isCell ? ' tab-insert--cell' : '') +
     (domain.instrument === 'ukulele' ? ' tab-insert--uke' : '') +
-    (foreignInsert ? ' is-foreign' : '') + (useDigits ? ' tab-insert--digits' : '');
+    (foreignInsert ? ' is-foreign' : '') +
+    (useDigits ? (inTimeline ? ' tab-insert--lenta' : ' tab-insert--digits') : '');
   const bodyClass = 'tab-insert-body' + (useDigits ? ' tab-insert-body--digits' : '');
   const bodyInner = useDigits
     ? (digitsSvg || '<span class="tab-insert-empty">Нет нот</span>')
@@ -27037,7 +27020,8 @@ function renderTabInsertHtml(sec, sq, parentTs, interactive = true, cellOpts = n
   // 0.878: в ячейке заголовок «TAB / 4 н. · 2 доли» убран — место в ряду
   // дорогое, а сведения живут в tooltip и aria-label. В отдельном блоке
   // «в начале секции» заголовок остаётся.
-  const heading = (useDigits && isCell)
+  // В Ленте заголовок не нужен никогда: клетка высотой с аккордовую.
+  const heading = (useDigits && (isCell || inTimeline))
     ? ''
     : `<div class="tab-insert-heading"><strong class="tab-insert-label">TAB</strong>` +
       `<span class="tab-insert-count">${useDigits ? shortText : durationText}</span></div>`;
@@ -67390,6 +67374,10 @@ function renderRhythmTrack() {
   });
 
   row.appendChild(frag);
+  // 0.881: таб-клетки Ленты рисуют стан сами, от фактического размера
+  // клетки. Ряд только что переставился — просим пересчёт на следующем
+  // кадре, когда раскладка уже посчитана (иначе clientWidth = 0).
+  tabDigitsScheduleFit();
 }
 
 // Подсветка текущей ячейки и НЕПРЕРЫВНОЕ движение ленты.

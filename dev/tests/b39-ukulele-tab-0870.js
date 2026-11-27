@@ -85,10 +85,10 @@ const api = bootDomain();
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.880'), 'STRUCHORD.html header is ver 0.880');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v880';"), 'sw.js CACHE_NAME is struchord-v880');
-  assert(README.includes('`0.880`'), 'README header is 0.879');
-  assert(ROADMAP.includes('**0.880**'), 'ROADMAP header is 0.879');
+  assert(HTML.includes('ver 0.881'), 'STRUCHORD.html header is ver 0.881');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v881';"), 'sw.js CACHE_NAME is struchord-v881');
+  assert(README.includes('`0.881`'), 'README header is 0.881');
+  assert(ROADMAP.includes('**0.881**'), 'ROADMAP header is 0.881');
 
   for (const fn of ['tabInsertDomainFrom', 'tabInsertDomainPatch', 'tabInsertActiveInstrument',
     'tabInsertDomainForActiveTrack', 'tabInsertTuningFromTrack', 'tabInsertEditorDomain',
@@ -184,10 +184,11 @@ const api = bootDomain();
   const specFrom = sliceBetween('function tabThumbSpecFrom(notes, beats, ts', '\n}\n', 'specFrom');
   assert(specFrom.includes('function tabThumbSpecFrom(notes, beats, ts, domain)'), 'spec builder accepts domain');
   assert(specFrom.includes("spec.i = 'ukulele';") && specFrom.includes('spec.g = domain.tuning;'), 'ukulele spec carries instrument and tuning');
-  // 0.880: в ключе появилась высота клетки Ленты — одна и та же вставка в
-  // клетке другой высоты требует другой scale у alphaTab.
-  assert(HTML.includes("const key = [spec.th, spec.b, spec.t, spec.i || '', spec.g || '', width, fitHeight, JSON.stringify(spec.n)].join('|');"),
-    'thumbnail cache key separates ukulele from guitar (and cell height, 0.880)');
+  // 0.881: высота клетки из ключа ушла вместе с подгонкой alphaTab под
+  // Ленту (там теперь свой стан). Ключ снова — строй, инструмент, ширина и ноты.
+  assert(HTML.includes("const key = [spec.th, spec.b, spec.t, spec.i || '', spec.g || '', width, JSON.stringify(spec.n)].join('|');"),
+    'thumbnail cache key separates ukulele from guitar (0.881)');
+  assert(!HTML.includes('fitHeight'), 'подгонки alphaTab под высоту клетки Ленты больше нет');
   assert(HTML.includes("domain: tabInsertDomainFrom({ tabInstrument: spec.i, tabTuning: spec.g })"),
     'thumbnail builds the staff with the insert domain');
 

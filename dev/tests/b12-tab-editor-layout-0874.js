@@ -43,10 +43,10 @@ function cssBlock(selector) {
 // 1. CSS-инварианты раскладки
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.880'), 'STRUCHORD.html header is ver 0.880');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v880';"), 'sw.js CACHE_NAME is struchord-v880');
-  assert(README.includes('`0.880`'), 'README header is 0.879');
-  assert(ROADMAP.includes('**0.880**'), 'ROADMAP header is 0.879');
+  assert(HTML.includes('ver 0.881'), 'STRUCHORD.html header is ver 0.881');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v881';"), 'sw.js CACHE_NAME is struchord-v881');
+  assert(README.includes('`0.881`'), 'README header is 0.881');
+  assert(ROADMAP.includes('**0.881**'), 'ROADMAP header is 0.881');
 
   // 0.875: минимум стана поднят до 220 px, потолка больше нет — стан растёт.
   const vars = cssBlock('.tab-insert-editor {');

@@ -52,10 +52,10 @@ function extractConst(name, endMarker) {
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.880'), 'STRUCHORD.html header is ver 0.880');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v880';"), 'sw.js CACHE_NAME is struchord-v880');
-  assert(README.includes('`0.880`'), 'README header is 0.879');
-  assert(ROADMAP.includes('**0.880**'), 'ROADMAP header is 0.879');
+  assert(HTML.includes('ver 0.881'), 'STRUCHORD.html header is ver 0.881');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v881';"), 'sw.js CACHE_NAME is struchord-v881');
+  assert(README.includes('`0.881`'), 'README header is 0.881');
+  assert(ROADMAP.includes('**0.881**'), 'ROADMAP header is 0.881');
   assert(HTML.includes('function b39MigrateRhythmForUke(raw)'), 'rhythm migrator exists');
   assert(HTML.includes('function b39UkePickPresetFor(raw)'), 'nearest ukulele pick preset resolver exists');
   assert(
