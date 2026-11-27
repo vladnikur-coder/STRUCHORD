@@ -85,10 +85,10 @@ const api = bootDomain();
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.879'), 'STRUCHORD.html header is ver 0.879');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v879';"), 'sw.js CACHE_NAME is struchord-v879');
-  assert(README.includes('`0.879`'), 'README header is 0.879');
-  assert(ROADMAP.includes('**0.879**'), 'ROADMAP header is 0.879');
+  assert(HTML.includes('ver 0.880'), 'STRUCHORD.html header is ver 0.880');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v880';"), 'sw.js CACHE_NAME is struchord-v880');
+  assert(README.includes('`0.880`'), 'README header is 0.879');
+  assert(ROADMAP.includes('**0.880**'), 'ROADMAP header is 0.879');
 
   for (const fn of ['tabInsertDomainFrom', 'tabInsertDomainPatch', 'tabInsertActiveInstrument',
     'tabInsertDomainForActiveTrack', 'tabInsertTuningFromTrack', 'tabInsertEditorDomain',
@@ -184,8 +184,10 @@ const api = bootDomain();
   const specFrom = sliceBetween('function tabThumbSpecFrom(notes, beats, ts', '\n}\n', 'specFrom');
   assert(specFrom.includes('function tabThumbSpecFrom(notes, beats, ts, domain)'), 'spec builder accepts domain');
   assert(specFrom.includes("spec.i = 'ukulele';") && specFrom.includes('spec.g = domain.tuning;'), 'ukulele spec carries instrument and tuning');
-  assert(HTML.includes("const key = [spec.th, spec.b, spec.t, spec.i || '', spec.g || '', width, JSON.stringify(spec.n)].join('|');"),
-    'thumbnail cache key separates ukulele from guitar');
+  // 0.880: в ключе появилась высота клетки Ленты — одна и та же вставка в
+  // клетке другой высоты требует другой scale у alphaTab.
+  assert(HTML.includes("const key = [spec.th, spec.b, spec.t, spec.i || '', spec.g || '', width, fitHeight, JSON.stringify(spec.n)].join('|');"),
+    'thumbnail cache key separates ukulele from guitar (and cell height, 0.880)');
   assert(HTML.includes("domain: tabInsertDomainFrom({ tabInstrument: spec.i, tabTuning: spec.g })"),
     'thumbnail builds the staff with the insert domain');
 

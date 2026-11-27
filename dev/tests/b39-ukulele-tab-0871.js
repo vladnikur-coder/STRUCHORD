@@ -35,10 +35,10 @@ function ok(msg) {
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.879'), 'STRUCHORD.html header is ver 0.879');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v879';"), 'sw.js CACHE_NAME is struchord-v879');
-  assert(README.includes('`0.879`'), 'README header is 0.879');
-  assert(ROADMAP.includes('**0.879**'), 'ROADMAP header is 0.879');
+  assert(HTML.includes('ver 0.880'), 'STRUCHORD.html header is ver 0.880');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v880';"), 'sw.js CACHE_NAME is struchord-v880');
+  assert(README.includes('`0.880`'), 'README header is 0.879');
+  assert(ROADMAP.includes('**0.880**'), 'ROADMAP header is 0.879');
 
   assert(HTML.includes('function gpExportBuildTabParts(songData, plans, report, nativeRepeats = false) {'),
     'tab inserts are built per domain');
@@ -265,10 +265,13 @@ main()
         assert(!card.classList.contains('is-foreign'), 'ukulele insert is editable on an ukulele track');
         assert((card.getAttribute('onclick') || '').length > 0, 'ukulele insert opens its editor');
       }
-      assert(ukeCards.some((card) => card.querySelector('[data-tab-counts]')), 'ukulele timeline insert keeps its own beat ruler');
+      // 0.880: своей мини-линейки в карточке Ленты больше нет — счёт под
+      // вставкой (в том числе укулельной) рисует общая линейка Ленты.
+      assert(ukeCards.every((card) => !card.querySelector('[data-tab-counts]')), 'карточка Ленты без своей мини-линейки (0.880)');
+      assert(ukeCards.some((card) => card.querySelector('[data-tab-thumb]')), 'укулельная вставка по-прежнему просит картинку alphaTab');
       assert(ukeCards.some((card) => card.classList.contains('tab-insert--cell')), 'inline ukulele cell is rendered as a cell');
       assert(!errors.some((m) => /tabInsert|gpExport|ukulele/i.test(m)), 'no page errors around tab exports');
-      ok('Лента: укулельные вставки на месте, с линейкой счёта, гитарная — серая и без клика');
+      ok('Лента: укулельные вставки на месте (счёт — в общей линейке), гитарная — серая и без клика');
     })();
   })
   .then(() => {

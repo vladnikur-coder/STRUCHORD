@@ -46,10 +46,10 @@ function extractFn(name) {
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.879'), 'STRUCHORD.html header is ver 0.879');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v879';"), 'sw.js CACHE_NAME is struchord-v879');
-  assert(README.includes('`0.879`'), 'README header is 0.879');
-  assert(ROADMAP.includes('**0.879**'), 'ROADMAP header is 0.879');
+  assert(HTML.includes('ver 0.880'), 'STRUCHORD.html header is ver 0.880');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v880';"), 'sw.js CACHE_NAME is struchord-v880');
+  assert(README.includes('`0.880`'), 'README header is 0.879');
+  assert(ROADMAP.includes('**0.880**'), 'ROADMAP header is 0.879');
 
   // А: все такты в одной строке, картинка выбирается по площади.
   assert(
@@ -78,9 +78,16 @@ function extractFn(name) {
   // 0.877: линейка alphaTab осталась только там, где рисует alphaTab —
   // в Ленте. В редакторе песни стан свой («Только цифры»), и мелкой
   // линейки «1 1 и 2 2 та и та» в карточке больше нет.
+  // 0.880: в клетке Ленты своя мини-линейка снята — счёт под вставкой
+  // рисует общая линейка Ленты. Разметка под неё осталась там, где alphaTab
+  // по-прежнему один: в окне редактора вставки (engine: 'alphatab').
   assert(
-    HTML.includes("const tabRuler = !useDigits && thumbSpec"),
-    'места под линейку есть в разметке Ленты',
+    HTML.includes('const tabRuler = !useDigits && !inTimeline && thumbSpec'),
+    'своя линейка карточки живёт вне Ленты (0.880)',
+  );
+  assert(
+    HTML.includes('const inTimeline = !!(cellOpts && cellOpts.inTimeline);'),
+    'разметка знает, что карточка в Ленте',
   );
   assert(
     HTML.includes("renderTabInsertHtml(sec, sq, parentTs, true, { inTimeline: true })"),
@@ -91,11 +98,16 @@ function extractFn(name) {
   assert(HTML.includes('function tabThumbSvgForCell(svgEl, outFretList = \'\', offsetLeft = 0)'),
     'картинка кадрируется по offsetLeft');
 
-  // Лента: таб-клетка больше не дублирует равномерный общий счёт.
+  // 0.880: таб-клетка БОЛЬШЕ НЕ пропускает общий счёт — наоборот, счёт под
+  // вставкой теперь приходит из общей линейки (дробление — по самой мелкой
+  // ноте вставки, см. tabTimelineRulerSteps).
   assert(
-    HTML.includes('if (ev.isTab) return;') &&
-      /renderRhythmTrack[\s\S]{0,4000}if \(ev\.isTab\) return;/.test(HTML),
-    'общий счёт ленты пропускает таб-клетку',
+    !/renderRhythmTrack[\s\S]{0,8000}if \(ev\.isTab\) return;/.test(HTML),
+    'общий счёт Ленты доходит до таб-клетки (0.880)',
+  );
+  assert(
+    HTML.includes('? tabTimelineRulerSteps(sq, ev)'),
+    'дробление счёта под вставкой берётся из её нот',
   );
   ok('Статические инварианты 0.871: версия, SW, все такты, линейка по координатам, кадрирование, лента');
 }
