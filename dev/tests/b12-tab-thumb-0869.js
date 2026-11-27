@@ -46,10 +46,10 @@ function extractFn(name) {
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.876'), 'STRUCHORD.html header is ver 0.876');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v876';"), 'sw.js CACHE_NAME is struchord-v876');
-  assert(README.includes('`0.876`'), 'README header is 0.876');
-  assert(ROADMAP.includes('**0.876**'), 'ROADMAP header is 0.876');
+  assert(HTML.includes('ver 0.877'), 'STRUCHORD.html header is ver 0.877');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v877';"), 'sw.js CACHE_NAME is struchord-v877');
+  assert(README.includes('`0.877`'), 'README header is 0.877');
+  assert(ROADMAP.includes('**0.877**'), 'ROADMAP header is 0.877');
 
   // А: все такты в одной строке, картинка выбирается по площади.
   assert(
@@ -75,9 +75,16 @@ function extractFn(name) {
     !HTML.includes('const fullRowRuler ='),
     'равномерная линейка buildInnerCounts у таба больше не рисуется',
   );
+  // 0.877: линейка alphaTab осталась только там, где рисует alphaTab —
+  // в Ленте. В редакторе песни стан свой («Только цифры»), и мелкой
+  // линейки «1 1 и 2 2 та и та» в карточке больше нет.
   assert(
-    HTML.includes("const tabRuler = thumbSpec"),
-    'места под линейку есть в разметке и строки, и ячейки, и ленты',
+    HTML.includes("const tabRuler = !useDigits && thumbSpec"),
+    'места под линейку есть в разметке Ленты',
+  );
+  assert(
+    HTML.includes("renderTabInsertHtml(sec, sq, parentTs, true, { inTimeline: true })"),
+    'Лента по-прежнему просит alphaTab',
   );
 
   // Ключ TAB и размер слева кадрируются — иначе первая нота уезжает под 2–3-ю долю.

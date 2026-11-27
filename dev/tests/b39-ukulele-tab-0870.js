@@ -85,10 +85,10 @@ const api = bootDomain();
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.876'), 'STRUCHORD.html header is ver 0.876');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v876';"), 'sw.js CACHE_NAME is struchord-v876');
-  assert(README.includes('`0.876`'), 'README header is 0.876');
-  assert(ROADMAP.includes('**0.876**'), 'ROADMAP header is 0.876');
+  assert(HTML.includes('ver 0.877'), 'STRUCHORD.html header is ver 0.877');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v877';"), 'sw.js CACHE_NAME is struchord-v877');
+  assert(README.includes('`0.877`'), 'README header is 0.877');
+  assert(ROADMAP.includes('**0.877**'), 'ROADMAP header is 0.877');
 
   for (const fn of ['tabInsertDomainFrom', 'tabInsertDomainPatch', 'tabInsertActiveInstrument',
     'tabInsertDomainForActiveTrack', 'tabInsertTuningFromTrack', 'tabInsertEditorDomain',
@@ -205,8 +205,9 @@ const api = bootDomain();
   // Карточка: домен, серость чужой, доступность клика.
   assert(HTML.includes("const foreignInsert = domain.instrument !== tabInsertActiveInstrument();"), 'card knows a foreign instrument');
   assert(HTML.includes("const canEdit = interactive && !foreignInsert;"), 'foreign card is read-only');
-  assert(HTML.includes("${foreignInsert ? ' is-foreign' : ''}"), 'foreign card is marked');
-  assert(HTML.includes("${domain.instrument === 'ukulele' ? ' tab-insert--uke' : ''}"), 'ukulele card is marked');
+  // 0.877: классы карточки собираются в cardClass — смысл прежний.
+  assert(HTML.includes("(foreignInsert ? ' is-foreign' : '')"), 'foreign card is marked');
+  assert(HTML.includes("(domain.instrument === 'ukulele' ? ' tab-insert--uke' : '')"), 'ukulele card is marked');
   assert(HTML.includes('(canEdit ? `onclick='), 'click handler follows canEdit');
 
   // Видимость: скрытие таба на укулеле снято, вставка чужая — серая.
