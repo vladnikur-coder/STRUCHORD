@@ -1,12 +1,20 @@
 #!/usr/bin/env node
 /**
- * 0.882 · Приёмка таб-вставки в ЛЕНТЕ в реальном браузере (кадры «до» и «после»).
+ * 0.883 · Приёмка таб-вставки в ЛЕНТЕ в реальном браузере (кадры «до» и «после»).
  *
- * Что добавилось к проверкам 0.881 (вид 0.880): computed font-size цифр
- * ≥ 19 px при клетке 98 px, font-family Arial/sans-serif, font-weight 400;
- * шаг линий ≈ 16.4 px (в 0.880 было ≈19 px, но там крайние цифры срезались);
- * чернила верхней и нижней цифры внутри клетки; ширина глифа ≈ 0.56 кегля
- * на знак (пропорции не растянуты).
+ * Что добавилось в 0.883 к виду 0.882 (кегль ≥ 19 px, Arial 400, шаг линий
+ * ≈ 16.4 px — всё это осталось и проверяется):
+ *   • ось времени — полная ширина КЛЕТКИ: стан не сжимается полями карточки,
+ *     viewBox = размеру клетки, масштаб ровно 1;
+ *   • центр цифры = центр подписи счёта `.tl-count` (±1 px) и = доля времени ×
+ *     ширина клетки (±2 px) — та самая таблица, по которой владелец ловил
+ *     сдвиг 15.8/38.3/61.0 вместо 0/24.1/48.3;
+ *   • крайние цифры не сдвинуты внутрь: первая выступает за левый край клетки
+ *     на полширины, последняя — за правый, и ни карточка, ни клетка не режут
+ *     (computed overflow: visible у обеих, у корня SVG и у окна стана);
+ *   • подложка под цифрой скруглена: rx ≈ 30 % её высоты, но не меньше 4 px
+ *     (в 0.882 было rx = 1.5 — почти прямоугольник), и подложка центрирована
+ *     на цифре.
  *
  * Матрица: 390×844, 768×1024, 1280×900, 1920×1080 × светлая и тёмная тема
  * × три масштаба Ленты («−», «авто», «+»).
@@ -33,8 +41,9 @@
  *     отступом ≥ 4 px; ниже последней линии нет чернил;
  *   • x каждой ноты = начало вставки + (доля / всего долей) × ширина клетки,
  *     допуск ±2 px — с таблицей «ожидаемый / фактический x» в audit.json;
- *   • первая цифра не срезана: левый край её глифа внутри карточки;
- *   • подписи счёта «1 та и та 2 та и та» стоят под нотами (±2 px), не
+ *   • крайние цифры не срезаны: выступание за клетку ≤ полуширины глифа,
+ *     computed overflow карточки и клетки — visible;
+ *   • подписи счёта «1 та и та 2 та и та» стоят центрами под цифрами (±2 px), не
  *     налезают друг на друга, после вставки счёт продолжается;
  *   • мини-линейки в карточке нет (никаких [data-tab-counts]/[data-tab-ticks]);
  *   • сетка редактора песни не изменилась: карточка «только цифры» с
@@ -42,19 +51,19 @@
  *
  * Запуск (нужен Chromium и локальный сервер):
  *   python3 -m http.server 8000                       # из корня репозитория
- *   SHOTS_TAG=after node dev/tests/b12-timeline-tab-0882-shots.js
- *   # «до»: git show e2b1544:STRUCHORD.html > before.html   (это 0.881)
- *   # и/или  git show 33d499b:STRUCHORD.html > before880.html (это 0.880)
+ *   SHOTS_TAG=after node dev/tests/b12-timeline-tab-0883-shots.js
+ *   # «до»: git show 0e4fddb:STRUCHORD.html > before.html     (это 0.882)
+ *   # и/или  git show e2b1544:STRUCHORD.html > before881.html (это 0.881)
  *   SHOTS_TAG=before SHOTS_MODE=before STRUCHORD_URL=http://127.0.0.1:8000/before.html \
- *     node dev/tests/b12-timeline-tab-0882-shots.js
+ *     node dev/tests/b12-timeline-tab-0883-shots.js
  *
  * SHOTS_MODE=before снимает кадры и пишет замеры, но не проверяет инварианты
- * 0.882: в 0.881 стан Ленты был мелким и моноширинным, в 0.880 — картинкой
- * alphaTab, поэтому проверки крупных цифр Arial к ним не применимы: эти кадры
- * нужны как «до».
+ * 0.883: в 0.882 цифра была прижата левым краем к моменту, а стан считался по
+ * телу карточки, поэтому проверки центровки и радиуса к этим кадрам не
+ * применимы: они нужны как «до».
  *
  * Результат: PNG-кадры, audit.json и summary.txt в
- * dev/bench/results/tab-timeline-0.882-<TAG>/.
+ * dev/bench/results/tab-timeline-0.883-<TAG>/.
  *
  * ВАЖНО: в песочнице Chromium нет, этот прогон владелец запускает сам.
  */
@@ -67,7 +76,7 @@ const puppeteer = require('puppeteer');
 const URL = process.env.STRUCHORD_URL || 'http://127.0.0.1:8000/STRUCHORD.html';
 const TAG = process.env.SHOTS_TAG || 'after';
 const MODE = process.env.SHOTS_MODE || 'after';
-const OUT = path.join(__dirname, '..', 'bench', 'results', 'tab-timeline-0.882-' + TAG);
+const OUT = path.join(__dirname, '..', 'bench', 'results', 'tab-timeline-0.883-' + TAG);
 fs.mkdirSync(OUT, { recursive: true });
 
 const VIEWPORTS = [
@@ -234,8 +243,27 @@ function measure(page) {
           right: round(r.right),
           top: round(r.top),
           bottom: round(r.bottom),
+          cx: round(r.left + r.width / 2),
         };
       });
+      // 0.883: подложка — скруглённая плашка под цифрой.
+      out.halos = [...svg.querySelectorAll('rect.tab-digits-halo')].map((h) => {
+        const r = rect(h);
+        return {
+          rx: Number(h.getAttribute('rx')),
+          ry: Number(h.getAttribute('ry') || h.getAttribute('rx')),
+          cx: round(r.left + r.width / 2),
+          h: round(r.height),
+          w: round(r.width),
+        };
+      });
+      // Обрезка: у карточки и клетки она обязана быть отключена — иначе
+      // половинка крайней цифры исчезает (замер владельца 0.882).
+      out.overflow = {
+        card: getComputedStyle(card).overflow,
+        cell: getComputedStyle(cell).overflow,
+        svg: getComputedStyle(svg).overflow,
+      };
       out.pause = !!svg.querySelector('line.tab-digits-pause');
       out.labels = counts
         .filter((c) => c.cx >= cellRect.left - 1 && c.cx <= cellRect.right + 1)
@@ -291,11 +319,11 @@ function round2(v) {
   return Math.round(v * 100) / 100;
 }
 
-// Ожидаемый x ноты: начало контента карточки + доля × ширина.
-function expectedX(card, start, totalBeats) {
-  const left = card.cardRect.left + (card.paddingLeft || 0);
-  const w = card.cardRect.w - (card.paddingLeft || 0) - (card.paddingRight || 0);
-  return round2(left + (start / totalBeats) * w);
+// 0.883: ожидаемый центр цифры — доля времени × ширина КЛЕТКИ от её левого
+// края. Поля карточки не вычитаются: их больше нет, а у крайних клеток они и
+// были причиной сдвига на 5,5 px и сжатия стана на 6 %.
+function expectedCenter(card, start, totalBeats) {
+  return round2(card.cellRect.left + (start / totalBeats) * card.cellRect.w);
 }
 
 (async () => {
@@ -333,7 +361,8 @@ function expectedX(card, start, totalBeats) {
             await wait(900);
           }
           const m = await measure(page);
-          // Отступы карточки нужны для ожидаемого x (скруглённые края ленты).
+          // Поля карточки: в 0.883 их нет даже у крайних клеток песни (0.5rem
+          // давали сдвиг 10 px); проверяем это числом, а не глазами.
           const pads = await page.evaluate(() => [...document.querySelectorAll('#timelineTrack .tl-cell--tab')].map((cell) => {
             const card = cell.querySelector('.tab-insert');
             const cs = getComputedStyle(card);
@@ -348,6 +377,9 @@ function expectedX(card, start, totalBeats) {
               m.tabCellRegistered >= m.cards.length, { registered: m.tabCellRegistered });
             check(`[${id}] Лента рисует свой стан (не картинку alphaTab)`,
               m.cards.every((c) => c.kind === 'own'), m.cards.map((c) => c.kind));
+            check(`[${id}] у карточки Ленты нет полей — стан идёт от края клетки`,
+              m.cards.every((c) => (c.paddingLeft || 0) === 0 && (c.paddingRight || 0) === 0),
+              m.cards.map((c) => [c.paddingLeft, c.paddingRight]));
 
             // 1. Масштаба нет: viewBox = размер клетки, пропорции глифа естественные.
             check(`[${id}] SVG не масштабируется (viewBox = размер клетки)`,
@@ -413,16 +445,31 @@ function expectedX(card, start, totalBeats) {
             check(`[${id}] стан внутри клетки с отступом ≥ 4 px сверху и снизу`,
               margins.every((mg) => mg && mg.top >= 4 && mg.bottom >= 4), margins);
 
-            // 4. Первая цифра не срезана.
-            check(`[${id}] первая цифра не срезана краем карточки`,
-              m.cards.every((c) => c.digits.length > 0 &&
-                Math.min(...c.digits.map((d) => d.left)) >= c.cardRect.left + c.paddingLeft - 1 &&
-                Math.max(...c.digits.map((d) => d.right)) <= c.cardRect.right - c.paddingRight + 1),
-              m.cards.map((c) => (c.digits.length ? [round2(Math.min(...c.digits.map((d) => d.left)) - c.cardRect.left)] : null)));
+            // 4. Края: цифра стоит центром на моменте, поэтому у края клетки
+            //    ей нужна полширины наружу. Обрезки быть не должно, а сдвига
+            //    внутрь (0.882) — тоже: он и ломал совпадение с подписью.
+            check(`[${id}] крайние цифры не срезаны: выступание ≤ полуширины, overflow видимый`,
+              m.cards.every((c) => {
+                if (!c.digits.length) return false;
+                if (c.overflow.card !== 'visible' || c.overflow.cell !== 'visible' ||
+                  c.overflow.svg !== 'visible') return false;
+                const first = c.digits.reduce((a, d) => (d.left < a.left ? d : a));
+                const last = c.digits.reduce((a, d) => (d.right > a.right ? d : a));
+                const outLeft = c.cellRect.left - first.left;
+                const outRight = last.right - c.cellRect.right;
+                return outLeft <= first.inkW / 2 + 2 && outRight <= last.inkW / 2 + 2 &&
+                  (outLeft >= -2 || outRight >= -2);
+              }),
+              m.cards.map((c) => (c.digits.length ? {
+                card: c.overflow.card, cell: c.overflow.cell,
+                left: round2(c.cellRect.left - Math.min(...c.digits.map((d) => d.left))),
+                right: round2(Math.max(...c.digits.map((d) => d.right)) - c.cellRect.right),
+              } : null)));
 
-            // 5. x каждой ноты = своя доля (±2 px).
-            const tables = [];
-            const withinTolerance = m.cards.every((c) => {
+            // 5. Главная сверка 0.883: центр цифры = центр подписи счёта.
+            //    Таблица «ожидаемо / фактически» пишется в audit.json.
+            const centerTables = [];
+            const centersMatch = m.cards.every((c) => {
               if (!c.spec || !c.spec.n || !c.digits.length) return false;
               const total = Number(c.spec.b) || 1;
               const sounds = c.spec.n.filter((n) => !n.pause);
@@ -435,33 +482,53 @@ function expectedX(card, start, totalBeats) {
                 starts.push(Number(n.start));
               });
               starts.sort((a, b) => a - b);
-              const sorted = c.digits.slice().sort((a, b) => a.left - b.left);
+              const digits = c.digits.slice().sort((a, b) => a.left - b.left);
+              const labels = c.labels.slice().sort((a, b) => a.cx - b.cx);
               const table = starts.map((start, i) => ({
                 note: i + 1,
-                expected: expectedX(c, start, total),
-                actual: round2(sorted[i] ? sorted[i].left : NaN),
+                expectedCenter: expectedCenter(c, start, total),
+                digitCenter: digits[i] ? digits[i].cx : NaN,
+                labelCenter: labels[i] ? labels[i].cx : NaN,
+                label: labels[i] ? labels[i].text : null,
               }));
-              tables.push(table);
-              return table.every((r) => Math.abs(r.expected - r.actual) <= 2);
+              centerTables.push({ card: c.cellRect.w, table });
+              return table.every((r) => Number.isFinite(r.digitCenter) &&
+                Math.abs(r.digitCenter - r.expectedCenter) <= 2 &&
+                Number.isFinite(r.labelCenter) && Math.abs(r.digitCenter - r.labelCenter) <= 1);
             });
-            check(`[${id}] x каждой ноты = её доля (±2 px)`, withinTolerance,
-              tables.map((t) => t.map((r) => `${r.expected}/${r.actual}`).join(' ')));
-            if (tables.length) {
-              console.log('     ' + id + ' x нот (ожидаемо/фактически): ' +
-                tables[0].map((r) => `${r.note}: ${r.expected}/${r.actual}`).join(' · '));
-            }
+            check(`[${id}] центр цифры = центр подписи (±1 px) и = доля × ширина клетки (±2 px)`,
+              centersMatch, centerTables.map((t) => t.table.map((r) =>
+                `${r.digitCenter}/${r.labelCenter} (ждём ${r.expectedCenter})`).join(' · ')));
+            centerTables.slice(0, 2).forEach((t) => {
+              console.log('     ' + id + ' центр цифры/подписи при клетке ' + Math.round(t.card) + ' px: ' +
+                t.table.map((r) => `${r.note}: ${r.digitCenter}/${r.labelCenter} «${r.label}»`).join(' · '));
+            });
+
+            // 5б. Подложки: скруглённые (0.883) и по центру цифры.
+            check(`[${id}] подложек столько же, сколько цифр`,
+              m.cards.every((c) => !c.digits.length || c.halos.length >= c.digits.length),
+              m.cards.map((c) => [c.halos.length, c.digits.length]));
+            check(`[${id}] подложка скруглена: rx ≈ 30 % высоты, но ≥ 4 px и ≤ половины высоты`,
+              m.cards.every((c) => c.halos.every((h) =>
+                h.rx >= 4 && h.rx <= h.h / 2 + 0.01 && Math.abs(h.rx - Math.min(h.h / 2, h.h * 0.3)) <= 0.6)),
+              m.cards.map((c) => c.halos.slice(0, 2).map((h) => `${h.rx}/${h.h}`)));
+            check(`[${id}] подложка центрирована на своей цифре (±1 px)`,
+              m.cards.every((c) => c.digits.every((d) =>
+                c.halos.some((h) => Math.abs(h.cx - d.cx) <= 1))),
+              m.cards.map((c) => c.digits.map((d) => [d.text, d.cx,
+                c.halos.map((h) => h.cx).find((cx) => Math.abs(cx - d.cx) <= 1) || null])));
 
             // 6. Счёт в общей линейке.
             check(`[${id}] своей мини-линейки в карточке нет`,
               m.cards.every((c) => c.ownRuler === 0), m.cards.map((c) => c.ownRuler));
             check(`[${id}] счёт «1 та и та» есть под вставкой`,
               /\[1\].*та.*и.*та/.test(m.allCounts) && !/ 0/.test(m.allCounts), m.allCounts);
-            check(`[${id}] подписи стоят под своими нотами (±2 px)`,
+            check(`[${id}] подписи стоят под своими нотами (±2 px по центрам)`,
               m.cards.every((c) => {
                 if (!c.labels.length || !c.digits.length) return false;
                 const labels = c.labels.slice().sort((a, b) => a.cx - b.cx);
                 const digits = c.digits.slice().sort((a, b) => a.left - b.left);
-                return labels.slice(0, digits.length).every((l, i) => Math.abs(l.cx - digits[i].left) <= 4);
+                return labels.slice(0, digits.length).every((l, i) => Math.abs(l.cx - digits[i].cx) <= 2);
               }),
               m.cards.map((c) => c.labels.map((l) => l.cx).join(',')));
             check(`[${id}] подписи не налезают друг на друга`,

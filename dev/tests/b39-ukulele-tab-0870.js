@@ -85,10 +85,10 @@ const api = bootDomain();
 // 1. Статические инварианты 0.871
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.882'), 'STRUCHORD.html header is ver 0.882');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v882';"), 'sw.js CACHE_NAME is struchord-v882');
-  assert(README.includes('`0.882`'), 'README header is 0.882');
-  assert(ROADMAP.includes('**0.882**'), 'ROADMAP header is 0.882');
+  assert(HTML.includes('ver 0.883'), 'STRUCHORD.html header is ver 0.883');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v883';"), 'sw.js CACHE_NAME is struchord-v883');
+  assert(README.includes('`0.883`'), 'README header is 0.883');
+  assert(ROADMAP.includes('**0.883**'), 'ROADMAP header is 0.883');
 
   for (const fn of ['tabInsertDomainFrom', 'tabInsertDomainPatch', 'tabInsertActiveInstrument',
     'tabInsertDomainForActiveTrack', 'tabInsertTuningFromTrack', 'tabInsertEditorDomain',

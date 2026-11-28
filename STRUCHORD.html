@@ -5288,6 +5288,14 @@ body.is-resizing .tab-insert > .chord-ticks-step {
   width: 100%;
   height: 100%;
 }
+/* 0.883: корень SVG обрезает содержимое по своему окну (UA-стиль для svg
+   задаёт overflow: hidden). В Ленте цифра стоит ЦЕНТРОМ на моменте, поэтому
+   у левого края её половинка и её подложка лежат ЗА окном стана. Без этого
+   правила CSS-обрезка карточки была снята, а цифра всё равно резалась бы
+   самим svg — владелец увидел бы ту же срезанную первую ноту. */
+.tab-insert--lenta .tab-digits-svg {
+  overflow: visible;
+}
 /* 0.879: линии струн видимы без прозрачности. Цвет — текст второго уровня:
    контраст к фону клетки 7.6:1 в светлой теме и 5.7:1 в тёмной (норма 3:1).
    Толщина приходит из раскладки (1.5 px), здесь — запасное значение. */
@@ -5361,7 +5369,12 @@ body.is-resizing .tab-insert > .chord-ticks-step {
   gap: 0;
   height: 100%;
   min-height: 0;
-  overflow: hidden;
+  /* 0.883: цифра стоит ЦЕНТРОМ на своём моменте, поэтому первая нота в
+     начале клетки выступает за левый край на половину своей ширины, а
+     последняя — за правый. Стан не обрезаем: замер владельца показал, что
+     overflow: hidden резал первую цифру, а поля карточки (0.5rem у крайних
+     клеток) сдвигали весь стан на 10 px относительно линейки счёта. */
+  overflow: visible;
   align-items: stretch;
   --tab-digit-halo: var(--tl-cell-bg, var(--color-background-secondary));
 }
@@ -5374,16 +5387,27 @@ body.is-resizing .tab-insert > .chord-ticks-step {
 }
 .tab-insert--lenta .tab-insert-heading { display: none; }
 .tab-insert--lenta .tab-insert-body {
+  position: relative;
   height: 100%;
   min-height: 0;
   flex: 1 1 auto;
   padding: 0;
 }
-.tl-section:first-child .tl-square:first-child .tl-cell:first-child .tab-insert--lenta {
-  padding-left: 0.5rem;
-}
-.tl-section:last-child .tl-square:last-child .tl-cell:last-child .tab-insert--lenta {
-  padding-right: 0.5rem;
+/* 0.883: полей у карточки в Ленте нет даже на скруглённых краях песни —
+   иначе стан съезжает относительно линейки счёта (замер владельца: 10 px
+   при root 20 px). Скругление края ленты при этом не режет содержимое:
+   цифра у левого края просто ложится поверх дуги угла, а сам угол — фон
+   клетки, ничего не перекрывает.
+   Селектор из двух классов обязателен: `.tl-cell` (ниже по файлу) задаёт
+   `overflow: hidden`, поэтому правило для таб-клетки стоит ПОСЛЕ него и с
+   двумя классами: одиночный `.tl-cell--tab` проиграл бы по специфичности,
+   и цифра снова обрезалась бы краем клетки. */
+/* Тот же спор с `.tl-cell--tab .tab-insert { overflow: hidden }` (выше):
+   карточка Ленты не обрезает свой стан, иначе первая и последняя цифры
+   теряют половину ширины. Селектор из двух классов побеждает по
+   специфичности, а не по порядку. */
+.tl-cell--tab .tab-insert--lenta {
+  overflow: visible;
 }
 
 /* ===== 0.695: перетаскивание таб-вставки (B-12.12) =====
@@ -13386,6 +13410,13 @@ body.is-timeline.is-playing .timeline-playhead {
      прозрачностью — секция 0.125rem сплошным, квадрат 55%, ячейка 30%. */
   border-right: 0.0625rem solid rgba(var(--color-accent-rgb), 0.3);
 }
+/* 0.883: таб-клетка не обрезает свой стан. Обычная клетка обрезает фон и
+   метку, а цифра Ленты стоит ЦЕНТРОМ на моменте, поэтому у левого и правого
+   края клетки ей нужна половина ширины наружу. Правило идёт после
+   `.tl-cell { overflow: hidden }` и с двумя классами — иначе проиграло бы. */
+.tl-cell.tl-cell--tab {
+  overflow: visible;
+}
 /* Та же B-99 семантика на ленте: короткая нижняя полоса не меняет ширину
    ячейки и остаётся читаемой рядом с playback-active состоянием. */
 body.is-harmony-highlights-on .tl-cell[data-harmony-profile]:not([data-harmony-profile='secondary-function'])::after {
@@ -16351,7 +16382,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.882</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.883</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -26604,8 +26635,9 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   const positions = groups.map((group, index) => {
     const isPause = group.pause && group.digits.length === 0;
     const room = roomFor(index);
-    // В Ленте цифра прижата левым краем к своему моменту звучания: глаз
-    // находит ноту по вертикали общей линейки, а не по центру клетки.
+    // 0.883: в Ленте цифра стоит ЦЕНТРОМ на своём моменте — так же, как
+    // центрирована подпись счёта под ней (`.tl-count` с translateX(-50%)).
+    // Левая привязка 0.881 смещала цифру на полширины вправо от тика.
     const x = isLenta ? timeX(group.start) : firstX + index * step;
     // Аккорд (две-три ноты на одной доле) — единственный случай, когда
     // цифры стоят в соседних строках и могут налезть друг на друга. Там
@@ -26634,18 +26666,13 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
         : Math.max(9, Math.min(font * stackFit, fit));
       return { ...d, y: stringY(d.string), font: size, w: need * size };
     });
-    // У правого края клетки цифру подвигаем внутрь: иначе её срежет край
-    // карточки. Сдвиг появляется только там, где иначе была бы обрезка.
-    let dx = 0;
-    if (isLenta) {
-      const wide = digits.reduce((m, d) => Math.max(m, d.w), 0);
-      if (x + wide > width - 1) dx = Math.min(0, width - 1 - wide - x);
-    }
+    // 0.883: у края клетки цифру НЕ подвигаем — стан не обрезается
+    // (overflow: visible), а сдвиг ломал бы совпадение с тиком (±1 px).
     const countLabel = tabDigitsCount(group.start + beatOffset, stepsPerBeat, perBar);
     return {
       index,
       start: group.start,
-      x: x + dx,
+      x,
       digits,
       pause: isPause,
       dur: group.dur,
@@ -26670,12 +26697,18 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
   const haloH = isLenta
     ? Math.max(5, Math.min(lineGap, fontUsed * TAB_DIGITS_LENTA_INK + 2))
     : Math.max(5, Math.min(lineGap * 0.95, fontUsed * 1.12));
+  // 0.883: подложка Ленты — скруглённая плашка: радиус ≈ 30 % её высоты,
+  // но не меньше 4 px и не больше половины высоты (иначе это уже «таблетка»).
+  const haloRx = isLenta
+    ? Math.max(4, Math.min(haloH / 2, haloH * 0.3))
+    : 1.5;
   const pauseStep = isLenta && rooms.length ? Math.min(...rooms) : step;
   const pauseW = Math.max(4, Math.min(pauseStep * 0.6, fontUsed * 0.7));
 
   return {
     layout: isLenta ? 'lenta' : (isCell ? 'cell' : 'block'),
-    anchor: isLenta ? 'start' : 'middle',
+    // 0.883: и сетка, и Лента центрируют цифру на своём x.
+    anchor: 'middle',
     strings,
     perBar,
     beatOffset,
@@ -26700,6 +26733,7 @@ function tabDigitsLayout(notes, beats, ts, domain, opts) {
     rulerBaseline,
     haloW,
     haloH,
+    haloRx,
     pauseW,
     minWidth: isLenta ? 0 : tabDigitsNeed(count, isCell ? 'cell' : 'block').min,
     prefWidth: isLenta ? 0 : tabDigitsNeed(count, isCell ? 'cell' : 'block').pref,
@@ -26726,29 +26760,30 @@ function tabDigitsSvgMarkup(layout) {
     const y = tabDigitsNum(L.staffTop + i * L.lineGap);
     parts.push(`<line class="tab-digits-line" stroke-width="${L.lineW}" x1="0.75" y1="${y}" x2="${tabDigitsNum(w - 0.75)}" y2="${y}"></line>`);
   }
-  // В Ленте цифра прижата левым краем к моменту звучания, в сетке —
-  // центрирована на шаге. От этого зависит и подложка под цифрой.
-  const atStart = L.anchor === 'start';
+  // 0.883: все цифры стоят центром на своём x — и в Ленте, и в сетке.
+  // В Ленте ширина подложки считается по конкретной цифре («12» шире, чем
+  // «3»), в сетке — общая на шаг раскладки.
+  const isLentaSvg = L.layout === 'lenta';
   // Подложки — отдельным слоем ниже всех цифр: подложка соседней струны не
   // может подъесть цифру аккорда.
   L.positions.forEach((p) => {
     p.digits.forEach((d) => {
       const size = Math.min(L.haloH, d.font * 1.12);
-      const hx = atStart ? p.x - 1 : p.x - L.haloW / 2;
-      const hw = atStart ? Math.max(6, (d.w || L.haloW) + 2) : L.haloW;
-      parts.push(`<rect class="tab-digits-halo" x="${tabDigitsNum(hx)}" y="${tabDigitsNum(d.y - size / 2)}" width="${tabDigitsNum(hw)}" height="${tabDigitsNum(size)}" rx="1.5"></rect>`);
+      const hw = isLentaSvg ? Math.max(6, (d.w || L.haloW) + 2) : L.haloW;
+      const hx = p.x - hw / 2;
+      parts.push(`<rect class="tab-digits-halo" x="${tabDigitsNum(hx)}" y="${tabDigitsNum(d.y - size / 2)}" width="${tabDigitsNum(hw)}" height="${tabDigitsNum(size)}" rx="${tabDigitsNum(L.haloRx)}"></rect>`);
     });
   });
   // Пауза — короткая приглушённая чёрточка на средней линии, без палочек.
   const middleY = L.staffTop + ((L.strings - 1) / 2) * L.lineGap;
   L.positions.forEach((p) => {
     if (!p.pause) return;
-    const px0 = atStart ? p.x + 1 : p.x - L.pauseW / 2;
+    const px0 = p.x - L.pauseW / 2;
     parts.push(`<line class="tab-digits-pause" stroke-width="1.8" x1="${tabDigitsNum(px0)}" y1="${tabDigitsNum(middleY)}" x2="${tabDigitsNum(px0 + L.pauseW)}" y2="${tabDigitsNum(middleY)}"></line>`);
   });
   L.positions.forEach((p) => {
     p.digits.forEach((d) => {
-      parts.push(`<text class="tab-digits-digit${d.out ? ' is-out' : ''}" x="${tabDigitsNum(p.x)}" y="${tabDigitsNum(d.y)}" font-size="${tabDigitsNum(d.font)}" text-anchor="${atStart ? 'start' : 'middle'}" dominant-baseline="central">${d.label}</text>`);
+      parts.push(`<text class="tab-digits-digit${d.out ? ' is-out' : ''}" x="${tabDigitsNum(p.x)}" y="${tabDigitsNum(d.y)}" font-size="${tabDigitsNum(d.font)}" text-anchor="middle" dominant-baseline="central">${d.label}</text>`);
     });
   });
   // Линейка счёта: под каждой нотой её место в доле, начало доли крупнее.
@@ -26850,9 +26885,14 @@ function tabDigitsPaint(root) {
   cards.forEach((card) => {
     const body = card.querySelector('.tab-insert-body--digits');
     if (!body) return;
-    // clientWidth/Height тела: до 8 px рисовать нечего (карточка не в потоке).
-    const w = Math.round(body.clientWidth);
-    const h = Math.round(body.clientHeight);
+    // 0.883: ось времени — полная ширина КЛЕТКИ Ленты, а не тела карточки.
+    // Замер владельца: у крайней клетки тело было на 10 px уже (поле 0.5rem),
+    // стан сжимался до 182/193 и весь уезжал на 5,5 px вправо от линейки.
+    // До 8 px рисовать нечего (карточка не в потоке).
+    const cellEl = card.closest ? card.closest('.tl-cell') : null;
+    const cellRect = cellEl && cellEl.getBoundingClientRect ? cellEl.getBoundingClientRect() : null;
+    const w = Math.round((cellRect && cellRect.width) || body.clientWidth);
+    const h = Math.round((cellRect && cellRect.height) || body.clientHeight);
     if (!(w > 8 && h > 8)) return;
     const key = w + 'x' + h;
     if (body.dataset.tabDigitsBox === key) return;
@@ -26877,6 +26917,23 @@ function tabDigitsPaint(root) {
     const svg = tabDigitsSvgMarkup(layout);
     if (!svg) return;
     body.innerHTML = svg;
+    // Стан в Ленте кладём на клетку абсолютно и в её же пикселях: тогда
+    // масштаб ровно 1, без центрирования и без «полей» карточки, даже если
+    // раскладка дала телу другой бокс.
+    if (card.classList.contains('tab-insert--lenta')) {
+      const svgEl = body.querySelector('svg.tab-digits-svg');
+      if (svgEl) {
+        // Явные width/height в пикселях клетки: CSS `width: 100%` иначе
+        // растянул бы стан по телу карточки, а оно может отличаться от клетки.
+        svgEl.setAttribute('width', String(w));
+        svgEl.setAttribute('height', String(h));
+        svgEl.style.width = w + 'px';
+        svgEl.style.height = h + 'px';
+        svgEl.style.position = 'absolute';
+        svgEl.style.left = '0';
+        svgEl.style.top = '0';
+      }
+    }
     body.dataset.tabDigitsBox = key;
   });
 }
