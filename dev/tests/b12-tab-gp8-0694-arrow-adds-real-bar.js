@@ -3,11 +3,13 @@
  * 0.694 Acceptance & Screenshot Test — B-12.12, «стрелка → и длина вставки»:
  * 1) стрелка → в конце последнего такта добавляет НАСТОЯЩИЙ такт — как кнопка
  *    «+ Такт» и как в Guitar Pro 8;
- * 2) этот такт сохраняется по «Применить» (раньше молча исчезал);
+ * 2) 0.873: пустой такт, добавленный стрелкой, в песню НЕ пишется — при
+ *    «Применить» пустой хвост срезается (в 0.694 он сохранялся, и человек,
+ *    набравший четыре ноты, получал «2 такта»). Такт «+ Такт» остаётся;
  * 3) стрелка ← такты больше не удаляет — как в GP8;
  * 4) Ctrl+Z убирает такт, добавленный стрелкой;
- * 5) предела в 4 такта больше нет: 7 тактов стрелками сохраняются и
- *    открываются снова, «Длина» показывает «7 тактов»;
+ * 5) предела в 4 такта больше нет: 7 тактов живут в редакторе, «Длина»
+ *    показывает «7 тактов», а при сохранении пустой хвост срезается;
  * 6) клавиша Insert по-прежнему добавляет такт;
  * 7) «Длина» умеет показывать длинные вставки, а не только 1–4 такта.
  */
@@ -165,19 +167,21 @@ const pressCtrlZ = (page) =>
       [true, 2],
     );
 
-    // ── 4. Такт от стрелки сохраняется по «Применить» ───────────────────────
+    // ── 4. 0.873: пустой хвост от стрелки не сохраняется ────────────────────
+    // В редакторе три такта, но ноты только в первом: два пустых такта —
+    // след стрелки →, и «Применить» их не пишет.
     await page.keyboard.press('ArrowRight');
     await wait(500);
     const beforeSave = await state(page);
     await apply(page);
     const saved = await songState(page);
     check(
-      '«Применить» сохраняет такт, добавленный стрелкой',
+      '«Применить» срезает пустой хвост, добавленный стрелкой',
       [beforeSave.bars, saved.songBars, saved.songNotes],
-      [3, 3, 4],
+      [3, 1, 4],
     );
     check('Окно редактора закрылось после сохранения', await page.evaluate(() => !document.querySelector('.tab-insert-editor')), true);
-    await page.screenshot({ path: path.join(OUT_DIR, '01-three-bars-saved.png') });
+    await page.screenshot({ path: path.join(OUT_DIR, '01-tail-trimmed-to-one-bar.png') });
 
     // ── 5. Предела в 4 такта нет: 7 тактов ─────────────────────────────────
     await openFresh(page);
@@ -190,7 +194,8 @@ const pressCtrlZ = (page) =>
     await page.screenshot({ path: path.join(OUT_DIR, '02-seven-bars-in-editor.png') });
     await apply(page);
     const savedSeven = await songState(page);
-    check('Семь тактов сохраняются в песне', savedSeven.songBars, 7);
+    // Ноты только в первом такте: остальные шесть — пустой хвост от стрелок.
+    check('Пустой хвост из шести тактов в песню не пишется', savedSeven.songBars, 1);
 
     // Повторно открываем — длина и число тактов на месте
     await page.evaluate(() => {
@@ -200,8 +205,8 @@ const pressCtrlZ = (page) =>
     await page.waitForSelector('.tab-insert-editor .tab-at-host svg', { timeout: 30000 });
     await wait(1300);
     const reopened = await state(page);
-    check('После повторного открытия — те же 7 тактов и «7 тактов» в «Длине»', [reopened.bars, reopened.lenText], [7, '7 тактов']);
-    check('Такт, добавленный стрелкой, считается изменением (не теряется при закрытии)', reopened.dirty, false);
+    check('После повторного открытия — один такт и «1 такт» в «Длине»', [reopened.bars, reopened.lenText], [1, '1 такт']);
+    check('Срезанный хвост не считается изменением', reopened.dirty, false);
 
     // ── 6. «Длина» показывает длинные вставки ───────────────────────────────
     const lenOptions = await page.evaluate(() => {
@@ -270,14 +275,15 @@ const pressCtrlZ = (page) =>
       const sq = sections[0].squares.find((q) => q.type === 'tab');
       return sq ? { bars: Math.round(sq.beats / getGridUnitsPerBar(sections[0].timeSig || globalTimeSig)), notes: sq.notes.length } : null;
     });
-    check('Новая пустая вставка: такт от стрелки сохраняется (2 такта, без нот)', [freshBars, freshSaved], [2, { bars: 2, notes: 0 }]);
-    await page.screenshot({ path: path.join(OUT_DIR, '03-empty-insert-two-bars.png') });
+    // 0.873: у пустой вставки остаётся ровно один такт — как до 0.694.
+    check('Новая пустая вставка: пустой хвост не сохраняется (1 такт, без нот)', [freshBars, freshSaved], [2, { bars: 1, notes: 0 }]);
+    await page.screenshot({ path: path.join(OUT_DIR, '03-empty-insert-one-bar.png') });
 
     check('На странице нет ошибок JavaScript', pageErrors, []);
 
     fs.writeFileSync(
       path.join(OUT_DIR, 'checks.json'),
-      JSON.stringify({ version: '0.694', passed: results.filter((r) => r.ok).length, total: results.length, results }, null, 2) + '\n',
+      JSON.stringify({ version: '0.873', passed: results.filter((r) => r.ok).length, total: results.length, results }, null, 2) + '\n',
     );
     console.log(`\n${results.filter((r) => r.ok).length}/${results.length} PASS`);
     if (results.some((r) => !r.ok)) process.exitCode = 1;

@@ -95,6 +95,17 @@ const flatten = (score) =>
         await wait(20);
       }
       async function click(sel) {
+        // 0.875: на компьютере вторичные секции палитры свёрнуты — открываем
+        // секцию с нужной кнопкой, иначе её не нажать мышью.
+        const neededGroup = await page.$eval(sel, (e) => {
+          const g = e.closest('[data-tab-group]');
+          if (!g || g.getAttribute('data-open') !== 'false') return null;
+          return g.getAttribute('data-tab-group');
+        });
+        if (neededGroup) {
+          await page.$eval(`[data-tab-group-toggle="${neededGroup}"]`, (b) => b.click());
+          await wait(30);
+        }
         const neededTab = await page.$eval(sel, (e) => {
           const pane = e.closest('[data-mobile-pane]');
           if (!pane || getComputedStyle(pane).display !== 'none') return null;
