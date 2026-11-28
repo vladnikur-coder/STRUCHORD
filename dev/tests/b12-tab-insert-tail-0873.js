@@ -36,10 +36,10 @@ function ok(msg) {
 // 1. Статические инварианты
 // =====================================================================
 {
-  assert(HTML.includes('ver 0.883'), 'STRUCHORD.html header is ver 0.883');
-  assert(SW.includes("const CACHE_NAME = 'struchord-v883';"), 'sw.js CACHE_NAME is struchord-v883');
-  assert(README.includes('`0.883`'), 'README header is 0.883');
-  assert(ROADMAP.includes('**0.883**'), 'ROADMAP header is 0.883');
+  assert(HTML.includes('ver 0.884'), 'STRUCHORD.html header is ver 0.884');
+  assert(SW.includes("const CACHE_NAME = 'struchord-v884';"), 'sw.js CACHE_NAME is struchord-v884');
+  assert(README.includes('`0.884`'), 'README header is 0.884');
+  assert(ROADMAP.includes('**0.884**'), 'ROADMAP header is 0.884');
 
   assert(HTML.includes('function tabGpTrimTrailingEmptyBars(e) {'), 'хвост срезается отдельной функцией');
   assert(HTML.includes('function tabGpTrailingEmptyBars(e) {'), 'хвост считается и для подсказки');

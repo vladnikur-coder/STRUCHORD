@@ -13469,6 +13469,74 @@ body.is-harmony-highlights-on .tl-cell[data-harmony-profile]:not([data-harmony-p
 .tl-section:first-child .tl-section-head {
   border-top-left-radius: 1.125rem;
 }
+
+/* ===== 0.884: край песни, где стоит таб-вставка =====
+   Цифра Ленты — центром на своём моменте (0.883), поэтому у первой ноты её
+   левая половина лежит ЗА краем клетки, ровно на скруглении начала песни.
+   Владелец показал: выступающая цифра пересекает акцентную дугу угла.
+   Решение — «скругление начинается чуть раньше»: у начала песни форма угла
+   (заливка + акцентная дуга) сдвигается НАРУЖУ на --tl-edge-tab-pull, у
+   конца — так же наружу вправо. Клетка, стан и его ось времени не двигаются:
+   центры цифр и подписи остаются на месте, едет только угол.
+   Радиус у такого угла чуть туже (--tl-edge-tab-radius): при полном 1.125rem
+   дуга доставала бы до цифры на нижней струне — чернила нижней цифры
+   кончаются в 1 px от низа клетки.
+   Угол рисует отдельный элемент .tl-edge-cap, а не псевдоэлемент клетки: и
+   ::before, и ::after у .tl-cell уже заняты (выделение диапазона тактов и
+   полоса гармонии), и третий «владелец» сломал бы их. */
+.timeline-stage {
+  --tl-edge-tab-pull: 0.75rem;
+  --tl-edge-tab-radius: 0.625rem;
+}
+.tl-edge-cap {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  /* Под содержимым клетки: карточка со станом — позиционированный ребёнок. */
+  z-index: -1;
+  background: var(--tl-cell-bg);
+  pointer-events: none;
+}
+/* Начало песни: угол и акцентная дуга уходят влево. */
+.tl-edge-cap.is-start {
+  left: calc(-1 * var(--tl-edge-tab-pull));
+  right: 0;
+  border-radius: var(--tl-edge-tab-radius) 0 0 var(--tl-edge-tab-radius);
+  box-shadow: inset 0.125rem 0 0 var(--color-accent);
+}
+/* Конец песни: то же зеркально, акцентной черты там нет и не было. */
+.tl-edge-cap.is-end {
+  left: 0;
+  right: calc(-1 * var(--tl-edge-tab-pull));
+  border-radius: 0 var(--tl-edge-tab-radius) var(--tl-edge-tab-radius) 0;
+}
+/* Песня из одной таб-клетки: тянем в обе стороны сразу. */
+.tl-edge-cap.is-start.is-end {
+  left: calc(-1 * var(--tl-edge-tab-pull));
+  right: calc(-1 * var(--tl-edge-tab-pull));
+  border-radius: var(--tl-edge-tab-radius);
+}
+/* Текущий аккорд подсвечивается на САМОЙ клетке, но угол её закрывает.
+   Повторяем на нём те же два слоя подсветки, иначе первый (или последний)
+   такт песни во время игры выглядел бы выключенным. */
+.tl-cell.tl-active .tl-edge-cap {
+  background-image: linear-gradient(
+    rgba(var(--color-accent-warm-rgb), 0.16),
+    rgba(var(--color-accent-warm-rgb), 0.16)
+  );
+}
+.tl-cell.tl-active .tl-edge-cap.is-start {
+  box-shadow: inset 0.125rem 0 0 var(--color-accent), inset 0 -0.1875rem 0 var(--color-accent-warm);
+}
+.tl-cell.tl-active .tl-edge-cap.is-end {
+  box-shadow: inset 0 -0.1875rem 0 var(--color-accent-warm);
+}
+/* Скобка заголовка секции («Интро») стоит на той же вертикали, что и дуга
+   клетки, поэтому у начала с таб-вставкой она отступает наружу вместе с ней. */
+#timelineTrack.is-song-start-tab .tl-section:first-child .tl-section-head {
+  margin-left: calc(-1 * var(--tl-edge-tab-pull));
+  border-top-left-radius: var(--tl-edge-tab-radius);
+}
 .tl-cell-name {
   font-size: 1.875rem;
   font-weight: 800;
@@ -16382,7 +16450,7 @@ html.is-home-screen .pinned-fingering-dock { display: none !important; }
           <i class="ti ti-chevron-left" aria-hidden="true"></i>
         </button>
         <svg class="struchord-mark" aria-hidden="true" focusable="false"><use class="mark-pod" href="#struchord-pod"/><use class="mark-pepper" href="#struchord-pepper"/><use class="mark-plum" href="#struchord-plum"/><use class="mark-raspberry" href="#struchord-raspberry"/></svg>
-        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.883</span></span>
+        <span class="app-title">STRUCHORD <span id="devPanelTrigger" title="Открыть панель разработчика">· ver 0.884</span></span>
         <button
           class="theme-toggle-btn"
           id="themeToggleBtn"
@@ -67220,6 +67288,30 @@ function renderTimeline() {
   });
 
   track.appendChild(frag);
+  // 0.884: край песни, занятый таб-вставкой, получает свой признак — по нему
+  // CSS сдвигает форму угла наружу, чтобы выступающая цифра не пересекала
+  // акцентную дугу. Геометрия и ось времени не меняются: признаки нужны
+  // только оформлению.
+  const tlCells = track.querySelectorAll('.tl-cell');
+  const tlFirst = tlCells[0];
+  const tlLast = tlCells[tlCells.length - 1];
+  const tlStartTab = !!(tlFirst && tlFirst.classList.contains('tl-cell--tab'));
+  const tlEndTab = !!(tlLast && tlLast.classList.contains('tl-cell--tab'));
+  track.classList.toggle('is-song-start-tab', tlStartTab);
+  track.classList.toggle('is-song-end-tab', tlEndTab);
+  // Угол такого края рисуется отдельным слоем: он закрывает старый угол
+  // клетки и выступает наружу, где цифра больше не пересекает дугу.
+  const addEdgeCap = (cell, isStart, isEnd) => {
+    const cap = document.createElement('span');
+    cap.className = 'tl-edge-cap' + (isStart ? ' is-start' : '') + (isEnd ? ' is-end' : '');
+    cap.setAttribute('aria-hidden', 'true');
+    cell.insertBefore(cap, cell.firstChild);
+  };
+  if (tlFirst && tlFirst === tlLast && tlStartTab) addEdgeCap(tlFirst, true, true);
+  else {
+    if (tlStartTab) addEdgeCap(tlFirst, true, false);
+    if (tlEndTab) addEdgeCap(tlLast, false, true);
+  }
   renderRhythmTrack();
   // Список секций строится из той же модели и обязан пересобираться
   // вместе с лентой. Раньше он вызывался только при ВХОДЕ в режим:
